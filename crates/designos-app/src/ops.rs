@@ -193,8 +193,16 @@ impl App {
             self.changed();
             return true;
         }
+        let before_nodes = tx.ed.before_nodes().clone();
         match tx.commit(&mut self.doc, &mut self.hist) {
             Ok(changed) => {
+                if changed {
+                    for (id, before) in &before_nodes {
+                        if let Some(after) = self.doc.get(*id) {
+                            self.agent_busy_frames.record_user_node_update(before, after);
+                        }
+                    }
+                }
                 self.changed();
                 self.sanitize();
                 changed
@@ -304,6 +312,11 @@ impl App {
     pub fn scrub_end(&mut self) {
         let Some(base) = self.scrub.take() else { return };
         let changed: Vec<NodeId> = base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| cur != *old)).map(|(id, _)| *id).collect();
+        for id in &changed {
+            if let (Some(old), Some(cur)) = (base.get(id), self.doc.get(*id)) {
+                self.agent_busy_frames.record_user_node_update(old, cur);
+            }
+        }
         let mut updates: Vec<Command> = changed.iter().filter_map(|id| self.doc.get(*id)).map(|n| Command::Update { node: Box::new(n.clone()) }).collect();
         crate::comp_ops::record_overrides(&self.doc, &base, &mut updates);
         for id in &changed {
@@ -327,8 +340,18 @@ impl App {
         if self.try_undo_restore() {
             return;
         }
+        let copy_undo_match =
+            self.agent_busy_frames.last_copy_undo.as_ref().is_some_and(|(cid, _, depth)| self.hist.undo_depth() == *depth && self.doc.get(*cid).is_some());
         match self.hist.undo(&mut self.doc) {
             Ok(true) => {
+                if copy_undo_match {
+                    if let Some((copy_id, prev_sel, _)) = self.agent_busy_frames.last_copy_undo.clone() {
+                        if self.doc.get(copy_id).is_none() {
+                            self.selection = prev_sel;
+                            self.agent_busy_frames.last_copy_undo = None;
+                        }
+                    }
+                }
                 self.relayout_moved_geometry();
                 self.sanitize();
             }
@@ -424,11 +447,27 @@ impl App {
     /// Records on an instance slot that its content now differs from the main component, so a
     /// later main-component sync leaves the content alone. Call it only after the edit happened.
     pub(crate) fn mark_slot_content_override(doc: &mut Document, ed: &mut Edit, parent: NodeId) {
-        let is_inst_slot = is_slot_container(doc, parent) && (doc.get(parent).is_some_and(is_linked) || instance_root_of(doc, parent).is_some());
-        if is_inst_slot {
+        if is_instance_slot(doc, parent) {
             if let Some(sn) = ed.node(doc, parent) {
                 sn.component.overrides.insert(OverrideField::SlotContent);
             }
+        }
+    }
+
+    /// Stretches `child` to fill `slot` when `slot` is a slot container whose `SlotPropConfig`
+    /// has `stretch_child_on_insert == Some(true)`, writing the change through `ed` so it joins
+    /// the caller's undo step. Does nothing unless the slot's config says stretch.
+    pub(crate) fn stretch_into_slot_if_configured(doc: &mut Document, ed: &mut Edit, slot: NodeId, child: NodeId) {
+        if !is_slot_container(doc, slot) {
+            return;
+        }
+        if slot_config_of(doc, slot).and_then(|cfg| cfg.stretch_child_on_insert) != Some(true) {
+            return;
+        }
+        let Some(mut cloned) = doc.get(child).cloned() else { return };
+        apply_slot_stretch_on_insert(doc, slot, &mut cloned);
+        if let Some(n) = ed.node(doc, child) {
+            *n = cloned;
         }
     }
 
@@ -551,6 +590,67 @@ impl App {
         if !new_sel.is_empty() {
             self.selection = new_sel;
         }
+    }
+
+    /// Duplicates `frame_id` into the same parent, placing the copy in the nearest free spot to
+    /// the right (`#693` §3.3), stripping any busy / in-progress metadata, and selecting the copy
+    /// in a single undo step (`Tx`).
+    pub fn duplicate_into_free_spot(&mut self, frame_id: NodeId) -> Option<NodeId> {
+        let orig = self.doc.get(frame_id)?;
+        let parent = orig.parent?;
+        let orig_rect = crate::canvas::affine_rect_aabb(&orig.transform, orig.size);
+        let prev_selection = self.selection.clone();
+
+        let mut copies = clipboard::capture(&self.doc, &[frame_id]).map(|c| clipboard::instantiate(&mut self.doc, &c)).unwrap_or_default();
+        let mut nodes = copies.pop()?;
+        if let Some(root) = nodes.first() {
+            if !self.slot_insert_allowed(parent, &[root]) {
+                return None;
+            }
+        }
+        crate::agent_busy_frames::strip_busy_metadata_from_copy(&mut self.doc, &mut self.agent_busy_frames.frame_owners, &mut nodes);
+
+        let index = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == frame_id)).map(|i| i + 1).unwrap_or(usize::MAX);
+        let in_al = self.doc.get(parent).and_then(|p| p.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
+        let sibling_bounds: Vec<Rect> = if in_al {
+            Vec::new()
+        } else {
+            self.doc
+                .get(parent)
+                .map(|p| {
+                    p.children
+                        .iter()
+                        .filter(|&&cid| cid != frame_id)
+                        .filter_map(|&cid| self.doc.get(cid))
+                        .map(|sib| crate::canvas::affine_rect_aabb(&sib.transform, sib.size))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let copy_id = nodes.first()?.id;
+        if let Some(root) = nodes.first_mut() {
+            if !in_al {
+                let spot = crate::agent_busy_frames::find_free_spot_to_right(orig_rect, &sibling_bounds, crate::agent_busy_frames::FREE_SPOT_GAP);
+                root.transform.tx = spot.x;
+                root.transform.ty = spot.y;
+            }
+            root.name = self.doc.get(frame_id).map(|n| n.name.clone()).unwrap_or_default();
+            apply_slot_stretch_on_insert(&self.doc, parent, root);
+        }
+
+        let mut tx = Tx::new();
+        if tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
+            layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
+        }
+        if !self.run_tx(tx) {
+            return None;
+        }
+        self.agent_busy_frames.last_copy_undo = Some((copy_id, prev_selection, self.hist.undo_depth()));
+        self.selection = vec![copy_id];
+        self.sync_busy_frame_banner();
+        Some(copy_id)
     }
 
     // ------------------------------------------------------------ clipboard
@@ -1486,13 +1586,8 @@ impl App {
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 n.transform = npw * world;
             }
-            if old_p != Some(new_parent) && is_slot_container(&self.doc, new_parent) {
-                if let Some(mut cloned) = self.doc.get(*id).cloned() {
-                    apply_slot_stretch_on_insert(&self.doc, new_parent, &mut cloned);
-                    if let Some(n) = tx.ed.node(&mut self.doc, *id) {
-                        *n = cloned;
-                    }
-                }
+            if old_p != Some(new_parent) {
+                Self::stretch_into_slot_if_configured(&mut self.doc, &mut tx.ed, new_parent, *id);
             }
         }
         for p in old_parents {
@@ -1654,6 +1749,14 @@ impl App {
         if self.doc.pages.contains(&id) {
             crate::decks::ui::flush_notes(self);
             self.doc.ensure_page_hydrated(id);
+            if let Some(err) = self.doc.take_hydration_error() {
+                self.show_toast(err, true);
+            } else {
+                let skipped = self.doc.take_hydration_unexpanded_instances();
+                if skipped > 0 {
+                    self.show_toast(io::clone_budget_notice(skipped), true);
+                }
+            }
             self.page = id;
             self.selection.clear();
             self.canvas.reset_interaction();
@@ -1807,12 +1910,24 @@ impl App {
     pub fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
         crate::decks::ui::flush_notes(self);
         self.stop_plugin();
+        if !self.tabs.parked_in_home && self.home.is_none() && self.tabs.is_hist_in_app() {
+            self.cleanup_image_jobs_on_file_close();
+        } else if self.tabs.is_hist_in_app() && (!self.tabs.entries.is_empty() || !self.image_jobs.jobs.is_empty()) {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.park_active_from_app(self);
+            self.tabs = tabs;
+        }
         // Pending edits of the library file being left are saved first (from the live state, not an old version).
         self.exit_version_view();
         self.flush_autosave();
         self.release_active_repaired_original(path.as_deref());
         self.renaming_file = false;
         let mut doc = doc;
+        doc.prune_in_progress();
+        doc.in_progress.retain(|_, ip| match ip.run_id.as_deref() {
+            Some(rid) => self.terminal.is_live_agent_run(rid),
+            None => true,
+        });
         io::ensure_page(&mut doc);
         let first_page = doc.pages[0];
         doc.ensure_page_hydrated(first_page);
@@ -1833,7 +1948,11 @@ impl App {
         self.board.tool_menu = None;
         self.board.bar_menu = None;
         self.layers.reset();
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         self.fonts.load_for(&self.doc);
+        self.web_capture_report = None;
+        self.web_capture_report_open = false;
         self.changed();
         self.fit_all();
     }
@@ -1844,10 +1963,85 @@ impl App {
         }
     }
 
+    pub fn import_web_capture_dialog(&mut self) {
+        if let Some(p) = io::pick_web_capture() {
+            self.import_web_capture_path(p);
+        }
+    }
+
+    pub fn import_web_capture_path(&mut self, p: PathBuf) {
+        self.import_web_capture_path_at(p, None);
+    }
+
+    pub fn import_web_capture_path_at(&mut self, p: PathBuf, origin: Option<Vec2>) {
+        match std::fs::read_to_string(&p) {
+            Ok(raw) => {
+                let _ = self.import_web_capture_json_into_page_at(&raw, origin);
+            }
+            Err(e) => self.show_toast(format!("Cannot read {}: {e}", p.display()), true),
+        }
+    }
+
+    pub fn import_web_capture_json_into_page(&mut self, raw_json: &str) -> Result<designos_webcapture::ImportReport, String> {
+        self.import_web_capture_json_into_page_at(raw_json, None)
+    }
+
+    pub fn import_web_capture_json_into_page_at(&mut self, raw_json: &str, origin: Option<Vec2>) -> Result<designos_webcapture::ImportReport, String> {
+        io::ensure_page(&mut self.doc);
+        if !self.doc.pages.contains(&self.page) {
+            self.page = self.doc.pages[0];
+        }
+        self.doc.ensure_page_hydrated(self.page);
+        let opts = designos_webcapture::ImportOptions { origin: origin.map(|v| (v.x, v.y)), ..designos_webcapture::ImportOptions::default() };
+        let doc_ref = &self.doc;
+        let page_id = self.page;
+        let joined = std::thread::scope(|s| s.spawn(move || designos_webcapture::import_capture_json(doc_ref, page_id, raw_json, &opts)).join());
+        let built = self.web_capture_worker_result(joined)?;
+        let (cmd, report) = built.map_err(|e| {
+            let msg = format!("Web capture import failed: {e}");
+            self.show_toast(msg.clone(), true);
+            msg
+        })?;
+        self.hist.exec(&mut self.doc, cmd).map_err(|e| {
+            let msg = format!("Web capture import failed: {e}");
+            self.show_toast(msg.clone(), true);
+            msg
+        })?;
+        self.doc.relayout_subtree(self.page);
+        self.doc.flush_pending_relayout();
+        if self.doc.name == "Untitled" {
+            self.doc.name = report.root_name.clone();
+        }
+        self.selection = vec![report.root_node_id];
+        self.layers.reset();
+        self.fonts.load_for(&self.doc);
+        self.web_capture_report = Some(report.clone());
+        self.changed();
+        self.fit_selection();
+        self.show_toast(report.summary_toast(), false);
+        Ok(report)
+    }
+
+    /// Unwraps the import worker's join result; a panic becomes a failure toast, not a silent `Err`.
+    fn web_capture_worker_result<T>(&mut self, joined: std::thread::Result<T>) -> Result<T, String> {
+        joined.map_err(|_| {
+            self.show_toast("Web capture import stopped unexpectedly. Try again.", true);
+            "Web capture import worker thread panicked".to_string()
+        })
+    }
+
     pub fn open_path(&mut self, p: PathBuf) {
+        if io::is_web_capture_path(&p) {
+            self.import_web_capture_path(p);
+            return;
+        }
         // A variables-only JSON opened alongside a design merges into it.
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
             if let Ok(text) = std::fs::read_to_string(&p) {
+                if designos_fig::looks_like_web_capture_json(&text) {
+                    let _ = self.import_web_capture_json_into_page(&text);
+                    return;
+                }
                 // Figma REST comments (`/v1/files/:key/comments`) are merged the same way.
                 if crate::comments::import::is_comments_payload(&text) {
                     self.import_comments_file(&p);
@@ -1892,9 +2086,15 @@ impl App {
                     self.changed();
                 }
                 let notice = io::non_finite_notice_once(&p, replaced);
+                let fig_omitted = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
+                    designos_fig::collect_omitted_extensions(&self.doc).len()
+                } else {
+                    0
+                };
+                let fig_note = if fig_omitted == 0 { String::new() } else { format!(" ({fig_omitted} extension keys not carried)") };
                 match notice {
-                    Some(w) => self.show_toast(format!("Saved {} ({w})", p.display()), true),
-                    None => self.show_toast(format!("Saved {}", p.display()), false),
+                    Some(w) => self.show_toast(format!("Saved {} ({w}){fig_note}", p.display()), true),
+                    None => self.show_toast(format!("Saved {}{fig_note}", p.display()), false),
                 }
                 if self.lib_file.is_none() {
                     if let Some(old) = self.file_path.replace(p.clone()) {
@@ -2444,5 +2644,66 @@ mod tests {
         let n = app.doc.get(cid).unwrap();
         assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
         assert_eq!(n.size, v2(30.0, 30.0), "the typed height sticks instead of snapping back to the stretched 100");
+    }
+
+    #[test]
+    fn web_capture_import_into_active_page_is_one_undo_step_and_records_report() {
+        let mut d = Document::new("Untitled");
+        let page = d.add_page("Page 1");
+        let existing = d.alloc_id();
+        d.insert(page, Node::rectangle(existing, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let mut app = App::new(d);
+
+        let raw = r##"{
+            "schema_version": 1,
+            "url": "https://example.com/card",
+            "title": "Marketing Card",
+            "viewport": { "width": 800, "height": 600, "dpr": 2.0 },
+            "root": {
+                "tag": "div",
+                "attrs": { "data-testid": "card" },
+                "bounds": { "x": 100, "y": 40, "w": 320, "h": 140 },
+                "style": {
+                    "display": "flex",
+                    "flex_direction": "column",
+                    "row_gap": 12,
+                    "padding": [16, 16, 16, 16],
+                    "background_color": "#ffffff"
+                },
+                "children": [
+                    {
+                        "tag": "h2",
+                        "bounds": { "x": 116, "y": 56, "w": 288, "h": 28 },
+                        "style": { "color": "#111827", "font_family": "CustomMissingFont, Inter", "font_size": 20, "font_weight": 700, "line_height": 28 },
+                        "text_runs": [{ "text": "Editable Heading", "bounds": { "x": 116, "y": 56, "w": 200, "h": 28 } }]
+                    }
+                ]
+            }
+        }"##;
+
+        let report = app.import_web_capture_json_into_page_at(raw, Some(v2(220.0, 80.0))).expect("import succeeds");
+        assert_eq!(report.root_name, "Marketing Card — example.com");
+        assert_eq!(app.selection, vec![report.root_node_id]);
+        assert!(app.web_capture_report.is_some());
+        assert_eq!(app.doc.get(page).unwrap().children.len(), 2);
+        let root = app.doc.get(report.root_node_id).unwrap();
+        assert_eq!((root.transform.tx, root.transform.ty), (220.0, 80.0));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Imported page:") && t.text.ends_with("Details")));
+
+        // Single undo removes the entire imported frame.
+        app.undo();
+        assert_eq!(app.doc.get(page).unwrap().children, vec![existing]);
+        assert!(app.doc.get(report.root_node_id).is_none());
+    }
+
+    #[test]
+    fn web_capture_worker_panic_shows_a_failure_toast() {
+        let mut app = App::new(Document::new("t"));
+        let joined = std::thread::spawn(|| -> u8 { panic!("import worker boom") }).join();
+        let err = app.web_capture_worker_result(joined).expect_err("a panic is an error");
+        assert_eq!(err, "Web capture import worker thread panicked");
+        let toast = app.toast.as_ref().expect("a failure toast must be shown");
+        assert_eq!(toast.text, "Web capture import stopped unexpectedly. Try again.");
+        assert!(toast.error);
     }
 }

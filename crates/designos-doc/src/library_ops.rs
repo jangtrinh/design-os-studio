@@ -152,9 +152,10 @@ fn tree_fingerprint(nodes: &BTreeMap<NodeId, Node>, root: NodeId, refs: &BTreeMa
     h.0
 }
 
-fn style_fingerprint(style: &Style, meta: Option<&StyleMeta>) -> u64 {
+fn style_fingerprint(style: &Style, meta: Option<&StyleMeta>, prefix: &str) -> u64 {
     let mut h = Fnv::new();
-    h.write(&serde_json::to_string(&(style, meta.map(|m| (&m.name, &m.description, m.property)))).unwrap_or_default());
+    let stripped: BTreeMap<&str, &str> = meta.map(|m| m.bindings.iter().map(|(k, v)| (k.as_str(), strip(v, prefix))).collect()).unwrap_or_default();
+    h.write(&serde_json::to_string(&(style, meta.map(|m| (&m.name, &m.description, m.property)), &stripped)).unwrap_or_default());
     h.0
 }
 
@@ -295,6 +296,11 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         var_ids.extend(n.variables.bindings.values().cloned());
         image_refs_of(n, &mut images);
     }
+    for k in &style_keys {
+        if let Some(m) = doc.style_meta.get(k) {
+            var_ids.extend(m.bindings.values().cloned());
+        }
+    }
     let mut queue: Vec<String> = var_ids.iter().cloned().collect();
     while let Some(id) = queue.pop() {
         let Some(v) = doc.variables.get(&id) else { continue };
@@ -339,6 +345,9 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         n.variables.bindings.retain(|_, v| vars.contains(v));
         n.variables.modes.retain(|k, _| colls.contains(k));
     }
+    for m in snap.style_meta.values_mut() {
+        m.bindings.retain(|_, v| vars.contains(v));
+    }
     for img in images {
         if let Some(b) = doc.images.get(&img) {
             snap.images.insert(img, b.clone());
@@ -350,14 +359,38 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             LibraryAssetKind::Component | LibraryAssetKind::ComponentSet => {
                 let root = comp_entries.iter().find(|(k, _)| *k == key).map(|(_, id)| *id);
                 let mut deps: Vec<String> = Vec::new();
+                let mut add_dep = |c: &NodeId| {
+                    if let Some(r) = refs.get(c) {
+                        let dep = r.split('#').next().unwrap_or(r).to_string();
+                        if dep != key && !deps.contains(&dep) {
+                            deps.push(dep);
+                        }
+                    }
+                };
                 if let Some(root) = root {
                     for id in subtree(&snap.nodes, root) {
-                        if let NodeKind::Instance { component: Some(c), .. } = &snap.nodes[&id].kind {
-                            if let Some(r) = refs.get(c) {
-                                let dep = r.split('#').next().unwrap_or(r).to_string();
-                                if dep != key && !deps.contains(&dep) {
-                                    deps.push(dep);
+                        let sn = &snap.nodes[&id];
+                        if let NodeKind::Instance { component: Some(c), .. } = &sn.kind {
+                            add_dep(c);
+                        }
+                        for prop in &sn.component.props {
+                            if let PropValue::Instance(c) = &prop.default {
+                                add_dep(c);
+                            }
+                            if let PropKind::InstanceSwap { preferred } = &prop.kind {
+                                for p in preferred {
+                                    add_dep(p);
                                 }
+                            }
+                        }
+                        for val in sn.component.values.values() {
+                            if let PropValue::Instance(c) = val {
+                                add_dep(c);
+                            }
+                        }
+                        for cfg in sn.component.slot_configs.values() {
+                            for p in &cfg.preferred {
+                                add_dep(p);
                             }
                         }
                     }
@@ -366,7 +399,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             }
             LibraryAssetKind::Style => {
                 let k = &key["style:".len()..];
-                (None, snap.styles.get(k).map(|s| style_fingerprint(s, snap.style_meta.get(k))).unwrap_or(0), Vec::new())
+                (None, snap.styles.get(k).map(|s| style_fingerprint(s, snap.style_meta.get(k), "")).unwrap_or(0), Vec::new())
             }
             LibraryAssetKind::Variable => (None, snap.variables.get(&key["var:".len()..]).map(|v| variable_fingerprint(v, "")).unwrap_or(0), Vec::new()),
             LibraryAssetKind::VariableCollection => {
@@ -506,7 +539,7 @@ fn local_fingerprint(doc: &Document, lib: &str, raw_key: &str, e: &ExternalAsset
         LibraryAssetKind::Component | LibraryAssetKind::ComponentSet => tree_fingerprint(&doc.nodes, e.node?, refs, &prefix),
         LibraryAssetKind::Style => {
             let k = e.local_key.as_deref()?;
-            style_fingerprint(doc.styles.get(k)?, doc.style_meta.get(k))
+            style_fingerprint(doc.styles.get(k)?, doc.style_meta.get(k), &prefix)
         }
         LibraryAssetKind::Variable => variable_fingerprint(doc.variables.get(e.local_key.as_deref()?)?, &prefix),
         LibraryAssetKind::VariableCollection => collection_fingerprint(doc.variable_collections.get(e.local_key.as_deref()?)?),
@@ -689,10 +722,18 @@ impl<'a> Trial<'a> {
 
     /// Writes style `local` (and its metadata) through `Command::SetStyles` so it is undoable.
     fn set_style(&mut self, local: &str, style: Style, meta: Option<StyleMeta>) {
+        if let Some(m) = &meta {
+            for v in m.bindings.values() {
+                self.import_variable(v);
+            }
+        }
         let mut styles = self.doc.styles.clone();
         let mut style_meta = self.doc.style_meta.clone();
         styles.insert(local.to_string(), style);
-        if let Some(m) = meta {
+        if let Some(mut m) = meta {
+            for v in m.bindings.values_mut() {
+                *v = self.ns(v);
+            }
             style_meta.insert(local.to_string(), StyleMeta { key: None, ..m });
         }
         self.push(Command::SetStyles { styles, style_meta });
@@ -839,7 +880,9 @@ impl<'a> Trial<'a> {
         n.parent = parent;
         n.children = n.children.iter().filter_map(|c| idmap.get(c).copied()).collect();
         n.source_id = None;
-        n.component.source = n.component.source.and_then(|s| idmap.get(&s).copied());
+        let mapped_source = n.component.source.and_then(|s| idmap.get(&s).copied());
+        crate::renumber_ids::remap_component_link(&mut n.component, &|cid| idmap.get(&cid).copied().unwrap_or(cid));
+        n.component.source = mapped_source;
         if let NodeKind::Instance { component, .. } = &mut n.kind {
             *component = component.and_then(|c| idmap.get(&c).copied());
         }
@@ -858,10 +901,16 @@ impl<'a> Trial<'a> {
         for id in ids {
             image_refs_of(&self.snap.nodes[id], &mut refs);
         }
+        let mut add = BTreeMap::new();
         for r in refs {
-            if let Some(b) = self.snap.images.get(&r) {
-                self.doc.images.entry(r).or_insert_with(|| b.clone());
+            if !self.doc.images.contains_key(&r) {
+                if let Some(b) = self.snap.images.get(&r) {
+                    add.insert(r, b.clone());
+                }
             }
+        }
+        if !add.is_empty() {
+            self.push(Command::SetImages { add, remove: Vec::new() });
         }
     }
 
@@ -871,6 +920,8 @@ impl<'a> Trial<'a> {
             self.import(d);
         }
         let page = ensure_library_page(self.doc);
+        let st = self.doc.library.clone();
+        self.push(Command::SetLibraryState { state: st, library_page: Some(page) });
         let ids = subtree(&self.snap.nodes, sroot);
         self.import_refs(&ids);
         self.copy_images(&ids);
@@ -1249,7 +1300,9 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
             let (Some(mut inode), Some(cnode)) = (doc.get(ik).cloned(), doc.get(ck).cloned()) else { continue };
             if inode.component.source.is_none() {
                 inode.component.source = Some(ck);
-                inode.component.overrides = record_override(&cnode, &inode);
+                let ov = record_override(&cnode, &inode);
+                clear_stale_pen_override_markers(&mut inode, &ov);
+                inode.component.overrides = ov;
                 inode.component.grid_align_overrides = record_grid_align_overrides(&cnode, &inode);
                 if let Some(slot) = doc.get_mut(ik) {
                     *slot = inode;
@@ -1270,6 +1323,7 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
             *component = Some(cid);
         }
         n.component.source = Some(cid);
+        clear_stale_pen_override_markers(&mut n, &ov);
         n.component.overrides = ov;
         n.component.grid_align_overrides = align_ov;
         if let Some(slot) = doc.get_mut(inst) {
@@ -1300,6 +1354,7 @@ mod tests {
             variables: vec!["v1".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         };
         let coll2 = VariableCollection { id: "c2".into(), name: "Alias".into(), variables: vec!["v2".into()], ..coll.clone() };
         d.variable_collections.insert("c1".into(), coll);
@@ -1316,6 +1371,8 @@ mod tests {
             key: None,
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert("v1".into(), mk("v1", "Base", "c1", VariableValue::Number(8.0)));
         d.variables.insert("v2".into(), mk("v2", "Gap", "c2", VariableValue::Alias("v1".into())));

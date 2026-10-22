@@ -13,7 +13,7 @@ pub mod time;
 pub mod updater;
 
 pub use dialog::{Dialog, Intent};
-pub(crate) use session::doc_hash;
+pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, LibFile};
 
 use crate::app::App;
@@ -692,7 +692,7 @@ pub fn apply(app: &mut App, act: Act) {
             app.home = None;
             app.ui.rail = Some(crate::app::RailItem::Agents);
             app.ui.left_collapsed = false;
-            app.terminal.ensure_default_tab(app.file_path.as_deref());
+            app.terminal.open_for_agent_use(app.file_path.as_deref());
             changed = false;
         }
         Act::Import => {
@@ -779,8 +779,8 @@ pub fn apply(app: &mut App, act: Act) {
         Act::ExportFig(id) => {
             changed = false;
             if let Ok(doc) = lib.load_file(&id) {
-                match designos_fig::export_fig(&doc) {
-                    Ok(bytes) => {
+                match designos_fig::export_fig_with_report(&doc) {
+                    Ok((bytes, omitted)) => {
                         let safe_name: String = doc.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
                         let stem = if safe_name.trim_matches('_').is_empty() { "export".to_string() } else { safe_name };
                         let out_dir = lib.path("exports");
@@ -793,7 +793,8 @@ pub fn apply(app: &mut App, act: Act) {
                             let _ = std::fs::write(&tmp_path, &bytes);
                             tmp_path
                         };
-                        app.show_toast(format!("Exported {} ({} bytes .fig v106) -> {}", doc.name, bytes.len(), saved_path.display()), false);
+                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
+                        app.show_toast(format!("Exported {} ({} bytes .fig v106) -> {}{note}", doc.name, bytes.len(), saved_path.display()), false);
                     }
                     Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),
                 }
@@ -2729,6 +2730,7 @@ mod tests {
             modified,
             opened,
             thumbnail: None,
+            branches: vec![],
         }
     }
 

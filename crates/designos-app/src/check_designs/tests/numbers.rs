@@ -7,7 +7,7 @@ use designos_doc::{AutoLayout, LineHeight, Paint, TextRun};
 impl Fx {
     /// A number variable with one value per mode of the shared "Theme" collection (light default, dark)
     /// and the given Figma `scopes` (empty = all scopes).
-    fn num_var(&mut self, name: &str, light: f32, dark: f32, scopes: &[&str]) -> String {
+    pub(super) fn num_var(&mut self, name: &str, light: f32, dark: f32, scopes: &[&str]) -> String {
         let coll = self.doc.variable_collections.entry("theme".into()).or_insert_with(|| VariableCollection {
             id: "theme".into(),
             name: "Theme".into(),
@@ -16,6 +16,7 @@ impl Fx {
             variables: vec![],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         });
         let id = format!("var:{name}");
         if !coll.variables.contains(&id) {
@@ -35,6 +36,8 @@ impl Fx {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         id
@@ -48,7 +51,7 @@ fn gap_16_matching_space_4_is_flagged_with_bind_fix() {
     f.doc.get_mut(row).unwrap().kind =
         NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { item_spacing: 16.0, ..AutoLayout::v1() }), ..FrameProps::default() });
     let var = f.num_var("space/4", 16.0, 16.0, &["GAP"]);
-    let found = only(&f.report(), Rule::HardCodedValue);
+    let found = only(&f.report(), Rule::HorizontalSpacing);
     assert_eq!(found.node, row);
     assert_eq!(found.fix, Some(Fix::BindVariable { key: "itemSpacing".into(), variable: var.clone() }));
     assert_eq!(found.message, "Gap 16 matches variable \"space/4\"");
@@ -95,7 +98,7 @@ fn each_number_property_is_covered() {
     let v_lh = f.num_var("font/line/lg", 28.0, 28.0, &["LINE_HEIGHT"]);
 
     let report = f.report();
-    let messages: Vec<&str> = report.of(Rule::HardCodedValue).map(|x| x.message.as_str()).collect();
+    let messages: Vec<&str> = report.findings.iter().map(|x| x.message.as_str()).collect();
     assert_eq!(
         messages,
         vec![
@@ -134,7 +137,7 @@ fn grouped_padding_fix_binds_four_keys_in_one_undo() {
     f.doc.get_mut(card).unwrap().kind =
         NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { padding: [24.0; 4], ..AutoLayout::v1() }), ..FrameProps::default() });
     let var24 = f.num_var("space/6", 24.0, 24.0, &["GAP"]);
-    let found = only(&f.report(), Rule::HardCodedValue);
+    let found = only(&f.report(), Rule::Padding);
     assert_eq!(found.node, card);
     assert_eq!(found.message, "Padding 24 matches variable \"space/6\"");
     assert_eq!(
@@ -164,7 +167,7 @@ fn uniform_and_per_corner_radius_match_number_variables_and_bind_cleanly() {
     let r = f.rect(f.page, "Chip", BLUE);
     f.doc.get_mut(r).unwrap().corner_radii = [12.0; 4];
     let var12 = f.num_var("radius/lg", 12.0, 12.0, &["CORNER_RADIUS"]);
-    let found = only(&f.report(), Rule::HardCodedValue);
+    let found = only(&f.report(), Rule::CornerRadius);
     assert_eq!(found.node, r);
     assert_eq!(found.message, "Corner radius 12 matches variable \"radius/lg\"");
     assert_eq!(
@@ -235,7 +238,7 @@ fn ambiguous_number_match_has_no_fix() {
         NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { item_spacing: 16.0, ..AutoLayout::v1() }), ..FrameProps::default() });
     f.num_var("space/4", 16.0, 16.0, &["GAP"]);
     f.num_var("space/md", 16.0, 16.0, &["GAP"]);
-    let found = only(&f.report(), Rule::HardCodedValue);
+    let found = only(&f.report(), Rule::HorizontalSpacing);
     assert_eq!(found.fix, None);
     assert!(found.fix_label.is_empty());
     assert_eq!(found.message, "Gap 16 matches 2 variables: \"space/4\", \"space/md\"");
@@ -247,7 +250,7 @@ fn ambiguous_number_match_has_no_fix() {
         NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { item_spacing: 16.0, ..AutoLayout::v1() }), ..FrameProps::default() });
     f.num_var("space/responsive", 16.0, 24.0, &["GAP"]);
     let steady = f.num_var("space/4", 16.0, 16.0, &["GAP"]);
-    let found = only(&f.report(), Rule::HardCodedValue);
+    let found = only(&f.report(), Rule::HorizontalSpacing);
     assert_eq!(found.fix, Some(Fix::BindVariable { key: "itemSpacing".into(), variable: steady }));
 }
 

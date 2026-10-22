@@ -55,6 +55,9 @@ pub struct FileEntry {
     /// PNG thumbnail, relative to the library root (resolve with [`Library::thumbnail_path`]).
     #[serde(default)]
     pub thumbnail: Option<PathBuf>,
+    /// Branches belonging to this file (`branches/<file-id>/<branch-id>.designos`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branches: Vec<crate::BranchMeta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,11 +81,11 @@ pub struct TrashItem {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Manifest {
+pub(crate) struct Manifest {
     #[serde(flatten)]
-    project: Project,
+    pub(crate) project: Project,
     #[serde(default)]
-    files: Vec<FileEntry>,
+    pub(crate) files: Vec<FileEntry>,
 }
 
 /// Milliseconds since the epoch, strictly increasing within the process so
@@ -104,7 +107,7 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialises manifest read-modify-write cycles within the process (the app saves
 /// thumbnails on a background thread while the UI thread keeps editing the index).
-fn write_lock() -> MutexGuard<'static, ()> {
+pub(crate) fn write_lock() -> MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -142,18 +145,22 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
             designos_svg::import_svg_named(&text, name, &mut doc, page, Vec2::ZERO).map_err(|e| invalid(format!("Cannot import SVG: {e}")))?;
             doc
         }
-        "json" => {
+        "json" | "webcapture" => {
             let text = std::fs::read_to_string(path)?;
-            match designos_fig::import_rest_json(&text) {
-                Ok(d) => d,
-                Err(fig) => {
-                    let (d, report) =
-                        Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
-                    if !report.is_clean() {
-                        eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+            if designos_fig::looks_like_web_capture_json(&text) {
+                designos_fig::import_web_capture_json(&text).map_err(|e| invalid(format!("Cannot import web capture: {e}")))?
+            } else {
+                match designos_fig::import_rest_json(&text) {
+                    Ok(d) => d,
+                    Err(fig) => {
+                        let (d, report) =
+                            Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
+                        if !report.is_clean() {
+                            eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+                        }
+                        replaced_on_read = report.non_finite_numbers;
+                        d
                     }
-                    replaced_on_read = report.non_finite_numbers;
-                    d
                 }
             }
         }
@@ -479,13 +486,13 @@ impl Library {
         Ok(serde_json::from_str(&text)?)
     }
 
-    fn save_manifest(&self, m: &Manifest) -> Result<()> {
+    pub(crate) fn save_manifest(&self, m: &Manifest) -> Result<()> {
         let p = self.project_dir(&m.project.id).join(MANIFEST);
         write_atomic(&p, serde_json::to_string_pretty(m)?.as_bytes())
     }
 
     /// Finds the manifest holding `file` and the file's index in it.
-    fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
+    pub(crate) fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
         for p in self.list_projects() {
             if let Ok(m) = self.load_manifest(&p.id) {
                 if let Some(i) = m.files.iter().position(|f| f.id == file) {
@@ -646,6 +653,7 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
         };
         let (json, replaced) = doc.to_json_counted()?;
         let file_path = self.file_path(project, &entry.id);
@@ -763,6 +771,7 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
             ..src.clone()
         };
         std::fs::copy(self.file_path(&src.project, &src.id), self.file_path(&src.project, &new.id))?;
@@ -917,6 +926,11 @@ impl Library {
         if let Some(t) = &entry.thumbnail {
             let _ = std::fs::rename(self.path(t), dir.join("thumb.png"));
         }
+        let branches_dir = self.path("branches").join(id);
+        if branches_dir.exists() {
+            let _ = std::fs::remove_dir_all(dir.join("branches"));
+            let _ = std::fs::rename(branches_dir, dir.join("branches"));
+        }
         m.files.remove(i);
         m.project.modified = now_ms();
         self.save_manifest(&m)
@@ -960,6 +974,13 @@ impl Library {
                 entry.thumbnail = Some(rel);
             }
         }
+        if dir.join("branches").exists() {
+            let branches_root = self.path("branches");
+            std::fs::create_dir_all(&branches_root)?;
+            let dst_branches = branches_root.join(id);
+            let _ = std::fs::remove_dir_all(&dst_branches);
+            std::fs::rename(dir.join("branches"), dst_branches)?;
+        }
         m.files.push(entry.clone());
         m.project.modified = now_ms();
         self.save_manifest(&m)?;
@@ -990,11 +1011,43 @@ impl Library {
         }
     }
 
+    /// Stable agent-session folder for library file `file_id`: `<library root>/agent-sessions/<file_id>`.
+    pub fn agent_session_dir(&self, file_id: &str) -> PathBuf {
+        self.path("agent-sessions").join(file_id)
+    }
+
+    /// Deletes `<library root>/agent-sessions/<file_id>` if it exists.
+    pub fn remove_agent_sessions(&self, file_id: &str) {
+        let dir = self.agent_session_dir(file_id);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
     /// Permanently deletes everything in the trash. This is the only hard delete in the library.
     pub fn empty_trash(&self) -> Result<()> {
         let dir = self.path("trash");
         if dir.exists() {
+            let mut session_file_ids: Vec<String> = Vec::new();
+            for item in self.list_trash() {
+                match item.kind {
+                    TrashKind::File => session_file_ids.push(item.id),
+                    TrashKind::Project => {
+                        let proj_manifest = self.trash_dir(&item.id).join("project").join(MANIFEST);
+                        if let Ok(text) = std::fs::read_to_string(proj_manifest) {
+                            if let Ok(m) = serde_json::from_str::<Manifest>(&text) {
+                                for f in m.files {
+                                    session_file_ids.push(f.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             std::fs::remove_dir_all(&dir)?;
+            for file_id in session_file_ids {
+                self.remove_agent_sessions(&file_id);
+            }
         }
         Ok(())
     }
@@ -1308,5 +1361,24 @@ mod tests {
         std::fs::write(&orphan_path, "{}").unwrap();
         lib.rollback_unlisted_file(&p.id, "unlisted-id", &orphan_path);
         assert!(!orphan_path.exists(), "must unlink an orphan file not listed in the on-disk manifest");
+    }
+
+    #[test]
+    fn trash_empty_removes_the_session_folder() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let f = lib.create_file(&p.id, None, "Design A", &doc("Design A", 1)).unwrap();
+        let sess_dir = lib.agent_session_dir(&f.id);
+        std::fs::create_dir_all(&sess_dir).unwrap();
+        std::fs::write(sess_dir.join("sessions.json"), r#"{"version":1,"entries":[]}"#).unwrap();
+        assert!(sess_dir.exists());
+
+        // Moving to trash keeps the session folder so a restore keeps the conversation.
+        lib.trash_file(&f.id).unwrap();
+        assert!(sess_dir.exists(), "trashing alone keeps the session folder until trash is emptied");
+
+        // Emptying the trash removes the file's agent-sessions/<id> folder.
+        lib.empty_trash().unwrap();
+        assert!(!sess_dir.exists(), "empty_trash must remove agent-sessions/<id>");
     }
 }

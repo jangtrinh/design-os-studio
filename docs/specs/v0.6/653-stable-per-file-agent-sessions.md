@@ -51,13 +51,11 @@ ones as before the restart.
 
 ## 3. Behaviour rules
 
-1. **Stable identity.** A file's agent session folder is a fixed path derived from a key, shown here in the
-   recommended location (open question 2): `<library root>/agent-sessions/<key>/`, where `<key>` is the library file id for a library file
+1. **Stable identity.** A file's agent session folder is a fixed path derived from a key in the library root next to `projects/` (owner ruling 2026-10-19): `<library root>/agent-sessions/<key>/`, where `<key>` is the library file id for a library file
    (`LibFile.id`). The folder is created on first use and reused on every later open of that file, in every
    process. Its contents are the same files today's session folder holds. The `p<pid>` scheme and the temp
    folder are no longer used for files that have a key.
-2. **Files without a library id.** The key rule for a file opened from disk is an owner decision (see Open
-   questions). Until it is answered, such files keep today's per-process temp folder and get no resume.
+2. **Files without a library id (owner ruling 2026-10-19).** A `.fig` or `.designos` opened from disk without a `LibFile.id` is keyed by a deterministic hash of the file's canonical path (`path-<hex>`). Sessions follow the file in place and survive restarts; renaming or moving the file starts a fresh history. Only an unsaved scratch document with neither a library id nor a disk path keeps today's per-process temp folder and gets no resume.
 3. **Concurrent windows.** Two windows with the same file would share one folder; the second window to open
    the same key gets a lock file `session.lock` (pid + start time) and falls back to a per-process folder with
    a one-line status "Another window owns this file's agent session" (no resume there). A stale lock
@@ -173,7 +171,7 @@ verified.
 ## 11. Performance budgets
 
 - Registry read/write: under 5 ms (small JSON), done off the UI thread on start and on status changes.
-- No new work per frame; `sync_live_file_context` is unchanged.
+- No new work per frame; moving the snapshot serialization off the UI thread belongs to #690.
 - Folder size: dominated by `canvas.designos` (a copy of the live document, `doc.nodes.len() <= 25_000`
   else a scoped copy, `terminal.rs:840-844`); budget: no more than one document-sized file per file entry
   (already true), reported in the PR for the large synthetic fixture.
@@ -189,25 +187,13 @@ the call sites (see README-part3).
 - Clicking Agent resumes the last session (#651).
 - Skip-permissions stays the default; `GROK_FOLDER_TRUST=0` stays.
 - Codex tabs keep the heuristic status for now.
+- Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
+  1. Key for files opened from disk (no library id): **Option A** — key by a hash of the file's canonical path.
+  2. Where session folders live: **Option A** — in the library root next to `projects/` (`agent-sessions/<file-id>/`).
 
 ## Open questions for the owner
 
-1. **Key for files opened from disk (no library id).** A `.fig` or `.designos` opened from a path has no library
-   file id, so the issue's "key it by the library file id" does not cover it.
-   - A (recommended): key by a hash of the file's canonical path. Sessions follow the file in place and
-     survive restarts; renaming or moving the file starts a fresh history.
-   - B: import such files into the library first, so every file has an id. Resume then always works, but opening
-     a disk file silently adds a copy to the library, which the owner may not want.
-   - C: no resume for disk files (today's temporary folder). Simplest, and a file opened from disk never gets
-     its conversation back.
-2. **Where session folders live.** Sessions hold a copy of the live document and agent files, so location
-   decides disk use and clean-up.
-   - A (recommended): in the library root next to `projects/` (`agent-sessions/<file-id>/`). The library already owns
-     per-file data and trash clean-up, and the folder is deleted with the file. Precedent: the owner answer of 2026-10-18 for branches (T10.1, `docs/specs/v0.6/README.md` of #615) put
-     per-file branch data in the library next to the file (`branches/<file-id>/`).
-   - B: in the OS cache folder. The OS may clear it, which breaks resume silently.
-   - C: next to the file on disk (`<file>.agent/`). Visible and portable, but it litters the user's folders
-     and fails on read-only locations.
+None. Both questions of the first draft were answered by the owner on 2026-10-19 and are rules 1 and 2 above.
 
 ## Could not ground
 

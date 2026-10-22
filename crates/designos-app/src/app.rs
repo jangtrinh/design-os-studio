@@ -49,6 +49,18 @@ impl View {
         let cy = bounds.y + bounds.h / 2.0;
         View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
     }
+    /// Fits `bounds` (page space) into a canvas of `size` px with a fractional margin on each side.
+    pub fn fit_with_margin(bounds: designos_doc::Rect, size: egui::Vec2, margin_fraction: f32) -> View {
+        let frac = margin_fraction.clamp(0.0, 0.45);
+        let avail_w = (size.x * (1.0 - 2.0 * frac)).max(10.0);
+        let avail_h = (size.y * (1.0 - 2.0 * frac)).max(10.0);
+        let zw = avail_w / bounds.w.max(1.0);
+        let zh = avail_h / bounds.h.max(1.0);
+        let z = zw.min(zh).clamp(theme::ZOOM_MIN, theme::ZOOM_MAX);
+        let cx = bounds.x + bounds.w / 2.0;
+        let cy = bounds.y + bounds.h / 2.0;
+        View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +121,8 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Whether the Preferences -> Agent permissions modal is open (`#656`).
+    pub permissions_modal_open: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -193,17 +207,30 @@ pub struct App {
     pub specs: crate::specs::SpecsState,
     /// Native Embedded PTY Agent Terminal (Claude CLI, Codex CLI, Grok CLI, $SHELL).
     pub terminal: crate::terminal::TerminalState,
+    /// Screen-reader polite live-region announcer for agent tab transitions (`#687`).
+    pub agent_a11y: crate::agent_a11y::Announcer,
+    /// Per-session agent cursors and write-flash outlines on the canvas (`#682`).
+    pub agent_presence: crate::agent_presence::AgentPresence,
+    /// Edge-anchored "N changes -> Show" chips for off-screen agent turns (`#695`).
+    pub agent_changes_chip: crate::canvas::agent_changes_chip::AgentChangesChips,
+    /// Busy-frame banner, dismissals, free-spot duplicate placement, and concurrent-edit ledger (`#693`).
+    pub agent_busy_frames: crate::agent_busy_frames::AgentBusyFrames,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
     /// Check designs panel: hard-coded values, contrast and detached instances.
     pub check_designs: crate::check_designs::CheckDesignsState,
     /// 1:1 Figma UI3 Multi-Tab Project Workspace state (`US-10`).
     pub tabs: crate::tabs::TabsState,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    pub image_jobs: crate::image_jobs::ImageJobsState,
     /// Two-digit rapid opacity keystroke buffer (`(digit, timestamp)` within 400ms).
     pub opacity_buffer: Option<(u8, f64)>,
     /// Non-finite or save warning produced by `save_library_file` / `flush_autosave` during a document
     /// switch, carried into an immediate follow-up `show_toast` so `"Opened X"` does not overwrite it.
     pub(crate) pending_flush_notice: Option<(f64, String)>,
+    /// Last web capture import report (`T8.27`) and whether its `Details` sheet is open.
+    pub web_capture_report: Option<designos_webcapture::ImportReport>,
+    pub web_capture_report_open: bool,
 }
 
 impl App {
@@ -255,11 +282,18 @@ impl App {
             decks: Default::default(),
             specs: Default::default(),
             terminal: Default::default(),
+            agent_a11y: Default::default(),
+            agent_presence: Default::default(),
+            agent_changes_chip: Default::default(),
+            agent_busy_frames: Default::default(),
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
+            image_jobs: Default::default(),
             opacity_buffer: None,
             pending_flush_notice: None,
+            web_capture_report: None,
+            web_capture_report_open: false,
         }
     }
 
@@ -291,6 +325,15 @@ impl App {
     /// Marks the document as modified so the canvas texture is re-rendered.
     pub fn changed(&mut self) {
         self.canvas.dirty = true;
+    }
+
+    /// Marks transient `in_progress` badge state as updated for session persistence without dirtying
+    /// the canvas tile/GPU scene cache (`TileView::rev`).
+    pub fn in_progress_changed(&mut self) {
+        if self.lib_file.is_some() {
+            self.autosave.changed_at = Some(self.now);
+            self.autosave.confirmed = false;
+        }
     }
 
     /// Runs one bounded step of the auto-layout subtrees a relayout deferred past its budget and
@@ -344,8 +387,28 @@ impl App {
         self.selection.clear();
     }
 
+    /// Refreshes the `#693` busy-frame banner state from the current selection and any active canvas edit gesture.
+    pub fn sync_busy_frame_banner(&mut self) {
+        use crate::canvas::{Interaction, ResizeKind};
+        let gesture_node = match &self.canvas.inter {
+            Interaction::Pending(p) => Some(p.node),
+            Interaction::Move(m) => m.ids.first().copied(),
+            Interaction::Resize(r) => match &r.kind {
+                ResizeKind::Single { id, .. } => Some(*id),
+                ResizeKind::Multi { nodes, .. } => nodes.first().map(|n| n.0),
+            },
+            Interaction::Rotate(r) => Some(r.id),
+            Interaction::CornerRadius(c) => Some(c.id),
+            Interaction::AutoLayoutDrag(a) => Some(a.id),
+            Interaction::ShapeControl(s) => Some(s.id),
+            _ => self.canvas.text.as_ref().map(|t| t.id).or_else(|| self.canvas.vedit.as_ref().map(|v| v.id)),
+        };
+        self.agent_busy_frames.sync_banner(&self.doc, &self.agent_presence, &self.selection, gesture_node);
+    }
+
     /// Drops selection/hover entries that no longer exist or left the page.
     pub fn sanitize(&mut self) {
+        self.doc.prune_in_progress();
         let doc = &self.doc;
         let page = self.page;
         self.selection.retain(|id| doc.get(*id).is_some() && doc.page_of(*id) == Some(page));
@@ -355,11 +418,30 @@ impl App {
         if !doc.nodes.contains_key(&self.page) {
             self.page = doc.pages.first().copied().unwrap_or(NodeId(0));
         }
+        self.sync_busy_frame_banner();
     }
 
     #[allow(dead_code)]
     pub fn title(&self) -> String {
         theme::APP_TITLE.to_string()
+    }
+
+    pub fn open_agent_permissions(&mut self) {
+        self.ui.permissions_modal_open = true;
+    }
+
+    pub fn set_agent_permission_mode(&mut self, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
+        if let Some(lib) = &self.lib {
+            // A failed save leaves the older mode on disk. The picked mode keeps applying in this process
+            // (`save_permission_mode`), and the user is told it did not persist.
+            if crate::agent_permissions::save_permission_mode(lib.root(), mode).is_err() {
+                self.terminal.status_msg = Some("Mode not saved. Check folder permissions.".into());
+            }
+        }
     }
 }
 

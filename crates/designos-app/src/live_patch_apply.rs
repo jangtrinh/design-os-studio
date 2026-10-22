@@ -26,6 +26,8 @@ pub fn user_edit_in_progress(app: &App) -> bool {
 /// Publishes the editor's document to the agent session, unless an edit is in progress or agent
 /// changes are still held (see `TerminalState::sync_live_file_context`).
 pub fn publish_live_context(app: &mut App) {
+    app.doc.prune_in_progress();
+    app.terminal.current_undo_depth = app.hist.undo_depth();
     app.terminal.edit_in_progress = user_edit_in_progress(app);
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
 }
@@ -37,6 +39,9 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     app.page = keep_page;
     // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
     app.terminal.live_patch.state = LivePatchState::default();
+    app.agent_presence.reset();
+    app.agent_changes_chip.clear();
+    app.agent_busy_frames.clear();
     app.sanitize();
     app.changed();
     app.fit_all();
@@ -48,18 +53,59 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
 /// user is mid-edit. Runs every frame. What the log held for the previous document was already
 /// dropped when the switch was read (`LivePatchLog::ingest`); the toast says how many.
 pub fn apply_pending_live_patches(app: &mut App) {
-    if !app.terminal.live_patch.has_held() || user_edit_in_progress(app) {
+    let expected_marks_path = app.terminal.live_patch.path.with_file_name("turn-marks.jsonl");
+    if app.terminal.turn_marks.path() != expected_marks_path {
+        app.terminal.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
+    }
+    let marks = app.terminal.turn_marks.poll();
+    if !marks.is_empty() {
+        app.terminal.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
+    }
+    if user_edit_in_progress(app) {
         return;
     }
+    if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
+        crate::agent_turn_card::execute_revert(app, tab_idx, turn_id);
+    }
+    // A stopped turn is closed once its held patches are in: fold its agent undo steps into one and clear its flags (`#684`).
+    let pending_close = app.terminal.pending_stop_close.take();
+    let pending_depth = app.terminal.pending_stop_fold_depth.take().or_else(|| pending_close.as_ref().map(|c| c.turn_start_depth));
+    if !app.terminal.live_patch.has_held() {
+        if let Some(depth) = pending_depth {
+            crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
+        }
+        return;
+    }
+    let epoch_switched = std::mem::take(&mut app.terminal.live_patch.pending_epoch_switch);
     let mut dropped = 0;
     if let Some(doc) = app.terminal.live_patch.pending_doc.take() {
         dropped = std::mem::take(&mut app.terminal.live_patch.dropped_old_epoch);
         replace_live_document(app, doc);
+        app.terminal.active_turn_ledger_mut().on_doc_epoch(std::time::Instant::now());
+    } else if epoch_switched {
+        app.terminal.active_turn_ledger_mut().on_doc_epoch(std::time::Instant::now());
     }
     let patches = std::mem::take(&mut app.terminal.live_patch.pending);
+    let offsets = std::mem::take(&mut app.terminal.live_patch.pending_offsets);
     if !patches.is_empty() {
         app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
-        apply_live_patches(app, &patches);
+        if let Some(depth) = pending_depth {
+            // Patches that arrived before the stop closed belong to the stopped turn; later ones stay out of the fold.
+            let pre_count = pending_close.as_ref().map_or(patches.len(), |c| c.pre_close_patch_count.min(patches.len()));
+            let (pre_patches, post_patches) = patches.split_at(pre_count);
+            let (pre_offsets, post_offsets) = offsets.split_at(pre_count.min(offsets.len()));
+            if !pre_patches.is_empty() {
+                apply_live_patches_with_offsets(app, pre_patches, pre_offsets);
+            }
+            crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
+            if !post_patches.is_empty() {
+                apply_live_patches_with_offsets(app, post_patches, post_offsets);
+            }
+        } else {
+            apply_live_patches_with_offsets(app, &patches, &offsets);
+        }
+    } else if let Some(depth) = pending_depth {
+        crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
     }
     if dropped > 0 {
         note_dropped_edits(app, dropped);
@@ -78,13 +124,50 @@ fn note_dropped_edits(app: &mut App, dropped: usize) {
 /// Replays `patches` on `app.doc`, one undo step per patch (one agent tool call), and reports
 /// the result in a toast. A patch that cannot be applied is reported and the rest still are: the
 /// log has already been read past them.
+#[cfg(test)]
 pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
+    apply_live_patches_with_offsets(app, patches, &[]);
+}
+
+/// Replays `patches` on `app.doc`, associating each patch with its start byte offset in
+/// `doc-patch.jsonl` when provided.
+pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], offsets: &[u64]) {
+    // A running turn whose first patch lands before the bridge noticed it starts at the depth before these patches (`#684`).
+    let pre_depth = app.hist.undo_depth();
+    for tab in &mut app.terminal.tabs {
+        if crate::agent_stop::is_tab_turn_running(tab) && !tab.was_working {
+            tab.was_working = true;
+            tab.turn_started_at_ms.get_or_insert_with(designos_doc::now_ms);
+            tab.turn_start_undo_depth = pre_depth;
+            tab.last_receipt = None;
+            tab.still_running_notice = None;
+        }
+    }
     let mut total = LivePatchReport::default();
     let mut committed_any = false;
     let mut failures = Vec::new();
-    for patch in patches {
-        match apply_one(app, patch) {
+    let (default_sid, default_label) = app.terminal.active_agent_session_identity();
+    let mut batch_turns: Vec<(String, u64)> = Vec::new();
+    for (idx, patch) in patches.iter().enumerate() {
+        let patch_offset = offsets.get(idx).copied().unwrap_or(idx as u64);
+        match apply_one(app, patch, patch_offset) {
             Ok((report, committed)) => {
+                if committed {
+                    let sid = patch.session_id.as_deref().unwrap_or(&default_sid);
+                    let clean_sid = if sid.trim().is_empty() { "default" } else { sid.trim() };
+                    let turn_id = if let Some((_, t)) = batch_turns.iter().find(|(s, _)| s == clean_sid) {
+                        *t
+                    } else {
+                        let t = app.agent_changes_chip.begin_next_turn(clean_sid);
+                        batch_turns.push((clean_sid.to_string(), t));
+                        t
+                    };
+                    let label = patch.agent_label.as_deref().unwrap_or(&default_label);
+                    app.agent_presence.record_patch(sid, label, &app.doc, None, &report, app.now);
+                    let colour_idx = app.agent_presence.sessions.iter().find(|s| s.id == clean_sid).map(|s| s.colour_index).unwrap_or(0);
+                    app.agent_changes_chip.record_patch(clean_sid, colour_idx, Some(turn_id), &app.doc, &report, app.view, app.canvas_rect);
+                    app.agent_busy_frames.record_agent_patch_ops(&patch.ops, &app.terminal.live_patch.state);
+                }
                 committed_any |= committed;
                 merge(&mut total, report);
             }
@@ -92,11 +175,14 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
         }
     }
     if committed_any {
+        app.terminal.current_undo_depth = app.hist.undo_depth();
         if !total.inserted_roots.is_empty() {
             app.selection = total.inserted_roots.clone();
         }
         app.sanitize();
         app.changed();
+    } else if total.applied > 0 {
+        app.in_progress_changed();
     }
     if let Some(first) = failures.first() {
         let msg = match patches.len() {
@@ -109,24 +195,67 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
     }
 }
 
-fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool), String> {
+fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
+    match cmd {
+        designos_doc::Command::Insert { nodes, .. } | designos_doc::Command::InsertPage { nodes, .. } => {
+            out.extend(nodes.iter().map(|n| n.id.0));
+        }
+        designos_doc::Command::Remove { id } | designos_doc::Command::Reparent { id, .. } | designos_doc::Command::RemovePage { id } => {
+            out.push(id.0);
+        }
+        designos_doc::Command::Update { node } => {
+            out.push(node.id.0);
+        }
+        designos_doc::Command::Batch(cmds) => {
+            for c in cmds {
+                collect_command_node_ids(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(LivePatchReport, bool), String> {
     let saved = app.terminal.live_patch.state.clone();
+    let (pre_names, pre_fps) = crate::agent_turn_ledger::snapshot_pre_step(&app.doc, patch);
+    let saved_in_progress = app.doc.in_progress.clone();
     let mut tx = Tx::new();
-    let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| tx.cmd(doc, cmd));
+    let mut touched_ids = Vec::new();
+    let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| {
+        collect_command_node_ids(&cmd, &mut touched_ids);
+        tx.cmd(doc, cmd)
+    });
     let report = match replayed {
         Ok(r) => r,
         Err(e) => {
             tx.cancel(&mut app.doc);
+            app.doc.in_progress = saved_in_progress;
             return Err(e.to_string());
         }
     };
-    let committed = tx.commit(&mut app.doc, &mut app.hist).map_err(|e| {
+    let post_replay_in_progress = app.doc.in_progress.clone();
+    let committed = tx.commit_labeled(&mut app.doc, &mut app.hist, patch.label.clone()).map_err(|e| {
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
+        app.doc.in_progress = saved_in_progress;
         e.to_string()
     })?;
+    for (id, ip) in post_replay_in_progress {
+        if app.doc.get(id).is_some() {
+            app.doc.set_in_progress(id, Some(ip));
+        }
+    }
     if committed {
+        app.hist.mark_last_undo_as_agent();
         relayout_touched(&mut app.doc, &report.needs_layout);
+        if let Some(inv) = app.hist.peek_undo().cloned() {
+            let now = std::time::Instant::now();
+            let hist_depth = app.hist.undo_depth();
+            let doc_ref = &app.doc;
+            let hist_ref = &app.hist;
+            app.terminal.active_turn_ledger_mut().record_step(doc_ref, hist_ref, patch_offset, hist_depth, inv, &report.touched, &pre_names, pre_fps, now);
+        }
+        app.terminal.record_touched_layers(&touched_ids);
     }
     Ok((report, committed))
 }
@@ -134,15 +263,19 @@ fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool)
 fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
     total.inserted_roots.extend(r.inserted_roots);
     total.needs_layout.extend(r.needs_layout);
+    total.touched.extend(r.touched);
+    total.removed_parents.extend(r.removed_parents);
     total.applied += r.applied;
     total.duplicates += r.duplicates;
+    total.tokens_applied += r.tokens_applied;
+    total.tokens_duplicates += r.tokens_duplicates;
     total.skipped.extend(r.skipped);
 }
 
 /// Lays out again, with their real children, the auto-layout containers an edit can have
 /// changed: the node itself when it is one, and the unbroken chain of auto-layout ancestors
 /// above it (Hug sizes propagate up). The agent laid them out on a copy that lacked children.
-fn relayout_touched(doc: &mut Document, needs_layout: &[NodeId]) {
+pub(crate) fn relayout_touched(doc: &mut Document, needs_layout: &[NodeId]) {
     let is_auto = |doc: &Document, id: NodeId| doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
     let mut roots: Vec<NodeId> = Vec::new();
     for &id in needs_layout {

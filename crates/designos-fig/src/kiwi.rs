@@ -27,12 +27,17 @@ const MAX_DEPTH: usize = 96;
 /// values, i.e. ~52 per record (the figure in `KIWI_VALUES_PER_NODE`). 1.06M records therefore need ~55M; the cap is
 /// 2^28 = 268M, about 4.9x that.
 const MAX_DECODED_VALUES: usize = 1 << 28;
-/// Absolute cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
+const MIN_ZERO_WIRE_INSTANCES: usize = 1 << 16;
+const MAX_ZERO_WIRE_INSTANCES: usize = 1 << 24;
+/// Cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
 ///
 /// A struct whose fields are all (nested) empty structs encodes to no bytes at all, so unlike every other value it
-/// is free for an attacker: a ~40 KB file can claim 2^28 of them, which is ~8 GiB (empty struct) to ~13 GiB (15-field
-/// empty struct) once materialised. Every other value consumes at least one input byte, so the input length bounds it.
-const MAX_ZERO_WIRE_INSTANCES: usize = 1 << 16;
+/// is free for an attacker. Scaling with `input_len` (`(input_len * 16).clamp(65_536, 1 << 24)`) keeps a tiny hostile
+/// payload bounded (<= 65,536 for <= 4 KiB, 655,360 for 40 KiB) while letting legitimate multi-megabyte files with
+/// many empty marker structs decode up to `1 << 24` instances.
+fn zero_wire_budget(input_len: usize) -> usize {
+    input_len.saturating_mul(16).clamp(MIN_ZERO_WIRE_INSTANCES, MAX_ZERO_WIRE_INSTANCES)
+}
 /// Values per node measured on a real `.fig` (see [`MAX_DECODED_VALUES`]).
 #[cfg(test)]
 const KIWI_VALUES_PER_NODE: usize = 52;
@@ -378,7 +383,7 @@ impl Schema {
 
     /// Decodes a root message of definition `root`.
     pub fn decode_message(&self, root: usize, data: &[u8]) -> Result<KiwiValue> {
-        self.decode_message_with_limits(root, data, MAX_DECODED_VALUES, MAX_ZERO_WIRE_INSTANCES, false)
+        self.decode_message_with_limits(root, data, MAX_DECODED_VALUES, zero_wire_budget(data.len()), false)
     }
 
     /// Only the value budget applies; zero-size instances are unlimited (tests the value budget in isolation).
@@ -407,7 +412,7 @@ impl Schema {
     /// than a whole file, such as a clipboard, use a far lower cap than [`MAX_DECODED_VALUES`]).
     pub fn decode_message_for_import_with_values(&self, root: usize, data: &[u8], values: usize) -> Result<KiwiValue> {
         let skip_heavy = data.len() > 2_000_000;
-        self.decode_message_with_limits(root, data, values, MAX_ZERO_WIRE_INSTANCES, skip_heavy)
+        self.decode_message_with_limits(root, data, values, zero_wire_budget(data.len()), skip_heavy)
     }
 
     /// Per definition: whether one instance occupies zero bytes on the wire. Enums (a varint), messages (a terminator)
@@ -1386,5 +1391,44 @@ mod tests {
         assert!(nc.get("editInfo").is_none());
         assert!(nc.get("derivedTextData").is_none());
         assert_eq!(nc.get("opacity"), Some(&KiwiValue::Float(0.85)));
+    }
+
+    #[test]
+    fn zero_size_cap_follows_the_input_length_and_keeps_the_hostile_bound() {
+        assert_eq!(zero_wire_budget(0), 65_536);
+        assert_eq!(zero_wire_budget(1_024), 65_536);
+        assert_eq!(zero_wire_budget(10_000), 160_000);
+        assert_eq!(zero_wire_budget(50 * 1024 * 1024), 1 << 24);
+        assert_eq!(zero_wire_budget(usize::MAX), 1 << 24);
+
+        // 1 KB input cannot decode more than 65,536 zero-size struct instances (140 * 500 = 70,000 > 65,536).
+        let (s, m, mut data_1k) = padded_empty_struct_arrays(140, 500, 0);
+        data_1k.resize(1_024, 0);
+        let err = s.decode_message(m, &data_1k).unwrap_err();
+        assert!(err.to_string().contains("zero-size struct count exceeds budget"), "{err}");
+
+        let (s_ok, m_ok, mut data_1k_ok) = padded_empty_struct_arrays(120, 500, 0);
+        data_1k_ok.resize(1_024, 0);
+        assert!(s_ok.decode_message(m_ok, &data_1k_ok).is_ok());
+
+        // 10 KB input is capped at 160,000 zero-size struct instances (allowing 100,000 > 65,536, rejecting 170,000 > 160,000).
+        let (s_10k_ok, m_10k_ok, mut data_10k_ok) = padded_empty_struct_arrays(20, 5_000, 0);
+        data_10k_ok.resize(10_000, 0);
+        assert!(s_10k_ok.decode_message(m_10k_ok, &data_10k_ok).is_ok());
+
+        let (s_10k_over, m_10k_over, mut data_10k_over) = padded_empty_struct_arrays(34, 5_000, 0);
+        data_10k_over.resize(10_000, 0);
+        let err = s_10k_over.decode_message(m_10k_over, &data_10k_over).unwrap_err();
+        assert!(err.to_string().contains("zero-size struct count exceeds budget"), "{err}");
+    }
+
+    #[test]
+    fn old_cap_inputs_decode_unchanged() {
+        let (s, m, data) = padded_empty_struct_arrays(1, 300, 300);
+        assert!(s.decode_message(m, &data).is_ok());
+        assert!(s.decode_message_for_import(m, &data).is_ok());
+        let (s_over, m_over, data_over) = padded_empty_struct_arrays(20, 4_000, 4_000);
+        assert!(s_over.decode_message(m_over, &data_over).is_err());
+        assert!(s_over.decode_message_for_import(m_over, &data_over).is_err());
     }
 }

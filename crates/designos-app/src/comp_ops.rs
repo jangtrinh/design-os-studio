@@ -39,6 +39,7 @@ fn ids_of(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
         | Command::SetVariables { .. }
         | Command::SetGuides { .. }
         | Command::SetPrototypeDevice { .. }
+        | Command::SetCheckDesignsSettings(_)
         | Command::SetComments { .. }
         | Command::SetLibraryState { .. }
         | Command::SetImages { .. }
@@ -101,6 +102,7 @@ pub fn record_overrides(doc: &Document, before: &BTreeMap<NodeId, Node>, cmds: &
         let align_ov = record_grid_align_overrides(old, node);
         node.component.grid_align_overrides[0] |= align_ov[0];
         node.component.grid_align_overrides[1] |= align_ov[1];
+        clear_stale_pen_override_markers(node, &ov);
         node.component.overrides.extend(ov);
     }
 }
@@ -473,6 +475,16 @@ impl App {
         self.doc.get(comp).and_then(|n| n.parent).filter(|p| matches!(self.doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp)
     }
 
+    /// Node that defines property `name` for `comp`: `comp` itself when defined on the variant,
+    /// otherwise `prop_owner(comp)`.
+    pub fn prop_def_owner(&self, comp: NodeId, name: &str) -> NodeId {
+        if self.doc.get(comp).is_some_and(|n| n.component.props.iter().any(|p| p.name == name)) {
+            comp
+        } else {
+            self.prop_owner(comp)
+        }
+    }
+
     fn comp_edit(&mut self, f: impl FnOnce(&mut Document) -> Command) {
         let mut tx = Tx::new();
         let cmd = f(&mut self.doc);
@@ -632,5 +644,50 @@ impl App {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_overrides_clears_stale_pen_partial_override_markers() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let comp_id = doc.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        comp.size = Vec2::new(100.0, 40.0);
+        comp.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        comp.stroke.weight = 1.0;
+        doc.insert(page, comp).unwrap();
+
+        let inst_id = doc.alloc_id();
+        let mut inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        inst.component.source = Some(comp_id);
+        inst.size = Vec2::new(180.0, 40.0);
+        inst.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        inst.stroke.weight = 4.0;
+        inst.component.overrides.insert(OverrideField::Size);
+        inst.component.overrides.insert(OverrideField::Stroke);
+        inst.plugin_data.insert("pen:explicit_width".into(), "true".into());
+        inst.plugin_data.insert("pen:explicit_stroke_fields".into(), "width".into());
+        doc.insert(page, inst).unwrap();
+
+        let mut before = BTreeMap::new();
+        before.insert(inst_id, doc.get(inst_id).unwrap().clone());
+
+        let mut edited = doc.get(inst_id).unwrap().clone();
+        edited.stroke.paints = vec![Paint::solid(Color::rgb(0, 0, 255))];
+        edited.size.y = 64.0;
+        let mut cmds = vec![Command::Update { node: Box::new(edited) }];
+
+        record_overrides(&doc, &before, &mut cmds);
+        let Command::Update { node } = &cmds[0] else { panic!("expected Update") };
+        assert!(!node.plugin_data.contains_key("pen:explicit_stroke_fields"));
+        assert!(!node.plugin_data.contains_key("pen:explicit_width"));
+        assert!(!node.plugin_data.contains_key("pen:explicit_height"));
+        assert!(node.component.overrides.contains(&OverrideField::Stroke));
+        assert!(node.component.overrides.contains(&OverrideField::Size));
     }
 }

@@ -618,6 +618,9 @@ impl App {
             self.show_toast(format!("Edit failed: {e}"), true);
             return None;
         }
+        if let Some(id) = self.doc.get(parent).and_then(|p| p.children.last().copied()) {
+            App::stretch_into_slot_if_configured(&mut self.doc, &mut tx.ed, parent, id);
+        }
         App::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         if !self.run_tx(tx) {
@@ -721,6 +724,35 @@ impl App {
             }
         }
         self.libs.invalidate();
+    }
+
+    /// Binds `property` of style `style_key` to a library variable, copying it
+    /// into the file first. The copy and the style binding are one undo step.
+    pub fn bind_style_library_variable(&mut self, style_key: &str, property: &str, library_id: &str, key: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == style_key {
+                st.pending = None;
+            }
+        }
+        let mut tx = Tx::new();
+        let res = match self.import_asset_in(&mut tx, library_id, key) {
+            Some(local) => match self.bind_style_variable_in(&mut tx, style_key, property, &local) {
+                Ok(()) => self.run_tx(tx),
+                Err(e) => {
+                    tx.cancel(&mut self.doc);
+                    self.show_toast(format!("Style not changed: {e}"), true);
+                    false
+                }
+            },
+            None => {
+                tx.cancel(&mut self.doc);
+                self.show_toast("Library variable could not be loaded", true);
+                false
+            }
+        };
+        self.libs.invalidate();
+        res
     }
 
     /// Applies a library style to `sel`, copying it into the file first, in

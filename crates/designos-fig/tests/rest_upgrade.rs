@@ -93,7 +93,13 @@ fn style_metadata_and_property_per_use() {
     let m = &doc.style_meta;
     assert_eq!(
         m["S:1"],
-        StyleMeta { name: "Brand/Primary".into(), key: Some("abc123".into()), description: "Main brand fill".into(), property: StyleProperty::Fill }
+        StyleMeta {
+            name: "Brand/Primary".into(),
+            key: Some("abc123".into()),
+            description: "Main brand fill".into(),
+            property: StyleProperty::Fill,
+            bindings: Default::default(),
+        }
     );
     // S:2 is a FILL style that is only referenced as a stroke.
     assert_eq!(m["S:2"].property, StyleProperty::Stroke);
@@ -145,4 +151,31 @@ fn grids_and_invisible_grids() {
     let grids = &d.nodes.values().find_map(|n| n.kind.frame_props()).unwrap().grids;
     assert_eq!(grids.len(), 1);
     assert!(matches!(grids[0], LayoutGrid::Grid { size, visible: false, .. } if size == 8.0));
+}
+
+#[test]
+fn rest_import_consumer_node_slot_binding_does_not_promote_onto_shared_style() {
+    let json = r#"{
+      "name": "ConsumerOverride",
+      "styles": {
+        "S:1": {"key": "k1", "name": "Card/Surface", "description": "", "styleType": "FILL"}
+      },
+      "document": {"id": "0:0", "type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "First",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "styles": {"fill": "S:1"},
+         "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 1, "a": 1},
+                    "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:1"}}}]},
+        {"id": "1:2", "type": "RECTANGLE", "name": "Second",
+         "absoluteBoundingBox": {"x": 50, "y": 0, "width": 40, "height": 40},
+         "styles": {"fill": "S:1"},
+         "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 1, "a": 1}}]}
+      ]}]}
+    }"#;
+    let doc = import_rest_json(json).unwrap();
+    let first = find(&doc, "First");
+    let second = find(&doc, "Second");
+    assert_eq!(first.variables.bindings.get("fills/0").map(String::as_str), Some("VariableID:9:1"));
+    assert!(doc.style_meta["S:1"].bindings.is_empty(), "consumer node binding must not promote onto shared style: {:?}", doc.style_meta["S:1"].bindings);
+    assert_eq!(doc.effective_binding(second.id, "fills/0"), None);
 }

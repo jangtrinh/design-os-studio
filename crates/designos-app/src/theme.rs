@@ -58,6 +58,9 @@ pub const ICON_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
 pub const ICON_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
 pub const ICON_SELECTED: Color32 = ICON;
 pub const DANGER: Color32 = rgb(0xFE5938);
+pub const INFO: Color32 = rgb(0x0D99FF);
+pub const SUCCESS: Color32 = rgb(0x14AE5C);
+pub const WARNING: Color32 = rgb(0xF59E0B);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const BG_ELEVATED: Color32 = rgb(0x18181B);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
@@ -100,6 +103,13 @@ pub const GUIDE_COLOR: Color32 = rgb(0xFE5938);
 pub const GUIDE_TEXT: Color32 = rgb(0xFFFFFF);
 pub const PEN_POINT: Color32 = rgb(0xFFFFFF);
 pub const DROP_INDICATOR: Color32 = rgb(0xE36323);
+/// Four agent presence colours (amber, emerald, pink, sky) and the dark label drawn on them.
+pub const AGENT_1: Color32 = rgb(0xFFA629);
+pub const AGENT_2: Color32 = rgb(0x14AE5C);
+pub const AGENT_3: Color32 = rgb(0xEE46BC);
+pub const AGENT_4: Color32 = rgb(0x38BDF8);
+pub const AGENT_COLORS: [Color32; 4] = [AGENT_1, AGENT_2, AGENT_3, AGENT_4];
+pub const AGENT_LABEL_TEXT: Color32 = rgb(0x09090B);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts
@@ -445,6 +455,7 @@ pub const MAIN_MENU_Y: f32 = 44.0;
 pub const MAIN_MENU_WIDTH: f32 = 210.0;
 #[allow(dead_code)]
 pub const PALETTE_WIDTH: f32 = 320.0;
+pub const PERMISSIONS_MODAL_WIDTH: f32 = 360.0;
 #[allow(dead_code)]
 pub const PALETTE_TOP: f32 = 64.0;
 pub const TOAST_HEIGHT: f32 = 40.0;
@@ -554,6 +565,10 @@ pub const SYNTAX_PUNCT: Color32 = rgb(0xB3B3B3);
 pub const DEV_READY: Color32 = rgb(0x14AE5C);
 pub const DEV_COMPLETED: Color32 = rgb(0x06B6D4);
 pub const DEV_CHANGED: Color32 = rgb(0xFFA629);
+/// In-progress agent badge ("Agent working" / "<agent> working") (`E15-7`).
+pub const STATUS_INFO_TEXT: Color32 = rgb(0x0D99FF);
+pub const STATUS_INFO_BG: Color32 = rgba(0x0D99FF, 0x24);
+pub const STATUS_INFO_BORDER: Color32 = rgba(0x0D99FF, 0x59);
 /// Box model diagram: margin, padding and content tints (as in Figma's Inspect).
 pub const BOX_MARGIN: Color32 = rgb(0xF9CB9C);
 pub const BOX_PADDING: Color32 = rgb(0xB6D7A8);

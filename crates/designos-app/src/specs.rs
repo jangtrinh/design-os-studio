@@ -2182,12 +2182,30 @@ impl App {
     pub fn apply_node_spec(&mut self, spec: &NodeSpec, label: &str) {
         let parent = self.page;
         let mut trial = self.doc.clone();
-        match trial.apply_spec(parent, spec) {
-            Ok(root_id) => {
+        match trial.apply_spec_with_report(parent, spec) {
+            Ok(report) => {
+                let root_id = report.root_node_id;
                 let mut nodes = Vec::new();
                 trial.walk(root_id, |n, _| nodes.push(n.clone()));
                 let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
-                if self.hist.exec(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+                // The variables and styles the spec created go in the same undo step as its nodes.
+                let mut commands = self.doc.spec_data_commands(&trial);
+                commands.push(Command::Insert { parent, index, nodes });
+                let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
+                if self.hist.exec(&mut self.doc, command).is_ok() {
+                    // The live-spec writer is the active agent tab; Stop clears flags by run id only. Only the flags this
+                    // spec set (root and nested descendants) carry over: `trial` is a clone of the whole document, so its
+                    // map also holds other writers' flags, and a run-less one must not be handed this tab's run id.
+                    let run_id = self.terminal.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone());
+                    for id in report.in_progress.keys() {
+                        let Some(mut ip) = trial.in_progress.get(id).cloned() else { continue };
+                        if self.doc.get(*id).is_some() {
+                            if ip.run_id.is_none() {
+                                ip.run_id = run_id.clone();
+                            }
+                            self.doc.set_in_progress(*id, Some(ip));
+                        }
+                    }
                     self.doc.relayout_subtree(parent);
                     self.selection = vec![root_id];
                     self.changed();
@@ -2242,7 +2260,11 @@ impl App {
             .unwrap_or_else(|| std::env::temp_dir().join(format!("{stem}.fig")));
         self.settle_pending_relayout();
         match crate::io::save_path(&self.doc, &default_path) {
-            Ok(saved) => self.show_toast(format!("Saved .fig binary to {}", saved.display()), false),
+            Ok(saved) => {
+                let omitted = designos_fig::collect_omitted_extensions(&self.doc).len();
+                let note = if omitted == 0 { String::new() } else { format!(" ({omitted} extension keys not carried)") };
+                self.show_toast(format!("Saved .fig binary to {}{note}", saved.display()), false);
+            }
             Err(e) => self.show_toast(e, true),
         }
     }
@@ -2568,7 +2590,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
     if let Some((j_name, j_raw)) = apply_json_action {
         match serde_json::from_str::<NodeSpec>(&j_raw) {
             Ok(spec) => app.apply_node_spec(&spec, &j_name),
-            Err(e) => app.show_toast(format!("Invalid .spec.json: {e}"), true),
+            Err(e) => app.show_toast(format!("Invalid .spec.json: {}", designos_doc::format_spec_serde_error(&e)), true),
         }
     }
     if let Some(fid) = focus_frame_action {
@@ -2622,7 +2644,7 @@ pub fn drop_spec_card_onto_canvas(app: &mut App, pkg: &SpecPackage) {
         "dev_status": "ready",
         "annotation": format!("Figma Specs · Markdown as a Medium · {}", pkg.contract_id),
         "layout": {
-            "dir": "column",
+            "direction": "column",
             "padding": [28.0, 32.0, 28.0, 32.0],
             "gap": 16.0,
             "align": "start",
@@ -2663,7 +2685,7 @@ pub fn drop_spec_card_onto_canvas(app: &mut App, pkg: &SpecPackage) {
                 "stroke_width": 1.0,
                 "radius": 8.0,
                 "layout": {
-                    "dir": "row",
+                    "direction": "row",
                     "padding": [14.0, 16.0, 14.0, 16.0],
                     "gap": 12.0,
                     "align": "center",
@@ -3147,13 +3169,14 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         ui.ctx().copy_text(payload.clone());
         app.specs.last_ai_copy = Some(payload);
         let spec_ref = format!("@spec://{}/{} ({})", pkg.slug, app.specs.active_tab.anchor(), pkg.contract_id);
-        if app.terminal.input_line.trim().is_empty() {
-            app.terminal.input_line = format!("{spec_ref} ");
-        } else if !app.terminal.input_line.contains(&spec_ref) {
-            app.terminal.input_line = format!("{spec_ref} {}", app.terminal.input_line.trim());
-        }
         let fp = app.file_path.clone();
-        app.terminal.ensure_default_tab(fp.as_deref());
+        app.terminal.open_for_agent_use(fp.as_deref());
+        let cur_draft = app.terminal.composer_draft().to_string();
+        if cur_draft.trim().is_empty() {
+            app.terminal.set_composer_draft(format!("{spec_ref} "));
+        } else if !cur_draft.contains(&spec_ref) {
+            app.terminal.set_composer_draft(format!("{spec_ref} {}", cur_draft.trim()));
+        }
         app.terminal.dock_open = true;
         app.ui.rail = Some(crate::app::RailItem::Agents);
         app.show_toast("Referenced @spec in Agent CLI (Claude / Codex / AGY / Grok)", false);
@@ -3653,8 +3676,9 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
     scrollbar(ui, rect, app.specs.scroll, est_h);
 
     if let Some((j_name, j_raw)) = apply_json_action {
-        if let Ok(spec) = serde_json::from_str::<NodeSpec>(&j_raw) {
-            app.apply_node_spec(&spec, &j_name);
+        match serde_json::from_str::<NodeSpec>(&j_raw) {
+            Ok(spec) => app.apply_node_spec(&spec, &j_name),
+            Err(e) => app.show_toast(format!("Invalid .spec.json: {}", designos_doc::format_spec_serde_error(&e)), true),
         }
     }
 }
@@ -4107,20 +4131,23 @@ mod tests {
         assert_eq!(app.specs.packages[app.specs.selected_pkg].stories.len(), before_us + 1);
         assert_eq!(app.specs.active_tab, SpecTab::UseCases);
 
-        // 6. Click Reference @spec in Agent -> populates terminal input_line and opens Agents rail
+        // 6. Click Reference @spec in Agent -> populates terminal composer draft and opens Agents rail
         render_all(&ctx, &mut app, Vec::new());
         let ref_r = get_rect(&ctx, "specs-right-ref-agent");
         click_at(&ctx, &mut app, ref_r.center());
-        assert!(app.terminal.input_line.contains("@spec://"));
+        assert!(app.terminal.composer_draft().contains("@spec://"));
         assert_eq!(app.ui.rail, Some(crate::app::RailItem::Agents));
 
-        // 7. Submit Ask @agent bar -> dispatches prompt to terminal chat_turns
+        // 7. Submit Ask @agent bar -> dispatches prompt through send_to_agent
         app.specs.ask_input = "Verify AC-01 on canvas".to_string();
         render_all(&ctx, &mut app, Vec::new());
         let send_r = get_rect(&ctx, "specs-ask-agent-send");
-        let turns_before = app.terminal.chat_turns.len();
         click_at(&ctx, &mut app, send_r.center());
-        assert!(app.terminal.chat_turns.len() > turns_before);
+        assert!(
+            app.terminal.active_composer().pending_send.as_deref() == Some("Verify AC-01 on canvas")
+                || app.terminal.active_composer().history.iter().any(|h| h.contains("Verify AC-01 on canvas"))
+                || app.terminal.active_composer().last_outcome.is_some()
+        );
 
         for mut tab in app.terminal.tabs.drain(..) {
             let _ = tab.child.kill();

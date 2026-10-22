@@ -181,7 +181,7 @@ fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out
     open_tag(o, depth, tag, "", &style, ">");
     let me = Parent::of(n);
     if let Some(site) = &site {
-        emit_react_slot(o, depth + 1, site, &|o, k, d| element(doc, k, me, d, o));
+        emit_react_slot(doc, o, depth + 1, site, &|o, k, d| element(doc, k, me, d, o));
     }
     for k in kids {
         element(doc, k.id, me, depth + 1, o);

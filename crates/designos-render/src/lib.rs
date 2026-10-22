@@ -8,13 +8,16 @@
 //! come first. Group effects (opacity, blend, layer blur) use full-size
 //! offscreen layers.
 
+mod backdrop_index;
 mod blur;
 pub mod board;
 mod boolean;
+pub mod diff_image;
 mod effects;
 mod fx;
 mod geom;
 mod index;
+pub mod lint_env;
 mod mask;
 mod outline;
 mod paint;
@@ -25,9 +28,12 @@ mod text;
 mod tiles;
 pub mod vectorops;
 
+pub use backdrop_index::BackdropIndex;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
+pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
+pub use lint_env::RenderLintEnv;
 pub use mask::{mask_frame_box, mask_stencil};
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
@@ -98,7 +104,7 @@ pub fn render_page(doc: &Document, page: NodeId, vp: &Viewport, target: &mut tin
     let s = vp.zoom * vp.dpr;
     let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
     effects::set_grid_origin(&ts);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide: &[] };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -118,6 +124,19 @@ pub fn render_page_indexed(doc: &Document, page: NodeId, vp: &Viewport, target: 
 /// must have been built for this document revision and `ts` must be a pure
 /// scale + translate.
 pub(crate) fn render_with_transform(doc: &Document, page: NodeId, ts: sk::Transform, target: &mut sk::Pixmap, index: Option<&SceneIndex>) {
+    render_with_transform_and_opacities(doc, page, ts, target, index, &[]);
+}
+
+/// Like [`render_with_transform`], multiplying matching node draw opacities by `runtime_opacities`
+/// without mutating `doc`.
+pub(crate) fn render_with_transform_and_opacities(
+    doc: &Document,
+    page: NodeId,
+    ts: sk::Transform,
+    target: &mut sk::Pixmap,
+    index: Option<&SceneIndex>,
+    runtime_opacities: &[(NodeId, f32)],
+) {
     let bg = match doc.get(page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => paint::sk_color(background, 1.0),
         _ => sk::Color::from_rgba8(0x5A, 0x5A, 0x5A, 0xFF),
@@ -131,7 +150,7 @@ pub(crate) fn render_with_transform(doc: &Document, page: NodeId, ts: sk::Transf
         let win = ((-1.0 - ts.tx) / ts.sx, (-1.0 - ts.ty) / ts.sy, (w + 1.0 - ts.tx) / ts.sx, (h + 1.0 - ts.ty) / ts.sy);
         Cull { index, win }
     });
-    let r = Renderer { doc, env: PaintEnv { doc }, cull };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull, runtime_opacities, hide: &[] };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -163,7 +182,7 @@ pub fn render_node(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia
     let n = &*resolve_node(doc, doc.get(node)?);
     let (w, h) = checked_pixmap_size(n.size.x * scale, n.size.y * scale)?;
     let mut pm = tiny_skia::Pixmap::new(w, h)?;
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide: &[] };
     let ts = sk::Transform::from_scale(scale, scale);
     effects::set_grid_origin(&ts);
     if let NodeKind::Page { background } = &n.kind {
@@ -175,6 +194,111 @@ pub fn render_node(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia
     Some(pm)
 }
 
+/// Renders the page-space rectangle `rect` of `page` at `scale` (pixels per page unit),
+/// skipping any subtree whose root is in `hide`.
+///
+/// Per E15-10 §5.1, the target pixmap is initialized with `page`'s background color
+/// composited over opaque white (`#FFFFFF`).
+pub fn render_backdrop(doc: &Document, page: NodeId, hide: &[NodeId], rect: designos_doc::Rect, scale: f32) -> Option<tiny_skia::Pixmap> {
+    render_backdrop_with(doc, page, hide, rect, scale, None)
+}
+
+/// [`render_backdrop`] that draws only what can reach `rect`, using `index` (built for `page` of
+/// this `doc`) instead of walking every layer of the page: same pixels, in time that follows the
+/// size of the window rather than the size of the page.
+pub fn render_backdrop_indexed(
+    doc: &Document,
+    page: NodeId,
+    hide: &[NodeId],
+    rect: designos_doc::Rect,
+    scale: f32,
+    index: &BackdropIndex,
+) -> Option<tiny_skia::Pixmap> {
+    render_backdrop_with(doc, page, hide, rect, scale, Some(index))
+}
+
+fn render_backdrop_with(
+    doc: &Document,
+    page: NodeId,
+    hide: &[NodeId],
+    rect: designos_doc::Rect,
+    scale: f32,
+    index: Option<&BackdropIndex>,
+) -> Option<tiny_skia::Pixmap> {
+    if scale <= 0.0 || !scale.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
+        return None;
+    }
+    let (w, h) = checked_pixmap_size(rect.w * scale, rect.h * scale)?;
+    let mut pm = tiny_skia::Pixmap::new(w, h)?;
+    let bg_color = match doc.get(page).map(|n| &n.kind) {
+        Some(NodeKind::Page { background }) => {
+            let a = background.a.clamp(0.0, 1.0);
+            designos_doc::Color { r: background.r * a + (1.0 - a), g: background.g * a + (1.0 - a), b: background.b * a + (1.0 - a), a: 1.0 }
+        }
+        _ => designos_doc::Color::WHITE,
+    };
+    pm.fill(paint::sk_color(&bg_color, 1.0));
+    let p = doc.get(page)?;
+    let ts = sk::Transform::from_row(scale, 0.0, 0.0, scale, -rect.x * scale, -rect.y * scale);
+    effects::set_grid_origin(&ts);
+    let Some(index) = index else {
+        let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide };
+        r.draw_children(&p.children, ts, &mut pm, None, None);
+        return Some(pm);
+    };
+    // The window the pixmap covers (1 device px of slack), widened by how far any blur over it
+    // reads beyond its own layer, as a tile is padded. Layers that miss it are not drawn: the full
+    // render draws them into the same pixmap, outside of which nothing is kept, and they leave no
+    // pixel inside it.
+    let scene = index.scene();
+    let mut win = ((-1.0 - ts.tx) / ts.sx, (-1.0 - ts.ty) / ts.sy, (w as f32 + 1.0 - ts.tx) / ts.sx, (h as f32 + 1.0 - ts.ty) / ts.sy);
+    let reach = scene.blurry.iter().filter(|(b, _)| index::overlaps(*b, win)).map(|(_, r)| *r).fold(0.0f32, f32::max);
+    win = (win.0 - reach, win.1 - reach, win.2 + reach, win.3 + reach);
+    let children = index.top_level_near(win);
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: Some(Cull { index: scene, win }), runtime_opacities: &[], hide };
+    r.draw_children(&children, ts, &mut pm, None, None);
+    Some(pm)
+}
+
+/// Renders the isolated glyph coverage mask of a text `node` within page-space `rect` at `scale`.
+///
+/// The returned pixmap is transparent everywhere except over the text node's glyphs, where
+/// alpha represents the glyph coverage in `[0, 255]`.
+pub fn render_text_mask(doc: &Document, node: NodeId, rect: designos_doc::Rect, scale: f32) -> Option<tiny_skia::Pixmap> {
+    if scale <= 0.0 || !scale.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
+        return None;
+    }
+    let (w, h) = checked_pixmap_size(rect.w * scale, rect.h * scale)?;
+    let mut pm = tiny_skia::Pixmap::new(w, h)?;
+    let raw = doc.get(node)?;
+    let resolved = resolve_node(doc, raw);
+    let NodeKind::Text(tp) = &resolved.kind else {
+        return None;
+    };
+    let tl = text::layout(tp, resolved.size);
+    let mut chain = Vec::new();
+    let mut cur = Some(node);
+    while let Some(id) = cur {
+        let Some(n) = doc.get(id) else { break };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            break;
+        }
+        chain.push(n.transform);
+        cur = n.parent;
+    }
+    let mut world = designos_doc::Affine::IDENTITY;
+    for t in chain.into_iter().rev() {
+        world = world * t;
+    }
+    let base_ts = sk::Transform::from_row(scale, 0.0, 0.0, scale, -rect.x * scale, -rect.y * scale);
+    let ts = base_ts.pre_concat(to_sk_transform(&world));
+    let paint = black_paint(1.0);
+    for path in tl.paths.iter().flatten() {
+        pm.fill_path(path, &paint, sk::FillRule::Winding, ts, None);
+    }
+    Some(pm)
+}
+
 // ---------------------------------------------------------------------------
 
 struct Renderer<'a> {
@@ -182,6 +306,10 @@ struct Renderer<'a> {
     env: PaintEnv<'a>,
     /// Skips children whose cached page-space bounds miss the drawn window.
     cull: Option<Cull<'a>>,
+    /// Runtime-only per-node opacity multipliers (e.g. top-level insert fade-in).
+    runtime_opacities: &'a [(NodeId, f32)],
+    /// Node IDs whose subtrees are omitted from rendering.
+    hide: &'a [NodeId],
 }
 
 struct Cull<'a> {
@@ -241,14 +369,16 @@ impl Renderer<'_> {
 
     fn draw_children(&self, children: &[NodeId], parent_ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, back: Back) {
         for (i, cid) in children.iter().enumerate() {
+            if self.hide.contains(cid) {
+                continue;
+            }
+            // Before the node is looked up: a child that misses the window costs one hash lookup.
+            if self.cull.as_ref().is_some_and(|c| c.index.culls(*cid, c.win)) {
+                continue;
+            }
             let Some(child) = board::get(self.doc, *cid) else { continue };
             // Variable bindings (and the mode in effect) are applied per node at draw time.
             let child = &*resolve_node(self.doc, &child);
-            if let Some(c) = &self.cull {
-                if !child.is_mask && !c.index.may_touch(*cid, c.win) {
-                    continue;
-                }
-            }
             let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
             if child.is_mask {
                 if !child.visible {
@@ -315,7 +445,7 @@ impl Renderer<'_> {
     }
 
     fn draw_node(&self, n: &Node, ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, back: Back) {
-        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
+        if self.hide.contains(&n.id) || !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
             return;
         }
         if matches!(n.kind, NodeKind::Unknown { .. }) {
@@ -354,7 +484,8 @@ impl Renderer<'_> {
             })
             .fold(0.0f32, f32::max);
         let special_blend = !matches!(n.blend, designos_doc::BlendMode::Normal | designos_doc::BlendMode::PassThrough);
-        let opacity = n.opacity.clamp(0.0, 1.0);
+        let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == n.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let opacity = (n.opacity * runtime_mul).clamp(0.0, 1.0);
         if opacity <= 0.0 && !special_blend {
             return;
         }
@@ -586,7 +717,8 @@ impl Renderer<'_> {
         if Self::draws_children(n) {
             let kids = n.paint_children();
             // silhouettes are drawn offset from the page grid, so no culling
-            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None }.draw_children(&kids, ts2, pm, None, None);
+            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide }
+                .draw_children(&kids, ts2, pm, None, None);
         }
     }
 

@@ -20,6 +20,7 @@ pub enum Action {
     NewBoard,
     NewDeck,
     Open,
+    ImportWebCapture,
     Save,
     SaveAs,
     ExportFig,
@@ -114,6 +115,8 @@ pub enum Action {
     YourName,
     /// Preferences -> Use GPU rendering.
     ToggleGpu,
+    /// Preferences -> Agent permissions.
+    AgentPermissions,
     Shortcuts,
     AboutDesignOS,
     OpenGithub,
@@ -124,6 +127,11 @@ pub enum Action {
     MarkReadyForDev,
     MarkCompleted,
     ClearDevStatus,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    AiRemoveBackground,
+    AiIsolateSubject,
+    AiExpandImage,
+    AiEraseImage,
     /// Switches to a tool (also from the command palette).
     Tool(Tool),
 }
@@ -134,6 +142,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::NewBoard => app.new_board_here(),
         Action::NewDeck => app.new_deck_here(),
         Action::Open => app.open_dialog(),
+        Action::ImportWebCapture => app.import_web_capture_dialog(),
         Action::Save => app.save(false),
         Action::SaveAs => app.save(true),
         Action::ExportFig => app.export_fig_copy(),
@@ -242,6 +251,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
+        Action::AgentPermissions => app.open_agent_permissions(),
         Action::Shortcuts => app.show_shortcuts(),
         Action::AboutDesignOS => app.show_about(),
         Action::OpenGithub => app.confirm_open_github(),
@@ -267,6 +277,28 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::ClearDevStatus => {
             let sel = app.top_selection();
             app.dev_clear_status(&sel);
+        }
+        Action::AiRemoveBackground => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::RemoveBackground);
+            }
+        }
+        Action::AiIsolateSubject => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::IsolateSubject);
+            }
+        }
+        Action::AiExpandImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_expand_image_popover(node, fill_idx, anchor);
+            }
+        }
+        Action::AiEraseImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_erase_image_popover(node, fill_idx, anchor);
+            }
         }
         Action::Tool(t) => pick_tool(app, t),
     }
@@ -392,6 +424,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("New board", "", Action::NewBoard),
         leaf("New deck", "", Action::NewDeck),
         leaf("Open…", "Ctrl+O", Action::Open),
+        leaf("Import web capture…", "", Action::ImportWebCapture),
         leaf("Save", "Ctrl+S", Action::Save),
         leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs),
         leaf("Save local .fig copy…", "", Action::ExportFig),
@@ -515,6 +548,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
             vec![
                 leaf("Your name…", "", Action::YourName),
                 leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available),
+                leaf("Agent permissions…", "", Action::AgentPermissions),
             ],
         ),
         leaf("Libraries", "", Action::OpenLibraries).sep(),
@@ -581,6 +615,7 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("New board"), Some(Action::NewBoard)),
         (MenuItem::new("New deck"), Some(Action::NewDeck)),
         (MenuItem::new("Open…").shortcut("Ctrl+O"), Some(Action::Open)),
+        (MenuItem::new("Import web capture…"), Some(Action::ImportWebCapture)),
         (MenuItem::new("Save").shortcut("Ctrl+S"), Some(Action::Save)),
         (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S"), Some(Action::SaveAs)),
         (MenuItem::new("Save local .fig copy…"), Some(Action::ExportFig)),

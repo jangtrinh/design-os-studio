@@ -30,6 +30,7 @@ designos app.designos --select "EaseUI — Agent-First Spec Console" --export-sp
 designos-studio --open-id <file-id> --panel specs
 
 # Launch the native Agentic PTY Chat UI wrapper (Claude Code · Codex · Antigravity CLI)
+# Keyboard shortcut inside Studio: Cmd+Alt+J (macOS) / Ctrl+Alt+J (Linux/Windows) moves focus to the Agents composer (or terminal) and back to the canvas.
 designos-studio --open-id <file-id> --rail agents
 
 # Read human feedback pins from the Canvas (resolved to exact NodeId + parent Screen Frame)
@@ -39,6 +40,8 @@ designos app.designos --comments-json
 designos app.designos --select "Apply Spec CTA" --add-comment "Switch CTA to Syncing state while agent runs"
 designos app.designos --reply-comment t1 --message "Updated spec and auto-reloaded on Canvas!" --resolve
 ```
+
+- **Terminal-Focused Document Undo / Redo**: While an agent terminal has keyboard focus, `Cmd+Z` and `Shift+Cmd+Z` / `Cmd+Y` on macOS (or `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y` on Windows and Linux for agent tabs whose CLI does not reserve `Ctrl+Z`; `Shell` tabs keep `Ctrl+Z` for the shell) undo and redo document edits one step per agent tool call without leaving the terminal.
 
 ---
 

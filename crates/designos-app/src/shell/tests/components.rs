@@ -786,3 +786,59 @@ fn migrate_to_slot_in_inspector_and_app_preserves_instance_content_and_undoes_in
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.nodes, pre_migrate_nodes);
 }
+
+#[test]
+fn unbound_variant_migrated_slot_shows_in_variant_properties_and_edits_slot_settings_on_variant() {
+    let mut s = Sim::new();
+    let main = s.by_name("Primary button");
+    let page = s.app().page;
+
+    let mut variants = Vec::new();
+    for (name, y) in [("Size=Small", 500.0), ("Size=Large", 650.0)] {
+        let id = s.shell.app.doc.alloc_id();
+        let mut v = designos_doc::Node::frame(id, designos_doc::Rect::new(40.0, y, 240.0, 80.0));
+        v.name = name.into();
+        let v = s.shell.app.doc.insert(page, v).unwrap();
+        designos_doc::create_component(&mut s.shell.app.doc, v).apply(&mut s.shell.app.doc).unwrap();
+        variants.push(v);
+    }
+    let (small, large) = (variants[0], variants[1]);
+    designos_doc::create_instance(&mut s.shell.app.doc, main, small, DV::new(12.0, 12.0)).apply(&mut s.shell.app.doc).unwrap();
+    let small_icon = *s.app().doc.get(small).unwrap().children.last().unwrap();
+    designos_doc::create_instance(&mut s.shell.app.doc, main, large, DV::new(12.0, 12.0)).apply(&mut s.shell.app.doc).unwrap();
+    designos_doc::combine_as_variants(&mut s.shell.app.doc, &[small, large]).apply(&mut s.shell.app.doc).unwrap();
+    let set = s.app().doc.get(small).unwrap().parent.unwrap();
+
+    // Select unbound `small_icon` inside `small` and click "Migrate to slot".
+    s.shell.app.selection = vec![small_icon];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.click(s.rect_of("migrate-to-slot").center());
+
+    let prop_name = s.app().doc.get(small).unwrap().component.props[0].name.clone();
+    assert!(s.app().doc.get(set).unwrap().component.props.iter().all(|p| p.kind != designos_doc::PropKind::Slot));
+
+    // Selecting the migrated slot layer renders Slot settings that write to `small` (not `set`).
+    s.shell.app.selection = vec![small_icon];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let stretch_tog = s.rect_of(&format!("toggle:slot-stretch-on-insert:{prop_name}"));
+    assert!(stretch_tog.width() > 0.0, "Slot settings stretch toggle must render on the slot layer");
+    s.click(stretch_tog.center());
+    assert_eq!(
+        designos_doc::slot_config_of(&s.app().doc, small_icon).and_then(|c| c.stretch_child_on_insert),
+        Some(true),
+        "toggling stretch on insert must update the variant-owned slot config"
+    );
+
+    // Selecting the variant `small` lists both the set's Variant prop and the variant's own Slot prop,
+    // and renaming/deleting the Slot prop mutates `small`.
+    s.shell.app.selection = vec![small];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.rect_of(&format!("propdef:{prop_name}")).width() > 0.0, "variant Properties section must list the variant-owned slot property");
+    let del_btn = s.rect_of(&format!("propdel:{prop_name}"));
+    assert!(del_btn.width() > 0.0, "variant-owned slot property must have a delete button");
+    s.click(del_btn.center());
+    assert!(s.app().doc.get(small).unwrap().component.props.is_empty(), "deleting the variant-owned slot property removes it from the variant");
+}

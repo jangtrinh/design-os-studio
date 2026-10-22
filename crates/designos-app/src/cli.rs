@@ -50,7 +50,7 @@ pub struct Options {
     pub find: Option<String>,
     /// Replacement text for `--find`; also shows the replace row.
     pub replace_with: Option<String>,
-    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml` or `react`.
+    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml`, `react` or `html`.
     pub dev: Option<String>,
     /// With `--dev`: mark the selected layer Ready for dev and give it a demo annotation and link.
     pub dev_demo: bool,
@@ -76,6 +76,18 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
+    /// Headless agent CLI: generate code for `--select` (or first screen/page) in the given target language and print to stdout.
+    pub codegen: Option<String>,
+    /// Import a `.webcapture` / `.capture.json` file into the document (`--import-capture <path>`).
+    pub import_capture: Option<PathBuf>,
+    /// Output `.designos` / `.fig` path for `--import-capture <path> --out <out.designos>` (`T8.27` §7).
+    pub out: Option<PathBuf>,
+    /// Headless CLI: import variables from a file (`.json` or `.zip`) into the document (`E1-9` §5).
+    pub import_variables: Option<PathBuf>,
+    /// Headless CLI: export variables from the document to a directory or file (`E1-9` §5).
+    pub export_variables: Option<PathBuf>,
+    /// Variable format for `--import-variables` / `--export-variables`: `auto`, `figma-rest`, `figma-native`, or `dtcg`.
+    pub format: Option<String>,
     /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
     /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
     pub no_caption: bool,
@@ -95,21 +107,32 @@ impl Options {
             || self.apply_spec.is_some()
             || self.export_spec.is_some()
             || self.export_fig.is_some()
+            || self.codegen.is_some()
+            || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
+            || self.import_variables.is_some()
+            || self.export_variables.is_some()
     }
 
     /// Whether a launch with these options starts on the home screen: explicitly
     /// with `--home`, or interactively with nothing else to open.
     pub fn wants_home(&self) -> bool {
-        !self.is_agent_cli() && self.open_id.is_none() && (self.home || (self.file.is_none() && self.screenshot.is_none() && self.fixture.is_none()))
+        !self.is_agent_cli()
+            && self.open_id.is_none()
+            && (self.home || (self.file.is_none() && self.import_capture.is_none() && self.screenshot.is_none() && self.fixture.is_none()))
     }
 }
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 47] = [
+pub const PANELS: [&str; 56] = [
     "agents",
     "agents-chat",
+    "agents-picker",
     "agents-start-failure",
+    "agents-approval-command",
+    "agents-approval-queued",
+    "agents-approval-open-tab",
+    "agent-permissions",
     "specs",
     "terminal",
     "cmdk",
@@ -142,6 +165,10 @@ pub const PANELS: [&str; 47] = [
     "version-history",
     "dev-annotate",
     "dev-compare",
+    "ai-image-menu",
+    "ai-image-expand",
+    "ai-image-erase",
+    "web-capture-report",
     "micro-autolayout",
     "micro-css-grid",
     "micro-smart-selection",
@@ -246,11 +273,18 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--find" => o.find = Some(it.next().ok_or("--find needs the text to search for")?),
             "--replace-with" => o.replace_with = Some(it.next().ok_or("--replace-with needs the replacement text")?),
             "--dev" => {
-                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, uikit, compose, android-xml or react")?;
-                if !matches!(l.as_str(), "css" | "tailwind" | "swiftui" | "uikit" | "compose" | "android-xml" | "react") {
-                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml or react)"));
+                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, uikit, compose, android-xml, react or html")?;
+                if designos_export::CodeLanguage::from_id(&l).is_none() {
+                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml, react or html)"));
                 }
                 o.dev = Some(l);
+            }
+            "--codegen" => {
+                let l = it.next().ok_or("--codegen needs css, tailwind, swiftui, uikit, compose, android-xml, react or html")?;
+                if designos_export::CodeLanguage::from_id(&l).is_none() {
+                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml, react or html)"));
+                }
+                o.codegen = Some(l);
             }
             "--dev-demo" => o.dev_demo = true,
             "--seed-library" => o.seed_library = Some(it.next().ok_or("--seed-library needs a directory")?.into()),
@@ -264,6 +298,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--apply-spec" => o.apply_spec = Some(it.next().ok_or("--apply-spec needs a spec JSON path")?.into()),
             "--export-spec" => o.export_spec = Some(it.next().ok_or("--export-spec needs an output JSON path")?.into()),
             "--export-fig" => o.export_fig = Some(it.next().ok_or("--export-fig needs an output .fig path")?.into()),
+            "--import-capture" | "--import-web-capture" => o.import_capture = Some(it.next().ok_or("--import-capture needs a capture JSON path")?.into()),
+            "--out" => o.out = Some(it.next().ok_or("--out needs an output path")?.into()),
+            "--import-variables" => o.import_variables = Some(it.next().ok_or("--import-variables needs a file path")?.into()),
+            "--export-variables" => o.export_variables = Some(it.next().ok_or("--export-variables needs a directory or file path")?.into()),
+            "--format" => {
+                let f = it.next().ok_or("--format needs auto, figma-rest, figma-native or dtcg")?;
+                if designos_fig::VariablesFormat::parse_label(&f).is_none() {
+                    return Err(format!("unknown format '{f}' (expected auto, figma-rest, figma-native or dtcg)"));
+                }
+                o.format = Some(f);
+            }
             "-h" | "--help" => o.help = true,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             _ => {
@@ -277,18 +322,19 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     Ok(o)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
   --gpu      draw the canvas on the GPU; --screenshot uses the CPU renderer unless this is given
   --library  use DIR as the projects library instead of the default location
-  --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react); --dev-demo marks the selection Ready for dev with an annotation
+  --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react|html); --dev-demo marks the selection Ready for dev with an annotation
+  --codegen  headless Agent CLI: generate code for --select (or first screen/page) in the given language (css|tailwind|swiftui|uikit|compose|android-xml|react|html)
   --no-caption  with --panel micro-<slug>:seq:<N>: record frames without the top shortcut caption bar
   --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
-  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig  headless Agent CLI inspection and mutation";
+  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]
 mod tests {
@@ -319,8 +365,14 @@ mod tests {
         let o = p(&["--dev", "swiftui", "--dev-demo", "--select", "Card"]).unwrap();
         assert_eq!(o.dev.as_deref(), Some("swiftui"));
         assert!(o.dev_demo);
+        assert_eq!(p(&["--dev", "html"]).unwrap().dev.as_deref(), Some("html"));
+        let cg = p(&["--codegen", "html"]).unwrap();
+        assert_eq!(cg.codegen.as_deref(), Some("html"));
+        assert!(cg.is_agent_cli());
         assert!(p(&["--dev", "cobol"]).is_err());
+        assert!(p(&["--codegen", "cobol"]).is_err());
         assert!(p(&["--dev"]).is_err());
+        assert!(p(&["--codegen"]).is_err());
         assert!(p(&["--panel", "dev-compare"]).is_ok());
     }
 
@@ -368,6 +420,7 @@ mod tests {
         assert_eq!(p(&["--panel", "assets"]).unwrap().panel.as_deref(), Some("assets"));
         assert_eq!(p(&["--panel", "variables"]).unwrap().panel.as_deref(), Some("variables"));
         assert_eq!(p(&["--panel", "variables-floating"]).unwrap().panel.as_deref(), Some("variables-floating"));
+        assert_eq!(p(&["--panel", "web-capture-report"]).unwrap().panel.as_deref(), Some("web-capture-report"));
         assert!(p(&["--panel", "nope"]).is_err());
         assert!(p(&["--panel"]).is_err());
     }
@@ -443,6 +496,15 @@ mod tests {
         assert_eq!(o.export_fig, Some("out.fig".into()));
         assert_eq!(o.reply_comment.as_deref(), Some("t-1"));
         assert_eq!(o.message.as_deref(), Some("Fixed spacing"));
+    }
+
+    #[test]
+    fn web_capture_cli_flags_parse() {
+        let o = p(&["--import-capture", "card.capture.json", "--out", "out.designos"]).unwrap();
+        assert!(o.is_agent_cli());
+        assert!(!o.wants_home());
+        assert_eq!(o.import_capture, Some("card.capture.json".into()));
+        assert_eq!(o.out, Some("out.designos".into()));
     }
 
     #[test]

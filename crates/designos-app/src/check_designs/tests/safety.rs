@@ -292,12 +292,12 @@ fn deleting_the_page_the_panel_checks_moves_the_panel_to_the_page_you_land_on() 
     let first = f.page;
     let mut app = f.app();
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert_eq!(app.check_designs.scope, Some(Scope::Page(first)));
     assert!(app.check_designs.report.findings.is_empty());
     assert!(app.delete_page(first));
     assert_eq!(app.page, second);
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert_eq!(app.check_designs.scope, Some(Scope::Page(second)));
     assert_eq!(app.check_designs.scope_label, "Page: Second");
     assert_eq!(app.check_designs.report.findings.len(), 1, "the panel lists the page that is on screen");
@@ -311,7 +311,7 @@ fn a_page_scope_on_a_page_that_still_exists_is_not_moved() {
     let mut app = f.app();
     app.open_check_designs();
     app.switch_page(second);
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert_eq!(app.check_designs.scope, Some(Scope::Page(first)), "the scope stays fixed while its page exists");
 }
 

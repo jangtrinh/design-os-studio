@@ -1,0 +1,103 @@
+{
+  "version": "2.21",
+  "name": "Fixture v2.21",
+  "themes": {
+    "Theme": ["Light", "Dark"],
+    "Density": ["Cozy", "Compact"]
+  },
+  "variables": {
+    "surface": {
+      "type": "color",
+      "value": [
+        { "theme": { "Theme": "Light" }, "value": "#FFFFFF" },
+        { "theme": { "Theme": "Dark" }, "value": "#0F172A" }
+      ]
+    },
+    "space-pad": {
+      "type": "number",
+      "value": [
+        { "theme": { "Density": "Cozy" }, "value": 20 },
+        { "theme": { "Density": "Compact" }, "value": 12 }
+      ]
+    },
+    "title-size": {
+      "type": "number",
+      "value": 18
+    }
+  },
+  "children": [
+    {
+      "id": "tag-text",
+      "type": "text",
+      "reusable": true,
+      "name": "Reusable Tag",
+      "content": "v2.21",
+      "fontFamily": "Inter",
+      "fontSize": "$title-size",
+      "fontWeight": 700,
+      "underline": true,
+      "href": "https://design-os.dev",
+      "fill": "#10B981"
+    },
+    {
+      "id": "panel-comp",
+      "type": "frame",
+      "reusable": true,
+      "name": "Panel",
+      "width": 320,
+      "height": 200,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": "$space-pad",
+      "fill": "$surface",
+      "stroke": {
+        "fill": "#334155",
+        "thickness": { "top": 1, "right": 2, "bottom": 3, "left": 4 },
+        "align": "outside",
+        "cap": "round",
+        "join": "bevel"
+      },
+      "children": [
+        {
+          "id": "panel-icon",
+          "type": "icon_font",
+          "name": "Search",
+          "iconFontFamily": "lucide",
+          "iconFontName": "search",
+          "width": 20,
+          "height": 20,
+          "fill": "#64748B"
+        },
+        {
+          "id": "panel-slot",
+          "type": "frame",
+          "name": "ContentSlot",
+          "placeholder": true,
+          "slot": ["tag-text"]
+        }
+      ]
+    },
+    {
+      "id": "panel-inst",
+      "type": "ref",
+      "ref": "panel-comp",
+      "name": "Panel Instance",
+      "x": 360,
+      "y": 0,
+      "descendants": {
+        "panel-slot": {
+          "children": [
+            {
+              "id": "slot-custom-label",
+              "type": "text",
+              "name": "Custom Slot Text",
+              "content": "Injected into slot",
+              "fontSize": 14,
+              "fill": "#0F172A"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

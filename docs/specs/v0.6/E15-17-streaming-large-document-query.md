@@ -4,7 +4,7 @@
 |---|---|
 | Epic / pack | E15 / v0.6 AI design |
 | Size / priority | M / P0 |
-| Depends on | E15-9 |
+| Depends on | E15-9, E15-11 |
 | Unblocks | part-2 E15-29 (S3 edits on large files), E15-16 follow-up calls |
 | Touches | `crates/designos-mcp/src/engine.rs` (`designos_query_xpath` dispatch only), new `crates/designos-mcp/src/tools/query.rs`, new `crates/designos-doc/src/query/` (streaming evaluator built from the legacy XPath parser), `crates/designos-mcp/src/server.rs` (`validate_document` layer limit) |
 
@@ -157,6 +157,7 @@ Seams: MCP test on the large fixture plus perf record; designos-doc unit tests f
 |---|---|
 | `paging_returns_each_text_once` | synthetic large fixture (README); `//TEXT` with limit 500, max_scanned 50,000, follow cursors to `done` → ids unique, count equals the number of text nodes from a direct count |
 | `clipped_text_query_matches_linter` | fixture with 12 truncated texts → `//TEXT[has-problem('text-truncated')]` ids == E15-9 `text-truncated` finding ids |
+| `hardcoded_query_matches_linter` | fixture with hard-coded fills matching variables → `//*[has-hardcoded('fills/0')]` ids == E15-11 `hardcoded-value` finding ids on `fills/0` |
 | `no_page_exceeds_budget` | every page reports `scanned ≤ max_scanned` (in units) and `rows ≤ limit` |
 | `cursor_stale_after_edit` | page 1, edit, page 2 with cursor → `CURSOR_STALE` |
 | `legacy_selectors_still_work` | `//FRAME[@name='Card']`, `//*[contains(@name,'btn')]` return the same ids as the legacy `query_xpath` |
@@ -171,7 +172,7 @@ Seams: MCP test on the large fixture plus perf record; designos-doc unit tests f
 
 ## 12. Dependencies and build order
 
-After E15-9 (problem predicates) and alongside T7.6 (tool declared). Before part-2 E15-29.
+After E15-9 (problem predicates) and E15-11 (`has-hardcoded` matcher; inside wave 3, E15-11 merges before E15-17), and alongside T7.6 (tool declared). Before part-2 E15-29.
 
 ## 13. Owner rulings
 

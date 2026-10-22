@@ -1,0 +1,1779 @@
+[
+  {
+    "name": "designos_get_document",
+    "description": "Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_get_libraries",
+    "description": "List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_get_metadata",
+    "description": "Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "include_hidden": {
+          "default": true,
+          "type": "boolean"
+        },
+        "lint": {
+          "default": false,
+          "type": "boolean"
+        },
+        "max_nodes": {
+          "default": 1000,
+          "maximum": 5000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "page_id": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_search_design_system",
+    "description": "Search components, component sets, shared styles, and variables across this file and its enabled libraries, returning ranked instance-ready references and NodeSpec examples.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kinds": {
+          "items": {
+            "enum": [
+              "component",
+              "style",
+              "variable"
+            ]
+          },
+          "type": "array"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "property": {
+          "description": "Bindable property key to filter variables by scope, e.g. fills/0, itemSpacing.",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_list_nodes",
+    "description": "List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parent_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "maxLength": 1024,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_get_node",
+    "description": "Read the full native node including geometry, paints, text, bindings, and child IDs.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_get_variables",
+    "description": "Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_generate_code",
+    "description": "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "fragment": {
+          "default": false,
+          "description": "When language is html, emit only <style> and the root element without <!doctype html>, <html>, <head>, or <body>.",
+          "type": "boolean"
+        },
+        "language": {
+          "enum": [
+            "css",
+            "tailwind",
+            "swiftui",
+            "uikit",
+            "compose",
+            "android-xml",
+            "react",
+            "html",
+            "svg"
+          ],
+          "type": "string"
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "language",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_create_node",
+    "description": "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "diff_image": {
+          "default": false,
+          "type": "boolean"
+        },
+        "fill": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "fills": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "height": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "frame",
+            "rectangle",
+            "ellipse",
+            "text"
+          ],
+          "type": "string"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
+        "name": {
+          "description": "Layer name; limited to 1024 UTF-8 bytes.",
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "parent_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "text": {
+          "description": "Plain text; limited to 100000 UTF-8 bytes.",
+          "maxLength": 100000,
+          "type": "string"
+        },
+        "width": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "x": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "parent_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_update_node",
+    "description": "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "diff_image": {
+          "default": false,
+          "type": "boolean"
+        },
+        "fill": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "fills": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "height": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
+        "name": {
+          "description": "Layer name; limited to 1024 UTF-8 bytes.",
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "opacity": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "text": {
+          "description": "Plain text; limited to 100000 UTF-8 bytes.",
+          "maxLength": 100000,
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "width": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "x": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_delete_node",
+    "description": "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "diff_image": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_list_comments",
+    "description": "List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind, and top-level frame ID/name. Filter by resolved state, page_id, or node_id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_add_comment",
+    "description": "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_reply_comment",
+    "description": "Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "text": {
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "thread_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "thread_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_resolve_comment",
+    "description": "Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "resolved": {
+          "default": true,
+          "type": "boolean"
+        },
+        "thread_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_apply_spec",
+    "description": "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.\n\nExamples:\n1) Token-bound frame with auto-layout:\n{\"parent_id\":1,\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"layout\":{\"direction\":\"column\",\"gap\":16,\"padding\":[24,24,24,24]},\"fill\":\"var:Color/Surface\",\"children\":[{\"kind\":\"text\",\"name\":\"Title\",\"text\":\"Welcome\"}]}}\n2) Component instance with variant and overrides:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"PrimaryCTA\",\"component\":\"Button\",\"variant\":{\"Size\":\"lg\",\"State\":\"default\"},\"overrides\":[{\"path\":\"Label\",\"text\":\"Continue\"}]}}\n3) Component instance with filled slots:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"SettingsCard\",\"component\":\"Card\",\"slots\":{\"header\":[{\"kind\":\"instance\",\"component\":\"CardHeader\"}],\"body\":[{\"kind\":\"instance\",\"component\":\"FormRow\"}],\"footer\":false}}}",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "diff_image": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
+        "parent_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "spec": {
+          "description": "Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_export_spec",
+    "description": "Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_set_dev_status",
+    "description": "Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation": {
+          "maxLength": 10000,
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "completed",
+            "clear",
+            "none"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_export_fig_file",
+    "description": "Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_path": {
+          "description": "Destination .fig path inside the workspace.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output_path"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_query_xpath",
+    "description": "Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant steps).\n\nExamples:\n1) Find instances by component name:\n{\"selector\":\"//INSTANCE[@component='Button']\"}\n2) Find text descendants inside a named frame:\n{\"selector\":\"//FRAME[@name='Hero']//TEXT\"}\n3) Find layers that have a fill:\n{\"selector\":\"//RECTANGLE[@fill]\",\"page_id\":1}",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Kind or name substring query (alternative to selector).",
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "selector": {
+          "description": "XPath-style selector (e.g. //FRAME[@name='Card']//TEXT).",
+          "maxLength": 1024,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_lint",
+    "description": "Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "include_ignored": {
+          "default": false,
+          "type": "boolean"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_ids": {
+          "items": {
+            "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "type": "array"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "preset": {
+          "default": "agent",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_get_guidelines",
+    "description": "List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules').",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "default": 8000,
+          "maximum": 25000,
+          "minimum": 500,
+          "type": "integer"
+        },
+        "platform": {
+          "default": "web",
+          "enum": [
+            "web",
+            "ios",
+            "android"
+          ],
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_import_web_capture",
+    "description": "Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable auto-layout frame tree in one undoable step, returning the ImportReport.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "capture": {
+          "description": "Inline web capture JSON object or JSON string (alternative to path)."
+        },
+        "infer_block_auto_layout": {
+          "default": true,
+          "type": "boolean"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path to a .webcapture.json or .capture.json file inside the workspace.",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1000000,
+          "minimum": -1000000,
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_undo",
+    "description": "Undo the latest successful edit in this session; returns changed=false if the stack is empty.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_lint_fix",
+    "description": "Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_ids": {
+          "items": {
+            "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "type": "array"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "preset": {
+          "default": "strict",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_redo",
+    "description": "Redo the most recently undone edit in this session; returns changed=false if the stack is empty.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_get_screenshot",
+    "description": "Render a node, a set of nodes on the same page, or a page-space rectangular region and return it inline as MCP image content (PNG or JPEG), automatically downsized to max_long_edge (default 1024).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "png",
+          "enum": [
+            "png",
+            "jpeg"
+          ]
+        },
+        "max_long_edge": {
+          "default": 1024,
+          "maximum": 4096,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_ids": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "type": "array"
+        },
+        "quality": {
+          "default": 80,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "region": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "page_id": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "width": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "height",
+            "page_id",
+            "width",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        },
+        "scale": {
+          "default": 0.5,
+          "maximum": 4,
+          "minimum": 0.25,
+          "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_set_in_progress",
+    "description": "Flag or clear root frames as in progress while an agent works on them (work state, not an undo step).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "force": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "node_ids": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "type": "array"
+        },
+        "stale_after_s": {
+          "maximum": 86400,
+          "minimum": 60,
+          "type": "integer"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "node_ids",
+        "value"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_apply_batch",
+    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "examples": [
+        {
+          "ops": [
+            {
+              "height": 64,
+              "kind": "frame",
+              "name": "Header",
+              "op": "create",
+              "parent": 1,
+              "width": 320
+            },
+            {
+              "kind": "text",
+              "name": "Title",
+              "op": "create",
+              "parent": "$prev",
+              "text": "Dashboard"
+            }
+          ]
+        },
+        {
+          "ops": [
+            {
+              "as": "hero",
+              "op": "apply_spec",
+              "parent": 1,
+              "spec": {
+                "children": [
+                  {
+                    "kind": "text",
+                    "name": "Child",
+                    "text": "Welcome"
+                  }
+                ],
+                "kind": "frame",
+                "name": "Hero"
+              }
+            },
+            {
+              "node": "@hero/Child",
+              "op": "update",
+              "opacity": 0.9
+            }
+          ]
+        },
+        {
+          "ops": [
+            {
+              "as": "card",
+              "op": "apply_spec",
+              "parent": 1,
+              "spec": {
+                "component": "Card",
+                "kind": "instance"
+              }
+            },
+            {
+              "fill": [
+                {
+                  "kind": "text",
+                  "name": "BodyText",
+                  "text": "Filled slot"
+                }
+              ],
+              "node": "@card",
+              "op": "set_slot",
+              "slot": "body"
+            }
+          ]
+        },
+        {
+          "dry_run": true,
+          "ops": [
+            {
+              "as": "preview",
+              "height": 80,
+              "kind": "rectangle",
+              "name": "PreviewBox",
+              "op": "insert",
+              "parent": 1,
+              "width": 160
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "diff_image": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dry_run": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "description": "Optional idempotency key (1..=128 chars in [A-Za-z0-9._:-]); a key names one logical write. After a reconnect, call designos_get_node before trusting a replayed id.",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+          "type": "string"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
+        "ops": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agent": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "apply": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "as": {
+                "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                "type": "string"
+              },
+              "delete": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "delete_variables": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "fill": {
+                "maxLength": 1024
+              },
+              "fills": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "force": {
+                "default": false,
+                "type": "boolean"
+              },
+              "height": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "number"
+              },
+              "in_progress": {
+                "type": "boolean"
+              },
+              "index": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "enum": [
+                  "frame",
+                  "rectangle",
+                  "ellipse",
+                  "text"
+                ],
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "node": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  }
+                ],
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+              },
+              "node_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  }
+                ],
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+              },
+              "node_ids": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              "nodes": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              "op": {
+                "enum": [
+                  "apply_spec",
+                  "insert",
+                  "create",
+                  "update",
+                  "move",
+                  "delete",
+                  "set_slot",
+                  "set_variables",
+                  "set_style",
+                  "set_in_progress"
+                ],
+                "type": "string"
+              },
+              "opacity": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              "parent": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  }
+                ],
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                    "type": "string"
+                  }
+                ],
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+              },
+              "run_id": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "slot": {
+                "type": "string"
+              },
+              "slots": {
+                "type": "object"
+              },
+              "spec": {
+                "type": "object"
+              },
+              "stale_after_s": {
+                "maximum": 86400,
+                "minimum": 60,
+                "type": "integer"
+              },
+              "status": {
+                "maxLength": 512,
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 100000,
+                "type": "string"
+              },
+              "upsert": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "upsert_collections": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "upsert_variables": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "value": {
+                "type": "boolean"
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "width": {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "maximum": 1000000,
+                "minimum": -1000000,
+                "type": "number"
+              },
+              "y": {
+                "maximum": 1000000,
+                "minimum": -1000000,
+                "type": "number"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "ops"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_get_design_context",
+    "description": "Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "include_screenshot": {
+          "default": true,
+          "type": "boolean"
+        },
+        "language": {
+          "default": "css",
+          "type": "string"
+        },
+        "node_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "react_tailwind": {
+          "default": false,
+          "type": "boolean"
+        },
+        "response_format": {
+          "default": "concise",
+          "enum": [
+            "concise",
+            "detailed"
+          ]
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_configure_session",
+    "description": "Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset | errors_only | off, issues.preset, issues.max_items: 1..=100) and auto_fix settings (auto_fix.mode: on | report_only | off, auto_fix.rules: sizing-conflict, hardcoded-value). Persists across reconnects in the session directory and resets on document switch.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_fix": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": [
+                "on",
+                "report_only",
+                "off"
+              ],
+              "type": "string"
+            },
+            "rules": {
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "issues": {
+          "additionalProperties": false,
+          "properties": {
+            "max_items": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            },
+            "preset": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_open_file",
+    "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "discard_changes": {
+          "default": false,
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_save_file",
+    "description": "Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "overwrite": {
+          "default": false,
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_render_png",
+    "description": "Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scale": {
+          "default": 1.0,
+          "maximum": 4.0,
+          "minimum": 0.25,
+          "type": "number"
+        }
+      },
+      "required": [
+        "node_id",
+        "path"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_new_document",
+    "description": "Start a blank document with one page. Unsaved changes require discard_changes=true.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "discard_changes": {
+          "default": false,
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  }
+]

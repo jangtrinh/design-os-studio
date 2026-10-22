@@ -160,6 +160,11 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     let added = d.nodes.len() - node_count;
     assert!(added >= 2, "card subtree must be inserted, got {added} new nodes");
 
+    // The card's EaseUI colours point at variables the editor now holds, so a theme change recolours it.
+    let card_fill_binding = d.get(card).unwrap().variables.bindings.get("fills/0").cloned().expect("the card fill is bound");
+    assert!(d.variables.contains_key(&card_fill_binding), "the editor lacks the variable {card_fill_binding} the card is bound to");
+    assert!(d.variable_collections.contains_key("easeui-deprecated"), "the EaseUI (deprecated) collection did not reach the editor");
+
     // The view did not jump (no fit-to-screen on an agent edit).
     assert_eq!(app.view.zoom, zoom);
     assert_eq!(app.view.offset, offset);
@@ -193,6 +198,7 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     assert!(app.hist.undo(&mut app.doc).expect("undo"), "the card is its own undo step");
     assert_eq!(app.doc.nodes.len(), node_count);
     assert!(app.doc.get(card).is_none());
+    assert!(app.doc.variable_collections.is_empty() && app.doc.variables.is_empty(), "undoing the card must remove the variables it brought");
     assert_eq!(app.doc.get(renamed).unwrap().name, "Screen 7");
     assert_eq!(app.doc.get(page).unwrap().children, page_children);
 
@@ -340,6 +346,101 @@ fn agent_undo_after_a_canvas_reload_never_touches_user_layers() {
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
+/// A small unscoped document with one frame, an app bound to a fresh session, and the canvas
+/// path the editor publishes to. The first publish already happened.
+fn small_published_app() -> (App, NodeId, std::path::PathBuf) {
+    let mut doc = Document::new("Unread edit");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 40.0, 40.0))).expect("frame");
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    let canvas = app.terminal.live_canvas_path.clone();
+    assert!(canvas.exists(), "precondition: the first publish wrote the canvas");
+    (app, frame, canvas)
+}
+
+#[test]
+fn the_editor_holds_its_canvas_back_while_an_agent_edit_is_unread_and_publishes_after_applying_it() {
+    let (mut app, frame, canvas) = small_published_app();
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+
+    // The user clicks a layer in the same frame: the publish key changed, but the agent's edit has
+    // not been read yet, so a canvas written now would lack it and look like the user's undo.
+    app.selection = vec![frame];
+    std::fs::remove_file(&canvas).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    assert!(!canvas.exists(), "the canvas must not be rewritten while an agent edit sits unread in the log");
+
+    // The same frame reads the log and applies the edit, which publishes the canvas with it.
+    let actions = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, actions);
+    let published = std::fs::read_to_string(&canvas).expect("the canvas is published after the edit was applied");
+    assert!(published.contains("Agent layer"), "the published canvas holds the agent's edit");
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back() {
+    let (mut app, frame, canvas) = small_published_app();
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let before = std::fs::read(&canvas).unwrap();
+    let before_mtime = std::fs::metadata(&canvas).unwrap().modified().unwrap();
+    let key_before = app.terminal.last_synced_key;
+
+    // The log is empty when the publish starts, so both checks before the rename pass; the agent
+    // appends once the temporary canvas file is complete.
+    crate::terminal::set_before_rename_test_hook(Box::new(move || {
+        session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Late agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+    }));
+    app.selection = vec![frame];
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+
+    assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
+    assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
+    assert_eq!(app.terminal.last_synced_key, key_before, "the publish is retried on a later frame");
+    let leftovers: Vec<_> =
+        std::fs::read_dir(canvas.parent().unwrap()).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains(".tmp.")).collect();
+    assert!(leftovers.is_empty(), "the temporary canvas file is removed: {leftovers:?}");
+
+    let actions = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, actions);
+    let published = std::fs::read_to_string(&canvas).expect("published after applying the edit");
+    assert!(published.contains("Late agent layer"));
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn a_partial_log_line_left_by_a_crashed_writer_does_not_block_the_canvas() {
+    use std::io::Write;
+    let (mut app, frame, canvas) = small_published_app();
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&app.terminal.live_patch.path).unwrap();
+    log.write_all(br#"{"v":1,"ops":[{"op":"remove","id":"#).unwrap();
+    drop(log);
+
+    app.selection = vec![frame];
+    std::fs::remove_file(&canvas).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    assert!(canvas.exists(), "a line without a newline is not an edit the editor can read: it must not hold the canvas back");
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&app.terminal.session_dir);
+}
+
 /// The same round trip on a real file: `DESIGNOS_LIVE_SYNC_FIG=<file.fig>` and, optionally,
 /// `DESIGNOS_LIVE_SYNC_OUT=<result.designos>` to save the edited document for a screenshot run
 /// (plus `<result>.card.png`, the agent's own render of the card on its next call).
@@ -400,6 +501,123 @@ fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
         std::fs::write(&out, app.doc.to_json().unwrap()).unwrap();
         std::fs::copy(workspace.join("card.png"), out.with_extension("card.png")).unwrap();
     }
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn bind_then_merge_then_export_spec_round_trips() {
+    use designos_doc::{Color, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let Fixture { mut doc, screens, .. } = big_fixture();
+    doc.variable_collections.insert(
+        "col:brand".into(),
+        VariableCollection {
+            id: "col:brand".into(),
+            name: "Brand".into(),
+            modes: vec![VariableMode { id: "m:default".into(), name: "Default".into() }],
+            default_mode: "m:default".into(),
+            variables: vec!["var:brand-primary".into(), "var:card-pad".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    doc.variables.insert(
+        "var:brand-primary".into(),
+        Variable {
+            id: "var:brand-primary".into(),
+            name: "brand/primary".into(),
+            collection: "col:brand".into(),
+            kind: VariableKind::Color,
+            values: [("m:default".to_string(), VariableValue::Color(Color::rgb(0xFF, 0x6A, 0x3D)))].into(),
+            description: String::new(),
+            scopes: vec!["ALL_FILLS".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    doc.variables.insert(
+        "var:card-pad".into(),
+        Variable {
+            id: "var:card-pad".into(),
+            name: "space/card-pad".into(),
+            collection: "col:brand".into(),
+            kind: VariableKind::Number,
+            values: [("m:default".to_string(), VariableValue::Number(24.0))].into(),
+            description: String::new(),
+            scopes: vec!["CORNER_RADIUS".into(), "GAP".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    doc.styles.insert("S:heading".into(), Style::Text(TextStyle { font_size: 28.0, font_weight: 700, ..Default::default() }));
+    doc.style_meta.insert("S:heading".into(), StyleMeta { name: "Heading/H1".into(), property: StyleProperty::Text, ..Default::default() });
+    assert!(doc.nodes.len() > 25_000, "must take the scoped canvas path");
+
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-bind-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+
+    // 1. Editor publishes the scoped canvas (which now carries variables & styles).
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+
+    // 2. Agent binds `var:brand/primary`, `var:space/card-pad`, and `text_style: "Heading/H1"` on the scoped canvas.
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let applied = session
+        .call(
+            "designos_apply_spec",
+            json!({
+                "spec": {
+                    "kind": "frame",
+                    "name": "Token Bound Card",
+                    "fill": "var:brand/primary",
+                    "corner_radius": "var:space/card-pad",
+                    "layout": { "direction": "column", "gap": "var:space/card-pad", "padding": [16.0, 16.0, 16.0, 16.0] },
+                    "children": [
+                        { "kind": "text", "name": "Hero Title", "text": "Scoped Tokens", "text_style": "Heading/H1" }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec with var: and text_style on scoped canvas");
+    assert_eq!(applied["bindings_created"], 6);
+    assert_eq!(applied["styles_linked"], 1);
+    assert_eq!(applied["warnings"], json!([]));
+    let card = NodeId(applied["root_node_id"].as_u64().expect("root_node_id"));
+
+    // 3. Editor replays the live patch into the full 25,000+ node document.
+    let actions = app.terminal.poll_live_agent_bridge();
+    assert!(!actions.is_empty());
+    crate::shell::execute_terminal_actions(&mut app, actions);
+
+    // 4. Verify unchanged token ids, no duplicates, and round-trip via export_spec.
+    let d = &app.doc;
+    assert_eq!(d.variable_collections.len(), 1);
+    assert_eq!(d.variables.len(), 2);
+    assert_eq!(d.styles.len(), 1);
+    assert_eq!(d.get(screens[0]).map(|n| n.children.len()), Some(RECTS_PER_SCREEN));
+    let card_node = d.get(card).expect("merged card node");
+    assert_eq!(card_node.variables.bindings.get("fills/0").map(String::as_str), Some("var:brand-primary"));
+    assert_eq!(card_node.variables.bindings.get("topLeftRadius").map(String::as_str), Some("var:card-pad"));
+    assert_eq!(card_node.variables.bindings.get("itemSpacing").map(String::as_str), Some("var:card-pad"));
+    let title_id = card_node.children[0];
+    let title_node = d.get(title_id).expect("merged title node");
+    assert_eq!(title_node.style_refs.get("text").map(String::as_str), Some("S:heading"));
+
+    let exported = d.export_spec(card).expect("export_spec");
+    assert_eq!(exported.fill.as_deref(), Some("var:Brand/brand/primary"));
+    assert_eq!(exported.children[0].text_style.as_deref(), Some("Heading/H1"));
+
     app.terminal.shutdown();
     let _ = std::fs::remove_dir_all(&session_dir);
     let _ = std::fs::remove_dir_all(&workspace);

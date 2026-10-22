@@ -26,13 +26,14 @@ fn soft_shadow(alpha: f32) -> Effect {
 #[test]
 fn a_text_style_matched_only_after_a_dark_mode_font_size_resolves_is_fixable() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let size = f.number_var("Size/Title", 16.0, 32.0);
     let frame = dark_frame(&mut f);
     let title = f.text(frame, "Title", 16.0, 700, gray(0xEE));
     f.doc.get_mut(title).unwrap().variables.bindings.insert("fontSize".into(), size);
     f.style("Title", "Heading/Title", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
     let mut app = f.app();
-    let finding = fix_of(&app, Rule::HardCodedValue);
+    let finding = fix_of(&app, Rule::TextStyles);
     assert_eq!(finding.node, title);
     assert_eq!(finding.fix, Some(Fix::ApplyStyle { style: "Title".into() }));
     assert!(app.check_designs_fix(&finding), "the button must apply what the row offered");
@@ -66,14 +67,48 @@ fn an_effect_style_matched_only_after_an_opacity_binding_resolves_is_fixable() {
 #[test]
 fn a_style_fix_found_in_dark_is_refused_once_the_frame_is_back_in_light() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let size = f.number_var("Size/Title", 16.0, 32.0);
     let frame = dark_frame(&mut f);
     let title = f.text(frame, "Title", 16.0, 700, gray(0xEE));
     f.doc.get_mut(title).unwrap().variables.bindings.insert("fontSize".into(), size);
     f.style("Title", "Heading/Title", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
     let mut app = f.app();
-    let finding = fix_of(&app, Rule::HardCodedValue);
+    let finding = fix_of(&app, Rule::TextStyles);
     app.doc.get_mut(frame).unwrap().variables.modes.clear();
     assert!(!app.check_designs_fix(&finding), "in Light the layer is 16px, so the 32px style no longer equals it");
     assert!(!app.hist.can_undo());
+}
+
+#[test]
+fn bound_font_size_resolving_differently_still_offers_the_style() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
+    let size = f.number_var("Size/Title", 16.0, 32.0);
+    let frame = dark_frame(&mut f);
+    let title = f.text(frame, "Title", 16.0, 700, gray(0xEE));
+    f.doc.get_mut(title).unwrap().variables.bindings.insert("fontSize".into(), size);
+    f.style("Title", "Heading/Title", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
+
+    let finding = only(&f.report(), Rule::TextStyles);
+    assert_eq!(finding.node, title);
+    assert_eq!(finding.fix, Some(Fix::ApplyStyle { style: "Title".into() }));
+    assert!(super::super::hardcoded::style_is_current(&f.doc, title, "Title"));
+}
+
+#[test]
+fn bound_font_size_in_place_still_offers_and_applies_text_style() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
+    let size = f.number_var("Size/Title", 32.0, 32.0);
+    let title = f.text(f.page, "Title", 32.0, 700, gray(0x11));
+    f.doc.get_mut(title).unwrap().variables.bindings.insert("fontSize".into(), size);
+    f.style("H1", "Heading/H1", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
+
+    let mut app = f.app();
+    let finding = fix_of(&app, Rule::TextStyles);
+    assert_eq!(finding.node, title);
+    assert_eq!(finding.fix, Some(Fix::ApplyStyle { style: "H1".into() }));
+    assert!(app.check_designs_fix(&finding), "ApplyStyle must apply even when fontSize is bound in place (#158)");
+    assert_eq!(app.doc.get(title).unwrap().style_refs.get("text").map(String::as_str), Some("H1"));
 }

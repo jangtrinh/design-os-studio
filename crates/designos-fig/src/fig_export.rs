@@ -129,6 +129,14 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     Ok(container::write_zip(&canvas, &doc.images, Some(&meta)))
 }
 
+/// Serializes `doc` into a `.fig` binary archive and returns a sibling report of any variable or
+/// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
+pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
+    let bytes = export_fig(doc)?;
+    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    Ok((bytes, omitted))
+}
+
 // ------------------------------------------------------------------ state & IDs
 
 struct ExportCtx<'a> {
@@ -157,10 +165,37 @@ fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
     }
     let session = a.parse::<u32>().ok()?;
     let local = b.parse::<u32>().ok()?;
-    if session == 0 && (local == 0 || local == 999_999) {
+    if (session == 0 && (local == 0 || local == 999_999)) || (session == u32::MAX && local == u32::MAX) {
         return None;
     }
     Some((session, local))
+}
+
+/// Fallback component key for `id` when no explicit `componentKey` or library key is present.
+/// Uses the bare `"{s}:{l}"` GUID string unless another component already owns that string, in
+/// which case it disambiguates as `"comp:{s}:{l}"`, `"comp:{s}:{l}:2"`, `"comp:{s}:{l}:3"`, …
+fn fallback_component_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<String> {
+    if let Some(k) = cx.comp_keys.get(&id) {
+        return Some(k.clone());
+    }
+    let g = cx.node_guids.get(&id)?;
+    let taken_by_other = |candidate: &str| cx.comp_keys.iter().any(|(&other_id, k)| other_id != id && k == candidate);
+    let bare = format!("{}:{}", g.0, g.1);
+    if !taken_by_other(&bare) {
+        return Some(bare);
+    }
+    let prefixed = format!("comp:{}:{}", g.0, g.1);
+    if !taken_by_other(&prefixed) {
+        return Some(prefixed);
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("comp:{}:{}:{n}", g.0, g.1);
+        if !taken_by_other(&candidate) {
+            return Some(candidate);
+        }
+        n += 1;
+    }
 }
 
 impl<'a> ExportCtx<'a> {
@@ -168,6 +203,7 @@ impl<'a> ExportCtx<'a> {
         let mut used = HashSet::new();
         used.insert((0, 0));
         used.insert((0, 999_999));
+        used.insert((u32::MAX, u32::MAX));
         let nc_def = schema.find("NodeChange").unwrap_or(0);
         let mut cx = Self {
             doc,
@@ -186,6 +222,11 @@ impl<'a> ExportCtx<'a> {
             blobs: Vec::new(),
             changes: Vec::new(),
         };
+        let bump_next_local = |next_local: &mut u32, local: u32| {
+            if let Some(next) = local.checked_add(1) {
+                *next_local = (*next_local).max(next);
+            }
+        };
         // First pass: reserve explicit `s:l` GUIDs so generated ones never collide.
         for (&id, n) in &doc.nodes {
             if doc.library_page.is_some_and(|lp| n.parent == Some(lp)) && n.source_id.as_deref().is_some_and(|sid| doc.styles.contains_key(sid)) {
@@ -193,7 +234,7 @@ impl<'a> ExportCtx<'a> {
             }
             if let Some(g) = n.source_id.as_deref().and_then(parse_guid_pair) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.node_guids.insert(id, g);
                 }
             }
@@ -201,7 +242,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variable_collections.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.coll_guids.insert(id.clone(), g);
                 }
             }
@@ -210,7 +251,7 @@ impl<'a> ExportCtx<'a> {
             for m in &c.modes {
                 if let Some(g) = parse_guid_pair(&m.id) {
                     if cx.used_guids.insert(g) {
-                        cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                        bump_next_local(&mut cx.next_local, g.1);
                         cx.mode_guids.insert(m.id.clone(), g);
                     }
                 }
@@ -219,7 +260,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variables.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.var_guids.insert(id.clone(), g);
                 }
             }
@@ -227,7 +268,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.styles.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.style_guids.insert(id.clone(), g);
                 }
             }
@@ -300,10 +341,14 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
-        for (&id, n) in &doc.nodes {
-            if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) && !cx.comp_keys.contains_key(&id) {
-                let g = cx.node_guids[&id];
-                cx.comp_keys.insert(id, format!("{}:{}", g.0, g.1));
+        let mut comp_ids: Vec<NodeId> =
+            doc.nodes.iter().filter_map(|(&id, n)| matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)).then_some(id)).collect();
+        comp_ids.sort_by_key(|id| id.0);
+        for id in comp_ids {
+            if !cx.comp_keys.contains_key(&id) {
+                if let Some(key) = fallback_component_key(&cx, id) {
+                    cx.comp_keys.insert(id, key);
+                }
             }
         }
         grid::allocate(&mut cx);
@@ -313,7 +358,7 @@ impl<'a> ExportCtx<'a> {
     fn alloc_guid(&mut self, session: u32) -> (u32, u32) {
         loop {
             let g = (session, self.next_local);
-            self.next_local += 1;
+            self.next_local = self.next_local.wrapping_add(1).max(1);
             if self.used_guids.insert(g) {
                 return g;
             }
@@ -387,7 +432,38 @@ fn pos_str(idx: usize) -> String {
 fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
     let mut cx = ExportCtx::new(doc, schema);
     // 1. Root DOCUMENT record.
-    cx.changes.push(msg(vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))]));
+    let mut doc_fields = vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))];
+    let mut doc_pd = Vec::new();
+    if !doc.check_designs.ignored.is_empty() {
+        let ignores: Vec<serde_json::Value> = doc
+            .check_designs
+            .ignored
+            .iter()
+            .map(|key| {
+                let guid_str = cx.node_guids.get(&key.node).map(|&(s, l)| format!("{s}:{l}"));
+                json!({
+                    "rule": key.rule,
+                    "node": key.node.0,
+                    "guid": guid_str,
+                    "property": key.property,
+                })
+            })
+            .collect();
+        if let Ok(serialized) = serde_json::to_string(&ignores) {
+            doc_pd.push(msg(vec![("pluginID", V::String("designos".into())), ("key", V::String("lint_ignores".into())), ("value", V::String(serialized))]));
+        }
+    }
+    if let Some(auto_fix) = &doc.auto_fix {
+        if !auto_fix.is_empty() {
+            if let Ok(serialized) = serde_json::to_string(auto_fix) {
+                doc_pd.push(msg(vec![("pluginID", V::String("designos".into())), ("key", V::String("auto_fix".into())), ("value", V::String(serialized))]));
+            }
+        }
+    }
+    if !doc_pd.is_empty() {
+        doc_fields.push(("pluginData", V::Array(doc_pd)));
+    }
+    cx.changes.push(msg(doc_fields));
 
     // 2. User pages (CANVAS records) and their subtrees.
     for (pidx, &pid) in doc.pages.iter().enumerate() {
@@ -576,9 +652,11 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
 
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
     let styles: Vec<(String, Style)> = cx.doc.styles.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let empty_bindings = BTreeMap::new();
     for (sid, style) in styles {
         let sguid = cx.style_guids[&sid];
         let meta = cx.doc.style_meta.get(&sid);
+        let bindings = meta.map(|m| &m.bindings).unwrap_or(&empty_bindings);
         let name = cx.doc.style_name(&sid).to_string();
         let desc = meta.map(|m| m.description.clone()).unwrap_or_default();
         let (node_ty, style_ty) = match &style {
@@ -602,13 +680,18 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         }
         match &style {
             Style::Fill(paints) => {
-                fields.push(("fillPaints", V::Array(paints.iter().map(|p| encode_paint(p, None, None)).collect())));
+                fields
+                    .push(("fillPaints", V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect())));
             }
             Style::Text(ts) => {
                 append_text_style_fields(&mut fields, ts);
+                let var_entries = encode_var_entries_from_bindings(cx, bindings);
+                if !var_entries.is_empty() {
+                    fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
+                }
             }
             Style::Effect(effects) => {
-                fields.push(("effects", V::Array(effects.iter().map(|e| encode_effect(e, None, None)).collect())));
+                fields.push(("effects", V::Array(effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, bindings)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -694,7 +777,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let mut pd_entries: Vec<V> = node
         .plugin_data
         .iter()
-        .filter(|(full_key, _)| !is_studio_carrier_key(full_key))
+        .filter(|(full_key, _)| !is_studio_carrier_key(full_key) && *full_key != "designos:in_progress")
         .map(|(full_key, val)| {
             let mut m = Vec::with_capacity(3);
             if let Some((pid, key)) = full_key.split_once(':') {
@@ -715,6 +798,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if let Some(id) = node.component.slot_content_id.as_deref().filter(|s| !s.is_empty()) {
         pd_entries.push(studio_entry(STUDIO_SLOT_CONTENT_ID_KEY, id.to_string()));
+    }
+    if let Some(ip) = cx.doc.in_progress.get(&id) {
+        if let Ok(val) = serde_json::to_string(ip) {
+            pd_entries.push(msg(vec![("pluginID", V::String("designos".into())), ("key", V::String("in_progress".into())), ("value", V::String(val))]));
+        }
     }
     if !node.component.description.is_empty() {
         fields.push(("symbolDescription", V::String(node.component.description.clone())));
@@ -748,18 +836,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("sectionStatusInfo", msg(vec![("status", en(st_name))])));
     }
 
-    // Fills & strokes (with bound colorVar when present).
-    let fill_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("fills/{i}"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let stroke_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("strokes/{i}"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let opacity_var = |list: &str, i: usize| -> Option<V> { cx.opacity_var_data(&node.variables, &format!("{list}/{i}/opacity")) };
+    // Fills & strokes (with bound colorVar / stopsVar / opacityVar when present).
     let sticky_fill_buf;
     let fills_slice: &[Paint] = match &node.kind {
         NodeKind::Text(t) => &t.style.fills,
@@ -769,10 +846,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         _ => &node.fills,
     };
-    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint(p, fill_color_var(i), opacity_var("fills", i))).collect();
+    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings)).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> = node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint(p, stroke_color_var(i), opacity_var("strokes", i))).collect();
+    let stroke_paints: Vec<V> =
+        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
     fields.push(("strokePaints", V::Array(stroke_paints)));
     fields.push(("strokeWeight", fl(node.stroke.weight)));
     fields.push((
@@ -814,12 +892,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     // Effects.
-    let effect_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("effects/{i}/color"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, &node.variables.bindings)).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -1401,9 +1474,34 @@ fn clears_inherited_auto_layout(n: &Node) -> bool {
 }
 
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
+    encode_var_entries_from_bindings(cx, &vars.bindings)
+}
+
+fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, String>) -> Vec<V> {
     let mut var_entries = Vec::new();
-    for (k, vid) in &vars.bindings {
+    let mut font_style_done = false;
+    for (k, vid) in bindings {
         if k.starts_with("fills/") || k.starts_with("strokes/") || k.starts_with("effects/") {
+            continue;
+        }
+        if k == "fontWeight" || k == "fontStyle" {
+            if font_style_done {
+                continue;
+            }
+            font_style_done = true;
+            let mut fs_fields = Vec::new();
+            if let Some(vg) = bindings.get("fontStyle").and_then(|v| cx.resolve_var_guid(v)) {
+                fs_fields.push(("asString", alias_var_data(vg)));
+            }
+            if let Some(vg) = bindings.get("fontWeight").and_then(|v| cx.resolve_var_guid(v)) {
+                fs_fields.push(("asFloat", alias_var_data(vg)));
+            }
+            if !fs_fields.is_empty() {
+                var_entries.push(msg(vec![
+                    ("variableField", en("FONT_STYLE")),
+                    ("variableData", msg(vec![("dataType", en("FONT_STYLE")), ("value", msg(vec![("fontStyleValue", msg(fs_fields))]))])),
+                ]));
+            }
             continue;
         }
         let Some(vg) = cx.resolve_var_guid(vid) else { continue };
@@ -1435,7 +1533,6 @@ fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
             "strokeLeftWeight" => "BORDER_LEFT_WEIGHT",
             "fontSize" => "FONT_SIZE",
             "fontFamily" => "FONT_FAMILY",
-            "fontWeight" => "FONT_STYLE",
             "lineHeight" => "LINE_HEIGHT",
             "letterSpacing" => "LETTER_SPACING",
             "paragraphSpacing" => "PARAGRAPH_SPACING",
@@ -1685,6 +1782,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     }
                 }
             }
+            if ovs.contains(&OverrideField::SlotContent) {
+                carried.push(("slotContent", serde_json::Value::Bool(true)));
+            }
             let ve = encode_node_var_entries(cx, &n.variables);
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
@@ -1839,6 +1939,41 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 }
 
 fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
+    encode_paint_full(p, color_var, opacity_var, None)
+}
+
+fn encode_paint_with_bindings(cx: &ExportCtx, p: &Paint, prefix: &str, idx: usize, bindings: &BTreeMap<String, String>) -> V {
+    let color_var = bindings.get(&format!("{prefix}/{idx}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
+    let opacity_var = bindings.get(&format!("{prefix}/{idx}/opacity")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
+    let stops_slice = match &p.kind {
+        PaintKind::LinearGradient { stops, .. }
+        | PaintKind::RadialGradient { stops, .. }
+        | PaintKind::AngularGradient { stops, .. }
+        | PaintKind::DiamondGradient { stops, .. } => Some(stops.as_slice()),
+        _ => None,
+    };
+    let stops_var = stops_slice.and_then(|stops| {
+        let has_any = (0..stops.len()).any(|j| bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)).is_some());
+        if !has_any {
+            return None;
+        }
+        let sv: Vec<V> = stops
+            .iter()
+            .enumerate()
+            .map(|(j, s)| {
+                let mut f = vec![("color", color(s.color.r, s.color.g, s.color.b, s.color.a)), ("position", fl(s.pos))];
+                if let Some(vg) = bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)) {
+                    f.push(("colorVar", alias_var_data(vg)));
+                }
+                msg(f)
+            })
+            .collect();
+        Some(V::Array(sv))
+    });
+    encode_paint_full(p, color_var, opacity_var, stops_var)
+}
+
+fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, stops_var: Option<V>) -> V {
     let mut fields = Vec::new();
     let push_grad = |fields: &mut Vec<(&str, V)>, ty: &str, handles: &[Vec2; 3], stops: &[GradientStop]| {
         fields.push(("type", en(ty)));
@@ -1881,10 +2016,34 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     if let Some(ov) = opacity_var {
         fields.push(("opacityVar", ov));
     }
+    if let Some(sv) = stops_var {
+        fields.push(("stopsVar", sv));
+    }
     msg(fields)
 }
 
 fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
+    encode_effect_full(e, color_var, opacity_var, None, None, None, None)
+}
+
+fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings: &BTreeMap<String, String>) -> V {
+    let var_data = |prop: &str| -> Option<V> {
+        let vid = bindings.get(&format!("effects/{idx}/{prop}"))?;
+        let vg = cx.resolve_var_guid(vid)?;
+        Some(alias_var_data(vg))
+    };
+    encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
+}
+
+fn encode_effect_full(
+    e: &Effect,
+    color_var: Option<V>,
+    opacity_var: Option<V>,
+    radius_var: Option<V>,
+    spread_var: Option<V>,
+    x_var: Option<V>,
+    y_var: Option<V>,
+) -> V {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
             ("type", en("DROP_SHADOW")),
@@ -1955,6 +2114,18 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V 
     }
     if let Some(ov) = opacity_var {
         fields.push(("effectOpacityVar", ov));
+    }
+    if let Some(rv) = radius_var {
+        fields.push(("radiusVar", rv));
+    }
+    if let Some(sv) = spread_var {
+        fields.push(("spreadVar", sv));
+    }
+    if let Some(xv) = x_var {
+        fields.push(("xVar", xv));
+    }
+    if let Some(yv) = y_var {
+        fields.push(("yVar", yv));
     }
     msg(fields)
 }
@@ -2053,7 +2224,7 @@ fn encode_preferred_values(cx: &ExportCtx, preferred: &[NodeId]) -> Option<V> {
             NodeKind::ComponentSet(_) => "STATE_GROUP",
             _ => "COMPONENT",
         };
-        let key = cx.comp_keys.get(pid).cloned().or_else(|| cx.node_guids.get(pid).map(|g| format!("{}:{}", g.0, g.1)))?;
+        let key = fallback_component_key(cx, *pid)?;
         swap_vals.push(msg(vec![("type", en(ty)), ("key", V::String(key))]));
     }
     if swap_vals.is_empty() {

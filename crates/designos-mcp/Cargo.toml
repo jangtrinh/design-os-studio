@@ -9,15 +9,25 @@ default-run = "designos-mcp"
 name = "designos-mcp"
 path = "src/main.rs"
 
+[[bin]]
+name = "gen-tool-docs"
+path = "src/bin/gen-tool-docs.rs"
+
 [dependencies]
-designos-doc.workspace = true
+designos-diff.workspace = true
+designos-doc = { workspace = true, features = ["schema"] }
 designos-export.workspace = true
 designos-fig.workspace = true
 designos-library.workspace = true
+designos-webcapture.workspace = true
+designos-render.workspace = true
+schemars = "1"
 serde.workspace = true
 serde_json.workspace = true
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [dev-dependencies]
+jsonschema = { version = "0.59", default-features = false }
+quick-xml = "0.41"
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }

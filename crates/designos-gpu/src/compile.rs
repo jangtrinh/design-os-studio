@@ -77,6 +77,9 @@ pub struct CompileOptions {
     /// including root program 0) are capped at this count backstop alongside
     /// `refine_vram_budget_bytes`. Ignored by capped and headless compiles.
     pub refine_max_programs: usize,
+    /// Runtime-only per-node opacity multipliers (`0.0..=1.0`) applied during
+    /// interactive canvas rendering without mutating `Document` or bumping `rev`.
+    pub runtime_node_opacities: Vec<(NodeId, f32)>,
 }
 
 impl Default for CompileOptions {
@@ -88,6 +91,7 @@ impl Default for CompileOptions {
             uncap_programs: false,
             refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
             refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
+            runtime_node_opacities: Vec::new(),
         }
     }
 }
@@ -775,7 +779,8 @@ impl Ctx<'_> {
             })
             .fold(0.0f32, f32::max);
         let special = special_blend(n.blend);
-        let opacity = n.opacity.clamp(0.0, 1.0);
+        let runtime_mul = self.opts.runtime_node_opacities.iter().find(|&&(id, _)| id == n.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let opacity = (n.opacity * runtime_mul).clamp(0.0, 1.0);
         if opacity <= 0.0 && !special {
             return;
         }

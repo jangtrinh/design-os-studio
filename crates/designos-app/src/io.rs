@@ -100,47 +100,71 @@ fn parse_native_with_warning(path: &Path, text: &str, record_once: bool) -> serd
     Ok((doc, warning))
 }
 
+fn import_pen_with_options(raw: &str, opts: &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String> {
+    let report = designos_fig::import_pen_json_report(raw, opts)?;
+    let joined = if report.warnings.is_empty() { None } else { Some(report.warnings.iter().map(|w| w.message.as_str()).collect::<Vec<_>>().join("; ")) };
+    Ok((report.doc, joined))
+}
+
 /// Loads a document from disk, dispatching on the file extension. Import warnings go to stderr;
 /// use [`load_path_with_warning`] where the user should see them.
 pub fn load_path(path: &Path) -> Result<Document, String> {
-    let (doc, warning) = load_path_importing_pen_with_mode(path, designos_fig::import_pen_json_with_warnings, false)?;
+    let (doc, warning) = load_path_importing_pen_with_mode(path, import_pen_with_options, false)?;
     if let Some(w) = warning {
         eprintln!("designos: {}: {w}", path.display());
     }
     Ok(doc)
 }
 
+/// Opens any supported document format (`.designos`, `.fig`, `.pen`, `.svg`, Figma REST `.json`,
+/// or `.webcapture.json` / `.capture.json`) into a [`Document`].
+#[allow(dead_code)]
+pub fn open_any(path: &Path) -> Result<Document, String> {
+    load_path(path)
+}
+
+/// Returns `true` if `path` has a `.capture.json` or `.webcapture.json` filename or `.webcapture` extension.
+pub fn is_web_capture_path(path: &Path) -> bool {
+    let lower = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
+    lower.ends_with(".capture.json") || lower.ends_with(".webcapture.json") || lower.ends_with(".webcapture")
+}
+
 /// Like [`load_path`], but also returns the non-fatal import or repair warning, if any: a `.pen`
 /// file whose `ref` expansion hit the clone budget or a native `.designos` file whose node graph
 /// needed structural repair on load still opens, and reports what changed.
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
-    load_path_importing_pen_with(path, designos_fig::import_pen_json_with_warnings)
+    load_path_importing_pen_with(path, import_pen_with_options)
 }
 
 /// [`load_path_with_warning`] with the `.pen` importer injected, so a test can produce a warning
 /// without a document that really exhausts the import's clone budget.
 fn load_path_importing_pen_with(
     path: &Path,
-    import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+    import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
 ) -> Result<(Document, Option<String>), String> {
     load_path_importing_pen_with_mode(path, import_pen, true)
 }
 
 fn load_path_importing_pen_with_mode(
     path: &Path,
-    import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+    import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
     record_once: bool,
 ) -> Result<(Document, Option<String>), String> {
     let mut warning = None;
+    let pen_opts = designos_fig::PenImportOptions { base_dir: path.parent().map(Path::to_path_buf) };
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let mut doc = match ext.as_str() {
         "fig" => {
             let bytes = std::fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            designos_fig::import_fig(&bytes).map_err(|e| format!("Cannot import .fig: {e}"))?
+            let (d, report) = designos_fig::import_fig_with_report(&bytes).map_err(|e| format!("Cannot import .fig: {e}"))?;
+            if report.instances_left_unexpanded > 0 {
+                warning = Some(clone_budget_notice(report.instances_left_unexpanded));
+            }
+            d
         }
         "pen" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            let (mut d, w) = import_pen(&text).map_err(|e| format!("Cannot import .pen: {e}"))?;
+            let (mut d, w) = import_pen(&text, &pen_opts).map_err(|e| format!("Cannot import .pen: {e}"))?;
             warning = w;
             if d.name.is_empty() || d.name == "Pencil Document" {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -149,31 +173,46 @@ fn load_path_importing_pen_with_mode(
             }
             d
         }
+        "webcapture" => {
+            let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+            designos_fig::import_web_capture_json(&text).map_err(|e| format!("Cannot import web capture: {e}"))?
+        }
         "json" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            match designos_fig::import_rest_json(&text) {
-                Ok(mut d) => {
-                    // A number that overflowed `f32` on import is infinity here. Neutralize only the
-                    // affected entries in place without re-parsing the whole document or running
-                    // `migrate_text`.
-                    let replaced = d.neutralize_non_finite();
-                    if replaced > 0 {
-                        warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
+            if is_web_capture_path(path) || designos_fig::looks_like_web_capture_json(&text) {
+                designos_fig::import_web_capture_json(&text).map_err(|e| format!("Cannot import web capture: {e}"))?
+            } else {
+                match designos_fig::import_rest_json_with_report(&text) {
+                    Ok((mut d, report)) => {
+                        // A number that overflowed `f32` on import is infinity here. Neutralize only the
+                        // affected entries in place without re-parsing the whole document or running
+                        // `migrate_text`.
+                        let replaced = d.neutralize_non_finite();
+                        if replaced > 0 {
+                            warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
+                        }
+                        if report.instances_left_unexpanded > 0 {
+                            let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
+                            warning = Some(match warning {
+                                Some(prev) => format!("{prev} {budget_msg}"),
+                                None => budget_msg,
+                            });
+                        }
+                        d
                     }
-                    d
+                    Err(fig_err) => match import_pen(&text, &pen_opts) {
+                        Ok((d, w)) => {
+                            warning = w;
+                            d
+                        }
+                        Err(_) => {
+                            let (d, w) = parse_native_with_warning(path, &text, record_once)
+                                .map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?;
+                            warning = w;
+                            d
+                        }
+                    },
                 }
-                Err(fig_err) => match import_pen(&text) {
-                    Ok((d, w)) => {
-                        warning = w;
-                        d
-                    }
-                    Err(_) => {
-                        let (d, w) = parse_native_with_warning(path, &text, record_once)
-                            .map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?;
-                        warning = w;
-                        d
-                    }
-                },
             }
         }
         "svg" => {
@@ -201,6 +240,12 @@ fn load_path_importing_pen_with_mode(
     }
     ensure_page(&mut doc);
     Ok((doc, warning))
+}
+
+/// Formats the user-facing warning when `unexpanded` component instances were skipped
+/// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
+pub fn clone_budget_notice(unexpanded: usize) -> String {
+    format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -284,7 +329,8 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
     }
     let mut replaced = 0;
     let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
-        designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?
+        let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
+        bytes
     } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
         designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
     } else {
@@ -303,13 +349,18 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
 
 pub fn pick_open() -> Option<PathBuf> {
     rfd::FileDialog::new()
-        .add_filter("Design files", &[NATIVE_EXT, LEGACY_EXT, "fig", "pen", "json", "svg"])
+        .add_filter("Design files", &[NATIVE_EXT, LEGACY_EXT, "fig", "pen", "json", "webcapture", "svg"])
         .add_filter("design:os studio", &[NATIVE_EXT, LEGACY_EXT])
         .add_filter("Figma file", &["fig"])
         .add_filter("Pencil file", &["pen"])
+        .add_filter("Web capture", &["json", "webcapture"])
         .add_filter("SVG", &["svg"])
         .add_filter("JSON", &["json"])
         .pick_file()
+}
+
+pub fn pick_web_capture() -> Option<PathBuf> {
+    rfd::FileDialog::new().add_filter("Web capture (.capture.json, .webcapture.json)", &["json", "webcapture"]).pick_file()
 }
 
 pub fn pick_save(default_name: &str) -> Option<PathBuf> {
@@ -359,7 +410,7 @@ mod tests {
 
     #[test]
     fn an_import_warning_is_returned_for_pen_files_and_for_pen_text_in_a_json_file() {
-        let warn = |_: &str| Ok((Document::new("Pencil Document"), Some("3 instance(s) left unexpanded".to_string())));
+        let warn = |_: &str, _: &designos_fig::PenImportOptions| Ok((Document::new("Pencil Document"), Some("3 instance(s) left unexpanded".to_string())));
         for name in ["warned.pen", "warned.json"] {
             let p = tmp(name);
             std::fs::write(&p, r#"{"version":"1.0","children":[]}"#).unwrap();
@@ -960,5 +1011,172 @@ mod tests {
             .unwrap();
         assert_eq!(text_overflow.content, text_clean.content, "overflow neutralization must not strip literal bullets via migrate_text");
         assert_eq!(text_overflow.lists, text_clean.lists);
+    }
+
+    #[test]
+    fn load_path_resolves_relative_pen_library_imports_and_images_via_base_dir() {
+        let dir = std::env::temp_dir().join(format!("designos_io_pen_basedir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+
+        let png_bytes = b"\x89PNG\r\n\x1a\nfake_png_payload";
+        std::fs::write(dir.join("img/hero.png"), png_bytes).unwrap();
+
+        let lib_pen = r##"{
+            "version": "2.21",
+            "children": [
+                {
+                    "id": "lib-btn",
+                    "type": "frame",
+                    "reusable": true,
+                    "name": "LibButton",
+                    "width": 160,
+                    "height": 44,
+                    "fill": "#2563EB",
+                    "children": [
+                        {
+                            "id": "lib-btn-label",
+                            "type": "text",
+                            "content": "Click me"
+                        }
+                    ]
+                }
+            ]
+        }"##;
+        std::fs::write(dir.join("lib.pen"), lib_pen).unwrap();
+
+        let main_pen = r##"{
+            "version": "2.21",
+            "imports": { "ui": "lib.pen" },
+            "children": [
+                {
+                    "id": "btn-use",
+                    "type": "ref",
+                    "ref": "ui:lib-btn"
+                },
+                {
+                    "id": "hero-banner",
+                    "type": "rectangle",
+                    "width": 320,
+                    "height": 180,
+                    "fill": { "type": "image", "url": "img/hero.png", "mode": "fill" }
+                }
+            ]
+        }"##;
+        let main_path = dir.join("a.pen");
+        std::fs::write(&main_path, main_pen).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&main_path).expect("load_path_with_warning on a.pen");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(warning.is_none(), "expected no import warning (especially no 'without PenImportOptions::base_dir'), got: {warning:?}");
+        let inst = doc.nodes.values().find(|n| n.source_id.as_deref() == Some("btn-use")).expect("btn-use instance node");
+        assert!(matches!(inst.kind, designos_doc::NodeKind::Instance { component: Some(_), .. }), "library ref ui:lib-btn must resolve to a cloned component");
+        assert!(!inst.children.is_empty(), "library ref ui:lib-btn must expand its children");
+        assert!(!doc.images.is_empty(), "relative image img/hero.png must be loaded into doc.images");
+    }
+
+    #[test]
+    fn web_capture_json_opens_via_open_any_and_load_path() {
+        let raw = r#"{
+            "schema": "designos-webcapture",
+            "version": 1,
+            "url": "https://designos.dev/pricing",
+            "title": "Pricing Capture",
+            "viewport": { "width": 800.0, "height": 400.0, "dpr": 1.0 },
+            "scroll": { "width": 800.0, "height": 400.0 },
+            "root": {
+                "tag": "div",
+                "id": "pricing-card",
+                "box": { "x": 0.0, "y": 0.0, "width": 360.0, "height": 220.0 },
+                "styles": {
+                    "display": "flex",
+                    "flex-direction": "column",
+                    "row-gap": "16px",
+                    "padding-top": "24px",
+                    "padding-left": "24px",
+                    "padding-right": "24px",
+                    "padding-bottom": "24px",
+                    "background-color": "rgb(255, 255, 255)"
+                },
+                "children": [
+                    {
+                        "tag": "h2",
+                        "id": "title",
+                        "box": { "x": 24.0, "y": 24.0, "width": 200.0, "height": 28.0 },
+                        "styles": { "display": "block", "font-family": "Inter", "font-size": "20px", "font-weight": "700", "color": "rgb(15, 23, 42)" },
+                        "textRuns": [{ "text": "Pro Workspace", "styles": { "font-family": "Inter", "font-size": "20px", "font-weight": "700", "color": "rgb(15, 23, 42)" }, "lines": [{ "x": 24.0, "y": 24.0, "width": 200.0, "height": 28.0 }] }],
+                        "children": []
+                    }
+                ]
+            }
+        }"#;
+        let p = tmp("sample.capture.json");
+        std::fs::write(&p, raw).unwrap();
+        assert!(is_web_capture_path(&p));
+        let doc = open_any(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(doc.name, "Pricing Capture");
+        assert_eq!(doc.pages.len(), 1);
+        let card = doc.nodes.values().find(|n| n.name == "Pricing Capture — designos.dev").expect("imported flex root frame");
+        let al = card.kind.frame_props().unwrap().auto_layout.as_ref().expect("auto-layout");
+        assert_eq!(al.direction, designos_doc::LayoutDirection::Vertical);
+        assert_eq!(al.item_spacing, 16.0);
+    }
+
+    #[test]
+    fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
+        let mut children = Vec::with_capacity(207);
+        let c0_rects: Vec<String> = (0..99)
+            .map(|i| {
+                format!(r#"{{"id": "2:{i}", "name": "R{i}", "type": "RECTANGLE", "size": {{"x": 4, "y": 4}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}}"#)
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c0_rects.join(",")
+        ));
+        let c1_insts: Vec<String> = (0..10)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "3:{i}", "name": "I1_{i}", "type": "INSTANCE", "componentId": "1:0", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                )
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:1", "name": "C1", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c1_insts.join(",")
+        ));
+        let c2_insts: Vec<String> = (0..40)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "4:{i}", "name": "I2_{i}", "type": "INSTANCE", "componentId": "1:1", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                )
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:2", "name": "C2", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c2_insts.join(",")
+        ));
+        for k in 0..204 {
+            children.push(format!(
+                r#"{{"id": "5:{k}", "name": "U{k}", "type": "INSTANCE", "componentId": "1:2", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+            ));
+        }
+        let json = format!(
+            r#"{{"name": "BudgetKit", "version": "1", "schemaVersion": 0, "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{{"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": [{}]}}]}}}}"#,
+            children.join(",")
+        );
+        let p = tmp("budget_kit_warning.json");
+        std::fs::write(&p, json).unwrap();
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(p.clone());
+        std::fs::remove_file(&p).ok();
+
+        let toast = app.toast.as_ref().expect("open_path must show a toast");
+        assert_eq!(
+            toast.text,
+            "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty."
+        );
     }
 }

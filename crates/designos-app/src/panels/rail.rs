@@ -121,7 +121,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                 } else {
                     app.ui.rail = Some(RailItem::Agents);
                     app.ui.left_collapsed = false;
-                    app.terminal.ensure_default_tab(app.file_path.as_deref());
+                    app.terminal.open_for_agent_use(app.file_path.as_deref());
                 }
             } else if *item == RailItem::Specs {
                 if app.ui.rail == Some(RailItem::Specs) && app.specs.open {
@@ -141,7 +141,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                     app.ui.rail = Some(RailItem::Tools);
                     app.ui.left_collapsed = false;
                     app.terminal.dock_open = true;
-                    app.terminal.ensure_default_tab(app.file_path.as_deref());
+                    app.terminal.open_for_agent_use(app.file_path.as_deref());
                 }
             } else {
                 if *item == RailItem::Variables {
@@ -170,7 +170,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         if app.terminal.dock_open {
             app.ui.rail = Some(RailItem::Agents);
             app.ui.left_collapsed = false;
-            app.terminal.ensure_default_tab(app.file_path.as_deref());
+            app.terminal.open_for_agent_use(app.file_path.as_deref());
         }
     }
 

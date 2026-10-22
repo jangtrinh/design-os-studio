@@ -130,8 +130,8 @@ mode id, so the import uses the mode name, unique within the collection).
 | `com.figma.parentVariableSetId`, `com.figma.parentVariableSetName` (file root) | collection | `VariableCollection.extensions` (same value in every mode file; export writes it into every file root) |
 | `com.figma.isOverride` | **per mode** | `Variable.mode_extensions[mode]["com.figma.isOverride"]` |
 | `com.figma.aliasData` | **per mode** | `Variable.mode_extensions[mode]["com.figma.aliasData"]` |
-| `com.figma.paint` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paint"]` (the value itself is a `Color`) |
-| `com.figma.paintAliasData` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paintAliasData"]` |
+| `com.figma.paint` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paint"]` (stored verbatim as a JSON object, e.g. `{paintType:"SOLID", blendMode?}`, which may differ per mode; the colour itself is the token's `$value` stored in `Variable.values[mode]`) |
+| `com.figma.paintAliasData` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paintAliasData"]` (stored verbatim) |
 | `com.figma.composedColor` | **per mode** | `Variable.mode_extensions[mode]["com.figma.composedColor"]` (the value itself is the literal `Color`) |
 | `$type: "easing"` / `"duration"` | variable | `Variable.extensions["org.designos.figmaTokenType"]` plus the `String` / `Number` value |
 | any other `com.figma.*` | per mode | `Variable.mode_extensions[mode][key]` |
@@ -141,9 +141,10 @@ that mode's `VariableValue` and the `com.figma.aliasData` object in `mode_extens
 become a model `Alias`, because the file does not say which target mode the literal came from. The
 import report lists each one (`cross-collection-alias-kept-as-literal`, token path). Export writes the
 literal and the stored `aliasData` unchanged. A model `Alias` to a variable in another collection (made
-in Studio) exports the target resolved the way `Document::resolve_variable` does (the exporting mode
-id, else the target collection's default mode, `variables.rs:150-166`) plus an `aliasData` built from
-the target (`targetVariableId` = `Variable.id`, `targetVariableName`, `targetVariableSetId`,
+in Studio) resolves in the mode being exported (matching by mode id or mode name in the target
+collection), and if the target has no value there, falls back to the target collection's default mode
+(walking alias chains as `Document::resolve_variable` at `variables.rs:172` does), plus an `aliasData`
+built from the target (`targetVariableId` = `Variable.id`, `targetVariableName`, `targetVariableSetId`,
 `targetVariableSetName`; a library target uses its publish `key` for the id). ASSUMPTION (confidence
 medium): Figma resolves that literal the same way; it flips if the manual re-import leg shows
 otherwise.
@@ -216,7 +217,8 @@ client files).
 | `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model, and every `com.figma.*` key of the §4 table is present at the level and mode the table names |
 | `figma_native_round_trip_json_equal` | fixture with a PAINT, an EASING, a TIMING, a composed colour, a cross-collection alias with `aliasData`, an `isOverride` token and an extended collection → import then `figma-native` export | every exported `<mode>.tokens.json` is JSON-equal to the fixture file |
 | `two_mode_extensions_differ_per_mode` | fixture `variables-two-mode-extensions` (written by us): collection `Theme`, modes `Light` and `Dark`; `Brand/Fill`: Light carries `isOverride: true` and a cross-collection `aliasData`, Dark carries neither; `Brand/Paint` (PAINT): Light has `paint {paintType:"SOLID", blendMode:"MULTIPLY"}` and `paintAliasData`, Dark has `paint {paintType:"SOLID"}` only; `Brand/Tint`: Dark carries `composedColor`, Light does not; the collection carries the two parent keys | import: `mode_extensions[Light]` and `mode_extensions[Dark]` hold exactly those keys, no more; collection `extensions` holds the parent keys; export: `Light.tokens.json` and `Dark.tokens.json` are each JSON-equal to the fixture (a key never leaks into the other mode's file); parent keys appear in both file roots |
-| `mode_extensions_follow_mode_edits` | on the document from the previous case: edit the `Light` value of `Brand/Fill` and of `Brand/Paint`; then delete mode `Dark` | after the edits `Brand/Fill` Light has no `aliasData` but still has `isOverride`, `Brand/Paint` Light still has `paint` and `paintAliasData`, and an edited `Brand/Tint` mode has no `composedColor`; after the delete no `mode_extensions` entry for `Dark` remains |
+| `mode_extensions_follow_mode_edits` | on the document from the previous case: give `Brand/Paint` Light `composedColor` as well, then edit the `Light` value of `Brand/Fill` and of `Brand/Paint`; then delete mode `Dark` | after the edits `Brand/Fill` Light has no `aliasData` but still has `isOverride`, `Brand/Paint` Light has no `composedColor` while `paint` and `paintAliasData` remain; after the delete no `mode_extensions` entry for `Dark` remains |
+| `studio_cross_collection_alias_two_mode_export` | collection `A` (modes `Light`, `Dark`) has variable `Surface` aliased in Studio to collection `B` variable `Base` (which has distinct `Light` and `Dark` values) and variable `Highlight` aliased to collection `B` variable `Accent` (defined only in `B`'s default mode `Light` and absent in `B`'s `Dark` mode) | `figma-native` export of `A` writes `B/Base`'s `Light` literal into `Light.tokens.json` and `B/Base`'s `Dark` literal into `Dark.tokens.json` for `Surface`, and writes `B/Accent`'s default-mode (`Light`) literal into both `Light.tokens.json` and `Dark.tokens.json` for `Highlight` (exercising the §4 default-mode fallback when a target mode has no value), with `com.figma.aliasData` on both variables in both mode files |
 | `native_merge_keys_extensions_by_existing_mode_id` | document with collection `Theme` whose mode `Light` has id `1:0`; import `Light.tokens.json` carrying `isOverride` | `mode_extensions["1:0"]` holds the key; no entry keyed `Light` |
 | `extensions_serde_default` | load a `.designos` written before this change; save a document with no extensions | loads with empty maps; the saved JSON has none of the three new keys and is byte-identical to today's for a document without extensions |
 | `non_native_exports_report_extensions` | same document exported as `dtcg`, REST and `.fig` | `dtcg` output has no `com.figma.` key; each export report lists the left-out extension keys with counts; nothing dropped without a report entry |

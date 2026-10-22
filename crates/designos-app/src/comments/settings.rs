@@ -42,6 +42,24 @@ pub fn save_flag(root: &Path, key: &str, value: bool) -> Result<(), String> {
     designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
 }
 
+/// A string choice setting stored beside the author name.
+pub fn load_choice(root: &Path, key: &str) -> Option<String> {
+    read(root).get(key).and_then(|v| v.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+#[allow(dead_code)]
+pub fn save_choice(root: &Path, key: &str, value: &str) -> Result<(), String> {
+    let mut map = read(root);
+    let value = value.trim();
+    if value.is_empty() {
+        map.remove(key);
+    } else {
+        map.insert(key.into(), value.into());
+    }
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
 /// Saves the author name (an empty name resets to the OS user name).
 pub fn save_author(root: &Path, name: &str) -> Result<(), String> {
     let mut map = read(root);
@@ -50,6 +68,88 @@ pub fn save_author(root: &Path, name: &str) -> Result<(), String> {
         map.remove("author");
     } else {
         map.insert("author".into(), name.into());
+    }
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
+/// Loads saved custom CLI entries (`custom_clis`) from Studio's `settings.json` (`#652` §4).
+pub fn load_custom_clis(root: &Path) -> Vec<crate::agent_cli_catalog::CustomCliEntry> {
+    read(root).get("custom_clis").and_then(|v| serde_json::from_value::<Vec<crate::agent_cli_catalog::CustomCliEntry>>(v.clone()).ok()).unwrap_or_default()
+}
+
+/// Saves `entries` under `"custom_clis"` in Studio's `settings.json`, preserving all other keys.
+pub fn save_custom_clis(root: &Path, entries: &[crate::agent_cli_catalog::CustomCliEntry]) -> Result<(), String> {
+    let mut map = read(root);
+    let val = serde_json::to_value(entries).map_err(|e| e.to_string())?;
+    map.insert("custom_clis".into(), val);
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
+/// Adds or updates a custom CLI entry in Studio's `settings.json` (shared across all files, `#652` §3 rule 7).
+pub fn add_custom_cli(root: &Path, label: &str, command: &str) -> Result<Vec<crate::agent_cli_catalog::CustomCliEntry>, String> {
+    let cmd = command.trim();
+    if cmd.is_empty() {
+        return Err("Command cannot be empty".into());
+    }
+    let lbl = label.trim();
+    let resolved_label = if lbl.is_empty() { cmd.split_whitespace().next().unwrap_or(cmd).to_string() } else { lbl.to_string() };
+    let mut entries = load_custom_clis(root);
+    if let Some(existing) = entries.iter_mut().find(|e| e.command == cmd && e.label == resolved_label) {
+        existing.command = cmd.to_string();
+    } else {
+        entries.push(crate::agent_cli_catalog::CustomCliEntry { label: resolved_label, command: cmd.to_string() });
+    }
+    save_custom_clis(root, &entries)?;
+    Ok(entries)
+}
+
+/// Loads `agent.in_progress_stale_minutes` from `settings.json` (clamped to `1..=1440`, default `15`)
+/// and applies it to [`designos_doc::set_in_progress_stale_minutes`] (E15-7 §3.3).
+pub fn load_in_progress_stale_minutes(root: &Path) -> u32 {
+    let map = read(root);
+    let raw = map
+        .get("agent.in_progress_stale_minutes")
+        .or_else(|| map.get("agent").and_then(|v| v.get("in_progress_stale_minutes")))
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(u64::from(u32::MAX)) as u32);
+    let clamped = raw
+        .map(|m| m.clamp(designos_doc::IN_PROGRESS_MIN_STALE_MINUTES, designos_doc::IN_PROGRESS_MAX_STALE_MINUTES))
+        .unwrap_or(designos_doc::IN_PROGRESS_DEFAULT_STALE_MINUTES);
+    designos_doc::set_in_progress_stale_minutes(Some(clamped));
+    clamped
+}
+
+/// Saves `agent.in_progress_stale_minutes` (clamped to `1..=1440`) to `settings.json` and updates [`designos_doc`].
+pub fn save_in_progress_stale_minutes(root: &Path, minutes: u32) -> Result<u32, String> {
+    let clamped = minutes.clamp(designos_doc::IN_PROGRESS_MIN_STALE_MINUTES, designos_doc::IN_PROGRESS_MAX_STALE_MINUTES);
+    let mut map = read(root);
+    map.insert("agent.in_progress_stale_minutes".into(), serde_json::Value::from(clamped));
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))?;
+    designos_doc::set_in_progress_stale_minutes(Some(clamped));
+    Ok(clamped)
+}
+
+/// Loads user-level `auto_fix` settings from `settings.json` (`E15-13` §3.4).
+#[allow(dead_code)]
+pub fn load_auto_fix(root: &Path) -> Option<designos_doc::AutoFixSettings> {
+    read(root).get("auto_fix").and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
+/// Saves user-level `auto_fix` settings to `settings.json` (`E15-13` §3.4).
+#[allow(dead_code)]
+pub fn save_auto_fix(root: &Path, settings: Option<&designos_doc::AutoFixSettings>) -> Result<(), String> {
+    let mut map = read(root);
+    match settings {
+        Some(s) if !s.is_empty() => {
+            let val = serde_json::to_value(s).map_err(|e| e.to_string())?;
+            map.insert("auto_fix".into(), val);
+        }
+        _ => {
+            map.remove("auto_fix");
+        }
     }
     let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
     designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
@@ -92,7 +192,34 @@ mod tests {
     }
 
     #[test]
+    fn auto_fix_roundtrip_keeps_other_keys() {
+        let d = tmp("af");
+        assert_eq!(load_auto_fix(&d), None);
+        let mut af = designos_doc::AutoFixSettings { mode: Some(designos_doc::AutoFixMode::ReportOnly), ..Default::default() };
+        af.rules.insert("sizing-conflict".into(), false);
+        save_auto_fix(&d, Some(&af)).unwrap();
+        assert_eq!(load_auto_fix(&d), Some(af));
+        save_auto_fix(&d, None).unwrap();
+        assert_eq!(load_auto_fix(&d), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn os_user_is_never_empty() {
         assert!(!os_user_name().is_empty());
+    }
+
+    #[test]
+    fn in_progress_stale_minutes_roundtrip_and_clamp() {
+        let d = tmp("stale");
+        assert_eq!(load_in_progress_stale_minutes(&d), 15);
+        assert_eq!(save_in_progress_stale_minutes(&d, 45).unwrap(), 45);
+        assert_eq!(load_in_progress_stale_minutes(&d), 45);
+        assert_eq!(save_in_progress_stale_minutes(&d, 0).unwrap(), 1);
+        assert_eq!(load_in_progress_stale_minutes(&d), 1);
+        assert_eq!(save_in_progress_stale_minutes(&d, 99_999).unwrap(), 1440);
+        assert_eq!(load_in_progress_stale_minutes(&d), 1440);
+        designos_doc::set_in_progress_stale_minutes(None);
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

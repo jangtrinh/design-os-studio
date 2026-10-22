@@ -73,7 +73,7 @@ pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
 #[allow(dead_code)]
 pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
     let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
-    ctx.egui_wants_keyboard_input() || app.terminal.is_capturing_keyboard(agent_rail_open)
+    crate::agent_a11y::non_canvas_has_focus(ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)
 }
 
 pub struct Shell {
@@ -92,7 +92,7 @@ impl Shell {
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
         let panel_was_none = opts.panel.is_none();
-        let has_file = opts.file.is_some() || opts.open_id.is_some();
+        let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if !screenshot && panel_was_none && !has_file {
@@ -131,7 +131,7 @@ impl Shell {
             Some("board") => crate::board::demo::document(),
             Some("board-empty") => crate::board::create::new_document("Untitled"),
             Some(f) if crate::vecfixture::FIXTURES.contains(&f) => crate::vecfixture::document(),
-            None if opts.file.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
+            None if opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
             _ => demo::demo_document(),
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
@@ -157,9 +157,15 @@ impl Shell {
         }
         if let Some(root) = opts.library.clone() {
             app.attach_library(root);
+            if let Some(lib) = &app.lib {
+                app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
+            }
         }
         if let Some(f) = &opts.file {
             app.open_path(f.clone());
+        }
+        if let Some(cap) = &opts.import_capture {
+            app.import_web_capture_path(cap.clone());
         }
         if let Some(id) = &opts.open_id {
             app.open_library_file(id);
@@ -188,15 +194,7 @@ impl Shell {
         if let Some(l) = &opts.dev {
             app.ui.dev_mode = true;
             app.ui.right_tab = Some(crate::app::RightTab::Design);
-            app.dev.lang = match l.as_str() {
-                "tailwind" => crate::dev::Language::Tailwind,
-                "swiftui" => crate::dev::Language::SwiftUi,
-                "uikit" => crate::dev::Language::UiKit,
-                "compose" => crate::dev::Language::Compose,
-                "android-xml" => crate::dev::Language::AndroidXml,
-                "react" => crate::dev::Language::React,
-                _ => crate::dev::Language::Css,
-            };
+            app.dev.lang = crate::dev::Language::from_id(l).unwrap_or(crate::dev::Language::Css);
             if opts.dev_demo {
                 crate::dev::preset::apply(&mut app);
             }
@@ -264,10 +262,10 @@ impl Shell {
             }
         }
         match opts.panel.as_deref() {
-            Some("agents") => {
+            Some("agents" | "agents-picker") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
-                app.terminal.ensure_default_tab(app.file_path.as_deref());
+                app.terminal.open_for_agent_use(app.file_path.as_deref());
             }
             Some("agents-chat") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -275,8 +273,8 @@ impl Shell {
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
                 while std::time::Instant::now() < deadline {
-                    app.terminal.sync_chat_from_pty();
-                    if app.terminal.chat_turns.last().is_some_and(|t| !t.text.trim().is_empty()) {
+                    let _ = app.terminal.poll_live_agent_bridge();
+                    if app.terminal.active_composer().pending_send.is_none() {
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(30));
@@ -288,6 +286,18 @@ impl Shell {
                 app.ui.left_collapsed = false;
                 app.terminal.open_failed_start_fixture(app.file_path.as_deref());
             }
+            Some("agent-permissions") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                app.terminal.ensure_default_tab(app.file_path.as_deref());
+                app.ui.permissions_modal_open = true;
+            }
+            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab")) => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.open_approval_fixture(p, app.file_path.as_deref());
+            }
             Some("specs") => {
                 app.ui.rail = Some(crate::app::RailItem::Specs);
                 app.specs.open = true;
@@ -297,12 +307,12 @@ impl Shell {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.dock_open = true;
-                app.terminal.ensure_default_tab(app.file_path.as_deref());
+                app.terminal.open_for_agent_use(app.file_path.as_deref());
             }
             Some(p @ ("check-designs" | "check-designs-fixed")) => {
                 app.open_check_designs();
                 if p == "check-designs-fixed" {
-                    app.refresh_check_designs(false);
+                    app.refresh_check_designs(false, ctx);
                     let findings = app.check_designs.report.findings.clone();
                     app.check_designs_fix_all(&findings);
                     app.check_designs.invalidate();
@@ -335,6 +345,9 @@ impl Shell {
                     // the capture of a library collection: start on it rather than on the file's own
                     app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
                 }
+            }
+            Some("web-capture-report") => {
+                app.web_capture_report_open = true;
             }
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {
@@ -481,15 +494,24 @@ impl Shell {
 
     fn handle_keys(&mut self, ctx: &Context) {
         self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
-        if self.app.plugins.open || self.app.dialog.is_some() || self.app.history.save_modal.is_some() || self.app.dev.compare.is_some() {
+        if self.app.plugins.open
+            || self.app.dialog.is_some()
+            || self.app.history.save_modal.is_some()
+            || self.app.dev.compare.is_some()
+            || self.app.ui.permissions_modal_open
+        {
+            return;
+        }
+        if self.app.canvas.text.is_none() && crate::agent_a11y::try_focus_shortcut(&mut self.app, ctx) {
             return;
         }
         let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         let capturing_terminal = self.app.terminal.is_capturing_keyboard(agent_rail_open);
         if capturing_terminal {
+            self.handle_terminal_undo_keys(ctx);
             return;
         }
-        let typing = ctx.egui_wants_keyboard_input();
+        let typing = crate::agent_a11y::non_canvas_has_focus(ctx);
         if self.app.vars.open {
             // The Variables view handles its own keys (and undo / redo).
             return;
@@ -538,6 +560,42 @@ impl Shell {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Routes `Cmd+Z` / `Shift+Cmd+Z` / `Cmd+Y` on macOS (or `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`
+    /// on Windows and Linux for agent tabs whose CLI does not reserve `Ctrl+Z`) to document
+    /// Undo / Redo while the terminal viewport captures the keyboard (`#685`).
+    fn handle_terminal_undo_keys(&mut self, ctx: &Context) {
+        // An empty composer has no text for `Cmd+Z` to undo, so the chord still reaches the document there.
+        let composer_idle_focus = self.app.terminal.side_panel_pty_open
+            && self.app.terminal.composer_draft().is_empty()
+            && ctx.memory(|m| m.has_focus(crate::agent_a11y::composer_id()));
+        let egui_wants_kb = ctx.egui_wants_keyboard_input() && !composer_idle_focus;
+        if egui_wants_kb || self.app.vars.open || self.app.ui.menu.is_some() || self.app.ui.ctx_menu.is_some() {
+            return;
+        }
+        let (is_mac, tab_is_agent, cli_uses_ctrl_z) = self.app.terminal.undo_chord_context();
+        let mut actions = Vec::new();
+        ctx.input_mut(|i| {
+            i.events.retain(|ev| match ev {
+                Event::Key { key, pressed: true, modifiers, .. } => {
+                    match crate::terminal_undo_chord::terminal_undo_chord(*key, *modifiers, is_mac, tab_is_agent, cli_uses_ctrl_z) {
+                        Some(act) => {
+                            actions.push(act);
+                            false
+                        }
+                        None => true,
+                    }
+                }
+                _ => true,
+            });
+        });
+        if crate::live_patch_apply::user_edit_in_progress(&self.app) {
+            return;
+        }
+        for act in actions {
+            menus::run(&mut self.app, ctx, act);
         }
     }
 
@@ -697,7 +755,7 @@ impl Shell {
                 (Key::Backtick, _, _) => {
                     app.terminal.dock_open = !app.terminal.dock_open;
                     if app.terminal.dock_open {
-                        app.terminal.ensure_default_tab(app.file_path.as_deref());
+                        app.terminal.open_for_agent_use(app.file_path.as_deref());
                     }
                     None
                 }
@@ -939,7 +997,137 @@ impl Shell {
         p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
         p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if t.error { theme::DANGER } else { theme::BG_BRAND });
         p.text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &t.text, font, theme::TEXT);
+        if self.app.web_capture_report.is_some() && t.text.ends_with("Details") {
+            let resp = ui.interact(r, egui::Id::new("web-capture-toast-details"), egui::Sense::click());
+            if resp.clicked() {
+                self.app.web_capture_report_open = !self.app.web_capture_report_open;
+            }
+        }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+    }
+
+    fn show_web_capture_report(&mut self, ctx: &Context) {
+        if !self.app.web_capture_report_open {
+            return;
+        }
+        let Some(rep) = self.app.web_capture_report.clone() else {
+            self.app.web_capture_report_open = false;
+            return;
+        };
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.app.web_capture_report_open = false;
+            return;
+        }
+        let screen = ctx.content_rect();
+        let w = 480.0_f32.min((screen.width() - 48.0).max(320.0));
+        let row_h = 28.0;
+        let header_h = 36.0;
+        let summary_rows = 4usize;
+        let fb_rows = 1 + rep.absolute_fallbacks.len();
+        let font_rows = 1 + rep.font_substitutions.len();
+        let style_rows = 1 + rep.unsupported_css.len();
+        let img_rows = 1 + rep.images_not_captured.len();
+        let note_rows = if rep.notes.is_empty() { 0 } else { 1 + rep.notes.len() };
+        let total_rows = summary_rows + fb_rows + font_rows + style_rows + img_rows + note_rows;
+        let content_h = total_rows as f32 * row_h;
+        let max_body_h = (screen.height() - 140.0).clamp(180.0, 460.0);
+        let body_h = content_h.min(max_body_h);
+        let h = header_h + 12.0 + body_h;
+        let rect = Rect::from_min_size(
+            Pos2::new((screen.right() - theme::RIGHT_PANEL_WIDTH - w - 20.0).max(screen.left() + 24.0), screen.top() + 56.0),
+            Vec2::new(w, h),
+        );
+        let mut close_clicked = false;
+        egui::Area::new(egui::Id::new("web-capture-report-sheet")).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
+            let p = ui.painter().clone();
+            widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
+            p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+            p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, theme::BORDER_MENU), egui::StrokeKind::Inside);
+
+            let hdr = Rect::from_min_size(rect.min, Vec2::new(rect.width(), header_h));
+            p.text(Pos2::new(hdr.left() + 14.0, hdr.center().y), Align2::LEFT_CENTER, "Web Capture Import Report", theme::font_body_strong(), theme::TEXT);
+            let close_r = Rect::from_min_size(Pos2::new(hdr.right() - 30.0, hdr.center().y - 12.0), Vec2::splat(24.0));
+            if widgets::icon_button(ui, close_r, "close-web-capture-report", Icon::Close, false, "Close").clicked() {
+                close_clicked = true;
+            }
+            widgets::hline(&p, rect.left(), rect.right(), hdr.bottom(), theme::BORDER_SUBTLE);
+
+            let body_rect = Rect::from_min_size(Pos2::new(rect.left(), hdr.bottom() + 6.0), Vec2::new(rect.width(), body_h));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(body_rect), |ui| {
+                egui::ScrollArea::vertical().id_salt("web-capture-report-scroll").max_height(body_h).show(ui, |ui| {
+                    let draw_kv = |ui: &mut egui::Ui, label: &str, value: &str, mono_val: bool, strong_label: bool| {
+                        let (r, _) = ui.allocate_exact_size(Vec2::new(body_rect.width() - 28.0, row_h), egui::Sense::hover());
+                        let row_p = ui.painter();
+                        let lf = if strong_label { theme::font_body_strong() } else { theme::font_body() };
+                        let lc = if strong_label { theme::TEXT } else { theme::TEXT_SECONDARY };
+                        let elided_lbl = widgets::elide(row_p, label, &lf, (r.width() * 0.48).max(100.0));
+                        row_p.text(Pos2::new(r.left() + 14.0, r.center().y), Align2::LEFT_CENTER, elided_lbl, lf, lc);
+                        let vf = if mono_val { theme::font_mono() } else { theme::font_body() };
+                        let elided_val = widgets::elide(row_p, value, &vf, (r.width() * 0.50).max(110.0));
+                        row_p.text(Pos2::new(r.right(), r.center().y), Align2::RIGHT_CENTER, elided_val, vf, theme::TEXT);
+                    };
+
+                    draw_kv(ui, "Imported frame", &rep.root_name, false, false);
+                    draw_kv(ui, "Layers created", &format!("{} layers ({} DOM elements)", rep.nodes_created, rep.elements), true, false);
+                    draw_kv(ui, "Flattened wrappers", &format!("{} inline wrappers", rep.flattened_wrappers), true, false);
+                    draw_kv(ui, "Capture status", if rep.truncated { "truncated (budget reached)" } else { "complete" }, true, false);
+
+                    draw_kv(
+                        ui,
+                        &format!("Absolute fallbacks ({})", rep.absolute_fallbacks.len()),
+                        if rep.absolute_fallbacks.is_empty() { "none" } else { "element · reason" },
+                        true,
+                        true,
+                    );
+                    for fb in &rep.absolute_fallbacks {
+                        draw_kv(ui, &fb.element_id, &fb.reason, true, false);
+                    }
+
+                    draw_kv(
+                        ui,
+                        &format!("Font substitutions ({})", rep.font_substitutions.len()),
+                        if rep.font_substitutions.is_empty() { "all matched" } else { "requested -> substituted" },
+                        true,
+                        true,
+                    );
+                    for sf in &rep.font_substitutions {
+                        draw_kv(ui, &sf.requested, &format!("-> {}", sf.substituted), true, false);
+                    }
+
+                    draw_kv(
+                        ui,
+                        &format!("Unsupported CSS ({})", rep.unsupported_css.len()),
+                        if rep.unsupported_css.is_empty() { "0 declarations" } else { "property (element) · value" },
+                        true,
+                        true,
+                    );
+                    for us in &rep.unsupported_css {
+                        draw_kv(ui, &format!("{} ({})", us.property, us.element_id), &us.value, true, false);
+                    }
+
+                    draw_kv(
+                        ui,
+                        &format!("Uncaptured images ({})", rep.images_not_captured.len()),
+                        if rep.images_not_captured.is_empty() { "0 placeholders" } else { "element (reason) · src" },
+                        true,
+                        true,
+                    );
+                    for bi in &rep.images_not_captured {
+                        draw_kv(ui, &format!("{} ({})", bi.element_id, bi.reason), &bi.src, true, false);
+                    }
+
+                    if !rep.notes.is_empty() {
+                        draw_kv(ui, &format!("Notes ({})", rep.notes.len()), "details", true, true);
+                        for note in &rep.notes {
+                            draw_kv(ui, "Note", note, true, false);
+                        }
+                    }
+                });
+            });
+        });
+        if close_clicked {
+            self.app.web_capture_report_open = false;
+        }
     }
 }
 
@@ -954,7 +1142,7 @@ impl eframe::App for Shell {
         if self.app.plugins.open {
             return;
         }
-        if ctx.memory(|m| m.focused()).is_some() {
+        if crate::agent_a11y::non_canvas_has_focus(ctx) {
             return;
         }
         if let Some(sess) = self.app.canvas.text.as_mut() {
@@ -981,6 +1169,7 @@ impl eframe::App for Shell {
 
 impl Shell {
     /// Files dropped on the window: `.svg` files are placed at the drop point,
+    /// `.webcapture` / `.capture.json` files are imported at the drop point,
     /// anything else (the first file) is opened as a document.
     fn handle_drops(&mut self, ctx: &Context) {
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos().or(i.pointer.latest_pos())));
@@ -989,7 +1178,12 @@ impl Shell {
             name.rsplit('.').next().is_some_and(|e| e.eq_ignore_ascii_case("svg"))
         };
         if let Some(path) = files.iter().filter(|f| !is_svg(f)).find_map(|f| f.path.clone()) {
-            self.app.open_path(path);
+            if crate::io::is_web_capture_path(&path) {
+                let page_pos = pos.map(|s| self.app.view.to_page(self.app.canvas_rect.min, s));
+                self.app.import_web_capture_path_at(path, page_pos);
+            } else {
+                self.app.open_path(path);
+            }
             return;
         }
         for (nth, f) in files.iter().filter(|f| is_svg(f)).enumerate() {
@@ -1033,6 +1227,15 @@ impl Shell {
         }
         crate::home::show(&mut self.app, ui);
         crate::home::dialog::show(&mut self.app, ctx);
+        if self.app.ui.permissions_modal_open {
+            let mut mode = self.app.terminal.permission_mode;
+            let mut open = self.app.ui.permissions_modal_open;
+            let picked = crate::agent_approval_card::paint_permissions_modal(ctx, &mut open, &mut mode, None);
+            self.app.ui.permissions_modal_open = open;
+            if let Some(new_mode) = picked {
+                self.app.set_agent_permission_mode(new_mode);
+            }
+        }
         let full = ui.max_rect();
         self.toast(ui, full);
         self.sync_title(ctx);
@@ -1047,8 +1250,13 @@ impl Shell {
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        crate::agent_a11y::sync_frame(&ctx);
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
+        self.app.poll_image_jobs();
+        if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         self.drive_screenshot(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             crate::decks::ui::flush_notes(&mut self.app);
@@ -1106,6 +1314,7 @@ impl Shell {
                 self.home_frame(ui, &ctx);
             }
             crate::plugins::ui::show(&mut self.app, &ctx);
+            crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
         }
         self.app.autosave_tick(&ctx);
@@ -1113,6 +1322,7 @@ impl Shell {
         self.app.dev_tick(&ctx);
         if self.app.proto.present.is_some() {
             crate::present::show(&mut self.app, ui);
+            crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
         }
         self.handle_keys(&ctx);
@@ -1139,19 +1349,23 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
-        if self.shot.is_none() && (is_ai_panel || self.app.terminal.dock_open) {
-            self.app.terminal.ensure_default_tab(self.app.file_path.as_deref());
-        }
         crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
         }
+        let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
+        self.app.terminal.set_window_focused(win_focused);
+        self.app.terminal.surface_visible = (!self.app.ui.left_collapsed && is_ai_panel) || self.app.terminal.dock_open;
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
-            execute_terminal_actions(&mut self.app, bridge_actions);
+            execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
         }
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
+        if !self.app.doc.prune_in_progress().is_empty() {
+            self.app.in_progress_changed();
+            ctx.request_repaint();
+        }
         if full_vars {
             // The local-variables full view replaces the left panel, canvas and right panel.
             rail::show(&mut self.app, ui, rail_rect);
@@ -1187,8 +1401,10 @@ impl Shell {
             }
             if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
                 let file_path = self.app.file_path.clone();
-                let term_actions = crate::terminal::show_dock(&mut self.app.terminal, ui, dock_rect, file_path.as_deref());
-                execute_terminal_actions(&mut self.app, term_actions);
+                let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
+                    crate::terminal::show_dock_with_doc(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary, &self.app.doc, self.app.page)
+                });
+                execute_terminal_actions_with_ctx(&mut self.app, term_actions, Some(&ctx));
                 let dock_handle_rect =
                     Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
                 widgets::record(ui, "dock-resize-handle", dock_handle_rect);
@@ -1265,6 +1481,7 @@ impl Shell {
             }
             menus::show(&mut self.app, &ctx);
             panels::context::show(&mut self.app, &ctx);
+            crate::image_jobs::show_popovers(&mut self.app, &ctx);
             panels::check_designs::show(&mut self.app, &ctx);
             // the floating panel (or only the inspector's binding picker when closed)
             crate::variables::view::show(&mut self.app, ui, full);
@@ -1280,7 +1497,18 @@ impl Shell {
         crate::dev::compare::show(&mut self.app, &ctx);
         crate::libraries::show(&mut self.app, &ctx);
         crate::plugins::ui::show(&mut self.app, &ctx);
+        self.show_web_capture_report(&ctx);
+        if self.app.ui.permissions_modal_open {
+            let mut mode = self.app.terminal.permission_mode;
+            let mut open = self.app.ui.permissions_modal_open;
+            let picked = crate::agent_approval_card::paint_permissions_modal(&ctx, &mut open, &mut mode, None);
+            self.app.ui.permissions_modal_open = open;
+            if let Some(new_mode) = picked {
+                self.app.set_agent_permission_mode(new_mode);
+            }
+        }
         self.toast(ui, full);
+        crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
 
         self.sync_title(&ctx);
         if self.app.ui.menu == Some(MenuKind::Main) && self.app.ui.menu_anchor.is_none() {
@@ -1289,24 +1517,39 @@ impl Shell {
     }
 }
 
+#[cfg(test)]
 pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::TerminalAction>) {
+    execute_terminal_actions_with_ctx(app, actions, None);
+}
+
+pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::terminal::TerminalAction>, ctx: Option<&egui::Context>) {
     for action in actions {
         match action {
             crate::terminal::TerminalAction::ApplySpecJson(json) => match serde_json::from_str::<designos_doc::NodeSpec>(&json) {
                 Ok(spec) => {
+                    let before = app.hist.undo_depth();
                     app.apply_node_spec(&spec, "Agent Terminal");
+                    if app.hist.undo_depth() > before {
+                        app.hist.mark_last_undo_as_agent();
+                        app.terminal.current_undo_depth = app.hist.undo_depth();
+                    }
                 }
                 Err(e) => {
-                    app.show_toast(format!("Spec parse error: {e}"), true);
+                    app.show_toast(format!("Spec parse error: {}", designos_doc::format_spec_serde_error(&e)), true);
                 }
             },
             crate::terminal::TerminalAction::ApplySpecFile(path) => match std::fs::read_to_string(&path) {
                 Ok(raw) => match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
                     Ok(spec) => {
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
+                        let before = app.hist.undo_depth();
                         app.apply_node_spec(&spec, label);
+                        if app.hist.undo_depth() > before {
+                            app.hist.mark_last_undo_as_agent();
+                            app.terminal.current_undo_depth = app.hist.undo_depth();
+                        }
                     }
-                    Err(e) => app.show_toast(format!("Invalid spec JSON: {e}"), true),
+                    Err(e) => app.show_toast(format!("Invalid spec JSON: {}", designos_doc::format_spec_serde_error(&e)), true),
                 },
                 Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
             },
@@ -1334,6 +1577,45 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                     Err(e) => app.show_toast(e, true),
                 }
             }
+            crate::terminal::TerminalAction::SendSelectionToAgent => {
+                if let Err(e) = crate::terminal::send_selection_to_agent_pty(&mut app.terminal, &app.doc, app.page, &app.selection) {
+                    app.show_toast(e, true);
+                }
+            }
+            crate::terminal::TerminalAction::OpenTurnReceipt(tab_id) => {
+                if let Some(tab) = app.terminal.tabs.iter().find(|t| t.id == tab_id) {
+                    let existing: Vec<designos_doc::NodeId> =
+                        tab.turn_tracker.touched_layers.iter().copied().map(designos_doc::NodeId).filter(|id| app.doc.get(*id).is_some()).collect();
+                    if !existing.is_empty() {
+                        app.selection = existing;
+                    }
+                    if let Some(receipt) = tab.last_turn_receipt() {
+                        app.show_toast(receipt.format_line(), false);
+                    }
+                }
+            }
+            crate::terminal::TerminalAction::FocusAgentTab(tab_id) => {
+                if let Some(ctx) = ctx {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                let _ = app.terminal.focus_tab_by_id(tab_id);
+            }
+            crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id } => {
+                crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref());
+            }
+            crate::terminal::TerminalAction::ClearInProgress { run_id, .. } => {
+                if !app.doc.clear_in_progress_for_run_or_agent(run_id.as_deref(), None).is_empty() {
+                    app.in_progress_changed();
+                }
+                if let Some(rid) = run_id.as_deref() {
+                    app.agent_busy_frames.clear_run(rid);
+                }
+                let next_turn = app.agent_busy_frames.current_turn.saturating_add(1);
+                app.agent_busy_frames.start_turn(next_turn);
+                app.sync_busy_frame_banner();
+            }
         }
     }
 }
@@ -1341,17 +1623,15 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
 pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
     match action {
         crate::cmdk::CmdKAction::ApplySpec(spec) => {
-            if !app.terminal.tabs.is_empty() {
-                let fp = app.file_path.clone();
-                app.terminal.dispatch_figma_ai_prompt("Make Design", &spec.name, fp.as_deref());
-            }
+            let fp = app.file_path.clone();
+            app.terminal.dispatch_figma_ai_prompt("Make Design", &spec.name, fp.as_deref());
             app.apply_node_spec(&spec, "Cmd+K Synthesizer");
         }
         crate::cmdk::CmdKAction::OpenSpecReader => {
             app.ui.rail = Some(crate::app::RailItem::Agents);
             app.ui.left_collapsed = false;
             app.specs.open = false;
-            app.terminal.ensure_default_tab(app.file_path.as_deref());
+            app.terminal.open_for_agent_use(app.file_path.as_deref());
             app.cmdk.open = false;
         }
         crate::cmdk::CmdKAction::OpenTerminal(preset) => {
@@ -1374,10 +1654,11 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
         }
         crate::cmdk::CmdKAction::ExportFig => {
             let out_path = app.file_path.as_ref().map(|p| p.with_extension("fig")).unwrap_or_else(|| std::path::PathBuf::from("/tmp/designos-export.fig"));
-            match designos_fig::export_fig(&app.doc) {
-                Ok(bytes) => {
+            match designos_fig::export_fig_with_report(&app.doc) {
+                Ok((bytes, omitted)) => {
                     if std::fs::write(&out_path, bytes).is_ok() {
-                        app.show_toast(format!("Exported Figma .fig to {}", out_path.display()), false);
+                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
+                        app.show_toast(format!("Exported Figma .fig to {}{note}", out_path.display()), false);
                     }
                 }
                 Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),
@@ -1395,10 +1676,8 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
             let fixed_count = crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &sel);
             app.changed();
             app.cmdk.last_audit = Some(crate::cmdk::run_design_gate_audit(&app.doc, app.page, &app.selection));
-            if !app.terminal.tabs.is_empty() {
-                let fp = app.file_path.clone();
-                app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
-            }
+            let fp = app.file_path.clone();
+            app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
             app.show_toast(format!("Applied {fixed_count} Figma AI change(s) (Cmd+Z to Undo)"), false);
         }
     }
@@ -2771,6 +3050,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 crate::dev::Language::UiKit => "UIKit",
                 crate::dev::Language::Compose => "Jetpack Compose",
                 crate::dev::Language::AndroidXml => "Android XML",
+                crate::dev::Language::Html => "HTML5 + CSS3",
             };
             hud.badge_text = format!("Dev Mode · Box Model · {lang_name}");
             hud.keycap = "⇧D".into();
@@ -3109,13 +3389,13 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         let tw = widgets::text_width(&p, &hud.badge_text, &font);
         let pill_w = tw + 24.0;
         let pill_h = 28.0;
-        let mut px = (tip.x + 22.0).min(canvas_rect.right() - pill_w - 12.0).max(canvas_rect.left() + 12.0);
-        let mut py = (tip.y - 34.0).max(canvas_rect.top() + 16.0);
-        if py + pill_h > canvas_rect.bottom() - 64.0 {
-            py = tip.y - pill_h - 12.0;
+        let mut px = (tip.x + 22.0).min(canvas_rect.right() - pill_w - theme::SPACE_GROUP).max(canvas_rect.left() + theme::SPACE_GROUP);
+        let mut py = (tip.y - 34.0).max(canvas_rect.top() + theme::SPACE_BLOCK);
+        if py + pill_h > canvas_rect.bottom() - (theme::SPACE_REGION + theme::SPACE_BLOCK) {
+            py = tip.y - pill_h - theme::SPACE_GROUP;
         }
-        if px < canvas_rect.left() + 12.0 {
-            px = canvas_rect.left() + 12.0;
+        if px < canvas_rect.left() + theme::SPACE_GROUP {
+            px = canvas_rect.left() + theme::SPACE_GROUP;
         }
         let pill_rect = Rect::from_min_size(Pos2::new(px, py), Vec2::new(pill_w, pill_h));
         widgets::elevation_shadow(&p, pill_rect, 8);
@@ -3132,16 +3412,28 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         let cw = widgets::text_width(&p, &hud.caption, &font_cap);
         let bar_w = (kw + cw + 46.0).min(canvas_rect.width() - 24.0);
         let bar_h = 38.0;
-        let bar_rect = Rect::from_center_size(Pos2::new(canvas_rect.center().x, canvas_rect.top() + 48.0), Vec2::new(bar_w, bar_h));
+        let bar_rect = Rect::from_center_size(Pos2::new(canvas_rect.center().x, canvas_rect.top() + theme::SPACE_REGION), Vec2::new(bar_w, bar_h));
         widgets::elevation_shadow(&p, bar_rect, 10);
         p.rect_filled(bar_rect, 10.0, egui::Color32::from_rgba_unmultiplied(17, 18, 22, 238));
         p.rect_stroke(bar_rect, 10.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 36)), egui::StrokeKind::Outside);
-        let key_rect = Rect::from_min_size(Pos2::new(bar_rect.left() + 10.0, bar_rect.top() + 7.0), Vec2::new(kw, 24.0));
+        let key_rect = Rect::from_min_size(
+            Pos2::new(bar_rect.left() + theme::INSET_CONTROL + theme::INSET_SEGMENT, bar_rect.top() + theme::SPACE_INLINE - theme::BORDER_WIDTH),
+            Vec2::new(kw, 24.0),
+        );
         p.rect_filled(key_rect, 6.0, accent);
         p.text(key_rect.center(), Align2::CENTER_CENTER, &hud.keycap, font_key, egui::Color32::WHITE);
-        p.text(Pos2::new(key_rect.right() + 12.0, bar_rect.center().y), Align2::LEFT_CENTER, &hud.caption, font_cap, egui::Color32::from_rgb(0xF4, 0xF4, 0xF6));
+        p.text(
+            Pos2::new(key_rect.right() + theme::SPACE_GROUP, bar_rect.center().y),
+            Align2::LEFT_CENTER,
+            &hud.caption,
+            font_cap,
+            egui::Color32::from_rgb(0xF4, 0xF4, 0xF6),
+        );
         let prog = if total <= 1 { 1.0 } else { (cur as f32 + 1.0) / (total as f32) };
-        let prog_rect = Rect::from_min_size(Pos2::new(bar_rect.left() + 8.0, bar_rect.bottom() - 3.0), Vec2::new((bar_w - 16.0) * prog, 2.0));
+        let prog_rect = Rect::from_min_size(
+            Pos2::new(bar_rect.left() + theme::SPACE_INLINE, bar_rect.bottom() - (theme::SPACE_ROW - theme::BORDER_WIDTH)),
+            Vec2::new((bar_w - 16.0) * prog, 2.0),
+        );
         p.rect_filled(prog_rect, 1.0, accent);
     }
 }

@@ -398,6 +398,9 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
     if doc.nodes.len() > 5_000 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (doc.runtime_id(), doc.mutation_epoch(), doc.nodes.len(), doc.pages.len(), &doc.name).hash(&mut h);
+        for (k, v) in &doc.in_progress {
+            (k.0, &v.run_id, &v.agent, v.since_ms, v.stale_after_s, &v.status).hash(&mut h);
+        }
         return h.finish();
     }
     use serde::Serialize;
@@ -417,12 +420,57 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
         &doc.comments,
         &doc.library,
         &doc.library_page,
+        &doc.in_progress,
     )
         .serialize(HashSerializer(&mut h));
+    let _ = doc.check_designs.serialize(HashSerializer(&mut h));
     doc.images.len().hash(&mut h);
     for (k, v) in &doc.images {
         (k, v.len(), &v[..v.len().min(64)]).hash(&mut h);
     }
+    h.finish()
+}
+
+pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
+    use serde::Serialize;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let _ = (
+        &node.id,
+        &node.source_id,
+        &node.name,
+        &node.kind,
+        &node.parent,
+        &node.visible,
+        &node.locked,
+        &node.opacity,
+        &node.blend,
+        &node.transform,
+        &node.size,
+        &node.fills,
+        &node.stroke,
+        &node.effects,
+        &node.corner_radii,
+    )
+        .serialize(HashSerializer(&mut h));
+    let _ = (
+        &node.corner_smoothing,
+        &node.constraints,
+        &node.layout_child,
+        &node.is_mask,
+        &node.style_refs,
+        &node.fill_geometry,
+        &node.stroke_geometry,
+        &node.component,
+        &node.prototype,
+        &node.variables,
+        &node.export_settings,
+        &node.dev,
+        &node.slide,
+        &node.lock_aspect,
+        &node.hyperlink,
+        (&node.plugin_data, &node.detached_symbol_id, &node.fig_metadata),
+    )
+        .serialize(HashSerializer(&mut h));
     h.finish()
 }
 
@@ -431,6 +479,16 @@ impl App {
     pub fn attach_library(&mut self, root: PathBuf) {
         // Shared libraries use the same root as the projects library.
         self.libs.set_root(root.clone());
+        self.terminal.library_root = Some(root.clone());
+        for entry in &mut self.tabs.entries {
+            entry.terminal.library_root = Some(root.clone());
+        }
+        let mode = crate::agent_permissions::load_permission_mode(&root);
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
+        let _ = crate::comments::settings::load_in_progress_stale_minutes(&root);
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {
@@ -459,12 +517,27 @@ impl App {
         self.save_close_version();
         self.stop_plugin();
         self.flush_autosave();
+        if !self.tabs.entries.is_empty() || self.lib_file.is_some() || !self.image_jobs.jobs.is_empty() {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.park_active_from_app(self);
+            tabs.parked_in_home = true;
+            self.tabs = tabs;
+        }
         self.canvas.reset_interaction();
         let mut home = Home::new();
         home.refresh(&lib);
         self.home = Some(home);
         self.ui.menu = None;
         self.ui.ctx_menu = None;
+    }
+
+    /// Binds the agent terminal to the stable session folder of the open file: its library file
+    /// id, or the hash of its disk path for a file opened from disk (`#653`). Needs a library root
+    /// for the folder; without one the terminal keeps its per-process folder.
+    pub(crate) fn bind_terminal_to_open_file(&mut self, window_id: &str) {
+        if let Some(lib) = &self.lib {
+            self.terminal.bind_open_file(lib.root(), self.lib_file.as_ref().map(|lf| lf.id.as_str()), self.file_path.as_deref(), window_id);
+        }
     }
 
     /// Disk path of a library file; also the key of its cached pre-repair bytes.
@@ -491,6 +564,22 @@ impl App {
                 return;
             }
         };
+        let needs_thumb = lib.thumbnail_path(&entry).is_none();
+        if self.home.is_some() || self.tabs.parked_in_home {
+            if let Some(existing) = self.tabs.entries.iter().position(|t| t.lib_file.as_ref().is_some_and(|lf| lf.id == id) && !t.doc.nodes.is_empty()) {
+                let mut tabs = std::mem::take(&mut self.tabs);
+                tabs.switch_to(existing, self);
+                self.tabs = tabs;
+                self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
+                self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+                self.history_open_file();
+                let _ = lib.mark_opened(id);
+                if needs_thumb && self.doc.nodes.len() <= 25_000 {
+                    thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
+                }
+                return;
+            }
+        }
         let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{}.designos", entry.id));
         let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
@@ -501,7 +590,6 @@ impl App {
         };
         let project = lib.project(&entry.project).map(|p| p.name).unwrap_or_default();
         doc.name = entry.name.clone();
-        let needs_thumb = lib.thumbnail_path(&entry).is_none();
         self.exit_version_view();
         self.flush_autosave();
         self.release_active_repaired_original(Some(&disk_path));
@@ -510,12 +598,19 @@ impl App {
             self.show_toast(crate::io::opened_toast_text(&entry.name, Some(w)), true);
         }
         self.lib_file = Some(LibFile { id: entry.id.clone(), project_id: entry.project.clone(), project, name: entry.name.clone() });
+        let window_id = self.tabs.active_session_id();
+        self.terminal.bind_library_file(lib.root(), &entry.id, &window_id);
         self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
         self.history_open_file();
         let _ = lib.mark_opened(id);
         self.home = None;
         self.ui.menu = None;
+        if self.tabs.parked_in_home && !self.tabs.entries.is_empty() {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.reconcile_frame(self);
+            self.tabs = tabs;
+        }
         if needs_thumb && self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
         }
@@ -588,6 +683,27 @@ impl App {
         self.new_library_board(target);
     }
 
+    /// Writes `doc` to `lf` in `lib` with repair-backup preservation and non-finite number neutralization.
+    pub(crate) fn save_doc_to_library(
+        lib: &Library,
+        lf: &LibFile,
+        doc: &mut Document,
+        hist: &mut designos_doc::History,
+    ) -> Result<(Option<String>, bool), String> {
+        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
+        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
+        let replaced = lib.save_file_counted(&lf.id, doc).map_err(|e| format!("Cannot save: {e}"))?;
+        if wrote_backup {
+            crate::io::clear_pending_repair_backup(&disk_path);
+        }
+        let neutralized = replaced > 0;
+        if neutralized {
+            doc.neutralize_non_finite();
+            hist.neutralize_non_finite();
+        }
+        Ok((crate::io::non_finite_notice_once(&disk_path, replaced), neutralized))
+    }
+
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
     /// that replaced non-finite numbers says so, because no later open of the file would.
     pub fn save_library_file(&mut self) -> Result<(), String> {
@@ -608,15 +724,8 @@ impl App {
             return Err("Go back to the current version before saving".into());
         }
         self.settle_pending_relayout();
-        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
-        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
-        let replaced = lib.save_file_counted(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
-        if wrote_backup {
-            crate::io::clear_pending_repair_backup(&disk_path);
-        }
-        if replaced > 0 {
-            self.doc.neutralize_non_finite();
-            self.hist.neutralize_non_finite();
+        let (notice, neutralized) = Self::save_doc_to_library(&lib, &lf, &mut self.doc, &mut self.hist)?;
+        if neutralized {
             self.changed();
         }
         self.autosave.saved_hash = doc_hash(&self.doc);
@@ -628,7 +737,7 @@ impl App {
         if self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
-        Ok(crate::io::non_finite_notice_once(&disk_path, replaced))
+        Ok(notice)
     }
 
     /// Ctrl+S on a library file.
@@ -736,6 +845,8 @@ impl App {
         let old_page = self.page;
         let old_sel = self.selection.clone();
         self.doc = new_doc;
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         if !self.doc.pages.contains(&old_page) {
             if let Some(&p) = self.doc.pages.first() {
                 self.page = p;
@@ -836,6 +947,10 @@ impl App {
                 let new_disk_path = self.lib_file_disk_path(&new_lf);
                 self.release_active_repaired_original(new_disk_path.as_deref());
                 self.lib_file = Some(new_lf);
+                if self.terminal.tabs.is_empty() {
+                    let window_id = self.tabs.active_session_id();
+                    self.terminal.bind_library_file(lib.root(), &e.id, &window_id);
+                }
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
                 let disk_path = self.watched_disk_path();
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());

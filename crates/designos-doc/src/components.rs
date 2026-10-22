@@ -241,17 +241,40 @@ pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
     false
 }
 
+/// True when `id` is a slot container inside a component instance (either linked to a main
+/// component slot or nested inside an instance root).
+pub fn is_instance_slot(doc: &Document, id: NodeId) -> bool {
+    is_slot_container(doc, id) && (doc.get(id).is_some_and(is_linked) || instance_root_of(doc, id).is_some())
+}
+
 /// Nearest ancestor-or-self of `id` that is a slot container inside a component instance.
 pub fn enclosing_instance_slot(doc: &Document, id: NodeId) -> Option<NodeId> {
     let mut cur = Some(id);
     while let Some(c) = cur {
         let n = doc.get(c)?;
-        if is_slot_container(doc, c) && (is_linked(n) || instance_root_of(doc, c).is_some()) {
+        if is_instance_slot(doc, c) {
             return Some(c);
         }
         cur = n.parent;
     }
     None
+}
+
+/// Marks `root` and every node in its subtree with `is_slot_content = true`, and marks any
+/// enclosing instance slot container with [`OverrideField::SlotContent`].
+pub fn mark_slot_content_subtree(doc: &mut Document, root: NodeId) {
+    if let Some(slot_id) = enclosing_instance_slot(doc, root) {
+        if let Some(slot) = doc.get_mut(slot_id) {
+            slot.component.overrides.insert(OverrideField::SlotContent);
+        }
+    }
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if let Some(n) = doc.get_mut(id) {
+            n.component.is_slot_content = true;
+            stack.extend(n.children.iter().copied());
+        }
+    }
 }
 
 /// Follows `component.source` from `slot` to the slot node of the main component that defines it
@@ -493,6 +516,20 @@ pub fn record_grid_align_overrides(before: &Node, after: &Node) -> [bool; 2] {
     [before.layout_child.grid_align_h != after.layout_child.grid_align_h, before.layout_child.grid_align_v != after.layout_child.grid_align_v]
 }
 
+/// Clears partial `.pen` override markers (`pen:explicit_stroke_fields`,
+/// `pen:explicit_width`, `pen:explicit_height`) when a user edit records `Stroke`
+/// or `Size` overrides on `node`, so all user-edited stroke/size subfields survive
+/// `sync_instances` and `.pen` export.
+pub fn clear_stale_pen_override_markers(node: &mut Node, fields: &BTreeSet<OverrideField>) {
+    if fields.contains(&OverrideField::Stroke) {
+        node.plugin_data.remove("pen:explicit_stroke_fields");
+    }
+    if fields.contains(&OverrideField::Size) {
+        node.plugin_data.remove("pen:explicit_width");
+        node.plugin_data.remove("pen:explicit_height");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Create component / instance
 // ---------------------------------------------------------------------------
@@ -633,14 +670,24 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = (n.component.overrides.len(), n.component.grid_align_overrides);
+        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len());
         for f in fields {
             n.component.overrides.remove(f);
-            if *f == OverrideField::Layout {
-                n.component.grid_align_overrides = [false, false];
+            match f {
+                OverrideField::Layout => {
+                    n.component.grid_align_overrides = [false, false];
+                }
+                OverrideField::Size => {
+                    n.plugin_data.remove("pen:explicit_width");
+                    n.plugin_data.remove("pen:explicit_height");
+                }
+                OverrideField::Stroke => {
+                    n.plugin_data.remove("pen:explicit_stroke_fields");
+                }
+                _ => {}
             }
         }
-        if (n.component.overrides.len(), n.component.grid_align_overrides) != before {
+        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len()) != before {
             c.update(n);
         }
     }
@@ -663,6 +710,9 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
         if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
+            n.plugin_data.remove("pen:explicit_width");
+            n.plugin_data.remove("pen:explicit_height");
+            n.plugin_data.remove("pen:explicit_stroke_fields");
             c.update(n);
         }
     }
@@ -772,6 +822,18 @@ fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>)
     for f in fields {
         copy_field(*f, from, to);
     }
+    if fields.contains(&OverrideField::Size) {
+        for key in ["pen:explicit_width", "pen:explicit_height"] {
+            if let Some(v) = from.plugin_data.get(key) {
+                to.plugin_data.insert(key.into(), v.clone());
+            }
+        }
+    }
+    if fields.contains(&OverrideField::Stroke) {
+        if let Some(v) = from.plugin_data.get("pen:explicit_stroke_fields") {
+            to.plugin_data.insert("pen:explicit_stroke_fields".into(), v.clone());
+        }
+    }
     if fields.contains(&OverrideField::Layout) {
         if !from.component.grid_align_overrides[0] {
             to.layout_child.grid_align_h = target_align.0;
@@ -795,6 +857,41 @@ fn copy_style_ref_key(key: &str, from: &Node, to: &mut Node) {
     }
 }
 
+fn binding_override_field(key: &str, is_text: bool) -> Option<OverrideField> {
+    if key.starts_with("fills/") {
+        Some(if is_text { OverrideField::TextStyle } else { OverrideField::Fills })
+    } else if key.starts_with("strokes/") || matches!(key, "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight")
+    {
+        Some(OverrideField::Stroke)
+    } else if matches!(key, "fontSize" | "fontFamily" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent") {
+        Some(OverrideField::TextStyle)
+    } else if matches!(key, "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" | "cornerRadius") {
+        Some(OverrideField::CornerRadii)
+    } else if matches!(key, "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") {
+        Some(OverrideField::Layout)
+    } else if matches!(key, "width" | "height") {
+        Some(OverrideField::Size)
+    } else if key == "opacity" {
+        Some(OverrideField::Opacity)
+    } else if key == "visible" {
+        Some(OverrideField::Visible)
+    } else if key == "characters" {
+        Some(OverrideField::Characters)
+    } else {
+        None
+    }
+}
+
+fn copy_variable_bindings_for_field(f: OverrideField, from: &Node, to: &mut Node) {
+    let is_text = matches!(to.kind, NodeKind::Text(_));
+    to.variables.bindings.retain(|k, _| binding_override_field(k, is_text) != Some(f));
+    for (k, v) in &from.variables.bindings {
+        if binding_override_field(k, is_text) == Some(f) {
+            to.variables.bindings.insert(k.clone(), v.clone());
+        }
+    }
+}
+
 fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
     match f {
         OverrideField::Name => to.name = from.name.clone(),
@@ -810,9 +907,10 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         OverrideField::Transform => to.transform = from.transform,
         OverrideField::Fills => {
             to.fills = from.fills.clone();
-            if !matches!(to.kind, NodeKind::Text(_)) {
-                copy_style_ref_key("fill", from, to);
+            if let (NodeKind::Text(a), NodeKind::Text(b)) = (&from.kind, &mut to.kind) {
+                b.style.fills = a.style.fills.clone();
             }
+            copy_style_ref_key("fill", from, to);
         }
         OverrideField::Stroke => {
             to.stroke = from.stroke.clone();
@@ -855,6 +953,7 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         }
         OverrideField::MainComponent | OverrideField::SlotContent => {}
     }
+    copy_variable_bindings_for_field(f, from, to);
 }
 
 /// Text whose characters differ from the main `r` (overridden, or driven by a bound property that
@@ -885,7 +984,60 @@ pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
     let ov = n.component.overrides.clone();
     let own_text = keeps_own_text_size(r, n, values);
+    let keep_text_fill = matches!(n.kind, NodeKind::Text(_)) && (ov.contains(&OverrideField::Fills) || ov.contains(&OverrideField::TextStyle));
+    let saved_text_fill = keep_text_fill.then(|| {
+        let fills = match &n.kind {
+            NodeKind::Text(tp) => tp.style.fills.clone(),
+            _ => Vec::new(),
+        };
+        (fills, n.style_refs.get("fill").cloned())
+    });
     for f in OverrideField::ALL {
+        if f == OverrideField::Size
+            && ov.contains(&OverrideField::Size)
+            && !own_text
+            && (n.plugin_data.contains_key("pen:explicit_width") || n.plugin_data.contains_key("pen:explicit_height"))
+        {
+            if n.plugin_data.get("pen:explicit_width").map(String::as_str) != Some("true") {
+                n.size.x = r.size.x;
+                n.layout_child.horizontal = r.layout_child.horizontal;
+                n.layout_child.min_w = r.layout_child.min_w;
+                n.layout_child.max_w = r.layout_child.max_w;
+            }
+            if n.plugin_data.get("pen:explicit_height").map(String::as_str) != Some("true") {
+                n.size.y = r.size.y;
+                n.layout_child.vertical = r.layout_child.vertical;
+                n.layout_child.min_h = r.layout_child.min_h;
+                n.layout_child.max_h = r.layout_child.max_h;
+            }
+            continue;
+        }
+        if f == OverrideField::Stroke && ov.contains(&OverrideField::Stroke) {
+            if let Some(raw_fields) = n.plugin_data.get("pen:explicit_stroke_fields").cloned() {
+                let has_field = |name: &str| raw_fields.split(',').map(str::trim).any(|p| p == name);
+                if !has_field("paints") {
+                    n.stroke.paints = r.stroke.paints.clone();
+                    copy_style_ref_key("stroke", r, n);
+                }
+                if !has_field("width") {
+                    n.stroke.weight = r.stroke.weight;
+                    n.stroke.side_weights = r.stroke.side_weights;
+                }
+                if !has_field("align") {
+                    n.stroke.align = r.stroke.align;
+                }
+                if !has_field("cap") {
+                    n.stroke.cap = r.stroke.cap;
+                }
+                if !has_field("join") {
+                    n.stroke.join = r.stroke.join;
+                }
+                if !has_field("dashes") {
+                    n.stroke.dashes = r.stroke.dashes.clone();
+                }
+            }
+            continue;
+        }
         if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
             continue;
         }
@@ -911,6 +1063,19 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
             continue;
         }
         copy_field(f, r, n);
+    }
+    if let Some((fills, fill_ref)) = saved_text_fill {
+        if let NodeKind::Text(tp) = &mut n.kind {
+            tp.style.fills = fills;
+        }
+        match fill_ref {
+            Some(v) => {
+                n.style_refs.insert("fill".into(), v);
+            }
+            None => {
+                n.style_refs.remove("fill");
+            }
+        }
     }
     // Fields that are never overridden.
     if !top {
@@ -1568,9 +1733,9 @@ struct SlotMigrationPlan {
     regions: Vec<SlotMigrationRegion>,
 }
 
-fn unique_slot_prop_name(doc: &Document, owner: NodeId, base: &str) -> String {
+fn unique_slot_prop_name(doc: &Document, comp: NodeId, base: &str) -> String {
     let base = if base.trim().is_empty() { "Slot" } else { base.trim() };
-    let taken: Vec<String> = doc.get(owner).map(|n| n.component.props.iter().map(|p| p.name.clone()).collect()).unwrap_or_default();
+    let taken: Vec<String> = prop_defs(doc, comp).into_iter().map(|p| p.name).collect();
     if !taken.contains(&base.to_string()) {
         return base.to_string();
     }
@@ -1585,7 +1750,8 @@ fn unique_slot_prop_name(doc: &Document, owner: NodeId, base: &str) -> String {
 }
 
 /// Classifies one region on its own: the main component it sits in, the owner of the property it is bound
-/// to (the component set unless the variant defines that property itself) and how it migrates.
+/// to (the component set unless the variant defines that property itself or the slot property is freshly
+/// invented for an unbound instance region) and how it migrates.
 fn classify_slot_region(doc: &Document, node: NodeId) -> Result<(NodeId, NodeId, MigrationMode), &'static str> {
     let Some(n) = doc.get(node) else {
         return Err("Selected layer was not found");
@@ -1615,6 +1781,7 @@ fn classify_slot_region(doc: &Document, node: NodeId) -> Result<(NodeId, NodeId,
     let set = doc.get(comp).and_then(|c| c.parent).filter(|p| matches!(doc.get(*p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))));
     let name_owner = set.unwrap_or(comp);
 
+    let mut invented_prop = false;
     let mode = match &n.kind {
         NodeKind::Instance { .. } => {
             let main_prop = n.component.bindings.get(&OverrideField::MainComponent).cloned();
@@ -1624,7 +1791,8 @@ fn classify_slot_region(doc: &Document, node: NodeId) -> Result<(NodeId, NodeId,
             } else if let Some(p) = vis_prop.clone() {
                 p
             } else {
-                unique_slot_prop_name(doc, name_owner, &n.name)
+                invented_prop = true;
+                unique_slot_prop_name(doc, comp, &n.name)
             };
             MigrationMode::InstanceLayer { prop_name, vis_prop }
         }
@@ -1654,7 +1822,7 @@ fn classify_slot_region(doc: &Document, node: NodeId) -> Result<(NodeId, NodeId,
         _ => return Err("Unsupported shape: select an instance-swap layer or a container with a boolean property"),
     };
     let defined_on_variant = doc.get(comp).is_some_and(|c| c.component.props.iter().any(|p| p.name == mode.prop_name()));
-    let owner = if defined_on_variant { comp } else { name_owner };
+    let owner = if defined_on_variant || invented_prop { comp } else { name_owner };
     Ok((comp, owner, mode))
 }
 
@@ -3240,6 +3408,127 @@ mod tests {
         assert!(f.d.get(set).unwrap().component.props.iter().all(|p| p.name != "Icon"), "no duplicate slot property lands on the set");
         assert!(same_ignoring_tree(f.d.get(large_icon).unwrap(), &large_before));
         assert_eq!(f.d.get(inst_large).unwrap().component.values, inst_large_before.component.values);
+    }
+
+    fn set_with_unbound_icon_in_each_variant() -> SetFx {
+        let mut f = fx();
+        let alt = f.d.alloc_id();
+        let mut alt_node = Node::frame(alt, Rect::new(0.0, 200.0, 200.0, 48.0));
+        alt_node.name = "Alt icon".into();
+        let alt = f.d.insert(f.page, alt_node).unwrap();
+        let c = create_component(&mut f.d, alt);
+        apply(&mut f.d, c);
+
+        let mut variants = Vec::new();
+        for (name, y) in [("Size=Small", 500.0), ("Size=Large", 700.0)] {
+            let id = f.d.alloc_id();
+            let mut v = Node::frame(id, Rect::new(0.0, y, 300.0, 100.0));
+            v.name = name.into();
+            let v = f.d.insert(f.page, v).unwrap();
+            let c = create_component(&mut f.d, v);
+            apply(&mut f.d, c);
+            variants.push(v);
+        }
+        let (small, large) = (variants[0], variants[1]);
+        let c = create_instance(&mut f.d, f.comp, small, Vec2::new(12.0, 16.0));
+        apply(&mut f.d, c);
+        let small_icon = *f.d.get(small).unwrap().children.last().unwrap();
+        let c = create_instance(&mut f.d, f.comp, large, Vec2::new(20.0, 24.0));
+        apply(&mut f.d, c);
+        let large_icon = *f.d.get(large).unwrap().children.last().unwrap();
+
+        let c = combine_as_variants(&mut f.d, &[small, large]);
+        apply(&mut f.d, c);
+        let set = f.d.get(small).unwrap().parent.unwrap();
+
+        let c = create_instance(&mut f.d, small, f.page, Vec2::new(900.0, 0.0));
+        apply(&mut f.d, c);
+        let inst_small = *f.d.get(f.page).unwrap().children.last().unwrap();
+
+        let c = create_instance(&mut f.d, large, f.page, Vec2::new(900.0, 200.0));
+        apply(&mut f.d, c);
+        let inst_large = *f.d.get(f.page).unwrap().children.last().unwrap();
+
+        SetFx { f, alt, set, small_icon, large_icon, inst_small, inst_large }
+    }
+
+    #[test]
+    fn unbound_region_in_one_variant_creates_no_set_level_slot() {
+        let SetFx { mut f, set, small_icon, large_icon, inst_large, .. } = set_with_unbound_icon_in_each_variant();
+        let small = f.d.get(small_icon).unwrap().parent.unwrap();
+        let large_before = f.d.get(large_icon).unwrap().clone();
+        let inst_large_before = f.d.get(inst_large).unwrap().clone();
+
+        assert!(can_migrate_region_to_slot(&f.d, small_icon));
+        let cmd = migrate_region_to_slot(&mut f.d, small_icon).expect("unbound instance in a variant should migrate");
+        apply(&mut f.d, cmd);
+
+        assert!(
+            f.d.get(set).unwrap().component.props.iter().all(|p| p.kind != PropKind::Slot),
+            "no set-level slot property may be created when migrating an unbound region in one variant"
+        );
+        let slot_prop_name =
+            f.d.get(small)
+                .unwrap()
+                .component
+                .props
+                .iter()
+                .find(|p| p.kind == PropKind::Slot)
+                .expect("small variant must own the migrated slot property")
+                .name
+                .clone();
+        assert_eq!(f.d.get(small).unwrap().component.props.iter().filter(|p| p.kind == PropKind::Slot).count(), 1);
+        assert!(f.d.get(small_icon).unwrap().component.is_slot);
+        assert!(same_ignoring_tree(f.d.get(large_icon).unwrap(), &large_before));
+        assert_eq!(f.d.get(inst_large).unwrap().component.values, inst_large_before.component.values);
+        assert_eq!(f.d.get(inst_large).unwrap().children, inst_large_before.children);
+
+        // `set_slot_config` on the component set changes nothing; on the variant it updates what `slot_config_of` returns.
+        let cfg = SlotPropConfig {
+            min_children: Some(1),
+            max_children: Some(3),
+            stretch_child_on_insert: Some(true),
+            display_by_default: Some(false),
+            ..SlotPropConfig::default()
+        };
+        let set_before = f.d.get(set).unwrap().clone();
+        let noop_cmd = set_slot_config(&mut f.d, set, &slot_prop_name, cfg.clone());
+        assert!(matches!(noop_cmd, Command::Batch(ref v) if v.is_empty()));
+        apply(&mut f.d, noop_cmd);
+        assert_eq!(f.d.get(set).unwrap(), &set_before);
+        assert_eq!(slot_config_of(&f.d, small_icon), None);
+
+        let var_cmd = set_slot_config(&mut f.d, small, &slot_prop_name, cfg.clone());
+        apply(&mut f.d, var_cmd);
+        assert_eq!(slot_config_of(&f.d, small_icon), Some(cfg));
+    }
+
+    #[test]
+    fn unbound_region_in_a_standalone_component_unchanged() {
+        let mut f = fx();
+        let id = f.d.alloc_id();
+        let card = f.d.insert(f.page, Node::frame(id, Rect::new(0.0, 500.0, 300.0, 100.0))).unwrap();
+        let c = create_component(&mut f.d, card);
+        apply(&mut f.d, c);
+        let c = create_instance(&mut f.d, f.comp, card, Vec2::new(12.0, 16.0));
+        apply(&mut f.d, c);
+        let region = *f.d.get(card).unwrap().children.last().unwrap();
+
+        let cmd = migrate_region_to_slot(&mut f.d, region).expect("unbound instance in standalone component should migrate");
+        apply(&mut f.d, cmd);
+
+        assert_eq!(f.d.get(card).unwrap().component.props.iter().filter(|p| p.kind == PropKind::Slot).count(), 1);
+        assert!(f.d.get(region).unwrap().component.is_slot);
+    }
+
+    #[test]
+    fn undo_restores_everything() {
+        let SetFx { mut f, small_icon, .. } = set_with_unbound_icon_in_each_variant();
+        let before_nodes = f.d.nodes.clone();
+        let cmd = migrate_region_to_slot(&mut f.d, small_icon).expect("unbound instance in a variant should migrate");
+        let inv = apply(&mut f.d, cmd);
+        apply(&mut f.d, inv);
+        assert!(f.d.nodes == before_nodes, "one undo restores every variant, prop, and instance");
     }
 
     /// `card` holds a frame "icon wrap" with one instance of `f.comp` bound to the instance-swap prop "Icon"

@@ -11,6 +11,8 @@ use std::time::SystemTime;
 
 /// Most bytes one poll reads; the rest waits for the next frame.
 const MAX_POLL_BYTES: u64 = 64 << 20;
+/// Bytes read at a time when looking for an unread complete line.
+const SCAN_CHUNK_BYTES: usize = 64 << 10;
 /// Leading bytes remembered to notice a log rewritten in place.
 const HEAD_BYTES: usize = 256;
 
@@ -42,6 +44,12 @@ pub struct LivePatchLog {
     /// Patches already read but not applied yet, because the user was in the middle of an edit.
     /// The read position is past them, so they live only here.
     pub pending: Vec<LivePatch>,
+    /// Start byte offset in `doc-patch.jsonl` for each entry in [`Self::pending`].
+    pub pending_offsets: Vec<u64>,
+    /// Start byte offsets of lines returned by recent [`Self::poll`] calls, consumed by [`Self::ingest`].
+    last_polled_offsets: std::collections::VecDeque<u64>,
+    /// Set when a [`DocEpoch`] line was ingested and waiting to replace the document.
+    pub pending_epoch_switch: bool,
     /// A document the agent switched to while the user was mid-edit. It replaces the open one
     /// once the canvas is idle, before any patch in `pending` (those were made on it).
     pub pending_doc: Option<Document>,
@@ -71,6 +79,9 @@ impl LivePatchLog {
             max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
             state: LivePatchState::default(),
             pending: Vec::new(),
+            pending_offsets: Vec::new(),
+            last_polled_offsets: std::collections::VecDeque::new(),
+            pending_epoch_switch: false,
             pending_doc: None,
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
@@ -82,14 +93,83 @@ impl LivePatchLog {
         log
     }
 
+    /// Current byte offset read in `doc-patch.jsonl`.
+    pub fn current_offset(&self) -> u64 {
+        self.offset
+    }
+
     /// Agent changes wait for the canvas to go idle.
     pub fn has_held(&self) -> bool {
         !self.pending.is_empty() || self.pending_doc.is_some()
     }
 
+    /// A complete line (ending in a newline) was appended that no poll has read yet. A line still
+    /// being written, or left behind by a crashed writer, has no newline and does not count: it
+    /// would hold the editor's canvas back until the next append. While an oversized line is being
+    /// discarded its own tail never counts, but a normal line after the tail does.
+    ///
+    /// Reads at most one line's worth of bytes (the limit on a line) per sought newline, in
+    /// chunks, and stops at the first newline that decides it.
+    pub fn has_unread_complete_line(&self) -> bool {
+        let Ok(meta) = std::fs::metadata(&self.path) else { return false };
+        let len = meta.len();
+        // A recreated or truncated log is unread from its start, exactly as `poll_with_offsets` sees it.
+        let rewritten = self.identity.is_some_and(|old| old != identity(&meta)) || len < self.offset || !self.head_unchanged();
+        let (start, skipping) = if rewritten { (0, false) } else { (self.offset, self.skipping) };
+        if len <= start {
+            return false;
+        }
+        // The end of the discarded tail is not a line; the newline after it ends the next one.
+        let mut newlines_needed = if skipping { 2 } else { 1 };
+        let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return false;
+        }
+        let mut remaining = (len - start).min(self.max_poll_bytes);
+        let mut chunk = vec![0u8; SCAN_CHUNK_BYTES];
+        // Bytes since the last newline: a line longer than the limit is reported, never applied.
+        let mut run = 0usize;
+        while remaining > 0 {
+            let want = chunk.len().min(remaining as usize);
+            let Ok(n) = file.read(&mut chunk[..want]) else { return false };
+            if n == 0 {
+                return false;
+            }
+            remaining -= n as u64;
+            for byte in &chunk[..n] {
+                if *byte == b'\n' {
+                    newlines_needed -= 1;
+                    run = 0;
+                    if newlines_needed == 0 {
+                        return true;
+                    }
+                } else {
+                    run += 1;
+                }
+            }
+            let in_discarded_tail = skipping && newlines_needed == 2;
+            if run > self.max_line_bytes && !in_discarded_tail {
+                return false;
+            }
+        }
+        false
+    }
+
     /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
     /// lines come back as errors; nothing is skipped silently.
     pub fn poll(&mut self) -> (Vec<LiveLogLine>, Vec<String>) {
+        let (lines, errors) = self.poll_with_offsets();
+        let mut out = Vec::with_capacity(lines.len());
+        for (off, line) in lines {
+            self.last_polled_offsets.push_back(off);
+            out.push(line);
+        }
+        (out, errors)
+    }
+
+    /// Complete log lines appended since the last poll along with each line's start byte offset
+    /// in `doc-patch.jsonl`.
+    pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = std::fs::metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
         if len == self.offset && self.identity == Some(id) {
@@ -101,6 +181,9 @@ impl LivePatchLog {
             self.offset = 0;
             self.skipping = false;
             self.pending.clear();
+            self.pending_offsets.clear();
+            self.last_polled_offsets.clear();
+            self.pending_epoch_switch = false;
             self.pending_doc = None;
             self.dropped_old_epoch = 0;
             self.discarding = false;
@@ -113,13 +196,14 @@ impl LivePatchLog {
         if len <= self.offset {
             return Default::default();
         }
+        let base_offset = self.offset;
         let Some(buf) = self.read_range(self.offset, (len - self.offset).min(self.max_poll_bytes)) else { return Default::default() };
-        let (consumed, patches, errors) = self.split_lines(&buf);
+        let (consumed, patches, errors) = self.split_lines(base_offset, &buf);
         self.offset += consumed as u64;
         (patches, errors)
     }
 
-    fn split_lines(&mut self, buf: &[u8]) -> (usize, Vec<LiveLogLine>, Vec<String>) {
+    fn split_lines(&mut self, base_offset: u64, buf: &[u8]) -> (usize, Vec<(u64, LiveLogLine)>, Vec<String>) {
         let (mut patches, mut errors) = (Vec::new(), Vec::new());
         let mut pos = 0;
         if self.skipping {
@@ -128,13 +212,14 @@ impl LivePatchLog {
             self.skipping = false;
         }
         while let Some(nl) = buf[pos..].iter().position(|b| *b == b'\n') {
+            let line_start = base_offset + pos as u64;
             let line = &buf[pos..pos + nl];
             pos += nl + 1;
             if line.len() > self.max_line_bytes {
                 errors.push(self.too_large(line.len()));
             } else if !line.iter().all(u8::is_ascii_whitespace) {
                 match LiveLogLine::parse(line) {
-                    Ok(p) => patches.push(p),
+                    Ok(p) => patches.push((line_start, p)),
                     Err(e) => errors.push(format!("Unreadable agent edit in {}: {e}", display_name(&self.path))),
                 }
             }
@@ -154,8 +239,14 @@ impl LivePatchLog {
     /// document the one to open; edits after it are held for that document. Returns what the
     /// user must be told.
     pub fn ingest(&mut self, lines: Vec<LiveLogLine>) -> Vec<String> {
+        let with_offsets: Vec<(u64, LiveLogLine)> = lines.into_iter().map(|l| (self.last_polled_offsets.pop_front().unwrap_or(0), l)).collect();
+        self.ingest_with_offsets(with_offsets)
+    }
+
+    /// Same as [`Self::ingest`], preserving each line's start byte offset in [`Self::pending_offsets`].
+    pub fn ingest_with_offsets(&mut self, lines: Vec<(u64, LiveLogLine)>) -> Vec<String> {
         let (mut errors, mut dropped_while_stuck) = (Vec::new(), 0);
-        for line in lines {
+        for (line_offset, line) in lines {
             match line {
                 LiveLogLine::Patch(_) if self.discarding => {
                     if self.load_failed {
@@ -164,10 +255,15 @@ impl LivePatchLog {
                         self.dropped_old_epoch += 1;
                     }
                 }
-                LiveLogLine::Patch(patch) => self.pending.push(patch),
+                LiveLogLine::Patch(patch) => {
+                    self.pending.push(patch);
+                    self.pending_offsets.push(line_offset);
+                }
                 LiveLogLine::DocEpoch(epoch) => {
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
+                    self.pending_offsets.clear();
+                    self.pending_epoch_switch = true;
                     self.pending_doc = None;
                     self.load_failed = false;
                     self.discarding = true;
@@ -312,6 +408,77 @@ mod tests {
         assert_eq!(seen, [1, 2]);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("over the"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn only_a_complete_unread_line_counts_as_unread() {
+        let path = temp_log("unread");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(!log.has_unread_complete_line(), "lines from before the bind are not unread");
+        let next = line(2);
+        append(&path, &next[..10]);
+        assert!(!log.has_unread_complete_line(), "a line without a newline yet does not count");
+        append(&path, &next[10..]);
+        assert!(log.has_unread_complete_line());
+        assert_eq!(ids(&log.poll().0), [2]);
+        assert!(!log.has_unread_complete_line(), "a poll reads the line");
+    }
+
+    #[test]
+    fn a_recreated_log_and_a_discarded_oversized_line_are_judged_like_the_poll_does() {
+        let path = temp_log("unread-rotate");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &(line(7) + &line(8)));
+        assert!(log.has_unread_complete_line(), "everything in a recreated log is unread");
+        assert_eq!(ids(&log.poll().0), [7, 8]);
+        log.max_line_bytes = 64;
+        append(&path, &"x".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        append(&path, "\n");
+        assert!(!log.has_unread_complete_line(), "the tail of an oversized line is dropped, so it must not hold the canvas back");
+    }
+
+    #[test]
+    fn a_normal_line_after_an_oversized_tail_and_a_log_recreated_meanwhile_count_as_unread() {
+        let path = temp_log("unread-skipping");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        log.max_line_bytes = 64;
+        append(&path, &"x".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        assert!(!log.has_unread_complete_line(), "the unfinished oversized line is not an edit");
+        append(&path, &format!("tail\n{}", line(2)));
+        assert!(log.has_unread_complete_line(), "the line after the oversized tail is an unread edit");
+        assert_eq!(ids(&log.poll().0), [2]);
+        assert!(!log.skipping);
+
+        append(&path, &"y".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &line(3));
+        assert!(log.has_unread_complete_line(), "a log recreated while skipping is unread from its start");
+        assert_eq!(ids(&log.poll().0), [3]);
+    }
+
+    #[test]
+    fn the_unread_check_stops_at_the_first_newline_and_ignores_a_line_over_the_limit() {
+        let path = temp_log("unread-bounded");
+        let mut log = LivePatchLog::bind(path.clone());
+        log.max_line_bytes = 64;
+        append(&path, &"z".repeat(300_000));
+        assert!(!log.has_unread_complete_line(), "an unfinished line past the limit is never applied");
+        append(&path, "\n");
+        assert!(!log.has_unread_complete_line(), "a complete line over the limit is reported by the poll, not applied");
+        let mut log = LivePatchLog::bind(temp_log("unread-bounded-ok"));
+        append(&log.path.clone(), &(line(5) + &"q".repeat(300_000)));
+        assert!(log.has_unread_complete_line(), "the first newline decides, whatever follows it");
+        assert_eq!(ids(&log.poll().0), [5]);
     }
 
     fn switch_line(doc: &Document, epoch: u64) -> (String, Vec<u8>) {

@@ -105,19 +105,7 @@ pub fn collect_colors(doc: &Document, root: NodeId) -> Vec<ColorEntry> {
     out
 }
 
-pub fn weight_name(w: u16) -> &'static str {
-    match w {
-        0..=149 => "Thin",
-        150..=249 => "ExtraLight",
-        250..=349 => "Light",
-        350..=449 => "Regular",
-        450..=549 => "Medium",
-        550..=649 => "SemiBold",
-        650..=749 => "Bold",
-        750..=849 => "ExtraBold",
-        _ => "Black",
-    }
-}
+pub use designos_export::design_context::weight_name;
 
 /// Label/value pairs describing a text style.
 pub fn typography_rows(t: &TextProps) -> Vec<(&'static str, String)> {
@@ -912,6 +900,7 @@ mod tests {
                 variables: vec!["background".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         d.variables.insert(
@@ -928,6 +917,8 @@ mod tests {
                 key: None,
 
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         assert_eq!(collect_colors(&d, id)[0].hex(), "#FFFFFF");

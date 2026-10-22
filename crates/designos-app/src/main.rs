@@ -1,5 +1,28 @@
+mod agent_a11y;
+mod agent_approval_card;
+mod agent_busy_frames;
+pub mod agent_cli_catalog;
+pub mod agent_composer;
+mod agent_mention;
+mod agent_mention_popup;
+pub mod agent_notify;
+pub mod agent_open_flow;
+pub mod agent_permissions;
+pub mod agent_picker;
+mod agent_presence;
+mod agent_sample_prompts;
+mod agent_selection_chip;
+pub mod agent_sessions;
 mod agent_start_failure;
+mod agent_stop;
+pub mod agent_turn_card;
+pub mod agent_turn_ledger;
+pub mod agent_turn_marks;
+pub mod agent_turn_status;
+pub mod agent_usage;
 mod app;
+#[cfg(test)]
+mod apply_node_spec_variable_tests;
 mod board;
 mod canvas;
 mod check_designs;
@@ -17,6 +40,7 @@ mod fonts;
 mod history;
 mod home;
 mod icons;
+mod image_jobs;
 mod io;
 mod layout;
 mod libraries;
@@ -44,6 +68,7 @@ mod specs;
 mod styles;
 mod tabs;
 mod terminal;
+mod terminal_undo_chord;
 #[cfg(test)]
 mod test_timing;
 mod textedit;
@@ -185,7 +210,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         io::ensure_page(&mut d);
         (d, SaveTarget::Library(lib, id.clone()))
     } else if let Some(path) = &opts.file {
-        let d = if !path.exists() && opts.apply_spec.is_some() {
+        let d = if !path.exists() && (opts.apply_spec.is_some() || opts.import_capture.is_some() || opts.import_variables.is_some()) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
             let mut d = designos_doc::Document::new(stem);
             io::ensure_page(&mut d);
@@ -193,10 +218,40 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         } else {
             io::load_path(path)?
         };
-        (d, SaveTarget::Path(path.clone()))
+        let target_path = opts.out.clone().unwrap_or_else(|| path.clone());
+        (d, SaveTarget::Path(target_path))
+    } else if let Some(out_path) = &opts.out {
+        let stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
+        let mut d = designos_doc::Document::new(stem);
+        io::ensure_page(&mut d);
+        (d, SaveTarget::Path(out_path.clone()))
     } else {
-        return Err("Agent CLI requires a file path or --open-id <id>".into());
+        return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
+
+    if let Some(cap_path) = &opts.import_capture {
+        let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
+        let page = doc.pages.first().copied().ok_or("Document has no pages")?;
+        let (cmd, report) = designos_webcapture::import_capture_json(&doc, page, &raw, &designos_webcapture::ImportOptions::default())
+            .map_err(|e| format!("Web capture import failed in {}: {e}", cap_path.display()))?;
+        let mut hist = designos_doc::History::default();
+        hist.exec(&mut doc, cmd).map_err(|e| format!("Web capture import failed: {e}"))?;
+        doc.relayout_subtree(page);
+        doc.flush_pending_relayout();
+        if doc.name == "Untitled" || opts.file.is_none() {
+            doc.name = report.root_name.clone();
+        }
+        save_target.save(&doc)?;
+        let out = serde_json::json!({
+            "root_node_id": report.root_node_id.0,
+            "root_name": report.root_name,
+            "nodes_created": report.nodes_created,
+            "summary_toast": report.summary_toast(),
+            "report": report,
+            "saved": true,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
 
     let selected_node = resolve_select_node(&doc, opts.select.as_deref());
 
@@ -279,13 +334,93 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if let Some(out_path) = &opts.export_fig {
-        let bytes = designos_fig::export_fig(&doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
+        let (bytes, omitted) = designos_fig::export_fig_with_report(&doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
         if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(parent);
         }
         std::fs::write(out_path, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
-        let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len() });
+        let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len(), "omitted_extensions": omitted });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+
+    if let Some(var_path) = &opts.import_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::Auto);
+        let bytes = std::fs::read(var_path).map_err(|e| format!("Cannot read {}: {e}", var_path.display()))?;
+        let mut import_opts = designos_fig::ImportVariablesOptions::default();
+        // If importing a manifest or sibling .tokens.json files from a directory, collect siblings
+        if let Some(parent_dir) = var_path.parent() {
+            if var_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifest.json") {
+                if let Ok(entries) = std::fs::read_dir(parent_dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p != *var_path && p.extension().and_then(|e| e.to_str()) == Some("json") {
+                            if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(&p)) {
+                                import_opts.additional_files.push((fname.to_string(), fbytes));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let before_store = designos_doc::VariableStore::from_doc(&doc);
+        let mut working = designos_doc::Document::new("variables_work");
+        working.variable_collections = doc.variable_collections.clone();
+        working.variables = doc.variables.clone();
+        let report = designos_fig::import_variables_bytes(&mut working, &bytes, var_path.file_name().and_then(|s| s.to_str()), fmt, import_opts)
+            .map_err(|e| format!("Cannot import variables from {}: {e}", var_path.display()))?;
+        let mut after_store = designos_doc::VariableStore { collections: working.variable_collections, variables: working.variables };
+        after_store.enforce_library_read_only(&before_store);
+        doc.variable_collections = after_store.collections;
+        doc.variables = after_store.variables;
+        save_target.save(&doc)?;
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
+    if let Some(out_target) = &opts.export_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
+        let bundle = designos_fig::export_variables(&doc, fmt).map_err(|e| format!("Cannot export variables: {e}"))?;
+        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext.eq_ignore_ascii_case("zip") {
+            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
+            std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+        } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
+            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+        } else {
+            std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
+            for (name, bytes) in &bundle.files {
+                let safe_name = std::path::Path::new(name)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                    .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
+                let dest = out_target.join(safe_name);
+                std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+            }
+        }
+        let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
+        let out = serde_json::json!({
+            "format": bundle.format.label(),
+            "path": out_target,
+            "files": files_written,
+            "omitted_extensions": bundle.omitted_extensions,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+
+    if let Some(lang_id) = &opts.codegen {
+        let lang = designos_export::CodeLanguage::from_id(lang_id).ok_or_else(|| format!("Unknown codegen language '{lang_id}'"))?;
+        let target_id = selected_node
+            .or_else(|| doc.pages.first().and_then(|p| doc.get(*p)).and_then(|p| p.children.first()).copied())
+            .or_else(|| doc.pages.first().copied())
+            .ok_or("No node found to generate code for")?;
+        let (resolved, _) = designos_export::apply_bound_variables_subtree(&doc, target_id);
+        println!("{}", lang.generate(&resolved, target_id, false));
     }
 
     if opts.comments_json {
@@ -388,6 +523,50 @@ mod icon_tests {
         assert!(final_doc.comments[0].resolved);
         assert_eq!(final_doc.comments[0].messages.len(), 2);
         assert!(spec_out.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn web_capture_cli_import_and_out_roundtrip() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_web_capture_cli_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let cap_in = dir.join("card.capture.json");
+        let doc_out = dir.join("card.designos");
+
+        std::fs::write(
+            &cap_in,
+            r##"{
+                "schema_version": 1,
+                "url": "https://example.com/card",
+                "title": "CLI Captured Card",
+                "viewport": { "width": 800, "height": 600, "dpr": 2.0 },
+                "root": {
+                    "tag": "div",
+                    "bounds": { "x": 0, "y": 0, "w": 300, "h": 120 },
+                    "style": { "display": "flex", "flex_direction": "column", "row_gap": 10, "background_color": "#ffffff" },
+                    "children": [
+                        {
+                            "tag": "p",
+                            "bounds": { "x": 12, "y": 12, "w": 276, "h": 24 },
+                            "style": { "color": "#111827", "font_family": "Inter", "font_size": 16, "font_weight": 500, "line_height": 24 },
+                            "text_runs": [{ "text": "Captured via CLI", "bounds": { "x": 12, "y": 12, "w": 180, "h": 24 } }]
+                        }
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+
+        let opts =
+            super::cli::parse(["--import-capture".into(), cap_in.to_string_lossy().into_owned(), "--out".into(), doc_out.to_string_lossy().into_owned()])
+                .unwrap();
+        super::run_agent_cli(&opts).unwrap();
+
+        let loaded = super::io::load_path(&doc_out).unwrap();
+        assert_eq!(loaded.name, "CLI Captured Card — example.com");
+        assert!(loaded.nodes.values().any(|n| matches!(&n.kind, designos_doc::NodeKind::Text(t) if t.content == "Captured via CLI")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

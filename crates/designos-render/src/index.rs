@@ -379,12 +379,10 @@ impl SceneIndex {
         self.top_has_mask = false;
     }
 
-    /// True unless the subtree of `id` is known to miss `win`.
-    pub(crate) fn may_touch(&self, id: NodeId, win: B) -> bool {
-        match self.entries.get(&id) {
-            Some(e) => overlaps(e.bounds, win),
-            None => true,
-        }
+    /// True when `id` is indexed, is not a mask (a mask acts on its later siblings wherever it is)
+    /// and its subtree is known to miss `win`: the layer need not be looked at to be skipped.
+    pub(crate) fn culls(&self, id: NodeId, win: B) -> bool {
+        self.entries.get(&id).is_some_and(|e| !e.mask && !overlaps(e.bounds, win))
     }
 
     /// Page-space bounds (x0, y0, x1, y1) of a node's drawn subtree, if indexed and visible.

@@ -87,6 +87,63 @@ pub fn decode_fig_to_json(bytes: &[u8]) -> Result<Value, FigError> {
     Ok(Value::Object(out))
 }
 
+/// Pre-decoded `derivedSymbolData` entry and instance scale metadata for corpus verification.
+#[derive(Debug, Clone)]
+pub struct FigDerivedSymbolEntry {
+    pub path: Vec<String>,
+    pub size: Option<Vec2>,
+    pub transform: Option<Affine>,
+}
+
+/// Extracted `derivedSymbolData` and `uniformScaleFactor` for an `INSTANCE` node in a `.fig` file.
+#[derive(Debug, Clone, Default)]
+pub struct FigInstanceDerivedData {
+    pub uniform_scale: f32,
+    pub entries: Vec<FigDerivedSymbolEntry>,
+}
+
+/// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
+pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
+    let mut d = decode_inner(bytes, true)?;
+    let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
+        Some(KiwiValue::Array(arr)) => arr,
+        _ => Vec::new(),
+    };
+    let mut map = HashMap::new();
+    for nc in &raw_changes {
+        if nc.get("type").and_then(kiwi_str) != Some("INSTANCE") {
+            continue;
+        }
+        let Some(id) = nc.get("guid").and_then(kiwi_guid_str) else { continue };
+        let sd = nc.get("symbolData");
+        let uniform_scale = sd.and_then(|s| kiwi_f32(s, "uniformScaleFactor")).unwrap_or(1.0);
+        let derived_val = nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData")));
+        let Some(KiwiValue::Array(arr)) = derived_val else { continue };
+        let mut entries = Vec::new();
+        for o in arr {
+            let p = o.get("guidPath");
+            let list = p.and_then(|p| p.get("guids")).or(p).and_then(KiwiValue::as_array);
+            let path: Vec<String> = list.map(|a| a.iter().filter_map(kiwi_guid_str).collect()).unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            let size = o.get("size").and_then(|s| Some(Vec2::new(kiwi_f32(s, "x")?, kiwi_f32(s, "y")?)));
+            let transform = o.get("transform").map(|t| {
+                let g = |k: &str, d: f32| kiwi_f32(t, k).unwrap_or(d);
+                Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) }
+            });
+            if size.is_none() && transform.is_none() {
+                continue;
+            }
+            entries.push(FigDerivedSymbolEntry { path, size, transform });
+        }
+        if !entries.is_empty() {
+            map.insert(id, FigInstanceDerivedData { uniform_scale, entries });
+        }
+    }
+    Ok(map)
+}
+
 /// Pre-decoded `derivedSymbolData` entry for fast `.fig` import without JSON intermediate.
 #[derive(Debug, Clone)]
 pub(crate) struct FastDerivedEntry {
@@ -204,6 +261,17 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
 pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
+    import_fig_with_report(bytes).map(|(doc, _)| doc)
+}
+
+/// Imports a `.fig` file and returns an [`rest_import::ImportReport`] describing any instances left unexpanded by
+/// [`rest_import::CLONE_BUDGET_TOTAL`].
+pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_fig_with_budget(bytes, rest_import::CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
     let mut d = decode_inner(bytes, true)?;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
@@ -246,7 +314,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    let mut doc = rest_import::import_rest_value_owned(rest, true, &blob_refs, fast_derived.as_mut())?;
+    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
     drop(fast_derived);
     drop(blob_refs);
     drop(owned_blobs);
@@ -254,7 +322,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 // ------------------------------------------------------------------ tree
@@ -316,6 +384,21 @@ fn guid_str(g: &Value) -> Option<String> {
     // Only the null GUID sentinel is unset; session `u32::MAX` is a real id (paste uses it for its synthetic page).
     if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
         return None;
+    }
+    Some(format!("{s}:{l}"))
+}
+
+/// Strips a disambiguated fallback component key (`"comp:s:l"` or `"comp:s:l:n"`) back to `"s:l"`.
+pub(crate) fn strip_fallback_comp_key(k: &str) -> Option<String> {
+    let rest = k.strip_prefix("comp:")?;
+    let mut parts = rest.split(':');
+    let s: u32 = parts.next()?.parse().ok()?;
+    let l: u32 = parts.next()?.parse().ok()?;
+    if let Some(n) = parts.next() {
+        let _: u32 = n.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
     }
     Some(format!("{s}:{l}"))
 }
@@ -474,6 +557,18 @@ impl<'a> Lk<'a> {
         lk
     }
 
+    /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
+    /// strips a disambiguated `"comp:s:l"` / `"comp:s:l:n"` fallback back to the `"s:l"` GUID.
+    fn resolve_comp_key(&self, k: &str) -> String {
+        if let Some(id) = self.comp_by_key.get(k) {
+            return id.clone();
+        }
+        if let Some(guid) = strip_fallback_comp_key(k) {
+            return guid;
+        }
+        k.to_string()
+    }
+
     /// Variable id for an alias value (`{assetRef}` or a local `{guid}`).
     fn variable_id(&self, alias: &Value) -> Option<String> {
         if let Some(k) = asset_key(alias) {
@@ -618,7 +713,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         canvases.into_iter().map(|i| (i, entries[i].json.get("internalOnly").and_then(Value::as_bool) == Some(true))).collect();
 
     let lk = Lk::new(&entries, blobs);
-    let styles = style_table(&entries);
+    let styles = style_table(&entries, &lk);
     let variables = {
         let var_entries: Vec<&Value> = entries.iter().map(|e| &e.json).filter(|j| matches!(fstr(j, "type"), Some("VARIABLE_SET" | "VARIABLE"))).collect();
         crate::variables::from_fig_entries(&var_entries)
@@ -645,6 +740,19 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         .filter(|p| p.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
         .collect();
 
+    let doc_plugin_data: Option<Value> = doc_idx.and_then(|d| {
+        let pd_arr = entries[d].json.get("pluginData")?.as_array()?;
+        let mut pd_map = Map::new();
+        for entry in pd_arr {
+            let Some(k) = fstr(entry, "key") else { continue };
+            let val = fstr(entry, "value").unwrap_or("");
+            let pid = fstr(entry, "pluginID").unwrap_or("");
+            let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
+            pd_map.insert(full_key, Value::String(val.to_string()));
+        }
+        (!pd_map.is_empty()).then_some(Value::Object(pd_map))
+    });
+
     drop(entries);
     drop(children);
     drop(visited);
@@ -655,6 +763,9 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": pages},
         "styles": styles,
     });
+    if let Some(pd) = doc_plugin_data {
+        out["document"]["pluginData"] = pd;
+    }
     if let (Some(v), Some(o)) = (variables, out.as_object_mut()) {
         o.insert("variables".into(), v);
     }
@@ -667,7 +778,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
 /// REST-style `styles` map from shared-style nodes (nodes carrying `styleType`
 /// FILL/TEXT/EFFECT/GRID; they normally live on the internal-only canvas). The
 /// library key is the node's `key`, the description its `styleDescription`.
-fn style_table(entries: &[Entry]) -> Value {
+fn style_table(entries: &[Entry], lk: &Lk) -> Value {
     let mut out = Map::new();
     for e in entries {
         let j = &e.json;
@@ -685,6 +796,18 @@ fn style_table(entries: &[Entry]) -> Value {
         m.insert("styleType".into(), ty.into());
         // The style node is the source of truth for the values it shares.
         match ty {
+            "FILL" | "STROKE" => {
+                let fills: Vec<Value> = rest_import::farr(j, "fillPaints").iter().filter_map(convert_paint).collect();
+                if !fills.is_empty() {
+                    m.insert("fills".into(), Value::Array(fills));
+                }
+            }
+            "TEXT" => {
+                let ts = convert_type_style(j, None);
+                if !ts.is_empty() {
+                    m.insert("style".into(), Value::Object(ts));
+                }
+            }
             "EFFECT" => {
                 m.insert("effects".into(), Value::Array(rest_import::farr(j, "effects").iter().filter_map(convert_effect).collect()));
             }
@@ -692,6 +815,9 @@ fn style_table(entries: &[Entry]) -> Value {
                 m.insert("layoutGrids".into(), convert_grids(j).unwrap_or_else(|| Value::Array(Vec::new())));
             }
             _ => {}
+        }
+        if let Some(bv) = bound_variables(j, lk) {
+            m.insert("boundVariables".into(), bv);
         }
         out.insert(e.id.clone(), Value::Object(m));
     }
@@ -1664,7 +1790,20 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
     let var_entries = nc.get("variableConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
     let param_entries = nc.get("parameterConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
     for e in var_entries.iter().chain(param_entries.iter()) {
-        let (Some(field), Some(a)) = (fstr(e, "variableField"), e.get("variableData").and_then(alias)) else { continue };
+        let Some(field) = fstr(e, "variableField") else { continue };
+        let Some(vdata) = e.get("variableData") else { continue };
+        if field == "FONT_STYLE" {
+            if let Some(fs) = vdata.get("value").and_then(|v| v.get("fontStyleValue")) {
+                if let Some(a) = fs.get("asFloat").and_then(alias) {
+                    out.insert("fontWeight".into(), a);
+                }
+                if let Some(a) = fs.get("asString").and_then(alias) {
+                    out.insert("fontStyle".into(), a);
+                }
+                continue;
+            }
+        }
+        let Some(a) = alias(vdata) else { continue };
         let keys: &[&str] = match field {
             "STACK_PADDING_LEFT" => &["paddingLeft"],
             "STACK_PADDING_RIGHT" => &["paddingRight"],
@@ -1708,7 +1847,9 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst, opacity_dst) in [("fillPaints", "fills", "fillOpacities"), ("strokePaints", "strokes", "strokeOpacities")] {
+    for (src, dst, opacity_dst, stops_dst) in
+        [("fillPaints", "fills", "fillOpacities", "fillStops"), ("strokePaints", "strokes", "strokeOpacities", "strokeStops")]
+    {
         let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
@@ -1718,17 +1859,36 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
         if opacities.iter().any(|v| !v.is_null()) {
             out.insert(opacity_dst.into(), Value::Array(opacities));
         }
+        let stops_list: Vec<Value> = rest_import::farr(nc, src)
+            .iter()
+            .map(|p| {
+                let sv: Vec<Value> = rest_import::farr(p, "stopsVar").iter().map(|st| st.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
+                if sv.iter().any(|v| !v.is_null()) {
+                    Value::Array(sv)
+                } else {
+                    Value::Null
+                }
+            })
+            .collect();
+        if stops_list.iter().any(|v| !v.is_null()) {
+            out.insert(stops_dst.into(), Value::Array(stops_list));
+        }
     }
     let fx: Vec<Value> = rest_import::farr(nc, "effects")
         .iter()
         .map(|e| {
             let mut bound = Map::new();
-            if let Some(a) = e.get("colorVar").and_then(alias) {
-                bound.insert("color".into(), a);
-            }
-            // `Effect.effectOpacityVar`
-            if let Some(a) = e.get("effectOpacityVar").and_then(alias) {
-                bound.insert("opacity".into(), a);
+            for (kiwi_key, rest_key) in [
+                ("colorVar", "color"),
+                ("effectOpacityVar", "opacity"),
+                ("radiusVar", "radius"),
+                ("spreadVar", "spread"),
+                ("xVar", "offsetX"),
+                ("yVar", "offsetY"),
+            ] {
+                if let Some(a) = e.get(kiwi_key).and_then(alias) {
+                    bound.insert(rest_key.into(), a);
+                }
             }
             if bound.is_empty() {
                 Value::Null
@@ -1804,21 +1964,20 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
                 if pv.is_object() {
                     for entry in rest_import::farr(pv, "instanceSwapValues") {
                         if let Some(k) = fstr(entry, "key") {
-                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            let resolved = lk.resolve_comp_key(k);
                             prefs.push(Value::String(resolved));
                         }
                     }
                     for s in rest_import::farr(pv, "stringValues") {
                         if let Some(k) = s.as_str() {
-                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            let resolved = lk.resolve_comp_key(k);
                             prefs.push(Value::String(resolved));
                         }
                     }
                 } else {
                     for p in rest_import::farr(d, "preferredValues") {
-                        if let Some(id_or_key) = guid_str(p)
-                            .or_else(|| p.as_str().map(String::from))
-                            .or_else(|| fstr(p, "key").map(|k| lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string())))
+                        if let Some(id_or_key) =
+                            guid_str(p).or_else(|| p.as_str().map(|k| lk.resolve_comp_key(k))).or_else(|| fstr(p, "key").map(|k| lk.resolve_comp_key(k)))
                         {
                             prefs.push(Value::String(id_or_key));
                         }
@@ -2009,7 +2168,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut has_text = false;
     for (k, val) in obj {
         match k.as_str() {
-            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" => {
+            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
             }
             "mask" => {
@@ -2490,7 +2649,15 @@ fn convert_paint(p: &Value) -> Option<Value> {
     match ty {
         "SOLID" => copy(&mut m, p, "color", "color"),
         t if t.starts_with("GRADIENT") => {
-            let stops: Vec<Value> = rest_import::farr(p, "stops").iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
+            let stops_src = {
+                let s = rest_import::farr(p, "stops");
+                if s.is_empty() {
+                    rest_import::farr(p, "stopsVar")
+                } else {
+                    s
+                }
+            };
+            let stops: Vec<Value> = stops_src.iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
             m.insert("gradientStops".into(), Value::Array(stops));
             let t = p.get("transform");
             let g = |k: &str, d: f32| t.and_then(|t| fnum(t, k)).unwrap_or(d);
@@ -2819,5 +2986,67 @@ mod tests {
         let p = commands_blob_to_path(&b, false);
         assert_eq!(p.cmds, vec![PathCmd::MoveTo(Vec2::new(1.0, 2.0))]);
         assert!(commands_blob_to_path(&[9, 9, 9], false).cmds.is_empty());
+    }
+
+    fn kiwi_guid(s: u32, l: u32) -> kiwi::KiwiValue {
+        crate::testkit::guid(s, l)
+    }
+
+    #[test]
+    fn guid_pair_max_max_is_unset() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, u32::MAX)), None);
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": u32::MAX})), None);
+    }
+
+    #[test]
+    fn guid_session_max_local_5_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, 5)).as_deref(), Some("4294967295:5"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": 5})).as_deref(), Some("4294967295:5"));
+    }
+
+    #[test]
+    fn guid_session_5_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(5, u32::MAX)).as_deref(), Some("5:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": 5, "localID": u32::MAX})).as_deref(), Some("5:4294967295"));
+    }
+
+    #[test]
+    fn guid_session_max_minus_one_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX - 1, u32::MAX)).as_deref(), Some("4294967294:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX - 1, "localID": u32::MAX})).as_deref(), Some("4294967294:4294967295"));
+    }
+
+    #[test]
+    fn half_null_guid_round_trips_through_fig_export() {
+        use designos_doc::{Node, Rect};
+        let mut doc = Document::new("HalfNullGuid");
+        let page = doc.add_page("Page 1");
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 200.0, 100.0));
+        parent.name = "HalfNullParent".into();
+        parent.source_id = Some(format!("{}:5", u32::MAX));
+        doc.insert(page, parent).unwrap();
+
+        let child_id = doc.alloc_id();
+        let mut child = Node::rectangle(child_id, Rect::new(10.0, 10.0, 50.0, 50.0));
+        child.name = "HalfNullChild".into();
+        child.source_id = Some(format!("5:{}", u32::MAX));
+        doc.insert(parent_id, child).unwrap();
+
+        let sibling_id = doc.alloc_id();
+        let mut sibling = Node::rectangle(sibling_id, Rect::new(70.0, 10.0, 40.0, 40.0));
+        sibling.name = "FreshSibling".into();
+        doc.insert(parent_id, sibling).unwrap();
+
+        let bytes = crate::fig_export::export_fig(&doc).expect("export_fig");
+        let rt = import_fig(&bytes).expect("import_fig");
+        let rt_parent = rt.nodes.values().find(|n| n.name == "HalfNullParent").expect("HalfNullParent preserved");
+        assert_eq!(rt_parent.source_id.as_deref(), Some("4294967295:5"));
+        let rt_child = rt.nodes.values().find(|n| n.name == "HalfNullChild").expect("HalfNullChild preserved");
+        assert_eq!(rt_child.source_id.as_deref(), Some("5:4294967295"));
+        assert_eq!(rt_child.parent, Some(rt_parent.id));
+        assert!(rt_parent.children.contains(&rt_child.id));
+        let rt_sibling = rt.nodes.values().find(|n| n.name == "FreshSibling").expect("FreshSibling preserved");
+        assert_eq!(rt_sibling.parent, Some(rt_parent.id));
     }
 }

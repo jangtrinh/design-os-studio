@@ -28,19 +28,33 @@ pub mod svgpath;
 pub mod testkit;
 mod textfmt;
 mod variables;
+pub mod variables_dtcg;
 mod vecnet;
+pub mod web_capture;
 
 pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
+pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_with_budget, import_fig_with_report};
 #[doc(hidden)]
-pub use fig::import_fig_node_changes;
-pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig};
-pub use fig_export::{export_fig, path_to_commands_blob};
-pub use pen::{export_pen_json, import_pen_json, import_pen_json_with_warnings};
+pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
+pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
+pub use pen::{
+    export_pen_json, export_pen_json_with_report, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenExportReport, PenImport,
+    PenImportOptions, PenWarning,
+};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
-pub use rest_import::{image_refs, import_rest_json};
+pub use rest_import::{
+    image_refs, import_rest_json, import_rest_json_with_budget, import_rest_json_with_report, ImportReport as RestImportReport, CLONE_BUDGET_TOTAL,
+    MAX_IMPORT_CLONES,
+};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
+pub use variables_dtcg::{
+    apply_staged_variables, collect_omitted_extensions, detect_variables_format, detect_variables_format_value, export_variables, import_variables,
+    import_variables_bytes, mode_name_from_filename, stage_variables, stage_variables_bytes, validate_dtcg_json, validate_dtcg_value, DtcgValidationError,
+    ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable, StagedVariablesImport, VariablesFormat,
+};
+pub use web_capture::{import_web_capture_into_page, import_web_capture_json, import_web_capture_json_with_report, looks_like_web_capture_json};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FigError {

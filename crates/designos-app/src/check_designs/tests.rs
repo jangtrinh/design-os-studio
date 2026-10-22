@@ -21,6 +21,7 @@ struct Fx {
 
 fn fx() -> Fx {
     let mut doc = Document::new("check");
+    doc.check_designs.disabled_rules.insert(Rule::TextStyles.figma_id().into());
     let page = doc.add_page("Page 1");
     Fx { doc, page }
 }
@@ -76,6 +77,7 @@ impl Fx {
             variables: vec![],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         });
         let id = format!("var:{name}");
         coll.variables.push(id.clone());
@@ -93,6 +95,8 @@ impl Fx {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         id
@@ -214,20 +218,24 @@ fn a_stroke_is_matched_against_stroke_variables_and_stroke_styles() {
 #[test]
 fn text_equal_to_a_text_style_apart_from_its_colour_suggests_the_style() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
     let t = f.text(white, "Heading", 32.0, 700, gray(0x11));
     let ts = TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() };
     f.style("H1", "Heading/H1", Style::Text(ts), StyleProperty::Text);
     let report = f.report();
-    let found = only(&report, Rule::HardCodedValue);
+    let found = only(&report, Rule::TextStyles);
     assert_eq!(found.node, t);
     assert_eq!(found.fix, Some(Fix::ApplyStyle { style: "H1".into() }));
     assert_eq!(found.message, "Text matches style \"Heading/H1\"");
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
     f.text(white, "Heading", 31.0, 700, gray(0x11));
     f.style("H1", "Heading/H1", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
-    assert!(f.report().findings.is_empty());
+    let unstyled = only(&f.report(), Rule::TextStyles);
+    assert_eq!(unstyled.fix, None);
+    assert_eq!(unstyled.message, "No text style");
 }
 
 #[test]
@@ -258,11 +266,12 @@ fn contrast_ratio_matches_the_wcag_reference_values() {
 
 #[test]
 fn large_text_needs_three_to_one_and_everything_else_four_and_a_half() {
-    assert_eq!(required_ratio(16.0, 400), 4.5);
-    assert_eq!(required_ratio(23.9, 400), 4.5);
-    assert_eq!(required_ratio(24.0, 400), 3.0);
-    assert_eq!(required_ratio(18.66, 700), 3.0);
-    assert_eq!(required_ratio(18.0, 700), 4.5);
+    use designos_doc::ContrastLevel;
+    assert_eq!(required_ratio(16.0, 400, ContrastLevel::AA), 4.5);
+    assert_eq!(required_ratio(23.9, 400, ContrastLevel::AA), 4.5);
+    assert_eq!(required_ratio(24.0, 400, ContrastLevel::AA), 3.0);
+    assert_eq!(required_ratio(18.66, 700, ContrastLevel::AA), 3.0);
+    assert_eq!(required_ratio(18.0, 700, ContrastLevel::AA), 4.5);
 }
 
 #[test]
@@ -306,20 +315,33 @@ fn the_backdrop_is_composited_from_the_page_through_every_ancestor_fill() {
 }
 
 #[test]
-fn a_gradient_backdrop_is_unknown_so_nothing_is_flagged() {
+fn grey_on_gradient_fails_where_old_check_passed() {
     let mut f = fx();
+    f.color_var("text/subtle", gray(0xCC), gray(0xCC));
+    let _strong_var = f.color_var("text/strong", Color::rgb(0x11, 0x11, 0x11), Color::rgb(0x11, 0x11, 0x11));
     let frame = f.frame(f.page, "Hero", None);
-    f.doc.get_mut(frame).unwrap().fills = vec![Paint {
-        kind: PaintKind::LinearGradient {
-            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
-            stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: gray(0xEE) }],
+    f.doc.get_mut(frame).unwrap().fills = vec![
+        Paint::solid(Color::BLACK),
+        Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: gray(0xDD) }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
         },
-        opacity: 1.0,
-        visible: true,
-        blend: designos_doc::BlendMode::Normal,
-    }];
-    f.text(frame, "Low", 14.0, 400, gray(0xCC));
-    assert!(f.report().findings.is_empty());
+    ];
+    let txt = f.text(frame, "Low", 14.0, 400, gray(0xCC));
+    let report = f.report();
+    let hit = report
+        .findings
+        .iter()
+        .find(|x| x.node == txt && x.rule == Rule::Contrast)
+        .expect("Check designs must flag #CCCCCC 14px over [solid #000000, linear #FFFFFF->#DDDDDD]");
+    assert!(hit.message.contains("is below 4.5:1 (WCAG AA)"), "message should include measured/required ratio: {}", hit.message);
+    assert!(hit.message.contains("suggest var:text/strong on fills/0"), "message should include suggest-only variable bind: {}", hit.message);
+    assert!(hit.fix.is_none(), "pixel-sampled finding must keep one-click recolor on the analytic path only, got: {:?}", hit.fix);
 }
 
 #[test]
@@ -459,19 +481,6 @@ fn hidden_layers_and_instance_contents_are_skipped_and_scope_is_honoured() {
     assert!(audit(&f.doc, &Scope::Layers(vec![])).findings.is_empty());
 }
 
-#[test]
-fn an_oversized_page_is_cut_off_and_says_so() {
-    let mut f = fx();
-    let frame = f.frame(f.page, "Bulk", None);
-    for _ in 0..MAX_SCANNED_LAYERS + 5 {
-        let id = f.doc.alloc_id();
-        f.doc.insert(frame, Node::rectangle(id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
-    }
-    let report = f.report();
-    assert!(report.truncated);
-    assert_eq!(report.scanned, MAX_SCANNED_LAYERS);
-}
-
 // ---------------------------------------------------------------- fixes
 
 fn snapshot(app: &App, ids: &[NodeId]) -> Vec<Option<Node>> {
@@ -501,6 +510,7 @@ fn binding_a_variable_is_one_undo_step() {
 #[test]
 fn applying_fill_text_and_effect_styles_links_them_in_one_step_each() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let r = f.rect(f.page, "Card", gray(0xEE));
     f.doc.get_mut(r).unwrap().effects = vec![shadow(8.0)];
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
@@ -606,6 +616,106 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
 
+#[test]
+fn check_designs_counts_bound() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TypographyAndStroke.figma_id());
+    let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+    let dark_c = Color::rgb(0x11, 0x11, 0x11);
+    let surface = f.color_var("surface", light_c, dark_c);
+    let border_w = f.number_var("border-w", 2.0, 2.0);
+    f.doc.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
+    f.doc.style_meta.insert(
+        "Card".into(),
+        designos_doc::StyleMeta {
+            name: "Card".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Fill,
+            bindings: [("fills/0".to_string(), surface.clone())].into_iter().collect(),
+        },
+    );
+    f.doc.styles.insert("Body".into(), Style::Text(TextStyle::default()));
+    f.doc.style_meta.insert(
+        "Body".into(),
+        designos_doc::StyleMeta {
+            name: "Body".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Text,
+            bindings: [("strokeWeight".to_string(), border_w.clone())].into_iter().collect(),
+        },
+    );
+    let frame = f.frame(f.page, "Container", None);
+    let rect = f.rect(frame, "Rect", light_c);
+    {
+        let n = f.doc.get_mut(rect).unwrap();
+        n.stroke.paints = vec![Paint::solid(light_c)];
+        n.stroke.weight = 2.0;
+        n.style_refs.insert("fill".into(), "Card".into());
+        n.style_refs.insert("stroke".into(), "Card".into());
+    }
+    f.doc.get_mut(frame).unwrap().variables.modes.insert("theme".into(), "dark".into());
+
+    // Without the style binding for strokeWeight, TypographyAndStroke flags the 2px stroke weight.
+    assert_eq!(f.report().of(Rule::TypographyAndStroke).count(), 1);
+
+    // Linking the style carrying the strokeWeight binding suppresses the finding via effective_binding (hardcoded.rs:631).
+    f.doc.get_mut(rect).unwrap().style_refs.insert("text".into(), "Body".into());
+    assert_eq!(f.doc.effective_binding(rect, "fills/0"), Some(surface.as_str()));
+    assert_eq!(f.doc.effective_binding(rect, "strokeWeight"), Some(border_w.as_str()));
+    assert_eq!(f.doc.bound_value(rect, "fills/0"), Some(designos_doc::VariableValue::Color(dark_c)));
+
+    let report = f.report();
+    assert_eq!(report.of(Rule::HardCodedValue).count(), 0, "unexpected hardcoded findings: {:#?}", report.findings);
+    assert_eq!(report.of(Rule::TypographyAndStroke).count(), 0, "unexpected typography/stroke findings: {:#?}", report.findings);
+}
+
+#[test]
+fn check_designs_and_linter_identical() {
+    use designos_doc::lint::{lint, LintConfig, NoLintEnv};
+    let d = fixture::document();
+    let cd_report = audit(&d, &Scope::Page(d.pages[0]));
+    let cd_hard: Vec<(NodeId, String, String)> = cd_report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.rule,
+                Rule::HardCodedValue
+                    | Rule::TextStyles
+                    | Rule::CornerRadius
+                    | Rule::Padding
+                    | Rule::HorizontalSpacing
+                    | Rule::VerticalSpacing
+                    | Rule::TypographyAndStroke
+            ) && (f.rule != Rule::TextStyles || f.fix.is_some())
+        })
+        .map(|f| {
+            let fix_str = match &f.fix {
+                Some(Fix::BindVariable { variable, .. }) | Some(Fix::BindVariables { variable, .. }) => {
+                    let v = d.variables.get(variable).expect("variable exists");
+                    format!("var:{}", v.name)
+                }
+                Some(Fix::ApplyStyle { style }) => format!("style:{}", d.style_name(style)),
+                _ => String::new(),
+            };
+            (f.node, f.property.clone(), fix_str)
+        })
+        .collect();
+
+    let lint_cfg = LintConfig::from_rule_list(&["hardcoded-value".into()]).unwrap();
+    let lint_report = lint(&d, &lint_cfg, &NoLintEnv);
+    let lint_hard: Vec<(NodeId, String, String)> = lint_report
+        .findings
+        .iter()
+        .map(|f| (f.node, f.property.clone().unwrap_or_default(), f.suggested_fix.as_ref().and_then(|s| s.to.as_str()).unwrap_or("").to_string()))
+        .collect();
+
+    assert_eq!(cd_hard.len(), 4);
+    assert_eq!(cd_hard, lint_hard);
+}
+
 fn white_page(f: &mut Fx) {
     f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
 }
@@ -630,7 +740,9 @@ mod numbers;
 mod outside_the_box;
 mod painted_behind;
 mod resolved_styles;
+mod rules;
 mod safety;
+mod scale;
 mod subtree_bounds;
 mod text_run_fills;
 mod under_an_opaque_fill;
