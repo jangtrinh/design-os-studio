@@ -12,7 +12,7 @@
     "width": 1280,
     "height": 800
   },
-  "captured_at": "2026-10-19T01:24:40.921Z",
+  "captured_at": "2026-10-22T00:11:19.230Z",
   "fonts": [],
   "root": {
     "tag": "html",
@@ -21,13 +21,13 @@
       "x": 0,
       "y": 0,
       "width": 1280,
-      "height": 417
+      "height": 421
     },
     "content_box": {
       "x": 0,
       "y": 0,
       "width": 1280,
-      "height": 417
+      "height": 421
     },
     "z": 0,
     "visible": true,
@@ -45,6 +45,7 @@
       "align-items": "normal",
       "align-content": "normal",
       "align-self": "auto",
+      "order": "0",
       "flex-grow": "0",
       "flex-shrink": "1",
       "flex-basis": "auto",
@@ -89,7 +90,7 @@
       "overflow-x": "visible",
       "overflow-y": "visible",
       "transform": "none",
-      "transform-origin": "640px 208.5px",
+      "transform-origin": "640px 210.5px",
       "color": "rgb(0, 0, 0)",
       "font-family": "Times",
       "font-size": "16px",
@@ -123,13 +124,13 @@
           "x": 0,
           "y": 0,
           "width": 1280,
-          "height": 417
+          "height": 421
         },
         "content_box": {
           "x": 24,
           "y": 24,
           "width": 1232,
-          "height": 369
+          "height": 373
         },
         "z": 1,
         "visible": true,
@@ -147,6 +148,7 @@
           "align-items": "normal",
           "align-content": "normal",
           "align-self": "auto",
+          "order": "0",
           "flex-grow": "0",
           "flex-shrink": "1",
           "flex-basis": "auto",
@@ -191,7 +193,7 @@
           "overflow-x": "visible",
           "overflow-y": "visible",
           "transform": "none",
-          "transform-origin": "640px 208.5px",
+          "transform-origin": "640px 210.5px",
           "color": "rgb(255, 255, 255)",
           "font-family": "Inter, -apple-system, \"system-ui\", sans-serif",
           "font-size": "16px",
@@ -233,13 +235,13 @@
               "x": 24,
               "y": 24,
               "width": 360,
-              "height": 369
+              "height": 373
             },
             "content_box": {
               "x": 44,
               "y": 44,
               "width": 320,
-              "height": 329
+              "height": 333
             },
             "z": 2,
             "visible": true,
@@ -257,6 +259,7 @@
               "align-items": "normal",
               "align-content": "normal",
               "align-self": "auto",
+              "order": "0",
               "flex-grow": "0",
               "flex-shrink": "1",
               "flex-basis": "auto",
@@ -301,7 +304,7 @@
               "overflow-x": "visible",
               "overflow-y": "visible",
               "transform": "none",
-              "transform-origin": "180px 184.5px",
+              "transform-origin": "180px 186.5px",
               "color": "rgb(255, 255, 255)",
               "font-family": "Inter, -apple-system, \"system-ui\", sans-serif",
               "font-size": "16px",
@@ -329,7 +332,7 @@
                   "x": 44,
                   "y": 44,
                   "width": 28,
-                  "height": 13
+                  "height": 17
                 },
                 "styles": {
                   "display": "block",
@@ -345,6 +348,7 @@
                   "align-items": "normal",
                   "align-content": "normal",
                   "align-self": "auto",
+                  "order": "0",
                   "flex-grow": "0",
                   "flex-shrink": "1",
                   "flex-basis": "auto",
@@ -389,10 +393,10 @@
                   "overflow-x": "visible",
                   "overflow-y": "visible",
                   "transform": "none",
-                  "transform-origin": "20px 8.5px",
+                  "transform-origin": "20px 10.5px",
                   "color": "rgb(255, 255, 255)",
                   "font-family": "Inter, -apple-system, \"system-ui\", sans-serif",
-                  "font-size": "11px",
+                  "font-size": "14px",
                   "font-weight": "700",
                   "font-style": "normal",
                   "line-height": "normal",
@@ -431,13 +435,13 @@
                 ],
                 "box": {
                   "x": 44,
-                  "y": 73,
+                  "y": 77,
                   "width": 320,
                   "height": 28
                 },
                 "content_box": {
                   "x": 44,
-                  "y": 73,
+                  "y": 77,
                   "width": 320,
                   "height": 28
                 },
@@ -457,6 +461,7 @@
                   "align-items": "normal",
                   "align-content": "normal",
                   "align-self": "auto",
+                  "order": "0",
                   "flex-grow": "0",
                   "flex-shrink": "1",
                   "flex-basis": "auto",
@@ -541,7 +546,7 @@
                     "lines": [
                       {
                         "x": 44,
-                        "y": 75,
+                        "y": 79,
                         "width": 191.63,
                         "height": 23
                       }
