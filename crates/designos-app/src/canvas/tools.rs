@@ -3,6 +3,12 @@
 use super::handles::{Handle, HandleHit};
 use designos_doc::NodeId;
 
+/// Whether the Arrow tool is offered: toolbar dropdown, Cmd+K, menus and the Shift+L key.
+///
+/// It stays off because the stroke model has no arrowhead, so the tool only drew a plain line.
+/// Turn it on when arrowheads land (#859). The tool and its creation code are kept for that.
+pub const ARROW_TOOL_ENABLED: bool = false;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
     Move,
@@ -33,6 +39,16 @@ pub enum Tool {
 }
 
 impl Tool {
+    /// The tool to activate when `self` is asked for: a hidden tool falls back to Line, which
+    /// is what the Arrow tool drew anyway.
+    pub fn or_fallback(self) -> Tool {
+        if self == Tool::Arrow && !ARROW_TOOL_ENABLED {
+            Tool::Line
+        } else {
+            self
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Tool::Move => "Move",
@@ -104,7 +120,7 @@ impl Tool {
             (S, false) => Tool::Slice,
             (R, false) => Tool::Rectangle,
             (L, false) => Tool::Line,
-            (L, true) => Tool::Arrow,
+            (L, true) => Tool::Arrow.or_fallback(),
             (O, false) => Tool::Ellipse,
             (P, false) => Tool::Pen,
             (P, true) => Tool::Pencil,
@@ -158,11 +174,18 @@ impl Tool {
     }
 }
 
+/// The shape group of the toolbar, without the Arrow tool unless [`ARROW_TOOL_ENABLED`].
+const SHAPE_GROUP: &[Tool] = if ARROW_TOOL_ENABLED {
+    &[Tool::Rectangle, Tool::Line, Tool::Arrow, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
+} else {
+    &[Tool::Rectangle, Tool::Line, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image]
+};
+
 /// Toolbar groups: first entry is the default tool shown on the button.
 pub const GROUPS: &[&[Tool]] = &[
     &[Tool::Move, Tool::Hand, Tool::Scale, Tool::ShapeBuilder],
     &[Tool::Frame, Tool::Section, Tool::Slice],
-    &[Tool::Rectangle, Tool::Line, Tool::Arrow, Tool::Ellipse, Tool::Polygon, Tool::Star, Tool::Image],
+    SHAPE_GROUP,
     &[Tool::Pen, Tool::Pencil],
     &[Tool::Text],
     &[Tool::Comment],
@@ -232,8 +255,28 @@ mod tests {
     fn shortcuts_map() {
         assert_eq!(Tool::from_key(egui::Key::R, false), Some(Tool::Rectangle));
         assert_eq!(Tool::from_key(egui::Key::S, true), Some(Tool::Section));
-        assert_eq!(Tool::from_key(egui::Key::L, true), Some(Tool::Arrow));
         assert_eq!(Tool::from_key(egui::Key::X, false), None);
+    }
+
+    #[test]
+    fn arrow_tool_is_in_no_toolbar_group() {
+        assert!(GROUPS.iter().all(|g| !g.contains(&Tool::Arrow)), "the Arrow tool draws a plain line, so no dropdown may offer it");
+        assert!(GROUPS[2].contains(&Tool::Line), "Line stays in the shape group");
+    }
+
+    #[test]
+    fn shift_l_selects_line_while_arrow_is_hidden() {
+        assert_eq!(Tool::from_key(egui::Key::L, true), Some(Tool::Line));
+        assert_eq!(Tool::from_key(egui::Key::L, false), Some(Tool::Line));
+    }
+
+    #[test]
+    fn asking_for_the_hidden_arrow_tool_selects_line() {
+        let mut app = crate::app::App::new(designos_doc::Document::new("t"));
+        app.set_tool(Tool::Arrow);
+        assert_eq!(app.tool, Tool::Line);
+        app.set_tool(Tool::Ellipse);
+        assert_eq!(app.tool, Tool::Ellipse, "other tools are untouched");
     }
 
     #[test]
