@@ -11,12 +11,15 @@
 
 use egui::{Context, Event, Id, Key, LayerId, Modifiers, PointerButton, RawInput, Rect, Ui};
 
-/// A text field that drew in some frame, and the layer it drew on. Tab never leaves a layer, so a
-/// dialog's fields do not lead to the panel behind it.
+/// A text field that drew in some frame, and where: the layer and the clip rect of the `Ui` it drew in.
+/// Tab never leaves that scope. A dialog's fields do not lead to the panel behind it, and a panel
+/// draws its fields in the region it clips to (`panels::clipped`), so the fields of the Design panel
+/// are not reached from a rename in the page list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Stop {
     id: Id,
     layer: LayerId,
+    clip: [i32; 4],
 }
 
 #[derive(Clone, Default)]
@@ -47,7 +50,8 @@ pub(super) fn register(ui: &Ui, rect: Rect, id: Id) {
     if !ui.is_enabled() || !ui.is_rect_visible(rect) {
         return;
     }
-    let stop = Stop { id, layer: ui.layer_id() };
+    let clip = ui.clip_rect();
+    let stop = Stop { id, layer: ui.layer_id(), clip: [clip.min.x, clip.min.y, clip.max.x, clip.max.y].map(|v| v.round() as i32) };
     ui.ctx().data_mut(|d| {
         let stops = d.get_temp_mut_or_default::<Stops>(stops_key());
         if !stops.drawn.iter().any(|s| s.id == id) {
@@ -74,10 +78,10 @@ pub fn press_lands_on_field(ctx: &Context) -> bool {
 }
 
 /// The field after (or, with `backward`, before) `focused`, wrapping around, among the fields drawn
-/// on the same layer. `None` when `focused` is not a field or has no neighbour.
+/// in the same scope. `None` when `focused` is not a field or has no neighbour.
 fn neighbour(stops: &[Stop], focused: Id, backward: bool) -> Option<Id> {
-    let layer = stops.iter().find(|s| s.id == focused)?.layer;
-    let ring: Vec<Id> = stops.iter().filter(|s| s.layer == layer).map(|s| s.id).collect();
+    let home = stops.iter().find(|s| s.id == focused)?;
+    let ring: Vec<Id> = stops.iter().filter(|s| s.layer == home.layer && s.clip == home.clip).map(|s| s.id).collect();
     if ring.len() < 2 {
         return None;
     }
@@ -136,13 +140,27 @@ pub fn start_frame(ctx: &Context) {
     }
 }
 
+/// True when the text field that has the keyboard focus is one of the registered fields.
+#[cfg(test)]
+pub fn a_field_has_focus(ctx: &Context) -> bool {
+    let Some(focused) = ctx.memory(|m| m.focused()) else { return false };
+    let stops = ctx.data(|d| d.get_temp::<Stops>(stops_key())).unwrap_or_default();
+    stops.drawn.iter().chain(&stops.last).any(|s| s.id == focused)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use egui::Order;
 
+    const WHOLE_WINDOW: [i32; 4] = [0, 0, 1600, 1088];
+
     fn stop(name: &str, layer: LayerId) -> Stop {
-        Stop { id: Id::new(name), layer }
+        Stop { id: Id::new(name), layer, clip: WHOLE_WINDOW }
+    }
+
+    fn stop_in(name: &str, layer: LayerId, clip: [i32; 4]) -> Stop {
+        Stop { id: Id::new(name), layer, clip }
     }
 
     #[test]
@@ -163,6 +181,19 @@ mod tests {
         assert_eq!(neighbour(&stops, Id::new("name"), false), Some(Id::new("size")));
         assert_eq!(neighbour(&stops, Id::new("size"), false), Some(Id::new("name")));
         assert_eq!(neighbour(&stops, Id::new("x"), false), Some(Id::new("y")));
+    }
+
+    #[test]
+    fn a_neighbour_is_in_the_same_panel() {
+        let layer = LayerId::new(Order::Middle, Id::new("panel"));
+        let inspector = [1376, 80, 1600, 1088];
+        let stops = [stop("page-rename", layer), stop_in("x", layer, inspector), stop("file-rename", layer), stop_in("y", layer, inspector)];
+        assert_eq!(neighbour(&stops, Id::new("x"), false), Some(Id::new("y")));
+        assert_eq!(neighbour(&stops, Id::new("y"), false), Some(Id::new("x")));
+        assert_eq!(neighbour(&stops, Id::new("page-rename"), false), Some(Id::new("file-rename")), "same clip, same ring");
+        let stops = [stop("page-rename", layer), stop_in("x", layer, inspector), stop_in("y", layer, inspector)];
+        assert_eq!(neighbour(&stops, Id::new("page-rename"), false), None, "a rename in the page list never leads into the inspector");
+        assert_eq!(neighbour(&stops, Id::new("x"), true), Some(Id::new("y")));
     }
 
     #[test]

@@ -43,9 +43,30 @@ pub fn edit_text_hint(
         select_value(ui.ctx(), id, display.chars().count());
     }
     let focused = focused_before || pressed_now;
-    // A field that lost focus in the frame before (Tab moved on) still holds the text typed into it.
-    let editing = focused || ui.memory(|m| m.had_focus_last_frame(id));
-    let mut buf = if editing { ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| display.to_string()) } else { display.to_string() };
+    // The text being edited lives in a temp (`String` under `id`, read by the stepping, suffix and rename code)
+    // next to the text it started from (under `seed_id`). A field that had focus in the frame before keeps both,
+    // also in the frame it loses focus (Tab moved on). A field that just gained focus starts from the live value,
+    // never from what an earlier focus left behind (Escape drops focus without a final draw).
+    let continuing = ui.memory(|m| m.had_focus_last_frame(id));
+    let seed_id = id.with("seed");
+    let (mut buf, mut seed) = if !focused && !continuing {
+        (display.to_string(), String::new())
+    } else if continuing {
+        let buf = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| display.to_string());
+        (buf, ui.data(|d| d.get_temp::<String>(seed_id)).unwrap_or_else(|| display.to_string()))
+    } else {
+        (display.to_string(), display.to_string())
+    };
+    // A buffer still equal to its seed, or to the live value, was not edited: it follows the live value, so a
+    // change made elsewhere (a rotation moving Y) is not written back when the field loses focus.
+    if buf == seed || buf == display {
+        if focused && buf != display {
+            // The live value changed under the selection: select the new text whole, as the old one was.
+            select_value(ui.ctx(), id, display.chars().count());
+        }
+        buf = display.to_string();
+        seed = buf.clone();
+    }
     let te = TextEdit::singleline(&mut buf)
         .id(id)
         .font(font.clone())
@@ -68,7 +89,10 @@ pub fn edit_text_hint(
         }
     }
     if out.has_focus() {
-        ui.data_mut(|d| d.insert_temp(id, buf.clone()));
+        ui.data_mut(|d| {
+            d.insert_temp(id, buf.clone());
+            d.insert_temp(seed_id, seed.clone());
+        });
     }
     let p = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     if buf.is_empty() {
@@ -79,9 +103,12 @@ pub fn edit_text_hint(
         super::field_text(&p, rect, pad_x, pad_x, &buf, font, color);
     }
     if out.lost_focus() {
-        ui.data_mut(|d| d.remove_temp::<String>(id));
+        ui.data_mut(|d| {
+            d.remove_temp::<String>(id);
+            d.remove_temp::<String>(seed_id);
+        });
         let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
-        if !esc && buf != display {
+        if !esc && buf != display && buf != seed {
             return Some(buf);
         }
     }

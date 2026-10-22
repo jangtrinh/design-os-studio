@@ -151,6 +151,21 @@ fn tab_walks_the_position_and_size_fields_in_order_and_shift_tab_walks_back() {
 }
 
 #[test]
+fn tab_goes_on_from_the_size_fields_into_the_appearance_section_and_back() {
+    let (mut s, id) = frame_sim();
+    click_field(&mut s, "h");
+    tab(&mut s, false);
+    s.type_text("50");
+    s.key(Key::Enter);
+    assert!((s.app().doc.get(id).unwrap().opacity - 0.5).abs() < 1e-4, "Tab from H lands on the opacity field of the next section");
+    click_field(&mut s, "opacity");
+    tab(&mut s, true);
+    s.type_text("250");
+    s.key(Key::Enter);
+    assert_eq!(s.app().doc.get(id).unwrap().size.y, 250.0, "Shift+Tab from opacity lands on H");
+}
+
+#[test]
 fn a_held_tab_moves_one_field_per_press() {
     let (mut s, id) = frame_sim();
     click_field(&mut s, "x");
@@ -221,4 +236,100 @@ fn tab_in_a_layer_rename_commits_it_and_renames_the_next_row() {
     assert_eq!(s.app().doc.get(id).unwrap().name, "Intro", "Tab commits the name that was typed");
     let next = s.app().layers.renaming;
     assert!(next.is_some_and(|n| n != id), "the rename moves on to the next layer row, not to a panel field: {next:?}");
+}
+
+fn tx_of(s: &Sim, id: NodeId) -> f32 {
+    s.app().doc.get(id).unwrap().transform.tx
+}
+
+fn ty_of(s: &Sim, id: NodeId) -> f32 {
+    s.app().doc.get(id).unwrap().transform.ty
+}
+
+#[test]
+fn shift_tab_from_a_typed_rotation_does_not_write_the_old_position_back() {
+    let (mut s, id) = frame_sim();
+    let ty0 = ty_of(&s, id);
+    click_field(&mut s, "rot");
+    s.type_text("45");
+    tab(&mut s, true);
+    let moved = ty_of(&s, id);
+    assert!((moved - ty0).abs() > 0.5, "the rotation committed on Shift+Tab and moved the layer: {ty0} -> {moved}");
+    s.key(Key::Enter);
+    assert_eq!(ty_of(&s, id), moved, "Enter on the untouched Y must not write the position from before the rotation back");
+}
+
+#[test]
+fn clicking_a_field_above_a_typed_rotation_does_not_write_the_old_position_back() {
+    let (mut s, id) = frame_sim();
+    let ty0 = ty_of(&s, id);
+    click_field(&mut s, "rot");
+    s.type_text("45");
+    click_field(&mut s, "y");
+    let moved = ty_of(&s, id);
+    assert!((moved - ty0).abs() > 0.5, "the rotation committed when Y was clicked: {ty0} -> {moved}");
+    s.key(Key::Enter);
+    assert_eq!(ty_of(&s, id), moved, "Enter on the untouched Y must not write a stale value back");
+}
+
+#[test]
+fn a_field_that_was_edited_keeps_what_was_typed_when_the_focus_moves_on() {
+    let (mut s, id) = frame_sim();
+    click_field(&mut s, "rot");
+    s.type_text("45");
+    tab(&mut s, true);
+    s.type_text("77");
+    s.key(Key::Enter);
+    assert_eq!(ty_of(&s, id), 77.0, "Y was typed into after the rotation moved it, so Enter writes what was typed");
+}
+
+/// Types into X, presses Escape (egui drops the focus, and the shortcut handler clears the selection), and
+/// selects the layer again, so that X draws again with whatever the first focus left behind.
+fn type_into_x_then_escape_and_reselect(s: &mut Sim, id: NodeId) {
+    click_field(s, "x");
+    s.type_text("12345");
+    s.key(Key::Escape);
+    s.shell.app.select_only(id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+}
+
+#[test]
+fn text_typed_before_escape_does_not_come_back_when_the_field_is_clicked() {
+    let (mut s, id) = frame_sim();
+    let x0 = tx_of(&s, id);
+    type_into_x_then_escape_and_reselect(&mut s, id);
+    assert_eq!(tx_of(&s, id), x0, "Escape drops what was typed");
+    click_field(&mut s, "x");
+    s.key(Key::Enter);
+    assert_eq!(tx_of(&s, id), x0, "clicking X and pressing Enter without typing must not write the text typed before Escape");
+}
+
+#[test]
+fn text_typed_before_escape_does_not_come_back_when_tab_moves_into_the_field() {
+    let (mut s, id) = frame_sim();
+    let x0 = tx_of(&s, id);
+    type_into_x_then_escape_and_reselect(&mut s, id);
+    click_field(&mut s, "y");
+    tab(&mut s, true);
+    s.key(Key::Enter);
+    assert_eq!(tx_of(&s, id), x0, "Shift+Tab into X and Enter without typing must not write the text typed before Escape");
+}
+
+#[test]
+fn tab_in_a_page_rename_commits_it_and_does_not_jump_into_the_design_panel() {
+    let (mut s, id) = frame_sim();
+    let page = s.app().page;
+    let (x0, y0, name0) = (tx_of(&s, id), ty_of(&s, id), s.app().doc.get(id).unwrap().name.clone());
+    s.shell.app.layers.renaming_page = Some(page);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(crate::widgets::field_tab::a_field_has_focus(&s.ctx), "the page rename has the focus");
+    s.type_text("Cover");
+    tab(&mut s, false);
+    assert_eq!(s.app().doc.get(page).unwrap().name, "Cover", "Tab commits the page name, as Enter does");
+    assert!(!crate::widgets::field_tab::a_field_has_focus(&s.ctx), "the focus did not land in a field of the Design panel");
+    s.type_text("9");
+    s.frame(vec![]);
+    assert_eq!((tx_of(&s, id), ty_of(&s, id), s.app().doc.get(id).unwrap().name.clone()), (x0, y0, name0), "the layer was not edited");
 }
