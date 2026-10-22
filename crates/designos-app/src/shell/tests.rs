@@ -8,37 +8,6 @@ fn no_system_clipboard() -> Option<String> {
     None
 }
 
-/// Directory of stub agent CLIs (`claude`, `codex`, `agy`, `grok`, `gemini`, `opencode`). Every stub blocks reading
-/// its PTY, so it lives exactly as long as the tab that started it and never exits on its own. A timer-based stub
-/// would bring back the race this exists to remove: an agent that exits while the test is still clicking appends
-/// ` (exited)` to its tab title, and the `+` button moves out from under the pointer.
-/// The directory is shared by every test process, so a run leaves nothing new behind. Each script is written to a
-/// private name and renamed into place, so a process that execs a stub never sees a half-written file or a file
-/// that is still open for writing.
-#[cfg(unix)]
-fn stub_agent_cli_dir() -> &'static std::path::Path {
-    use std::os::unix::fs::PermissionsExt;
-    const SCRIPT: &[u8] = b"#!/bin/sh\nexec /bin/cat\n";
-    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("designos-stub-agent-clis");
-        std::fs::create_dir_all(&dir).expect("create the stub agent CLI dir");
-        for binary in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
-            let path = dir.join(binary);
-            let is_current = std::fs::read(&path).is_ok_and(|bytes| bytes == SCRIPT)
-                && std::fs::metadata(&path).is_ok_and(|meta| meta.permissions().mode() & 0o111 == 0o111);
-            if is_current {
-                continue;
-            }
-            let staged = dir.join(format!(".{binary}.{}", std::process::id()));
-            std::fs::write(&staged, SCRIPT).expect("write a stub agent CLI");
-            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).expect("make a stub agent CLI executable");
-            std::fs::rename(&staged, &path).expect("move a stub agent CLI into place");
-        }
-        dir
-    })
-}
-
 struct Sim {
     ctx: Context,
     shell: Shell,
@@ -170,18 +139,6 @@ impl Sim {
     }
     fn count(&self) -> usize {
         self.app().doc.nodes.len()
-    }
-    /// Makes the agent CLIs this window starts the stubs of [`stub_agent_cli_dir`], whatever is installed on the
-    /// machine. Without it the test starts the real `claude`, `codex` and `agy` where they exist, and on a runner
-    /// without them each tab dies a few frames after it is picked, at a moment that depends on machine load.
-    /// The stub dir goes in front of the inherited `PATH`, so a Shell tab still finds `sleep`, `cat` and the rest.
-    fn use_stub_agent_clis(&mut self) {
-        #[cfg(unix)]
-        {
-            let mut dirs = vec![stub_agent_cli_dir().to_path_buf()];
-            dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
-            self.shell.app.terminal.path_override = Some(std::env::join_paths(dirs).expect("a PATH made of existing dirs"));
-        }
     }
 }
 
