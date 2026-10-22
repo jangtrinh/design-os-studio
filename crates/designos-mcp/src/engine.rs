@@ -3350,6 +3350,29 @@ mod tests {
     }
 
     #[test]
+    fn apply_spec_refuses_an_instance_that_would_make_a_main_hold_itself() {
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+        let main = |e: &mut Engine, name: &str, x: f32| {
+            let id = e.doc.alloc_id();
+            let mut frame = Node::frame(id, Rect::new(x, 0.0, 100.0, 100.0));
+            frame.name = name.into();
+            e.doc.insert(page, frame).unwrap();
+            designos_doc::create_component(&mut e.doc, id).apply(&mut e.doc).unwrap();
+            id
+        };
+        let (b, a) = (main(&mut e, "B", 0.0), main(&mut e, "A", 300.0));
+        // A holds an instance of B, so an instance of A inside B would make B hold itself
+        designos_doc::create_instance(&mut e.doc, b, a, Vec2::ZERO).apply(&mut e.doc).unwrap();
+        let nodes = e.doc.nodes.len();
+        let res = e.call("designos_apply_spec", json!({"parent_id": b.0, "spec": {"kind": "instance", "component": "A"}}));
+        assert!(res.is_err(), "an error, not an instance of A in B: {res:?}");
+        assert_eq!(e.doc.nodes.len(), nodes, "nothing was inserted");
+        // an instance of A on the page is fine
+        e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "component": "A"}})).unwrap();
+    }
+
+    #[test]
     fn mcp_insert_into_instance_slot_survives_main_edit() {
         let mut e = Engine::default();
         let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);

@@ -6,7 +6,7 @@ use crate::edit::Tx;
 use crate::layout;
 use designos_doc::{create_instance, Affine, Command, Document, Node, NodeId, NodeKind, PropKind, PropValue, Vec2};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Pastes `text` if it is SVG markup (`<svg` or `<?xml` prolog): the layers
 /// appear centered in the viewport, as one undo step, selected. Returns whether
@@ -475,7 +475,8 @@ fn main_links(doc: &Document, clip: &Clip) -> Vec<Option<MainLink>> {
         return clip.roots.iter().map(|_| None).collect();
     }
     // One pass over the clip, and only when some root is a live main: what the roots were when they were copied.
-    let was: HashMap<NodeId, &Node> = clip.nodes.iter().filter(|n| clip.roots.contains(&n.id)).map(|n| (n.id, n)).collect();
+    let roots: HashSet<NodeId> = clip.roots.iter().copied().collect();
+    let was: HashMap<NodeId, &Node> = clip.nodes.iter().filter(|n| roots.contains(&n.id)).map(|n| (n.id, n)).collect();
     let kind_of = |id: NodeId| was.get(&id).map(|n| std::mem::discriminant(&n.kind));
     clip.roots.iter().zip(live).map(|(root, link)| link.filter(|_| kind_of(*root) == doc.get(*root).map(|n| std::mem::discriminant(&n.kind)))).collect()
 }
@@ -496,7 +497,7 @@ fn instance_fits(doc: &Document, link: &MainLink, parent: NodeId) -> bool {
         }
         at = n.parent;
     }
-    !crate::comp_ops::mains_held_by(doc, &[link.comp]).into_iter().any(inside)
+    !designos_doc::mains_held_by(doc, &[link.comp]).into_iter().any(inside)
 }
 
 /// Where a paste of `clip` goes when the insert container is `parent`: the same, unless that container would hold
@@ -504,13 +505,13 @@ fn instance_fits(doc: &Document, link: &MainLink, parent: NodeId) -> bool {
 /// in that main, directly or through the mains in between. Such a paste goes beside the main, in its own parent.
 pub fn paste_parent(doc: &Document, clip: &Clip, mut parent: NodeId) -> NodeId {
     // the mains a pasted layer holds an instance of (the ids a clip names, which may be another file's)
-    let mut shut = crate::comp_ops::mains_held_through(doc, clip.nodes.iter().filter_map(designos_doc::instance_component));
+    let mut shut = designos_doc::mains_held_through(doc, clip.nodes.iter().filter_map(designos_doc::instance_component));
     for (root, link) in clip.roots.iter().zip(main_links(doc, clip)) {
         let Some(link) = link else { continue };
         if link.scope == *root {
             shut.push(*root);
         }
-        shut.extend(crate::comp_ops::mains_held_by(doc, &[link.comp]));
+        shut.extend(designos_doc::mains_held_by(doc, &[link.comp]));
     }
     while let Some(main) = shut.iter().find(|m| parent == **m || doc.is_ancestor(**m, parent)) {
         match doc.get(*main).and_then(|n| n.parent) {
@@ -548,30 +549,54 @@ pub fn instantiate_linking_mains(doc: &mut Document, clip: &Clip, parent_of: imp
         let mirror_of: HashMap<NodeId, NodeId> = instance.iter().filter_map(|n| Some((n.component.source?, n.id))).collect();
         for gone in list.iter() {
             let original = original_of[&gone.id];
-            let to = if original == *root { Some(instance[0].id) } else { mirror_of.get(&original).copied().or_else(|| doc.get(original).map(|_| original)) };
-            stand_in.insert(gone.id, to);
+            stand_in.insert(gone.id, stand_in_for(doc, Some(original), original == *root, instance[0].id, &mirror_of));
         }
         *list = instance;
     }
     if !stand_in.is_empty() {
         for node in lists.iter_mut().flatten() {
-            if let NodeKind::Connector(c) = &mut node.kind {
-                for end in [&mut c.start, &mut c.end] {
-                    if let Some(to) = end.node.and_then(|n| stand_in.get(&n)) {
-                        end.node = *to;
-                    }
-                }
-            }
+            restand_connector(node, &stand_in);
         }
     }
     lists
 }
 
+/// The layer that stands in for a layer of a copy that is replaced: the new root for the copy's root, else the new
+/// layer made from the same `original` (`new_of`). A layer with no counterpart is stood in by its original when that
+/// still exists; `None` is a free end.
+fn stand_in_for(doc: &Document, original: Option<NodeId>, is_root: bool, new_root: NodeId, new_of: &HashMap<NodeId, NodeId>) -> Option<NodeId> {
+    if is_root {
+        return Some(new_root);
+    }
+    let original = original?;
+    new_of.get(&original).copied().or_else(|| doc.get(original).map(|_| original))
+}
+
+/// Points the connector `node` (any other node is left alone) at the layers that replaced the ones it ended on.
+pub fn restand_connector(node: &mut Node, stand_in: &HashMap<NodeId, Option<NodeId>>) {
+    let NodeKind::Connector(c) = &mut node.kind else { return };
+    for end in [&mut c.start, &mut c.end] {
+        if let Some(to) = end.node.and_then(|n| stand_in.get(&n)) {
+            end.node = *to;
+        }
+    }
+}
+
+/// What replaces an Alt-copy at the drop (see [`recast_copy`]).
+pub struct Recast {
+    /// The nodes that stand in its place, root first.
+    pub nodes: Vec<Node>,
+    /// Each layer of the replaced copy, and the layer that stands in for it (`None`: a free end). For the connectors
+    /// that were copied along and end on it.
+    pub stand_in: HashMap<NodeId, Option<NodeId>>,
+}
+
 /// An Alt-drag makes its copy before it knows where the copy lands. At the drop, `copy` (made from the main `source`
 /// and now under its final parent) is checked against the rules of [`instantiate_linking_mains`] again. Returns the
 /// nodes that should stand in its place, with its transform, when they are not what it is now: an instance that
-/// landed where it cannot go becomes a real copy, and a real copy that left its set becomes an instance.
-pub fn recast_copy(doc: &mut Document, source: NodeId, copy: NodeId) -> Option<Vec<Node>> {
+/// landed where it cannot go becomes a real copy, and a real copy that left its set becomes an instance. The layers
+/// of `copy` go away, so [`Recast::stand_in`] says where the connectors that ended on them go.
+pub fn recast_copy(doc: &mut Document, source: NodeId, copy: NodeId) -> Option<Recast> {
     let link = live_main(doc, source)?;
     let placed = doc.get(copy)?;
     let parent = placed.parent?;
@@ -580,18 +605,31 @@ pub fn recast_copy(doc: &mut Document, source: NodeId, copy: NodeId) -> Option<V
         return None;
     }
     let (transform, visible) = (placed.transform, placed.visible);
-    let mut nodes = if is_instance {
-        clone_subtree(doc, source)
+    // each layer of the copy, with the layer of the main it came from, and the new layers by the layer they came from
+    let mut gone: Vec<(NodeId, Option<NodeId>)> = Vec::new();
+    let (mut nodes, new_of) = if is_instance {
+        // the layers of an instance mirror those of the main, which `component.source` names
+        doc.walk(copy, |n, _| gone.push((n.id, n.component.source)));
+        let clip = capture(doc, &[source])?;
+        let (mut lists, made_from) = instantiate_mapped(doc, &clip);
+        (lists.pop()?, made_from)
     } else {
-        match create_instance(doc, link.comp, parent, Vec2::ZERO) {
-            Command::Insert { nodes, .. } => nodes,
-            _ => return None,
-        }
+        // a real copy was cloned from the main layer by layer, so both walk in the same order
+        let (mut copy_layers, mut main_layers) = (Vec::new(), Vec::new());
+        doc.walk(copy, |n, _| copy_layers.push(n.id));
+        doc.walk(source, |n, _| main_layers.push(n.id));
+        let same_shape = copy_layers.len() == main_layers.len();
+        gone.extend(copy_layers.iter().enumerate().map(|(k, id)| (*id, same_shape.then(|| main_layers[k]))));
+        let Command::Insert { nodes, .. } = create_instance(doc, link.comp, parent, Vec2::ZERO) else { return None };
+        let mirrors = nodes.iter().filter_map(|n| Some((n.component.source?, n.id))).collect();
+        (nodes, mirrors)
     };
+    let new_root = nodes.first()?.id;
+    let stand_in = gone.into_iter().map(|(layer, original)| (layer, stand_in_for(doc, original, layer == copy, new_root, &new_of))).collect();
     let root = nodes.first_mut()?;
     root.transform = transform;
     root.visible = visible;
-    Some(nodes)
+    Some(Recast { nodes, stand_in })
 }
 
 /// Fresh-id deep copy of the subtree rooted at `id` (root first).

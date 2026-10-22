@@ -11,13 +11,12 @@ pub use super::textsession::{begin_text_edit, finish_text};
 use super::tools::{press_action, PressAction, PressTarget, Tool};
 use super::vector;
 use super::*;
-use crate::comp_ops::mains_held_by;
 use crate::edit::Tx;
 use crate::layout;
 use crate::ops::apply_resize;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{Command, Document, NodeKind};
+use designos_doc::{mains_held_by, Command, Document, NodeKind};
 use egui::{Modifiers, Pos2, Response};
 
 pub fn dv(p: Pos2) -> DV {
@@ -1750,15 +1749,30 @@ fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) 
 fn settle_main_copies(app: &mut App, m: &mut MoveState) {
     for k in 0..m.main_copies.len() {
         let (source, copy) = m.main_copies[k];
-        let Some(nodes) = crate::clipboard::recast_copy(&mut app.doc, source, copy) else { continue };
+        let Some(recast) = crate::clipboard::recast_copy(&mut app.doc, source, copy) else { continue };
         let Some(parent) = app.doc.get(copy).and_then(|n| n.parent) else { continue };
         let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == copy)).unwrap_or(usize::MAX);
-        let new = nodes.first().map(|n| n.id);
-        let swapped = m.tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }).is_ok() && m.tx.cmd(&mut app.doc, Command::Remove { id: copy }).is_ok();
+        let new = recast.nodes.first().map(|n| n.id);
+        let swapped = m.tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: recast.nodes }).is_ok()
+            && m.tx.cmd(&mut app.doc, Command::Remove { id: copy }).is_ok();
         let Some(new) = new.filter(|_| swapped) else { continue };
         m.main_copies[k].1 = new;
         for id in m.ids.iter_mut().chain(app.selection.iter_mut()).filter(|id| **id == copy) {
             *id = new;
+        }
+        // Connectors copied along ended on the copy that is gone: they end on what stands in its place.
+        let mut connectors = Vec::new();
+        for id in &m.ids {
+            app.doc.walk(*id, |n, _| {
+                if matches!(n.kind, NodeKind::Connector(_)) {
+                    connectors.push(n.id);
+                }
+            });
+        }
+        for id in connectors {
+            if let Some(node) = m.tx.ed.node(&mut app.doc, id) {
+                crate::clipboard::restand_connector(node, &recast.stand_in);
+            }
         }
     }
 }
@@ -2572,29 +2586,77 @@ mod tests {
         let (main, other) = (f[0], f[1]);
         make_main(&mut d, main);
         let layer = d.get(main).unwrap().children[0];
-        let connect = |d: &mut Document, from: NodeId| {
-            let id = d.alloc_id();
-            let props = designos_doc::ConnectorProps {
-                start: designos_doc::ConnectorEnd::attached(from, designos_doc::Magnet::Auto),
-                end: designos_doc::ConnectorEnd::attached(other, designos_doc::Magnet::Auto),
-                ..Default::default()
-            };
-            d.insert(page, designos_doc::Node::connector(id, props)).unwrap()
-        };
-        let (on_main, on_layer) = (connect(&mut d, main), connect(&mut d, layer));
+        let (on_main, on_layer) = (connector(&mut d, page, main, other), connector(&mut d, page, layer, other));
         let mut app = App::new(d);
         app.selection = vec![main, other, on_main, on_layer];
         let m = start_move(&mut app, main, v2(0.0, 0.0), true).unwrap();
         let [copy_main, copy_other, copy_on_main, copy_on_layer] = m.ids[..] else { panic!("four copies, got {:?}", m.ids) };
         assert!(is_instance_of(&app, copy_main, main));
-        let ends = |id: NodeId| match &app.doc.get(id).unwrap().kind {
-            NodeKind::Connector(c) => (c.start.node, c.end.node),
-            k => panic!("{k:?}"),
-        };
-        assert_eq!(ends(copy_on_main), (Some(copy_main), Some(copy_other)), "attached to the instance");
+        assert_eq!(connector_ends(&app, copy_on_main), (Some(copy_main), Some(copy_other)), "attached to the instance");
         let mirror = app.doc.get(copy_main).unwrap().children[0];
         assert_eq!(app.doc.get(mirror).unwrap().component.source, Some(layer));
-        assert_eq!(ends(copy_on_layer), (Some(mirror), Some(copy_other)), "attached to the instance's copy of the layer");
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(mirror), Some(copy_other)), "attached to the instance's copy of the layer");
+    }
+
+    /// A connector on `page` from `from` to `to`.
+    fn connector(d: &mut Document, page: NodeId, from: NodeId, to: NodeId) -> NodeId {
+        let id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(from, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(to, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        d.insert(page, designos_doc::Node::connector(id, props)).unwrap()
+    }
+
+    fn connector_ends(app: &App, id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+        match &app.doc.get(id).unwrap().kind {
+            NodeKind::Connector(c) => (c.start.node, c.end.node),
+            k => panic!("{k:?}"),
+        }
+    }
+
+    /// Two connectors that run from `main` and from its first layer to `to`; returns them and the layer.
+    fn connectors_on(app: &mut App, main: NodeId, to: NodeId) -> (NodeId, NodeId, NodeId) {
+        let layer = app.doc.get(main).unwrap().children[0];
+        let page = app.page;
+        (connector(&mut app.doc, page, main, to), connector(&mut app.doc, page, layer, to), layer)
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_set_keeps_its_connectors_attached_to_the_new_variant() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        let (on_main, on_layer, _layer) = connectors_on(&mut app, solo, variants[0]);
+        app.selection = vec![solo, on_main, on_layer];
+        let nodes = app.doc.nodes.len();
+        let r = crate::util::world_aabb(&app.doc, set);
+        let ids = alt_drag_and_drop(&mut app, solo, v2(r.x + 2.0, r.y + 2.0));
+        let [variant, copy_on_main, copy_on_layer] = ids[..] else { panic!("three copies, got {ids:?}") };
+        let n = app.doc.get(variant).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)) && n.parent == Some(set), "a new variant, got {:?}", n.kind);
+        let layer_copy = n.children[0];
+        assert_eq!(connector_ends(&app, copy_on_main), (Some(variant), Some(variants[0])), "attached to the new variant");
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(layer_copy), Some(variants[0])), "attached to the variant's own layer");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes the copies away");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_out_of_its_set_keeps_its_connectors_attached_to_the_new_instance() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        let (on_variant, on_layer, layer) = connectors_on(&mut app, variants[1], solo);
+        app.selection = vec![variants[1], on_variant, on_layer];
+        let nodes = app.doc.nodes.len();
+        let r = crate::util::world_aabb(&app.doc, set);
+        let ids = alt_drag_and_drop(&mut app, variants[1], v2(r.x + 5000.0, r.y + 5000.0));
+        let [instance, copy_on_variant, copy_on_layer] = ids[..] else { panic!("three copies, got {ids:?}") };
+        assert!(is_instance_of(&app, instance, variants[1]), "got {:?}", app.doc.get(instance).unwrap().kind);
+        let mirror =
+            app.doc.get(instance).unwrap().children.iter().copied().find(|c| app.doc.get(*c).unwrap().component.source == Some(layer)).expect("a mirror");
+        assert_eq!(connector_ends(&app, copy_on_variant), (Some(instance), Some(solo)), "attached to the instance");
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(mirror), Some(solo)), "attached to the instance's copy of the layer");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes the copies away");
     }
 
     #[test]

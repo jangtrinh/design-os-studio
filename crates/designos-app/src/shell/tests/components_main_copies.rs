@@ -495,3 +495,128 @@ fn pasting_a_plain_frame_that_holds_an_instance_of_b_with_b_selected_does_not_ma
     s.shell.app.paste(Some(&json));
     assert_a_pasted_inside_b_is_valid(&mut s, b);
 }
+
+// ---- every other way to put a main holding B in B
+
+/// "A" holds an instance of "B": the clipboard holds A, and the selection is B (or its one layer).
+fn a_copied_with_b_selected(s: &mut Sim, a_layer_of_b: bool) -> (NodeId, NodeId) {
+    let (a, b) = a_holds_an_instance_of_b(s);
+    s.shell.app.selection = vec![a];
+    s.shell.app.copy_selection().expect("A is copied");
+    s.shell.app.selection = vec![if a_layer_of_b { child_of(s, b, "Layer") } else { b }];
+    (a, b)
+}
+
+/// The one layer a command selected is a real copy of A, beside B: in B's parent, right above B, at B's place.
+fn assert_a_copy_sits_beside(s: &mut Sim, b: NodeId) {
+    let [new] = s.app().selection[..] else { panic!("one layer selected, got {:?}", s.app().selection) };
+    let doc = &s.app().doc;
+    let (b_node, copy) = (doc.get(b).unwrap(), doc.get(new).unwrap());
+    assert!(matches!(copy.kind, NodeKind::Component(_)), "a real copy of A, got {:?}", copy.kind);
+    assert_eq!(copy.parent, b_node.parent, "beside B, not in it");
+    let siblings = &doc.get(b_node.parent.unwrap()).unwrap().children;
+    let at = |id: NodeId| siblings.iter().position(|c| *c == id).unwrap();
+    assert_eq!(at(new), at(b) + 1, "right above B");
+    assert_eq!((copy.transform.tx, copy.transform.ty), (b_node.transform.tx, b_node.transform.ty), "at B's place");
+    assert_a_pasted_inside_b_is_valid(s, b);
+}
+
+#[test]
+fn paste_over_selection_with_b_selected_puts_a_main_that_holds_b_beside_b() {
+    let (mut s, _) = main_sim();
+    let (_, b) = a_copied_with_b_selected(&mut s, false);
+    s.shell.app.paste_over_selection();
+    assert_a_copy_sits_beside(&mut s, b);
+}
+
+#[test]
+fn paste_over_selection_with_a_layer_of_b_selected_puts_a_main_that_holds_b_beside_b() {
+    let (mut s, _) = main_sim();
+    let (_, b) = a_copied_with_b_selected(&mut s, true);
+    s.shell.app.paste_over_selection();
+    assert_a_copy_sits_beside(&mut s, b);
+}
+
+#[test]
+fn paste_to_replace_a_layer_of_b_puts_a_main_that_holds_b_beside_b() {
+    let (mut s, _) = main_sim();
+    let (_, b) = a_copied_with_b_selected(&mut s, true);
+    let layer = s.app().selection[0];
+    s.shell.app.paste_to_replace();
+    assert!(s.app().doc.get(layer).is_none(), "the layer is replaced");
+    assert_a_copy_sits_beside(&mut s, b);
+}
+
+#[test]
+fn paste_to_replace_in_the_ordinary_place_still_replaces_in_place() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    let comps = s.app().doc.get(a).unwrap().parent.unwrap();
+    let plain = add_frame(&mut s, comps, DRect::new(0.0, 700.0, 100.0, 100.0), "Plain");
+    s.shell.app.selection = vec![a];
+    s.shell.app.copy_selection().expect("A is copied");
+    s.shell.app.selection = vec![plain];
+    let (index, tx, ty) = {
+        let doc = &s.app().doc;
+        (doc.get(comps).unwrap().children.iter().position(|c| *c == plain).unwrap(), doc.get(plain).unwrap().transform.tx, doc.get(plain).unwrap().transform.ty)
+    };
+    s.shell.app.paste_to_replace();
+    let [new] = s.app().selection[..] else { panic!("one layer selected") };
+    let n = s.app().doc.get(new).unwrap();
+    assert!(s.app().doc.get(plain).is_none());
+    assert_eq!(n.parent, Some(comps));
+    assert_eq!(s.app().doc.get(comps).unwrap().children.iter().position(|c| *c == new), Some(index), "in the replaced layer's place");
+    assert_eq!((n.transform.tx, n.transform.ty), (tx, ty));
+    assert_a_pasted_inside_b_is_valid(&mut s, b);
+}
+
+#[test]
+fn dropping_a_main_from_assets_onto_a_main_it_would_make_hold_itself_lands_on_the_page() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    s.shell.app.selection.clear();
+    let at = center(&s, b);
+    let id = s.shell.app.insert_instance(a, at).expect("the instance lands somewhere");
+    assert_eq!(s.app().doc.get(id).unwrap().parent, Some(s.app().page), "on the page, not inside B");
+    assert_a_pasted_inside_b_is_valid(&mut s, b);
+}
+
+#[test]
+fn swapping_an_instance_in_b_to_a_main_that_holds_b_changes_nothing() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    let comps = s.app().doc.get(a).unwrap().parent.unwrap();
+    let z = add_main(&mut s, comps, DRect::new(1100.0, 0.0, 60.0, 60.0), "Z");
+    let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut s.shell.app.doc, z, b, DV::new(60.0, 60.0)) else {
+        panic!("instance of Z")
+    };
+    let inside_b = nodes[0].id;
+    designos_doc::Command::Insert { parent: b, index: 0, nodes }.apply(&mut s.shell.app.doc).unwrap();
+    let before = s.app().doc.nodes.len();
+    s.shell.app.swap_instance(inside_b, a);
+    assert_eq!(instance_component(s.app().doc.get(inside_b).unwrap()), Some(z), "still an instance of Z");
+    assert_eq!(s.app().doc.nodes.len(), before);
+    edit_main(&mut s, b);
+    s.frame(vec![]);
+}
+
+#[test]
+fn a_layers_panel_drop_of_an_instance_of_a_into_b_is_refused_when_a_holds_b() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    let host = add_frame(&mut s, b, DRect::new(50.0, 50.0, 40.0, 40.0), "Host");
+    s.shell.app.selection.clear();
+    let inst = s.shell.app.insert_instance(a, DV::new(5000.0, 5000.0)).expect("an instance of A on the page");
+    let page = s.app().doc.get(inst).unwrap().parent;
+    // what the panel does for a drop in the middle of B's row, and for one in a layer of B
+    s.shell.app.move_to_parent(&[inst], b, 0);
+    s.shell.app.move_to_parent(&[inst], host, 0);
+    assert_eq!(s.app().doc.get(inst).unwrap().parent, page, "the instance stays where it was");
+    edit_main(&mut s, b);
+    s.frame(vec![]);
+    // an ordinary drop still moves it
+    let comps = s.app().doc.get(a).unwrap().parent.unwrap();
+    let frame = add_frame(&mut s, comps, DRect::new(0.0, 900.0, 200.0, 200.0), "Frame");
+    s.shell.app.move_to_parent(&[inst], frame, 0);
+    assert_eq!(s.app().doc.get(inst).unwrap().parent, Some(frame));
+}
