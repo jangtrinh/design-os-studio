@@ -2155,7 +2155,9 @@ impl App {
                     self.autosave.saved_hash = crate::home::doc_hash(&self.doc);
                     self.autosave.seen_rev = self.canvas.tiles.rev();
                     self.autosave.disk_mtime = std::fs::metadata(&p).ok().and_then(|m| m.modified().ok());
-                    self.mark_saved();
+                    if io::writes_native_format(&p) {
+                        self.mark_saved();
+                    }
                 }
             }
             Err(e) => self.show_toast(e, true),

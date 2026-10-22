@@ -687,3 +687,58 @@ fn a_restore_whose_write_fails_keeps_the_dot() {
     }
     assert!(lit, "the restored document is not in the file");
 }
+
+/// An unsaved comment on a fresh untitled document: the one thing the `.fig` and `.pen` writers do not keep.
+fn untitled_with_a_comment() -> (Sim, TmpDir) {
+    let dir = TmpDir::new();
+    let mut s = Sim::with(Options { library: Some(dir.0.join("lib")), ..Default::default() });
+    s.shell.app.tabs.always_visible = true;
+    s.shell.app.replace_document(two_rects(), None);
+    wait(&mut s, SETTLED);
+    let page = s.app().page;
+    s.shell.app.post_comment(designos_doc::CommentAnchor { page, node: None, offset: designos_doc::Vec2::new(10.0, 10.0) }, "keep me");
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().doc.comments.len(), 1);
+    assert!(dot(&s), "the comment is unsaved");
+    (s, dir)
+}
+
+#[test]
+fn a_save_to_fig_or_pen_does_not_clear_the_dot_because_those_files_lack_what_the_document_holds() {
+    for ext in ["fig", "pen", "FIG"] {
+        let (mut s, d) = untitled_with_a_comment();
+        let target = d.0.join(format!("copy.{ext}"));
+        s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        wait(&mut s, SETTLED);
+        assert!(target.is_file(), "the file was written ({ext})");
+        let kept = crate::io::load_path(&target).map(|d| d.comments.len()).unwrap_or(0);
+        assert_eq!(kept, 0, "the {ext} writer does not keep comments: the premise of the dot staying");
+        assert!(dot(&s), "the comment is in the app and not in the file ({ext})");
+    }
+}
+
+#[test]
+fn a_save_to_the_native_format_clears_the_dot() {
+    for ext in ["designos", "DESIGNOS"] {
+        let (mut s, d) = untitled_with_a_comment();
+        let target = d.0.join(format!("copy.{ext}"));
+        s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        wait(&mut s, SETTLED);
+        let kept = crate::io::load_path(&target).map(|d| d.comments.len()).unwrap_or(0);
+        assert_eq!(kept, 1, "the file holds the comment ({ext})");
+        assert!(!dot(&s), "everything the document holds is in the file ({ext})");
+    }
+}
+
+#[test]
+fn a_native_save_after_a_copy_to_fig_clears_the_dot_that_the_copy_left() {
+    let (mut s, d) = untitled_with_a_comment();
+    s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(d.0.join("copy.fig"))));
+    wait(&mut s, SETTLED);
+    assert!(dot(&s), "the copy lacks the comment");
+    let target = d.0.join("whole.designos");
+    s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s), "the native file has everything");
+    assert_eq!(s.app().file_path.as_deref(), Some(target.as_path()), "the document now lives in the native file");
+}

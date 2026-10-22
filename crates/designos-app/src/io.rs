@@ -322,6 +322,14 @@ pub fn clear_pending_repair_backup(path: &Path) {
     }
 }
 
+/// Whether `path` is a file of the native format, which holds everything the document does. A save to a `.fig`
+/// or `.pen` does not (those writers drop comments, and a `.fig` drops extension keys), and a save to any other
+/// extension is not a file this app opens as a design, so only the native extension leaves nothing out.
+/// Pass the path [`save_path_counted`] returned: it gives a path without an extension the native one.
+pub fn writes_native_format(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(NATIVE_EXT))
+}
+
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     let (p, replaced) = save_path_counted(doc, path)?;
@@ -402,6 +410,22 @@ mod tests {
         let mut p = std::env::temp_dir();
         p.push(format!("designos_test_{}_{name}", std::process::id()));
         p
+    }
+
+    #[test]
+    fn only_the_native_extension_is_the_native_format() {
+        for (name, native) in [
+            ("a.designos", true),
+            ("a.DESIGNOS", true),
+            ("dir.fig/a.designos", true),
+            ("a.fig", false),
+            ("a.FIG", false),
+            ("a.pen", false),
+            ("a.json", false),
+            ("a", false),
+        ] {
+            assert_eq!(writes_native_format(Path::new(name)), native, "{name}");
+        }
     }
 
     /// Chained `ref`s doubling at every level: 2^24 clones if unbudgeted, far past the import budget.
