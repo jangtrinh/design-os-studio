@@ -109,6 +109,15 @@ fn main() {
         println!("{}", cli::USAGE);
         return;
     }
+    if opts.version {
+        println!("{}", cli::version_line());
+        return;
+    }
+    // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
+    if let Some(message) = cli::missing_file_message(&opts) {
+        eprintln!("{message}");
+        std::process::exit(2);
+    }
     if let Some(dir) = &opts.seed_library {
         match showcase::seed_library(dir) {
             Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
@@ -215,7 +224,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         io::ensure_page(&mut d);
         (d, SaveTarget::Library(lib, id.clone()))
     } else if let Some(path) = &opts.file {
-        let d = if !path.exists() && (opts.apply_spec.is_some() || opts.import_capture.is_some() || opts.import_variables.is_some()) {
+        let d = if !path.exists() && opts.creates_missing_file() {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
             let mut d = designos_doc::Document::new(stem);
             io::ensure_page(&mut d);
