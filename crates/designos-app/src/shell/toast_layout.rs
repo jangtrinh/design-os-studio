@@ -21,6 +21,16 @@ const ACTION_PAD: f32 = 8.0;
 const ACTION_HEIGHT: f32 = 24.0;
 /// Narrowest message column, so a tiny window still gets a readable toast.
 const MIN_TEXT_WIDTH: f32 = 80.0;
+/// Narrowest toast, before the window's side margins squeeze it further.
+const MIN_WIDTH: f32 = 240.0;
+/// Centre of the status dot, from the toast's left edge.
+const DOT_INSET: f32 = 16.0;
+/// Both side margins together.
+const SIDE_MARGINS: f32 = 2.0 * SIDE_MARGIN;
+/// The action's padding on both sides.
+const ACTION_PADS: f32 = 2.0 * ACTION_PAD;
+/// The padding above and below the message.
+const PADS_VERTICAL: f32 = 2.0 * PAD_VERTICAL;
 
 pub(super) struct ToastLayout {
     /// The whole toast.
@@ -36,20 +46,20 @@ pub(super) struct ToastLayout {
 
 /// Lays the toast out inside `screen`. Its bottom edge is `TOAST_BOTTOM` above the window's bottom.
 pub(super) fn layout(p: &Painter, text: &str, font: &FontId, screen: Rect, action_label: Option<&str>) -> ToastLayout {
-    let max_w = (screen.width() - 2.0 * SIDE_MARGIN).clamp(240.0, MAX_WIDTH);
+    let max_w = (screen.width() - SIDE_MARGINS).clamp(MIN_WIDTH, MAX_WIDTH);
     let action_galley = action_label.map(|label| p.layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_BRAND));
-    let action_w = action_galley.as_ref().map_or(0.0, |g| g.size().x + 2.0 * ACTION_PAD);
+    let action_w = action_galley.as_ref().map_or(0.0, |g| g.size().x + ACTION_PADS);
     let reserved = PAD_LEFT + PAD_RIGHT + if action_galley.is_some() { action_w + ACTION_GAP } else { 0.0 };
     let wrap_w = (max_w - reserved).max(MIN_TEXT_WIDTH);
     let galley = p.layout(text.to_string(), font.clone(), Color32::PLACEHOLDER, wrap_w);
 
     let w = reserved + galley.size().x;
-    let h = (galley.size().y + 2.0 * PAD_VERTICAL).max(theme::TOAST_HEIGHT);
+    let h = (galley.size().y + PADS_VERTICAL).max(theme::TOAST_HEIGHT);
     let rect = Rect::from_min_size(Pos2::new(screen.center().x - w / 2.0, screen.bottom() - theme::TOAST_BOTTOM - h), Vec2::new(w, h));
 
     let text_pos = Pos2::new(rect.left() + PAD_LEFT, rect.center().y - galley.size().y / 2.0);
     let first_row_h = galley.size().y / galley.rows.len().max(1) as f32;
-    let dot = Pos2::new(rect.left() + 16.0, text_pos.y + first_row_h / 2.0);
+    let dot = Pos2::new(rect.left() + DOT_INSET, text_pos.y + first_row_h / 2.0);
     let action = action_galley.map(|label| {
         let target = Rect::from_center_size(Pos2::new(rect.right() - PAD_RIGHT - action_w / 2.0, rect.center().y), Vec2::new(action_w, ACTION_HEIGHT));
         (target, label)
