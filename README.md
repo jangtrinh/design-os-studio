@@ -145,7 +145,7 @@ Real screenshots from the v0.6.0 macOS build, captured headlessly with `designos
     </td>
     <td width="50%" valign="top" align="center">
       <a href="docs/images/v0.6/ask-before-acting-approval.png"><img src="docs/images/v0.6/ask-before-acting-approval.png" alt="DESIGN:OS Studio Agents panel in ask mode: an approval card reading Claude Code wants to run Bash, with the command git status --short, a 1 of 3 count and Deny and Approve buttons, beside the Untitled UI Avatar frame on the canvas" width="430"></a><br>
-      <sub><b>Ask before acting</b><br>With Ask before acting on, an agent's request to run a command waits in the Agents panel for Approve or Deny.</sub>
+      <sub><b>Ask before acting</b><br>With Ask before acting on, Claude Code's request to run a command waits in the Agents panel for Approve or Deny.</sub>
     </td>
   </tr>
 </table>
