@@ -564,8 +564,12 @@ fn a_held_dot_asks_for_no_repaint_so_an_idle_window_stays_idle() {
     assert!(requests.is_empty(), "a saved library file left alone asks for nothing: {requests:?}");
 
     // a document outside the library has one timed wake-up of its own (the disk watcher's); the dot adds no repaint
+    // Left alone means after the edit's own follow-up frames: on a slow machine the frame right after an edit can
+    // still ask for one to finish deferred drawing, which is not the dot's doing.
     let (mut s, _d, _path) = external_sim();
     edit(&mut s);
+    wait(&mut s, 3.0);
+    assert!(dot(&s));
     let requests = repaints_of_the_frame_where(&mut s, |_| true);
     assert!(!requests.contains(&Duration::ZERO), "an unsaved document left alone asks for no immediate repaint: {requests:?}");
 }
