@@ -5011,8 +5011,9 @@ pub fn show_left_with_selection(
 /// its rules popover do not close on an outside press (the Check designs panel does not close on `Esc` either), so counting
 /// them would leave the terminal deaf until the user found their close button.
 ///
-/// Not marked: the comment thread and composer and the auto-layout gap and padding editor. They open from a press on the
-/// canvas, which takes the keyboard from the terminal.
+/// Not marked yet: the comment thread, which can also open from the Comments panel. The comment composer and the auto-layout
+/// gap and padding editor are not marked either; they open from a press on the canvas, which takes the keyboard from the
+/// terminal.
 pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool {
     app.dialog.is_some()
         || app.history.save_modal.is_some()
