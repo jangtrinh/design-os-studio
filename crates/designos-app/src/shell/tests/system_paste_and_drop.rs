@@ -188,8 +188,8 @@ fn two_pastes_in_one_frame_land_in_order() {
     s.mods = Modifiers::COMMAND;
     s.frame(vec![Event::Paste("first".into()), Event::Paste("second".into())]);
     s.mods = Modifiers::NONE;
-    let page = s.app().doc.get(s.app().page).unwrap().children.clone();
-    let order: Vec<String> = page.iter().filter(|id| !before.contains(id)).map(|id| s.app().doc.get(*id).unwrap().name.clone()).collect();
+    // layer ids are handed out as the pastes land, so their order is the order the pastes were made in
+    let order: Vec<String> = added(&s, &before).iter().map(|id| s.app().doc.get(*id).unwrap().name.clone()).collect();
     assert_eq!(order, vec!["first", "second"]);
 }
 
@@ -290,7 +290,7 @@ fn an_image_that_cannot_be_encoded_says_so_and_adds_nothing() {
     let before = ids(&s);
     ctrl_v(&mut s, None);
     assert_eq!(ids(&s), before);
-    assert_eq!(toast(&s), Some(("Cannot paste image".into(), true)));
+    assert_eq!(toast(&s), Some(("Copied image is unreadable. Copy it again.".into(), true)));
 }
 
 // ------------------------------------------------------------------------- nothing usable, and the in-app copy
@@ -508,6 +508,14 @@ impl Sim {
         out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay).unwrap_or(std::time::Duration::MAX)
     }
 
+    /// Draws frames while the only thing the window waits for is the clipboard worker, which keeps asking for frames.
+    fn draw_until_idle_or_waiting_paste(&mut self) {
+        for _ in 0..5 {
+            let delay = self.frame_without_settling(vec![]);
+            assert!(delay <= std::time::Duration::from_millis(50), "a waiting paste keeps the window drawing");
+        }
+    }
+
     /// Draws frames until the window is idle, as a real one is when the user does nothing: no frame asks for the next.
     fn draw_until_idle(&mut self) {
         let started = std::time::Instant::now();
@@ -547,4 +555,283 @@ fn a_paste_waiting_for_the_clipboard_worker_keeps_the_window_drawing_until_it_la
     }
     assert!(frames_without_input >= 2, "precondition: the worker outlasted several frames");
     the_image_layer(&s, &before);
+}
+
+// ------------------------------------------------------------------------------- where the layer lands
+
+/// World-space box of a layer: x, y, width, height.
+fn world_box(s: &Sim, id: NodeId) -> (f32, f32, f32, f32) {
+    let r = crate::util::world_aabb(&s.app().doc, id);
+    (r.x, r.y, r.w, r.h)
+}
+
+/// The share of a layer's box that shows: its box cut by every ancestor frame that clips its content.
+fn visible_share(s: &Sim, id: NodeId) -> f32 {
+    let (mut x0, mut y0, w, h) = world_box(s, id);
+    let (mut x1, mut y1) = (x0 + w, y0 + h);
+    let mut up = s.app().doc.get(id).and_then(|n| n.parent);
+    while let Some(p) = up {
+        let n = s.app().doc.get(p).unwrap();
+        if n.kind.frame_props().is_some_and(|f| f.clips_content) {
+            let (px, py, pw, ph) = world_box(s, p);
+            (x0, y0, x1, y1) = (x0.max(px), y0.max(py), x1.min(px + pw), y1.min(py + ph));
+        }
+        up = n.parent;
+    }
+    ((x1 - x0).max(0.0) * (y1 - y0).max(0.0)) / (w * h)
+}
+
+/// Frames as Figma imports them: every top-level frame clips what is inside it.
+fn clip_every_frame(s: &mut Sim) {
+    let page = s.app().page;
+    for id in s.app().doc.get(page).unwrap().children.clone() {
+        if let Some(f) = s.shell.app.doc.get_mut(id).and_then(|n| n.kind.frame_props_mut()) {
+            f.clips_content = true;
+        }
+    }
+    s.shell.app.changed();
+}
+
+fn frame_contains(s: &Sim, frame: NodeId, p: DV) -> bool {
+    let (x, y, w, h) = world_box(s, frame);
+    p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h
+}
+
+fn parent_of(s: &Sim, id: NodeId) -> NodeId {
+    s.app().doc.get(id).unwrap().parent.unwrap()
+}
+
+#[test]
+fn a_pasted_image_goes_into_the_frame_under_the_viewport_center_and_stays_visible() {
+    for clipping in [false, true] {
+        let mut s = Sim::new();
+        if clipping {
+            clip_every_frame(&mut s);
+        }
+        s.shell.app.system_image = wide_image;
+        let dashboard = s.by_name("Dashboard");
+        let before = ids(&s);
+        ctrl_v(&mut s, None);
+        let (id, _) = the_image_layer(&s, &before);
+        let center = viewport_center(&s);
+        assert!(frame_contains(&s, dashboard, center), "precondition: the viewport center is over the Dashboard");
+        assert_eq!(parent_of(&s, id), dashboard, "clipping frames: {clipping}: the frame under the center, not the one under the layer's corner");
+        let share = visible_share(&s, id);
+        assert!(share >= 0.9, "clipping frames: {clipping}: visible share {share}");
+        if !clipping {
+            assert_centered_on_viewport(&s, id);
+        }
+    }
+}
+
+#[test]
+fn an_image_dropped_on_a_frame_goes_into_that_frame_and_stays_visible() {
+    for clipping in [false, true] {
+        let path = write_file(&format!("onto-frame-{clipping}.png"), &encoded(image::ImageFormat::Png, 800, 600));
+        let mut s = Sim::new();
+        if clipping {
+            clip_every_frame(&mut s);
+        }
+        let dashboard = s.by_name("Dashboard");
+        let (x, y, _, _) = world_box(&s, dashboard);
+        let before = ids(&s);
+        // 50 px inside the Dashboard's top-left corner, where a layer centered on the pointer sticks out to the left
+        s.mv(s.screen(x + 50.0, y + 50.0));
+        s.drop_on_window(vec![dropped(&path)]);
+        std::fs::remove_file(&path).ok();
+        let (id, _) = the_image_layer(&s, &before);
+        assert_eq!(parent_of(&s, id), dashboard, "clipping frames: {clipping}");
+        let share = visible_share(&s, id);
+        assert!(share >= 0.9, "clipping frames: {clipping}: visible share {share}");
+    }
+}
+
+#[test]
+fn with_a_frame_selected_text_and_images_go_into_it_even_when_the_viewport_center_is_elsewhere() {
+    // Welcome is a clipping frame beside the viewport center, which is over the Dashboard
+    for kind in ["text", "long text", "small image", "large image"] {
+        let mut s = Sim::new();
+        clip_every_frame(&mut s);
+        let welcome = s.by_name("Welcome");
+        s.shell.app.selection = vec![welcome];
+        assert!(!frame_contains(&s, welcome, viewport_center(&s)), "precondition: the viewport center is outside the Welcome frame");
+        let before = ids(&s);
+        match kind {
+            "text" => ctrl_v(&mut s, Some("Release notes for Friday")),
+            "long text" => ctrl_v(&mut s, Some(&"A sentence that goes on and on without any line break, ".repeat(12))),
+            "small image" => {
+                s.shell.app.system_image = small_image;
+                ctrl_v(&mut s, None);
+            }
+            _ => {
+                s.shell.app.system_image = wide_image;
+                ctrl_v(&mut s, None);
+            }
+        }
+        let new = added(&s, &before);
+        assert_eq!(new.len(), 1, "{kind}: {new:?}");
+        assert_eq!(parent_of(&s, new[0]), welcome, "{kind}: pasted into the selected frame");
+        let (wx, wy, ww, wh) = world_box(&s, welcome);
+        let (c, centre) = (center_of(&s, new[0]), DV::new(wx + ww / 2.0, wy + wh / 2.0));
+        assert!(
+            (c.x - centre.x).abs() <= 1.0 && (c.y - centre.y).abs() <= 1.0,
+            "{kind}: centered in the frame, ({}, {}) vs ({}, {})",
+            c.x,
+            c.y,
+            centre.x,
+            centre.y
+        );
+        // an image wider than the frame (400 px against 360 px) can only show 90% of itself
+        let share = visible_share(&s, new[0]);
+        assert!(share >= 0.89, "{kind}: visible share {share} (frame {ww}x{wh})");
+        let _ = wy;
+    }
+}
+
+#[test]
+fn with_a_frame_selected_that_holds_the_viewport_center_the_layer_stays_at_the_center() {
+    let mut s = Sim::new();
+    let dashboard = s.by_name("Dashboard");
+    s.shell.app.selection = vec![dashboard];
+    let before = ids(&s);
+    ctrl_v(&mut s, Some("Release notes for Friday"));
+    let new = added(&s, &before);
+    assert_eq!(parent_of(&s, new[0]), dashboard);
+    assert_centered_on_viewport(&s, new[0]);
+}
+
+#[test]
+fn a_layer_selected_inside_a_frame_pastes_into_that_frame() {
+    let mut s = Sim::new();
+    clip_every_frame(&mut s);
+    // a text layer of the Welcome frame; it holds no layers of its own, so the paste goes to its frame
+    let heading = s.app().doc.nodes.values().find(|n| matches!(&n.kind, NodeKind::Text(t) if t.content == "Welcome back")).map(|n| n.id).expect("the heading");
+    let its_frame = parent_of(&s, heading);
+    s.shell.app.selection = vec![heading];
+    let before = ids(&s);
+    ctrl_v(&mut s, Some("Release notes for Friday"));
+    let new = added(&s, &before);
+    assert_eq!(parent_of(&s, new[0]), its_frame);
+    assert!(visible_share(&s, new[0]) >= 0.9);
+}
+
+#[test]
+fn a_frame_selected_inside_a_clipping_frame_takes_the_paste_and_the_layer_is_centered_in_it() {
+    let mut s = Sim::new();
+    clip_every_frame(&mut s);
+    // the demo's Button is a frame inside Welcome; the viewport center is outside both
+    let (button, welcome) = (s.by_name("Button"), s.by_name("Welcome"));
+    assert!(s.app().doc.get(button).unwrap().kind.is_container() && parent_of(&s, button) == welcome, "precondition: a frame inside Welcome");
+    s.shell.app.selection = vec![button];
+    let before = ids(&s);
+    ctrl_v(&mut s, Some("Release notes for Friday"));
+    let new = added(&s, &before);
+    assert_eq!(parent_of(&s, new[0]), button, "the selected frame, not its parent");
+    let (bx, by, bw, bh) = world_box(&s, button);
+    let (c, middle) = (center_of(&s, new[0]), DV::new(bx + bw / 2.0, by + bh / 2.0));
+    assert!((c.x - middle.x).abs() <= 1.0 && (c.y - middle.y).abs() <= 1.0, "centered in the Button: ({}, {}) vs ({}, {})", c.x, c.y, middle.x, middle.y);
+    assert!(visible_share(&s, new[0]) >= 0.9);
+}
+
+// --------------------------------------------------------------------------- Edit > Paste while typing
+
+#[test]
+fn edit_paste_during_a_text_edit_pastes_into_the_text_and_adds_no_layer() {
+    let mut s = Sim::new();
+    s.key(Key::T);
+    let p = s.screen(300.0, 820.0);
+    s.click(p);
+    s.type_text("a");
+    let id = s.app().selection[0];
+    assert!(s.app().canvas.text.is_some(), "precondition: a text session is open");
+    s.shell.app.system_text = some_words;
+    s.shell.app.system_image = wide_image;
+    let before = ids(&s);
+    edit_paste(&mut s);
+    assert_eq!(ids(&s), before, "no new layer, and an image has no place in text");
+    assert!(matches!(&s.app().doc.get(id).unwrap().kind, NodeKind::Text(t) if t.content == "aRelease notes for Friday"));
+    assert!(s.app().canvas.text.is_some(), "the session stays open");
+}
+
+// ------------------------------------------------------------------ a clipboard read that never answers
+
+static RELEASE_HUNG_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A clipboard owner that never hands over the image (until the test lets go of it).
+fn hung_image() -> Option<ClipImage> {
+    let started = std::time::Instant::now();
+    while !RELEASE_HUNG_READ.load(std::sync::atomic::Ordering::SeqCst) && started.elapsed() < std::time::Duration::from_secs(30) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    None
+}
+
+#[test]
+fn a_clipboard_read_that_never_answers_times_out_with_a_toast_and_blocks_nothing() {
+    RELEASE_HUNG_READ.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut s = Sim::new();
+    s.shell.app.system_image = hung_image;
+    s.mods = Modifiers::COMMAND;
+    s.frame_without_settling(vec![key_v_release()]);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.shell.app.paste_jobs.len(), 1, "precondition: the read is waiting");
+    s.draw_until_idle_or_waiting_paste();
+    // ten seconds later
+    s.shell.app.expire_paste_jobs();
+    s.frame_without_settling(vec![]);
+    assert!(s.shell.app.paste_jobs.is_empty(), "the hung read is given up");
+    assert_eq!(toast(&s), Some(("Clipboard did not answer. Try again.".into(), true)));
+    s.draw_until_idle();
+    // a later paste is not held behind it
+    s.shell.app.system_image = no_system_image;
+    let before = ids(&s);
+    ctrl_v(&mut s, Some("Release notes for Friday"));
+    assert_eq!(added(&s, &before).len(), 1);
+    RELEASE_HUNG_READ.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn a_paste_still_waiting_when_the_tab_changes_never_lands_in_another_document() {
+    let mut s = Sim::new();
+    s.shell.app.system_image = slow_image;
+    s.mods = Modifiers::COMMAND;
+    s.frame_without_settling(vec![key_v_release()]);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.shell.app.paste_jobs.len(), 1, "precondition: the read is waiting");
+    let first_tab_nodes = s.count();
+    let second = s.shell.app.open_new_design_tab();
+    let second_tab_nodes = s.count();
+    let started = std::time::Instant::now();
+    while !s.shell.app.paste_jobs.is_empty() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "the paste never finished");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        s.frame_without_settling(vec![]);
+    }
+    assert_eq!(s.count(), second_tab_nodes, "the new tab's document is untouched");
+    s.shell.app.switch_tab(second.saturating_sub(1));
+    assert_eq!(s.count(), first_tab_nodes, "and so is the tab the paste started in");
+}
+
+// --------------------------------------------------------------------------------------- copy and undo
+
+#[test]
+fn several_dropped_files_are_one_undo_step_and_all_selected() {
+    let png = |i: usize| write_file(&format!("one-step-{i}.png"), &encoded(image::ImageFormat::Png, 50, 50));
+    let svg = write_file(
+        "one-step.svg",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#336699"/></svg>"##.as_bytes(),
+    );
+    let paths = [png(0), svg, png(1)];
+    let mut s = Sim::new();
+    let before = ids(&s);
+    let depth = s.app().hist.undo_depth();
+    s.mv(s.screen(60.0, 900.0));
+    s.drop_on_window(paths.iter().map(|p| dropped(p)).collect());
+    for p in &paths {
+        std::fs::remove_file(p).ok();
+    }
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "one history step for the whole drop");
+    assert_eq!(image_layers(&s, &before).len(), 2);
+    assert_eq!(s.app().selection.len(), 3, "every placed layer is selected");
+    undoes_in_one_step(&mut s, &before);
 }

@@ -63,6 +63,7 @@ mod live_sync_interaction_tests;
 mod live_sync_tests;
 mod ops;
 mod panels;
+mod paste_placement;
 mod plugins;
 mod present;
 mod proto;

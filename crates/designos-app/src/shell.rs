@@ -1254,6 +1254,9 @@ impl Shell {
             }
             return;
         }
+        // Every file of the drop goes through one transaction: one undo step, and all the new layers are selected.
+        let mut tx = crate::edit::Tx::new();
+        let (mut placed, mut any_image) = (Vec::new(), false);
         for (nth, f) in files.iter().filter(|f| is_placed(f)).enumerate() {
             let stem = f
                 .path
@@ -1271,7 +1274,7 @@ impl Shell {
                     (None, None) => continue,
                 };
                 match text {
-                    Ok(t) => crate::clipboard::drop_svg(&mut self.app, &t, &stem, pos, nth),
+                    Ok(t) => placed.extend(crate::clipboard::drop_svg(&mut self.app, &mut tx, &t, &stem, pos, nth)),
                     Err(e) => self.app.show_toast(e, true),
                 }
             } else {
@@ -1281,11 +1284,16 @@ impl Shell {
                     (None, None) => continue,
                 };
                 match bytes {
-                    Ok(b) => crate::clipboard::drop_image(&mut self.app, b, &stem, pos, nth),
+                    Ok(b) => {
+                        let id = crate::clipboard::drop_image(&mut self.app, &mut tx, b, &stem, pos, nth);
+                        any_image |= id.is_some();
+                        placed.extend(id);
+                    }
                     Err(e) => self.app.show_toast(e, true),
                 }
             }
         }
+        crate::clipboard::commit_dropped(&mut self.app, tx, placed, any_image);
     }
 
     fn sync_title(&mut self, ctx: &Context) {

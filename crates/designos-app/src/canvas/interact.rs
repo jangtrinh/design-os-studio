@@ -2189,8 +2189,24 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     Some(id)
 }
 
-/// Embeds `bytes` and inserts a rectangle filled with the image at `page`.
+/// Embeds `bytes` and inserts a rectangle filled with the image, its top-left corner at `page`, into the frame
+/// under that point, as one undo step.
 pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) -> Option<NodeId> {
+    let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
+    let inv = app.doc.world_transform(parent).invert()?;
+    let mut tx = Tx::new();
+    let id = insert_image(app, &mut tx, parent, name, bytes, move |_| inv.apply(page))?;
+    app.run_tx(tx);
+    app.selection = vec![id];
+    app.tool = Tool::Move;
+    Some(id)
+}
+
+/// Embeds `bytes` and inserts a rectangle filled with the image into `parent` through `tx`; the caller commits `tx`
+/// and selects the layer. The layer is the picture's size, at most 400 px on its longest side, and `origin` maps
+/// that size to the layer's top-left corner in `parent`'s local space. Nothing is changed when this returns `None`
+/// (the bytes are not a picture, or a slot refuses the layer).
+pub fn insert_image(app: &mut App, tx: &mut Tx, parent: NodeId, name: &str, bytes: Vec<u8>, origin: impl FnOnce(DV) -> DV) -> Option<NodeId> {
     let (bytes, iw, ih) = match prepare_image(bytes) {
         Ok(v) => v,
         Err(e) => {
@@ -2199,13 +2215,12 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
         }
     };
     let key = format!("img-{}", app.doc.images.len() + 1);
-    let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
-    let inv = app.doc.world_transform(parent).invert()?;
-    let o = inv.apply(page);
     let id = app.doc.alloc_id();
     let (w, h) = (iw as f32, ih as f32);
     let scale = (400.0f32 / w.max(h)).min(1.0);
-    let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
+    let size = DV::new(w * scale, h * scale);
+    let o = origin(size);
+    let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, size.x, size.y));
     n.name = name.to_string();
     n.fills = vec![designos_doc::Paint {
         kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
@@ -2217,16 +2232,12 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     if !app.slot_insert_allowed(parent, &[&n]) {
         return None;
     }
-    app.doc.images.insert(key, bytes);
-    let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![n] }).ok()?;
+    app.doc.images.insert(key, bytes);
     App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, id);
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
-    app.run_tx(tx);
-    app.selection = vec![id];
-    app.tool = Tool::Move;
     Some(id)
 }
 

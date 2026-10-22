@@ -193,6 +193,12 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
                 ctx.copy_text(s);
             }
         }
+        Action::Paste if app.canvas.text.is_some() => {
+            // Like Ctrl+V: while a text is being edited the clipboard text goes into it, and an image has no place there.
+            if let Some(text) = (app.system_text)() {
+                crate::canvas::textsession::insert_text(app, &text, crate::textedit::EditKind::Other);
+            }
+        }
         Action::Paste => app.paste_from_system(None),
         Action::PasteOverSelection => app.paste_over_selection(),
         Action::PasteToReplace => app.paste_to_replace(),
