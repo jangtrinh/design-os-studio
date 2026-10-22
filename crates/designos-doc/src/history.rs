@@ -447,6 +447,19 @@ impl History {
         }
     }
 
+    /// Takes the layout-recorded mark off every step, undo and redo alike.
+    ///
+    /// Layout was written outside every step after those steps were recorded (a text re-fitted to a
+    /// face that arrived): the geometry they store no longer describes the document around them. From
+    /// now on each of them undoes and redoes with the re-solve. Steps pushed afterwards are marked
+    /// again as usual.
+    pub fn forget_layout_recorded(&mut self) {
+        self.sync_meta_lengths();
+        for m in self.undo_meta.iter_mut().chain(self.redo_meta.iter_mut()) {
+            m.layout_recorded = false;
+        }
+    }
+
     /// Marks the most recently pushed undo step as a user step.
     pub fn mark_last_undo_as_user(&mut self) {
         self.sync_meta_lengths();
@@ -1281,6 +1294,39 @@ mod tests {
         d.note_layout_written_outside_history();
         h.exec(&mut d, step).unwrap();
         assert!(!h.mark_last_undo_as_layout_recorded(&d, opened));
+    }
+
+    #[test]
+    fn forgetting_the_recorded_marks_makes_undo_and_redo_steps_solve_again_and_later_steps_record_again() {
+        let (mut d, _column, header, _sibling) = column_with_a_childless_header();
+        let mut h = History::default();
+        // two steps that each change a layout input of the header
+        for sizing in [Sizing::Fill, Sizing::Hug] {
+            let mut edited = d.get(header).unwrap().clone();
+            edited.layout_child.horizontal = sizing;
+            let opened = d.layout_epoch();
+            h.exec(&mut d, Command::Update { node: Box::new(edited) }).unwrap();
+            assert!(h.mark_last_undo_as_layout_recorded(&d, opened));
+        }
+        h.undo(&mut d).unwrap();
+        assert!(h.peek_undo_layout_recorded(), "precondition: a recorded step is left on the undo stack, one more on the redo stack");
+
+        h.forget_layout_recorded();
+        assert!(!h.peek_undo_layout_recorded(), "the step on the undo stack is no longer recorded");
+        crate::layout_apply::reset_solve_calls();
+        h.redo(&mut d).unwrap();
+        assert!(crate::layout_apply::solve_calls() > 0, "the step that was on the redo stack solves layout again");
+        assert!(!h.peek_undo_layout_recorded(), "and it stays unrecorded on the undo stack");
+        h.undo(&mut d).unwrap();
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert!(crate::layout_apply::solve_calls() > 0, "the step that was on the undo stack solves layout again");
+
+        let cmd = widen_header(&d, header);
+        let opened = d.layout_epoch();
+        h.exec(&mut d, cmd).unwrap();
+        assert!(h.mark_last_undo_as_layout_recorded(&d, opened), "a step pushed after the forgetting records its layout as usual");
+        assert!(h.peek_undo_layout_recorded());
     }
 
     /// The step an editor commit records for widening the outermost frame of `nested_fill_frames`:

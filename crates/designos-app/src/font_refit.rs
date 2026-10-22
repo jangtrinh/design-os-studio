@@ -280,6 +280,8 @@ impl App {
             self.canvas.tiles.invalidate_all();
             // and behind the history's: an edit still open (the colour picker's) must not replay them as its own
             self.doc.note_layout_written_outside_history();
+            // and the recorded steps before it no longer hold the geometry around what it moved
+            self.hist.forget_layout_recorded();
         }
         if refit.queue.is_empty() {
             refit.arrived = None;
