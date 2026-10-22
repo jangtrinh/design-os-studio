@@ -982,6 +982,8 @@ pub fn show_composer(
                 .interactive(!is_shell_tab)
                 .hint_text(RichText::new(hint).font(theme::font_body()).color(theme::TEXT_TERTIARY));
             let out = te.show(ui);
+            // After `show`: a click elsewhere has already taken the focus by now, which is what the next frame starts from.
+            state.record_composer_focus(ui.memory(|m| m.has_focus(input_id)));
             if let Some(cr) = out.cursor_range {
                 let draft = &state.active_composer().draft;
                 state.composer_cursor_byte = Some(draft.char_indices().nth(usize::from(cr.primary.index)).map(|(b, _)| b).unwrap_or(draft.len()));

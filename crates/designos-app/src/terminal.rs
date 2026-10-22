@@ -59,6 +59,13 @@ const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
 const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
 
+/// The command an agent tab runs when its caller prepared none. Every tab Studio starts passes a mode-aware command, so
+/// this is only the safety net behind a future caller that forgets to, and it asks: the plain
+/// [`AgentCliPreset::cli_launch_command`] carries the Skip flags (`#924`).
+fn fallback_agent_launch_command(preset: AgentCliPreset) -> &'static str {
+    preset.cli_launch_command_for_mode(PermissionMode::Ask)
+}
+
 /// The `-c` overrides that register `designos-mcp` with Codex (leading space included), shared by the
 /// interactive tab and the Agent Chat one-shot so both start the same server.
 macro_rules! codex_mcp_overrides {
@@ -653,10 +660,10 @@ impl TerminalTab {
                         {
                             "sh -c 'sleep 5'"
                         } else {
-                            preset.cli_launch_command()
+                            fallback_agent_launch_command(preset)
                         };
                         #[cfg(not(test))]
-                        let launch_cmd = preset.cli_launch_command();
+                        let launch_cmd = fallback_agent_launch_command(preset);
                         build_agent_shell_cmd(&shell_bin, launch_cmd)
                     }
                 }
@@ -1166,6 +1173,16 @@ pub struct TerminalState {
     pub search_case_sensitive: bool,
     /// True when the last pointer press was in the panel's non-terminal chrome (header, tab strip, composer) (`#684 §3.1`).
     pub chrome_focused: bool,
+    /// Whether the composer held egui focus when the previous frame painted it. A click elsewhere and a bare `Esc` both
+    /// take egui focus away before the panel code of the same frame runs, so the focus of the current frame cannot tell
+    /// "the user was typing" from "the user never was". The review card (`#922`) and the panel `Esc` (`#923`) read this.
+    pub composer_focused_last_frame: bool,
+    /// The composer's focus after it was painted this frame; it becomes [`Self::composer_focused_last_frame`] in the next.
+    composer_focused_now: bool,
+    /// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open ([`overlay_owns_keyboard`]).
+    /// The shell sets it before the panels draw: those overlays draw after the Agents panel in the same frame, so the
+    /// terminal would already have sent the keys to the agent when they looked for them (`#923`).
+    pub overlay_owns_keyboard: bool,
     /// Deferred undo depth to fold once a user edit in progress finishes (`#684 §3.4`).
     pub pending_stop_fold_depth: Option<usize>,
     /// Deferred stop close metadata (`depth`, `pre_close_patch_count`, `run_id`, `agent`) (`#684 §3.4`, `§3.5`).
@@ -1463,6 +1480,9 @@ impl TerminalState {
             search_query: String::new(),
             search_case_sensitive: false,
             chrome_focused: false,
+            composer_focused_last_frame: false,
+            composer_focused_now: false,
+            overlay_owns_keyboard: false,
             pending_stop_fold_depth: None,
             pending_stop_close: None,
             current_undo_depth: 0,
@@ -2692,6 +2712,17 @@ impl TerminalState {
     /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
         self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
+    }
+
+    /// Starts one frame of the Agents panel: the composer focus that ended the previous frame becomes the baseline for
+    /// this one (see [`Self::composer_focused_last_frame`]).
+    fn begin_composer_focus_frame(&mut self) {
+        self.composer_focused_last_frame = std::mem::take(&mut self.composer_focused_now);
+    }
+
+    /// Records whether the composer holds egui focus after it was painted this frame.
+    pub(crate) fn record_composer_focus(&mut self, focused: bool) {
+        self.composer_focused_now = focused;
     }
 
     /// Returns the currently active terminal tab when one exists.
@@ -4352,18 +4383,24 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std:
 }
 
 /// Publishes the session's MCP server config as Gemini CLI's project settings at
-/// `<session_dir>/.gemini/settings.json` (`"trust": true`, identical to the output of
-/// `gemini mcp add --scope project --trust`) plus `<session_dir>/.gemini/trustedFolders.json`
+/// `<session_dir>/.gemini/settings.json` plus `<session_dir>/.gemini/trustedFolders.json`
 /// (`GEMINI_CLI_TRUSTED_FOLDERS_PATH`), leaving `~/.gemini/` untouched (`#679` §3 rule 4).
+///
+/// The server entry never carries `"trust"`, in either permission mode (`#924`). In gemini-cli v0.35.3 a trusted server
+/// is an ALLOW rule for `mcp_designos_*` at the user policy tier, with no folder check
+/// (`packages/core/src/policy/config.ts:484-500`; `mcp-tool.ts:203` repeats it as a fallback). Left out, every `designos_*`
+/// call asks in `Ask` mode (the default decision is ASK_USER, `config.ts:524`). `Skip` launches with
+/// `--approval-mode yolo`, whose catch-all rule allows every tool, MCP ones included (`policies/yolo.toml:49-54`,
+/// priority 998), so it needs no `trust`. A file that does not depend on the mode also cannot start trusting a tab that
+/// launched in `Ask` when the mode changes later: the file is shared by the window's tabs and rewritten on every sync.
+/// The folder itself stays trusted in both modes: without it Gemini ignores the project settings and never starts the
+/// server, and `TRUST_FOLDER` adds no allow rule.
 pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
     // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
     if let Some(obj) = gemini_cfg.as_object_mut() {
         obj.remove("designos");
-    }
-    if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
-        designos.insert("trust".to_string(), serde_json::Value::Bool(true));
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
         let settings_path = session_dir.join(".gemini").join("settings.json");
@@ -4382,14 +4419,14 @@ pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::
 }
 
 /// Builds the project-scoped `gemini mcp add` argv (`#679` §3 rule 4) using only flags
-/// documented in `gemini mcp add --help` (`--scope project`, `--trust`, `-e KEY=value`),
+/// documented in `gemini mcp add --help` (`--scope project`, `-e KEY=value`; never `--trust`, see [`write_gemini_session_config`]),
 /// separating trailing server flags (`--workspace <dir>`) with `--`.
 pub fn build_gemini_mcp_add_argv(mcp_config: &serde_json::Value) -> Vec<String> {
     let Some(server) = mcp_config.get("mcpServers").and_then(|s| s.get("designos")) else {
         return Vec::new();
     };
     let command = server.get("command").and_then(|v| v.as_str()).unwrap_or("designos-mcp");
-    let mut argv = vec!["gemini".to_string(), "mcp".to_string(), "add".to_string(), "--scope".to_string(), "project".to_string(), "--trust".to_string()];
+    let mut argv = vec!["gemini".to_string(), "mcp".to_string(), "add".to_string(), "--scope".to_string(), "project".to_string()];
     if let Some(env_obj) = server.get("env").and_then(|v| v.as_object()) {
         for (k, v) in env_obj {
             if let Some(val) = v.as_str() {
@@ -4956,6 +4993,55 @@ pub fn show_left_with_selection(
     show_left_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
 }
 
+/// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
+/// keyboard to it (`#923`).
+///
+/// Only surfaces that stop being open on their own are listed: a flag that stays set with nothing to clear it would leave
+/// the terminal deaf. So the web capture report sheet (no backdrop, no outside-click close, nothing to type in) and the
+/// image Expand and Erase popovers are not here; the terminal keeps its keys while they are open.
+///
+/// The inspector and Variables menus are drawn by a section that exists only while something is selected or the view is
+/// open, and an agent edit, an undo or a closed view removes that section without a press. Their flag stays set and nothing
+/// draws or closes the menu, so they count only while the menu was on screen in the previous frame
+/// ([`popup_menu_was_drawn`]). The menus the shell draws every frame need no such check.
+/// A menu that draws before the panel in the frame (the canvas draws the slot picker) takes its keys first, so it needs no
+/// flag, but it is listed to keep the rule in one place.
+pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool {
+    let drawn = |id: &str| popup_menu_was_drawn(ctx, Id::new(id));
+    let paint_styles_menu = app.props.styles_menu.is_some_and(|stroke| popup_menu_was_drawn(ctx, Id::new(("styles-menu", stroke))));
+    let style_menu = app.props.style_menu.is_some_and(|prop| match prop {
+        designos_doc::StyleProperty::Effect => popup_menu_was_drawn(ctx, Id::new(("style-menu", "effect-style-button"))),
+        designos_doc::StyleProperty::Grid => popup_menu_was_drawn(ctx, Id::new(("style-menu", "grid-style-button"))),
+        _ => false,
+    });
+    app.dialog.is_some()
+        || app.history.save_modal.is_some()
+        || app.dev.compare.is_some()
+        || app.plugins.open
+        || app.ui.permissions_modal_open
+        || app.cmdk.open
+        || app.ui.menu.is_some()
+        || app.ui.ctx_menu.is_some()
+        || app.ui.layer_picker.is_some()
+        || app.ui.slot_picker.is_some()
+        || app.image_jobs.open_fill_menu.is_some()
+        || (app.ui.inst_menu.is_some() && drawn("inst-menu"))
+        || (app.ui.prop_menu.is_some() && drawn("prop-add-menu"))
+        || (app.props.fx_menu && drawn("fx-add-menu"))
+        || (app.vars.menu.is_some() && drawn("vars-menu"))
+        || paint_styles_menu
+        || style_menu
+        || app.libs.open
+        || app.libs.review
+}
+
+/// Whether the popup menu `id` was on screen in the previous frame. A popup menu draws each of its levels as a
+/// `Foreground` area named `id.with(("lvl", level))` (`widgets/menu.rs::popup_tree`); level 0 is always there.
+fn popup_menu_was_drawn(ctx: &egui::Context, id: Id) -> bool {
+    let level0 = egui::LayerId::new(egui::Order::Foreground, id.with(("lvl", 0usize)));
+    ctx.memory(|m| m.areas().visible_last_frame(&level0))
+}
+
 /// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).
 pub fn show_left_with_doc(
     state: &mut TerminalState,
@@ -4971,6 +5057,7 @@ pub fn show_left_with_doc(
     crate::agent_a11y::label_agents_panel(state, ui);
     let p = ui.painter().clone();
     let composer_input_id = Id::new("agents-ask-for-changes-input");
+    state.begin_composer_focus_frame();
     if ui.memory(|m| m.has_focus(composer_input_id)) {
         state.viewport_focused = false;
     }
@@ -5263,8 +5350,10 @@ pub fn show_left_with_doc(
         }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
-        if !state.viewport_focused && ui.input(|i| i.key_pressed(Key::Escape)) {
-            let composer_focused = ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
+        if !state.viewport_focused && !state.overlay_owns_keyboard && ui.input(|i| i.key_pressed(Key::Escape)) {
+            // egui takes the caret out of the composer on a bare `Esc` before this code runs, so where the caret was a
+            // frame ago counts as well: an `Esc` that leaves the composer must not also stop the turn (`#684`, `#923`).
+            let composer_focused = state.composer_focused_last_frame || ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
             crate::agent_stop::handle_panel_escape(state, composer_focused, designos_doc::now_ms());
         }
         if let Some(receipt) = &active_receipt {
@@ -5583,7 +5672,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     if vp_resp.clicked() || vp_resp.drag_started() {
         state.viewport_focused = true;
     }
-    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open();
+    // An open dialog or menu owns the keys: the terminal neither sends them to the agent nor shows its caret as active.
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard;
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;
@@ -6117,6 +6207,9 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
         }
     }
 }
+
+#[cfg(test)]
+mod ask_mode_tests;
 
 #[cfg(test)]
 mod tests {
@@ -8634,7 +8727,7 @@ mod tests {
         let session_settings = std::fs::read_to_string(&session_settings_path).expect("<session_dir>/.gemini/settings.json");
         let parsed: serde_json::Value = serde_json::from_str(&session_settings).expect("parse .gemini/settings.json");
         assert!(parsed["mcpServers"]["designos"]["command"].as_str().is_some());
-        assert_eq!(parsed["mcpServers"]["designos"]["trust"].as_bool(), Some(true));
+        assert!(parsed["mcpServers"]["designos"].get("trust").is_none(), "Ask (the default) must leave the server untrusted so each tool call asks");
         assert!(parsed.get("designos").is_none(), "Gemini settings must not carry the designos.enabled_tools block");
         assert_eq!(parsed["mcpServers"]["designos"]["env"]["DESIGNOS_FILE"].as_str(), Some("/tmp/gemini-session-file.designos"));
         assert!(st.session_dir.join(".gemini").join("trustedFolders.json").is_file(), "trustedFolders.json must be written in session_dir/.gemini/");

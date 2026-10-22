@@ -158,8 +158,21 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
     }
 
     if let Some(act) = action {
+        // egui takes the caret out of the composer on a click anywhere else, and the card's buttons draw after the
+        // composer: hand it back, or the next letter goes to the canvas tools (Shift+S picks Section) (`#922`).
+        let caret_was_in_composer = app.terminal.composer_focused_last_frame && card_action_returns_to_composer(&act);
         apply_card_action(app, tab_idx, act);
+        if caret_was_in_composer {
+            app.terminal.viewport_focused = false;
+            ui.ctx().memory_mut(|m| m.request_focus(crate::agent_a11y::composer_id()));
+        }
     }
+}
+
+/// Revert, Keep, Dismiss and Show all are the panel's own buttons, so the user goes on typing in the composer after them.
+/// Picking a layer row aims at the canvas (it selects and zooms to the layer), so the click keeps what egui did with focus.
+fn card_action_returns_to_composer(action: &TurnCardAction) -> bool {
+    !matches!(action, TurnCardAction::SelectLayer(_))
 }
 
 fn draw_reverted_caption(p: &egui::Painter, pos: Pos2, max_w: f32, report: &RevertReport) {
