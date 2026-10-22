@@ -1,15 +1,17 @@
 //! In Ask mode nothing Studio writes or passes auto-approves a `designos` tool call, for every agent CLI;
 //! Skip mode keeps the CLI's own bypass. One test per agent checks the launch commands (new session and
-//! resume) and every config file Studio writes for that CLI, in both modes.
+//! resume) and every config file Studio writes for that CLI, in both modes; `golden` pins the full values.
 //!
-//! Why the Gemini file matters: Gemini skips the confirmation of a tool call when the folder is trusted AND the
-//! MCP server entry carries `"trust": true` (`packages/core/src/tools/mcp-tool.ts` at gemini-cli v0.35.3:
-//! `if (this.cliConfig?.isTrustedFolder() && this.trust) return false`). A trusted folder alone confirms.
+//! Why the Gemini file matters: in gemini-cli v0.35.3 an MCP server entry with `"trust": true` becomes an ALLOW policy
+//! rule for all of its tools, with no check of the folder trust (`packages/core/src/policy/config.ts:484-500`). Studio
+//! never writes it (see `write_gemini_session_config`).
 
 use super::*;
 use crate::agent_permissions::{build_new_session_command_for_mode, build_resume_command_for_mode};
 use crate::agent_sessions::{SessionEntry, SessionEntryStatus};
 use serde_json::Value;
+
+mod golden;
 
 const UUID: &str = "11111111-2222-4333-8444-555555555555";
 
@@ -180,7 +182,7 @@ fn codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override() {
 }
 
 #[test]
-fn gemini_ask_launches_in_default_approval_mode_and_trusts_the_folder_but_not_the_server() {
+fn gemini_launches_in_the_mode_asked_for_and_never_trusts_the_server() {
     for cmd in launch_commands(AgentCliPreset::Gemini, "gemini", PermissionMode::Ask) {
         assert!(
             cmd.contains("--approval-mode default") && !cmd.contains("yolo") && !cmd.contains("--yolo"),
@@ -191,43 +193,38 @@ fn gemini_ask_launches_in_default_approval_mode_and_trusts_the_folder_but_not_th
         assert!(cmd.contains("--approval-mode yolo"), "Gemini Skip keeps yolo: {cmd}");
     }
 
-    let ask = session_in(PermissionMode::Ask);
-    let settings = read_json(&ask, ".gemini/settings.json");
-    assert!(settings["mcpServers"]["designos"]["command"].as_str().is_some(), "Gemini still loads the designos server: {settings}");
-    assert!(
-        settings["mcpServers"]["designos"].get("trust").is_none(),
-        "Gemini Ask must not trust the server (trust skips every tool confirmation): {settings}"
-    );
-    assert_no_auto_approve_key(&ask, ".gemini/settings.json", "Gemini");
-    // The folder stays trusted: without it Gemini ignores `<session_dir>/.gemini/settings.json` and never starts the server.
-    // A trusted folder confirms tool calls unless the server itself is trusted.
-    let trusted = read_json(&ask, ".gemini/trustedFolders.json");
-    assert_eq!(
-        trusted[ask.session_dir.display().to_string()].as_str(),
-        Some("TRUST_FOLDER"),
-        "the session folder stays trusted so its settings load: {trusted}"
-    );
-    finish(ask);
-
-    let skip = session_in(PermissionMode::Skip);
-    let settings = read_json(&skip, ".gemini/settings.json");
-    assert_eq!(settings["mcpServers"]["designos"]["trust"].as_bool(), Some(true), "Gemini Skip keeps the trusted server: {settings}");
-    let trusted = read_json(&skip, ".gemini/trustedFolders.json");
-    assert_eq!(trusted[skip.session_dir.display().to_string()].as_str(), Some("TRUST_FOLDER"));
-    finish(skip);
+    for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+        let st = session_in(mode);
+        let settings = read_json(&st, ".gemini/settings.json");
+        assert!(settings["mcpServers"]["designos"]["command"].as_str().is_some(), "Gemini still loads the designos server: {settings}");
+        assert!(
+            settings["mcpServers"]["designos"].get("trust").is_none(),
+            "Gemini {mode:?} must not trust the server (trust is an allow rule for all of its tools): {settings}"
+        );
+        assert_no_auto_approve_key(&st, ".gemini/settings.json", "Gemini");
+        // The folder stays trusted: without it Gemini ignores `<session_dir>/.gemini/settings.json` and never starts the
+        // server. A trusted folder adds no allow rule, so tool calls still ask in Ask mode.
+        let trusted = read_json(&st, ".gemini/trustedFolders.json");
+        assert_eq!(
+            trusted[st.session_dir.display().to_string()].as_str(),
+            Some("TRUST_FOLDER"),
+            "the session folder stays trusted so its settings load: {trusted}"
+        );
+        finish(st);
+    }
 }
 
 #[test]
-fn gemini_settings_follow_the_mode_of_the_next_write() {
-    let mut st = session_in(PermissionMode::Skip);
-    assert_eq!(read_json(&st, ".gemini/settings.json")["mcpServers"]["designos"]["trust"].as_bool(), Some(true));
-    // A new agent tab in Ask provisions the files again with the mode in force, so a stale `trust` never survives it.
-    st.permission_mode = PermissionMode::Ask;
-    st.provision_session_agent_files(None);
-    assert!(read_json(&st, ".gemini/settings.json")["mcpServers"]["designos"].get("trust").is_none(), "switching to Ask removes the server trust");
-    st.permission_mode = PermissionMode::Skip;
-    st.provision_session_agent_files(None);
-    assert_eq!(read_json(&st, ".gemini/settings.json")["mcpServers"]["designos"]["trust"].as_bool(), Some(true), "switching back to Skip restores it");
+fn gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab() {
+    // One settings file serves every Gemini tab of the window and is rewritten on each sync with the window's mode. A tab
+    // that launched in Ask must not meet a trusted server because the user later switched the window to Skip.
+    let mut st = session_in(PermissionMode::Ask);
+    for mode in [PermissionMode::Skip, PermissionMode::Ask, PermissionMode::Skip] {
+        st.permission_mode = mode;
+        st.provision_session_agent_files(None);
+        let settings = read_json(&st, ".gemini/settings.json");
+        assert!(settings["mcpServers"]["designos"].get("trust").is_none(), "after switching to {mode:?}: {settings}");
+    }
     finish(st);
 }
 
@@ -280,5 +277,18 @@ fn grok_ask_launches_without_always_approve_and_writes_no_permission_rule() {
         configure_pty_env_with_session(&mut cmd, AgentCliPreset::Grok, None, Some(&st.session_env()));
         assert_eq!(cmd.get_env("GROK_FOLDER_TRUST").and_then(|v| v.to_str()), Some("0"), "folder trust is off in {mode:?} so the project MCP config loads");
         finish(st);
+    }
+}
+
+#[test]
+fn a_tab_started_without_a_prepared_command_asks() {
+    let agents =
+        [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok, AgentCliPreset::Gemini, AgentCliPreset::OpenCode];
+    for preset in agents {
+        let fallback = fallback_agent_launch_command(preset);
+        assert_eq!(fallback, preset.cli_launch_command_for_mode(PermissionMode::Ask), "{preset:?}: the fallback is the Ask command");
+        for flag in ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--always-approve", "--approval-mode yolo"] {
+            assert!(!fallback.contains(flag), "{preset:?}: a caller that passed no command must never start an agent that skips approvals: {fallback}");
+        }
     }
 }

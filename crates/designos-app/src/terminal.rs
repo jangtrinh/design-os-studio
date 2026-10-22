@@ -59,6 +59,13 @@ const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
 const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
 
+/// The command an agent tab runs when its caller prepared none. Every tab Studio starts passes a mode-aware command, so
+/// this is only the safety net behind a future caller that forgets to, and it asks: the plain
+/// [`AgentCliPreset::cli_launch_command`] carries the Skip flags (`#924`).
+fn fallback_agent_launch_command(preset: AgentCliPreset) -> &'static str {
+    preset.cli_launch_command_for_mode(PermissionMode::Ask)
+}
+
 /// The `-c` overrides that register `designos-mcp` with Codex (leading space included), shared by the
 /// interactive tab and the Agent Chat one-shot so both start the same server.
 macro_rules! codex_mcp_overrides {
@@ -653,10 +660,10 @@ impl TerminalTab {
                         {
                             "sh -c 'sleep 5'"
                         } else {
-                            preset.cli_launch_command()
+                            fallback_agent_launch_command(preset)
                         };
                         #[cfg(not(test))]
-                        let launch_cmd = preset.cli_launch_command();
+                        let launch_cmd = fallback_agent_launch_command(preset);
                         build_agent_shell_cmd(&shell_bin, launch_cmd)
                     }
                 }
@@ -4379,22 +4386,21 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std:
 /// `<session_dir>/.gemini/settings.json` plus `<session_dir>/.gemini/trustedFolders.json`
 /// (`GEMINI_CLI_TRUSTED_FOLDERS_PATH`), leaving `~/.gemini/` untouched (`#679` §3 rule 4).
 ///
-/// The server entry carries `"trust": true` (what `gemini mcp add --scope project --trust` writes) only in
-/// [`PermissionMode::Skip`]. Gemini skips every tool confirmation of a trusted server in a trusted folder
-/// (`isTrustedFolder() && trust`, gemini-cli `packages/core/src/tools/mcp-tool.ts`), so in `Ask` mode the entry stays
-/// untrusted and each `designos_*` call asks. The folder stays trusted in both modes: without it Gemini ignores the
-/// project settings and never starts the server, and a trusted folder alone still confirms (`#924`).
-pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value, mode: PermissionMode) {
+/// The server entry never carries `"trust"`, in either permission mode (`#924`). In gemini-cli v0.35.3 a trusted server
+/// is an ALLOW rule for `mcp_designos_*` at the user policy tier, with no folder check
+/// (`packages/core/src/policy/config.ts:484-500`; `mcp-tool.ts:203` repeats it as a fallback). Left out, every `designos_*`
+/// call asks in `Ask` mode (the default decision is ASK_USER, `config.ts:524`). `Skip` launches with
+/// `--approval-mode yolo`, whose catch-all rule allows every tool, MCP ones included (`policies/yolo.toml:49-54`,
+/// priority 998), so it needs no `trust`. A file that does not depend on the mode also cannot start trusting a tab that
+/// launched in `Ask` when the mode changes later: the file is shared by the window's tabs and rewritten on every sync.
+/// The folder itself stays trusted in both modes: without it Gemini ignores the project settings and never starts the
+/// server, and `TRUST_FOLDER` adds no allow rule.
+pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
     // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
     if let Some(obj) = gemini_cfg.as_object_mut() {
         obj.remove("designos");
-    }
-    if mode == PermissionMode::Skip {
-        if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
-            designos.insert("trust".to_string(), serde_json::Value::Bool(true));
-        }
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
         let settings_path = session_dir.join(".gemini").join("settings.json");
@@ -4413,14 +4419,14 @@ pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::
 }
 
 /// Builds the project-scoped `gemini mcp add` argv (`#679` §3 rule 4) using only flags
-/// documented in `gemini mcp add --help` (`--scope project`, `--trust`, `-e KEY=value`),
+/// documented in `gemini mcp add --help` (`--scope project`, `-e KEY=value`; never `--trust`, see [`write_gemini_session_config`]),
 /// separating trailing server flags (`--workspace <dir>`) with `--`.
 pub fn build_gemini_mcp_add_argv(mcp_config: &serde_json::Value) -> Vec<String> {
     let Some(server) = mcp_config.get("mcpServers").and_then(|s| s.get("designos")) else {
         return Vec::new();
     };
     let command = server.get("command").and_then(|v| v.as_str()).unwrap_or("designos-mcp");
-    let mut argv = vec!["gemini".to_string(), "mcp".to_string(), "add".to_string(), "--scope".to_string(), "project".to_string(), "--trust".to_string()];
+    let mut argv = vec!["gemini".to_string(), "mcp".to_string(), "add".to_string(), "--scope".to_string(), "project".to_string()];
     if let Some(env_obj) = server.get("env").and_then(|v| v.as_object()) {
         for (k, v) in env_obj {
             if let Some(val) = v.as_str() {
@@ -4565,7 +4571,7 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
     atomic_write_session_file(&mcp_config_path, &bytes)?;
     write_agy_session_plugin(&job.session_dir, &bytes)?;
-    write_gemini_session_config(&job.session_dir, &mcp_config, if job.ask_mode { PermissionMode::Ask } else { PermissionMode::Skip });
+    write_gemini_session_config(&job.session_dir, &mcp_config);
     write_grok_session_config(&job.session_dir, &mcp_config)?;
 
     let page_context = page_context_json(&job.session_id, &job.doc_name, job.file_path.as_deref(), job.current_page_id, &job.current_page_name);
