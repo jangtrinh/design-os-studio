@@ -1979,8 +1979,13 @@ pub fn prepare_image(bytes: Vec<u8>) -> Result<(Vec<u8>, u32, u32), String> {
 }
 
 fn place_image(app: &mut App, page: DV) {
+    place_image_with(app, page, &crate::io::SystemDialogs);
+}
+
+pub(crate) fn place_image_with(app: &mut App, page: DV, dialogs: &dyn crate::io::FileDialogs) {
     let exts: Vec<&str> = IMAGE_EXTENSIONS.iter().chain(crate::video::VIDEO_EXTENSIONS.iter()).copied().collect();
-    let Some(path) = rfd::FileDialog::new().add_filter("Images and video", &exts).pick_file() else { return };
+    let outcome = dialogs.pick(&crate::io::FileRequest::open().filter("Images and video", &exts));
+    let Some(path) = app.picked_path(outcome) else { return };
     let Ok(bytes) = std::fs::read(&path) else {
         app.show_toast("Cannot read file", true);
         return;

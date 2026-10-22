@@ -560,6 +560,36 @@ fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
 }
 
 /// Runs one action against the library, reporting failures as toasts.
+/// Import: asks for design files and brings them into the current project (or the first one, or a new one).
+pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) {
+    let request = crate::io::FileRequest::open()
+        .filter("Design files", &["designos", "fig", "json", "svg"])
+        .filter("design:os studio", &["designos"])
+        .filter("Figma file", &["fig"])
+        .filter("SVG", &["svg"])
+        .filter("JSON", &["json"]);
+    let outcome = dialogs.pick_many(&request);
+    let Some(paths) = app.picked_paths(outcome) else { return };
+    let Some(lib) = app.lib.clone() else { return };
+    let target = match app.home_target() {
+        Some(t) => Some(t),
+        None => app.home.as_ref().and_then(|h| h.snap.projects.first().map(|p| (p.id.clone(), None))),
+    };
+    let target = match target {
+        Some(t) => Some(t),
+        None => match lib.create_project("My project") {
+            Ok(p) => Some((p.id, None)),
+            Err(e) => {
+                app.show_toast(e.to_string(), true);
+                None
+            }
+        },
+    };
+    if let Some((p, f)) = target {
+        app.import_into_library(&paths, &p, f.as_deref());
+    }
+}
+
 pub fn apply(app: &mut App, act: Act) {
     let Some(lib) = app.lib.clone() else { return };
     fn ok<T>(app: &mut App, r: designos_library::Result<T>) -> Option<T> {
@@ -695,28 +725,7 @@ pub fn apply(app: &mut App, act: Act) {
             app.terminal.open_for_agent_use(app.file_path.as_deref());
             changed = false;
         }
-        Act::Import => {
-            let paths = rfd::FileDialog::new()
-                .add_filter("Design files", &["designos", "fig", "json", "svg"])
-                .add_filter("design:os studio", &["designos"])
-                .add_filter("Figma file", &["fig"])
-                .add_filter("SVG", &["svg"])
-                .add_filter("JSON", &["json"])
-                .pick_files();
-            if let Some(paths) = paths {
-                let target = match app.home_target() {
-                    Some(t) => Some(t),
-                    None => app.home.as_ref().and_then(|h| h.snap.projects.first().map(|p| (p.id.clone(), None))),
-                };
-                let target = match target {
-                    Some(t) => Some(t),
-                    None => ok(app, lib.create_project("My project")).map(|p| (p.id, None)),
-                };
-                if let Some((p, f)) = target {
-                    app.import_into_library(&paths, &p, f.as_deref());
-                }
-            }
-        }
+        Act::Import => import_files_dialog(app, &crate::io::SystemDialogs),
         Act::NewProject => {
             app.dialog = Some(Dialog::prompt(Intent::NewProject, "New project", "", "Create"));
         }

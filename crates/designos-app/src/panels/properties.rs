@@ -1929,18 +1929,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.props.eyedropper = Some(pk.target);
     }
     if out.want_image {
-        if let Some(path) = rfd::FileDialog::new().add_filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]).pick_file() {
-            match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
-                Ok((bytes, _, _)) => {
-                    let key = format!("img-{}", app.doc.images.len() + 1);
-                    app.doc.images.insert(key.clone(), bytes);
-                    pk.paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
-                    pk.paint.opacity = 1.0;
-                    changed = true;
-                }
-                Err(e) => app.show_toast(e, true),
-            }
-        }
+        changed |= choose_image_fill(app, &mut pk.paint, &crate::io::SystemDialogs);
     }
     // Eyedropper: the next canvas click samples the colour under the pointer.
     if pk.eyedrop {
@@ -2045,6 +2034,26 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
 }
 
 /// Handles of the gradient on the canvas are in screen space; clicks on them must not close the picker.
+/// Fills `paint` with an image chosen from disk. Returns whether the paint changed.
+pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn crate::io::FileDialogs) -> bool {
+    let request = crate::io::FileRequest::open().filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]);
+    let outcome = dialogs.pick(&request);
+    let Some(path) = app.picked_path(outcome) else { return false };
+    match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
+        Ok((bytes, _, _)) => {
+            let key = format!("img-{}", app.doc.images.len() + 1);
+            app.doc.images.insert(key.clone(), bytes);
+            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
+            paint.opacity = 1.0;
+            true
+        }
+        Err(e) => {
+            app.show_toast(e, true);
+            false
+        }
+    }
+}
+
 fn handle_hit(pk: &Picker, app: &App, p: Pos2) -> bool {
     let pts = handle_points(pk, app);
     if pts.iter().any(|(_, c)| c.distance(p) < 12.0) {

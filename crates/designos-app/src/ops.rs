@@ -1958,13 +1958,23 @@ impl App {
     }
 
     pub fn open_dialog(&mut self) {
-        if let Some(p) = io::pick_open() {
+        self.open_dialog_with(&io::SystemDialogs);
+    }
+
+    pub fn open_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
+        let outcome = dialogs.pick(&io::open_request());
+        if let Some(p) = self.picked_path(outcome) {
             self.open_path(p);
         }
     }
 
     pub fn import_web_capture_dialog(&mut self) {
-        if let Some(p) = io::pick_web_capture() {
+        self.import_web_capture_dialog_with(&io::SystemDialogs);
+    }
+
+    pub fn import_web_capture_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
+        let outcome = dialogs.pick(&io::web_capture_request());
+        if let Some(p) = self.picked_path(outcome) {
             self.import_web_capture_path(p);
         }
     }
@@ -2066,6 +2076,10 @@ impl App {
     }
 
     pub fn save(&mut self, as_new: bool) {
+        self.save_with(as_new, &io::SystemDialogs);
+    }
+
+    pub fn save_with(&mut self, as_new: bool, dialogs: &dyn io::FileDialogs) {
         crate::decks::ui::flush_notes(self);
         // Library files save back to the library; "Save as…" writes an external copy.
         if !as_new && self.lib_file.is_some() {
@@ -2074,7 +2088,10 @@ impl App {
         }
         let target = match (&self.file_path, as_new) {
             (Some(p), false) if p.extension().map(|e| e == io::NATIVE_EXT).unwrap_or(false) => Some(p.clone()),
-            _ => io::pick_save(&self.doc.name),
+            _ => {
+                let outcome = dialogs.pick(&io::save_request(&self.doc.name));
+                self.picked_path(outcome)
+            }
         };
         let Some(path) = target else { return };
         self.settle_pending_relayout();
@@ -2121,12 +2138,16 @@ impl App {
     }
 
     pub fn export_selection(&mut self) {
+        self.export_selection_with(&io::SystemDialogs);
+    }
+
+    pub fn export_selection_with(&mut self, dialogs: &dyn io::FileDialogs) {
         let Some(id) = self.selection.first().copied() else {
             self.show_toast("Select a layer to export", true);
             return;
         };
         let name = self.doc.get(id).map(|n| n.name.clone()).unwrap_or_default();
-        let Some(path) = io::pick_export(&name) else { return };
+        let io::DialogOutcome::Picked(path) = dialogs.pick(&io::export_request(&name)) else { return };
         let png = designos_export::export_png(&self.export_doc(), id, 1.0);
         if png.is_empty() {
             self.show_toast("Nothing to export", true);

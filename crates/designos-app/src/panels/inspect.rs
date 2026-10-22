@@ -271,6 +271,10 @@ fn ext_for(bytes: &[u8]) -> &'static str {
 }
 
 pub(crate) fn download(app: &mut App, id: NodeId, asset: &Asset) {
+    download_with(app, id, asset, &crate::io::SystemDialogs);
+}
+
+pub(crate) fn download_with(app: &mut App, id: NodeId, asset: &Asset, dialogs: &dyn crate::io::FileDialogs) {
     let name = app.doc.get(id).map(|n| designos_export::sanitize_file_name(&n.name)).unwrap_or_else(|| "asset".into());
     let (file, bytes, label, ext): (String, Vec<u8>, &str, &str) = match asset {
         Asset::Image(r) => {
@@ -287,7 +291,8 @@ pub(crate) fn download(app: &mut App, id: NodeId, asset: &Asset) {
         app.show_toast("Nothing to download", true);
         return;
     }
-    let Some(path) = rfd::FileDialog::new().add_filter(label, &[ext]).set_file_name(file).save_file() else { return };
+    let outcome = dialogs.pick(&crate::io::FileRequest::save(file).filter(label, &[ext]));
+    let Some(path) = app.picked_path(outcome) else { return };
     match std::fs::write(&path, bytes) {
         Ok(()) => app.show_toast(format!("Saved {}", path.display()), false),
         Err(e) => app.show_toast(format!("Download failed: {e}"), true),

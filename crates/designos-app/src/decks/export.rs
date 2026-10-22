@@ -33,6 +33,10 @@ impl App {
     }
 
     pub fn export_deck_pdf(&mut self, all: bool) {
+        self.export_deck_pdf_with(all, &crate::io::SystemDialogs);
+    }
+
+    pub fn export_deck_pdf_with(&mut self, all: bool, dialogs: &dyn crate::io::FileDialogs) {
         let slides = match self.deck_pdf_slides(all) {
             Ok(slides) => slides,
             Err(error) => {
@@ -47,9 +51,8 @@ impl App {
             safe_filename(&format!("{} - {slide}", self.doc.name))
         };
         crate::canvas::interact::finish_text(self, true);
-        let Some(path) = rfd::FileDialog::new().add_filter("PDF document", &["pdf"]).set_file_name(format!("{name}.pdf")).save_file() else {
-            return;
-        };
+        let outcome = dialogs.pick(&crate::io::FileRequest::save(format!("{name}.pdf")).filter("PDF document", &["pdf"]));
+        let Some(path) = self.picked_path(outcome) else { return };
         let result = self.deck_pdf_bytes(all).and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| format!("Cannot save the PDF: {error}")));
         match result {
             Ok(()) => self.show_toast(format!("Exported {} {} to {}", slides.len(), if slides.len() == 1 { "slide" } else { "slides" }, path.display()), false),
