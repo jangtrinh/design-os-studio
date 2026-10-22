@@ -329,7 +329,7 @@ fn reveal_command_selects_the_file_in_each_file_manager() {
     let (program, args) = reveal_command("macos", file);
     assert_eq!((program, args), ("open", vec!["-R".into(), file.into()]));
     let (program, args) = reveal_command("windows", file);
-    assert_eq!((program, args), ("explorer", vec![std::ffi::OsString::from("/select,/lib/exports/Design.fig")]));
+    assert_eq!((program, args), ("explorer", vec!["/select,".into(), file.into()]));
     let (program, args) = reveal_command("linux", file);
     assert_eq!((program, args), ("xdg-open", vec![Path::new("/lib/exports").into()]));
 }

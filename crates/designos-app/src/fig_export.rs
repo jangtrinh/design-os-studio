@@ -90,11 +90,8 @@ impl App {
 fn reveal_command(os: &str, file: &Path) -> (&'static str, Vec<OsString>) {
     match os {
         "macos" => ("open", vec!["-R".into(), file.into()]),
-        "windows" => {
-            let mut select = OsString::from("/select,");
-            select.push(file);
-            ("explorer", vec![select])
-        }
+        // Two arguments: a path with spaces is then quoted on its own, the form `explorer /select, "C:\My Design.fig"`.
+        "windows" => ("explorer", vec!["/select,".into(), file.into()]),
         _ => ("xdg-open", vec![file.parent().unwrap_or(file).into()]),
     }
 }

@@ -87,3 +87,33 @@ fn a_failed_reveal_says_so() {
     let toast = s.app().toast.as_ref().expect("the failure is shown");
     assert!(toast.error && toast.text.starts_with("Cannot open"), "unexpected toast: {} (error: {})", toast.text, toast.error);
 }
+
+/// The Home screen over a fresh library, the place the tester ran Export .fig.
+fn home_sim(tag: &str) -> (Sim, PathBuf) {
+    let root = std::env::temp_dir().join(format!("designos_fig_export_toast_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let s = Sim::with(Options { home: true, library: Some(root.clone()), ..Default::default() });
+    (s, root)
+}
+
+#[test]
+fn show_in_folder_works_on_the_home_screen_after_an_export() {
+    let (mut s, root) = home_sim("home");
+    s.shell.app.reveal_file = record_reveal;
+    let lib = s.app().lib.clone().expect("a library");
+    let project = lib.list_projects()[0].id.clone();
+    let entry = lib.create_file(&project, None, "Home Reveal Case", &designos_doc::Document::new("Home Reveal Case")).unwrap();
+    assert!(s.app().home.is_some(), "precondition: the Home screen is showing");
+
+    crate::home::apply(&mut s.shell.app, crate::home::Act::ExportFig(entry.id));
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let exported = root.join("exports").join("Home Reveal Case.fig");
+    assert!(exported.is_file(), "the export is in the library exports folder");
+    assert!(!revealed(&exported), "precondition: nothing revealed before the click");
+    let button = s.rect_of("toast-reveal");
+    s.click(button.center());
+    assert!(revealed(&exported), "clicking Show in folder on Home reveals the exported file");
+    let _ = std::fs::remove_dir_all(&root);
+}
