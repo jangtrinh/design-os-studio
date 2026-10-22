@@ -320,6 +320,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             }
             "-h" | "--help" => o.help = true,
             "-V" | "--version" => o.version = true,
+            // Launch Services adds -psn_<serial> to some macOS launches; it names the process, not a file.
+            s if s.starts_with("-psn_") => {}
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             _ => {
                 if o.file.is_some() {
@@ -572,6 +574,15 @@ mod tests {
         assert_eq!(missing_file_message(&p(&[]).unwrap()), None, "no file argument");
         assert_eq!(missing_file_message(&p(&["--home"]).unwrap()), None);
         assert_eq!(missing_file_message(&p(&["--open-id", "abc"]).unwrap()), None);
+    }
+
+    #[test]
+    fn the_process_serial_number_macos_adds_on_some_launches_is_not_a_file() {
+        let o = p(&["-psn_0_12345"]).unwrap();
+        assert_eq!(o.file, None, "Finder and Launch Services may pass -psn_<serial>; it is not a file");
+        assert_eq!(missing_file_message(&o), None, "the app must still start");
+        assert!(o.wants_home());
+        assert_eq!(p(&["-psn_0_12345", "a.designos"]).unwrap().file, Some("a.designos".into()), "a real file next to it still opens");
     }
 
     #[test]
