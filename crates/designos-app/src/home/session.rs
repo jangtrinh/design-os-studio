@@ -809,7 +809,6 @@ impl App {
         let busy = ctx.input(|i| i.pointer.any_down()) || self.canvas.text.is_some();
         self.reload_external_write(ctx, watched_path, busy);
         self.save_when_settled(ctx, busy);
-        self.notice_save_outside_library();
         if !busy && self.autosave.changed_at.is_none() && self.autosave.watcher_dirty() {
             // A write was held back while an edit was under way and that edit is over: look at it on the next frame.
             ctx.request_repaint_after(std::time::Duration::from_millis(250));

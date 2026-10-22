@@ -87,13 +87,22 @@ fn dot(s: &Sim) -> bool {
     s.rect_of(&format!("tab-unsaved-dot-{id}")).is_finite()
 }
 
-/// One undoable edit: duplicates the first layer on the page, then waits for the dot to settle.
-fn edit(s: &mut Sim) {
+/// One undoable edit: duplicates the first layer on the page.
+fn edit_now(s: &mut Sim) {
     let app = &mut s.shell.app;
     let first = app.doc.get(app.page).unwrap().children[0];
     app.selection = vec![first];
     app.duplicate_selection();
+}
+
+/// [`edit_now`], then waits for the dot to settle.
+fn edit(s: &mut Sim) {
+    edit_now(s);
     wait(s, SETTLED);
+}
+
+fn nodes_on_disk(path: &std::path::Path) -> usize {
+    Document::from_json(&std::fs::read_to_string(path).unwrap()).map(|d| d.nodes.len()).unwrap_or(0)
 }
 
 fn lib(s: &Sim) -> Library {
@@ -605,4 +614,76 @@ fn edits_that_net_out_on_a_library_file_leave_no_dot_and_no_rewrite() {
     assert!(!dot(&s), "the file holds exactly this document");
     assert_eq!(s.app().autosave.saves, 0, "nothing needed writing");
     assert_eq!(lib(&s).file(&id).unwrap().modified, modified);
+}
+
+#[test]
+fn rewriting_the_file_on_disk_never_clears_the_dot_of_an_unsaved_edit() {
+    // a sync client, `touch` or an agent writing the same bytes; a tool that left a partial file
+    for (what, garbage) in [("the same bytes", false), ("an unreadable file", true)] {
+        let (mut s, _d, path) = external_sim();
+        let original = std::fs::read(&path).unwrap();
+        edit(&mut s);
+        assert!(dot(&s));
+        let edited = s.app().doc.nodes.len();
+        // a later mtime than the one the app recorded
+        std::thread::sleep(Duration::from_millis(30));
+        std::fs::write(&path, if garbage { b"not a document".to_vec() } else { original }).unwrap();
+        wait(&mut s, 1.5);
+        assert_eq!(s.app().doc.nodes.len(), edited, "the document keeps its edit ({what})");
+        assert!(nodes_on_disk(&path) < edited, "the edit is not in the file ({what})");
+        assert!(dot(&s), "the edit is still unsaved ({what})");
+    }
+}
+
+#[test]
+fn a_reload_that_replaces_the_document_with_the_file_leaves_no_dot() {
+    let (mut s, _d, path) = external_sim();
+    let (changed, _) = two_page_doc(7);
+    std::thread::sleep(Duration::from_millis(30));
+    std::fs::write(&path, changed.to_json().unwrap()).unwrap();
+    wait(&mut s, 1.5);
+    assert_eq!(s.app().doc.nodes.len(), changed.nodes.len(), "the file's document is on screen");
+    assert!(!dot(&s), "it is the file");
+    edit(&mut s);
+    assert!(dot(&s), "and an edit on it is unsaved");
+}
+
+#[test]
+fn an_edit_that_commits_right_after_a_save_is_not_saved() {
+    // a native Save dialog blocks the UI thread while an agent's edit queues; both land before the next frame
+    let (mut s, _d, path) = external_sim();
+    edit(&mut s);
+    s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    let saved = nodes_on_disk(&path);
+    edit_now(&mut s);
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().doc.nodes.len(), saved + 1);
+    assert_eq!(nodes_on_disk(&path), saved, "the second edit is not in the file");
+    assert!(dot(&s), "so it is unsaved");
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_restore_whose_write_fails_keeps_the_dot() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut s, d) = library_sim();
+    let lf = s.app().lib_file.as_ref().unwrap().clone();
+    let version = lib(&s).save_version(&lf.id, &s.app().doc, Some("v".into()), false).unwrap();
+    edit(&mut s);
+    wait(&mut s, 3.0);
+    let files = d.0.join("lib").join("projects").join(&lf.project_id).join("files");
+    std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // a process that may write anyway (root) cannot show a failed write
+    let writable = std::fs::File::create(files.join("probe")).is_ok();
+    s.shell.app.restore_version(version.n);
+    wait(&mut s, SETTLED);
+    let lit = dot(&s);
+    std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o755)).unwrap();
+    if writable {
+        return;
+    }
+    assert!(lit, "the restored document is not in the file");
 }

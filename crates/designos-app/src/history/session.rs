@@ -97,6 +97,8 @@ impl App {
 
     fn write_after_restore(&mut self) {
         if let Err(e) = self.save_library_file() {
+            // The restored document has a fresh history, which reads clean: say it is not in the file.
+            self.mark_edited_outside_history();
             self.show_toast(e, true);
         }
     }

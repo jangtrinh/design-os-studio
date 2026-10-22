@@ -565,7 +565,9 @@ impl History {
     pub fn redo_steps(&self) -> Vec<Command> {
         self.redo.clone()
     }
-    /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
+    /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way. A saved point
+    /// that sat on those steps stays lost (the edit that cleared them said so): the dot stays until the next
+    /// save rather than guess.
     pub fn restore_redo(&mut self, steps: Vec<Command>) {
         let len = steps.len();
         self.redo = steps;

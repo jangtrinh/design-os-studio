@@ -7,13 +7,10 @@
 //!
 //! A writer that changes the document without an undo step sets [`UnsavedDot::flag`] instead, which stays
 //! until the next save. The writers known to do so: an agent session that replaces the whole document
-//! (`live_patch_apply`). A reload from disk and a restored version end up saved, so they mark clean.
+//! (`live_patch_apply`) and a restored version whose write failed. Every save, and a reload that really
+//! replaces the document with the file, mark clean at the moment they write: nothing infers a save.
 
 use crate::app::App;
-use std::time::SystemTime;
-
-/// What a save leaves in [`super::Autosave`]: the hash it wrote, the canvas revision and the file's mtime.
-pub type SaveMark = (u64, u64, Option<SystemTime>);
 
 #[derive(Default)]
 pub struct UnsavedDot {
@@ -21,8 +18,6 @@ pub struct UnsavedDot {
     flag: bool,
     /// What the last tab bar paint showed for the open document; `None` when no tab bar was drawn.
     painted: Option<bool>,
-    /// [`SaveMark`] as last seen, to notice a save made outside this module (`App::save_with`).
-    save_seen: SaveMark,
 }
 
 impl UnsavedDot {
@@ -30,11 +25,9 @@ impl UnsavedDot {
         self.flag
     }
 
-    /// Takes over the flag a parked tab kept, for the document that is about to be shown. `mark` is the
-    /// current [`SaveMark`]: whatever another document left there is not a save of this one.
-    pub fn adopt(&mut self, flag: bool, mark: SaveMark) {
+    /// Takes over the flag a parked tab kept, for the document that is about to be shown.
+    pub fn adopt(&mut self, flag: bool) {
         self.flag = flag;
-        self.save_seen = mark;
         self.painted = None;
     }
 
@@ -59,24 +52,6 @@ impl App {
     /// The document changed without an undo step, so the history cannot tell: the dot stays until a save.
     pub(crate) fn mark_edited_outside_history(&mut self) {
         self.autosave.dot.flag = true;
-    }
-
-    pub(crate) fn save_mark(&self) -> SaveMark {
-        (self.autosave.saved_hash, self.autosave.seen_rev, self.autosave.disk_mtime)
-    }
-
-    /// Per frame, for a document outside the library: a save writes the file and records what it wrote in
-    /// [`super::Autosave`], and another value there means the document on screen is the one that was written.
-    /// (`save_with` is the one writer that does not call [`Self::mark_saved`] itself.)
-    pub(super) fn notice_save_outside_library(&mut self) {
-        if self.lib_file.is_some() {
-            return;
-        }
-        let mark = self.save_mark();
-        if mark != self.autosave.dot.save_seen {
-            self.autosave.dot.save_seen = mark;
-            self.mark_saved();
-        }
     }
 
     /// The tab bar draws before the edit, the undo or the save of the frame that changes the dot, and egui
@@ -141,27 +116,5 @@ mod tests {
         assert!(app.has_unsaved_edits());
         app.mark_saved();
         assert!(!app.has_unsaved_edits());
-    }
-
-    #[test]
-    fn a_save_that_only_the_autosave_fields_show_is_noticed_once_and_another_document_never_counts() {
-        let mut app = app_with_rect();
-        app.notice_save_outside_library();
-        edit(&mut app);
-        assert!(app.has_unsaved_edits());
-        app.notice_save_outside_library();
-        assert!(app.has_unsaved_edits(), "nothing was saved");
-        // what `save_with` leaves behind
-        app.autosave.saved_hash = 77;
-        app.autosave.seen_rev = 3;
-        app.notice_save_outside_library();
-        assert!(!app.has_unsaved_edits(), "the save was noticed");
-        // another document's save state arrives with a tab switch: adopted, not taken for a save
-        edit(&mut app);
-        app.autosave.saved_hash = 99;
-        let mark = app.save_mark();
-        app.autosave.dot.adopt(false, mark);
-        app.notice_save_outside_library();
-        assert!(app.has_unsaved_edits(), "the edit is still unsaved");
     }
 }

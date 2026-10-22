@@ -338,8 +338,7 @@ impl TabsState {
         app.lib_file = tab_lib_file;
         // The flag a tab had when it was left comes back with its document. The undo history, which holds the
         // rest of the unsaved state, is handed over by the caller.
-        let save_mark = app.save_mark();
-        app.autosave.dot.adopt(tab_dirty, save_mark);
+        app.autosave.dot.adopt(tab_dirty);
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
