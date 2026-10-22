@@ -795,9 +795,8 @@ impl Shell {
                     None
                 }
                 (Key::W, false, false) => {
-                    if !app.tabs.entries.is_empty() {
-                        let idx = app.tabs.active_idx;
-                        app.close_tab(idx);
+                    if let Some(id) = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id) {
+                        app.request_leave(Some(ctx), crate::home::Leave::CloseTab(id));
                     }
                     None
                 }
@@ -1241,6 +1240,11 @@ impl Shell {
     /// `.webcapture` / `.capture.json` files are imported at the drop point,
     /// anything else (the first file) is opened as a document.
     fn handle_drops(&mut self, ctx: &Context) {
+        // A question is modal: a file dropped while one is open is ignored, as on Home. It must not replace the
+        // action that is pending (a quit, a close) or put content on the canvas behind the question.
+        if self.app.dialog.is_some() || self.app.leave.is_asking() {
+            return;
+        }
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos().or(i.pointer.latest_pos())));
         let extension_of = |f: &egui::DroppedFile| {
             let name = f.path.as_ref().and_then(|p| p.to_str()).unwrap_or(&f.name);
@@ -1358,12 +1362,17 @@ impl Shell {
         }
         self.drive_screenshot(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
-            crate::decks::ui::flush_notes(&mut self.app);
-            self.app.save_close_version();
-            self.app.flush_autosave();
-            self.app.terminal.shutdown();
-            for tab in &mut self.app.tabs.entries {
-                tab.terminal.shutdown();
+            if !self.app.may_quit(&ctx) {
+                // Edits no save has written are being asked about: the window stays open, and the close comes round again.
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            } else {
+                crate::decks::ui::flush_notes(&mut self.app);
+                self.app.save_close_version();
+                self.app.flush_autosave();
+                self.app.terminal.shutdown();
+                for tab in &mut self.app.tabs.entries {
+                    tab.terminal.shutdown();
+                }
             }
         }
         self.app.scrub_sync(&ctx);

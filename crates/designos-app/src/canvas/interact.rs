@@ -2068,6 +2068,55 @@ fn pen_press(app: &mut App, rect: ERect, pos: Pos2, page: DV, mods: Modifiers) {
     app.canvas.inter = Interaction::PenDrag;
 }
 
+/// Ends the gesture that is open (a move, a resize, a rotate, a draw, a stroke, a vector drag) where it last drew, as
+/// the one undo step the release would have made. For a place that must leave the document settled while the pointer
+/// may still be down: the document is already in the state the gesture drew, so nothing moves.
+///
+/// A pan, a zoom or a selection box just ends, without the release's pan, zoom or selection and without marking the
+/// document changed ([`App::changed`], which bumps the render revision): it only looks at the document. A press that
+/// has not moved yet is cancelled: its release would turn it into a point on a segment, an inline gap or padding box
+/// with focus, or a default shape, none of which the user made.
+pub fn commit_open_gesture(app: &mut App) {
+    match &app.canvas.inter {
+        Interaction::None => {}
+        Interaction::Pan | Interaction::Marquee { .. } | Interaction::ZoomMarquee { .. } | Interaction::Pending(_) | Interaction::PenDrag => {
+            app.canvas.inter = Interaction::None;
+            app.canvas.guides.clear();
+            app.canvas.measures.clear();
+        }
+        Interaction::Draw(d) if !d.dragged => app.cancel_interaction(),
+        Interaction::AutoLayoutDrag(a) if !a.moved => app.cancel_interaction(),
+        Interaction::VectorDrag if !vector_drag_changed(app) => app.cancel_interaction(),
+        _ => release_without_an_end(app),
+    }
+}
+
+/// Whether the vector point or handle drag that is open has moved something.
+fn vector_drag_changed(app: &App) -> bool {
+    app.canvas.vedit.as_ref().and_then(|v| v.drag.as_ref()).is_some_and(|d| d.changed)
+}
+
+/// The release of the open gesture, with no end position: it ends as it was last drawn.
+fn release_without_an_end(app: &mut App) {
+    let inp = Inp {
+        pos: None,
+        press_pos: None,
+        release_pos: None,
+        prior_release_pos: None,
+        release_mods: None,
+        prior_release_mods: None,
+        pressed: false,
+        down: false,
+        released: true,
+        mid_pressed: false,
+        mid_down: false,
+        mods: Modifiers::NONE,
+        space: false,
+        z_down: false,
+    };
+    on_release(app, app.canvas_rect, &inp, None);
+}
+
 pub fn finish_pen(app: &mut App) {
     let Some(pen) = app.canvas.pen.take() else { return };
     if matches!(app.canvas.inter, Interaction::PenDrag) {

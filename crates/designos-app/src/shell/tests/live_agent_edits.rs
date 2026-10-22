@@ -132,6 +132,8 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
             cursor: egui::CursorIcon::Default,
             shapes: Vec::new(),
             accesskit_update: None,
+            commands: Vec::new(),
+            sent_commands: Vec::new(),
         };
         s.frame(vec![]);
         s.frame(vec![]);

@@ -625,6 +625,10 @@ impl App {
                 return;
             }
         }
+        // It replaces the document on screen: unsaved edits outside the library are asked about first.
+        if self.ask_before_replacing_the_shown_document(super::Leave::OpenLibraryFile(id.to_string())) {
+            return;
+        }
         let disk_path = library_file_disk_path(&lib, &entry.project, &entry.id);
         let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
@@ -680,7 +684,11 @@ impl App {
         self.new_library_deck(target);
     }
 
-    fn new_library_file_of(&mut self, target: Option<(String, Option<String>)>, kind: DocumentKind) {
+    pub(super) fn new_library_file_of(&mut self, target: Option<(String, Option<String>)>, kind: DocumentKind) {
+        // A new file replaces the document on screen: unsaved edits outside the library are asked about first.
+        if self.ask_before_replacing_the_shown_document(super::Leave::NewFile(kind, target.clone())) {
+            return;
+        }
         let Some(lib) = self.lib.clone() else {
             if kind == DocumentKind::Board {
                 self.new_board_document();

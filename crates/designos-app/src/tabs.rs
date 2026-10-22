@@ -1220,12 +1220,16 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
 
     if !actions.is_empty() {
         let mut tabs = std::mem::take(&mut app.tabs);
+        // Closing a tab can end unsaved edits, so it goes through the question: see `home::leave`.
+        let mut leaves = Vec::new();
         for act in actions {
             match act {
                 TabUiAction::ClickHome => tabs.enter_home(app),
                 TabUiAction::SwitchTab(idx) => tabs.switch_to(idx, app),
                 TabUiAction::CloseTab(idx) => {
-                    tabs.close_tab(idx, app);
+                    if let Some(t) = tabs.entries.get(idx) {
+                        leaves.push(crate::home::Leave::CloseTab(t.id));
+                    }
                 }
                 TabUiAction::DuplicateTab(idx) => {
                     tabs.duplicate_tab(idx, app);
@@ -1234,7 +1238,9 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
                     tabs.toggle_pin(idx);
                 }
                 TabUiAction::CloseOtherTabs(idx) => {
-                    tabs.close_other_tabs(idx, app);
+                    if let Some(t) = tabs.entries.get(idx) {
+                        leaves.push(crate::home::Leave::CloseOthers(t.id));
+                    }
                 }
                 TabUiAction::NewDesignTab => {
                     tabs.open_new_design_tab(app);
@@ -1248,6 +1254,9 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
             }
         }
         app.tabs = tabs;
+        for leave in leaves {
+            app.request_leave(Some(ui.ctx()), leave);
+        }
     }
 }
 
