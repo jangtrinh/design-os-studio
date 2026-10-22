@@ -177,3 +177,199 @@ fn a_press_on_the_scrollbar_is_not_a_layer_drag() {
     assert_eq!(page_order(&s), before, "no layer moved");
     assert!(s.app().layers.drag.is_none());
 }
+
+/// A drag already under way over earlier frames; the final frame holds the release and then the pointer moving on, as
+/// on a slow frame where the hand keeps going after the button came up.
+fn drag_under_way_then_release_and_move_on(then: Pos2) -> (Sim, Vec<NodeId>) {
+    let (mut s, before) = start();
+    s.mv(card());
+    s.button(true);
+    s.mv(Pos2::new(X, (CARD_Y + ABOVE_DASHBOARD_Y) / 2.0));
+    s.mv(above_dashboard());
+    assert!(s.app().layers.drag.is_some(), "the drag is under way before the release frame");
+    s.one_frame().release().move_to(then).send();
+    s.frame(vec![]);
+    (s, before)
+}
+
+#[test]
+fn a_drag_under_way_drops_where_the_button_came_up_when_the_pointer_moves_on_to_the_canvas() {
+    let (s, before) = drag_under_way_then_release_and_move_on(Pos2::new(900.0, 500.0));
+    assert_card_on_top(&s, &before);
+}
+
+#[test]
+fn a_drag_under_way_drops_where_the_button_came_up_when_the_pointer_moves_on_to_another_row() {
+    let (s, before) = drag_under_way_then_release_and_move_on(Pos2::new(X, WELCOME_Y));
+    assert_card_on_top(&s, &before);
+}
+
+#[test]
+fn a_one_frame_drag_whose_pointer_moves_on_after_the_release_drops_at_the_release() {
+    let (mut s, before) = start();
+    s.one_frame().move_to(card()).press().move_to(above_dashboard()).release().move_to(Pos2::new(900.0, 500.0)).send();
+    s.frame(vec![]);
+    assert_card_on_top(&s, &before);
+}
+
+/// A scene with enough layers that the list scrolls: 40 rectangles on top of the demo's five.
+fn with_many_rows() -> Sim {
+    use designos_doc::{Node, Rect as DRect};
+    let mut s = Sim::new();
+    let page = s.app().page;
+    for i in 0..40 {
+        let id = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, Node::rectangle(id, DRect::new(i as f32 * 4.0, 0.0, 10.0, 10.0))).expect("the page takes the rectangle");
+    }
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s
+}
+
+/// Centre of list row `i` while the list is scrolled by `scroll` px; the list starts 16 px above the first row's centre.
+fn row_centre(i: usize, scroll: f32) -> Pos2 {
+    Pos2::new(X, DASHBOARD_Y + i as f32 * theme::LAYER_ROW_HEIGHT - scroll)
+}
+
+#[test]
+fn a_press_that_shares_a_frame_with_a_scroll_picks_the_row_the_user_saw() {
+    // Six trackpad deltas of 6 pt scroll the list 36 px in the frame of the press. The user pressed the row drawn at
+    // that spot before the scroll, and a click and a drag from the same press must both take it.
+    let wheel = || {
+        (0..6).map(|_| Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, -6.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        })
+    };
+    let press = row_centre(5, 0.0) + Vec2::new(0.0, 10.0);
+    let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+
+    let mut click = with_many_rows();
+    click.mv(press);
+    let seen = click.app().layers.rows_cache[5].id;
+    click.frame(wheel().chain([button(press, true), button(press, false)]).collect());
+    click.frame(vec![]);
+
+    let mut drag = with_many_rows();
+    drag.mv(press);
+    let to = press + Vec2::new(0.0, 100.0);
+    drag.frame(wheel().chain([button(press, true), Event::PointerMoved(to), button(to, false)]).collect());
+    drag.frame(vec![]);
+
+    assert_eq!(click.app().selection, vec![seen], "a click selects the row that was under the pointer");
+    assert_eq!(drag.app().selection, vec![seen], "a drag picks up that same row");
+}
+
+/// Drags row `from` of a list scrolled by `scroll` px to the top half of row `to`, in one frame and over several frames.
+/// Row `to` is above row `from`, so the dragged layer must end up above it.
+fn scrolled_drag(scroll: f32, from: usize, to: usize, fast: bool) {
+    let mut s = with_many_rows();
+    s.shell.app.layers.scroll = scroll;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let (moved, over) = (s.app().layers.rows_cache[from].id, s.app().layers.rows_cache[to].id);
+    let (a, b) = (row_centre(from, scroll), row_centre(to, scroll) - Vec2::new(0.0, theme::LAYER_ROW_HEIGHT / 2.0 - 3.0));
+    if fast {
+        s.drag_in_one_frame(a, b);
+    } else {
+        s.drag(a, b);
+    }
+    let order = page_order(&s);
+    let at = |id| order.iter().position(|x| *x == id).expect("the layer is still on the page");
+    assert!(at(moved) > at(over), "scroll {scroll}, {} drag: the layer from row {from} is now above row {to}", if fast { "fast" } else { "slow" });
+}
+
+#[test]
+fn a_fast_drag_on_a_scrolled_list_moves_the_row_under_the_press_to_the_row_under_the_release() {
+    scrolled_drag(160.0, 8, 6, true);
+}
+
+#[test]
+fn a_slow_drag_on_a_scrolled_list_moves_the_row_under_the_press_to_the_row_under_the_release() {
+    scrolled_drag(160.0, 8, 6, false);
+}
+
+#[test]
+fn a_fast_multi_selection_drag_moves_the_same_layers_as_a_slow_one() {
+    let gesture = |fast: bool| {
+        let (mut s, before) = start();
+        s.click(card());
+        s.mods = Modifiers::COMMAND;
+        s.click(Pos2::new(X, WELCOME_Y));
+        s.mods = Modifiers::NONE;
+        assert_eq!(s.app().selection.len(), 2, "Card and Welcome are selected");
+        if fast {
+            s.drag_in_one_frame(card(), above_dashboard());
+        } else {
+            s.drag(card(), above_dashboard());
+        }
+        assert_eq!(s.app().selection.len(), 2, "both stay selected");
+        (page_order(&s), before)
+    };
+    let ((fast, before), (slow, _)) = (gesture(true), gesture(false));
+    assert_ne!(fast, before, "the layers moved");
+    assert_eq!(fast, slow, "the fast drag does what the slow one does");
+}
+
+#[test]
+fn a_fast_drag_while_renaming_never_reorders() {
+    let (mut s, before) = start();
+    s.click(card());
+    s.shell.app.layers.renaming = Some(s.by_name("Card"));
+    s.shell.app.layers.rename_started = false;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.mv(card());
+    s.button(true);
+    assert!(s.app().layers.press.is_some(), "the press is on a row");
+    s.one_frame().move_to(above_dashboard()).release().send();
+    s.frame(vec![]);
+    assert_eq!(page_order(&s), before);
+    assert!(s.app().layers.drag.is_none());
+}
+
+#[test]
+fn a_fast_drag_while_the_name_filter_is_open_never_reorders() {
+    let (mut s, before) = start();
+    s.shell.app.layers.filter_open = true;
+    s.shell.app.layers.filter = "d".into();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let list_top = s.rect_of("layers-filter").bottom();
+    let (a, b) = (Pos2::new(X, list_top + 16.0), Pos2::new(X, list_top + 16.0 + 2.0 * theme::LAYER_ROW_HEIGHT));
+    s.mv(a);
+    s.button(true);
+    assert!(s.app().layers.press.is_some(), "the press is on a filtered row");
+    s.one_frame().move_to(b).release().send();
+    s.frame(vec![]);
+    assert_eq!(page_order(&s), before);
+    assert!(s.app().layers.drag.is_none());
+}
+
+#[test]
+fn a_press_the_list_never_saw_released_is_forgotten_once_the_button_is_up() {
+    let mut s = Sim::new();
+    let (card_id, dashboard) = (s.by_name("Card"), s.by_name("Dashboard"));
+    s.shell.app.layers.press = Some((card_id, card()));
+    s.frame(vec![]);
+    assert!(s.app().layers.press.is_none(), "no button is down, so no row is pressed");
+    s.click(Pos2::new(X, DASHBOARD_Y));
+    assert_eq!(s.app().selection, vec![dashboard], "a later click selects what it clicks on, not the old row");
+}
+
+#[test]
+fn a_layer_deleted_while_the_button_is_held_is_not_dragged() {
+    let (mut s, _) = start();
+    let card_id = s.by_name("Card");
+    s.mv(card());
+    s.button(true);
+    s.shell.app.doc.remove(card_id).expect("Card is removed");
+    s.frame(vec![]);
+    s.one_frame().move_to(above_dashboard()).release().send();
+    s.frame(vec![]);
+    assert!(!s.app().selection.contains(&card_id), "a deleted layer is not selected");
+    assert!(s.app().layers.drag.is_none());
+    assert!(s.app().toast.is_none(), "no failed-move toast");
+}
