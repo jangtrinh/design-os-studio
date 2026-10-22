@@ -2135,7 +2135,7 @@ mod tests {
         app.image_jobs.custom_jobs_root = None;
         let mut doc_b = Document::new("File B");
         doc_b.add_page("Page 1");
-        let lib = designos_library::Library::open(&tmp.path().join("library")).unwrap();
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
         let proj = lib.create_project("Project").unwrap();
         let entry_a = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
         let entry_b = lib.create_file(&proj.id, None, "File B", &doc_b).unwrap();
