@@ -1191,7 +1191,10 @@ pub struct TerminalState {
     pub lock_owner: Option<String>,
     /// Inputs and resulting key of the last [`Self::bind_open_file`], so a steady frame does no IO.
     pub open_file_binding: Option<crate::agent_sessions::OpenFileBinding>,
-    /// Whether `codex resume --last` has passed the runtime cwd-scoping check (`#653` §6).
+    /// Whether `codex resume --last` is verified to stay in this file's session folder (`#653` §6). Nothing sets it
+    /// yet, so a Codex tab is not recorded and Codex always starts new. Cwd scoping alone would not be enough:
+    /// `resume --last` takes no session id, so it continues the newest Codex conversation whichever session was
+    /// picked. Recording Codex waits until it can be resumed by its own id.
     pub codex_cwd_scoped: bool,
     /// Whether `agy --continue` has passed the runtime cwd-scoping check (`#653` §6).
     pub agy_cwd_scoped: bool,

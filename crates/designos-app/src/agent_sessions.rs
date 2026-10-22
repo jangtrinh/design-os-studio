@@ -1003,6 +1003,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A Codex tab started after a Claude session is not recorded: only a session that can be resumed by its own id
+    /// is (`#653` rules 4 and 6), and `codex resume --last` takes no id. So it never becomes the newest entry, and
+    /// opening the file still resumes the Claude session.
+    #[cfg(unix)]
+    #[test]
+    fn a_codex_tab_started_after_a_claude_session_leaves_auto_resume_on_the_claude_session() {
+        let dir = temp_test_dir("codex-after-claude");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        write_executable_script(&bin_dir, "codex", "#!/bin/sh\nsleep 30\n");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-codex-after-claude", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+        let claude_uuid = st.tabs[0].session_uuid.clone().expect("claude session id");
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex after claude");
+        assert_eq!(st.tabs.len(), 2);
+        assert_eq!(st.session_registry.sessions.len(), 1, "only the Claude session is recorded");
+        assert_eq!(st.session_registry.sessions[0].cli, "claude");
+
+        // Close the Claude tab first and the Codex tab last, so a recorded Codex entry would be the newest.
+        st.close_tab(0);
+        st.close_tab(0);
+        assert!(st.tabs.is_empty());
+
+        st.open_for_agent_use(None);
+        assert_eq!(st.tabs.len(), 1, "opening the Agents panel resumes a session");
+        assert_eq!(st.tabs[0].spawn_preset, AgentCliPreset::Claude, "and it is the Claude session");
+        assert!(st.tabs[0].is_resumed);
+        assert_eq!(st.tabs[0].session_uuid.as_deref(), Some(claude_uuid.as_str()));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Sessions recorded before Claude was named "Claude Code" everywhere carry the old default title
     /// `Claude CLI #<n>`. Opening the file renames exactly those, once, in `sessions.json` too: a resumed tab and the
     /// Sessions list show the current name, and a title the user typed is never touched.
