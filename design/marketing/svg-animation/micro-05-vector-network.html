@@ -235,7 +235,7 @@
       flex-wrap: wrap;
     }
 
-    .apple-keycap {
+    .apple-chip {
       display: inline-flex;
       align-items: center;
       padding: 7px 14px;
@@ -308,7 +308,7 @@
       color: #e4e4e7;
     }
 
-    .window-step-readout {
+    .window-step-counter {
       font-family: var(--font-mono);
       font-size: 11.5px;
       font-weight: 600;
@@ -406,7 +406,7 @@
       color: #ffffff;
     }
 
-    .outro-cli-box {
+    .outro-cli-code {
       display: inline-flex;
       align-items: center;
       gap: 12px;
@@ -467,7 +467,7 @@
       box-shadow: 0 0 12px rgba(13, 153, 255, 0.45);
     }
 
-    #dock-step-title {
+    .dock-step-label {
       font-size: 14px;
       font-weight: 700;
       color: #ffffff;
@@ -515,7 +515,7 @@
     }
 
     /* Universal Studio Player Bar (Gate 9 — hidden during ?render=1) */
-    #player-bar {
+    #player-toolbar {
       position: fixed;
       bottom: 12px;
       right: 16px;
@@ -530,7 +530,7 @@
       font-size: 11px;
       z-index: 100;
     }
-    body.render-mode #player-bar {
+    body.render-mode #player-toolbar {
       display: none !important;
     }
 
@@ -556,7 +556,7 @@
       .github-repo-url {
         font-size: 19px;
       }
-      .outro-cli-box {
+      .outro-cli-code {
         font-size: 11.5px;
       }
       #bottom-dock {
@@ -565,7 +565,7 @@
         padding: 10px 16px;
         gap: 10px;
       }
-      #dock-step-title {
+      .dock-step-label {
         font-size: 13px;
       }
     }
@@ -678,7 +678,7 @@
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-keycap">Enter Edit</span><span class="apple-keycap">Midpoint Split</span><span class="apple-keycap">Cmd+Drag Tangent</span><span class="apple-keycap">Shift+Delete Heal</span>
+            <span class="apple-chip">Enter Edit</span><span class="apple-chip">Midpoint Split</span><span class="apple-chip">Cmd+Drag Tangent</span><span class="apple-chip">Shift+Delete Heal</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-check-circle"></use></svg>
@@ -699,7 +699,7 @@
             <svg width="14" height="14"><use href="#icon-bezier-curve"></use></svg>
             <span>designos-studio — Vector Network, Bezier Bend & Heal Delete</span>
           </div>
-          <div id="header-step-readout" class="window-step-readout">STEP 01 / 06</div>
+          <div id="header-step-readout" class="window-step-counter">STEP 01 / 06</div>
         </div>
 
         <div class="studio-viewport">
@@ -731,7 +731,7 @@
             <span class="github-repo-url">github.com/jangtrinh/design-os-studio</span>
           </div>
           <h2 class="outro-title">Clone, Star &amp; Run Native Design IDE</h2>
-          <div class="outro-cli-box">
+          <div class="outro-cli-code">
             <svg width="18" height="18"><use href="#icon-terminal-window"></use></svg>
             <span>cargo run --release -p designos-app --bin designos-studio</span>
           </div>
@@ -739,10 +739,10 @@
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-keycap">macOS Metal .dmg</span>
-            <span class="apple-keycap">Windows DirectX 12 .exe</span>
-            <span class="apple-keycap">Linux Vulkan .deb</span>
-            <span class="apple-keycap">22 MCP Tools</span>
+            <span class="apple-chip">macOS Metal .dmg</span>
+            <span class="apple-chip">Windows DirectX 12 .exe</span>
+            <span class="apple-chip">Linux Vulkan .deb</span>
+            <span class="apple-chip">22 MCP Tools</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-sparkle"></use></svg>
@@ -757,7 +757,7 @@
       <div class="step-dots">
         <div id="step-dot-0" class="step-dot active"><span>01</span></div><div id="step-dot-1" class="step-dot"><span>02</span></div><div id="step-dot-2" class="step-dot"><span>03</span></div><div id="step-dot-3" class="step-dot"><span>04</span></div><div id="step-dot-4" class="step-dot"><span>05</span></div><div id="step-dot-5" class="step-dot"><span>06</span></div>
       </div>
-      <span id="dock-step-title">Press Enter -> Vector Network Edit Mode</span>
+      <span id="dock-step-title" class="dock-step-label">Press Enter -> Vector Network Edit Mode</span>
       <span id="dock-shortcut-pill">Enter · Vector Edit</span>
     </footer>
 
@@ -774,7 +774,7 @@
     </svg>
 
     <!-- Universal Player Controls (hidden in ?render=1) -->
-    <div id="player-bar">
+    <div id="player-toolbar" role="toolbar" aria-label="Playback controls">
       <button id="play-btn" type="button" style="background:none;border:none;color:#fff;cursor:pointer;font-family:inherit">Pause</button>
       <input id="scrub" type="range" min="0" max="29.821074" step="0.016" value="0" style="width:120px" aria-label="Scrub timeline" />
       <span id="time-readout">0.00s / 29.82s</span>
