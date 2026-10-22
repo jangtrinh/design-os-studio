@@ -80,7 +80,7 @@ impl std::fmt::Display for ExportScale {
 
 /// Renders `node` at `scale`, including effect overflow. Transparent background.
 pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap> {
-    let n = doc.get(node)?;
+    let n = designos_doc::resolve_node(doc, doc.get(node)?);
     let scale = scale.clamp(0.01, 32.0);
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let b = render_bounds(doc, node);
@@ -101,7 +101,8 @@ pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap>
     Some(pm)
 }
 
-/// Copies the subtree of `root` under a transparent page, placing the root at `at`.
+/// Copies the subtree of `root` under a transparent page, placing the root at `at`,
+/// resolving bound variables per node in the subtree without cloning the whole document.
 fn scratch_doc(doc: &Document, root: NodeId, at: Vec2) -> (Document, NodeId) {
     let mut out = Document::new(doc.name.clone());
     if let Some(max) = doc.nodes.keys().max() {
@@ -114,8 +115,10 @@ fn scratch_doc(doc: &Document, root: NodeId, at: Vec2) -> (Document, NodeId) {
     let mut refs = BTreeSet::new();
     let mut nodes: Vec<Node> = Vec::new();
     doc.walk(root, |n, _| {
-        collect_images(n, &mut refs);
-        nodes.push(n.clone());
+        let mut resolved = designos_doc::resolve_node(doc, n).into_owned();
+        resolved.variables.bindings.clear();
+        collect_images(&resolved, &mut refs);
+        nodes.push(resolved);
     });
     for (i, mut n) in nodes.into_iter().enumerate() {
         let parent = if i == 0 {
@@ -168,18 +171,13 @@ pub fn rgba_bytes(pm: &Pixmap) -> Vec<u8> {
     out
 }
 
-/// PNG bytes of `node` at `scale` (1.0 = 100%).
-pub fn export_png(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
-    match render_export(doc, node, scale) {
-        Some(pm) => pm.encode_png().unwrap_or_default(),
-        None => Vec::new(),
-    }
+/// Encodes `pm` as PNG bytes.
+pub fn encode_png_pixmap(pm: &Pixmap) -> Vec<u8> {
+    pm.encode_png().unwrap_or_default()
 }
 
-/// JPEG bytes of `node` at `scale`; transparency is flattened onto white.
-/// `quality` is 1..=100.
-pub fn export_jpg(doc: &Document, node: NodeId, scale: f32, quality: u8) -> Vec<u8> {
-    let Some(pm) = render_export(doc, node, scale) else { return Vec::new() };
+/// Encodes `pm` as JPEG bytes at `quality` (1..=100), flattening transparency onto white.
+pub fn encode_jpg_pixmap(pm: &Pixmap, quality: u8) -> Vec<u8> {
     let mut rgb = Vec::with_capacity((pm.width() * pm.height() * 3) as usize);
     for px in pm.data().chunks_exact(4) {
         // premultiplied over white: c + (255 - a)
@@ -194,6 +192,21 @@ pub fn export_jpg(doc: &Document, node: NodeId, scale: f32, quality: u8) -> Vec<
         Ok(()) => out,
         Err(_) => Vec::new(),
     }
+}
+
+/// PNG bytes of `node` at `scale` (1.0 = 100%).
+pub fn export_png(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
+    match render_export(doc, node, scale) {
+        Some(pm) => encode_png_pixmap(&pm),
+        None => Vec::new(),
+    }
+}
+
+/// JPEG bytes of `node` at `scale`; transparency is flattened onto white.
+/// `quality` is 1..=100.
+pub fn export_jpg(doc: &Document, node: NodeId, scale: f32, quality: u8) -> Vec<u8> {
+    let Some(pm) = render_export(doc, node, scale) else { return Vec::new() };
+    encode_jpg_pixmap(&pm, quality)
 }
 
 /// Lossless WebP bytes of `node` at `scale` (1.0 = 100%), preserving RGBA pixels identically to PNG.

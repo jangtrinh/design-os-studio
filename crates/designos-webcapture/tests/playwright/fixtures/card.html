@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pricing Card Fixture</title>
+  <style>
+    :root {
+      --brand: #0d99ff;
+      --surface: #18181c;
+      --text-primary: #ffffff;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      background-color: rgb(14, 14, 18);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text-primary);
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 320px;
+      padding: 20px;
+      background-color: var(--surface);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      position: relative;
+    }
+    .card::before {
+      content: "PRO";
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-weight: 700;
+      background-color: rgb(13, 153, 255);
+      color: rgb(255, 255, 255);
+      border-radius: 4px;
+      width: 28px;
+    }
+    .card-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 28px;
+    }
+    .card-copy {
+      margin: 0;
+      font-size: 14px;
+      line-height: 20px;
+      width: 220px;
+    }
+    .btn {
+      background: var(--brand);
+      color: rgb(255, 255, 255);
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .hero-banner {
+      width: 80px;
+      height: 40px;
+      background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+      background-size: cover;
+    }
+    .hidden-box {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <article id="pricing-card" class="card" role="region" aria-label="Pro Plan">
+    <h2 id="title" class="card-title">DesignOS Pro Studio</h2>
+    <p id="desc" class="card-copy">Build pixel-accurate vector interfaces and design systems with live code sync and multi-line text measurement.</p>
+    <div id="avatar-wrap" style="display:flex;align-items:center;gap:8px;">
+      <img id="avatar-img" width="24" height="24" alt="Avatar" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" />
+      <svg id="badge-svg" width="20" height="20" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="8" fill="#0d99ff" />
+      </svg>
+      <canvas id="spark-canvas" width="32" height="16"></canvas>
+    </div>
+    <div id="bg-banner" class="hero-banner"></div>
+    <img id="blocked-img" width="32" height="32" alt="Blocked" src="http://127.0.0.1:1/unreachable-cross-origin.png" />
+    <button id="cta-btn" class="btn" type="button">Upgrade Now</button>
+    <div id="secret-hidden" class="hidden-box">Should not be captured by default</div>
+  </article>
+  <script>
+    const c = document.getElementById("spark-canvas");
+    if (c && c.getContext) {
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#10b981";
+      ctx.fillRect(0, 0, 32, 16);
+    }
+    const card = document.getElementById("pricing-card");
+    if (card) {
+      card.__reactFiber$xyz123 = {
+        return: {
+          type: function PricingCard() {}
+        }
+      };
+    }
+  </script>
+</body>
+</html>

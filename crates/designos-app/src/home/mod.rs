@@ -2729,6 +2729,7 @@ mod tests {
             modified,
             opened,
             thumbnail: None,
+            branches: vec![],
         }
     }
 

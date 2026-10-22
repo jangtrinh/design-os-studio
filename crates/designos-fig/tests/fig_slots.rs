@@ -1161,15 +1161,60 @@ fn the_slot_scan_finds_every_slot_record_a_fig_export_writes() {
         slot_content_id_bags: 0,
     };
     assert_eq!(c, expected, "a scan that cannot see slots would make a zero result meaningless");
-    let carried_ids = msg
-        .get("nodeChanges")
+    assert_eq!(count_carried_slot_content_ids(&msg), 1, "the node's own slot content id is written once, in plugin data");
+}
+
+fn is_carried_slot_content_id_entry(e: &designos_fig::kiwi::KiwiValue) -> bool {
+    let key = match e.get("key") {
+        Some(designos_fig::kiwi::KiwiValue::String(s)) => s.as_str(),
+        _ => return false,
+    };
+    let plugin_id = match e.get("pluginID") {
+        Some(designos_fig::kiwi::KiwiValue::String(s)) => Some(s.as_str()),
+        _ => None,
+    };
+    (key == "slot-content-id" && plugin_id.unwrap_or("designos-studio") == "designos-studio") || key == "designos-studio:slot-content-id"
+}
+
+fn count_carried_slot_content_ids(msg: &designos_fig::kiwi::KiwiValue) -> usize {
+    msg.get("nodeChanges")
         .and_then(designos_fig::kiwi::KiwiValue::as_array)
         .unwrap_or(&[])
         .iter()
         .flat_map(|nc| nc.get("pluginData").and_then(designos_fig::kiwi::KiwiValue::as_array).unwrap_or(&[]).iter())
-        .filter(|e| e.get("key").is_some_and(|k| matches!(k, designos_fig::kiwi::KiwiValue::String(s) if s.ends_with("slot-content-id"))))
-        .count();
-    assert_eq!(carried_ids, 1, "the node's own slot content id is written once, in plugin data");
+        .filter(|e| is_carried_slot_content_id_entry(e))
+        .count()
+}
+
+#[test]
+fn slot_scan_counts_only_the_exact_key() {
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::msg;
+    let entry = |plugin_id: &str, key: &str| -> V {
+        msg(vec![("pluginID", V::String(plugin_id.into())), ("key", V::String(key.into())), ("value", V::String("7:42".into()))])
+    };
+    let key_only = |key: &str| -> V { msg(vec![("key", V::String(key.into())), ("value", V::String("7:42".into()))]) };
+    assert!(!is_carried_slot_content_id_entry(&entry("designos-studio", "my-slot-content-id")));
+    assert!(!is_carried_slot_content_id_entry(&entry("other", "slot-content-id")));
+    assert!(!is_carried_slot_content_id_entry(&key_only("my-slot-content-id")));
+    assert!(!is_carried_slot_content_id_entry(&key_only("other:slot-content-id")));
+    assert!(!is_carried_slot_content_id_entry(&key_only("designos-studio:slot-content-id-extra")));
+    assert!(is_carried_slot_content_id_entry(&entry("designos-studio", "slot-content-id")));
+    assert!(is_carried_slot_content_id_entry(&key_only("designos-studio:slot-content-id")));
+
+    let root = msg(vec![(
+        "nodeChanges",
+        V::Array(vec![msg(vec![(
+            "pluginData",
+            V::Array(vec![
+                entry("designos-studio", "my-slot-content-id"),
+                entry("other", "slot-content-id"),
+                key_only("other:slot-content-id"),
+                entry("designos-studio", "slot-content-id"),
+            ]),
+        )])]),
+    )]);
+    assert_eq!(count_carried_slot_content_ids(&root), 1);
 }
 
 /// Where the owner's private `VSF - PCP.fig` lives: `DESIGNOS_VSF_PCP`, else `$HOME/Downloads`.

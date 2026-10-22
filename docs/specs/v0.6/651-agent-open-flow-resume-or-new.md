@@ -51,8 +51,8 @@ switch. A file with no sessions yet shows the new-session picker; Studio never s
       one that cannot be run;
    3. no live tab and no resumable session: start nothing; the panel's center shows the new-session picker (#652).
 3. Never spawn a Shell on open. A Shell tab starts only when the user picks Shell in the `+` menu or the picker
-   (as today) or when a flow that needs one asks for it explicitly: the chat-mode composer starts its one-shot
-   shell on the first submit, not on open.
+   (as today). The composer sends into the tab's live CLI session (#689; owner ruling 2026-10-19) and drops the
+   one-shot `-p` / `exec` shell path.
 4. A tab opened by rule 2 behaves like any other tab: it can be closed, it shows the live status dot, and the
    registry entry's `last_active_ms` updates.
 5. **Sessions popover (owner ruling 2026-10-19).** The Sessions control is a ghost button next to `+` that opens a popover listing the file's other sessions with CLI, title, last
@@ -81,8 +81,7 @@ None beyond #653's registry. `TerminalState` gains `open_for_agent_use` and a `p
 
 ## 5. Contracts
 
-No MCP change. Internal contract: `ensure_default_tab` keeps existing for callers that truly need a shell
-(only `submit_chat_prompt`'s lazy shell start), renamed `ensure_shell_for_chat` to make the exception visible.
+No MCP change. Internal contract: `ensure_default_tab` is replaced by `open_for_agent_use`; the composer sends into the live CLI session (#689) and drops the one-shot `-p` / `exec` shell path.
 
 ## 6. File-format mapping
 
@@ -97,7 +96,7 @@ The form is the one the owner ruled on 2026-10-19 (ghost button + popover, renam
 - **Sessions control**: a ghost button labelled "Sessions" with a chevron, `CONTROL_DENSE` high, `RADIUS_CONTROL`, between the tab strip and `+`, `SPACE_INLINE` from each.
 - **Popover**: `RADIUS_FRAME`, surface `BG_MENU` with a `BORDER_MENU` hairline, inset `INSET_POPOVER`, a caption heading "Sessions for this file" in `TEXT_SECONDARY` with `SPACE_FACT` below it and a `BORDER` hairline; rows are `CONTROL_ROW` high with two lines: line one the CLI name (body-medium) and the label (body), line two the last-active time and the status in caption; hover `BG_MENU_HOVER`; the row whose tab is focused uses the neutral `BG_SELECTED` fill. The status shown in a row uses the same dot as the tab (`paint_orca_tab_status_and_provider`, `terminal.rs:1983-2058`); no new colour is introduced.
 - **Rename**: the label becomes a text field at `FIELD_HEIGHT` inside the row (Enter saves, Esc cancels); no modal.
-- **Empty state**: the picker (#652) fills the viewport area under the tab bar, which keeps `+` and Sessions.
+- **Empty state**: the picker (#652) fills the viewport area under the tab bar, which keeps `+` and Sessions, with sample prompts below (#688).
 - **Failure**: the existing card (`agent_start_failure::paint`) with one more fix button text, "Start a new session".
 - Desktop capture at 1440 for the three states: resumed tab, Sessions popover open, empty-state picker; responsive SKIPPED (owner default). Load es-designer before UI code. The Figma frames for these states are updated from the captures before gates run (owner rule, 2026-10-13).
 
@@ -108,7 +107,7 @@ The form is the one the owner ruled on 2026-10-19 (ghost button + popover, renam
 2. Two tabs for the same session: rule 5 focuses the live one.
 3. The only session is `Missing`: treated as no session (rule 2.3), the picker shows.
 4. Opening the panel while a resume is still starting: no second spawn (a tab in `spawned_at < 5 s` counts as live).
-5. A file with no key (#653 question 1, option C): no registry, so rule 2.3 always applies.
+5. A file opened from disk is keyed by a hash of its canonical path (#653 owner ruling 2026-10-19); an unsaved in-memory scratch document with neither a library id nor a file path has no registry key, so rule 2.3 applies.
 6. Reopening after all tabs were closed by the user: rule 2.2 resumes the last session again (this is the
    ruled behaviour; closing a tab does not forget the session).
 7. Window closed with agent tabs running: tabs are killed (existing), sessions stay resumable.
@@ -120,7 +119,7 @@ The form is the one the owner ruled on 2026-10-19 (ghost button + popover, renam
 - Listing sessions started outside Studio.
 - Renaming the conversation inside the CLI.
 - A session search or filter.
-- Changing the composer's chat-mode behaviour beyond the lazy shell.
+- One-shot `-p` / `exec` composer calls (retired by #689; composer sends into the live CLI session).
 
 ## 10. Test plan (red first)
 
@@ -141,7 +140,6 @@ that print their argv and stay alive, `spawn_exiting_stub_agent` pattern, `termi
 | `dock_and_backtick_follow_the_panel_rules` | `>_` and backtick with and without a session: resume or picker, never a Shell |
 | `shell_is_never_registered_or_resumed` | a Shell tab started and closed: no registry entry; the newest agent entry is the one resumed |
 | `remove_from_list_forgets_only_the_registry_entry` | after Remove, the row is gone and the stub CLI's own store is untouched |
-| `chat_submit_starts_its_shell_lazily` | composer submit with no tab: one shell tab starts then |
 | `resume_failure_offers_a_new_session` | stub exits at once: failure card with the new fix; click opens the picker |
 
 Run: `cargo test -p designos-app shell` and `cargo test -p designos-app terminal`. Evidence: red/green capture and

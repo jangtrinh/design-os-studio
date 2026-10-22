@@ -56,11 +56,11 @@ written separately and gets its own rows in the second table.
 
 E15 issue numbers are added when the issues are filed.
 
-## Index — part 2 (to be written)
+## Index — part 2
 
 | Task | Issue | Title | Spec |
 |---|---|---|---|
-| E15-18 … E15-48 | — | Styles and archetypes, preset gallery, surface guides and templates, eval harness and suites, critique, repair, variants, assets, code-token round trip, verified codegen, skills pack, image fills in NodeSpec | — |
+| E15-18 … E15-48 | #606–#638 | Styles and archetypes, preset gallery, surface guides and templates, eval harness and suites, critique, repair, variants, assets, code-token round trip, verified codegen, skills pack, image fills in NodeSpec | [README-part2.md](README-part2.md) |
 
 ## Build order
 
@@ -104,11 +104,9 @@ graph LR
   T7_3 --> T7_29[T7.29 HTML codegen]
   T7_38[T7.38 libraries] --> T7_9[T7.9 search]
   T7_2 --> E15_16[E15-16 bootstrap]
-  T7_4 --> E15_16
-  T7_38 --> E15_16
-  T7_9 --> E15_16
   E15_15 --> E15_16
   E15_9 --> E15_17[E15-17 streaming query]
+  E15_11 --> E15_17
   E15_4 --> RD3[RD-3 parallel agents]
   E15_5 --> RD3
   E15_16 --> RD3
@@ -130,7 +128,8 @@ merged; parallel workers need disjoint file ownership, noted per spec under "Tou
 2. E15-2, E15-5, E15-7, E15-8, E15-9, T7.4, T7.9, T7.29, T7.40, T8.27, T10.3. Order inside the wave:
    E15-9 merges before E15-2, because E15-2's PR appends `slot-non-recommended` to E15-9's `agent`
    preset and extends its `presets_name_only_registered_rules` test.
-3. E15-6, E15-10, E15-11, E15-12, E15-17.
+3. E15-6, E15-10, E15-11, E15-12, E15-17. Order inside the wave: E15-11 merges before E15-17, because
+   E15-17's `has-hardcoded` predicate calls E15-11's shared matcher.
 4. E15-13, E15-15.
 5. E15-14, E15-16.
 6. RD-3.

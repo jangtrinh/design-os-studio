@@ -414,11 +414,13 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
         &doc.variable_collections,
         &doc.guides,
         &doc.prototype_device,
+        &doc.auto_fix,
         &doc.comments,
         &doc.library,
         &doc.library_page,
     )
         .serialize(HashSerializer(&mut h));
+    let _ = doc.check_designs.serialize(HashSerializer(&mut h));
     doc.images.len().hash(&mut h);
     for (k, v) in &doc.images {
         (k, v.len(), &v[..v.len().min(64)]).hash(&mut h);
@@ -431,6 +433,9 @@ impl App {
     pub fn attach_library(&mut self, root: PathBuf) {
         // Shared libraries use the same root as the projects library.
         self.libs.set_root(root.clone());
+        let (user_auto_fix, unreadable) = crate::comments::settings::load_auto_fix_checked(&root);
+        self.check_designs.user_auto_fix = user_auto_fix;
+        self.check_designs.settings_unreadable = unreadable;
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {
@@ -459,6 +464,12 @@ impl App {
         self.save_close_version();
         self.stop_plugin();
         self.flush_autosave();
+        if !self.tabs.entries.is_empty() || self.lib_file.is_some() || !self.image_jobs.jobs.is_empty() {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.park_active_from_app(self);
+            tabs.parked_in_home = true;
+            self.tabs = tabs;
+        }
         self.canvas.reset_interaction();
         let mut home = Home::new();
         home.refresh(&lib);
@@ -491,6 +502,22 @@ impl App {
                 return;
             }
         };
+        let needs_thumb = lib.thumbnail_path(&entry).is_none();
+        if self.home.is_some() || self.tabs.parked_in_home {
+            if let Some(existing) = self.tabs.entries.iter().position(|t| t.lib_file.as_ref().is_some_and(|lf| lf.id == id) && !t.doc.nodes.is_empty()) {
+                let mut tabs = std::mem::take(&mut self.tabs);
+                tabs.switch_to(existing, self);
+                self.tabs = tabs;
+                self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
+                self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+                self.history_open_file();
+                let _ = lib.mark_opened(id);
+                if needs_thumb && self.doc.nodes.len() <= 25_000 {
+                    thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
+                }
+                return;
+            }
+        }
         let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{}.designos", entry.id));
         let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
@@ -501,7 +528,6 @@ impl App {
         };
         let project = lib.project(&entry.project).map(|p| p.name).unwrap_or_default();
         doc.name = entry.name.clone();
-        let needs_thumb = lib.thumbnail_path(&entry).is_none();
         self.exit_version_view();
         self.flush_autosave();
         self.release_active_repaired_original(Some(&disk_path));
@@ -516,6 +542,11 @@ impl App {
         let _ = lib.mark_opened(id);
         self.home = None;
         self.ui.menu = None;
+        if self.tabs.parked_in_home && !self.tabs.entries.is_empty() {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.reconcile_frame(self);
+            self.tabs = tabs;
+        }
         if needs_thumb && self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
         }
@@ -588,6 +619,27 @@ impl App {
         self.new_library_board(target);
     }
 
+    /// Writes `doc` to `lf` in `lib` with repair-backup preservation and non-finite number neutralization.
+    pub(crate) fn save_doc_to_library(
+        lib: &Library,
+        lf: &LibFile,
+        doc: &mut Document,
+        hist: &mut designos_doc::History,
+    ) -> Result<(Option<String>, bool), String> {
+        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
+        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
+        let replaced = lib.save_file_counted(&lf.id, doc).map_err(|e| format!("Cannot save: {e}"))?;
+        if wrote_backup {
+            crate::io::clear_pending_repair_backup(&disk_path);
+        }
+        let neutralized = replaced > 0;
+        if neutralized {
+            doc.neutralize_non_finite();
+            hist.neutralize_non_finite();
+        }
+        Ok((crate::io::non_finite_notice_once(&disk_path, replaced), neutralized))
+    }
+
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
     /// that replaced non-finite numbers says so, because no later open of the file would.
     pub fn save_library_file(&mut self) -> Result<(), String> {
@@ -608,15 +660,8 @@ impl App {
             return Err("Go back to the current version before saving".into());
         }
         self.settle_pending_relayout();
-        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
-        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
-        let replaced = lib.save_file_counted(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
-        if wrote_backup {
-            crate::io::clear_pending_repair_backup(&disk_path);
-        }
-        if replaced > 0 {
-            self.doc.neutralize_non_finite();
-            self.hist.neutralize_non_finite();
+        let (notice, neutralized) = Self::save_doc_to_library(&lib, &lf, &mut self.doc, &mut self.hist)?;
+        if neutralized {
             self.changed();
         }
         self.autosave.saved_hash = doc_hash(&self.doc);
@@ -628,7 +673,7 @@ impl App {
         if self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
-        Ok(crate::io::non_finite_notice_once(&disk_path, replaced))
+        Ok(notice)
     }
 
     /// Ctrl+S on a library file.

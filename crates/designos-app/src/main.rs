@@ -1,3 +1,4 @@
+mod agent_selection_chip;
 mod agent_start_failure;
 mod app;
 mod board;
@@ -17,6 +18,7 @@ mod fonts;
 mod history;
 mod home;
 mod icons;
+mod image_jobs;
 mod io;
 mod layout;
 mod libraries;
@@ -44,6 +46,7 @@ mod specs;
 mod styles;
 mod tabs;
 mod terminal;
+mod terminal_undo_chord;
 #[cfg(test)]
 mod test_timing;
 mod textedit;
@@ -286,6 +289,16 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         std::fs::write(out_path, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
         let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len() });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+
+    if let Some(lang_id) = &opts.codegen {
+        let lang = designos_export::CodeLanguage::from_id(lang_id).ok_or_else(|| format!("Unknown codegen language '{lang_id}'"))?;
+        let target_id = selected_node
+            .or_else(|| doc.pages.first().and_then(|p| doc.get(*p)).and_then(|p| p.children.first()).copied())
+            .or_else(|| doc.pages.first().copied())
+            .ok_or("No node found to generate code for")?;
+        let resolved = designos_doc::apply_bound_variables(&doc);
+        println!("{}", lang.generate(&resolved, target_id, false));
     }
 
     if opts.comments_json {

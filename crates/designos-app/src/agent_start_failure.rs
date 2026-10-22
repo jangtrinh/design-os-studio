@@ -130,12 +130,12 @@ pub fn diagnose(preset: AgentCliPreset, installed: bool, exit_code: Option<u32>,
         "invalid api key",
     ];
     let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
-    let (cause, needles) = if !installed || has(NOT_INSTALLED) {
-        (StartFailureCause::NotInstalled, NOT_INSTALLED)
-    } else if has(UNKNOWN_FLAG) {
+    let (cause, needles) = if has(UNKNOWN_FLAG) {
         (StartFailureCause::UnknownFlag, UNKNOWN_FLAG)
     } else if has(NOT_LOGGED_IN) {
         (StartFailureCause::NotLoggedIn, NOT_LOGGED_IN)
+    } else if has(NOT_INSTALLED) || !installed {
+        (StartFailureCause::NotInstalled, NOT_INSTALLED)
     } else {
         (StartFailureCause::ExitedEarly, &[][..])
     };
@@ -317,6 +317,32 @@ mod tests {
         assert_eq!(f.headline(), "grok exited with code 3");
         assert_eq!(f.fix, FixAction::OpenShell);
         assert_eq!(d(AgentCliPreset::Grok, true, None, "").headline(), "grok exited right after it started");
+    }
+
+    #[test]
+    fn signed_out_output_beats_a_failed_install_probe() {
+        let f = d(AgentCliPreset::Grok, false, Some(1), "Error: unauthorized\nrun grok login");
+        assert_eq!(f.cause, StartFailureCause::NotLoggedIn);
+        assert_eq!(f.fix, FixAction::RunLogin("grok login"));
+    }
+
+    #[test]
+    fn unknown_flag_output_beats_a_failed_install_probe() {
+        let f = d(AgentCliPreset::Antigravity, false, Some(2), "flags provided but not defined: -mcp-config");
+        assert_eq!(f.cause, StartFailureCause::UnknownFlag);
+        assert_eq!(f.fix, FixAction::OpenShell);
+    }
+
+    #[test]
+    fn silent_exit_of_an_unfound_binary_is_not_installed() {
+        let f = d(AgentCliPreset::Codex, false, Some(127), "");
+        assert_eq!(f.cause, StartFailureCause::NotInstalled);
+    }
+
+    #[test]
+    fn command_not_found_output_is_not_installed() {
+        let f = d(AgentCliPreset::Claude, true, Some(127), "zsh: command not found: claude");
+        assert_eq!(f.cause, StartFailureCause::NotInstalled);
     }
 
     fn luminance(c: Color32) -> f32 {

@@ -3,6 +3,47 @@
 
 use crate::NodeId;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+/// WCAG contrast threshold level for Check designs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContrastLevel {
+    #[default]
+    AA,
+    AAA,
+}
+
+impl ContrastLevel {
+    pub fn is_aa(&self) -> bool {
+        matches!(self, ContrastLevel::AA)
+    }
+}
+
+/// Persistent key for an ignored Check designs finding.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct IgnoreKey {
+    pub node: NodeId,
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub property: String,
+}
+
+/// Per-document Check designs configuration: disabled rules, contrast level, and ignored findings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckDesignsSettings {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub disabled_rules: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "ContrastLevel::is_aa")]
+    pub contrast_level: ContrastLevel,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub ignored: BTreeSet<IgnoreKey>,
+}
+
+impl CheckDesignsSettings {
+    pub fn is_empty(&self) -> bool {
+        self.disabled_rules.is_empty() && self.contrast_level.is_aa() && self.ignored.is_empty()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GuideAxis {
@@ -62,6 +103,51 @@ pub struct PrototypeDevice {
     pub background: Option<crate::Color>,
 }
 
+/// Safe-tier auto-fix rule identifiers in display order.
+pub const SAFE_AUTO_FIX_RULES: [&str; 2] = ["sizing-conflict", "hardcoded-value"];
+
+/// Whether post-apply auto-fix runs, only reports, or stays off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoFixMode {
+    #[default]
+    On,
+    ReportOnly,
+    Off,
+}
+
+impl AutoFixMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AutoFixMode::On => "on",
+            AutoFixMode::ReportOnly => "report_only",
+            AutoFixMode::Off => "off",
+        }
+    }
+}
+
+/// Per-file (`Document::auto_fix`) or per-user (`~/.designos/settings.json` `"auto_fix"`)
+/// auto-fix settings. Missing rules default to `true`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AutoFixSettings {
+    #[serde(default)]
+    pub mode: AutoFixMode,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub rules: std::collections::BTreeMap<String, bool>,
+}
+
+impl AutoFixSettings {
+    /// True when `rule` is enabled (missing rules default to `true`).
+    pub fn rule_enabled(&self, rule: &str) -> bool {
+        self.rules.get(rule).copied().unwrap_or(true)
+    }
+
+    /// Sets `rule` to `enabled`.
+    pub fn set_rule(&mut self, rule: impl Into<String>, enabled: bool) {
+        self.rules.insert(rule.into(), enabled);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::*;
@@ -94,5 +180,61 @@ mod tests {
         let back = Document::from_json(&d.to_json().unwrap()).unwrap();
         assert_eq!(back.get(id).unwrap().export_settings, d.get(id).unwrap().export_settings);
         assert!(!serde_json::to_string(back.get(page).unwrap()).unwrap().contains("export_settings"));
+    }
+
+    #[test]
+    fn settings_round_trip_and_old_files_load() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let default_json = d.to_json().unwrap();
+        assert!(!default_json.contains("check_designs"), "empty settings write no key: {default_json}");
+        let loaded_old = Document::from_json(&default_json).unwrap();
+        assert!(loaded_old.check_designs.is_empty());
+
+        let mut h = History::default();
+        let mut next = CheckDesignsSettings { contrast_level: ContrastLevel::AAA, ..Default::default() };
+        next.disabled_rules.insert("REQUIRE_TEXT_STYLES".into());
+        next.ignored.insert(IgnoreKey { node: id, rule: "RECOMMEND_VARIABLES".into(), property: "fills/0".into() });
+        h.exec(&mut d, Command::SetCheckDesignsSettings(next.clone())).unwrap();
+        assert_eq!(d.check_designs, next);
+
+        let with_settings_json = d.to_json().unwrap();
+        assert!(with_settings_json.contains("\"check_designs\""));
+        let round = Document::from_json(&with_settings_json).unwrap();
+        assert_eq!(round.check_designs, next);
+
+        h.undo(&mut d).unwrap();
+        assert!(d.check_designs.is_empty());
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.check_designs, next);
+
+        // Deleting a node via History and undoing the delete must preserve its ignored keys.
+        h.exec(&mut d, Command::Remove { id }).unwrap();
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.check_designs, next, "undoing node delete must preserve its ignored check-designs keys");
+
+        // Deleting the node drops its keys when the saved file is read back (garbage collection).
+        d.remove(id).unwrap();
+        let after_delete_json = d.to_json().unwrap();
+        let after_delete = Document::from_json(&after_delete_json).unwrap();
+        assert!(after_delete.check_designs.ignored.is_empty());
+    }
+
+    #[test]
+    fn auto_fix_settings_roundtrip_and_undo() {
+        let mut d = Document::new("t");
+        assert!(!d.to_json().unwrap().contains("auto_fix"));
+        let mut h = History::default();
+        let mut s = AutoFixSettings { mode: AutoFixMode::ReportOnly, rules: Default::default() };
+        s.set_rule("sizing-conflict", false);
+        h.exec(&mut d, Command::SetAutoFix { settings: Some(s.clone()) }).unwrap();
+        let json = d.to_json().unwrap();
+        assert!(json.contains("\"report_only\""));
+        let back = Document::from_json(&json).unwrap();
+        assert_eq!(back.auto_fix, Some(s));
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.auto_fix, None);
     }
 }

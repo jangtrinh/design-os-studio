@@ -27,6 +27,7 @@ pub fn user_edit_in_progress(app: &App) -> bool {
 /// changes are still held (see `TerminalState::sync_live_file_context`).
 pub fn publish_live_context(app: &mut App) {
     app.terminal.edit_in_progress = user_edit_in_progress(app);
+    app.terminal.set_auto_fix_user(app.check_designs.user_auto_fix.clone());
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
 }
 
@@ -82,9 +83,71 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
     let mut total = LivePatchReport::default();
     let mut committed_any = false;
     let mut failures = Vec::new();
+    let mut auto_fix_toast: Option<String> = None;
     for patch in patches {
+        let is_auto_fix = patch.auto_fix_report.is_some() || patch.label.as_deref().is_some_and(|l| l.starts_with("Auto-fix"));
+        if is_auto_fix {
+            let effective = app.effective_auto_fix();
+            if effective.mode == designos_doc::AutoFixMode::Off {
+                continue;
+            }
+            let rows: Vec<designos_doc::live_patch::FixRow> = patch
+                .auto_fix_report
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| effective.rule_enabled(&r.rule))
+                .map(|mut r| {
+                    r.node = app.terminal.live_patch.state.target(&app.doc, r.node);
+                    if r.node_name.is_empty() {
+                        if let Some(n) = app.doc.get(r.node) {
+                            r.node_name = n.name.clone();
+                        }
+                    }
+                    r
+                })
+                .collect();
+            let report_only =
+                effective.mode == designos_doc::AutoFixMode::ReportOnly || patch.ops.is_empty() || patch.label.as_deref() == Some("Auto-fix (report only)");
+            if report_only {
+                if !rows.is_empty() {
+                    let n = rows.len();
+                    app.check_designs.record_auto_fix("Auto-fix (report only)", true, rows);
+                    app.terminal.set_auto_fix_notice(n, true);
+                    if !app.check_designs.open {
+                        auto_fix_toast = Some(format!("{n} {} available", if n == 1 { "fix" } else { "fixes" }));
+                    }
+                }
+                continue;
+            }
+            match apply_one(app, patch) {
+                Ok((report, committed)) => {
+                    if committed {
+                        app.hist.set_top_undo_label(patch.label.as_deref().unwrap_or("Auto-fix"));
+                        committed_any = true;
+                        merge(&mut total, report);
+                    }
+                    if !rows.is_empty() {
+                        let n = rows.len();
+                        let label = patch.label.clone().unwrap_or_else(|| "Auto-fix".to_string());
+                        app.check_designs.record_auto_fix(label, false, rows);
+                        app.terminal.set_auto_fix_notice(n, false);
+                        if !app.check_designs.open {
+                            auto_fix_toast = Some(format!("Auto-fixed {n} {}", if n == 1 { "issue" } else { "issues" }));
+                        }
+                    }
+                }
+                Err(e) => failures.push(e),
+            }
+            continue;
+        }
         match apply_one(app, patch) {
             Ok((report, committed)) => {
+                if committed {
+                    if let Some(label) = &patch.label {
+                        app.hist.set_top_undo_label(label.clone());
+                    }
+                }
                 committed_any |= committed;
                 merge(&mut total, report);
             }
@@ -104,6 +167,8 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
             n => format!("{} of {n} agent edits could not be applied: {first}", failures.len()),
         };
         app.show_toast(msg, true);
+    } else if let Some(msg) = auto_fix_toast {
+        app.show_toast(msg, false);
     } else if let Some(msg) = toast_text(&total, committed_any) {
         app.show_toast(msg, !total.skipped.is_empty());
     }

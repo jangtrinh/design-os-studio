@@ -157,10 +157,37 @@ fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
     }
     let session = a.parse::<u32>().ok()?;
     let local = b.parse::<u32>().ok()?;
-    if session == 0 && (local == 0 || local == 999_999) {
+    if (session == 0 && (local == 0 || local == 999_999)) || (session == u32::MAX && local == u32::MAX) {
         return None;
     }
     Some((session, local))
+}
+
+/// Fallback component key for `id` when no explicit `componentKey` or library key is present.
+/// Uses the bare `"{s}:{l}"` GUID string unless another component already owns that string, in
+/// which case it disambiguates as `"comp:{s}:{l}"`, `"comp:{s}:{l}:2"`, `"comp:{s}:{l}:3"`, …
+fn fallback_component_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<String> {
+    if let Some(k) = cx.comp_keys.get(&id) {
+        return Some(k.clone());
+    }
+    let g = cx.node_guids.get(&id)?;
+    let taken_by_other = |candidate: &str| cx.comp_keys.iter().any(|(&other_id, k)| other_id != id && k == candidate);
+    let bare = format!("{}:{}", g.0, g.1);
+    if !taken_by_other(&bare) {
+        return Some(bare);
+    }
+    let prefixed = format!("comp:{}:{}", g.0, g.1);
+    if !taken_by_other(&prefixed) {
+        return Some(prefixed);
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("comp:{}:{}:{n}", g.0, g.1);
+        if !taken_by_other(&candidate) {
+            return Some(candidate);
+        }
+        n += 1;
+    }
 }
 
 impl<'a> ExportCtx<'a> {
@@ -168,6 +195,7 @@ impl<'a> ExportCtx<'a> {
         let mut used = HashSet::new();
         used.insert((0, 0));
         used.insert((0, 999_999));
+        used.insert((u32::MAX, u32::MAX));
         let nc_def = schema.find("NodeChange").unwrap_or(0);
         let mut cx = Self {
             doc,
@@ -186,6 +214,11 @@ impl<'a> ExportCtx<'a> {
             blobs: Vec::new(),
             changes: Vec::new(),
         };
+        let bump_next_local = |next_local: &mut u32, local: u32| {
+            if let Some(next) = local.checked_add(1) {
+                *next_local = (*next_local).max(next);
+            }
+        };
         // First pass: reserve explicit `s:l` GUIDs so generated ones never collide.
         for (&id, n) in &doc.nodes {
             if doc.library_page.is_some_and(|lp| n.parent == Some(lp)) && n.source_id.as_deref().is_some_and(|sid| doc.styles.contains_key(sid)) {
@@ -193,7 +226,7 @@ impl<'a> ExportCtx<'a> {
             }
             if let Some(g) = n.source_id.as_deref().and_then(parse_guid_pair) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.node_guids.insert(id, g);
                 }
             }
@@ -201,7 +234,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variable_collections.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.coll_guids.insert(id.clone(), g);
                 }
             }
@@ -210,7 +243,7 @@ impl<'a> ExportCtx<'a> {
             for m in &c.modes {
                 if let Some(g) = parse_guid_pair(&m.id) {
                     if cx.used_guids.insert(g) {
-                        cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                        bump_next_local(&mut cx.next_local, g.1);
                         cx.mode_guids.insert(m.id.clone(), g);
                     }
                 }
@@ -219,7 +252,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variables.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.var_guids.insert(id.clone(), g);
                 }
             }
@@ -227,7 +260,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.styles.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.style_guids.insert(id.clone(), g);
                 }
             }
@@ -300,10 +333,14 @@ impl<'a> ExportCtx<'a> {
                 }
             }
         }
-        for (&id, n) in &doc.nodes {
-            if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) && !cx.comp_keys.contains_key(&id) {
-                let g = cx.node_guids[&id];
-                cx.comp_keys.insert(id, format!("{}:{}", g.0, g.1));
+        let mut comp_ids: Vec<NodeId> =
+            doc.nodes.iter().filter_map(|(&id, n)| matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)).then_some(id)).collect();
+        comp_ids.sort_by_key(|id| id.0);
+        for id in comp_ids {
+            if !cx.comp_keys.contains_key(&id) {
+                if let Some(key) = fallback_component_key(&cx, id) {
+                    cx.comp_keys.insert(id, key);
+                }
             }
         }
         grid::allocate(&mut cx);
@@ -313,7 +350,7 @@ impl<'a> ExportCtx<'a> {
     fn alloc_guid(&mut self, session: u32) -> (u32, u32) {
         loop {
             let g = (session, self.next_local);
-            self.next_local += 1;
+            self.next_local = self.next_local.wrapping_add(1).max(1);
             if self.used_guids.insert(g) {
                 return g;
             }
@@ -2053,7 +2090,7 @@ fn encode_preferred_values(cx: &ExportCtx, preferred: &[NodeId]) -> Option<V> {
             NodeKind::ComponentSet(_) => "STATE_GROUP",
             _ => "COMPONENT",
         };
-        let key = cx.comp_keys.get(pid).cloned().or_else(|| cx.node_guids.get(pid).map(|g| format!("{}:{}", g.0, g.1)))?;
+        let key = fallback_component_key(cx, *pid)?;
         swap_vals.push(msg(vec![("type", en(ty)), ("key", V::String(key))]));
     }
     if swap_vals.is_empty() {

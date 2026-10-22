@@ -177,6 +177,61 @@ pub(crate) fn slot_ident(name: &str, lang: Lang) -> String {
     }
 }
 
+/// `name` as a non-slot property identifier of `lang`: reserved words, `children`/`className`
+/// (React), and names already in `taken` are renamed deterministically.
+pub(crate) fn prop_ident(name: &str, lang: Lang, taken: &mut Vec<String>) -> String {
+    let reserved = match lang {
+        Lang::React => JS_RESERVED,
+        Lang::Swift => SWIFT_RESERVED,
+        Lang::Kotlin => KOTLIN_RESERVED,
+    };
+    let is_reserved = reserved.contains(&name) || (lang == Lang::React && matches!(name, "children" | "className"));
+    let base = if is_reserved { format!("{name}Prop") } else { name.to_string() };
+    let mut cand = base.clone();
+    let mut n = 2usize;
+    while taken.contains(&cand) {
+        cand = format!("{base}{n}");
+        n += 1;
+    }
+    taken.push(cand.clone());
+    cand
+}
+
+/// `name` as a slot parameter identifier of `lang`, deduplicated against `taken`.
+pub(crate) fn slot_ident_in(name: &str, single: bool, lang: Lang, taken: &mut Vec<String>) -> String {
+    let raw = slot_ident(name, lang);
+    let base = if lang == Lang::React { react_prop(name, single && !taken.contains(&raw)) } else { raw };
+    let mut cand = base.clone();
+    let mut n = 2usize;
+    while taken.contains(&cand) {
+        cand = format!("{base}{n}");
+        n += 1;
+    }
+    taken.push(cand.clone());
+    cand
+}
+
+/// Resolved slot parameter identifier for slot `slot_name` of `comp` in `lang`.
+pub(crate) fn slot_ident_for(doc: &Document, comp: Option<NodeId>, slot_name: &str, single: bool, lang: Lang) -> String {
+    let Some(comp) = comp else {
+        let mut taken = Vec::new();
+        return slot_ident_in(slot_name, single, lang, &mut taken);
+    };
+    let mut taken = Vec::new();
+    for p in prop_params(doc, comp) {
+        prop_ident(&p.name, lang, &mut taken);
+    }
+    let infos = slot_infos(doc, comp);
+    let is_single = infos.len() == 1;
+    for s in &infos {
+        let id = slot_ident_in(&s.name, is_single, lang, &mut taken);
+        if s.name == slot_name {
+            return id;
+        }
+    }
+    slot_ident_in(slot_name, single, lang, &mut taken)
+}
+
 /// Whether `id` is a slot container node (`is_slot` or `is_slot_container`).
 fn is_slot_node(doc: &Document, id: NodeId) -> bool {
     doc.get(id).is_some_and(|n| n.component.is_slot || is_slot_container(doc, id))
@@ -274,6 +329,8 @@ fn has_default_content(doc: &Document, info: &SlotInfo) -> bool {
 
 /// A slot container on a component definition.
 pub(crate) struct SlotSite {
+    /// Enclosing component or component set, if any.
+    pub comp: Option<NodeId>,
     /// camelCase slot name.
     pub name: String,
     /// The component has exactly one slot.
@@ -290,47 +347,85 @@ pub(crate) fn slot_site(doc: &Document, id: NodeId) -> Option<SlotSite> {
     }
     let name = slot_param_name(doc, id)?;
     let n = doc.get(id)?;
-    let count = enclosing_component(doc, id).map(|c| slot_infos(doc, c).len()).unwrap_or(1);
-    Some(SlotSite { name, single: count == 1, defaults: visible_children(doc, n).iter().map(|c| c.id).collect() })
+    let comp = enclosing_component(doc, id);
+    let count = comp.map(|c| slot_infos(doc, c).len()).unwrap_or(1);
+    Some(SlotSite { comp, name, single: count == 1, defaults: visible_children(doc, n).iter().map(|c| c.id).collect() })
 }
 
-/// A non-slot component property, as a parameter of a generated slot component.
+fn js_str(s: &str) -> String {
+    format!(
+        "'{}'",
+        s.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r").replace('\u{2028}', "\\u2028").replace('\u{2029}', "\\u2029")
+    )
+}
+
+/// A non-slot component property, as a parameter of a generated component.
 pub(crate) struct PropParam {
     /// camelCase name, as `instance_args` passes it.
     pub name: String,
     pub default: PropDefault,
 }
 
+impl PropParam {
+    /// TypeScript type of this property in a React component signature.
+    pub fn ts_type(&self) -> String {
+        match &self.default {
+            PropDefault::Bool(_) => "boolean".into(),
+            PropDefault::Text(_) => "string".into(),
+            PropDefault::Variant { options, .. } if !options.is_empty() => options.iter().map(|o| js_str(o)).collect::<Vec<_>>().join(" | "),
+            PropDefault::Variant { .. } => "string".into(),
+            PropDefault::Instance(_) => "React.ReactNode".into(),
+        }
+    }
+
+    /// Destructured parameter binding (`name = default` or `name` when the default is omitted).
+    pub fn react_binding(&self, ident: &str) -> String {
+        match &self.default {
+            PropDefault::Bool(b) => format!("{ident} = {b}"),
+            PropDefault::Text(t) | PropDefault::Variant { value: t, .. } => format!("{ident} = {}", js_str(t)),
+            PropDefault::Instance(Some(v)) => format!("{ident} = <{v} />"),
+            PropDefault::Instance(None) => ident.to_string(),
+        }
+    }
+}
+
 pub(crate) enum PropDefault {
     Bool(bool),
-    /// Text, or the selected option of a variant property.
+    /// Text property default.
     Text(String),
+    /// Variant property: selected default option and the declared option list.
+    Variant {
+        value: String,
+        options: Vec<String>,
+    },
     /// Swapped-in component: its view name, if the default names one.
     Instance(Option<String>),
 }
 
 /// The non-slot properties of component definition `root` with their defaults, in declaration
-/// order. A generated component with slots declares these so every argument an instance passes
-/// resolves. Empty for anything but a component or component set.
+/// order (set-then-variant order when `root` is a variant). A generated component declares these
+/// so every argument an instance passes resolves. Empty for anything but a component or component set.
 pub(crate) fn prop_params(doc: &Document, root: NodeId) -> Vec<PropParam> {
     let Some(n) = doc.get(root) else { return Vec::new() };
     if !matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
         return Vec::new();
     }
     let mut out: Vec<PropParam> = Vec::new();
-    for def in prop_defs(doc, root) {
+    for def in ordered_prop_defs(doc, root) {
         let default = match (&def.kind, &def.default) {
             (PropKind::Slot, _) => continue,
+            (PropKind::Variant { options }, PropValue::Variant(t) | PropValue::Text(t)) => PropDefault::Variant { value: t.clone(), options: options.clone() },
+            (PropKind::Variant { options }, _) => PropDefault::Variant { value: options.first().cloned().unwrap_or_default(), options: options.clone() },
             (_, PropValue::Bool(b)) => PropDefault::Bool(*b),
-            (_, PropValue::Text(t) | PropValue::Variant(t)) => PropDefault::Text(t.clone()),
-            (_, PropValue::Instance(c)) => PropDefault::Instance(doc.get(*c).map(|c| pascal(&c.name))),
+            (_, PropValue::Text(t)) => PropDefault::Text(t.clone()),
+            (_, PropValue::Variant(t)) => PropDefault::Variant { value: t.clone(), options: Vec::new() },
+            (_, PropValue::Instance(c)) => PropDefault::Instance(doc.get(*c).map(|c| view_name(doc, c))),
             (PropKind::Boolean, _) => PropDefault::Bool(false),
-            (PropKind::Variant { options }, _) => PropDefault::Text(options.first().cloned().unwrap_or_default()),
             (PropKind::InstanceSwap { .. }, _) => PropDefault::Instance(None),
             _ => PropDefault::Text(String::new()),
         };
         let name = camel(clean_prop_name(&def.name));
-        if !name.is_empty() && !out.iter().any(|p| p.name == name) {
+        if !name.is_empty() {
             out.push(PropParam { name, default });
         }
     }
@@ -425,22 +520,29 @@ pub(crate) fn react_prop(name: &str, single: bool) -> String {
     }
 }
 
-/// React function header for `n`, with one `React.ReactNode` prop per slot.
+/// React function header for `n`, with one typed prop per non-slot component property and one
+/// `React.ReactNode` prop per slot.
 pub(crate) fn react_slot_signature(doc: &Document, n: &Node) -> String {
     let name = view_name(doc, n);
+    let params = prop_params(doc, n.id);
     let infos = slot_infos(doc, n.id);
-    if infos.is_empty() {
+    if params.is_empty() && infos.is_empty() {
         return format!("export function {name}() {{");
     }
     let single = enclosing_component(doc, n.id).map(|c| slot_infos(doc, c).len()).unwrap_or(infos.len()) == 1;
+    let mut taken: Vec<String> = Vec::new();
     let mut props: Vec<String> = Vec::new();
-    for i in &infos {
-        let p = react_prop(&i.name, single);
-        if !props.contains(&p) {
-            props.push(p);
-        }
+    let mut types: Vec<String> = Vec::new();
+    for p in &params {
+        let ident = prop_ident(&p.name, Lang::React, &mut taken);
+        props.push(p.react_binding(&ident));
+        types.push(format!("{ident}?: {}", p.ts_type()));
     }
-    let types: Vec<String> = props.iter().map(|p| format!("{p}?: React.ReactNode")).collect();
+    for i in &infos {
+        let p = slot_ident_in(&i.name, single, Lang::React, &mut taken);
+        props.push(p.clone());
+        types.push(format!("{p}?: React.ReactNode"));
+    }
     format!("export function {name}({{ {} }}: {{ {} }}) {{", props.join(", "), types.join("; "))
 }
 
@@ -448,8 +550,8 @@ pub(crate) fn react_slot_signature(doc: &Document, n: &Node) -> String {
 pub(crate) type RenderNode<'a> = &'a dyn Fn(&mut Out, NodeId, usize);
 
 /// JSX for a slot on a definition: `{prop}`, or `{prop ?? (<default content/>)}` when the slot has default content.
-pub(crate) fn emit_react_slot(o: &mut Out, depth: usize, site: &SlotSite, render: RenderNode) {
-    let prop = react_prop(&site.name, site.single);
+pub(crate) fn emit_react_slot(doc: &Document, o: &mut Out, depth: usize, site: &SlotSite, render: RenderNode) {
+    let prop = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::React);
     if site.defaults.is_empty() {
         o.line(depth, format!("{{{prop}}}"));
         return;
@@ -487,11 +589,12 @@ impl ReactFills {
 }
 
 pub(crate) fn react_fills(doc: &Document, n: &Node) -> ReactFills {
+    let comp = instance_component(n);
     let slots = instance_slots(doc, n);
     let single = slots.single();
     let mut out = ReactFills { children: None, props: Vec::new() };
     for f in slots.fills {
-        let prop = react_prop(&f.name, single);
+        let prop = slot_ident_for(doc, comp, &f.name, single, Lang::React);
         if prop == "children" {
             out.children = Some(f.ids);
         } else {

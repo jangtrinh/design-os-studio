@@ -40,6 +40,8 @@ designos app.designos --select "Apply Spec CTA" --add-comment "Switch CTA to Syn
 designos app.designos --reply-comment t1 --message "Updated spec and auto-reloaded on Canvas!" --resolve
 ```
 
+- **Terminal-Focused Document Undo / Redo**: While an agent terminal has keyboard focus, `Cmd+Z` and `Shift+Cmd+Z` / `Cmd+Y` on macOS (or `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y` on Windows and Linux for agent tabs whose CLI does not reserve `Ctrl+Z`; `Shell` tabs keep `Ctrl+Z` for the shell) undo and redo document edits one step per agent tool call without leaving the terminal.
+
 ---
 
 ## 3. Headless GPU Screenshot & Visual QA Automation (`15` Studio Surfaces)

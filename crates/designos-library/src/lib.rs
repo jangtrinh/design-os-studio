@@ -16,10 +16,12 @@
 //! recents, thumbnails, trash), `publish` (shared libraries) and `versions`
 //! (version history). Each adds `impl Library` blocks in its own file.
 
+mod branches;
 mod publish;
 mod store;
 mod versions;
 
+pub use branches::*;
 pub use publish::*;
 pub use store::*;
 pub use versions::*;

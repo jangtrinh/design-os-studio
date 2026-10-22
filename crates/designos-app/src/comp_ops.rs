@@ -39,6 +39,8 @@ fn ids_of(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
         | Command::SetVariables { .. }
         | Command::SetGuides { .. }
         | Command::SetPrototypeDevice { .. }
+        | Command::SetCheckDesignsSettings(_)
+        | Command::SetAutoFix { .. }
         | Command::SetComments { .. }
         | Command::SetLibraryState { .. }
         | Command::SetImages { .. }
@@ -471,6 +473,16 @@ impl App {
     /// Owner of the property definitions shown for `comp`: its set, else itself.
     pub fn prop_owner(&self, comp: NodeId) -> NodeId {
         self.doc.get(comp).and_then(|n| n.parent).filter(|p| matches!(self.doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp)
+    }
+
+    /// Node that defines property `name` for `comp`: `comp` itself when defined on the variant,
+    /// otherwise `prop_owner(comp)`.
+    pub fn prop_def_owner(&self, comp: NodeId, name: &str) -> NodeId {
+        if self.doc.get(comp).is_some_and(|n| n.component.props.iter().any(|p| p.name == name)) {
+            comp
+        } else {
+            self.prop_owner(comp)
+        }
     }
 
     fn comp_edit(&mut self, f: impl FnOnce(&mut Document) -> Command) {

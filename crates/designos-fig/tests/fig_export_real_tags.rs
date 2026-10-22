@@ -128,11 +128,37 @@ fn sticky_author_and_slot_content_id_round_trip_through_a_reserved_plugin_data_c
     assert!(find(&rt, "CardInstance").component.slot_content_id.is_none());
 
     // The carrier is reserved bookkeeping: it never shows up as a node's own plugin data.
+    let slot_carrier = format!("{STUDIO_PLUGIN_ID}:slot-content-id");
+    let author_carrier = format!("{STUDIO_PLUGIN_ID}:author-visible");
     for n in rt.nodes.values() {
         assert!(
-            !n.plugin_data
-                .keys()
-                .any(|k| k.starts_with(&format!("{STUDIO_PLUGIN_ID}:slot-content-id")) || k.starts_with(&format!("{STUDIO_PLUGIN_ID}:author-visible"))),
+            !n.plugin_data.keys().any(|k| k == &slot_carrier || k == &author_carrier),
+            "{}: reserved carrier leaked into plugin_data: {:?}",
+            n.name,
+            n.plugin_data
+        );
+    }
+}
+
+#[test]
+fn real_tags_check_rejects_a_longer_key() {
+    let mut doc = rich_document();
+    let card_id = find(&doc, "Card").id;
+    let longer_slot_key = format!("{STUDIO_PLUGIN_ID}:slot-content-id-extra");
+    let longer_author_key = format!("{STUDIO_PLUGIN_ID}:author-visible-extra");
+    doc.get_mut(card_id).unwrap().plugin_data.insert(longer_slot_key.clone(), "user-slot-val".into());
+    doc.get_mut(card_id).unwrap().plugin_data.insert(longer_author_key.clone(), "user-author-val".into());
+
+    let rt = import_through_real_fields(&export_fig(&doc).expect("export_fig"));
+    let rt_card = find(&rt, "Card");
+    assert_eq!(rt_card.plugin_data.get(&longer_slot_key).map(String::as_str), Some("user-slot-val"));
+    assert_eq!(rt_card.plugin_data.get(&longer_author_key).map(String::as_str), Some("user-author-val"));
+
+    let slot_carrier = format!("{STUDIO_PLUGIN_ID}:slot-content-id");
+    let author_carrier = format!("{STUDIO_PLUGIN_ID}:author-visible");
+    for n in rt.nodes.values() {
+        assert!(
+            !n.plugin_data.keys().any(|k| k == &slot_carrier || k == &author_carrier),
             "{}: reserved carrier leaked into plugin_data: {:?}",
             n.name,
             n.plugin_data

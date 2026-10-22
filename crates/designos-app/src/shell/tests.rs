@@ -960,6 +960,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
     }
 }
 
+mod auto_fix;
 mod board;
 mod board_home;
 mod check_designs;
@@ -991,6 +992,7 @@ mod assets_thumbs;
 mod libraries;
 mod lint;
 mod plugins;
+mod terminal_undo_chord;
 
 #[test]
 fn launch_visual_proof_presets_render_all_eight_micro_interaction_showcases() {

@@ -140,6 +140,6 @@ fn a_long_list_of_rows_is_checked_to_the_end() {
     // The scan visits at most 4096 layers per text. Without the bounds, the rows past the 215th
     // used that up on the rows before them and were skipped as "unknown".
     let report = long_list(300).report();
-    assert!(!report.truncated);
+    assert!(report.complete);
     assert_eq!(report.of(Rule::Contrast).count(), 3000);
 }

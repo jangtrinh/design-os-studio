@@ -38,7 +38,7 @@ Hard dependencies are listed first; "soft" means the task can start without it b
 | Task | Needs (hard) | Soft |
 |---|---|---|
 | #681 | #650 (merged) | |
-| #682 | #592, #572 | #653, #683 |
+| #682 | #592 | #572 (v0.6.1 per-agent colour), #653, #683 |
 | #683 | #677 | #651, #653, #647 (merged), #678 (shares the hook files) |
 | #684 | #589, #592, #677 | #572, #683 |
 | #685 | none | #589 (granularity text only) |
@@ -48,7 +48,7 @@ Hard dependencies are listed first; "soft" means the task can start without it b
 | #689 | #651, #653, #681 | #655, #656 |
 | #690 | none | #653 |
 | #691 | none | |
-| #693 | #592, #572, #677 | #682 |
+| #693 | #592, #677 | #572 (v0.6.1 per-agent name), #682 |
 | #695 | #677, #682 | |
 | #5 | none | |
 | #157 | #35 (merged) | FU-663 (rebase) |
@@ -69,10 +69,10 @@ graph LR
   AX677 --> P693[#693 busy banner]
   AX677 --> P695[#695 chip]
   E15_7[#592] --> P682[#682 cursor + flash]
-  RD3[#572] --> P682
+  RD3[#572] -.v0.6.1.-> P682
   E15_7 --> P684
   E15_7 --> P693
-  RD3 --> P693
+  RD3 -.v0.6.1.-> P693
   P682 --> P695
   P683 --> P687[#687 accessibility]
   P686[#686 failures] --> P687
@@ -85,16 +85,16 @@ graph LR
 - #685, #691, #5 and #696 depend on no other v0.6 task and can start at once.
 - #689 retires the one-shot composer path that part 3's #651 spec still mentions ("the chat-mode composer starts one-shot shell on first submit"); #651's implementer leaves that line out.
 - #683 and part 3's #677 both mark turns. #677's `turn_mark` lines give the boundary; #683's `agent-events.jsonl` gives tool counts, step text and per-tab attribution. They do not duplicate each other (spec 683, contracts).
-- The recorded rulings every agent UX spec respects (part 3): clicking Agent resumes the last session; skip-permissions stays the default and ask mode is optional (#656); the selection is a live chip sent only on click (#654); Codex tabs keep the heuristic status; `GROK_FOLDER_TRUST=0` stays. Part 4 adds the rulings of 2026-10-19 quoted in each issue: cursor size Small by default (#682), notification only when Studio is unfocused or the tab hidden (#683), banner with Make a copy and Edit anyway (#693), never move the view automatically (#695), variables and styles in the scoped canvas (#696).
+- The recorded rulings every agent UX spec respects (part 3): clicking Agent resumes the last session; skip-permissions stays the default and ask mode is optional (#656); the selection is a live chip sent only on click (#654); Codex tabs keep the heuristic status; `GROK_FOLDER_TRUST=0` stays. Part 4 adds the rulings of 2026-10-19 quoted in each issue and in `#698`: cursor size Small by default and single-agent cursor/flash in v0.6.0 with per-agent colours in v0.6.1 (#682), notification only when Studio is unfocused or the tab hidden (#683), new-session picker above sample prompts and clicking a prompt with no session opens the first installed CLI and fills the composer without sending (#688), banner with Make a copy and Edit anyway (#693), never move the view automatically (#695), variables and styles in the scoped canvas (#696).
 
 ## Waves
 
-Parallel workers need disjoint file ownership (the "Touches" row of each spec). Waves 1 to 3 follow part 3's; wave 4 waits for part 1's RD-3.
+Parallel workers need disjoint file ownership (the "Touches" row of each spec). Waves 1 to 3 follow part 3's; wave 4 follows E15-7 (#592) and AX-677 (#677) in v0.6.0 (multi-agent `run_id` attribution follows RD-3 in v0.6.1).
 
 1. #681, #685, #691, #696, #5, #690 (the part that removes global `/tmp` paths and adds the owner marker; the rest after #653).
 2. #157 (after FU-663), #158 (after #157 and the E3-d read), #686 (after FU-673), #690 (cleanup and off-thread snapshot, after #653).
 3. #683 (after #677), #684 (after #683, #589, #592), #689 (after #651, #653, #681, #655), #688 (after #681, #652, #655), #687 (last of the panel UI).
-4. #682 (after #592 and #572), #693 (after #682, #677), #695 (after #682, #677).
+4. #682 (after #592; single-agent in v0.6.0, per-agent colours after #572 in v0.6.1), #693 (after #682, #677), #695 (after #682, #677).
 
 ## Merge order on `crates/designos-app/src/terminal.rs` (explicit, relative to part 3)
 

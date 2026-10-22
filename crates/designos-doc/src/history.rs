@@ -59,6 +59,12 @@ pub enum Command {
     SetPrototypeDevice {
         device: PrototypeDevice,
     },
+    /// Replace Check designs settings (rule toggles, contrast level, ignored findings).
+    SetCheckDesignsSettings(CheckDesignsSettings),
+    /// Replace the per-file auto-fix settings (`None` restores inheritance from user defaults).
+    SetAutoFix {
+        settings: Option<AutoFixSettings>,
+    },
     /// Replace all variables and collections (variable edits).
     SetVariables {
         variables: BTreeMap<String, Variable>,
@@ -154,15 +160,34 @@ impl Command {
                 doc.bump_mutation_epoch();
                 Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
             }
-            Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
-                state: std::mem::replace(&mut doc.library, state),
-                library_page: std::mem::replace(&mut doc.library_page, library_page),
-            },
+            Command::SetLibraryState { state, library_page } => {
+                if let Some(lp_id) = library_page {
+                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp_id) {
+                        let mut n = Node::new(lp_id, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
+                        n.name = "Library".into();
+                        e.insert(n);
+                        doc.bump_ids();
+                    }
+                }
+                doc.mark_full_dirty();
+                Command::SetLibraryState {
+                    state: std::mem::replace(&mut doc.library, state),
+                    library_page: std::mem::replace(&mut doc.library_page, library_page),
+                }
+            }
             Command::SetGuides { page, guides } => {
                 let old = if guides.is_empty() { doc.guides.remove(&page) } else { doc.guides.insert(page, guides) };
                 Command::SetGuides { page, guides: old.unwrap_or_default() }
             }
             Command::SetPrototypeDevice { device } => Command::SetPrototypeDevice { device: std::mem::replace(&mut doc.prototype_device, device) },
+            Command::SetCheckDesignsSettings(settings) => {
+                doc.bump_mutation_epoch();
+                Command::SetCheckDesignsSettings(std::mem::replace(&mut doc.check_designs, settings))
+            }
+            Command::SetAutoFix { settings } => {
+                doc.bump_mutation_epoch();
+                Command::SetAutoFix { settings: std::mem::replace(&mut doc.auto_fix, settings) }
+            }
             Command::SetVariables { variables, collections } => {
                 doc.mark_full_dirty();
                 Command::SetVariables {
@@ -205,31 +230,53 @@ impl Document {
 #[derive(Default)]
 pub struct History {
     undo: Vec<Command>,
+    undo_labels: Vec<Option<String>>,
     redo: Vec<Command>,
+    redo_labels: Vec<Option<String>>,
 }
 
 impl History {
     pub fn exec(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
         self.undo.push(inv);
+        self.undo_labels.push(None);
         self.redo.clear();
+        self.redo_labels.clear();
         Ok(())
+    }
+    /// Attaches a human-readable label to the most recently recorded undo step.
+    pub fn set_top_undo_label(&mut self, label: impl Into<String>) {
+        if let Some(slot) = self.undo_labels.last_mut() {
+            *slot = Some(label.into());
+        }
+    }
+    /// The label of the step [`Self::undo`] would apply next, if one was recorded.
+    pub fn peek_undo_label(&self) -> Option<&str> {
+        self.undo_labels.last().and_then(|l| l.as_deref())
+    }
+    /// The label of the step [`Self::redo`] would apply next, if one was recorded.
+    pub fn peek_redo_label(&self) -> Option<&str> {
+        self.redo_labels.last().and_then(|l| l.as_deref())
     }
     /// Reverts the latest step. Any deferred auto-layout queue from the superseded edit is dropped
     /// before applying the inverse command, and affected auto-layout containers are re-solved from
     /// their restored state so descendants return to the pre-edit layout.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.undo.pop() else { return Ok(false) };
+        let lbl = self.undo_labels.pop().flatten();
         let inv = apply_and_relayout(doc, c)?;
         self.redo.push(inv);
+        self.redo_labels.push(lbl);
         Ok(true)
     }
     /// Re-applies the latest undone step, dropping any superseded queue and re-solving affected
     /// auto-layout containers from their restored state, like [`Self::undo`].
     pub fn redo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.redo.pop() else { return Ok(false) };
+        let lbl = self.redo_labels.pop().flatten();
         let inv = apply_and_relayout(doc, c)?;
         self.undo.push(inv);
+        self.undo_labels.push(lbl);
         Ok(true)
     }
     /// The command [`Self::undo`] would apply next.
@@ -239,6 +286,10 @@ impl History {
     /// The command [`Self::redo`] would apply next.
     pub fn peek_redo(&self) -> Option<&Command> {
         self.redo.last()
+    }
+    /// Labels of the undo stack, oldest first (aligned with [`Self::undo_depth`]).
+    pub fn undo_labels(&self) -> &[Option<String>] {
+        &self.undo_labels
     }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
@@ -251,6 +302,7 @@ impl History {
     /// reverted another way (by restoring a snapshot of the document).
     pub fn drop_undo_steps_after(&mut self, depth: usize) {
         self.undo.truncate(depth);
+        self.undo_labels.truncate(depth);
     }
     /// The steps [`Self::redo`] can take, oldest first, for [`Self::restore_redo`].
     pub fn redo_steps(&self) -> Vec<Command> {
@@ -258,6 +310,7 @@ impl History {
     }
     /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
     pub fn restore_redo(&mut self, steps: Vec<Command>) {
+        self.redo_labels.resize(steps.len(), None);
         self.redo = steps;
     }
     pub fn can_redo(&self) -> bool {
@@ -293,7 +346,12 @@ impl Command {
                     + collections.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
             }
             Command::Batch(cmds) => cmds.iter_mut().map(Self::neutralize_non_finite).sum(),
-            Command::Remove { .. } | Command::Reparent { .. } | Command::RemovePage { .. } | Command::SetImages { .. } => 0,
+            Command::Remove { .. }
+            | Command::Reparent { .. }
+            | Command::RemovePage { .. }
+            | Command::SetImages { .. }
+            | Command::SetCheckDesignsSettings(_)
+            | Command::SetAutoFix { .. } => 0,
         }
     }
 }

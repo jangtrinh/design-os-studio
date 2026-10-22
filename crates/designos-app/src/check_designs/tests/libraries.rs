@@ -65,16 +65,18 @@ fn library_variable_is_suggested_with_its_library_name() {
     assert!(app.doc.variables.is_empty(), "library variables are not copied until used");
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
-    let findings: Vec<Finding> = app.check_designs.report.of(Rule::HardCodedValue).cloned().collect();
+    app.refresh_check_designs(false, &egui::Context::default());
+    let findings: Vec<Finding> = app.check_designs.report.findings.clone();
     assert_eq!(findings.len(), 2);
 
     let fill_finding = findings.iter().find(|x| x.node == card).unwrap();
+    assert_eq!(fill_finding.rule, Rule::HardCodedValue);
     assert_eq!(fill_finding.message, "Fill #1A73E8 matches variable \"Brand/Primary\" from library \"Brand DS\"");
     assert_eq!(fill_finding.fix_label, "Bind to variable Brand/Primary from library Brand DS");
     assert!(fill_finding.is_from_library());
 
     let gap_finding = findings.iter().find(|x| x.node == row).unwrap();
+    assert_eq!(gap_finding.rule, Rule::HorizontalSpacing);
     assert_eq!(gap_finding.message, "Gap 16 matches variable \"space/4\" from library \"Brand DS\"");
     assert_eq!(gap_finding.fix_label, "Bind to variable space/4 from library Brand DS");
     assert!(gap_finding.is_from_library());
@@ -97,8 +99,8 @@ fn library_fix_imports_and_binds_in_one_undo_step() {
     app.libs.set_root(root.clone());
     app.set_library_enabled(&lib_id, true);
     app.open_check_designs();
-    app.refresh_check_designs(false);
-    let findings: Vec<Finding> = app.check_designs.report.of(Rule::HardCodedValue).cloned().collect();
+    app.refresh_check_designs(false, &egui::Context::default());
+    let findings: Vec<Finding> = app.check_designs.report.findings.clone();
     let fill_finding = findings.iter().find(|x| x.node == card).unwrap();
 
     // Single finding fix imports + binds in one undo step.
@@ -144,6 +146,7 @@ fn library_fill_text_and_effect_styles_are_suggested_with_their_library_name_and
     let lib_id = lib_app.doc.library.published.as_ref().unwrap().library_id.clone();
 
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     white_page(&mut f);
     let card = f.rect(f.page, "Card", BLUE);
     f.doc.get_mut(card).unwrap().effects = fx_list;
@@ -161,8 +164,8 @@ fn library_fill_text_and_effect_styles_are_suggested_with_their_library_name_and
     assert!(app.doc.styles.is_empty());
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
-    let findings: Vec<Finding> = app.check_designs.report.of(Rule::HardCodedValue).cloned().collect();
+    app.refresh_check_designs(false, &egui::Context::default());
+    let findings: Vec<Finding> = app.check_designs.report.findings.clone();
     assert_eq!(findings.len(), 3);
 
     let fill_f = findings.iter().find(|x| x.node == card && x.message.starts_with("Fill ")).unwrap();
@@ -203,12 +206,12 @@ fn disabled_library_is_never_suggested() {
 
     // 1. Not enabled yet -> never suggested.
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert!(app.check_designs.report.of(Rule::HardCodedValue).next().is_none());
 
     // 2. Enable and fix `first` so the library variable is imported into `app.doc.variables`.
     app.set_library_enabled(&lib_id, true);
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let finding = app.check_designs.report.of(Rule::HardCodedValue).next().cloned().unwrap();
     assert!(app.check_designs_fix(&finding));
     assert!(!app.doc.variables.is_empty());
@@ -222,7 +225,7 @@ fn disabled_library_is_never_suggested() {
     second.fills = vec![Paint::solid(BLUE)];
     app.doc.insert(app.page, second).unwrap();
     app.check_designs.invalidate();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert!(
         app.check_designs.report.of(Rule::HardCodedValue).next().is_none(),
         "disabled library variable must not be suggested even when a local copy exists"
@@ -244,7 +247,7 @@ fn local_candidate_beats_library_candidate() {
     app.set_library_enabled(&lib_id, true);
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let found = only(&app.check_designs.report, Rule::HardCodedValue);
     assert_eq!(found.node, card);
     assert_eq!(found.message, "Fill #1A73E8 matches variable \"blue/500\"");
@@ -268,7 +271,7 @@ fn two_libraries_with_same_value_are_ambiguous() {
     app.set_library_enabled(&lib_b, true);
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let found = only(&app.check_designs.report, Rule::HardCodedValue);
     assert_eq!(found.fix, None);
     assert_eq!(found.message, "Fill #1A73E8 matches 2 variables: \"Brand/Primary\" from library \"Alpha UI\", \"Brand/Primary\" from library \"Beta UI\"");
@@ -306,7 +309,7 @@ fn pinned_version_is_used_not_latest() {
 
     // Consumer is still pinned at v1 (BLUE), so BLUE card still matches Brand/Primary at v1!
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let found = only(&app.check_designs.report, Rule::HardCodedValue);
     assert_eq!(found.node, card);
     assert_eq!(found.message, "Fill #1A73E8 matches variable \"Brand/Primary\" from library \"Brand DS\"");
@@ -327,7 +330,7 @@ fn unreadable_library_is_reported_and_skipped() {
     app.doc.library.enabled.push(LibraryRef { id: "missing-lib".into(), name: "Missing Kit".into(), version: 1 });
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert_eq!(app.check_designs.report.unreadable_libraries, vec!["Missing Kit".to_string()]);
     assert!(app.check_designs.report.findings.is_empty());
 
@@ -345,7 +348,7 @@ fn figma_keyed_collection_is_still_suggested_and_fixable() {
     let mut app = f.app();
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let found = only(&app.check_designs.report, Rule::HardCodedValue);
     assert_eq!(found.node, card);
     assert_eq!(found.message, "Fill #1A73E8 matches variable \"Brand/Primary\"");
@@ -369,7 +372,7 @@ fn collection_of_a_disabled_studio_library_is_not_suggested_even_when_keyed_by_i
     let mut app = f.app();
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     assert!(app.check_designs.report.of(Rule::HardCodedValue).next().is_none());
 }
 
@@ -394,7 +397,7 @@ fn library_default_mode_that_is_not_first_decides_the_suggestion() {
     app.set_library_enabled(&lib_id, true);
 
     app.open_check_designs();
-    app.refresh_check_designs(false);
+    app.refresh_check_designs(false, &egui::Context::default());
     let found = only(&app.check_designs.report, Rule::HardCodedValue);
     assert_eq!(found.node, in_default, "only the default-mode colour is suggested");
     assert_eq!(found.message, "Fill #1A73E8 matches variable \"Brand/Primary\" from library \"Modes DS\"");
@@ -422,9 +425,11 @@ fn refused_library_bind_in_fix_all_leaves_no_imported_variable() {
     app.libs.set_root(root.clone());
     app.set_library_enabled(&lib_id, true);
     app.open_check_designs();
-    app.refresh_check_designs(false);
-    let findings: Vec<Finding> = app.check_designs.report.of(Rule::HardCodedValue).cloned().collect();
+    app.refresh_check_designs(false, &egui::Context::default());
+    let findings: Vec<Finding> = app.check_designs.report.findings.clone();
     assert_eq!(findings.len(), 2, "{findings:#?}");
+    assert!(findings.iter().any(|f| f.rule == Rule::HardCodedValue && f.node == stale), "the stale fill is reported under colours");
+    assert!(findings.iter().any(|f| f.rule == Rule::HorizontalSpacing && f.node == row), "the horizontal stack's gap is reported under horizontal spacing");
 
     // The group switches the library collection to dark mode after the audit, so once imported the
     // variable resolves to red there and the bind is refused.

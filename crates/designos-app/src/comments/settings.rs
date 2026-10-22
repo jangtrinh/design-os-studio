@@ -55,6 +55,43 @@ pub fn save_author(root: &Path, name: &str) -> Result<(), String> {
     designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
 }
 
+/// Reads the user-level `"auto_fix"` setting from `settings.json` in `root`, returning
+/// `(settings, unreadable_or_malformed)`. Missing `settings.json` returns `(default, false)`
+/// without touching the file.
+pub fn load_auto_fix_checked(root: &Path) -> (designos_doc::AutoFixSettings, bool) {
+    let path = root.join(FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (designos_doc::AutoFixSettings::default(), false),
+        Err(_) => return (designos_doc::AutoFixSettings::default(), true),
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (designos_doc::AutoFixSettings::default(), true);
+    };
+    let Some(obj) = val.as_object() else {
+        return (designos_doc::AutoFixSettings::default(), true);
+    };
+    let Some(raw) = obj.get("auto_fix") else {
+        return (designos_doc::AutoFixSettings::default(), false);
+    };
+    if raw.is_null() {
+        return (designos_doc::AutoFixSettings::default(), false);
+    }
+    match serde_json::from_value::<designos_doc::AutoFixSettings>(raw.clone()) {
+        Ok(s) => (s, false),
+        Err(_) => (designos_doc::AutoFixSettings::default(), true),
+    }
+}
+
+/// Saves the user-level `"auto_fix"` setting into `settings.json`, preserving unknown keys.
+pub fn save_auto_fix(root: &Path, settings: &designos_doc::AutoFixSettings) -> Result<(), String> {
+    let mut map = read(root);
+    let val = serde_json::to_value(settings).map_err(|e| e.to_string())?;
+    map.insert("auto_fix".into(), val);
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,8 +123,22 @@ mod tests {
         let d = tmp("b");
         std::fs::write(d.join(FILE), "{ nope").unwrap();
         assert_eq!(load_author(&d), None);
+        assert!(load_auto_fix_checked(&d).1);
         save_author(&d, "Ann").unwrap();
         assert_eq!(load_author(&d).as_deref(), Some("Ann"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn auto_fix_roundtrip_keeps_other_keys() {
+        let d = tmp("af");
+        assert_eq!(load_auto_fix_checked(&d), (designos_doc::AutoFixSettings::default(), false));
+        std::fs::write(d.join(FILE), r#"{"author":"Kir"}"#).unwrap();
+        let mut s = designos_doc::AutoFixSettings { mode: designos_doc::AutoFixMode::ReportOnly, rules: Default::default() };
+        s.set_rule("hardcoded-value", false);
+        save_auto_fix(&d, &s).unwrap();
+        assert_eq!(load_auto_fix_checked(&d), (s, false));
+        assert_eq!(load_author(&d).as_deref(), Some("Kir"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

@@ -188,15 +188,7 @@ impl Shell {
         if let Some(l) = &opts.dev {
             app.ui.dev_mode = true;
             app.ui.right_tab = Some(crate::app::RightTab::Design);
-            app.dev.lang = match l.as_str() {
-                "tailwind" => crate::dev::Language::Tailwind,
-                "swiftui" => crate::dev::Language::SwiftUi,
-                "uikit" => crate::dev::Language::UiKit,
-                "compose" => crate::dev::Language::Compose,
-                "android-xml" => crate::dev::Language::AndroidXml,
-                "react" => crate::dev::Language::React,
-                _ => crate::dev::Language::Css,
-            };
+            app.dev.lang = crate::dev::Language::from_id(l).unwrap_or(crate::dev::Language::Css);
             if opts.dev_demo {
                 crate::dev::preset::apply(&mut app);
             }
@@ -302,7 +294,7 @@ impl Shell {
             Some(p @ ("check-designs" | "check-designs-fixed")) => {
                 app.open_check_designs();
                 if p == "check-designs-fixed" {
-                    app.refresh_check_designs(false);
+                    app.refresh_check_designs(false, ctx);
                     let findings = app.check_designs.report.findings.clone();
                     app.check_designs_fix_all(&findings);
                     app.check_designs.invalidate();
@@ -487,6 +479,7 @@ impl Shell {
         let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         let capturing_terminal = self.app.terminal.is_capturing_keyboard(agent_rail_open);
         if capturing_terminal {
+            self.handle_terminal_undo_keys(ctx);
             return;
         }
         let typing = ctx.egui_wants_keyboard_input();
@@ -538,6 +531,37 @@ impl Shell {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Routes `Cmd+Z` / `Shift+Cmd+Z` / `Cmd+Y` on macOS (or `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`
+    /// on Windows and Linux for agent tabs whose CLI does not reserve `Ctrl+Z`) to document
+    /// Undo / Redo while the terminal viewport captures the keyboard (`#685`).
+    fn handle_terminal_undo_keys(&mut self, ctx: &Context) {
+        if ctx.egui_wants_keyboard_input() || self.app.vars.open || self.app.ui.menu.is_some() || self.app.ui.ctx_menu.is_some() {
+            return;
+        }
+        let (is_mac, tab_is_agent, cli_uses_ctrl_z) = self.app.terminal.undo_chord_context();
+        let mut actions = Vec::new();
+        ctx.input_mut(|i| {
+            i.events.retain(|ev| match ev {
+                Event::Key { key, pressed: true, modifiers, .. } => {
+                    match crate::terminal_undo_chord::terminal_undo_chord(*key, *modifiers, is_mac, tab_is_agent, cli_uses_ctrl_z) {
+                        Some(act) => {
+                            actions.push(act);
+                            false
+                        }
+                        None => true,
+                    }
+                }
+                _ => true,
+            });
+        });
+        if crate::live_patch_apply::user_edit_in_progress(&self.app) {
+            return;
+        }
+        for act in actions {
+            menus::run(&mut self.app, ctx, act);
         }
     }
 
@@ -1049,6 +1073,10 @@ impl Shell {
         let ctx = ui.ctx().clone();
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
+        self.app.poll_image_jobs();
+        if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         self.drive_screenshot(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             crate::decks::ui::flush_notes(&mut self.app);
@@ -1187,7 +1215,9 @@ impl Shell {
             }
             if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
                 let file_path = self.app.file_path.clone();
-                let term_actions = crate::terminal::show_dock(&mut self.app.terminal, ui, dock_rect, file_path.as_deref());
+                let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
+                    crate::terminal::show_dock_with_selection(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary)
+                });
                 execute_terminal_actions(&mut self.app, term_actions);
                 let dock_handle_rect =
                     Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
@@ -1265,6 +1295,7 @@ impl Shell {
             }
             menus::show(&mut self.app, &ctx);
             panels::context::show(&mut self.app, &ctx);
+            crate::image_jobs::show_popovers(&mut self.app, &ctx);
             panels::check_designs::show(&mut self.app, &ctx);
             // the floating panel (or only the inspector's binding picker when closed)
             crate::variables::view::show(&mut self.app, ui, full);
@@ -1333,6 +1364,14 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                     Ok(p) => app.show_toast(format!("Sent selection & comments -> {}", p.display()), false),
                     Err(e) => app.show_toast(e, true),
                 }
+            }
+            crate::terminal::TerminalAction::SendSelectionToAgent => {
+                if let Err(e) = crate::terminal::send_selection_to_agent_pty(&mut app.terminal, &app.doc, app.page, &app.selection) {
+                    app.show_toast(e, true);
+                }
+            }
+            crate::terminal::TerminalAction::ReviewAutoFix => {
+                app.open_check_designs_auto_fix();
             }
         }
     }
@@ -2771,6 +2810,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 crate::dev::Language::UiKit => "UIKit",
                 crate::dev::Language::Compose => "Jetpack Compose",
                 crate::dev::Language::AndroidXml => "Android XML",
+                crate::dev::Language::Html => "HTML5 + CSS3",
             };
             hud.badge_text = format!("Dev Mode · Box Model · {lang_name}");
             hud.keycap = "⇧D".into();

@@ -1,0 +1,1 @@
+Portions of this folder are copied from or derived from jakubkrehel/skills (https://github.com/jakubkrehel/skills), commit 4c66b1fa86e9ab70187b43d7da9b6fdb29f2ef63, Copyright (c) 2026 Jakub Krehel, MIT License (see LICENSE).

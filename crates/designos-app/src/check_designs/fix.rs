@@ -226,4 +226,284 @@ impl App {
         layout::relayout_around(&mut self.doc, &mut tx.ed, new_id);
         true
     }
+
+    /// Reverts a single row of `self.check_designs.last_auto_fix` as one undo step labeled
+    /// `Revert auto-fix: <rule> on <layer>`. Returns `false` if the row is missing or the node
+    /// property has drifted since the fix (`can_revert_fix_row` is `false`).
+    pub fn revert_auto_fix_row(&mut self, idx: usize) -> bool {
+        let Some(row) = self.check_designs.last_auto_fix.as_ref().and_then(|r| r.rows.get(idx)).cloned() else {
+            return false;
+        };
+        if !can_revert_fix_row(&self.doc, &row) {
+            return false;
+        }
+        let mut tx = Tx::new();
+        if !self.apply_revert_fix_row(&mut tx, &row) {
+            tx.cancel(&mut self.doc);
+            return false;
+        }
+        if !self.run_tx(tx) {
+            return false;
+        }
+        self.hist.set_top_undo_label(format!("Revert auto-fix: {} on {}", row.rule, row.node_name));
+        true
+    }
+
+    fn apply_revert_fix_row(&mut self, tx: &mut Tx, row: &super::FixRow) -> bool {
+        let id = row.node;
+        let prop = row.property.as_str();
+        if matches!(
+            prop,
+            "layout_child.horizontal"
+                | "horizontal_sizing"
+                | "layout_child.vertical"
+                | "vertical_sizing"
+                | "layout.primary_sizing"
+                | "auto_layout.primary_sizing"
+                | "layout.counter_sizing"
+                | "auto_layout.counter_sizing"
+        ) {
+            let Some(sizing) = parse_sizing_value(&row.before) else { return false };
+            let Some(n) = tx.ed.node(&mut self.doc, id) else { return false };
+            match prop {
+                "layout_child.horizontal" | "horizontal_sizing" => n.layout_child.horizontal = sizing,
+                "layout_child.vertical" | "vertical_sizing" => n.layout_child.vertical = sizing,
+                "layout.primary_sizing" | "auto_layout.primary_sizing" => {
+                    let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) else { return false };
+                    al.primary_sizing = sizing;
+                }
+                _ => {
+                    let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) else { return false };
+                    al.counter_sizing = sizing;
+                }
+            }
+            layout::relayout_around(&mut self.doc, &mut tx.ed, id);
+            return true;
+        }
+
+        if let Some(ref_key) = style_ref_key(prop) {
+            let Some(n) = tx.ed.node(&mut self.doc, id) else { return false };
+            match row.before.as_str() {
+                Some(s) if !s.is_empty() && !s.starts_with('#') => {
+                    n.style_refs.insert(ref_key.to_string(), s.to_string());
+                }
+                _ => {
+                    n.style_refs.remove(ref_key);
+                }
+            }
+            return true;
+        }
+
+        let keys = expanded_binding_keys(prop);
+        let Some(n) = tx.ed.node(&mut self.doc, id) else { return false };
+        for &k in &keys {
+            n.variables.bindings.remove(k);
+        }
+        if let Some(c) = parse_color_value(&row.before) {
+            for &k in &keys {
+                set_bound_property(n, k, &designos_doc::VariableValue::Color(c));
+            }
+            return true;
+        }
+        if let Some(num) = parse_number_value(&row.before) {
+            for &k in &keys {
+                set_bound_property(n, k, &designos_doc::VariableValue::Number(num));
+            }
+            layout::relayout_around(&mut self.doc, &mut tx.ed, id);
+            return true;
+        }
+        false
+    }
+}
+
+/// True when `row.node` still exists in `doc` and its property named by `row.property` still
+/// holds `row.after` (so reverting `row` will not overwrite an edit made after the auto-fix).
+pub fn can_revert_fix_row(doc: &designos_doc::Document, row: &super::FixRow) -> bool {
+    let Some(n) = doc.get(row.node) else { return false };
+    let prop = row.property.as_str();
+
+    if matches!(
+        prop,
+        "layout_child.horizontal"
+            | "horizontal_sizing"
+            | "layout_child.vertical"
+            | "vertical_sizing"
+            | "layout.primary_sizing"
+            | "auto_layout.primary_sizing"
+            | "layout.counter_sizing"
+            | "auto_layout.counter_sizing"
+    ) {
+        let Some(expected) = parse_sizing_value(&row.after) else { return false };
+        let actual = match prop {
+            "layout_child.horizontal" | "horizontal_sizing" => Some(n.layout_child.horizontal),
+            "layout_child.vertical" | "vertical_sizing" => Some(n.layout_child.vertical),
+            "layout.primary_sizing" | "auto_layout.primary_sizing" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.primary_sizing),
+            _ => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.counter_sizing),
+        };
+        return actual == Some(expected);
+    }
+
+    if let Some(ref_key) = style_ref_key(prop) {
+        let Some(expected) = row.after.as_str() else { return false };
+        let exp = expected.strip_prefix("style:").unwrap_or(expected);
+        return n.style_refs.get(ref_key).is_some_and(|cur| cur == exp || doc.style_name(cur) == exp);
+    }
+
+    let keys = expanded_binding_keys(prop);
+    if let Some(after_str) = row.after.as_str() {
+        let var_ref = after_str.strip_prefix('$').unwrap_or(after_str);
+        if after_str.starts_with('$') || doc.variables.values().any(|v| v.id == var_ref || v.name == var_ref) {
+            for &k in &keys {
+                let Some(bound_id) = n.variables.bindings.get(k) else { return false };
+                let matches_var = bound_id == var_ref || doc.variables.get(bound_id).is_some_and(|v| v.id == var_ref || v.name == var_ref);
+                if !matches_var {
+                    return false;
+                }
+                if let Some(resolved) = doc.resolve_variable(n.id, bound_id) {
+                    if !raw_property_matches(n, k, &resolved) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    if let Some(c) = parse_color_value(&row.after) {
+        return keys.iter().all(|&k| !n.variables.bindings.contains_key(k) && raw_property_matches(n, k, &designos_doc::VariableValue::Color(c)));
+    }
+    if let Some(num) = parse_number_value(&row.after) {
+        return keys.iter().all(|&k| !n.variables.bindings.contains_key(k) && raw_property_matches(n, k, &designos_doc::VariableValue::Number(num)));
+    }
+    false
+}
+
+fn expanded_binding_keys(prop: &str) -> Vec<&str> {
+    match prop {
+        "padding" => vec!["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"],
+        "cornerRadius" => vec!["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"],
+        "size.x" => vec!["width"],
+        "size.y" => vec!["height"],
+        other => vec![other],
+    }
+}
+
+fn style_ref_key(prop: &str) -> Option<&'static str> {
+    match prop {
+        "fill_style" | "style_refs.fill" => Some("fill"),
+        "stroke_style" | "style_refs.stroke" => Some("stroke"),
+        "text_style" | "style_refs.text" => Some("text"),
+        "effect_style" | "style_refs.effect" => Some("effect"),
+        _ => None,
+    }
+}
+
+fn parse_sizing_value(val: &serde_json::Value) -> Option<designos_doc::Sizing> {
+    let s = val.as_str()?.trim();
+    match s.to_ascii_lowercase().as_str() {
+        "fixed" => Some(designos_doc::Sizing::Fixed),
+        "hug" | "hug_contents" | "hugcontents" => Some(designos_doc::Sizing::Hug),
+        "fill" | "fill_container" | "fillcontainer" => Some(designos_doc::Sizing::Fill),
+        _ => None,
+    }
+}
+
+fn parse_color_value(val: &serde_json::Value) -> Option<designos_doc::Color> {
+    if let Some(s) = val.as_str() {
+        let hex = s.trim().strip_prefix('#').unwrap_or(s.trim());
+        if hex.len() == 6 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            return Some(designos_doc::Color::rgba(r, g, b, 255));
+        }
+        if hex.len() == 8 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            return Some(designos_doc::Color::rgba(r, g, b, a));
+        }
+        return None;
+    }
+    if val.is_object() {
+        return serde_json::from_value(val.clone()).ok();
+    }
+    None
+}
+
+fn parse_number_value(val: &serde_json::Value) -> Option<f32> {
+    if let Some(n) = val.as_f64() {
+        return Some(n as f32);
+    }
+    if let Some(s) = val.as_str() {
+        let clean = s.trim().trim_end_matches("px").trim_end_matches('%').trim();
+        return clean.parse::<f32>().ok();
+    }
+    None
+}
+
+fn raw_property_matches(n: &designos_doc::Node, key: &str, expected: &designos_doc::VariableValue) -> bool {
+    match expected {
+        designos_doc::VariableValue::Color(ec) => {
+            if let Some(idx_str) = key.strip_prefix("fills/") {
+                let Ok(idx) = idx_str.parse::<usize>() else { return false };
+                let paints = match &n.kind {
+                    NodeKind::Text(t) => &t.style.fills,
+                    _ => &n.fills,
+                };
+                let Some(p) = paints.get(idx) else { return false };
+                let PaintKind::Solid(c) = &p.kind else { return false };
+                return c.to_hex().eq_ignore_ascii_case(&ec.to_hex());
+            }
+            if let Some(idx_str) = key.strip_prefix("strokes/") {
+                let Ok(idx) = idx_str.parse::<usize>() else { return false };
+                let Some(p) = n.stroke.paints.get(idx) else { return false };
+                let PaintKind::Solid(c) = &p.kind else { return false };
+                return c.to_hex().eq_ignore_ascii_case(&ec.to_hex());
+            }
+            false
+        }
+        designos_doc::VariableValue::Number(en) => {
+            let actual = match key {
+                "width" => Some(n.size.x),
+                "height" => Some(n.size.y),
+                "opacity" => Some(n.opacity * 100.0),
+                "topLeftRadius" => Some(n.corner_radii[0]),
+                "topRightRadius" => Some(n.corner_radii[1]),
+                "bottomRightRadius" => Some(n.corner_radii[2]),
+                "bottomLeftRadius" => Some(n.corner_radii[3]),
+                "strokeWeight" => Some(n.stroke.weight),
+                "strokeTopWeight" => n.stroke.side_weights.map(|s| s[0]),
+                "strokeRightWeight" => n.stroke.side_weights.map(|s| s[1]),
+                "strokeBottomWeight" => n.stroke.side_weights.map(|s| s[2]),
+                "strokeLeftWeight" => n.stroke.side_weights.map(|s| s[3]),
+                "itemSpacing" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.item_spacing),
+                "counterAxisSpacing" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.counter_spacing),
+                "paddingTop" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.padding[0]),
+                "paddingRight" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.padding[1]),
+                "paddingBottom" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.padding[2]),
+                "paddingLeft" => n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| al.padding[3]),
+                "fontSize" => match &n.kind {
+                    NodeKind::Text(t) => Some(t.style.font_size),
+                    _ => None,
+                },
+                "lineHeight" => match &n.kind {
+                    NodeKind::Text(t) => match t.style.line_height {
+                        designos_doc::LineHeight::Pixels(px) => Some(px),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            };
+            actual.is_some_and(|a| (a - *en).abs() < 0.01)
+        }
+        designos_doc::VariableValue::Boolean(eb) => key == "visible" && n.visible == *eb,
+        designos_doc::VariableValue::String(es) => match (&n.kind, key) {
+            (NodeKind::Text(t), "characters") => &t.content == es,
+            _ => false,
+        },
+        designos_doc::VariableValue::Alias(_) => false,
+    }
 }

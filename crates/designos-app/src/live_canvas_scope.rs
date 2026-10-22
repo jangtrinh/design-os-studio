@@ -22,6 +22,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
     let selected = selected_top_level(doc, page, selection);
     let mut p = page_node.clone();
     p.fig_metadata.clear();
+    p.fig_metadata.insert("designos:scoped".into(), "true".into());
     p.children = page_node.children.iter().enumerate().filter(|(i, c)| *i < MAX_TOP_LEVEL || selected.contains(c)).map(|(_, c)| *c).collect();
     let mut budget = FULL_SUBTREE_BUDGET;
     for &cid in &p.children {
@@ -40,6 +41,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
             c.fill_geometry = None;
             c.stroke_geometry = None;
             c.fig_metadata.clear();
+            c.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
             scoped.nodes.insert(cid, c);
         }
     }
@@ -47,6 +49,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
     // Threads are small; with them the agent can reply to the user's threads and picks ids
     // that do not collide with theirs.
     scoped.comments = doc.comments.clone();
+    scoped.auto_fix = doc.auto_fix.clone();
     scoped
 }
 
@@ -127,5 +130,22 @@ mod tests {
         let shared = &s.get(page).unwrap().children;
         assert_eq!(shared.len(), MAX_TOP_LEVEL + 1);
         assert_eq!(shared.last(), Some(&last));
+    }
+
+    #[test]
+    fn scoped_canvas_metadata_xml_emits_children_zero_and_scoped_true() {
+        let mut doc = Document::new("d");
+        let page = doc.add_page("p");
+        let shell_frame = frame_with(&mut doc, page, 3);
+        let selected_frame = frame_with(&mut doc, page, 2);
+
+        let s = scoped_canvas(&doc, page, &[selected_frame], "d");
+        let meta = designos_export::metadata_xml(&s, page, &designos_export::MetadataOptions::default(), None);
+        assert!(meta.scoped, "metadata_xml on scoped_canvas must report scoped: true");
+        assert!(
+            meta.xml.contains(&format!("id=\"{}\" name=\"Frame\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" children=\"0\"/>", shell_frame.0)),
+            "shell frame must carry children=\"0\":\n{}",
+            meta.xml
+        );
     }
 }
