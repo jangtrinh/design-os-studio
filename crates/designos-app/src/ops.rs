@@ -205,6 +205,7 @@ impl App {
                             self.agent_busy_frames.record_user_node_update(before, after);
                         }
                     }
+                    self.note_text_measures(&before_nodes);
                 }
                 self.changed();
                 self.sanitize();

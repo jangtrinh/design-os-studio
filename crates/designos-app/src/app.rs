@@ -314,15 +314,19 @@ impl App {
 
     /// Registers fonts finished loading in the background and re-renders.
     pub fn poll_fonts(&mut self) {
-        let Some(done) = self.fonts.poll() else { return };
-        if done.loaded > 0 {
-            self.changed();
+        if let Some(done) = self.fonts.poll() {
+            if done.loaded > 0 {
+                self.changed();
+                // text measured with the stand-in keeps its old box until it is fitted to the face that arrived
+                self.start_text_refit(&done.families);
+            }
+            if let Some(first) = done.failed.first() {
+                let more = done.failed.len() - 1;
+                let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+                self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
+            }
         }
-        if let Some(first) = done.failed.first() {
-            let more = done.failed.len() - 1;
-            let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
-            self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
-        }
+        self.step_text_refit();
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, error: bool) {
