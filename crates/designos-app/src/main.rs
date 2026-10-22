@@ -38,6 +38,7 @@ mod decks;
 mod demo;
 mod dev;
 mod edit;
+mod fig_export;
 mod find;
 mod fonts;
 mod history;

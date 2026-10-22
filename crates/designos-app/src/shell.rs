@@ -14,6 +14,11 @@ use egui::{Align2, Context, Event, Key, Pos2, Rect, Vec2};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod toast_layout;
+
+/// The toast action that shows an exported file in its folder.
+const REVEAL_LABEL: &str = "Show in folder";
+
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
 
@@ -995,31 +1000,50 @@ impl Shell {
             self.app.toast = None;
             return;
         }
-        let (text, error) = (t.text.clone(), t.error);
+        let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let font = theme::font_body();
-        let w = widgets::text_width(ui.painter(), &text, &font) + 48.0;
-        let r = Rect::from_center_size(
-            Pos2::new(screen.center().x, screen.bottom() - theme::TOAST_BOTTOM - theme::TOAST_HEIGHT / 2.0),
-            Vec2::new(w, theme::TOAST_HEIGHT),
-        );
+        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
+        let r = lay.rect;
         // Its own top-most layer: the full-screen Variables view is an Area above the root layer and would hide the toast.
         // No fade-in: the toast has always appeared at full strength. The Area sizes itself on its first frame and repaints.
-        let mut details_clicked = false;
-        egui::Area::new(egui::Id::new("shell-toast")).order(egui::Order::Tooltip).fixed_pos(r.min).constrain(false).fade_in(false).interactable(details).show(
-            ui.ctx(),
-            |ui| {
+        let (mut details_clicked, mut reveal_clicked) = (false, false);
+        egui::Area::new(egui::Id::new("shell-toast"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(r.min)
+            .constrain(false)
+            .fade_in(false)
+            .interactable(details || reveal.is_some())
+            .show(ui.ctx(), |ui| {
                 let (_, resp) = ui.allocate_exact_size(r.size(), if details { egui::Sense::click() } else { egui::Sense::hover() });
                 let p = ui.painter();
                 widgets::elevation_shadow(p, r, theme::RADIUS_FRAME);
                 p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-                p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
-                p.text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &text, font, theme::TEXT);
+                p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
+                p.galley(lay.text_pos, lay.text, theme::TEXT);
                 details_clicked = details && resp.clicked();
-            },
-        );
+                if let Some((target, label)) = lay.action {
+                    let id = egui::Id::new("shell-toast-reveal");
+                    let button = ui.interact(target, id, egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                    widgets::record(ui, "toast-reveal", target);
+                    widgets::labelled(ui, id, egui::accesskit::Role::Button, REVEAL_LABEL);
+                    if button.hovered() {
+                        p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+                    }
+                    p.galley(
+                        Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0),
+                        label,
+                        theme::TEXT_BRAND,
+                    );
+                    reveal_clicked = button.clicked();
+                }
+            });
         if details_clicked {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
+        }
+        if let (true, Some(file)) = (reveal_clicked, reveal) {
+            if let Err(e) = (self.app.reveal_file)(&file) {
+                self.app.show_toast(e, true);
+            }
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -1680,16 +1704,7 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
             app.cmdk.open = false;
         }
         crate::cmdk::CmdKAction::ExportFig => {
-            let out_path = app.file_path.as_ref().map(|p| p.with_extension("fig")).unwrap_or_else(|| std::path::PathBuf::from("/tmp/designos-export.fig"));
-            match designos_fig::export_fig_with_report(&app.doc) {
-                Ok((bytes, omitted)) => {
-                    if std::fs::write(&out_path, bytes).is_ok() {
-                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
-                        app.show_toast(format!("Exported Figma .fig to {}{note}", out_path.display()), false);
-                    }
-                }
-                Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),
-            }
+            app.export_fig_copy();
             app.cmdk.open = false;
         }
         crate::cmdk::CmdKAction::SelectNode(id) => {

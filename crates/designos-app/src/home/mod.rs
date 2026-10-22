@@ -514,7 +514,7 @@ pub fn context_entries(h: &Home, target: &Target) -> Vec<(crate::widgets::menu::
                 (MenuItem::new(if starred { "Remove star" } else { "Star" }), Act::Star(id.clone(), !starred)),
                 (MenuItem::new("Show in folder").sep(), Act::Reveal(id.clone())),
                 (MenuItem::new("Move to trash").sep(), Act::Trash(id.clone())),
-                (MenuItem::new("Export .fig\u{2026}"), Act::ExportFig(id.clone())),
+                (MenuItem::new("Export .fig"), Act::ExportFig(id.clone())),
             ]
         }
         Target::Project(id) => vec![
@@ -789,27 +789,11 @@ pub fn apply(app: &mut App, act: Act) {
         }
         Act::ExportFig(id) => {
             changed = false;
-            if let Ok(doc) = lib.load_file(&id) {
-                match designos_fig::export_fig_with_report(&doc) {
-                    Ok((bytes, omitted)) => {
-                        let safe_name: String = doc.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
-                        let stem = if safe_name.trim_matches('_').is_empty() { "export".to_string() } else { safe_name };
-                        let out_dir = lib.path("exports");
-                        let _ = std::fs::create_dir_all(&out_dir);
-                        let out_path = out_dir.join(format!("{stem}.fig"));
-                        let saved_path = if std::fs::write(&out_path, &bytes).is_ok() {
-                            out_path
-                        } else {
-                            let tmp_path = std::env::temp_dir().join(format!("{stem}.fig"));
-                            let _ = std::fs::write(&tmp_path, &bytes);
-                            tmp_path
-                        };
-                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
-                        app.show_toast(format!("Exported {} ({} bytes .fig v106) -> {}{note}", doc.name, bytes.len(), saved_path.display()), false);
-                    }
-                    Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),
-                }
-            }
+            let result = lib
+                .load_file(&id)
+                .map_err(|e| e.to_string())
+                .and_then(|doc| crate::fig_export::export_new(&doc, &lib.path("exports"), &crate::fig_export::safe_stem(&doc.name)));
+            app.show_fig_export_result(result);
         }
         Act::Trash(id) => {
             let name = lib.file(&id).map(|f| f.name).unwrap_or_default();
