@@ -199,3 +199,79 @@ fn quit_while_the_window_is_visible_asks_for_the_close_at_once() {
     assert!(!eframe_frame(&mut s, false).ends_app);
     assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
 }
+
+/// A quit that waited for a window which never came back is gone: the window showing up much later (an occluding
+/// window moves away, say) must not end the app, and must not ask anything out of nowhere.
+#[test]
+fn a_pending_quit_the_window_does_not_answer_in_time_is_dropped() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let (edited, on_disk) = (s.app().doc.nodes.len(), nodes_on_disk(&path));
+    keep_running(&mut s, true, 1, "occluded");
+    crate::macos_menu::tests::pick_quit(&s.ctx);
+    s.sent_commands.clear();
+    // about ten seconds of frames, far over the limit of a pending quit
+    let waiting = keep_running(&mut s, true, 200, "the window stays hidden for a long time");
+    assert_eq!(sent(&s, &ViewportCommand::Close), 0, "no close while the window is hidden");
+    assert!(waiting[1..].iter().all(|after| *after == Duration::MAX), "waiting repaints nothing: {waiting:?}");
+    keep_running(&mut s, false, 20, "a quit that ran out must not end the app when the window shows");
+    assert_eq!(sent(&s, &ViewportCommand::Close), 0, "the pending quit was dropped, not sent");
+    assert!(s.app().dialog.is_none(), "{:?}", dialog_title(&s));
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert_eq!(s.app().doc.nodes.len(), edited, "the edit is still there");
+    assert!(dot(&s), "still unsaved");
+    assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written");
+}
+
+/// Inside the limit nothing changes: the window shows, the close goes out once, and the question comes up.
+#[test]
+fn a_pending_quit_the_window_answers_within_the_limit_still_asks_once() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let on_disk = nodes_on_disk(&path);
+    keep_running(&mut s, true, 1, "minimized");
+    crate::macos_menu::tests::pick_quit(&s.ctx);
+    // 2.5 s of hidden frames
+    keep_running(&mut s, true, 50, "the app ended without the question while the window was hidden");
+    s.sent_commands.clear();
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert_eq!(sent(&s, &ViewportCommand::Close), 1, "one close request");
+    assert!(!eframe_frame(&mut s, false).ends_app, "the close waits for the answer");
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert!(s.commands.contains(&ViewportCommand::CancelClose), "the window stays open for the question");
+    assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written");
+}
+
+/// The wait counts from the first frame after the request. While a hidden window is left alone no frame runs, so the
+/// clock egui last saw can be hours old when Quit is chosen; counting from it would drop a quit that is answered at once.
+#[test]
+fn a_quit_after_a_long_idle_stretch_counts_from_the_frame_it_wakes() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    keep_running(&mut s, true, 1, "minimized");
+    s.t += 3600.0; // an hour in which no frame ran
+    crate::macos_menu::tests::pick_quit(&s.ctx);
+    keep_running(&mut s, true, 2, "the quit waits for the window");
+    s.sent_commands.clear();
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert_eq!(sent(&s, &ViewportCommand::Close), 1, "the window came back at once: the quit is not stale");
+    assert!(!eframe_frame(&mut s, false).ends_app, "the close waits for the answer");
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+}
+
+/// Quit chosen again while it waits is a new request: the wait starts over.
+#[test]
+fn a_second_quit_starts_the_wait_again() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    keep_running(&mut s, true, 1, "occluded");
+    crate::macos_menu::tests::pick_quit(&s.ctx);
+    keep_running(&mut s, true, 200, "the first quit runs out");
+    crate::macos_menu::tests::pick_quit(&s.ctx);
+    keep_running(&mut s, true, 2, "the second quit waits for the window");
+    s.sent_commands.clear();
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert_eq!(sent(&s, &ViewportCommand::Close), 1, "the second quit is answered");
+    assert!(!eframe_frame(&mut s, false).ends_app);
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+}

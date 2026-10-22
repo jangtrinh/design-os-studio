@@ -1203,6 +1203,10 @@ impl eframe::App for Shell {
     /// Tab belongs to the text session (it nests list items) or to sibling layer traversal on the
     /// canvas: take it out of the input before egui uses it to move keyboard focus between widgets.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // macOS: a Quit chosen while the window is hidden waits a few seconds for it. The wait starts at the first frame
+        // after the request, and eframe runs this hook for hidden frames too; `ctx.input` still shows the previous one.
+        #[cfg(target_os = "macos")]
+        crate::macos_menu::stamp_pending_quit(ctx, raw.time);
         if self.app.plugins.open {
             return;
         }
