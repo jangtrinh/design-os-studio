@@ -232,6 +232,8 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             let cr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON));
             let cresp = ui.interact(cr, ui.id().with(("tool-chev", gi)), Sense::click());
             widgets::record(ui, &format!("tool-chevron-{gi}"), cr);
+            #[cfg(test)]
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-chevron-id", gi)), cresp.id));
             let open = app.ui.menu == Some(MenuKind::ToolGroup(gi));
             // The chevron stays transparent unless hovered or its menu is open.
             if open || cresp.hovered() {
@@ -240,8 +242,9 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             let cc = Pos2::new(br.right() + theme::TOOL_CHEVRON_CENTER_DX, cr.center().y);
             icons::paint(&p, Icon::ChevronDown, cc, theme::TOOL_CHEVRON_ICON, theme::ICON_SECONDARY);
             // The menu opens on the press, so the same press can slide onto a row and pick it on release; a second
-            // press on the chevron closes it.
-            if primary_pressed_in(ui, cr) {
+            // press on the chevron closes it. Space or Enter on the focused chevron and a screen reader's activation
+            // reach `clicked` without a pointer click and toggle it too.
+            if primary_pressed_in(ui, cr) || (cresp.clicked() && !cresp.clicked_by(egui::PointerButton::Primary)) {
                 app.ui.menu = if open { None } else { Some(MenuKind::ToolGroup(gi)) };
             }
             if app.ui.menu == Some(MenuKind::ToolGroup(gi)) {

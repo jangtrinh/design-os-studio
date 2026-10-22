@@ -222,8 +222,8 @@ fn releasing_outside_every_row_picks_nothing() {
 }
 
 #[test]
-fn a_release_that_opened_the_menu_never_picks_a_row() {
-    // The main menu opens on the release of a click. A release the menu never saw the press of, here over the
+fn a_release_whose_press_came_before_the_menu_picks_nothing() {
+    // The main menu opens on the release of a click. A later release the menu never saw the press of, here over the
     // leaf row "Back to files", must not pick it.
     let mut s = Sim::new();
     open_main(&mut s);
@@ -231,6 +231,44 @@ fn a_release_that_opened_the_menu_never_picks_a_row() {
     s.button(false);
     s.frame(vec![]);
     assert_eq!(s.app().ui.menu, Some(MenuKind::Main), "a release without a press in the menu picks nothing");
+}
+
+/// Hands the chevron of the shape group the keyboard focus, as Tab would.
+fn focus_chevron(s: &mut Sim) {
+    let id = s.ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new(("test-chevron-id", SHAPE_GROUP)))).expect("the toolbar recorded its chevron id");
+    s.ctx.memory_mut(|m| m.request_focus(id));
+    s.frame(vec![]);
+    assert!(s.ctx.memory(|m| m.has_focus(id)), "the chevron holds the keyboard focus");
+}
+
+#[test]
+fn space_and_enter_on_the_focused_chevron_open_and_close_the_menu() {
+    for key in [Key::Space, Key::Enter] {
+        let mut s = Sim::new();
+        focus_chevron(&mut s);
+        s.key(key);
+        assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "{key:?} opens the dropdown");
+        s.frame(vec![]);
+        assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "the release of {key:?} does not close it");
+        s.key(key);
+        assert_eq!(s.app().ui.menu, None, "{key:?} again closes it");
+    }
+}
+
+#[test]
+fn a_screen_reader_click_on_the_chevron_opens_the_menu_once() {
+    let mut s = Sim::new();
+    let id = s.ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new(("test-chevron-id", SHAPE_GROUP)))).expect("the toolbar recorded its chevron id");
+    let request = egui::accesskit::ActionRequest {
+        action: egui::accesskit::Action::Click,
+        target_tree: egui::accesskit::TreeId::ROOT,
+        target_node: id.accesskit_id(),
+        data: None,
+    };
+    s.frame(vec![egui::Event::AccessKitActionRequest(request)]);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)));
+    s.frame(vec![]);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "one activation toggles once");
 }
 
 /// The open dropdown hangs off its chevron: its left edge starts at the group's button (the chevron's left edge minus
