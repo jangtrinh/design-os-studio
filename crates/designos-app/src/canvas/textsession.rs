@@ -1009,24 +1009,32 @@ mod tests {
     }
 
     #[test]
-    fn a_bold_typing_style_and_the_inspector_weight_both_move_the_wght_axis() {
-        use crate::panels::typography::set_style;
+    fn a_bold_typing_style_moves_the_wght_axis() {
         let (mut app, id) = app_with_styled_text("ab", wght_inter(400, 400.0));
         set_sel(&mut app, 2, 2, false);
         key(&mut app, egui::Key::B, false, true);
         insert_text(&mut app, "C", EditKind::Typing);
         let t = text_of(&app, id);
         assert_eq!((t.runs[0].start, t.runs[0].style.font_weight, t.runs[0].style.get_axis("wght")), (2, 700, Some(700.0)), "caret + Ctrl+B + typing");
+    }
 
-        // the weight dropdown writes only font_weight
+    /// The weight dropdown writes only `font_weight`.
+    #[test]
+    fn the_inspector_weight_moves_the_wght_axis_in_a_session() {
+        use crate::panels::typography::set_style;
         let (mut app, id) = app_with_styled_text("hello", wght_inter(400, 400.0));
         select_all(&mut app);
         set_style(&mut app, &[id], |s| s.font_weight = 700);
-        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0), "session");
+        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0));
+    }
+
+    #[test]
+    fn the_inspector_weight_moves_the_wght_axis_on_a_selected_layer() {
+        use crate::panels::typography::set_style;
         let (mut app, id) = app_with_styled_text("hello", wght_inter(400, 400.0));
         finish_text(&mut app, true);
         set_style(&mut app, &[id], |s| s.font_weight = 700);
-        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0), "layer");
+        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0));
     }
 
     #[test]
