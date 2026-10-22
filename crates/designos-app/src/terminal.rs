@@ -5094,11 +5094,16 @@ pub fn show_left_with_doc(
         icons::paint(&p, Icon::Plus, Pos2::new(add_rect.left() + 10.0, add_rect.center().y), 11.0, add_fg);
         icons::paint(&p, Icon::ChevronDown, Pos2::new(add_rect.right() - 7.0, add_rect.center().y), 8.0, add_fg);
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
+        // The menu below reads these two, not the test hook: a press on `+` is not a press outside the menu, and the
+        // press of the click that opens the menu must not close it in the pass that opens it.
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-add-btn-rect"), add_rect));
         if add_resp.clicked() {
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
             state.resume_notice = None;
             if state.runtime_dropdown_open {
                 state.sessions_popover_open = false;
+                let pass_nr = ui.ctx().cumulative_pass_nr();
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-opened-pass"), pass_nr));
             } else {
                 state.picker.on_close();
             }

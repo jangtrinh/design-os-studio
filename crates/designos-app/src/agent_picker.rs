@@ -591,13 +591,16 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
     } else if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-runtime-add-btn".to_string()))));
-            let in_add = add_btn.map(|r| r.contains(pos)).unwrap_or(false);
-            if !menu_r.contains(pos) && !in_add {
-                state.runtime_dropdown_open = false;
-                state.picker.on_close();
-                state.picker.close_other_form();
+        let opened_this_pass = ui.ctx().data(|d| d.get_temp::<u64>(Id::new("agents-runtime-opened-pass"))) == Some(ui.ctx().cumulative_pass_nr());
+        if !opened_this_pass {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-runtime-add-btn-rect")));
+                let in_add = add_btn.is_some_and(|r| r.contains(pos));
+                if !menu_r.contains(pos) && !in_add {
+                    state.runtime_dropdown_open = false;
+                    state.picker.on_close();
+                    state.picker.close_other_form();
+                }
             }
         }
     }

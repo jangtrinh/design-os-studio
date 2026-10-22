@@ -244,7 +244,38 @@ pub fn labelled(ui: &Ui, id: Id, role: egui::accesskit::Role, name: &str) {
 /// Test hook: remembers where a named widget was drawn so UI tests can find it.
 #[cfg(test)]
 pub fn record(ui: &Ui, name: &str, rect: Rect) {
+    if RECORD_DISABLED.with(std::cell::Cell::get) {
+        return;
+    }
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", name.to_string())), rect));
+}
+
+#[cfg(test)]
+thread_local! {
+    static RECORD_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test support: makes [`record`] store nothing on this thread while the guard lives, as it does in a release
+/// build. A test that reads a widget's rect first, then drops the stored rects and holds this guard, runs the
+/// widget code the way a release build runs it: any production code that still reads a recorded rect finds none.
+/// Per thread, so parallel tests keep their own `record` calls; the setting is restored when the guard drops,
+/// also on a panic.
+#[cfg(test)]
+pub struct RecordDisabled(());
+
+#[cfg(test)]
+impl RecordDisabled {
+    pub fn begin() -> Self {
+        RECORD_DISABLED.with(|d| d.set(true));
+        Self(())
+    }
+}
+
+#[cfg(test)]
+impl Drop for RecordDisabled {
+    fn drop(&mut self) {
+        RECORD_DISABLED.with(|d| d.set(false));
+    }
 }
 #[cfg(not(test))]
 #[inline]
