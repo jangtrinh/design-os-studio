@@ -1,7 +1,8 @@
-//! Text a `NodeSpec` leaves without a colour is black, like text made any other way, and the shipped
-//! console spec still draws its light labels because it names their colour.
+//! Text a `NodeSpec` leaves without a colour takes the colour that contrasts best with the solid fill
+//! behind it, and the shipped console spec still draws its light labels because it names their colour.
 #![allow(clippy::result_large_err)]
 
+use designos_doc::lint::rules::contrast::contrast_ratio;
 use designos_doc::{Color, NodeId, NodeKind, Paint, PaintKind};
 use designos_mcp::engine::Engine;
 use serde_json::{json, Value};
@@ -25,23 +26,124 @@ fn solid(p: &Paint) -> Color {
     }
 }
 
+/// The colour behind a text node: the first visible solid fill at half opacity or more on its ancestors, else the page background.
+fn backdrop_of(e: &Engine, text: NodeId) -> Color {
+    let mut cur = e.doc.get(text).and_then(|n| n.parent);
+    while let Some(id) = cur {
+        let n = e.doc.get(id).expect("ancestor");
+        if let NodeKind::Page { background } = &n.kind {
+            return *background;
+        }
+        if n.visible {
+            for p in n.fills.iter().rev() {
+                if let (true, PaintKind::Solid(c)) = (p.visible, &p.kind) {
+                    if p.opacity * c.a >= 0.5 {
+                        return *c;
+                    }
+                }
+            }
+        }
+        cur = n.parent;
+    }
+    Color::WHITE
+}
+
+fn text_nodes_under(e: &Engine, root: NodeId) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    e.doc.walk(root, |n, _| {
+        if matches!(n.kind, NodeKind::Text(_)) {
+            out.push(n.id);
+        }
+    });
+    out
+}
+
 #[test]
-fn apply_spec_text_without_a_colour_is_black() {
+fn apply_spec_text_without_a_colour_is_black_on_white_and_light_on_a_dark_card() {
     let mut e = Engine::default();
-    let reply = e
+    let white = e
         .call(
             "designos_apply_spec",
-            json!({"parent_id": page(&e), "spec": {"kind": "frame", "name": "Card", "fill": "#FFFFFF", "children": [
-                {"kind": "text", "name": "Heading", "text": "Hello", "font_size": 18},
-                {"preset": "easeui-button-primary", "name": "Button", "text": "Go"}
+            json!({"parent_id": page(&e), "spec": {"kind": "frame", "name": "Light", "fill": "#FFFFFF", "children": [
+                {"kind": "text", "name": "Heading", "text": "Hello", "font_size": 18}
             ]}}),
         )
         .unwrap();
-
-    let heading = NodeId(reply["name_to_id"]["Card/Heading"].as_u64().unwrap());
+    let heading = NodeId(white["name_to_id"]["Light/Heading"].as_u64().unwrap());
     assert_eq!(drawn_text_fills(&e, heading), vec![Paint::solid(Color::BLACK)]);
-    let button = e.doc.get(NodeId(reply["name_to_id"]["Card/Button"].as_u64().unwrap())).unwrap();
-    assert_eq!(drawn_text_fills(&e, button.children[0]), vec![Paint::solid(Color::BLACK)], "the label made from `text`");
+
+    let dark = e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": page(&e), "spec": {"kind": "frame", "name": "Card", "preset": "easeui-card", "children": [
+                {"kind": "text", "name": "Heading", "text": "Hello"},
+                {"kind": "frame", "name": "Clear", "fill": "transparent", "children": [{"kind": "text", "name": "Nested", "text": "Nested"}]},
+                {"preset": "easeui-button-secondary", "name": "Button", "text": "Cancel"}
+            ]}}),
+        )
+        .unwrap();
+    let light = Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5));
+    for path in ["Card/Heading", "Card/Clear/Nested"] {
+        let id = NodeId(dark["name_to_id"][path].as_u64().unwrap());
+        assert_eq!(drawn_text_fills(&e, id), vec![light.clone()], "{path}");
+    }
+    let button = e.doc.get(NodeId(dark["name_to_id"]["Card/Button"].as_u64().unwrap())).unwrap();
+    assert_eq!(drawn_text_fills(&e, button.children[0]), vec![light], "the label made from `text` on a dark preset");
+}
+
+#[test]
+fn an_explicit_colour_a_variable_or_a_style_beats_the_contrast_pick_through_apply_spec() {
+    let mut e = Engine::default();
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [
+            {"op": "set_variables",
+             "upsert_collections": [{"id": "brand", "name": "Brand", "modes": [{"id": "light", "name": "Light"}], "default_mode": "light"}],
+             "upsert_variables": [{"id": "brand/ink", "name": "Ink", "collection": "brand", "kind": "color", "values": {"light": "#FF8800"}}]},
+            {"op": "set_style", "upsert": [{"key": "accent", "name": "Accent", "property": "fill", "fill": "#00AAFF"}]}
+        ]}),
+    )
+    .unwrap();
+    let reply = e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": page(&e), "spec": {"kind": "frame", "name": "Card", "preset": "easeui-card", "children": [
+                {"kind": "text", "name": "Red", "text": "Red", "text_color": "#FF0000"},
+                {"kind": "text", "name": "Bound", "text": "Bound", "text_color": "var:Brand/Ink"},
+                {"kind": "text", "name": "Styled", "text": "Styled", "text_color": "style:Accent"}
+            ]}}),
+        )
+        .unwrap();
+    let id = |name: &str| NodeId(reply["name_to_id"][format!("Card/{name}")].as_u64().unwrap());
+    assert_eq!(drawn_text_fills(&e, id("Red")), vec![Paint::solid(Color::rgb(255, 0, 0))]);
+    assert_eq!(drawn_text_fills(&e, id("Bound")), vec![Paint::solid(Color::rgb(0xFF, 0x88, 0x00))]);
+    assert_eq!(e.doc.get(id("Bound")).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("brand/ink"));
+    assert_eq!(drawn_text_fills(&e, id("Styled")), vec![Paint::solid(Color::rgb(0x00, 0xAA, 0xFF))]);
+    assert!(e.doc.get(id("Styled")).unwrap().style_refs.contains_key("fill"));
+}
+
+/// The `designos_apply_spec` worked example in the rules pack: an `easeui-card` with text and no colour anywhere.
+fn rules_pack_apply_spec_example() -> Value {
+    let pack = designos_mcp::rules::generate_default_rules_pack().expect("rules pack");
+    let line = pack.lines().find(|l| l.contains(r#""name":"Metric Card""#) && l.contains(r#""spec""#)).expect("the apply_spec example in the rules pack");
+    let json = line.split('`').find(|part| part.starts_with('{')).expect("the example is in backticks");
+    serde_json::from_str(json).expect("the example is valid JSON")
+}
+
+#[test]
+fn the_rules_pack_example_draws_every_text_node_readable_on_the_fill_behind_it() {
+    let example = rules_pack_apply_spec_example();
+    let mut e = Engine::default();
+    let reply = e.call("designos_apply_spec", json!({"parent_id": page(&e), "spec": example["spec"]})).expect("the example applies");
+    let root = NodeId(reply["root_node_id"].as_u64().unwrap());
+
+    let texts = text_nodes_under(&e, root);
+    assert_eq!(texts.len(), 2, "Label and Value");
+    for id in texts {
+        let fills = drawn_text_fills(&e, id);
+        let ratio = contrast_ratio(solid(&fills[0]), backdrop_of(&e, id));
+        assert!(ratio >= 4.5, "{:?} contrast {ratio:.2}:1", e.doc.get(id).unwrap().name);
+    }
 }
 
 #[test]

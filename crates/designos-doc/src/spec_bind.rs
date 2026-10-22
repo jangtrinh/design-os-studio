@@ -1187,6 +1187,43 @@ pub fn resolve_colour_ref(
     })
 }
 
+/// Of black and the light text colour (`#F4F4F5`, the EaseUI primary text token), the one with the higher WCAG
+/// contrast ratio against `backdrop`. A tie goes to black.
+pub fn text_colour_for_backdrop(backdrop: Color) -> Color {
+    let light = Color::rgb(0xF4, 0xF4, 0xF5);
+    let ratio = crate::lint::rules::contrast::contrast_ratio;
+    if ratio(Color::BLACK, backdrop) >= ratio(light, backdrop) {
+        Color::BLACK
+    } else {
+        light
+    }
+}
+
+/// The colour of text a spec gives none, for a node to be placed under `parent`: [`text_colour_for_backdrop`] of the
+/// solid fill behind it. The fill is the first on `parent` or an ancestor that is visible, solid, and at half opacity or
+/// more; hidden, translucent, gradient and image paints are walked past. With none, the page background decides.
+/// An explicit colour, a style or a variable binding is applied afterwards and replaces this one.
+pub fn default_text_colour(doc: &Document, parent: NodeId) -> Color {
+    let mut cur = Some(parent);
+    while let Some(id) = cur {
+        let Some(node) = doc.get(id) else { break };
+        if let NodeKind::Page { background } = &node.kind {
+            return text_colour_for_backdrop(*background);
+        }
+        if node.visible {
+            let solid = node.fills.iter().rev().find_map(|p| match p.kind {
+                PaintKind::Solid(c) if p.visible && p.opacity * c.a >= 0.5 => Some(c),
+                _ => None,
+            });
+            if let Some(c) = solid {
+                return text_colour_for_backdrop(c);
+            }
+        }
+        cur = node.parent;
+    }
+    text_colour_for_backdrop(Color::WHITE)
+}
+
 /// Cuts the links between a node's fill paints and what colours them from outside: every `fills/*`
 /// variable binding (the colour, its opacity and its stops) and the linked Fill style. Call it where the
 /// paints are replaced by a literal colour, so what is drawn is the colour that was written.
@@ -2040,70 +2077,218 @@ mod tests {
         let rect = doc.get(report.root_node_id).unwrap();
         assert_eq!(rect.variables.bindings.get("fills/0").map(String::as_str), Some("v_color_primary"));
     }
-    fn text_fills_of(doc: &Document, id: NodeId) -> Vec<Paint> {
-        match &doc.get(id).unwrap().kind {
-            NodeKind::Text(t) => t.style.fills.clone(),
-            other => panic!("not a text node: {other:?}"),
+    const LIGHT_TEXT: Color = Color { r: 244.0 / 255.0, g: 244.0 / 255.0, b: 245.0 / 255.0, a: 1.0 };
+
+    /// The solid colour the renderer draws the text node with (bindings applied).
+    fn drawn_text_colour(doc: &Document, id: NodeId) -> Color {
+        let resolved = crate::resolved_node(doc, id).expect("node");
+        let NodeKind::Text(t) = &resolved.kind else { panic!("not a text node: {:?}", resolved.kind) };
+        match t.style.fills.first().map(|p| &p.kind) {
+            Some(PaintKind::Solid(c)) => *c,
+            other => panic!("text is not drawn with a solid fill: {other:?}"),
         }
     }
 
+    fn solid_fill_of(doc: &Document, id: NodeId) -> Color {
+        match doc.get(id).and_then(|n| n.fills.first()).map(|p| &p.kind) {
+            Some(PaintKind::Solid(c)) => *c,
+            other => panic!("node {id:?} has no solid fill: {other:?}"),
+        }
+    }
+
+    fn apply(doc: &mut Document, parent: NodeId, spec: serde_json::Value) -> SpecApplyReport {
+        let spec: NodeSpec = serde_json::from_value(spec).unwrap();
+        doc.apply_spec_with_report(parent, &spec).unwrap()
+    }
+
+    fn named(doc: &Document, report: &SpecApplyReport, path: &str) -> NodeId {
+        doc.get(NodeId(report.name_to_id[path])).unwrap().id
+    }
+
+    /// The label a `text` shorthand put inside the frame at `path`.
+    fn label_of(doc: &Document, report: &SpecApplyReport, path: &str) -> NodeId {
+        doc.get(named(doc, report, path)).unwrap().children[0]
+    }
+
+    /// Colour of one uncoloured text node applied under `parent`.
+    fn uncoloured_text_under(doc: &mut Document, parent: NodeId) -> Color {
+        let report = apply(doc, parent, serde_json::json!({ "kind": "text", "name": "Probe", "text": "Probe" }));
+        drawn_text_colour(doc, report.root_node_id)
+    }
+
     #[test]
-    fn text_without_a_colour_is_black_like_every_other_way_to_make_text() {
+    fn uncoloured_text_picks_the_colour_that_contrasts_with_the_backdrop() {
+        assert_eq!(text_colour_for_backdrop(Color::WHITE), Color::BLACK);
+        assert_eq!(text_colour_for_backdrop(Color::BLACK), LIGHT_TEXT);
+        assert_eq!(text_colour_for_backdrop(Color::rgb(0x18, 0x18, 0x1B)), LIGHT_TEXT, "easeui-card");
+        assert_eq!(text_colour_for_backdrop(Color::rgb(0xE3, 0x63, 0x23)), Color::BLACK, "easeui-button-primary orange");
+        // Walking the greys, the pick flips once, from light to black, and never back.
+        let picks: Vec<bool> = (0..=255u8).map(|v| text_colour_for_backdrop(Color::rgb(v, v, v)) == Color::BLACK).collect();
+        let flips = picks.windows(2).filter(|w| w[0] != w[1]).count();
+        assert_eq!(flips, 1, "a single switch point");
+        assert!(!picks[0] && picks[255]);
+    }
+
+    #[test]
+    fn uncoloured_text_is_black_on_a_white_frame_and_light_on_an_easeui_card() {
         let mut doc = Document::new("Text default");
         let page = doc.add_page("Page");
-        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
-            "kind": "frame",
-            "name": "Card",
-            "fill": "#FFFFFF",
-            "children": [
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Light", "fill": "#FFFFFF", "children": [
                 { "kind": "text", "name": "Plain", "text": "Plain" },
-                { "kind": "text", "name": "Sized", "text": "Sized", "font_size": 20, "font_weight": 700 },
-                { "preset": "easeui-button-primary", "name": "Button", "text": "Go" }
-            ]
-        }))
-        .unwrap();
-        let report = doc.apply_spec_with_report(page, &spec).unwrap();
-
-        let black = vec![Paint::solid(Color::BLACK)];
-        assert_eq!(black, vec![Paint::solid(Color::rgb(0, 0, 0))]);
-        for name in ["Card/Plain", "Card/Sized"] {
-            let id = NodeId(report.name_to_id[name]);
-            assert_eq!(text_fills_of(&doc, id), black, "{name}");
+                { "kind": "text", "name": "Sized", "text": "Sized", "font_size": 20, "font_weight": 700 }
+            ]}),
+        );
+        for name in ["Light/Plain", "Light/Sized"] {
+            assert_eq!(drawn_text_colour(&doc, named(&doc, &report, name)), Color::BLACK, "{name}");
         }
-        let button = doc.get(NodeId(report.name_to_id["Card/Button"])).unwrap();
-        let label = doc.get(button.children[0]).expect("label child");
-        assert_eq!(text_fills_of(&doc, label.id), black, "the label made from the `text` shorthand");
-        assert!(doc
-            .get(NodeId(report.name_to_id["Card/Sized"]))
-            .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.style.font_size == 20.0 && t.style.font_weight == 700)));
+        let sized = doc.get(named(&doc, &report, "Light/Sized")).unwrap();
+        assert!(matches!(&sized.kind, NodeKind::Text(t) if t.style.font_size == 20.0 && t.style.font_weight == 700), "size and weight still apply");
+
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Card", "preset": "easeui-card", "children": [
+                { "kind": "text", "name": "Heading", "text": "Heading" }
+            ]}),
+        );
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Card/Heading")), LIGHT_TEXT);
+
+        let default_fill =
+            apply(&mut doc, page, serde_json::json!({ "kind": "frame", "name": "Plain", "children": [{ "kind": "text", "name": "T", "text": "T" }] }));
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &default_fill, "Plain/T")), Color::BLACK, "a frame with no fill given is white");
     }
 
     #[test]
-    fn text_with_an_explicit_colour_keeps_it() {
-        let mut doc = Document::new("Text colour");
+    fn labels_on_the_dark_presets_are_readable() {
+        let mut doc = Document::new("Dark presets");
         let page = doc.add_page("Page");
-        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
-            "kind": "frame",
-            "name": "Panel",
-            "preset": "easeui-panel",
-            "children": [
-                { "kind": "text", "name": "Light", "text": "Light", "text_color": "#F4F4F5" },
-                { "kind": "text", "name": "Token", "text": "Token", "color": "$easeui.text.primary" },
-                { "preset": "easeui-badge", "name": "Badge", "text": "New", "text_color": "#10B981" }
-            ]
-        }))
-        .unwrap();
-        let report = doc.apply_spec_with_report(page, &spec).unwrap();
-
-        let light = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
-        assert_eq!(text_fills_of(&doc, NodeId(report.name_to_id["Panel/Light"])), light);
-        let token = doc.get(NodeId(report.name_to_id["Panel/Token"])).unwrap();
-        let drawn = crate::resolved_node(&doc, token.id).unwrap();
-        let NodeKind::Text(drawn_text) = &drawn.kind else { panic!("text node") };
-        assert_eq!(drawn_text.style.fills, light, "the token resolves to the same light grey");
-        let badge = doc.get(NodeId(report.name_to_id["Panel/Badge"])).unwrap();
-        assert_eq!(text_fills_of(&doc, badge.children[0]), vec![Paint::solid(Color::rgb(0x10, 0xB9, 0x81))]);
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Panel", "preset": "easeui-card", "children": [
+                { "preset": "easeui-button-secondary", "name": "Secondary", "text": "Cancel" },
+                { "preset": "easeui-badge", "name": "Badge", "text": "New" },
+                { "preset": "easeui-input", "name": "Input", "text": "Email" },
+                { "preset": "easeui-button-primary", "name": "Primary", "text": "Go" }
+            ]}),
+        );
+        for (name, expected) in [("Secondary", LIGHT_TEXT), ("Badge", LIGHT_TEXT), ("Input", LIGHT_TEXT), ("Primary", Color::BLACK)] {
+            let path = format!("Panel/{name}");
+            let frame = named(&doc, &report, &path);
+            let label = drawn_text_colour(&doc, label_of(&doc, &report, &path));
+            let ratio = crate::lint::rules::contrast::contrast_ratio(label, solid_fill_of(&doc, frame));
+            assert!(ratio >= 4.5, "{name}: label contrast {ratio:.2}:1");
+            assert_eq!(label, expected, "{name}");
+        }
     }
+
+    #[test]
+    fn text_in_a_frame_without_a_fill_takes_the_fill_further_up() {
+        let mut doc = Document::new("Nested");
+        let page = doc.add_page("Page");
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Card", "preset": "easeui-card", "children": [
+                { "kind": "frame", "name": "Row", "preset": "easeui-row", "children": [{ "kind": "text", "name": "Inner", "text": "Inner" }] },
+                { "kind": "frame", "name": "Clear", "fill": "transparent", "children": [
+                    { "kind": "frame", "name": "Deeper", "fill": "none", "children": [{ "kind": "text", "name": "Deep", "text": "Deep" }] }
+                ]},
+                { "kind": "frame", "name": "Faint", "fill": "#FFFFFF40", "children": [{ "kind": "text", "name": "Veiled", "text": "Veiled" }] }
+            ]}),
+        );
+        for name in ["Card/Row/Inner", "Card/Clear/Deeper/Deep", "Card/Faint/Veiled"] {
+            assert_eq!(drawn_text_colour(&doc, named(&doc, &report, name)), LIGHT_TEXT, "{name}");
+        }
+    }
+
+    #[test]
+    fn fills_that_are_not_a_solid_backdrop_are_walked_past() {
+        let mut doc = Document::new("Walk");
+        let page = doc.add_page("Page");
+        let outer = apply(&mut doc, page, serde_json::json!({ "kind": "frame", "name": "Outer", "fill": "#18181B" })).root_node_id;
+
+        // A gradient is not a solid backdrop.
+        let gradient = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Gradient", "fill": "none" })).root_node_id;
+        doc.get_mut(gradient).unwrap().fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+        assert_eq!(uncoloured_text_under(&mut doc, gradient), LIGHT_TEXT, "gradient skipped");
+
+        // A fill under half opacity, by the paint or by the colour's own alpha, is not one either.
+        let faint = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Faint", "fill": "none" })).root_node_id;
+        let mut paint = Paint::solid(Color::WHITE);
+        paint.opacity = 0.4;
+        doc.get_mut(faint).unwrap().fills = vec![paint];
+        assert_eq!(uncoloured_text_under(&mut doc, faint), LIGHT_TEXT, "paint opacity 0.4 skipped");
+        // Half opacity and over counts: a white fill at 0.5 is the backdrop.
+        let mut half = Paint::solid(Color::WHITE);
+        half.opacity = 0.5;
+        doc.get_mut(faint).unwrap().fills = vec![half];
+        assert_eq!(uncoloured_text_under(&mut doc, faint), Color::BLACK, "paint opacity 0.5 counts");
+
+        // A hidden node or hidden paint paints nothing.
+        let hidden = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Hidden", "fill": "#FFFFFF" })).root_node_id;
+        doc.get_mut(hidden).unwrap().visible = false;
+        assert_eq!(uncoloured_text_under(&mut doc, hidden), LIGHT_TEXT, "hidden node skipped");
+        let hidden_paint = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "HiddenPaint", "fill": "#FFFFFF" })).root_node_id;
+        doc.get_mut(hidden_paint).unwrap().fills[0].visible = false;
+        assert_eq!(uncoloured_text_under(&mut doc, hidden_paint), LIGHT_TEXT, "hidden paint skipped");
+
+        // The topmost solid paint of a node is the backdrop.
+        let layered = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Layered", "fill": "#FFFFFF" })).root_node_id;
+        doc.get_mut(layered).unwrap().fills.insert(0, Paint::solid(Color::BLACK));
+        assert_eq!(uncoloured_text_under(&mut doc, layered), Color::BLACK, "the paint on top is a white backdrop");
+    }
+
+    #[test]
+    fn with_no_fill_behind_the_text_the_page_background_decides() {
+        let mut doc = Document::new("Page background");
+        let page = doc.add_page("Page");
+        doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::rgb(0x12, 0x12, 0x15) };
+        assert_eq!(uncoloured_text_under(&mut doc, page), LIGHT_TEXT, "dark page");
+        let bare = apply(&mut doc, page, serde_json::json!({ "kind": "frame", "name": "Bare", "fill": "none" })).root_node_id;
+        assert_eq!(uncoloured_text_under(&mut doc, bare), LIGHT_TEXT, "a frame with no fill on a dark page");
+
+        doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+        assert_eq!(uncoloured_text_under(&mut doc, bare), Color::BLACK, "light page");
+    }
+
+    #[test]
+    fn an_explicit_colour_or_a_variable_binding_always_wins() {
+        let mut doc = fixtures::tokens_doc();
+        let page = doc.pages[0];
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Panel", "preset": "easeui-card", "children": [
+                { "kind": "text", "name": "Hex", "text": "Hex", "text_color": "#FF0000" },
+                { "kind": "text", "name": "Alias", "text": "Alias", "color": "#00FF00" },
+                { "kind": "text", "name": "Fill", "text": "Fill", "fill": "#0000FF" },
+                { "kind": "text", "name": "Bound", "text": "Bound", "text_color": "var:Color/Primary" },
+                { "kind": "text", "name": "Token", "text": "Token", "text_color": "$easeui.text.primary" },
+                { "preset": "easeui-badge", "name": "Badge", "text": "New", "text_color": "#10B981" }
+            ]}),
+        );
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Panel/Hex")), Color::rgb(255, 0, 0));
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Panel/Alias")), Color::rgb(0, 255, 0));
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Panel/Fill")), Color::rgb(0, 0, 255));
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Panel/Token")), LIGHT_TEXT);
+        let bound = doc.get(named(&doc, &report, "Panel/Bound")).unwrap();
+        assert_eq!(bound.variables.bindings.get("fills/0").map(String::as_str), Some("var_color_primary"), "the binding is kept");
+        assert_eq!(drawn_text_colour(&doc, bound.id), Color::rgb(0x0D, 0x99, 0xFF), "the variable's colour, not the contrast pick");
+        assert_eq!(drawn_text_colour(&doc, label_of(&doc, &report, "Panel/Badge")), Color::rgb(0x10, 0xB9, 0x81));
+    }
+
     #[test]
     fn detach_fill_paints_drops_every_fill_binding_and_the_fill_style_link_only() {
         let mut node = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
