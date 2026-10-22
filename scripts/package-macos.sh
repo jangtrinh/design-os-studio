@@ -129,7 +129,7 @@ if [ -f "$root/packaging/macos/install-cli.command" ]; then
   cp "$root/packaging/macos/install-cli.command" "$tar_stage/install-cli.command"
   chmod 755 "$tar_stage/install-cli.command"
 fi
-cp LICENSE-MIT LICENSE-APACHE README.md "$tar_stage/"
+cp LICENSE README.md "$tar_stage/"
 tarball=$dist/$name.tar.gz
 rm -f "$tarball"
 COPYFILE_DISABLE=1 tar -C "$work" -czf "$tarball" "$name"

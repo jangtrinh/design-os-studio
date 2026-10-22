@@ -49,8 +49,7 @@ Section "design:os studio (Core & CLI)" SecCore
   File "designos-diff.exe"
   File /nonfatal "designos.ico"
   File /nonfatal "README.md"
-  File /nonfatal "LICENSE-MIT"
-  File /nonfatal "LICENSE-APACHE"
+  File /nonfatal "LICENSE"
   File /nonfatal "install.ps1"
   File /nonfatal "uninstall.ps1"
 
@@ -99,6 +98,8 @@ Section "Uninstall"
   Delete "$INSTDIR\designos-diff.exe"
   Delete "$INSTDIR\designos.ico"
   Delete "$INSTDIR\README.md"
+  Delete "$INSTDIR\LICENSE"
+  ; Releases up to v0.5.0 installed these two files instead of LICENSE.
   Delete "$INSTDIR\LICENSE-MIT"
   Delete "$INSTDIR\LICENSE-APACHE"
   Delete "$INSTDIR\install.ps1"

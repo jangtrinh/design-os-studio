@@ -2,7 +2,7 @@
 name: accessibility-wcag
 description: Verify WCAG 2.2 AA contrast ratios, 32px minimum tap targets, and semantic layer naming.
 version: 0.6.0
-license: MIT OR Apache-2.0
+license: LicenseRef-PolyForm-Shield-1.0.0
 attribution: DESIGN:OS Studio contributors
 ---
 

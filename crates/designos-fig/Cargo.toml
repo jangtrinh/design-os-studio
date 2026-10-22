@@ -3,7 +3,7 @@ name = "designos-fig"
 description = "Figma file import/export: REST JSON and .fig (fig-kiwi) binary"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [features]
 default = []

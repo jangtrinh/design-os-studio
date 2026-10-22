@@ -2,7 +2,7 @@
 name = "designos-webcapture"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 designos-doc.workspace = true

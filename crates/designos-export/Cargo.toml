@@ -3,7 +3,7 @@ name = "designos-export"
 description = "PNG/JPG/SVG export and Dev Mode CSS for designos documents"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
