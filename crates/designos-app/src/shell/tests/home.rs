@@ -525,14 +525,16 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     s.key(Key::Escape);
     assert_eq!(s.app().ui.menu, None);
 
-    // UF-06 & UF-07: Right Inspector Contextual Sections & Agent Terminal Bottom Dock
+    // UF-06 & UF-07: Right Inspector Contextual Sections & the Cmd+` toggle of the Agents panel
     s.shell.app.select_only(card_id);
     s.frame(vec![]);
     assert_eq!(s.app().selection, vec![card_id]);
-    click_rect(&mut s, "rail-terminal");
-    assert!(s.app().terminal.dock_open);
-    click_rect(&mut s, "rail-terminal");
-    assert!(!s.app().terminal.dock_open);
+    s.cmd_key(Key::Backtick);
+    assert_eq!(s.app().ui.rail, Some(RailItem::Agents));
+    // The terminal keeps the keyboard while it has focus; the toggle is for the moment nothing in the panel does.
+    s.shell.app.terminal.viewport_focused = false;
+    s.cmd_key(Key::Backtick);
+    assert_eq!(s.app().ui.rail, None);
 
     // UF-08: Main Menu (`AI balance`, `Help and account`)
     click_rect(&mut s, "rail-menu");

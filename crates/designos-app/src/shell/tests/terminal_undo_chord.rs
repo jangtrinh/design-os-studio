@@ -10,14 +10,15 @@ const MAC_CTRL: Modifiers = Modifiers { alt: false, ctrl: true, shift: false, ma
 const WIN_CTRL: Modifiers = Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: false, command: true };
 const WIN_CTRL_SHIFT: Modifiers = Modifiers { alt: false, ctrl: true, shift: true, mac_cmd: false, command: true };
 
-/// Creates a `Sim` window bound to a real `designos_mcp::server::Session` with the terminal dock
-/// open and focused on `preset`.
+/// Creates a `Sim` window bound to a real `designos_mcp::server::Session` with the Agents panel
+/// open and its terminal focused on `preset`.
 fn live_terminal_sim(preset: AgentCliPreset) -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
     let mut s = Sim::new();
     let workspace = std::env::temp_dir().join(format!("designos-685-ws-{}", crate::live_sync_tests::unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     let session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
-    s.shell.app.terminal.dock_open = true;
+    s.shell.app.show_agents_panel();
+    s.shell.app.terminal.side_panel_pty_open = true;
     s.shell.app.terminal.viewport_focused = true;
     s.shell.app.terminal.ensure_default_tab(None);
     s.frame(vec![]);
@@ -70,7 +71,7 @@ fn cmd_z_while_terminal_focused_undoes_document() {
     session.call("designos_update_node", serde_json::json!({ "node_id": hero.0, "name": "Hero (agent)" })).expect("agent rename");
     s.frame(vec![]);
     assert_eq!(node_name(&s, hero), "Hero (agent)");
-    assert!(s.app().terminal.is_capturing_keyboard(false));
+    assert!(s.app().terminal.is_capturing_keyboard(true), "the open Agents panel's terminal captures the keyboard while it has focus");
 
     if let Some(tab) = s.shell.app.terminal.active_tab_mut() {
         tab.written_bytes.clear();
@@ -274,7 +275,7 @@ fn text_edit_keeps_native_text_undo() {
     // Open the terminal search bar (`TextEdit`) while `viewport_focused` remains true and focus it.
     s.shell.app.terminal.search_open = true;
     s.frame(vec![]);
-    let search_id = egui::Id::new(("dock", "term-search-input"));
+    let search_id = egui::Id::new(("agents-left-pty", "term-search-input"));
     s.ctx.memory_mut(|m| m.request_focus(search_id));
     s.frame(vec![]);
     assert!(s.ctx.egui_wants_keyboard_input(), "terminal search TextEdit should want keyboard input");

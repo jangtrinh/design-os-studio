@@ -1041,6 +1041,7 @@ mod typography;
 mod variables;
 mod vector;
 
+mod agents_panel_only;
 mod assets_thumbs;
 mod libraries;
 mod lint;
@@ -1499,10 +1500,10 @@ mod agent_a11y {
         s.frame(vec![]);
 
         let update_pty = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["New session", "Close tab", "Show terminal dock"] {
+        for label in ["New session", "Close tab"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in PTY mode");
         }
-        for absent in ["Stop", "Send selection to agent", "Send"] {
+        for absent in ["Stop", "Send selection to agent", "Send", "Show terminal dock", "Hide terminal dock"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in PTY mode");
         }
 

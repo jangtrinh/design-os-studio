@@ -224,7 +224,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
         id: "cmdk-send-selection",
         section: "Development",
         icon: Icon::Comment,
-        title: "Send Selection & Pin-Comments to Agent Terminal",
+        title: "Send selection to agent",
         subtitle: "Sends the selected frame to the agent",
         badge: "Development",
         shortcut: "⇧⌘E",

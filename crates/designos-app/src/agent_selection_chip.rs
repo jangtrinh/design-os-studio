@@ -1,4 +1,4 @@
-//! Live selection chip in the Agents panel header and dock bar (`#654`).
+//! Live selection chip in the Agents panel header (`#654`).
 //!
 //! Displays `page · N selected · first names`, updates in the same frame as `app.selection`, and
 //! is hidden (not painted, no target, no tooltip) while nothing is selected. Writes nothing to the

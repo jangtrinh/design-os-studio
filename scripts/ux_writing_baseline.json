@@ -38,12 +38,6 @@
       "count": 1
     },
     {
-      "file": "panels/inspect.rs",
-      "kind": "words",
-      "literal": "Send to Agent Terminal",
-      "count": 1
-    },
-    {
       "file": "panels/menus.rs",
       "kind": "words",
       "literal": "Export all slides as PDF…",

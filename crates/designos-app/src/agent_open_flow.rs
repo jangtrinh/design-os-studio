@@ -122,6 +122,25 @@ pub fn format_relative_time(last_active_at: u64, now_secs: u64) -> String {
     }
 }
 
+impl crate::app::App {
+    /// Shows the Agents panel on the left, without touching its sessions.
+    pub fn show_agents_panel(&mut self) {
+        self.ui.rail = Some(crate::app::RailItem::Agents);
+        self.ui.left_collapsed = false;
+    }
+
+    /// What a click on the Agents rail button and the Cmd+` shortcut do: an open Agents panel closes; a closed one opens
+    /// and then resumes the file's last session or shows the new-session list ([`TerminalState::open_for_agent_use`]).
+    pub fn toggle_agents_panel(&mut self) {
+        if self.ui.rail == Some(crate::app::RailItem::Agents) && !self.ui.left_collapsed {
+            self.ui.rail = None;
+        } else {
+            self.show_agents_panel();
+            self.terminal.open_for_agent_use(self.file_path.as_deref());
+        }
+    }
+}
+
 impl TerminalState {
     /// True when at least one tab in `self.tabs` has a running process or is still inside the
     /// 5-second startup window without a recorded start failure (`#651` §3 rule 2.1 & §8 edge case 4).
@@ -131,7 +150,7 @@ impl TerminalState {
         })
     }
 
-    /// Opens the Agent panel / `>_` dock / backtick surface for agent use (`#651` §3 rule 2):
+    /// Opens the Agents panel for agent use, from the rail button or Cmd+` (`#651` §3 rule 2):
     /// 1. If a live tab exists, keep it (`picker_open = false`).
     /// 2. Else if `resumable_sessions()` is non-empty, resume the most recent one (`picker_open = false`).
     /// 3. Else start nothing and set `picker_open = true`.
@@ -749,7 +768,7 @@ mod tests {
         let dir = temp_test_dir("never-shell");
         let mut st = TerminalState::new_for_session("doc-never-shell", "Landing", Some(&dir));
 
-        // Simulate rail Agents, rail Tools, `>_`, backtick, home OpenAgents, and palette OpenSpecReader entry points
+        // Simulate the Agents rail button, Cmd+`, home OpenAgents, and palette OpenSpecReader entry points
         for _ in 0..6 {
             st.open_for_agent_use(None);
             assert!(!st.tabs.iter().any(|t| t.is_shell_process()), "open_for_agent_use must never spawn a Shell process");
@@ -783,10 +802,9 @@ mod tests {
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
             let _ = ctx.run_ui(raw, |ui| {
                 let _ = crate::terminal::show_left(&mut st, ui, panel_rect, None);
-                let _ = crate::terminal::show_dock(&mut st, ui, panel_rect, None);
             });
         }
-        assert!(st.tabs.is_empty(), "Rendering frames with the panel/dock open must never spawn a tab");
+        assert!(st.tabs.is_empty(), "Rendering frames with the panel open must never spawn a tab");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1073,26 +1091,25 @@ mod tests {
         cmdk_with_no_live_tab_resumes_the_last_session();
     }
 
-    // 13. `dock_and_backtick_follow_the_panel_rules` / `dock_and_backtick_follow_same_open_rules`
+    // 13. `backtick_follows_the_panel_rules` / `backtick_follows_same_open_rules`
     #[test]
-    fn dock_and_backtick_follow_the_panel_rules() {
-        let dir = temp_test_dir("dock-backtick");
+    fn backtick_follows_the_panel_rules() {
+        let dir = temp_test_dir("backtick");
         let bin_dir = dir.join("bin");
         write_stub_cli(&bin_dir, "claude", "sleep 5");
 
-        let mut st = TerminalState::new_for_session("doc-dock", "Landing", Some(&dir));
+        let mut st = TerminalState::new_for_session("doc-backtick", "Landing", Some(&dir));
         st.path_prepend.push(bin_dir);
 
-        // Without session: `>_` / backtick sets dock_open + calls open_for_agent_use -> picker_open, 0 tabs
-        st.dock_open = true;
+        // Without session: the Agents rail button / Cmd+` call open_for_agent_use -> picker_open, 0 tabs
         st.open_for_agent_use(None);
         assert!(st.tabs.is_empty());
         assert!(st.picker_open);
 
-        // With a recorded session: `>_` / backtick resumes that session, never a Shell
+        // With a recorded session: the rail button / Cmd+` resume that session, never a Shell
         st.session_registry.sessions.push(make_session_entry(
             1,
-            "Claude Dock",
+            "Claude Backtick",
             "claude",
             Some("66666666-6666-4666-8666-666666666666"),
             100,
@@ -1112,8 +1129,8 @@ mod tests {
     }
 
     #[test]
-    fn dock_and_backtick_follow_same_open_rules() {
-        dock_and_backtick_follow_the_panel_rules();
+    fn backtick_follows_same_open_rules() {
+        backtick_follows_the_panel_rules();
     }
 
     // 14. `shell_is_never_registered_or_resumed`
