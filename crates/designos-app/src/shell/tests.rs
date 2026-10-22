@@ -1131,6 +1131,8 @@ mod grid_track_editing;
 mod history;
 mod home;
 mod layer_drag_fast;
+#[cfg(target_os = "macos")]
+mod leave_menu_quit;
 mod leave_prompt;
 mod leave_prompt_edges;
 mod live_agent_edits;
