@@ -1640,7 +1640,7 @@ impl App {
             }
             // A layer that holds an instance of a main is not dropped into that main, nor into a layer in it: that
             // main would hold itself.
-            if mains_held_by(&self.doc, &[*id]).into_iter().any(|m| new_parent == m || self.doc.is_ancestor(m, new_parent)) {
+            if reparent_would_hold_itself(&self.doc, &[*id], new_parent) {
                 continue;
             }
             let old_p = self.doc.get(*id).and_then(|n| n.parent);

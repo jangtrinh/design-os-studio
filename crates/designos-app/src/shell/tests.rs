@@ -1116,6 +1116,7 @@ mod board_home;
 mod check_designs;
 mod comments;
 mod components;
+mod components_cycles;
 mod components_main_copies;
 mod decks;
 mod dev;

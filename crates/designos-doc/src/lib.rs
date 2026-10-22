@@ -22,6 +22,8 @@ mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
 mod comments;
+#[cfg(test)]
+mod component_cycle_tests;
 mod components;
 mod dev;
 pub mod diff;

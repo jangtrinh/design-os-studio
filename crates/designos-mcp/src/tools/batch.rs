@@ -1668,6 +1668,16 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         format!("cannot move node {} into its own subtree ({})", id.0, new_parent.0),
                     ));
                 }
+                // a layer that holds an instance of a main does not go into that main, nor into a layer in it
+                if designos_doc::reparent_would_hold_itself(&trial, &[id], new_parent) {
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::MoveCycle,
+                        &op_path,
+                        format!("cannot move node {} into {}: that would make a component hold an instance of itself", id.0, new_parent.0),
+                    ));
+                }
 
                 let siblings_without_id = pnode.children.iter().filter(|&&c| c != id).count();
                 let target_idx = a.index.unwrap_or(siblings_without_id).min(siblings_without_id);
