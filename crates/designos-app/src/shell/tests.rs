@@ -1137,6 +1137,7 @@ mod style_edit;
 mod svg;
 mod system_paste_and_drop;
 mod typography;
+mod unsaved_dot;
 mod variables;
 mod vector;
 

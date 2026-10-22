@@ -1341,6 +1341,7 @@ impl Shell {
         if !self.app.paste_jobs.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
+        self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
     }
 

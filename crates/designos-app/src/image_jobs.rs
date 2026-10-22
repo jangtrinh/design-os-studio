@@ -829,9 +829,13 @@ impl App {
                                             j.state = ImageJobState::Done;
                                         }
                                         tab.selection = vec![new_id];
-                                        tab.dirty = true;
                                         if let (Some(lib), Some(lf)) = (&self.lib, &tab.lib_file) {
-                                            let _ = Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist);
+                                            // The job is a step of the tab's history, so the dot already shows it. A write
+                                            // that took the whole document leaves the tab as the file holds it.
+                                            if Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist).is_ok() {
+                                                tab.hist.mark_clean();
+                                                tab.dirty = false;
+                                            }
                                         }
                                         let msg = warning.unwrap_or_else(|| format!("Applied {}", job.op.layer_suffix()));
                                         toast_to_show = Some((msg, false));
@@ -2122,6 +2126,69 @@ mod tests {
         assert!(app.doc.get(orig_id).unwrap().visible);
 
         assert!(app.close_tab(0));
+    }
+
+    #[test]
+    fn a_job_that_landed_on_a_parked_library_tab_and_was_written_shows_no_dot() {
+        let tmp = TestDir::new("parked-lib-dot");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let mut doc_b = Document::new("File B");
+        doc_b.add_page("Page 1");
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+        let proj = lib.create_project("Project").unwrap();
+        let entry_a = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        let entry_b = lib.create_file(&proj.id, None, "File B", &doc_b).unwrap();
+        app.lib = Some(lib.clone());
+        app.open_library_file(&entry_a.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        let stub_png = tmp.path().join("parked_dot_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on File A");
+        app.go_home();
+        app.open_library_file(&entry_b.id);
+        wait_for_job_completion(&mut app);
+        assert_eq!(lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(), 2, "the result is written to File A");
+        assert!(!crate::tabs::tab_is_unsaved(&app, 0), "File A's tab holds what its file holds: no dot");
+        // back on it: still no dot, and the one undo that takes the layer away is an unsaved edit
+        app.switch_tab(0);
+        assert!(!app.has_unsaved_edits());
+        app.undo();
+        assert!(app.has_unsaved_edits());
+        assert!(app.close_tab(1));
+        assert!(app.close_tab(0));
+    }
+
+    #[test]
+    fn undoing_a_job_that_landed_on_a_parked_tab_back_to_the_saved_state_clears_the_dot() {
+        let tmp = TestDir::new("parked-undo-dot");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let mut doc_b = Document::new("Tab B Doc");
+        doc_b.add_page("Page 1");
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_tab(&mut app, "Tab B", doc_b, crate::tabs::ProjectTabKind::Design);
+        tabs.switch_to(0, &mut app);
+        app.tabs = tabs;
+        let stub_png = tmp.path().join("parked_undo_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on Tab A");
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(1, &mut app);
+        app.tabs = tabs;
+        wait_for_job_completion(&mut app);
+        assert!(crate::tabs::tab_is_unsaved(&app, 0), "the job is an edit nothing has saved");
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(0, &mut app);
+        app.tabs = tabs;
+        assert!(app.has_unsaved_edits());
+        app.undo();
+        assert!(!app.has_unsaved_edits(), "the job is a step of the undo history, so undoing it is back at the saved state");
     }
 
     #[test]
