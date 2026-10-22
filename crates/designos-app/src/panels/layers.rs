@@ -42,6 +42,9 @@ pub struct LayersState {
     pub rename_seen: bool,
     pub drag: Option<Vec<NodeId>>,
     pub drop: Option<Drop>,
+    /// The row the primary button went down on and where, until it comes up: the row a drag starts from (see
+    /// `begin_row_drag`).
+    pub press: Option<(NodeId, Pos2)>,
     pub last_sel: Vec<NodeId>,
     pub anchor: Option<NodeId>,
     /// Name filter (the header's search icon): shown, its text, and a focus request.
@@ -314,6 +317,71 @@ fn visible_rows_cached(app: &mut App) -> Vec<Row> {
     app.layers.rows_cache.clone()
 }
 
+/// Width of the strip at the right edge of the list that is not a row's to drag from: the scrollbar track
+/// (`scrollbar` draws it 8 px wide) and the reach of the panel's resize handle.
+const EDGE_STRIP_W: f32 = 8.0;
+
+/// The row under `pos`, when `pos` is on a row of the list and no popup is drawn over it.
+fn row_at(app: &App, ui: &Ui, region: Rect, scroll: f32, pos: Pos2) -> Option<NodeId> {
+    if !region.contains(pos) || pos.x >= region.right() - EDGE_STRIP_W || ui.ctx().layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Foreground) {
+        return None;
+    }
+    let i = ((pos.y - region.top() + scroll) / theme::LAYER_ROW_HEIGHT).floor();
+    if i < 0.0 {
+        return None;
+    }
+    app.layers.rows_cache.get(i as usize).map(|r| r.id)
+}
+
+/// Starts a row drag when the pointer has travelled farther than a click's reach from where the primary button went
+/// down, and returns where the pointer is then (the release position when it was released this frame).
+///
+/// The press, the release and the position of each come from the button events, not from egui's `drag_started`:
+/// egui resolves a press against the pointer position at the END of the frame and starts a drag only on a frame after
+/// the press, and a release inside a frame drops a pending drag. So when the move and the release land in the frame
+/// after the press, or all three share a frame (a slow frame, a quick flick), egui reports no drag, or a drag of the
+/// row under the END of the move, and the layer is not reordered.
+fn begin_row_drag(app: &mut App, ui: &Ui, region: Rect, scroll: f32, filtering: bool) -> Option<Pos2> {
+    let buttons: Vec<(bool, Pos2)> = ui.input(|i| {
+        i.events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } => Some((*pressed, *pos)),
+                _ => None,
+            })
+            .collect()
+    });
+    let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
+    let mut began_at = None;
+    for (pressed, pos) in buttons {
+        if pressed {
+            app.layers.press = row_at(app, ui, region, scroll, pos).map(|id| (id, pos));
+        } else if let Some((id, from)) = app.layers.press.take() {
+            if from.distance(pos) > reach && start_row_drag(app, id, filtering) {
+                began_at = Some(pos);
+            }
+        }
+    }
+    if let (Some((id, from)), Some(now)) = (app.layers.press, ui.input(|i| i.pointer.interact_pos())) {
+        if ui.input(|i| i.pointer.primary_down()) && from.distance(now) > reach && start_row_drag(app, id, filtering) {
+            began_at = Some(now);
+        }
+    }
+    began_at
+}
+
+/// Picks up row `id` (selecting it unless it already is) when no drag is under way and the rows can be dragged.
+fn start_row_drag(app: &mut App, id: NodeId, filtering: bool) -> bool {
+    if app.layers.drag.is_some() || app.layers.renaming.is_some() || filtering {
+        return false;
+    }
+    if !app.selection.contains(&id) {
+        app.select_only(id);
+    }
+    app.layers.drag = Some(app.top_selection());
+    true
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     // Reveal newly selected layers once marquee interaction settles.
     let in_marquee = matches!(app.canvas.inter, crate::canvas::Interaction::Marquee { .. });
@@ -351,13 +419,15 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     app.layers.scroll = scroll;
     app.hover_layer = None;
 
+    let drag_began_at = begin_row_drag(app, ui, region, scroll, filter.is_some());
+
     let first = (scroll / theme::LAYER_ROW_HEIGHT).floor().max(0.0) as usize;
     let last = (((scroll + region.height()) / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1).min(total_rows);
     let visible_slice: Vec<Row> = if first < last { app.layers.rows_cache[first..last].to_vec() } else { Vec::new() };
     let selected: HashSet<NodeId> = app.selection.iter().copied().collect();
 
     // Drag bookkeeping.
-    let pointer = ui.input(|i| i.pointer.interact_pos());
+    let pointer = drag_began_at.or_else(|| ui.input(|i| i.pointer.interact_pos()));
     if let (Some(ids), Some(pos)) = (app.layers.drag.clone(), pointer) {
         app.layers.drop = if region.contains(pos) { drop_for(pos.y - region.top() + scroll, &app.layers.rows_cache, &app.doc, &ids) } else { None };
     }
@@ -625,12 +695,6 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     app.select_only(row.id);
                     app.layers.anchor = Some(row.id);
                 }
-            }
-            if resp.drag_started() && app.layers.renaming.is_none() && filter.is_none() {
-                if !is_sel {
-                    app.select_only(row.id);
-                }
-                app.layers.drag = Some(app.top_selection());
             }
         }
 
