@@ -12,10 +12,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-struct TmpDir(PathBuf);
+pub(super) struct TmpDir(pub(super) PathBuf);
 
 impl TmpDir {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let p = std::env::temp_dir().join(format!("designos_unsaved_dot_{}_{n}", std::process::id()));
@@ -32,7 +32,7 @@ impl Drop for TmpDir {
 }
 
 /// A document with two rectangles on its first page.
-fn two_rects() -> Document {
+pub(super) fn two_rects() -> Document {
     let mut d = Document::new("Outside");
     let page = d.add_page("P");
     for i in 0..2 {
@@ -43,7 +43,7 @@ fn two_rects() -> Document {
 }
 
 /// A sim on the library's seeded "Welcome" file, tab bar shown.
-fn library_sim() -> (Sim, TmpDir) {
+pub(super) fn library_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let mut s = Sim::with(Options { home: true, library: Some(dir.0.join("lib")), ..Default::default() });
     s.shell.app.tabs.always_visible = true;
@@ -61,7 +61,7 @@ fn external_sim() -> (Sim, TmpDir, PathBuf) {
     external_sim_with(&two_rects())
 }
 
-fn external_sim_with(doc: &Document) -> (Sim, TmpDir, PathBuf) {
+pub(super) fn external_sim_with(doc: &Document) -> (Sim, TmpDir, PathBuf) {
     let dir = TmpDir::new();
     let path = dir.0.join("outside.designos");
     std::fs::write(&path, doc.to_json().unwrap()).unwrap();
@@ -72,9 +72,9 @@ fn external_sim_with(doc: &Document) -> (Sim, TmpDir, PathBuf) {
 }
 
 /// Longer than the settle delay of a changed revision.
-const SETTLED: f64 = 0.5;
+pub(super) const SETTLED: f64 = 0.5;
 
-fn wait(s: &mut Sim, secs: f64) {
+pub(super) fn wait(s: &mut Sim, secs: f64) {
     let end = s.t + secs;
     while s.t < end {
         s.frame(vec![]);
@@ -82,13 +82,13 @@ fn wait(s: &mut Sim, secs: f64) {
 }
 
 /// Whether the active tab was painted with the unsaved dot in the last frame.
-fn dot(s: &Sim) -> bool {
+pub(super) fn dot(s: &Sim) -> bool {
     let id = s.app().tabs.entries[s.app().tabs.active_idx].id;
     s.rect_of(&format!("tab-unsaved-dot-{id}")).is_finite()
 }
 
 /// One undoable edit: duplicates the first layer on the page.
-fn edit_now(s: &mut Sim) {
+pub(super) fn edit_now(s: &mut Sim) {
     let app = &mut s.shell.app;
     let first = app.doc.get(app.page).unwrap().children[0];
     app.selection = vec![first];
@@ -96,16 +96,16 @@ fn edit_now(s: &mut Sim) {
 }
 
 /// [`edit_now`], then waits for the dot to settle.
-fn edit(s: &mut Sim) {
+pub(super) fn edit(s: &mut Sim) {
     edit_now(s);
     wait(s, SETTLED);
 }
 
-fn nodes_on_disk(path: &std::path::Path) -> usize {
+pub(super) fn nodes_on_disk(path: &std::path::Path) -> usize {
     Document::from_json(&std::fs::read_to_string(path).unwrap()).map(|d| d.nodes.len()).unwrap_or(0)
 }
 
-fn lib(s: &Sim) -> Library {
+pub(super) fn lib(s: &Sim) -> Library {
     s.app().lib.clone().expect("a library")
 }
 
@@ -291,7 +291,7 @@ fn ctrl_s_in_a_frame_that_also_carries_its_release_still_saves() {
 }
 
 /// The dot painted on the tab that holds the file `pick` selects.
-fn dot_on_tab(s: &Sim, pick: impl Fn(&crate::tabs::ProjectTab) -> bool) -> bool {
+pub(super) fn dot_on_tab(s: &Sim, pick: impl Fn(&crate::tabs::ProjectTab) -> bool) -> bool {
     let tab = s.app().tabs.entries.iter().find(|t| pick(t)).expect("a tab for the file");
     s.rect_of(&format!("tab-unsaved-dot-{}", tab.id)).is_finite()
 }
@@ -340,7 +340,7 @@ fn a_tab_outside_the_library_keeps_its_own_state_while_another_tab_is_shown() {
     assert!(!dot(&s), "a saved tab does not light up after a round trip");
 }
 
-fn switch_to(s: &mut Sim, idx: usize) {
+pub(super) fn switch_to(s: &mut Sim, idx: usize) {
     let mut tabs = std::mem::take(&mut s.shell.app.tabs);
     tabs.switch_to(idx, &mut s.shell.app);
     s.shell.app.tabs = tabs;

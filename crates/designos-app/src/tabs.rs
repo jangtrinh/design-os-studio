@@ -81,6 +81,8 @@ pub struct ProjectTab {
     /// The document was changed by a writer that leaves no undo step, since its last save. The rest of the
     /// unsaved dot is read from `hist`: see [`tab_is_unsaved`].
     pub dirty: bool,
+    /// What the tab remembers of its file while another tab is shown: its saved hash and the file's mtime.
+    pub disk: crate::home::DiskState,
 }
 
 impl ProjectTab {
@@ -109,6 +111,7 @@ impl ProjectTab {
             dev_mode: app.ui.dev_mode,
             pinned: false,
             dirty: app.autosave.dot.flag(),
+            disk: app.autosave.disk_state(),
         }
     }
 
@@ -231,6 +234,7 @@ impl TabsState {
         tab.lib_file = app.lib_file.clone();
         tab.dev_mode = app.ui.dev_mode;
         tab.dirty = app.autosave.dot.flag();
+        tab.disk = app.autosave.disk_state();
     }
 
     /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
@@ -267,6 +271,7 @@ impl TabsState {
             tab.terminal = Self::park_terminal(app);
             tab.image_jobs = app.image_jobs.take_for_park();
             tab.dirty = app.autosave.dot.flag();
+            tab.disk = app.autosave.disk_state();
             self.entries.push(tab);
             self.active_idx = 0;
             self.hist_in_app = false;
@@ -304,6 +309,7 @@ impl TabsState {
             self.entries[self.active_idx].terminal = Self::park_terminal(app);
             self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
             self.entries[self.active_idx].dirty = app.autosave.dot.flag();
+            self.entries[self.active_idx].disk = app.autosave.disk_state();
             self.hist_in_app = false;
         }
     }
@@ -319,14 +325,14 @@ impl TabsState {
         app.exit_version_view();
         app.flush_autosave();
 
-        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty) = {
+        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk) = {
             let tab = &mut self.entries[idx];
             let doc = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
                 std::mem::take(&mut app.doc)
             } else {
                 std::mem::take(&mut tab.doc)
             };
-            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty)
+            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty, tab.disk)
         };
         crate::io::ensure_page(&mut doc);
         let page = if doc.pages.contains(&tab_page) { tab_page } else { doc.pages[0] };
@@ -339,6 +345,13 @@ impl TabsState {
         // The flag a tab had when it was left comes back with its document. The undo history, which holds the
         // rest of the unsaved state, is handed over by the caller.
         app.autosave.dot.adopt(tab_dirty);
+        // The file state is this document's own, not the previous tab's: an outside write is a write that happened
+        // while the tab was away, never the switch itself. A question about the previous tab's file is withdrawn.
+        let tab_path = app.watched_disk_path();
+        app.autosave.adopt_disk_state(tab_disk, tab_path);
+        if app.dialog.as_ref().is_some_and(|d| d.intent == crate::home::Intent::DiskChanged) {
+            app.dialog = None;
+        }
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
@@ -554,6 +567,7 @@ impl TabsState {
             dev_mode: false,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         self.entries.push(tab);
         let new_idx = self.entries.len() - 1;
@@ -849,6 +863,7 @@ impl TabsState {
             dev_mode: copy_dev_mode,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         let insert_idx = (idx + 1).min(self.entries.len());
         self.entries.insert(insert_idx, new_tab);

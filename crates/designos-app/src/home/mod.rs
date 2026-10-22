@@ -17,7 +17,7 @@ pub mod updater;
 
 pub use dialog::{Dialog, Intent};
 pub(crate) use session::{doc_hash, node_fingerprint};
-pub use session::{Autosave, LibFile};
+pub use session::{Autosave, DiskState, LibFile};
 pub use unsaved::UnsavedDot;
 
 use crate::app::App;

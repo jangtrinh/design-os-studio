@@ -28,6 +28,8 @@ pub enum Intent {
     OpenDevLink(String),
     Shortcuts,
     About,
+    /// The file of the open document changed on disk while it has unsaved edits: use the file, or keep mine.
+    DiskChanged,
 }
 
 /// One row of the project picker: a project or one of its folders.
@@ -53,6 +55,9 @@ pub struct Dialog {
     pub danger: bool,
     /// No Cancel button (information only).
     pub info: bool,
+    /// The label of the safe answer, shown where Cancel would be. Enter and Escape give it, so only a click
+    /// on the main button does the thing that cannot be undone.
+    pub safe_label: Option<String>,
     fresh: bool,
     scroll: f32,
 }
@@ -75,6 +80,7 @@ impl Dialog {
             ok: ok.into(),
             danger: false,
             info: false,
+            safe_label: None,
             fresh: true,
             scroll: 0.0,
         }
@@ -86,6 +92,15 @@ impl Dialog {
 
     pub fn confirm(intent: Intent, title: &str, body: &[&str], ok: &str) -> Self {
         Self { lines: body.iter().map(|l| (l.to_string(), String::new())).collect(), ..Self::base(intent, title, ok) }
+    }
+
+    /// The open document's file changed on disk under unsaved edits.
+    pub fn disk_changed() -> Self {
+        Self {
+            danger: true,
+            safe_label: Some("Keep mine".into()),
+            ..Self::confirm(Intent::DiskChanged, "File changed on disk", &["Another program changed this file.", "Use file replaces your edits."], "Use file")
+        }
     }
 
     pub fn info(intent: Intent, title: &str, lines: Vec<(String, String)>) -> Self {
@@ -217,8 +232,8 @@ pub fn show(app: &mut App, ctx: &Context) {
     h += BTN_H + PAD;
     let rect = Rect::from_center_size(screen.center() - Vec2::new(0.0, 24.0), Vec2::new(W, h));
 
-    let mut submit = enter && d.can_submit();
-    let mut cancel = esc;
+    let mut submit = enter && d.can_submit() && d.safe_label.is_none();
+    let mut cancel = esc || (enter && d.safe_label.is_some());
     egui::Area::new(Id::new("dialog")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
@@ -335,11 +350,12 @@ pub fn show(app: &mut App, ctx: &Context) {
             submit = true;
         }
         if !d.info {
-            let cw = widgets::text_width(&p, "Cancel", &font) + 32.0;
+            let cancel_label = d.safe_label.as_deref().unwrap_or("Cancel");
+            let cw = widgets::text_width(&p, cancel_label, &font) + 32.0;
             let cr = Rect::from_min_size(Pos2::new(ok_r.left() - 8.0 - cw, y), Vec2::new(cw, BTN_H));
             let cresp = ui.interact(cr, Id::new("dialog-cancel"), Sense::click());
             widgets::button_bg(&p, cr, &cresp, false, theme::cr(theme::RADIUS_CONTROL));
-            p.text(cr.center(), Align2::CENTER_CENTER, "Cancel", font.clone(), theme::TEXT);
+            p.text(cr.center(), Align2::CENTER_CENTER, cancel_label, font.clone(), theme::TEXT);
             widgets::record(ui, "dialog-cancel", cr);
             if cresp.clicked() {
                 cancel = true;
@@ -354,7 +370,11 @@ pub fn show(app: &mut App, ctx: &Context) {
         return;
     }
     if submit && d.can_submit() {
-        finish(app, d);
+        if d.intent == Intent::DiskChanged {
+            app.use_disk_version(ctx);
+        } else {
+            finish(app, d);
+        }
         return;
     }
     app.dialog = Some(d);
@@ -417,7 +437,7 @@ pub fn finish(app: &mut App, d: Dialog) {
             }
             Ok(())
         }
-        Intent::Shortcuts | Intent::About | Intent::AuthorName | Intent::NameVersion(_) | Intent::OpenDevLink(_) => {
+        Intent::Shortcuts | Intent::About | Intent::AuthorName | Intent::NameVersion(_) | Intent::OpenDevLink(_) | Intent::DiskChanged => {
             dirty = false;
             Ok(())
         }

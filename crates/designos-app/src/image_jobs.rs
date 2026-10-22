@@ -835,6 +835,15 @@ impl App {
                                             if Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist).is_ok() {
                                                 tab.hist.mark_clean();
                                                 tab.dirty = false;
+                                                // The file now holds the document: its tab must not read the write as another program's.
+                                                tab.disk = crate::home::DiskState {
+                                                    saved_hash: crate::home::doc_hash(&tab.doc),
+                                                    disk_mtime: std::fs::metadata(
+                                                        lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)),
+                                                    )
+                                                    .ok()
+                                                    .and_then(|m| m.modified().ok()),
+                                                };
                                             }
                                         }
                                         let msg = warning.unwrap_or_else(|| format!("Applied {}", job.op.layer_suffix()));
