@@ -479,7 +479,7 @@ fn undoing_to_the_saved_state_and_editing_again_is_not_the_saved_document() {
 
 #[test]
 fn an_agent_that_replaces_the_document_lights_the_dot_until_the_next_save() {
-    let (mut s, _d, _path) = external_sim();
+    let (mut s, d, path) = external_sim();
     let mut replaced = s.app().doc.clone();
     replaced.name = "Agent version".into();
     s.shell.app.terminal.live_patch.pending_doc = Some(replaced);
@@ -487,9 +487,13 @@ fn an_agent_that_replaces_the_document_lights_the_dot_until_the_next_save() {
     assert_eq!(s.app().doc.name, "Agent version", "the agent's document is on screen");
     assert_eq!(s.app().hist.undo_depth(), 0, "no undo step came with it");
     assert!(dot(&s), "it is not in the file");
-    s.cmd_key(Key::S);
+    // It has no file yet: Save asks where it goes, and the file the user had is not written.
+    let elsewhere = d.0.join("agent-version.designos");
+    s.shell.app.save_with(false, &ScriptedDialogs::answering(DialogOutcome::Picked(elsewhere.clone())));
     wait(&mut s, SETTLED);
     assert!(!dot(&s));
+    assert_eq!(Document::from_json(&std::fs::read_to_string(&elsewhere).unwrap()).unwrap().name, "Agent version");
+    assert_eq!(Document::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap().name, "Outside", "the user's file is untouched");
 }
 
 /// Runs frames until `done` holds and returns the repaint requests of that last frame.

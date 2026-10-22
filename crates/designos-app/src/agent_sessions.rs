@@ -211,7 +211,12 @@ pub struct OpenFileBinding {
 impl OpenFileBinding {
     /// Whether a new `bind_open_file` call carries exactly the inputs of this binding.
     pub fn same_inputs(&self, lib_root: &Path, lib_file_id: Option<&str>, disk_path: Option<&Path>, window_id: &str) -> bool {
-        self.lib_root == lib_root && self.lib_file_id.as_deref() == lib_file_id && self.disk_path.as_deref() == disk_path && self.window_id == window_id
+        self.same_file(lib_root, lib_file_id, disk_path) && self.window_id == window_id
+    }
+
+    /// Whether this binding is of the same file, whichever window it was made for.
+    pub fn same_file(&self, lib_root: &Path, lib_file_id: Option<&str>, disk_path: Option<&Path>) -> bool {
+        self.lib_root == lib_root && self.lib_file_id.as_deref() == lib_file_id && self.disk_path.as_deref() == disk_path
     }
 }
 
@@ -550,6 +555,29 @@ mod tests {
         perms.set_mode(0o755);
         std::fs::set_permissions(&p, perms).expect("chmod");
         p
+    }
+
+    /// The tab that holds a file's session folder is found by the file, whichever window id it bound with.
+    #[test]
+    fn an_open_file_binding_names_its_file_apart_from_the_window() {
+        let root = Path::new("/lib");
+        let library =
+            OpenFileBinding { lib_root: root.to_path_buf(), lib_file_id: Some("f1".into()), disk_path: None, window_id: "w1".into(), file_id: "f1".into() };
+        assert!(library.same_inputs(root, Some("f1"), None, "w1"));
+        assert!(!library.same_inputs(root, Some("f1"), None, "w2"), "another window id is not the same inputs");
+        assert!(library.same_file(root, Some("f1"), None), "but it is the same file");
+        assert!(!library.same_file(root, Some("f2"), None));
+        assert!(!library.same_file(Path::new("/other"), Some("f1"), None));
+        assert!(!library.same_file(root, None, Some(Path::new("/a/b.designos"))));
+        let on_disk = OpenFileBinding {
+            lib_root: root.to_path_buf(),
+            lib_file_id: None,
+            disk_path: Some("/a/b.designos".into()),
+            window_id: "w1".into(),
+            file_id: "path-1".into(),
+        };
+        assert!(on_disk.same_file(root, None, Some(Path::new("/a/b.designos"))));
+        assert!(!on_disk.same_file(root, None, Some(Path::new("/a/c.designos"))));
     }
 
     // 1. `session_dir_is_keyed_by_library_file_id`
