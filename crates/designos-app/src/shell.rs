@@ -993,22 +993,31 @@ impl Shell {
             self.app.toast = None;
             return;
         }
-        let p = ui.painter();
+        let (text, error) = (t.text.clone(), t.error);
+        let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
         let font = theme::font_body();
-        let w = widgets::text_width(p, &t.text, &font) + 48.0;
+        let w = widgets::text_width(ui.painter(), &text, &font) + 48.0;
         let r = Rect::from_center_size(
             Pos2::new(screen.center().x, screen.bottom() - theme::TOAST_BOTTOM - theme::TOAST_HEIGHT / 2.0),
             Vec2::new(w, theme::TOAST_HEIGHT),
         );
-        widgets::elevation_shadow(p, r, theme::RADIUS_FRAME);
-        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-        p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if t.error { theme::DANGER } else { theme::BG_BRAND });
-        p.text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &t.text, font, theme::TEXT);
-        if self.app.web_capture_report.is_some() && t.text.ends_with("Details") {
-            let resp = ui.interact(r, egui::Id::new("web-capture-toast-details"), egui::Sense::click());
-            if resp.clicked() {
-                self.app.web_capture_report_open = !self.app.web_capture_report_open;
-            }
+        // Its own top-most layer: the full-screen Variables view is an Area above the root layer and would hide the toast.
+        // No fade-in: the toast has always appeared at full strength. The Area sizes itself on its first frame and repaints.
+        let mut details_clicked = false;
+        egui::Area::new(egui::Id::new("shell-toast")).order(egui::Order::Tooltip).fixed_pos(r.min).constrain(false).fade_in(false).interactable(details).show(
+            ui.ctx(),
+            |ui| {
+                let (_, resp) = ui.allocate_exact_size(r.size(), if details { egui::Sense::click() } else { egui::Sense::hover() });
+                let p = ui.painter();
+                widgets::elevation_shadow(p, r, theme::RADIUS_FRAME);
+                p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+                p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
+                p.text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &text, font, theme::TEXT);
+                details_clicked = details && resp.clicked();
+            },
+        );
+        if details_clicked {
+            self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }

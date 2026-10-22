@@ -869,3 +869,137 @@ fn file_import_protects_local_records_and_does_not_count_existing_library_variab
     assert_eq!(app.doc.variable_collections[lib_coll].variables.len(), 3, "existing library variables remain intact");
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+/// A DTCG file with one good token and one the importer skips.
+fn tokens_file_with_a_skipped_token(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("designos_var_toast_{tag}_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Light.tokens.json");
+    std::fs::write(
+        &path,
+        r##"{"brand":{
+            "primary":{"$type":"color","$value":{"colorSpace":"srgb","components":[0.1,0.2,0.3],"alpha":1.0,"hex":"#1A334D"}},
+            "broken":{"$type":"color","$value":"{brand.missing}"}}}"##,
+    )
+    .unwrap();
+    path
+}
+
+/// The painted toast text of the last frame: (paint order index, bounds), `None` when it was not painted.
+fn painted_text(s: &Sim, text: &str) -> Option<(usize, Rect)> {
+    s.shapes.iter().enumerate().find_map(|(i, c)| match &c.shape {
+        egui::Shape::Text(t) if t.galley.text() == text => Some((i, t.visual_bounding_rect())),
+        _ => None,
+    })
+}
+
+/// The first opaque rectangle painted after shape `index` that covers `r`'s center: what would hide it.
+fn opaque_rect_over(s: &Sim, index: usize, r: Rect) -> Option<(usize, Rect)> {
+    s.shapes.iter().enumerate().skip(index + 1).find_map(|(i, c)| match &c.shape {
+        egui::Shape::Rect(rs) if rs.fill.a() == u8::MAX && rs.rect.contains(r.center()) && c.clip_rect.contains(r.center()) => Some((i, rs.rect)),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_import_toast_paints_above_the_full_variables_view() {
+    let mut s = Sim::new();
+    open_view(&mut s, true);
+    let path = tokens_file_with_a_skipped_token("full");
+    s.shell.app.import_variables_files_with_format(std::slice::from_ref(&path), designos_fig::VariablesFormat::FigmaNative);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    let rep = s.app().vars.last_import_report.as_ref().expect("the import left a report");
+    assert!(!rep.skipped.is_empty(), "precondition: the file has a skipped token");
+    let text = s.app().toast.as_ref().expect("the import raised a toast").text.clone();
+    assert!(text.starts_with("Imported ") && text.ends_with(" skipped"), "unexpected toast text {text:?}");
+    assert!(s.app().vars.open && s.app().vars.full, "precondition: the full view is still open");
+
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    if let Some((over, rect)) = opaque_rect_over(&s, at, bounds) {
+        panic!("toast {text:?} (shape #{at}, {bounds:?}) is hidden by the opaque rect #{over} {rect:?} painted after it");
+    }
+}
+
+#[test]
+fn the_import_toast_still_paints_above_the_floating_variables_panel() {
+    let mut s = Sim::new();
+    open_view(&mut s, false);
+    let path = tokens_file_with_a_skipped_token("floating");
+    s.shell.app.import_variables_files_with_format(std::slice::from_ref(&path), designos_fig::VariablesFormat::FigmaNative);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    let text = s.app().toast.as_ref().expect("the import raised a toast").text.clone();
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+}
+
+/// Raises the web capture import toast (the one with a `Details` link) and returns its text.
+fn raise_the_details_toast(s: &mut Sim) -> String {
+    let report = designos_webcapture::ImportReport::default();
+    let text = report.summary_toast();
+    s.shell.app.web_capture_report = Some(report);
+    s.shell.app.show_toast(text.clone(), false);
+    settle_the_toast(s);
+    text
+}
+
+/// The toast's Area sizes itself on the first frame it exists and paints on the next one.
+fn settle_the_toast(s: &mut Sim) {
+    s.frame(vec![]);
+    s.frame(vec![]);
+}
+
+#[test]
+fn the_details_toast_opens_its_report_in_the_full_variables_view() {
+    let mut s = Sim::new();
+    open_view(&mut s, true);
+    let text = raise_the_details_toast(&mut s);
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    assert!(!s.app().web_capture_report_open, "precondition: the report starts closed");
+
+    s.click(bounds.center());
+    assert!(s.app().web_capture_report_open, "clicking Details opens the report over the full view");
+    assert!(s.app().vars.open && s.app().vars.full, "the click did not close the view");
+}
+
+#[test]
+fn the_details_toast_opens_its_report_on_the_canvas() {
+    let mut s = Sim::new();
+    let text = raise_the_details_toast(&mut s);
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    let selection = s.app().selection.clone();
+
+    s.click(bounds.center());
+    assert!(s.app().web_capture_report_open, "clicking Details opens the report");
+    assert_eq!(s.app().selection, selection, "the click did not reach the canvas under the toast");
+}
+
+#[test]
+fn a_plain_toast_does_not_take_clicks_from_the_canvas() {
+    let mut s = Sim::new();
+    s.shell.app.show_toast("Saved", false);
+    settle_the_toast(&mut s);
+    let (at, bounds) = painted_text(&s, "Saved").expect("the toast is painted");
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    let toast_layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast"));
+    assert_ne!(s.ctx.layer_id_at(bounds.center()), Some(toast_layer), "a toast without a link lets pointer input through");
+}
+
+#[test]
+fn the_toast_paints_on_the_home_screen() {
+    let dir = std::env::temp_dir().join(format!("designos_toast_home_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut s = Sim::with(Options { home: true, library: Some(dir.clone()), ..Default::default() });
+    s.shell.app.show_toast("Saved to Drafts", false);
+    settle_the_toast(&mut s);
+    let (at, bounds) = painted_text(&s, "Saved to Drafts").expect("the toast is painted on Home");
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    let _ = std::fs::remove_dir_all(&dir);
+}
