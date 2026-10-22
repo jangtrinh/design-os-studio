@@ -28,7 +28,7 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 </p>
 
 <p align="center">
-  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#new-in-v030">New in 0.3.0</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
+  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#whats-new">What's new</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
 </p>
 
 ---
@@ -127,49 +127,64 @@ Open your project in your AI coding agent (or inside the Studio's `Agents` left-
 
 ---
 
-<a id="new-in-v030"></a>
-## New in 0.3.0
+<a id="whats-new"></a>
+## What's new
 
-Real screenshots of the editor, captured headlessly with `designos-studio --screenshot` (2x; the two Dev Mode shots are 1.5x so the whole Code panel fits). Click an image for full size. The 70-second [promo film](https://jangtrinh.github.io/design-os-studio/#film) plays on the project site.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest, [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0), has captures from the release build; older releases are short lists.
+
+<a id="new-in-v060"></a>
+### 0.6.0
+
+Real screenshots from the v0.6.0 macOS build, captured headlessly with `designos-studio --screenshot` (2x) on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click an image for full size. The approval card comes from the built-in `--panel agents-approval-queued` preview.
 
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/styles-effect-and-grid-styles.png"><img src="docs/images/v0.3/styles-effect-and-grid-styles.png" alt="DESIGN:OS Studio inspector on the page with no layer selected, listing the file's local Effect styles (Shadow: Card, Floating) and Grid styles (Grid: 12 columns, 8 px) beside three pricing cards (two use the Card shadow, one the Floating shadow) and a 12-column grid frame" width="430"></a><br>
-      <sub><b>Effect and grid styles</b><br>Local styles list with two effect styles and two grid styles.</sub>
+      <a href="docs/images/v0.6/check-designs-color-fixes.png"><img src="docs/images/v0.6/check-designs-color-fixes.png" alt="DESIGN:OS Studio Check designs panel open on the Avatar variant set of the Untitled UI kit: the Color group lists findings such as Stroke #000000 matches variable Colors/Base/black, each with a Fix button, and a Fix all button sits at the top" width="430"></a><br>
+      <sub><b>Check designs: Color</b><br>Hard-coded colors that match a variable are listed under Color, each with a one-click Fix, plus Fix all.</sub>
     </td>
     <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/styles-edit-effect-style.png"><img src="docs/images/v0.3/styles-edit-effect-style.png" alt="DESIGN:OS Studio Edit style panel for the Shadow/Card effect style showing X, Y, blur, spread and color, for a selected pricing card whose Effects section links to that style" width="430"></a><br>
-      <sub><b>Edit a style</b><br>The Edit style panel for the Shadow/Card effect style that the selected card uses.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/auto-layout-space-evenly-vertical-wrap.png"><img src="docs/images/v0.3/auto-layout-space-evenly-vertical-wrap.png" alt="DESIGN:OS Studio frame with vertical wrap and Space evenly auto layout: six chips split into two columns, each column spreading its chips evenly top to bottom, with the Auto layout inspector open" width="430"></a><br>
-      <sub><b>Auto layout: Space evenly and vertical wrap</b><br>Each wrapped column spreads its own items evenly.</sub>
-    </td>
-    <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/text-wrap-balance.png"><img src="docs/images/v0.3/text-wrap-balance.png" alt="DESIGN:OS Studio canvas with two cards holding the same headline, wrapped Auto on the left, which ends on a single word, and Balance on the right, which evens out the lines, with the Type settings panel showing Wrap style Balance" width="430"></a><br>
-      <sub><b>Text wrap: Balance next to Auto</b><br>Balance (right) evens out the lines that Auto (left) leaves with a one-word last line.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/dev-mode-uikit.png"><img src="docs/images/v0.3/dev-mode-uikit.png" alt="DESIGN:OS Studio Dev Mode with UIKit selected: the Code panel for a text layer prints its color as Theme.Color.textPrimary, the variable's iOS code syntax, with the Variables used list below" width="430"></a><br>
-      <sub><b>Dev Mode: UIKit</b><br>A variable prints as its iOS code syntax, <code>Theme.Color.textPrimary</code>.</sub>
-    </td>
-    <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.3/dev-mode-android-xml.png"><img src="docs/images/v0.3/dev-mode-android-xml.png" alt="DESIGN:OS Studio Dev Mode with Android XML selected: the Code panel for the same text layer prints android:textColor as @color/text_primary, the variable's Android code syntax" width="430"></a><br>
-      <sub><b>Dev Mode: Android XML</b><br>The same variable prints as its Android code syntax, <code>@color/text_primary</code>.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center" valign="top">
-      <a href="docs/images/v0.3/scale-untitled-ui-kit.png"><img src="docs/images/v0.3/scale-untitled-ui-kit.png" alt="DESIGN:OS Studio on the GPU canvas with the Untitled UI PRO v8.0 Figma kit open: the Input field frame, a dense matrix of text-field variants, with the file's pages and layers listed on the left" width="880"></a><br>
-      <sub><b>Scale: Untitled UI PRO v8.0 Figma kit, by Untitled UI</b><br>208,610 nodes on 113 pages when opened. Shown: the Input field frame.</sub>
+      <a href="docs/images/v0.6/ask-before-acting-approval.png"><img src="docs/images/v0.6/ask-before-acting-approval.png" alt="DESIGN:OS Studio Agents panel in ask mode: an approval card reading Claude Code wants to run Bash, with the command git status --short, a 1 of 3 count and Deny and Approve buttons, beside the Untitled UI Avatar frame on the canvas" width="430"></a><br>
+      <sub><b>Ask before acting</b><br>With Ask before acting on, an agent's request to run a command waits in the Agents panel for Approve or Deny.</sub>
     </td>
   </tr>
 </table>
+
+**Also in 0.6.0**
+
+- **Agents panel.** A file keeps its sessions after a restart. Review what an agent changed in a turn and keep it or revert it in one undo step. Stop one agent or all of them from the panel.
+- **Variables.** Import and export Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with `--import-variables` and `--export-variables`. An import merges into the file and reports what it skipped.
+- **MCP.** Agents can see the design, read its design system, write in one step with `designos_apply_batch` and check their work with `designos_lint`.
+- **Dev Mode.** HTML joins CSS, Tailwind, React, SwiftUI, UIKit, Compose and Android XML.
+- **License.** Studio is source-available under PolyForm Shield 1.0.0. Releases up to 0.5.0 keep MIT or Apache-2.0.
+
+### 0.5.0
+
+- **Slots.** Create a slot on a component and set its rules: minimum and maximum children, preferred components, stretch on insert and show empty. Edit slot content in an instance without detaching it.
+- **Empty slots.** An empty slot shows a **+** that opens the preferred-instance picker. Migrate to slot turns an instance-swap or boolean region into a slot in one undo step.
+- **Dev Mode.** Code for React, Tailwind, SwiftUI and Compose gets one parameter per slot. The component playground lets you try properties and variants without editing the file.
+- **Check designs.** It flags hard-coded numbers that match a number variable, suggests variables and styles from enabled libraries, and audits text and overrides inside instances.
+- **`.fig` files.** Export follows Figma's own field numbering, types and enum values, and slot preferred values are written as Figma's real object.
+- **Agent tabs.** Antigravity and Grok tabs start again, and a tab that fails to start shows the cause.
+
+### 0.4.0
+
+- **Grid auto layout.** More than 8 rows and columns, auto-placed items and auto rows, and children aligned inside their cell. Edit tracks on the canvas or in the Properties panel: insert, delete, resize and drag to reorder.
+- **Auto layout.** Child margins from `.fig` files, per-child align-self, and an Update auto layout action that upgrades an older frame.
+- **Layout guides match Figma.** Alignment, a fixed column or row width, auto count, and show or hide per guide. All of it round-trips through `.fig`.
+- **Check designs.** A panel that audits the page for low contrast, unbound colors, detached styles and detached instances, with a one-click Fix per finding and Fix all.
+- **Vectors and export.** Offset path, and scale for several selected points. PDF export draws vectors with selectable text. Lossless WebP export.
+- **Dev Mode.** Grid code for CSS, Tailwind and React is printed from the real tracks and placement.
+
+<a id="new-in-v030"></a>
+### 0.3.0
+
+- **Paste from Figma.** Copy a selection in Figma desktop and press Cmd+V on the canvas. The layers land centered in the view as one undo step, images included.
+- **Effect and grid styles.** Create, apply, detach and rename them. Edit a style from the picker and every layer that uses it updates in one undo step. `.fig` files bring their effect and grid styles.
+- **Auto layout and text.** Space around and Space evenly, vertical wrap, and the text wrap modes Balance and Pretty.
+- **Variables.** Bind paint and effect opacity to number variables. Variables keep their Web, Android and iOS code syntax.
+- **Dev Mode.** UIKit and Android XML join the code languages, and a variable prints the way Figma does.
+- **PDF export.** Selected frames export as one multi-page PDF from the Export panel.
 
 ---
 
