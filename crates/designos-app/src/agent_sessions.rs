@@ -63,7 +63,36 @@ impl Default for SessionRegistry {
     }
 }
 
+/// Default tab titles a CLI's sessions were recorded with before its tab title changed, as `(cli, old name)`.
+/// Claude tabs were named `Claude CLI #<n>` until they were named `Claude Code #<n>` like the CLI is everywhere else.
+const LEGACY_DEFAULT_TITLE_NAMES: &[(&str, &str)] = &[("claude", "Claude CLI")];
+
+/// The current default title for a session recorded with its CLI's old default title, else `None`.
+fn current_default_title(cli: &str, title: &str) -> Option<String> {
+    let (name, number) = title.rsplit_once(" #")?;
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let cli = cli.trim();
+    LEGACY_DEFAULT_TITLE_NAMES.iter().find(|(legacy_cli, legacy_name)| *legacy_cli == cli && *legacy_name == name)?;
+    Some(format!("{} #{number}", preset_from_cli_name(cli)?.button_label()))
+}
+
 impl SessionRegistry {
+    /// Renames every entry that still has the old default title of its CLI (`Claude CLI #3`) to the current default
+    /// (`Claude Code #3`), and reports whether any entry changed. A title the user typed never matches: only the
+    /// exact `<old name> #<digits>` of the entry's own CLI does.
+    pub fn rename_legacy_default_titles(&mut self) -> bool {
+        let mut changed = false;
+        for entry in &mut self.sessions {
+            if let Some(title) = current_default_title(&entry.cli, &entry.title) {
+                entry.title = title;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Finds the mutable [`SessionEntry`] matching `session_uuid` when present, falling back to
     /// matching `tab_id` only for entries without a `session_id` (`None`).
     pub fn find_entry_mut(&mut self, tab_id: u64, session_uuid: Option<&str>) -> Option<&mut SessionEntry> {
@@ -969,6 +998,61 @@ mod tests {
 
         let raw = std::fs::read_to_string(st.session_dir.join("sessions.json")).expect("read sessions.json");
         assert!(raw.contains("\"session_id\": null"), "Codex entry must serialize session_id: null, got:\n{raw}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Sessions recorded before Claude was named "Claude Code" everywhere carry the old default title
+    /// `Claude CLI #<n>`. Opening the file renames exactly those, once, in `sessions.json` too: a resumed tab and the
+    /// Sessions list show the current name, and a title the user typed is never touched.
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_file_renames_old_default_titles_and_keeps_the_users_own() {
+        let dir = temp_test_dir("legacy-titles");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        let entry = |tab_id: u64, cli: &str, title: &str, session_id: Option<&str>| SessionEntry {
+            tab_id,
+            title: title.into(),
+            cli: cli.into(),
+            session_id: session_id.map(str::to_string),
+            created_at: 50,
+            last_active_at: 100 + tab_id,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        };
+        let uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let session_dir = stable_session_dir(&dir, "file-legacy-titles");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        let seeded = SessionRegistry {
+            version: 1,
+            last_cli: None,
+            sessions: vec![
+                entry(1, "claude", "Claude CLI #1", Some(uuid)),
+                entry(2, "claude", "Claude CLI #2 notes", None),
+                entry(3, "claude", "Checkout polish", None),
+                entry(4, "grok", "Claude CLI #4", None),
+                entry(5, "claude", "Claude Code #5", None),
+            ],
+            extra: BTreeMap::new(),
+        };
+        save_registry(&session_dir, &seeded).expect("seed sessions.json");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-legacy-titles", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+
+        let titles = |reg: &SessionRegistry| reg.sessions.iter().map(|e| e.title.clone()).collect::<Vec<_>>();
+        let expected = ["Claude Code #1", "Claude CLI #2 notes", "Checkout polish", "Claude CLI #4", "Claude Code #5"];
+        assert_eq!(titles(&st.session_registry), expected, "only the exact old default of a Claude session is renamed");
+        assert_eq!(titles(&load_or_init_registry(&session_dir)), expected, "and the file on disk carries the new names");
+        assert_eq!(st.sessions_popover_rows()[4].label, "Claude Code #1", "the Sessions list shows the current name");
+        assert!(!st.session_registry.rename_legacy_default_titles(), "a second pass finds nothing left to rename");
+
+        st.resume_session_by_tab_id(1, None).expect("resume the renamed session");
+        assert_eq!(st.tabs[0].title, "Claude Code #1", "a resumed tab is named with the current default");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

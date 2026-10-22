@@ -1,4 +1,5 @@
-//! The tab strip of the Agents panel: the `+` button opens and closes its menu in a release build.
+//! The tab strip of the Agents panel: the `+` button opens and closes its menu in a release build, and nothing in
+//! the strip moves when an agent tab exits.
 //!
 //! A release build stores no widget rects for tests (`widgets::record` is compiled out), so the `+` tests read the
 //! rects they need first, then drop every stored rect and hold [`RecordDisabled`], which makes the window run the
@@ -89,5 +90,78 @@ fn a_press_away_from_the_menu_and_from_plus_still_closes_it() {
     let _release = as_in_a_release_build(&mut s);
     s.click(away);
     assert!(!menu_is_open(&s), "a press outside the menu closes it");
+    finish(s, dir);
+}
+
+/// Position and width of what the strip holds, left to right after the tabs.
+fn strip_controls(s: &Sim) -> (Rect, Rect) {
+    (s.rect_of("agents-sessions-btn"), s.rect_of("agents-runtime-add-btn"))
+}
+
+/// Kills the agent of tab `idx` and runs frames until Studio has noticed the exit.
+fn exit_tab(s: &mut Sim, idx: usize) {
+    let _ = s.shell.app.terminal.tabs[idx].child.kill();
+    for _ in 0..400 {
+        s.frame(vec![]);
+        if s.shell.app.terminal.tabs[idx].exited_notice_shown {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(s.shell.app.terminal.tabs[idx].exited_notice_shown, "Studio notices that the agent exited");
+    frames(s, 3);
+}
+
+#[test]
+fn the_buttons_stay_put_when_the_only_tab_exits() {
+    let (mut s, dir) = strip_sim("exit-shift");
+    let before = strip_controls(&s);
+
+    exit_tab(&mut s, 0);
+
+    let after = strip_controls(&s);
+    assert_eq!(after.0, before.0, "the Sessions button does not move when the tab exits");
+    assert_eq!(after.1, before.1, "the `+` button does not move when the tab exits: a click aimed at it must still land on it");
+    finish(s, dir);
+}
+
+#[test]
+fn an_exited_tab_keeps_its_title_and_still_says_it_exited() {
+    let (mut s, dir) = strip_sim("exit-title");
+    let title = s.shell.app.terminal.tabs[0].title.clone();
+    assert!(!title.contains("exited"), "a running tab is named by its title alone: {title:?}");
+
+    exit_tab(&mut s, 0);
+
+    let tab = &s.shell.app.terminal.tabs[0];
+    assert_eq!(tab.title, title, "the exit never rewrites the title: it is what a restored or renamed session keeps");
+    assert_eq!(tab.display_title(), format!("{title} (exited)"), "the strip's tooltip and the screen-reader name still say that the agent exited");
+    finish(s, dir);
+}
+
+#[test]
+fn the_screen_reader_name_of_a_tab_says_when_its_agent_exited() {
+    let (mut s, dir) = strip_sim("exit-a11y");
+    crate::agent_a11y::enable_accesskit(&s.ctx);
+    frames(&mut s, 3);
+    let tab = &s.shell.app.terminal.tabs[0];
+    let (title, node_id) = (tab.title.clone(), egui::Id::new(("agents-left-tab-select", tab.id)).accesskit_id());
+    // AccessKit sends only the nodes that changed in a frame, so the name is read in the frame that carries it.
+    let name_in_frame = |s: &Sim| -> Option<String> {
+        let update = s.accesskit_update.as_ref()?;
+        update.nodes.iter().find(|(id, _)| *id == node_id).and_then(|(_, node)| node.label().map(str::to_string))
+    };
+
+    let _ = s.shell.app.terminal.tabs[0].child.kill();
+    let mut name = None;
+    for _ in 0..400 {
+        s.frame(vec![]);
+        if let Some(label) = name_in_frame(&s).filter(|label| label.contains("exited")) {
+            name = Some(label);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(name, Some(format!("{title} (exited)")), "a screen reader is told that the agent of the tab exited");
     finish(s, dir);
 }

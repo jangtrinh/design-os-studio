@@ -912,6 +912,16 @@ impl TerminalTab {
         crate::agent_usage::header_usage_caption_for_tab(self.spawn_preset, self.usage_reading().as_ref())
     }
 
+    /// The name of this tab for a reader: `title`, plus `(exited)` once the agent is gone. The strip never paints
+    /// the suffix (it would widen the tab and move the buttons after it); the tooltip and the screen-reader name carry it.
+    pub fn display_title(&self) -> String {
+        if self.exited_notice_shown {
+            format!("{} (exited)", self.title)
+        } else {
+            self.title.clone()
+        }
+    }
+
     /// Hover tooltip text for this tab (`#678` §3.7, §7).
     pub fn usage_tooltip_text(&self) -> Option<String> {
         crate::agent_usage::tooltip_usage_text_for_tab(self.spawn_preset, self.usage_reading().as_ref())
@@ -1923,6 +1933,8 @@ impl TerminalState {
                 let mut reg = crate::agent_sessions::load_or_init_registry(&dir);
                 if !prior_fallback_sessions.is_empty() && reg.sessions.is_empty() {
                     reg.sessions = prior_fallback_sessions;
+                    let _ = crate::agent_sessions::save_registry(&dir, &reg);
+                } else if reg.rename_legacy_default_titles() {
                     let _ = crate::agent_sessions::save_registry(&dir, &reg);
                 }
                 self.session_registry = reg;
@@ -3466,7 +3478,6 @@ impl TerminalState {
                         *st = AgentTabStatus::Idle;
                     }
                 }
-                tab.title.push_str(" (exited)");
                 tab.exited_notice_shown = true;
                 agent_exited = true;
                 stopped_exited |= was_stopped;
@@ -5013,6 +5024,12 @@ pub fn show_left_with_doc(
                 (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
                 (false, usage) => usage,
             };
+            // The strip keeps an exited tab's width and shows its title dimmed; the tooltip says it exited.
+            let tab_tip = match (tab.exited_notice_shown, tab_tip) {
+                (true, Some(tip)) => Some(format!("{}\n{tip}", tab.display_title())),
+                (true, None) => Some(tab.display_title()),
+                (false, tip) => tip,
+            };
             let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
             let close_resp = if can_close { Some(ui.interact(close_rect, Id::new(("agents-left-tab-close", tab.id)), Sense::click())) } else { None };
 
@@ -5040,7 +5057,13 @@ pub fn show_left_with_doc(
                 Align2::LEFT_CENTER,
                 title_str,
                 theme::font_caption_medium(),
-                if is_active { theme::TEXT } else { theme::TEXT_SECONDARY },
+                if tab.exited_notice_shown {
+                    theme::TEXT_TERTIARY
+                } else if is_active {
+                    theme::TEXT
+                } else {
+                    theme::TEXT_SECONDARY
+                },
             );
             if let Some(cr) = &close_resp {
                 icons::paint(&p, Icon::Close, close_rect.center(), 9.0, if cr.hovered() { STATUS_BAD_TEXT } else { theme::ICON_TERTIARY });
