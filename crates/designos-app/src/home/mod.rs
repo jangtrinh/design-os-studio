@@ -11,12 +11,14 @@ mod session;
 mod spec_bundle_hidden_tests;
 pub mod thumb;
 pub mod time;
+mod unsaved;
 #[path = "../updater.rs"]
 pub mod updater;
 
 pub use dialog::{Dialog, Intent};
 pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, LibFile};
+pub use unsaved::UnsavedDot;
 
 use crate::app::App;
 use crate::theme;

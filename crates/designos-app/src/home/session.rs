@@ -1,7 +1,7 @@
 //! The editor's link to the library: which library file is open, saving,
 //! debounced autosave and thumbnails.
 
-use super::{thumb, Home, Section};
+use super::{thumb, Home, Section, UnsavedDot};
 use crate::app::App;
 use designos_doc::{Document, DocumentKind};
 use designos_library::Library;
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// Seconds without a document change before a library file is autosaved.
 pub const AUTOSAVE_IDLE: f64 = 1.5;
 /// Seconds of calm after which a revision change is compared with the saved document.
-const PROBE_DELAY: f64 = 0.3;
+pub(super) const PROBE_DELAY: f64 = 0.3;
 
 /// The library file currently open in the editor.
 #[derive(Clone, Debug, PartialEq)]
@@ -61,6 +61,8 @@ pub struct Autosave {
     /// When the last save of unsaved edits failed. Those edits stay in the editor and the next frame
     /// after `AUTOSAVE_IDLE` tries again; no timer is scheduled for it.
     pub save_failed_at: Option<f64>,
+    /// The unsaved dot of the open document's tab.
+    pub dot: UnsavedDot,
     /// Background thread watching `watched_disk_path()` off the UI thread.
     watcher: Option<DiskWatcher>,
 }
@@ -801,6 +803,7 @@ impl App {
         let busy = ctx.input(|i| i.pointer.any_down()) || self.canvas.text.is_some();
         self.reload_external_write(ctx, watched_path, busy);
         self.save_when_settled(ctx, busy);
+        self.track_unsaved_dot(ctx, busy);
         if !busy && self.autosave.changed_at.is_none() && self.autosave.watcher_dirty() {
             // A write was held back while an edit was under way and that edit is over: look at it on the next frame.
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
