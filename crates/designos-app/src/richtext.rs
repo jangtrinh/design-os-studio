@@ -105,9 +105,24 @@ fn clamp_range(t: &TextProps, r: Range<usize>) -> Range<usize> {
     a..b.max(a)
 }
 
+/// Wraps a style edit so a new `font_weight` carries an existing `wght` axis along. The shaper
+/// reads the axis before `font_weight`, so without this a weight edit on text with a `wght` axis
+/// (imported from `.fig`, or set on the Variable tab) changes the panel but not the canvas. An edit
+/// that sets the axis itself (the Variable tab) keeps its own value.
+pub fn weight_in_step(f: impl Fn(&mut TextStyle)) -> impl Fn(&mut TextStyle) {
+    move |st: &mut TextStyle| {
+        let (weight, axis) = (st.font_weight, st.get_axis("wght"));
+        f(st);
+        if axis.is_some() && st.font_weight != weight && st.get_axis("wght") == axis {
+            st.set_axis("wght", f32::from(st.font_weight));
+        }
+    }
+}
+
 /// Applies `f` to the style of every byte in `range` (clamped to char
 /// boundaries). Returns false when the range is empty (nothing to style).
 pub fn apply_style(t: &mut TextProps, range: Range<usize>, f: impl Fn(&mut TextStyle)) -> bool {
+    let f = weight_in_step(f);
     let range = clamp_range(t, range);
     if range.is_empty() {
         return false;
@@ -126,6 +141,7 @@ pub fn apply_style(t: &mut TextProps, range: Range<usize>, f: impl Fn(&mut TextS
 
 /// Applies `f` to the whole text: the base style and every run.
 pub fn apply_all(t: &mut TextProps, f: impl Fn(&mut TextStyle)) {
+    let f = weight_in_step(f);
     let len = t.content.len();
     if len == 0 {
         f(&mut t.style);
@@ -709,5 +725,46 @@ mod tests {
         assert_eq!(paragraphs_in(c, 3..3), vec![3..3]);
         assert_eq!(paragraphs_in(c, 1..5), vec![0..2, 3..3, 4..6]);
         assert_eq!(paragraphs_in(c, 2..2), vec![0..2]);
+    }
+
+    fn with_wght(weight: u16, axis: f32) -> TextProps {
+        let mut t = props("hello world");
+        t.style.font_weight = weight;
+        t.style.set_axis("wght", axis);
+        t
+    }
+
+    #[test]
+    fn a_weight_edit_carries_the_wght_axis_on_a_range_and_on_the_whole_text() {
+        let mut t = with_wght(400, 400.0);
+        apply_style(&mut t, 0..5, bold);
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!((t.runs[0].style.font_weight, t.runs[0].style.get_axis("wght")), (700, Some(700.0)));
+        assert_eq!(t.style.get_axis("wght"), Some(400.0), "the rest of the text keeps its axis");
+        apply_all(&mut t, bold);
+        assert_eq!((t.style.font_weight, t.style.get_axis("wght")), (700, Some(700.0)));
+        apply_all(&mut t, |s| s.font_weight = 400);
+        assert_eq!(t.style.get_axis("wght"), Some(400.0));
+        check(&t);
+    }
+
+    #[test]
+    fn a_weight_edit_adds_no_axis_and_other_edits_leave_the_axis_alone() {
+        let mut plain = props("hello");
+        apply_all(&mut plain, bold);
+        assert!(plain.style.variation_axes.is_empty());
+        let mut t = with_wght(400, 400.0);
+        apply_all(&mut t, |s| s.font_size = 40.0);
+        assert_eq!(t.style.get_axis("wght"), Some(400.0));
+    }
+
+    #[test]
+    fn an_edit_that_sets_the_axis_itself_keeps_its_value() {
+        let mut t = with_wght(400, 400.0);
+        apply_all(&mut t, |s| {
+            s.set_axis("wght", 549.6);
+            s.font_weight = 550;
+        });
+        assert_eq!((t.style.font_weight, t.style.get_axis("wght")), (550, Some(549.6)), "the Variable tab writes both and owns the fraction");
     }
 }

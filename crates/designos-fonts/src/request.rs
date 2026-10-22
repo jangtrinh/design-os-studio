@@ -1,4 +1,4 @@
-use designos_doc::{Document, Style, TextStyle};
+use designos_doc::{Document, Style, TextProps, TextStyle};
 use std::collections::BTreeSet;
 
 /// One font face a document needs.
@@ -38,4 +38,58 @@ pub fn requests_for(doc: &Document) -> BTreeSet<FontRequest> {
         }
     }
     out
+}
+
+/// The faces a text uses, borrowed: its base style and every run.
+fn faces(t: &TextProps) -> BTreeSet<(&str, u16, bool)> {
+    std::iter::once(&t.style).chain(t.runs.iter().map(|r| &r.style)).map(|s| (s.font_family.as_str(), s.font_weight, s.italic)).collect()
+}
+
+/// Faces `after` uses that `before` did not: what an edit just introduced and the renderer cannot
+/// draw until it is fetched. Empty for typing and for edits that leave the faces alone, and then
+/// it allocates no strings.
+pub fn new_faces(before: &TextProps, after: &TextProps) -> Vec<FontRequest> {
+    let known = faces(before);
+    faces(after).into_iter().filter(|f| !known.contains(f)).map(|(family, weight, italic)| FontRequest::new(family, weight, italic)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_doc::TextRun;
+
+    fn text(family: &str, runs: &[(u16, bool)]) -> TextProps {
+        let base = TextStyle { font_family: family.into(), ..Default::default() };
+        let runs = runs
+            .iter()
+            .enumerate()
+            .map(|(i, (w, italic))| TextRun { start: i, end: i + 1, style: TextStyle { font_weight: *w, italic: *italic, ..base.clone() } })
+            .collect();
+        TextProps { content: "abc".into(), style: base, runs, ..Default::default() }
+    }
+
+    #[test]
+    fn a_bold_run_is_a_new_face() {
+        let before = text("Lato", &[]);
+        let after = text("Lato", &[(700, false)]);
+        assert_eq!(new_faces(&before, &after), vec![FontRequest::new("Lato", 700, false)]);
+    }
+
+    #[test]
+    fn italic_and_family_changes_are_new_faces() {
+        let before = text("Lato", &[(700, false)]);
+        let after = text("Lato", &[(700, true), (400, true)]);
+        assert_eq!(new_faces(&before, &after), vec![FontRequest::new("Lato", 400, true), FontRequest::new("Lato", 700, true)]);
+        let mut other = text("Lato", &[]);
+        other.style.font_family = "Roboto".into();
+        assert_eq!(new_faces(&text("Lato", &[]), &other), vec![FontRequest::new("Roboto", 400, false)]);
+    }
+
+    #[test]
+    fn faces_already_in_use_and_dropped_faces_are_not_new() {
+        let both = text("Lato", &[(700, false), (700, false)]);
+        assert!(new_faces(&both, &both).is_empty());
+        assert!(new_faces(&both, &text("Lato", &[])).is_empty(), "toggling bold off asks for nothing");
+        assert!(new_faces(&text("Lato", &[(700, false)]), &text("Lato", &[(700, false), (700, false)])).is_empty());
+    }
 }

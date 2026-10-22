@@ -72,11 +72,14 @@ pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
         ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            richtext::apply_all(t, &f);
-            n.size = layout::fit_text(t, n.size);
-        }
+    // The edit asks for any font face it introduces (family, weight, italic), so no caller does.
+    ts::requesting_new_faces(app, sel, |app| {
+        app.edit_nodes(sel, |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                richtext::apply_all(t, &f);
+                n.size = layout::fit_text(t, n.size);
+            }
+        });
     });
 }
 
@@ -173,6 +176,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
     if let Some(f) = family_picker(ui, pane.full(0.0), &fam_label) {
         set_style(app, sel, |s| s.font_family = f.clone());
+        // Picking the family again retries a face whose fetch failed ("Font unavailable").
         app.fonts.load_for(&app.doc);
     }
     row_end(pane);
@@ -183,7 +187,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     if let Some(i) = dropdown(ui, pane.col(0, 0.0), "font-weight", cur, &names) {
         let w = WEIGHTS[i].1;
         set_style(app, sel, |s| s.font_weight = w);
-        app.fonts.load_for(&app.doc);
     }
     let fs_r = pane.col(1, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui| field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")) {
@@ -255,7 +258,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         let italic = sum.italic;
         if let Some(i) = seg_text(ui, pane, theme::SECTION_CONTENT_X, "italic", &["Normal", "Italic"], italic.map(|b| b as usize), 48.0) {
             set_style(app, sel, |s| s.italic = i == 1);
-            app.fonts.load_for(&app.doc);
         }
         row_end(pane);
     }
