@@ -556,4 +556,22 @@ mod tests {
         // well-formed nesting: every opened container is closed
         assert_eq!(xml.matches("<LinearLayout").count(), xml.matches("</LinearLayout>").count(), "{xml}");
     }
+
+    #[test]
+    fn android_xml_hugging_row_all_fill_children() {
+        let (d, row, _) = fixture::row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        let xml = android_xml_for(&d, row);
+        assert_eq!(xml.matches("android:layout_height=\"100dp\"").count(), 2, "{xml}");
+        assert!(!xml.contains("android:layout_height=\"match_parent\""), "{xml}");
+    }
+
+    #[test]
+    fn android_xml_grid_fill_child_exports_solved_height() {
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            let (d, grid, _) = fixture::grid_fill_child(track);
+            let xml = android_xml_for(&d, grid);
+            assert!(xml.contains(&format!("android:layout_height=\"{height}dp\"")), "{track:?}: {xml}");
+            assert!(!xml.contains("android:layout_height=\"match_parent\""), "{track:?}: {xml}");
+        }
+    }
 }

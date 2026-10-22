@@ -41,6 +41,45 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let x = rect.left() + 1.0 + SIDE;
     let w = rect.width() - SIDE * 2.0 - 1.0;
 
+    let run_groups = app.hist.undo_groups_by_run();
+    if !run_groups.is_empty() {
+        let mut undo_target: Option<String> = None;
+        y += theme::SPACE_FACT;
+        for group in &run_groups {
+            let Some(run_id) = group.run_id.as_deref() else { continue };
+            let row_r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, theme::CONTROL_TOOL));
+            y += theme::CONTROL_TOOL;
+            let dot_col = theme::owner_color_for_run(run_id);
+            let dot_pos = Pos2::new(row_r.left() + theme::SPACE_INLINE, row_r.center().y);
+            p.circle_filled(dot_pos, theme::AGENT_RUN_DOT_RADIUS, dot_col);
+            let btn_x = row_r.right() - theme::HISTORY_RUN_TEXT_RIGHT_PAD - theme::SPACE_FACT;
+            let btn_y = row_r.top() + theme::SPACE_FACT;
+            let btn_r = Rect::from_min_size(Pos2::new(btn_x, btn_y), Vec2::new(theme::HISTORY_RUN_TEXT_RIGHT_PAD, theme::TARGET_MIN));
+            let text_x = row_r.left() + theme::SPACE_BLOCK;
+            let avail_w = (btn_r.left() - text_x - theme::SPACE_INLINE).max(theme::SPACE_BLOCK);
+            let latest_label = group.labels.last().map(|s| s.as_str()).unwrap_or("");
+            let step_count = group.step_count;
+            let summary = if latest_label.trim().is_empty() {
+                format!("{run_id} \u{00b7} {step_count} steps")
+            } else {
+                format!("{run_id} \u{00b7} {step_count} steps \u{00b7} {latest_label}")
+            };
+            let elided = widgets::elide(&p, &summary, &theme::font_caption_medium(), avail_w);
+            p.text(Pos2::new(text_x, row_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), theme::TEXT);
+            let btn_id = format!("history-undo-run-{run_id}");
+            if ui::button(ui, btn_r, &btn_id, "Undo run", false, true).clicked() {
+                undo_target = Some(run_id.to_string());
+            }
+            widgets::record(ui, &format!("history-run-group-{run_id}"), row_r);
+        }
+        y += theme::SPACE_FACT;
+        hline(&p, rect.left() + theme::BORDER_WIDTH, rect.right(), y, theme::BORDER);
+        y += theme::BORDER_WIDTH;
+        if let Some(target_run) = undo_target {
+            crate::live_patch_apply::rollback_agent_run(app, &target_run, "undone from version history");
+        }
+    }
+
     if !app.has_history() {
         let g = p.layout("Save to library to keep version history".to_string(), theme::font_body(), theme::TEXT_SECONDARY, w - 8.0);
         p.galley(Pos2::new(x + 4.0, y + 16.0), g, theme::TEXT_SECONDARY);

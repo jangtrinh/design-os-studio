@@ -46,7 +46,7 @@ pub fn color(t: Tok) -> Color32 {
 
 fn keywords(lang: Language) -> &'static [&'static str] {
     match lang {
-        Language::Css | Language::Tailwind => &["true", "false"],
+        Language::Css | Language::Tailwind | Language::Html => &["true", "false"],
         Language::SwiftUi | Language::UiKit => {
             &["let", "var", "func", "struct", "some", "return", "if", "else", "true", "false", "nil", "import", "self", "in"]
         }

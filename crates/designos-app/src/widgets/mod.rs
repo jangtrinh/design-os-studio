@@ -226,15 +226,7 @@ pub fn record(ui: &Ui, name: &str, rect: Rect) {
 #[inline]
 pub fn record(_ui: &Ui, _name: &str, _rect: Rect) {}
 
-pub fn fmt_num(v: f32) -> String {
-    let s = format!("{:.2}", v);
-    let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
-    if s == "-0" || s.is_empty() {
-        "0".into()
-    } else {
-        s
-    }
-}
+pub use designos_export::util::fmt_num;
 
 #[cfg(test)]
 mod tests {

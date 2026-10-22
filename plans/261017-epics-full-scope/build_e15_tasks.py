@@ -16,7 +16,7 @@ HERE = Path(__file__).parent
 PACK = "v0.6 AI design"
 OLD_V06 = "v0.6 Effects & Export"
 V07 = "v0.7 Agent design context"
-_BANNED_FILE = pathlib.Path.home() / "Products/plans/reports/banned-terms.txt"  # kept outside the repo
+_BANNED_FILE = Path.home() / "Products/plans/reports/banned-terms.txt"  # kept outside the repo
 BANNED = re.compile(_BANNED_FILE.read_text().strip() if _BANNED_FILE.exists() else r"(?!)", re.I)
 EVIDENCE = "Visual evidence (screenshot or terminal capture) is required in the PR."
 UI_LINE = "Load es-designer before UI code; desktop capture at 1440 goes in the PR (responsive: SKIPPED, owner default)."
@@ -73,10 +73,10 @@ task("E15-2", "Fill component slots from apply_spec, validated against each slot
      ["#150", "E15-1"],
      "Slots get recommended component ids (#150 extension). The spec path must fill them without breaking the slot contract.",
      ["`slots:{\"Content\":[<NodeSpec>...]}` on an instance replaces that slot's children as a descendant override",
-      "Fills outside the slot's recommended list are accepted with a lint warning, or refused when the slot is strict",
+      "Fills outside a non-strict slot's recommended list pass with a `slot-non-recommended` lint warning; when `allow_preferred_values_only == Some(true)` (strict slot), a non-recommended fill fails the call with `SLOT_FILL_NOT_ALLOWED`",
       "An unused slot can be disabled from the spec"],
      ["A Card instance with a filled Content slot round-trips through .designos and the JSON scene format",
-      "A non-recommended fill returns a warning naming the recommended components",
+      "A non-recommended fill on a non-strict slot returns a `slot-non-recommended` warning naming the recommended components, while a non-recommended fill on a strict slot fails with `SLOT_FILL_NOT_ALLOWED` and leaves the document unchanged",
       "Disabling a slot hides it in the instance without detaching"],
      "designos-doc unit test with the synthetic slot fixture (E3-15)")
 
@@ -87,10 +87,10 @@ task("E15-3", "Bind fills, strokes, numbers and styles to document variables fro
      ["`var:Collection/Group/Name` on fill, stroke, gap, padding, radius, stroke width, font size, line height and opacity creates a real variable binding",
       "`style:\"Text/Heading L\"` (text, colour, effect styles) applies the document style by name",
       "Mode-aware: a frame-level `mode:{Collection:\"Dark\"}` sets the explicit variable mode",
-      "Back-compat: `$easeui.*` and `easeui-*` presets keep working as deprecated aliases that resolve through an EaseUI variable collection inserted on first use; each use adds a deprecation warning to the response"],
+      "Back-compat: `$easeui.*` and `easeui-*` presets keep working as deprecated aliases; on first use in a document the engine inserts a collection named `EaseUI (deprecated)` (`id: \"easeui-deprecated\"`) with one mode `Default` and one Color variable per canonical token holding the exact RGB in the existing table (`spec.rs:148-166`), binds that variable (persisted in `.designos` and exported to `.fig`), and adds a `DEPRECATED_EASEUI_TOKEN` warning per use"],
      ["A spec with `fill:\"var:Color/Primary\"` produces a bound fill; changing the variable recolours the node",
       "An unknown variable returns a named error listing the 5 closest names",
-      "An existing spec using `$easeui.bg.panel` renders bit-identically to today and reports a deprecation warning",
+      "An existing spec using `$easeui.bg.panel` binds the `EaseUI (deprecated)` variable with the exact legacy RGB so it renders bit-identically to today, and reports one `DEPRECATED_EASEUI_TOKEN` warning per use",
       "Hard-coded hex where an exact-match variable exists is flagged by the per-call issues block (E15-12)"],
      "designos-doc unit tests + CPU render snapshot for the alias path", [R_FULL, R_EXACT])
 
@@ -125,11 +125,12 @@ task("E15-6", "Deduplicate replayed agent writes with idempotency keys", "S",
      "designos-mcp/src/tools/batch.rs, designos-mcp session ledger",
      ["E15-4"],
      "Agent CLIs retry on timeouts; a replayed write must not duplicate layers.",
-     ["Optional `idempotency_key` on every mutating tool; the session ledger stores key, payload hash and the original reply",
-      "Same key + same payload returns the stored reply without re-applying; same key + different payload returns a named error",
-      "Ledger lives for the document session and survives an MCP reconnect; cleared when the document closes"],
+     ["Optional `idempotency_key` on every mutating tool; the session ledger stores key, tool, payload hash, `undo_depth`, `auto_fix_undo_depth`, `dead`, `live` (`[{id, kind}]`), `gone` (`[id]`), `pre_auto_fix_reply` and the original reply",
+      "Same key + same payload returns the stored reply without re-applying while the write is still applied (`history.undo_depth() >= entry.undo_depth` and every `live`/`gone` presence check passes); same key + different payload returns a named error (`IDEMPOTENCY_KEY_REUSED`)",
+      "Ledger lives for the document session, survives an MCP reconnect by replaying only `doc-patch.jsonl` lines not already absorbed into the `canvas.designos` snapshot (treating an already-absorbed `Insert` whose id is in `canvas.designos` as a duplicate even if props were later edited, not re-applying absorbed `Update`/`Remove` lines over later user edits, and remapping ids only when an unabsorbed `Insert` newer than the snapshot collides with a different canvas node) before the presence check; undoing a keyed write via MCP (`history.undo_depth() < entry.undo_depth`) marks it stale (`IDEMPOTENCY_KEY_STALE`, not re-applied), redo back to `entry.undo_depth` makes it valid again, a new write while the redo stack is non-empty marks undone entries dead for good, while an unkeyed write with an empty redo stack does not invalidate other keys (and undoing only a trailing `Auto-fix` step keeps the write key valid and replays `pre_auto_fix_reply`); cleared when the document closes or when `canvas.designos` is reloaded from a newer Studio snapshot"],
      ["Sending the same batch twice with one key creates the layers once and returns identical replies",
-      "Key reuse with a changed payload fails with the named error and changes nothing"],
+      "Key reuse with a changed payload fails with `IDEMPOTENCY_KEY_REUSED` and changes nothing",
+      "Undoing a keyed write via `designos_undo` marks the key stale (`IDEMPOTENCY_KEY_STALE`) so re-sending with the same key is refused and the undone node stays absent"],
      "cargo test -p designos-mcp")
 
 task("E15-7", "Flag frames as in progress while an agent works and clear the flag when it finishes", "M",
@@ -137,7 +138,7 @@ task("E15-7", "Flag frames as in progress while an agent works and clear the fla
      ["E15-4", "#570"],
      "Reviewers, critics and other agents need to know which frames are unfinished.",
      ["Node flag `in_progress` settable from spec/batch and by the agent runtime on root frames being worked on",
-      "Canvas shows a badge on flagged frames; critique (E15-23) and variant ranking skip them",
+      "Canvas shows a badge on flagged frames; critique (E15-34) and variant ranking skip them",
       "Cleared by the agent at the end of the frame, automatically when the agent run ends or exits, and after a configurable stale timeout",
       "Round-trips through .designos and maps to the JSON scene format `placeholder` field (#570)"],
      ["A frame flagged by a batch shows the badge and loses it when the run ends",
@@ -216,10 +217,10 @@ task("E15-13", "Auto-fix safe mechanical lint findings in the engine and return 
       "Suggest tier (never auto): contrast changes, ambiguous token matches, anything that changes a visible colour",
       "Fixes apply after the agent's batch as a separate undo step labelled Auto-fix",
       "Diff report: node, property, before, after, rule",
-      "Mode: on (default), report-only, off; per user, file and session, with per-rule overrides"],
+      "Mode: on (default), report-only, off, plus an engine `disabled_rules: BTreeSet<RuleId>` hook; persistent per-user/per-file settings and per-rule UI toggles live in E15-14 (#599)"],
      ["A fill-container child with no layout parent is fixed and listed in the report",
       "Report-only lists the same fixes and changes nothing",
-      "Undoing once removes only the auto-fixes, keeping the agent's batch",
+      "Undoing once removes only the auto-fixes, keeping the agent's batch (and replaying a keyed write returns `pre_auto_fix_reply` without `auto_fix.applied` or post-fix issues)",
       "Contrast findings are never auto-applied"],
      "designos-doc unit tests + MCP fixture", [R_FIX])
 
@@ -252,9 +253,9 @@ task("E15-15", "Generate the design-agent rules pack from the tool schemas, with
 
 task("E15-16", "Prefetch design context on an agent's first turn", "M",
      "designos-app agent runtime bridge (terminal.rs), designos-mcp/src/tools/bootstrap.rs (new)",
-     ["#239", "#241", "#247", "#272", "E15-15"],
+     ["#239", "E15-15"],
      "Agents waste their first calls discovering the document.",
-     ["On run start the runtime attaches: open document, pages, selection, depth-3 outline of target frames, variables summary, components and libraries, active style, rules pack",
+     ["On run start the runtime attaches: open document, pages, selection, depth-3 outline of target frames, variables summary (`doc.variables`), components and libraries (`doc.components()` + `app.libraries`), active style, rules pack",
       "Marked fresh with a timestamp so the agent does not re-read it",
       "Also available as `designos_get_app_state` for agents outside Studio",
       "Token budget with truncation markers, never silent cuts"],
@@ -265,14 +266,15 @@ task("E15-16", "Prefetch design context on an agent's first turn", "M",
 
 task("E15-17", "Query large documents with a streaming visitor: paging, node budget and compact rows", "M",
      "designos-mcp designos_query_xpath, designos-doc query module, designos-mcp/src/tools/query.rs",
-     ["E15-9"],
+     ["E15-9", "E15-11"],
      "Dumping a 723k-node document is impossible; agents need targeted queries.",
      ["XPath and predicate queries stream results with a cursor; `limit` and a hard node budget per call",
       "Compact rows: id, name, type, bounds, lint problems, in-progress flag",
-      "Predicates on lint problems (e.g. all clipped text) and on hard-coded values",
+      "Predicates on lint problems (`has-problem('<rule>')`, e.g. all clipped text) and on hard-coded values (`has-hardcoded('<prop>')`, e.g. `//*[has-hardcoded('fills/0')]`, matching the `hardcoded-value` rule from E15-11)",
       "Runs off the UI thread; reports scanned and remaining counts"],
      ["Paging through all text nodes of the large fixture returns each node exactly once",
       "A query for clipped text returns the same set as the linter",
+      "A query with `has-hardcoded` returns the same set as the linter's `hardcoded-value` rule",
       "No page exceeds the node budget"],
      "MCP test on the large fixture + perf record")
 
@@ -317,10 +319,10 @@ task("E15-20", "Show a style preset gallery rendered by our own renderer", "M",
 
 task("E15-21", "Encode surface guides as data and lint profiles: web app, landing page, mobile, slides, table, design system", "M",
      "assets/surfaces/*.json (new), designos-doc/src/lint/surface.rs (new), designos-mcp/src/tools/guidelines.rs",
-     ["#248", "E15-9", "E15-11"],
+     ["#248", "E15-9", "E15-11", "E15-48"],
      "Prose guides are advice; numeric rules can be checked.",
      ["Each surface = prose (served by #248) + machine rules: minimum body size, edge margins, section and item gaps, tab bar item count, slide title/body minimums, required data states (loading, empty, error, success, permission)",
-      "A frame tagged with a surface is linted against its profile",
+      "A frame tagged with a surface (`NodeSpec.surface`, landed after E15-48 makes `NodeSpec` strict) is linted against its profile",
       "Content written for design:os, using ease-design page-structures and ux-psychology as source"],
      ["A slide with 18 px body text fails the slides profile",
       "A mobile frame with 6 tab items fails the mobile profile",
@@ -631,6 +633,18 @@ task("E15-47", "Build our own design:os skills pack from the ease-design knowled
       "No skill references a tool that is disabled"],
      "skill shape tests + recorded fixture")
 
+TASKS.append({
+    "id": "E15-48",
+    "epic": "E15",
+    "prio": "P0",
+    "size": "M",
+    "pack": PACK,
+    "deps": ["E15-1"],
+    "touches": "designos-doc/src/spec.rs, designos-mcp apply_spec",
+    "title": "Support image fills and effects in apply_spec (NodeSpec)",
+    "body": "**Epic:** E15 | **Pack:** v0.6 AI design | **Size/Prio:** M / P0\n\n### Context\nNodeSpec can create frames, shapes, text and components, but it cannot set image fills or effects, so agents fall back to many follow-up calls or skip them. Owner ruling 2026-10-18: full scope.\n\n### Scope\n- Image fill: from an asset id, a project-relative path or the asset-generation tools, with scale mode (fill, fit, crop, tile) and an optional variable binding.\n- Effects: drop shadow, inner shadow, layer blur, background blur, noise and texture, glass, each optionally bound to variables (`var:`).\n- Validation: unknown keys return named errors with a corrected example (E15 error contract).\n\n### Acceptance criteria\n1. One apply_spec call creates a card with an image fill and a drop shadow, as one undo step.\n2. A bound shadow colour follows a mode switch.\n3. An invalid image path is refused with a named error and the document is unchanged.\n\n### Test seam\ndesignos-mcp apply_spec tests + doc round-trip\n\n### Non-goals\nAuthoring custom shaders (E5-5) and generating the images themselves (E15 asset tools).",
+})
+
 # ---------------------------------------------------------------- epic, amendments, moves
 EPIC_BODY = """AI design: give agents eyes, grounding, a safe write protocol, an exact linter, curated styles, structured critique, variants and an offline eval, all running through the user's own agent CLI.
 
@@ -691,7 +705,7 @@ def main():
     pidx = {p: i for i, p in enumerate(order)}
 
     # moves: E15 existing deps + transitive closure; RD issues; old v0.6 contents
-    seeds = sorted({int(d[1:]) for t in TASKS for d in t["deps"] if d.startswith("#")})
+    seeds = sorted({int(d[1:]) for t in TASKS for d in t["deps"] if d.startswith("#")} | {241, 247, 272})
     moves, seen, stack = [], set(), []
     for n in seeds:
         if n in iss2id:
@@ -798,7 +812,7 @@ def main():
     hits = [x[:80] for x in texts if BANNED.search(x)]
     if hits:
         sys.exit(f"BANNED NAME HIT: {hits}")
-    (HERE / "e15-tasks.json").write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+    (HERE / "e15-tasks.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
     print(f"tasks={len(TASKS)} amend={len(AMEND)} moves={len(moves)} banned_hits=0")
     print(f"pack check: {len(violations)} violations; {len(external)} external issue deps checked; unknown={unknown}")
     for v in violations:

@@ -1,5 +1,6 @@
 //! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
 
+use super::lease::{stamp_command_authorship, AffectedSet, LeaseTable, PLUGIN_DATA_RUN_KEY};
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
@@ -23,9 +24,16 @@ pub struct LivePatchState {
     /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
+    /// Active frame-ownership leases checked by the Studio replay guard (`RD-3 §3.2`).
+    pub leases: LeaseTable,
 }
 
 impl LivePatchState {
+    pub fn with_leases(mut self, leases: LeaseTable) -> Self {
+        self.leases = leases;
+        self
+    }
+
     /// The editor removed layer `old` and put `new` in its place; agent edits to `old` that have
     /// not been replayed yet go to `new`.
     pub fn record_replacement(&mut self, old: NodeId, new: NodeId) {
@@ -81,6 +89,19 @@ pub fn replay_live_patch(
     state: &mut LivePatchState,
     exec: &mut dyn FnMut(&mut Document, Command) -> Result<(), DocError>,
 ) -> Result<LivePatchReport, DocError> {
+    let leases = state.leases.clone();
+    replay_live_patch_with_leases(doc, patch, state, &leases, exec)
+}
+
+/// Replays `patch` on `doc` while enforcing `leases` (`RD-3 §3.2`) and stamping
+/// `plugin_data["designos:run"]` on every inserted or updated node (`RD-3 §3.4`).
+pub fn replay_live_patch_with_leases(
+    doc: &mut Document,
+    patch: &LivePatch,
+    state: &mut LivePatchState,
+    leases: &LeaseTable,
+    exec: &mut dyn FnMut(&mut Document, Command) -> Result<(), DocError>,
+) -> Result<LivePatchReport, DocError> {
     let mut report = LivePatchReport::default();
     if patch.v != LIVE_PATCH_VERSION {
         report.skipped.push(format!("unsupported live patch version {}", patch.v));
@@ -100,8 +121,19 @@ pub fn replay_live_patch(
         }
         state.base = patch.base;
     }
+    let run_id = patch.run_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     for op in &patch.ops {
-        if let Some(cmd) = resolve(doc, op, state, &mut report) {
+        if !leases.is_empty() || run_id.is_some() {
+            let affected = AffectedSet::for_live_op(doc, op, |id| state.target(doc, id));
+            if let Err(violation) = leases.allows(run_id.unwrap_or(""), doc, &affected) {
+                report.skipped.push(violation.to_string());
+                continue;
+            }
+        }
+        if let Some(mut cmd) = resolve(doc, op, run_id, state, &mut report) {
+            if let Some(rid) = run_id {
+                stamp_command_authorship(&mut cmd, rid);
+            }
             if let Err(e) = exec(doc, cmd) {
                 *state = saved;
                 return Err(e);
@@ -112,7 +144,7 @@ pub fn replay_live_patch(
     Ok(report)
 }
 
-fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
+fn resolve(doc: &mut Document, op: &LiveOp, run_id: Option<&str>, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
@@ -123,7 +155,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                 ));
                 return None;
             }
-            resolve_insert(doc, parent, at, nodes, state, report)
+            resolve_insert(doc, parent, at, nodes, run_id, state, report)
         }
         LiveOp::Update { id: agent_id, set, unset } => {
             let (id, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
@@ -141,13 +173,16 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
             };
-            let merged = match merge_fields(cur, set, unset) {
+            let mut merged = match merge_fields(cur, set, unset) {
                 Ok(n) => n,
                 Err(e) => {
                     report.skipped.push(format!("update of node {}: {e}", id.0));
                     return None;
                 }
             };
+            if let Some(rid) = run_id {
+                merged.plugin_data.insert(PLUGIN_DATA_RUN_KEY.to_string(), rid.to_string());
+            }
             if merged == *cur {
                 report.duplicates += 1;
                 return None;
@@ -164,7 +199,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
                 report.needs_layout.push(id);
             }
-            Some(Command::Update { node: Box::new(merged) })
+            Some(crate::writer_command(doc, Command::Update { node: Box::new(merged) }).cmd)
         }
         LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
             let (id, id_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
@@ -219,6 +254,130 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
             resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
         }
+        LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
+            let mut styles = doc.styles.clone();
+            let mut style_meta = doc.style_meta.clone();
+            for k in removed {
+                styles.remove(k);
+            }
+            for k in removed_meta {
+                style_meta.remove(k);
+            }
+            for (k, v) in upserted {
+                styles.insert(k.clone(), v.clone());
+            }
+            for (k, v) in upserted_meta {
+                style_meta.insert(k.clone(), v.clone());
+            }
+            if styles == doc.styles && style_meta == doc.style_meta {
+                report.duplicates += 1;
+                None
+            } else {
+                Some(Command::SetStyles { styles, style_meta })
+            }
+        }
+        LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables } => {
+            let mut collections = doc.variable_collections.clone();
+            let mut variables = doc.variables.clone();
+            for k in removed_collections {
+                collections.remove(k);
+            }
+            for k in removed_variables {
+                variables.remove(k);
+            }
+            for (k, v) in upserted_collections {
+                let mut merged = v.clone();
+                if let Some(cur) = doc.variable_collections.get(k) {
+                    for vid in &cur.variables {
+                        if !removed_variables.contains(vid) && !merged.variables.contains(vid) {
+                            merged.variables.push(vid.clone());
+                        }
+                    }
+                }
+                collections.insert(k.clone(), merged);
+            }
+            for (k, v) in upserted_variables {
+                variables.insert(k.clone(), v.clone());
+            }
+            if collections == doc.variable_collections && variables == doc.variables {
+                report.duplicates += 1;
+                None
+            } else {
+                Some(Command::SetVariables { variables, collections })
+            }
+        }
+        LiveOp::LibraryState { published, upserted_enabled, removed_enabled, upserted_external, removed_external, library_page } => {
+            let mut new_state = doc.library.clone();
+            let mut new_lp = doc.library_page;
+            if let Some(lp_change) = library_page {
+                new_lp = match lp_change {
+                    Some(agent_lp) => {
+                        if let Some(existing_lp) = doc.library_page.filter(|p| doc.nodes.contains_key(p)) {
+                            if existing_lp != *agent_lp {
+                                state.remap.insert(*agent_lp, existing_lp);
+                            }
+                            Some(existing_lp)
+                        } else if let Some(&mapped) = state.remap.get(agent_lp) {
+                            Some(mapped)
+                        } else if doc.get(*agent_lp).is_some() {
+                            let Some(fresh_lp) = doc.try_alloc_id() else {
+                                report.skipped.push("library page allocation failed: no node ids left".into());
+                                return None;
+                            };
+                            state.remap.insert(*agent_lp, fresh_lp);
+                            Some(fresh_lp)
+                        } else {
+                            doc.reserve_ids(*agent_lp);
+                            Some(*agent_lp)
+                        }
+                    }
+                    None => {
+                        if doc.library_page.is_none_or(|p| doc.get(p).is_none_or(|n| n.children.is_empty())) {
+                            None
+                        } else {
+                            doc.library_page
+                        }
+                    }
+                };
+            }
+            if let Some(pub_info) = published {
+                new_state.published = pub_info.clone();
+            }
+            for id in removed_enabled {
+                new_state.enabled.retain(|r| r.id != *id);
+            }
+            for lref in upserted_enabled {
+                if let Some(existing) = new_state.enabled.iter_mut().find(|r| r.id == lref.id) {
+                    *existing = lref.clone();
+                } else {
+                    new_state.enabled.push(lref.clone());
+                }
+            }
+            for k in removed_external {
+                new_state.external.remove(k);
+            }
+            for (k, ext) in upserted_external {
+                let mut ext = ext.clone();
+                ext.node = ext.node.map(|id| state.target(doc, id));
+                new_state.external.insert(k.clone(), ext);
+            }
+            if new_state == doc.library && new_lp == doc.library_page && new_lp.is_none_or(|id| doc.nodes.contains_key(&id)) {
+                report.duplicates += 1;
+                None
+            } else {
+                Some(Command::SetLibraryState { state: new_state, library_page: new_lp })
+            }
+        }
+        LiveOp::Images { add, remove } => {
+            let add: BTreeMap<String, Vec<u8>> = add.iter().filter(|(k, _)| !doc.images.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+            let remove: Vec<String> = remove.iter().filter(|k| doc.images.contains_key(*k)).cloned().collect();
+            if add.is_empty() && remove.is_empty() {
+                report.duplicates += 1;
+                None
+            } else {
+                Some(Command::SetImages { add, remove })
+            }
+        }
     }
 }
 
@@ -252,6 +411,7 @@ fn resolve_insert(
     parent: NodeId,
     at: &SiblingHint,
     nodes: &[Node],
+    run_id: Option<&str>,
     state: &mut LivePatchState,
     report: &mut LivePatchReport,
 ) -> Option<Command> {
@@ -260,36 +420,44 @@ fn resolve_insert(
         report.skipped.push(format!("insert of node {} into missing parent {}", root.id.0, parent.0));
         return None;
     }
-    let mut nodes: Vec<Node> = nodes.to_vec();
-    remap_subtree(&mut nodes, &state.remap);
     // Before anything below reserves ids for it.
-    if let Some(why) = insert_problem(doc, parent, &nodes) {
-        report.skipped.push(format!("insert of node {}: {why}", nodes[0].id.0));
+    if let Some(why) = insert_problem(doc, parent, nodes) {
+        report.skipped.push(format!("insert of node {}: {why}", root.id.0));
         return None;
     }
-    if let Some(existing) = doc.get(nodes[0].id) {
-        if existing.parent == Some(parent) && same_props(existing, &nodes[0]) {
+    let mut preview: Vec<Node> = nodes.to_vec();
+    if let Some(rid) = run_id {
+        for n in &mut preview {
+            n.plugin_data.insert(PLUGIN_DATA_RUN_KEY.to_string(), rid.to_string());
+        }
+    }
+    remap_subtree(&mut preview, &state.remap);
+    if let Some(existing) = doc.get(preview[0].id) {
+        if existing.parent == Some(parent) && same_props(existing, &preview[0]) {
             report.duplicates += 1;
             return None;
         }
     }
     // Ids the editor already uses (created while the agent worked) get fresh ones.
-    let largest = nodes.iter().map(|n| n.id).max().unwrap_or(NodeId(0));
+    let largest = preview.iter().map(|n| n.id).max().unwrap_or(NodeId(0));
     doc.reserve_ids(largest);
-    let mut fresh = BTreeMap::new();
-    for n in &nodes {
-        if doc.get(n.id).is_some() {
+    for orig in nodes {
+        let candidate = state.remap.get(&orig.id).copied().unwrap_or(orig.id);
+        if doc.get(candidate).is_some() {
             let Some(id) = doc.try_alloc_id() else {
-                report.skipped.push(format!("insert of node {}: the document has no node ids left", nodes[0].id.0));
+                report.skipped.push(format!("insert of node {}: the document has no node ids left", preview[0].id.0));
                 return None;
             };
-            fresh.insert(n.id, id);
+            state.remap.insert(orig.id, id);
         }
     }
-    if !fresh.is_empty() {
-        remap_subtree(&mut nodes, &fresh);
-        state.remap.extend(fresh);
+    let mut nodes: Vec<Node> = nodes.to_vec();
+    if let Some(rid) = run_id {
+        for n in &mut nodes {
+            n.plugin_data.insert(PLUGIN_DATA_RUN_KEY.to_string(), rid.to_string());
+        }
     }
+    remap_subtree(&mut nodes, &state.remap);
     // Children outside the subtree are existing nodes; their own Reparent ops move them here.
     let ids: BTreeSet<NodeId> = nodes.iter().map(|n| n.id).collect();
     for n in &mut nodes {
@@ -310,6 +478,14 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
     };
     for (k, v) in set {
         if !STRUCTURAL_FIELDS.contains(&k.as_str()) {
+            if k == "layout_child" {
+                if let (Some(Value::Object(cur_lc)), Value::Object(set_lc)) = (fields.get_mut("layout_child"), v) {
+                    for (sub_k, sub_v) in set_lc {
+                        cur_lc.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
             fields.insert(k.clone(), v.clone());
         }
     }
@@ -336,11 +512,7 @@ fn remap_subtree(nodes: &mut [Node], map: &BTreeMap<NodeId, NodeId>) {
     }
     let m = |id: NodeId| map.get(&id).copied().unwrap_or(id);
     for n in nodes {
-        n.id = m(n.id);
-        n.parent = n.parent.map(m);
-        for c in &mut n.children {
-            *c = m(*c);
-        }
+        crate::renumber_ids::remap_node(n, &m);
     }
 }
 

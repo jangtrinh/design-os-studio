@@ -10,6 +10,7 @@ name = "designos-mcp"
 path = "src/main.rs"
 
 [dependencies]
+designos-diff.workspace = true
 designos-doc.workspace = true
 designos-export.workspace = true
 designos-fig.workspace = true
@@ -20,4 +21,5 @@ rmcp = { version = "=3.5.1", default-features = false, features = ["server", "tr
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [dev-dependencies]
+quick-xml = "0.41"
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }

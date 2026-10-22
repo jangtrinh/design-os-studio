@@ -87,6 +87,63 @@ pub fn decode_fig_to_json(bytes: &[u8]) -> Result<Value, FigError> {
     Ok(Value::Object(out))
 }
 
+/// Pre-decoded `derivedSymbolData` entry and instance scale metadata for corpus verification.
+#[derive(Debug, Clone)]
+pub struct FigDerivedSymbolEntry {
+    pub path: Vec<String>,
+    pub size: Option<Vec2>,
+    pub transform: Option<Affine>,
+}
+
+/// Extracted `derivedSymbolData` and `uniformScaleFactor` for an `INSTANCE` node in a `.fig` file.
+#[derive(Debug, Clone, Default)]
+pub struct FigInstanceDerivedData {
+    pub uniform_scale: f32,
+    pub entries: Vec<FigDerivedSymbolEntry>,
+}
+
+/// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
+pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
+    let mut d = decode_inner(bytes, true)?;
+    let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
+        Some(KiwiValue::Array(arr)) => arr,
+        _ => Vec::new(),
+    };
+    let mut map = HashMap::new();
+    for nc in &raw_changes {
+        if nc.get("type").and_then(kiwi_str) != Some("INSTANCE") {
+            continue;
+        }
+        let Some(id) = nc.get("guid").and_then(kiwi_guid_str) else { continue };
+        let sd = nc.get("symbolData");
+        let uniform_scale = sd.and_then(|s| kiwi_f32(s, "uniformScaleFactor")).unwrap_or(1.0);
+        let derived_val = nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData")));
+        let Some(KiwiValue::Array(arr)) = derived_val else { continue };
+        let mut entries = Vec::new();
+        for o in arr {
+            let p = o.get("guidPath");
+            let list = p.and_then(|p| p.get("guids")).or(p).and_then(KiwiValue::as_array);
+            let path: Vec<String> = list.map(|a| a.iter().filter_map(kiwi_guid_str).collect()).unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            let size = o.get("size").and_then(|s| Some(Vec2::new(kiwi_f32(s, "x")?, kiwi_f32(s, "y")?)));
+            let transform = o.get("transform").map(|t| {
+                let g = |k: &str, d: f32| kiwi_f32(t, k).unwrap_or(d);
+                Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) }
+            });
+            if size.is_none() && transform.is_none() {
+                continue;
+            }
+            entries.push(FigDerivedSymbolEntry { path, size, transform });
+        }
+        if !entries.is_empty() {
+            map.insert(id, FigInstanceDerivedData { uniform_scale, entries });
+        }
+    }
+    Ok(map)
+}
+
 /// Pre-decoded `derivedSymbolData` entry for fast `.fig` import without JSON intermediate.
 #[derive(Debug, Clone)]
 pub(crate) struct FastDerivedEntry {
@@ -320,6 +377,21 @@ fn guid_str(g: &Value) -> Option<String> {
     Some(format!("{s}:{l}"))
 }
 
+/// Strips a disambiguated fallback component key (`"comp:s:l"` or `"comp:s:l:n"`) back to `"s:l"`.
+pub(crate) fn strip_fallback_comp_key(k: &str) -> Option<String> {
+    let rest = k.strip_prefix("comp:")?;
+    let mut parts = rest.split(':');
+    let s: u32 = parts.next()?.parse().ok()?;
+    let l: u32 = parts.next()?.parse().ok()?;
+    if let Some(n) = parts.next() {
+        let _: u32 = n.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+    }
+    Some(format!("{s}:{l}"))
+}
+
 /// Library asset key of an `{assetRef: {key, version}}` reference.
 pub(crate) fn asset_key(v: &Value) -> Option<&str> {
     v.get("assetRef").and_then(|a| fstr(a, "key"))
@@ -472,6 +544,18 @@ impl<'a> Lk<'a> {
             }
         }
         lk
+    }
+
+    /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
+    /// strips a disambiguated `"comp:s:l"` / `"comp:s:l:n"` fallback back to the `"s:l"` GUID.
+    fn resolve_comp_key(&self, k: &str) -> String {
+        if let Some(id) = self.comp_by_key.get(k) {
+            return id.clone();
+        }
+        if let Some(guid) = strip_fallback_comp_key(k) {
+            return guid;
+        }
+        k.to_string()
     }
 
     /// Variable id for an alias value (`{assetRef}` or a local `{guid}`).
@@ -1804,21 +1888,20 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
                 if pv.is_object() {
                     for entry in rest_import::farr(pv, "instanceSwapValues") {
                         if let Some(k) = fstr(entry, "key") {
-                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            let resolved = lk.resolve_comp_key(k);
                             prefs.push(Value::String(resolved));
                         }
                     }
                     for s in rest_import::farr(pv, "stringValues") {
                         if let Some(k) = s.as_str() {
-                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            let resolved = lk.resolve_comp_key(k);
                             prefs.push(Value::String(resolved));
                         }
                     }
                 } else {
                     for p in rest_import::farr(d, "preferredValues") {
-                        if let Some(id_or_key) = guid_str(p)
-                            .or_else(|| p.as_str().map(String::from))
-                            .or_else(|| fstr(p, "key").map(|k| lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string())))
+                        if let Some(id_or_key) =
+                            guid_str(p).or_else(|| p.as_str().map(|k| lk.resolve_comp_key(k))).or_else(|| fstr(p, "key").map(|k| lk.resolve_comp_key(k)))
                         {
                             prefs.push(Value::String(id_or_key));
                         }
@@ -2819,5 +2902,67 @@ mod tests {
         let p = commands_blob_to_path(&b, false);
         assert_eq!(p.cmds, vec![PathCmd::MoveTo(Vec2::new(1.0, 2.0))]);
         assert!(commands_blob_to_path(&[9, 9, 9], false).cmds.is_empty());
+    }
+
+    fn kiwi_guid(s: u32, l: u32) -> kiwi::KiwiValue {
+        crate::testkit::guid(s, l)
+    }
+
+    #[test]
+    fn guid_pair_max_max_is_unset() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, u32::MAX)), None);
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": u32::MAX})), None);
+    }
+
+    #[test]
+    fn guid_session_max_local_5_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, 5)).as_deref(), Some("4294967295:5"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": 5})).as_deref(), Some("4294967295:5"));
+    }
+
+    #[test]
+    fn guid_session_5_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(5, u32::MAX)).as_deref(), Some("5:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": 5, "localID": u32::MAX})).as_deref(), Some("5:4294967295"));
+    }
+
+    #[test]
+    fn guid_session_max_minus_one_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX - 1, u32::MAX)).as_deref(), Some("4294967294:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX - 1, "localID": u32::MAX})).as_deref(), Some("4294967294:4294967295"));
+    }
+
+    #[test]
+    fn half_null_guid_round_trips_through_fig_export() {
+        use designos_doc::{Node, Rect};
+        let mut doc = Document::new("HalfNullGuid");
+        let page = doc.add_page("Page 1");
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 200.0, 100.0));
+        parent.name = "HalfNullParent".into();
+        parent.source_id = Some(format!("{}:5", u32::MAX));
+        doc.insert(page, parent).unwrap();
+
+        let child_id = doc.alloc_id();
+        let mut child = Node::rectangle(child_id, Rect::new(10.0, 10.0, 50.0, 50.0));
+        child.name = "HalfNullChild".into();
+        child.source_id = Some(format!("5:{}", u32::MAX));
+        doc.insert(parent_id, child).unwrap();
+
+        let sibling_id = doc.alloc_id();
+        let mut sibling = Node::rectangle(sibling_id, Rect::new(70.0, 10.0, 40.0, 40.0));
+        sibling.name = "FreshSibling".into();
+        doc.insert(parent_id, sibling).unwrap();
+
+        let bytes = crate::fig_export::export_fig(&doc).expect("export_fig");
+        let rt = import_fig(&bytes).expect("import_fig");
+        let rt_parent = rt.nodes.values().find(|n| n.name == "HalfNullParent").expect("HalfNullParent preserved");
+        assert_eq!(rt_parent.source_id.as_deref(), Some("4294967295:5"));
+        let rt_child = rt.nodes.values().find(|n| n.name == "HalfNullChild").expect("HalfNullChild preserved");
+        assert_eq!(rt_child.source_id.as_deref(), Some("5:4294967295"));
+        assert_eq!(rt_child.parent, Some(rt_parent.id));
+        assert!(rt_parent.children.contains(&rt_child.id));
+        let rt_sibling = rt.nodes.values().find(|n| n.name == "FreshSibling").expect("FreshSibling preserved");
+        assert_eq!(rt_sibling.parent, Some(rt_parent.id));
     }
 }

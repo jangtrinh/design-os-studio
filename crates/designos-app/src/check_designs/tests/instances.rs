@@ -232,6 +232,7 @@ fn a_reconnect_aimed_at_a_mirror_inside_an_instance_is_refused() {
         node: mirror,
         node_name: "Save".into(),
         rule: Rule::DetachedInstance,
+        property: String::new(),
         message: String::new(),
         fix: Some(Fix::Reconnect { component: button }),
         fix_label: String::new(),
@@ -239,4 +240,71 @@ fn a_reconnect_aimed_at_a_mirror_inside_an_instance_is_refused() {
     assert!(!app.check_designs_fix(&stale), "the next sync of the instance would put the mirror back");
     assert!(app.doc.get(mirror).is_some());
     assert!(!app.hist.can_undo());
+}
+
+#[test]
+fn an_instance_mirroring_an_unstyled_main_text_reports_no_text_style_once_on_the_main_component() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
+    white_page(&mut f);
+    let comp = component(&mut f, "10:3");
+    f.doc.get_mut(comp).unwrap().size = Vec2::new(200.0, 100.0);
+    f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+    let comp_label = f.text(comp, "Caption", 14.0, 400, gray(0x11));
+    place(&mut f, comp_label, 60.0, 12.0);
+
+    let _inst_a = spawn_instance(&mut f, comp, 260.0, 0.0);
+    let _inst_b = spawn_instance(&mut f, comp, 520.0, 0.0);
+
+    let report = f.report();
+    let nodes: Vec<NodeId> = report.of(Rule::TextStyles).map(|x| x.node).collect();
+    assert_eq!(nodes, vec![comp_label], "the text of an instance that mirrors its main is not listed again: {:#?}", report.findings);
+}
+
+fn disabled_library_fill_style(f: &mut Fx, key: &str, name: &str) {
+    f.style(key, name, Style::Fill(vec![Paint::solid(BLUE)]), StyleProperty::Fill);
+    f.doc.library.external.insert(
+        format!("Design System/style:{key}"),
+        designos_doc::ExternalAsset {
+            library_id: "Design System".into(),
+            version: 1,
+            kind: designos_doc::LibraryAssetKind::Style,
+            node: None,
+            local_key: Some(key.into()),
+        },
+    );
+}
+
+#[test]
+fn a_disabled_library_style_on_a_main_component_is_reported_once_not_per_instance() {
+    let mut f = fx();
+    white_page(&mut f);
+    disabled_library_fill_style(&mut f, "Design System/s1", "Surface/Brand");
+    let comp = component(&mut f, "10:5");
+    f.doc.get_mut(comp).unwrap().size = Vec2::new(200.0, 100.0);
+    let swatch = f.rect(comp, "Swatch", BLUE);
+    f.doc.get_mut(swatch).unwrap().style_refs.insert("fill".into(), "Design System/s1".into());
+    let _a = spawn_instance(&mut f, comp, 260.0, 0.0);
+    let _b = spawn_instance(&mut f, comp, 520.0, 0.0);
+
+    let report = f.report();
+    let nodes: Vec<NodeId> = report.of(Rule::LibraryAssets).map(|x| x.node).collect();
+    assert_eq!(nodes, vec![swatch], "{:#?}", report.findings);
+}
+
+#[test]
+fn a_disabled_library_style_applied_inside_an_instance_is_reported_on_that_layer() {
+    let mut f = fx();
+    white_page(&mut f);
+    disabled_library_fill_style(&mut f, "Design System/s2", "Surface/Brand");
+    let comp = component(&mut f, "10:6");
+    f.doc.get_mut(comp).unwrap().size = Vec2::new(200.0, 100.0);
+    let _swatch = f.rect(comp, "Swatch", BLUE);
+    let inst = spawn_instance(&mut f, comp, 260.0, 0.0);
+    let inst_swatch = f.doc.get(inst).unwrap().children[0];
+    f.doc.get_mut(inst_swatch).unwrap().style_refs.insert("fill".into(), "Design System/s2".into());
+
+    let report = f.report();
+    let nodes: Vec<NodeId> = report.of(Rule::LibraryAssets).map(|x| x.node).collect();
+    assert_eq!(nodes, vec![inst_swatch], "{:#?}", report.findings);
 }

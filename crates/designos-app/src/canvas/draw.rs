@@ -442,6 +442,19 @@ pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<
     Some((r, status))
 }
 
+/// Screen rect, display label, status, and 6-colour non-purple accent of the RD-3 owner pill badge
+/// immediately after a top-level frame label (`§7`). Returns `None` once the frame's lease is released.
+pub fn owner_pill_badge_rect(app: &App, id: NodeId, after_rect: ERect) -> Option<(ERect, String, String, Color32)> {
+    let (run_id, display_name, status) = app.terminal.active_owner_pill_info(id)?;
+    let col = theme::owner_color_for_run(&run_id);
+    let char_px = theme::FONT_SIZE_BODY * 0.58;
+    let text_w = display_name.chars().count() as f32 * char_px + theme::OWNER_PILL_EXTRA_W;
+    let half_h = theme::OWNER_PILL_HEIGHT * 0.5;
+    let pill_r =
+        ERect::from_min_size(Pos2::new(after_rect.right() + theme::OWNER_PILL_GAP, after_rect.center().y - half_h), EV::new(text_w, theme::OWNER_PILL_HEIGHT));
+    Some((pill_r, display_name, status, col))
+}
+
 /// The grid frames whose header pills and `+` buttons a click can reach: the selected ones and the hovered one.
 /// What is painted and what is hit-tested both come from this list.
 fn grid_track_candidates(app: &App) -> Vec<NodeId> {
@@ -805,6 +818,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
         let name = crate::widgets::elide(&p, clean_name, &theme::font_body(), (r.width() - dx + 8.0).max(8.0));
         p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, name, theme::font_body(), col);
+        let mut after_label_r = r;
         if let Some((badge_r, status)) = dev_status_badge_rect(id, n, r) {
             let badge_col = match status {
                 designos_doc::DevStatus::ReadyForDev => theme::DEV_READY,
@@ -813,6 +827,21 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             };
             p.rect_filled(badge_r, theme::cr(3), badge_col);
             p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_canvas_strong(), Color32::WHITE);
+            after_label_r = badge_r;
+        }
+        if let Some((owner_r, owner_label, owner_status, owner_col)) = owner_pill_badge_rect(app, id, after_label_r) {
+            let pill_rad = theme::cr(theme::OWNER_PILL_RADIUS);
+            p.rect_filled(owner_r, pill_rad, owner_col.gamma_multiply(0.18));
+            p.rect_stroke(owner_r, pill_rad, Stroke::new(theme::BORDER_WIDTH, owner_col), StrokeKind::Inside);
+            let dot_col = match owner_status.as_str() {
+                "done" => theme::OWNER_EMERALD,
+                "failed" | "violated" | "rolled_back" => theme::OWNER_ROSE,
+                _ => owner_col,
+            };
+            let dot_pos = Pos2::new(owner_r.left() + theme::OWNER_PILL_DOT_OFFSET_X, owner_r.center().y);
+            p.circle_filled(dot_pos, theme::OWNER_PILL_DOT_RADIUS, dot_col);
+            let text_pos = Pos2::new(owner_r.left() + theme::OWNER_PILL_TEXT_LEFT, owner_r.center().y);
+            p.text(text_pos, Align2::LEFT_CENTER, owner_label, theme::font_body(), owner_col);
         }
     }
 

@@ -59,6 +59,8 @@ pub enum Command {
     SetPrototypeDevice {
         device: PrototypeDevice,
     },
+    /// Replace Check designs settings (rule toggles, contrast level, ignored findings).
+    SetCheckDesignsSettings(CheckDesignsSettings),
     /// Replace all variables and collections (variable edits).
     SetVariables {
         variables: BTreeMap<String, Variable>,
@@ -154,15 +156,35 @@ impl Command {
                 doc.bump_mutation_epoch();
                 Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
             }
-            Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
-                state: std::mem::replace(&mut doc.library, state),
-                library_page: std::mem::replace(&mut doc.library_page, library_page),
-            },
+            Command::SetLibraryState { state, library_page } => {
+                if let Some(lp) = library_page {
+                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp) {
+                        let mut n = Node::new(lp, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
+                        n.name = "Library".into();
+                        e.insert(n);
+                        doc.mark_node_dirty(lp);
+                    }
+                    doc.bump_ids();
+                } else if let Some(old_lp) = doc.library_page {
+                    if !doc.pages.contains(&old_lp) && doc.nodes.get(&old_lp).is_some_and(|n| n.children.is_empty()) {
+                        doc.nodes.remove(&old_lp);
+                        doc.mark_node_dirty(old_lp);
+                    }
+                }
+                Command::SetLibraryState {
+                    state: std::mem::replace(&mut doc.library, state),
+                    library_page: std::mem::replace(&mut doc.library_page, library_page),
+                }
+            }
             Command::SetGuides { page, guides } => {
                 let old = if guides.is_empty() { doc.guides.remove(&page) } else { doc.guides.insert(page, guides) };
                 Command::SetGuides { page, guides: old.unwrap_or_default() }
             }
             Command::SetPrototypeDevice { device } => Command::SetPrototypeDevice { device: std::mem::replace(&mut doc.prototype_device, device) },
+            Command::SetCheckDesignsSettings(settings) => {
+                doc.bump_mutation_epoch();
+                Command::SetCheckDesignsSettings(std::mem::replace(&mut doc.check_designs, settings))
+            }
             Command::SetVariables { variables, collections } => {
                 doc.mark_full_dirty();
                 Command::SetVariables {
@@ -201,35 +223,142 @@ impl Document {
     }
 }
 
-/// Linear undo stack.
+/// Metadata attached to a single step on [`History`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndoStepMeta {
+    /// Agent `run_id` that produced this step, or `None` for interactive editor steps.
+    pub run_id: Option<String>,
+    /// Optional human-readable label for the step (e.g. from `designos_apply_batch`).
+    pub label: Option<String>,
+}
+
+/// Summary of undo steps grouped by their originating `run_id` (`None` = interactive editor).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunUndoGroup {
+    pub run_id: Option<String>,
+    pub step_count: usize,
+    pub labels: Vec<String>,
+}
+
+/// Linear undo stack with per-step run attribution for selective `Undo run`.
 #[derive(Default)]
 pub struct History {
     undo: Vec<Command>,
     redo: Vec<Command>,
+    undo_meta: Vec<UndoStepMeta>,
+    redo_meta: Vec<UndoStepMeta>,
 }
 
 impl History {
     pub fn exec(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
+        self.exec_for_run(doc, cmd, None, None)
+    }
+
+    /// Applies `cmd` and records the resulting undo step attributed to `run_id` / `label`.
+    pub fn exec_for_run(&mut self, doc: &mut Document, cmd: Command, run_id: Option<String>, label: Option<String>) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
         self.undo.push(inv);
+        self.undo_meta.push(UndoStepMeta { run_id, label });
         self.redo.clear();
+        self.redo_meta.clear();
         Ok(())
     }
+
+    /// Tags the most recently pushed undo step with `run_id` and/or `label`.
+    pub fn tag_last_undo_step(&mut self, run_id: Option<String>, label: Option<String>) {
+        while self.undo_meta.len() < self.undo.len() {
+            self.undo_meta.push(UndoStepMeta::default());
+        }
+        if let Some(last) = self.undo_meta.last_mut() {
+            if run_id.is_some() {
+                last.run_id = run_id;
+            }
+            if label.is_some() {
+                last.label = label;
+            }
+        }
+    }
+
+    /// Reverts all undo steps belonging to `run_id` in reverse chronological order without
+    /// disturbing other runs' steps on the undo stack. Returns the number of steps reverted.
+    pub fn undo_run(&mut self, doc: &mut Document, run_id: &str) -> Result<usize, DocError> {
+        while self.undo_meta.len() < self.undo.len() {
+            self.undo_meta.push(UndoStepMeta::default());
+        }
+        let matching_indices: Vec<usize> = (0..self.undo.len()).rev().filter(|&i| self.undo_meta[i].run_id.as_deref() == Some(run_id)).collect();
+        if matching_indices.is_empty() {
+            return Ok(0);
+        }
+        let count = matching_indices.len();
+        let mut cmds_in_rev_order = Vec::with_capacity(count);
+        for idx in matching_indices {
+            cmds_in_rev_order.push(self.undo.remove(idx));
+            self.undo_meta.remove(idx);
+        }
+        let inv = apply_and_relayout(doc, Command::Batch(cmds_in_rev_order))?;
+        self.redo.push(inv);
+        self.redo_meta.push(UndoStepMeta { run_id: Some(run_id.to_string()), label: Some(format!("Undo run {run_id}")) });
+        Ok(count)
+    }
+
+    /// Returns undo steps grouped by their originating `run_id` (`None` = editor), preserving
+    /// order of first appearance on the undo stack.
+    pub fn undo_groups_by_run(&self) -> Vec<RunUndoGroup> {
+        let mut groups: Vec<RunUndoGroup> = Vec::new();
+        for idx in 0..self.undo.len() {
+            let meta = self.undo_meta.get(idx);
+            let run_id = meta.and_then(|m| m.run_id.clone());
+            let label = meta.and_then(|m| m.label.clone());
+            if let Some(group) = groups.iter_mut().find(|g| g.run_id == run_id) {
+                group.step_count += 1;
+                if let Some(l) = label {
+                    group.labels.push(l);
+                }
+            } else {
+                let mut labels = Vec::new();
+                if let Some(l) = label {
+                    labels.push(l);
+                }
+                groups.push(RunUndoGroup { run_id, step_count: 1, labels });
+            }
+        }
+        groups
+    }
+
+    /// Metadata for each step currently on the undo stack (oldest first).
+    pub fn undo_metas(&self) -> &[UndoStepMeta] {
+        &self.undo_meta
+    }
+
+    /// Commands currently on the undo stack (oldest first).
+    pub fn undo_steps(&self) -> &[Command] {
+        &self.undo
+    }
+
+    /// Number of undo steps currently recorded for `run_id`.
+    pub fn run_step_count(&self, run_id: &str) -> usize {
+        self.undo_meta.iter().filter(|m| m.run_id.as_deref() == Some(run_id)).count()
+    }
+
     /// Reverts the latest step. Any deferred auto-layout queue from the superseded edit is dropped
     /// before applying the inverse command, and affected auto-layout containers are re-solved from
     /// their restored state so descendants return to the pre-edit layout.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.undo.pop() else { return Ok(false) };
+        let meta = self.undo_meta.pop().unwrap_or_default();
         let inv = apply_and_relayout(doc, c)?;
         self.redo.push(inv);
+        self.redo_meta.push(meta);
         Ok(true)
     }
     /// Re-applies the latest undone step, dropping any superseded queue and re-solving affected
     /// auto-layout containers from their restored state, like [`Self::undo`].
     pub fn redo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.redo.pop() else { return Ok(false) };
+        let meta = self.redo_meta.pop().unwrap_or_default();
         let inv = apply_and_relayout(doc, c)?;
         self.undo.push(inv);
+        self.undo_meta.push(meta);
         Ok(true)
     }
     /// The command [`Self::undo`] would apply next.
@@ -251,6 +380,7 @@ impl History {
     /// reverted another way (by restoring a snapshot of the document).
     pub fn drop_undo_steps_after(&mut self, depth: usize) {
         self.undo.truncate(depth);
+        self.undo_meta.truncate(depth);
     }
     /// The steps [`Self::redo`] can take, oldest first, for [`Self::restore_redo`].
     pub fn redo_steps(&self) -> Vec<Command> {
@@ -258,6 +388,7 @@ impl History {
     }
     /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
     pub fn restore_redo(&mut self, steps: Vec<Command>) {
+        self.redo_meta = vec![UndoStepMeta::default(); steps.len()];
         self.redo = steps;
     }
     pub fn can_redo(&self) -> bool {
@@ -293,7 +424,11 @@ impl Command {
                     + collections.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
             }
             Command::Batch(cmds) => cmds.iter_mut().map(Self::neutralize_non_finite).sum(),
-            Command::Remove { .. } | Command::Reparent { .. } | Command::RemovePage { .. } | Command::SetImages { .. } => 0,
+            Command::Remove { .. }
+            | Command::Reparent { .. }
+            | Command::RemovePage { .. }
+            | Command::SetImages { .. }
+            | Command::SetCheckDesignsSettings(_) => 0,
         }
     }
 }

@@ -16,10 +16,15 @@
 )]
 
 mod board;
+pub mod branch_diff;
+#[cfg(test)]
+mod branch_diff_tests;
+pub mod branch_merge;
 pub mod changelog_features;
 mod comments;
 mod components;
 mod dev;
+pub mod diff;
 pub mod find;
 pub mod finite_json;
 #[cfg(test)]
@@ -27,6 +32,7 @@ mod finite_json_tests;
 mod geom;
 mod history;
 mod layout_apply;
+pub mod layout_constraints;
 pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;
@@ -48,6 +54,7 @@ mod settings;
 #[cfg(test)]
 mod slot_model_tests;
 pub mod spec;
+pub mod spec_instance;
 mod styles_ops;
 mod text_fills;
 mod textmodel;
@@ -56,15 +63,22 @@ mod variables_apply;
 mod variables_edit;
 pub mod vector;
 mod vector_fit;
+mod writer_command;
 
 pub use board::*;
+pub use branch_diff::{diff3, Conflict, ConflictKind, Diff3, DiffStats, EntityChange, EntityConflict, EntityKey, Group, SideChanges};
+pub use branch_merge::{
+    merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
+};
 pub use changelog_features::*;
 pub use comments::*;
 pub use components::*;
 pub use dev::*;
+pub use diff::*;
 pub use geom::*;
 pub use history::*;
 pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
+pub use layout_constraints::*;
 pub use library::*;
 pub use library_ops::*;
 pub use load_repair::*;
@@ -74,6 +88,7 @@ pub use paint::*;
 pub use prototype::*;
 pub use settings::*;
 pub use spec::*;
+pub use spec_instance::*;
 pub use styles_ops::*;
 pub use text_fills::set_text_fills_everywhere;
 pub use textmodel::*;
@@ -82,6 +97,7 @@ pub use variables_apply::*;
 pub use variables_edit::*;
 pub use vector::{HandleMirror, VectorNetwork};
 pub use vector_fit::{fit_polyline, Anchor};
+pub use writer_command::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -175,6 +191,9 @@ pub struct Document {
     /// Hidden page holding copies of library components; not in `pages`.
     #[serde(default)]
     pub library_page: Option<NodeId>,
+    /// Check designs rule toggles, contrast level, and ignored findings.
+    #[serde(default, skip_serializing_if = "CheckDesignsSettings::is_empty")]
+    pub check_designs: CheckDesignsSettings,
     /// Embedded images keyed by content hash (Figma `imageRef`).
     #[serde(default, with = "serde_images", skip_serializing_if = "BTreeMap::is_empty")]
     pub images: BTreeMap<String, Vec<u8>>,
@@ -692,6 +711,9 @@ impl Document {
         self.nodes.retain(|id, _| reachable.contains(id));
         let removed = before - self.nodes.len();
         if removed > 0 {
+            if !self.check_designs.ignored.is_empty() {
+                self.check_designs.ignored.retain(|k| reachable.contains(&k.node));
+            }
             self.mark_tree_full_dirty();
         }
         removed
@@ -711,6 +733,9 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        // Ignore keys of deleted layers are written as they are and dropped when the file is read
+        // back (`from_json_with_report`): pruning here would clone the whole document, images
+        // included, on every save after an ignored layer was deleted.
         finite_json::to_string_finite(self)
     }
 
@@ -777,6 +802,7 @@ impl Document {
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
         let mut report = doc.validate_and_repair();
         report.non_finite_numbers = non_finite_numbers;
+        doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
         Ok((doc, report))
     }

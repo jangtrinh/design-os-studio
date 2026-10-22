@@ -27,6 +27,18 @@ pub fn num2(v: f32) -> String {
     }
 }
 
+/// Shortest decimal form with at most 2 fractional digits (`12`, `0.5`, `-1.25`),
+/// matching UI / Inspect panel number formatting.
+pub fn fmt_num(v: f32) -> String {
+    let s = format!("{:.2}", v);
+    let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+    if s == "-0" || s.is_empty() {
+        "0".into()
+    } else {
+        s
+    }
+}
+
 pub fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -95,6 +107,9 @@ mod tests {
         assert_eq!(num(0.5), "0.5");
         assert_eq!(num(-0.0001), "0");
         assert_eq!(num(1.23456), "1.235");
+        assert_eq!(fmt_num(-0.001), "0");
+        assert_eq!(fmt_num(12.0), "12");
+        assert_eq!(fmt_num(1.23456), "1.23");
     }
 
     #[test]

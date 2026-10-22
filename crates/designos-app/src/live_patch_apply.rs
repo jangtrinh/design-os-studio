@@ -110,6 +110,7 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
 }
 
 fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool), String> {
+    app.terminal.live_patch.state.leases = app.terminal.leases.clone();
     let saved = app.terminal.live_patch.state.clone();
     let mut tx = Tx::new();
     let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| tx.cmd(doc, cmd));
@@ -126,9 +127,38 @@ fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool)
         e.to_string()
     })?;
     if committed {
+        app.hist.tag_last_undo_step(patch.run_id.clone(), patch.label.clone());
+        if let Some(rid) = patch.run_id.as_deref() {
+            app.terminal.note_run_edit(rid);
+        }
         relayout_touched(&mut app.doc, &report.needs_layout);
     }
+    if report.skipped.iter().any(|s| s.contains("OUTSIDE_OWNED_FRAMES")) {
+        if let Some(rid) = patch.run_id.as_deref() {
+            app.terminal.mark_run_status(rid, "violated");
+            rollback_agent_run(app, rid, &format!("Agent run '{rid}' violated frame ownership"));
+        }
+    }
     Ok((report, committed))
+}
+
+/// Selectively rolls back all undo steps belonging to `run_id` (`History::undo_run`),
+/// releases its frame lease, and updates the canvas and toast (`§3.4`).
+pub fn rollback_agent_run(app: &mut App, run_id: &str, reason: &str) -> usize {
+    let reverted = app.hist.undo_run(&mut app.doc, run_id).unwrap_or(0);
+    app.terminal.finish_run_rollback(run_id, reverted);
+    if reverted > 0 {
+        let pages = app.doc.pages.clone();
+        for p in pages {
+            app.doc.relayout_subtree(p);
+        }
+        app.doc.flush_pending_relayout();
+        app.sanitize();
+        app.changed();
+        publish_live_context(app);
+    }
+    app.show_toast(format!("{reason} (rolled back {reverted} step(s))"), true);
+    reverted
 }
 
 fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
@@ -176,4 +206,55 @@ fn toast_text(r: &LivePatchReport, committed: bool) -> Option<String> {
         1 => "Applied agent edit: 1 new layer".to_string(),
         n => format!("Applied agent edit: {n} new layers"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_doc::live_patch::{Lease, LeasePurpose, LiveOp, LivePatch, SiblingHint};
+    use designos_doc::{Document, Node, Rect};
+
+    #[test]
+    fn failed_run_rolls_back() {
+        let mut doc = Document::new("rd3-app-test");
+        let page_id = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let frame_a = app.doc.alloc_id();
+        let frame_b = app.doc.alloc_id();
+        app.doc.insert(page_id, Node::frame(frame_a, Rect::new(0.0, 0.0, 400.0, 300.0))).unwrap();
+        app.doc.insert(page_id, Node::frame(frame_b, Rect::new(500.0, 0.0, 400.0, 300.0))).unwrap();
+
+        app.terminal.leases.grant(Lease::new("agent-a", vec![frame_a], LeasePurpose::Split)).unwrap();
+        app.terminal.leases.grant(Lease::new("agent-b", vec![frame_b], LeasePurpose::Split)).unwrap();
+        app.terminal.live_patch.state.leases = app.terminal.leases.clone();
+
+        // Agent B writes 5 batches into frame_b; Agent A writes 2 batches into frame_a.
+        let mut patches = Vec::new();
+        for i in 0..2 {
+            let nid = app.doc.alloc_id();
+            let node = Node::rectangle(nid, Rect::new(i as f32 * 10.0, 0.0, 20.0, 20.0));
+            let patch = LivePatch::new(vec![LiveOp::Insert { parent: frame_a, at: SiblingHint::default(), nodes: vec![node] }])
+                .with_run_id(Some("agent-a".to_string()))
+                .with_label(Some(format!("a-batch-{i}")));
+            patches.push(patch);
+        }
+        for i in 0..5 {
+            let nid = app.doc.alloc_id();
+            let node = Node::rectangle(nid, Rect::new(i as f32 * 10.0, 0.0, 20.0, 20.0));
+            let patch = LivePatch::new(vec![LiveOp::Insert { parent: frame_b, at: SiblingHint::default(), nodes: vec![node] }])
+                .with_run_id(Some("agent-b".to_string()))
+                .with_label(Some(format!("b-batch-{i}")));
+            patches.push(patch);
+        }
+
+        apply_live_patches(&mut app, &patches);
+        assert_eq!(app.doc.get(frame_a).unwrap().children.len(), 2);
+        assert_eq!(app.doc.get(frame_b).unwrap().children.len(), 5);
+
+        // Stub agent B exits with status 1 -> rollback_agent_run reverts its 5 batches automatically.
+        let reverted = rollback_agent_run(&mut app, "agent-b", "sub-agent exited with code 1");
+        assert_eq!(reverted, 5);
+        assert_eq!(app.doc.get(frame_b).unwrap().children.len(), 0);
+        assert_eq!(app.doc.get(frame_a).unwrap().children.len(), 2);
+    }
 }

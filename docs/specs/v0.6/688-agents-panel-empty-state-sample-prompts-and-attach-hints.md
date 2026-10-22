@@ -29,10 +29,10 @@ As a designer opening the Agents panel on a file, I want a few prompts that fit 
 
 1. **Contexts**, chosen in this order: `empty_file` (no page of the document has a layer), `frame` (the selection holds at least one Frame, Component, Component set, Instance or Section), `no_selection` (everything else, including a selection of other kinds).
 2. **Up to six prompts** for the chosen context, in file order. Each has a short label and a full text.
-3. **Click** puts the prompt text in the composer and focuses it. It never sends, never touches the canvas, and writes nothing to a PTY. If the composer already holds text, the prompt is appended after a space; the user's text is never replaced.
+3. **Layout and click (`#698` owner ruling 4).** In the empty state, the `#652` new-session picker sits on top and the `#688` sample prompts sit below it. Clicking a sample prompt when a session is already open puts the prompt text in the composer and focuses it; when no session is open yet, clicking a sample prompt opens a new session using the first installed CLI and fills the prompt text into the composer without sending it. It never sends automatically and never touches the canvas. If the composer already holds text, the prompt is appended after a space; the user's text is never replaced.
 4. **Data.** Prompts are a TOML list in `agent_sample_prompts.toml`, compiled in with `include_str!`. The loader rejects: an unknown context, more than six per context, an empty label or text, text over 300 characters, and any text containing `plans/`, `.md` or a path separator-led word. A test loads the shipped file.
 5. **Hint line**, one line under the prompts, built only from features that exist: "Click the selection chip to send what is selected." (when #654 is present) and "Type @ to mention layers." (when #655 is present). With neither, no hint line.
-6. **No agent CLI installed.** When none of Claude, Codex, Grok and Antigravity is installed, the empty state shows #652's install guidance instead of prompts and hint. Until #652 lands it shows one line "No agent CLI found" with the install page of each CLI as links (`agent_start_failure::install_url`).
+6. **No agent CLI installed.** When none of Claude, Codex, Grok and Antigravity is installed, the empty state shows #652's install guidance instead of prompts and hint. Until #652 lands it shows one line "No agent CLI detected. Install one or pick a default agent in Settings" with the install page of each CLI as links (`agent_start_failure::install_url`).
 7. The four category cards and every fixed action row are removed; their real actions (Open PTY, Send selection, Apply spec, Sync canvas) remain reachable from the panel controls they already have (header and dock bar).
 8. The wording of the prompts is the owner's; the starter set below is a proposal.
 
@@ -58,7 +58,7 @@ None.
 
 Described in words; checked against `design/principles.md` P1 to P10 and `design/soul.md`.
 
-- The heading "What's next?" stays (large strong type). Under it, up to six rows, each `CONTROL_ROW` (40 px) high, full width minus `INSET_PANEL`, `RADIUS_CONTROL`, fill `BG_SECONDARY`, `BORDER` hairline; hover `BG_HOVER`. The label is body-medium in `TEXT`; the full text is one caption line in `TEXT_SECONDARY`, elided. Each row is one pointer target of at least `TARGET_MIN`. Rows are `SPACE_ROW` apart. All colours and sizes are `theme.rs` constants, which retires the literals in this block.
+- Above the prompts sits the `#652` new-session picker (`#698` owner ruling 4). Below it, the heading "What's next?" stays (large strong type). Under it, up to six rows, each `CONTROL_ROW` (40 px) high, full width minus `INSET_PANEL`, `RADIUS_CONTROL`, fill `BG_SECONDARY`, `BORDER` hairline; hover `BG_HOVER`. The label is body-medium in `TEXT`; the full text is one caption line in `TEXT_SECONDARY`, elided. Each row is one pointer target of at least `TARGET_MIN`. Rows are `SPACE_ROW` apart. All colours and sizes are `theme.rs` constants, which retires the literals in this block.
 - The hint line is caption type, `TEXT_SECONDARY`, `SPACE_GROUP` below the last row.
 - The no-CLI state is the picker's guidance (#652) or one text line with link buttons of `CONTROL_STANDARD` height.
 - No animation; no timer; the empty state repaints on events only.
@@ -88,7 +88,7 @@ Seams: pure tests for the loader and the context function; the `Sim` harness for
 | `loader_rejects_bad_entries` | unknown context, 7 entries, empty text each rejected | yes |
 | `context_is_chosen_in_order` | empty file, frame, no selection, text selection | yes |
 | `the_three_contexts_show_their_prompts` | recorded rows match the file | yes |
-| `a_click_fills_the_composer_and_changes_nothing_else` | `input_line` equals the text; doc hash equal; stub PTY got 0 bytes | yes (click sends today) |
+| `a_click_fills_the_composer_and_changes_nothing_else` | when no session is open, opens a session with the first installed CLI; `input_line` equals the text; doc hash equal; stub PTY got 0 prompt bytes | yes (click sends today) |
 | `a_click_appends_to_an_existing_draft` | draft kept, prompt after it | yes |
 | `no_cli_installed_shows_install_guidance` | no prompt rows; guidance rows | yes |
 | `hint_names_only_existing_features` | no hint without #654 and #655 | yes |
@@ -106,11 +106,12 @@ After #681 (it removes the template path this empty state used) and preferably a
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19 (`#698`, ruling 4): the `#652` new-session picker sits on top and the `#688` sample prompts sit below in the empty state. Clicking a sample prompt when no session is running opens a session with the first installed CLI and fills the prompt into the composer without sending it.
 - Owner ruling 2026-10-19 (#689, work like Orca ADE): the terminal is the conversation. Sample prompts show only when an agent CLI is detected and the tab has no conversation yet; a click fills the composer and never sends. With no CLI detected the empty state reads "No agent CLI detected. Install one or pick a default agent in Settings" with the #652 install guidance.
-
 - Up to six sample prompts per context; a click fills the composer, focused, and never sends; prompts are data (a TOML list); one hint line about #654 and #655; install guidance when no CLI is installed. (Issue text.)
 
 ## Open questions for the owner (recommended first)
 
-1. Where the empty state and composer live. They appear only in chat mode today; the default panel is the terminal view. Recommended: keep them in chat mode for this task and decide the panel mode in #689.
-2. The wording of the sample prompts. Recommended: the starter set above, edited by the owner in the TOML file.
+All open questions closed 2026-10-19 (`#698`, ruling 4):
+1. Empty-state layout and click behavior: `#652` new-session picker on top, `#688` sample prompts below; clicking when no session is open starts a session with the first installed CLI and fills the composer without sending.
+2. Wording of the sample prompts: starter set above in `agent_sample_prompts.toml`.

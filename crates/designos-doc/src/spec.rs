@@ -46,11 +46,26 @@ pub struct LayoutSpec {
 pub struct NodeSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
-    /// `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`.
+    /// `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`, `"instance"`.
     #[serde(default)]
     pub kind: String,
     #[serde(default)]
     pub name: String,
+    /// Component reference for `"instance"` nodes (`"node:<id>"`, component key, or component/library name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    /// Variant property selection `{property: value}` for `"instance"` nodes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub variant: BTreeMap<String, String>,
+    /// Component property overrides `{prop_name: value}` on an `"instance"` root.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, serde_json::Value>,
+    /// Ordered descendant overrides applied inside an `"instance"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overrides: Vec<OverrideSpec>,
+    /// Slot fills or disable flags `{slot_name: [NodeSpec...] | false}` on an `"instance"` root (E15-2).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, SlotFillSpec>,
     /// Optional EaseUI BrainWave 2.0 preset:
     /// `"easeui-screen"`, `"easeui-panel"`, `"easeui-card"`, `"easeui-button-primary"`,
     /// `"easeui-button-secondary"`, `"easeui-input"`, `"easeui-badge"`, `"easeui-row"`, `"easeui-column"`.
@@ -123,6 +138,63 @@ pub struct NodeSpec {
     pub children: Vec<NodeSpec>,
 }
 
+/// Literal `false` used by [`SlotFillSpec::Disabled`] (`slots: {"Actions": false}`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FalseLiteral;
+
+impl Serialize for FalseLiteral {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(false)
+    }
+}
+
+impl<'de> Deserialize<'de> for FalseLiteral {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        if !b {
+            Ok(FalseLiteral)
+        } else {
+            Err(serde::de::Error::custom("INVALID_SLOT_VALUE: slot value must be false or [NodeSpec...]"))
+        }
+    }
+}
+
+/// Slot fill or disable specification in `NodeSpec::slots` / `OverrideSpec::slots` (E15-2).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SlotFillSpec {
+    Disabled(FalseLiteral),
+    Fill(Vec<NodeSpec>),
+}
+
+/// Descendant override specification inside a `NodeSpec` of `kind: "instance"`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverrideSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub variant: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, SlotFillSpec>,
+}
+
 /// A canvas comment thread enriched with its resolved world position and the
 /// exact target node and top-level screen/frame under the pin.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -169,7 +241,7 @@ pub fn resolve_easeui_color(spec: &str) -> Option<Color> {
     }
 }
 
-fn parse_sizing(s: &str) -> Sizing {
+pub(crate) fn parse_sizing(s: &str) -> Sizing {
     match s.trim().to_ascii_lowercase().as_str() {
         "hug" | "auto" => Sizing::Hug,
         "fill" | "stretch" | "100%" => Sizing::Fill,
@@ -177,7 +249,7 @@ fn parse_sizing(s: &str) -> Sizing {
     }
 }
 
-fn parse_align(s: &str) -> LayoutAlign {
+pub(crate) fn parse_align(s: &str) -> LayoutAlign {
     match s.trim().to_ascii_lowercase().as_str() {
         "center" | "middle" => LayoutAlign::Center,
         "end" | "right" | "bottom" => LayoutAlign::End,
@@ -189,7 +261,7 @@ fn parse_align(s: &str) -> LayoutAlign {
     }
 }
 
-fn parse_direction(s: &str) -> LayoutDirection {
+pub(crate) fn parse_direction(s: &str) -> LayoutDirection {
     match s.trim().to_ascii_lowercase().as_str() {
         "column" | "col" | "vertical" | "v" => LayoutDirection::Vertical,
         "grid" | "g" => LayoutDirection::Grid,
@@ -358,24 +430,20 @@ impl Document {
     /// Materializes a declarative [`NodeSpec`] subtree under `parent` and runs
     /// Auto-Layout 5.0 reflow across the created hierarchy.
     pub fn apply_spec(&mut self, parent: NodeId, spec: &NodeSpec) -> Result<NodeId, String> {
-        let pnode = self.get(parent).ok_or_else(|| format!("Parent node {} not found", parent.0))?;
-        if !pnode.kind.is_container() {
-            return Err(format!("Parent node {} is not a container", parent.0));
-        }
-        let root_id = self.build_spec_node(parent, spec)?;
-        // Run Auto-Layout 5.0 reflow from parent (if parent has auto-layout) or root_id
-        let relayout_root = if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
-        self.relayout_subtree(relayout_root);
-        Ok(root_id)
+        self.apply_spec_with_libraries(parent, spec, &[]).map(|r| r.root_node_id).map_err(|e| e.to_string())
     }
 
-    fn build_spec_node(&mut self, parent: NodeId, spec: &NodeSpec) -> Result<NodeId, String> {
-        let id = self.try_alloc_id().ok_or("Document has exhausted node IDs")?;
-        let w = spec.width.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 120.0 } else { 200.0 });
-        let h = spec.height.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 24.0 } else { 100.0 });
-        let rect = Rect::new(spec.x, spec.y, w.max(0.0), h.max(0.0));
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn build_spec_node_with_ctx(
+        &mut self,
+        parent: NodeId,
+        spec: &NodeSpec,
+        ctx: &mut crate::spec_instance::SpecBuildCtx<'_>,
+    ) -> Result<NodeId, crate::spec_instance::SpecError> {
         let kind_str = if spec.kind.is_empty() {
-            if spec.preset.is_some() || spec.layout.is_some() || !spec.children.is_empty() {
+            if spec.component.is_some() {
+                "instance"
+            } else if spec.preset.is_some() || spec.layout.is_some() || !spec.children.is_empty() {
                 "frame"
             } else if spec.text.is_some() {
                 "text"
@@ -385,6 +453,18 @@ impl Document {
         } else {
             spec.kind.as_str()
         };
+
+        if kind_str.eq_ignore_ascii_case("instance") {
+            return self.build_instance_spec_node(parent, spec, ctx);
+        }
+        if !spec.slots.is_empty() {
+            return Err(crate::spec_instance::SpecError::plain("slots can only be set on instance nodes"));
+        }
+
+        let id = self.try_alloc_id().ok_or_else(|| crate::spec_instance::SpecError::plain("Document has exhausted node IDs"))?;
+        let w = spec.width.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 120.0 } else { 200.0 });
+        let h = spec.height.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 24.0 } else { 100.0 });
+        let rect = Rect::new(spec.x, spec.y, w.max(0.0), h.max(0.0));
 
         let mut node = match kind_str.to_ascii_lowercase().as_str() {
             "frame" => Node::frame(id, rect),
@@ -410,7 +490,7 @@ impl Document {
                 style.fills = vec![Paint::solid(col)];
                 Node::text(id, rect, spec.text.clone().unwrap_or_default(), style)
             }
-            other => return Err(format!("Unsupported spec node kind: {other}")),
+            other => return Err(crate::spec_instance::SpecError::plain(format!("Unsupported spec node kind: {other}"))),
         };
 
         if let Some(preset) = &spec.preset {
@@ -581,13 +661,13 @@ impl Document {
             }
         }
 
-        self.insert(parent, node).map_err(|e| e.to_string())?;
+        self.insert(parent, node).map_err(|e| crate::spec_instance::SpecError::plain(e.to_string()))?;
 
         // Convenience: if a frame/preset (like easeui-button-primary or easeui-badge) specifies `text`,
         // automatically insert a child Text node inside it!
         if !matches!(kind_str.to_ascii_lowercase().as_str(), "text") {
             if let Some(label) = &spec.text {
-                let tid = self.try_alloc_id().ok_or("Document has exhausted node IDs")?;
+                let tid = self.try_alloc_id().ok_or_else(|| crate::spec_instance::SpecError::plain("Document has exhausted node IDs"))?;
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.unwrap_or(13.0);
                 style.font_weight = spec.font_weight.unwrap_or(500);
@@ -598,12 +678,12 @@ impl Document {
                 if let NodeKind::Text(tp) = &tnode.kind {
                     tnode.size = estimate_intrinsic_text_size(tp);
                 }
-                self.insert(id, tnode).map_err(|e| e.to_string())?;
+                self.insert(id, tnode).map_err(|e| crate::spec_instance::SpecError::plain(e.to_string()))?;
             }
         }
 
         for child_spec in &spec.children {
-            self.build_spec_node(id, child_spec)?;
+            self.build_spec_node_with_ctx(id, child_spec, ctx)?;
         }
 
         Ok(id)
@@ -616,8 +696,11 @@ impl Document {
         self.export_spec_inner(root, &all_comments)
     }
 
-    fn export_spec_inner(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
+    pub(crate) fn export_spec_inner(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
         let n = self.get(id).ok_or_else(|| format!("Node {} not found", id.0))?;
+        if matches!(n.kind, NodeKind::Instance { .. }) {
+            return self.export_instance_spec_node(id, all_comments);
+        }
         let fill = n.fills.first().and_then(|p| match &p.kind {
             PaintKind::Solid(c) => Some(format!("#{}", c.to_hex())),
             _ => None,
@@ -673,6 +756,11 @@ impl Document {
             id: Some(id.0),
             kind: n.kind.default_name().to_ascii_lowercase(),
             name: n.name.clone(),
+            component: None,
+            variant: BTreeMap::new(),
+            props: BTreeMap::new(),
+            overrides: Vec::new(),
+            slots: BTreeMap::new(),
             preset: None,
             x: n.transform.tx,
             y: n.transform.ty,
@@ -770,7 +858,7 @@ impl Document {
     }
 }
 
-fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
+pub(crate) fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
     let lines: Vec<&str> = tp.content.split('\n').collect();
     let fs = tp.style.font_size.max(8.0);
     let weight_boost = if tp.style.font_weight >= 600 { 1.05 } else { 1.0 };

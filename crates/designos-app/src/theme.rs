@@ -752,6 +752,42 @@ pub const BOARD_BAR_BTN: f32 = 28.0;
 pub const BOARD_SWATCH: f32 = 18.0;
 pub const BOARD_BAR_SEP: f32 = 8.0;
 
+// ---------------------------------------------------------------- RD-3 parallel agent frame ownership (§7)
+// 6-colour non-purple agent owner palette (P2 Purple Ban).
+pub const OWNER_BLUE: Color32 = Color32::from_rgb(0x3B, 0x82, 0xF6);
+pub const OWNER_EMERALD: Color32 = Color32::from_rgb(0x10, 0xB9, 0x81);
+pub const OWNER_AMBER: Color32 = Color32::from_rgb(0xF5, 0x9E, 0x0B);
+pub const OWNER_ROSE: Color32 = Color32::from_rgb(0xEC, 0x48, 0x99);
+pub const OWNER_CYAN: Color32 = Color32::from_rgb(0x06, 0xB6, 0xD4);
+pub const OWNER_LIME: Color32 = Color32::from_rgb(0x84, 0xCC, 0x16);
+
+pub const OWNER_PALETTE: [Color32; 6] = [OWNER_BLUE, OWNER_EMERALD, OWNER_AMBER, OWNER_ROSE, OWNER_CYAN, OWNER_LIME];
+
+/// Deterministic non-purple accent color for a sub-agent slot or `run_id` (`§7`).
+pub fn owner_color_for_run(run_id: &str) -> Color32 {
+    let idx = run_id
+        .strip_prefix("agent-")
+        .and_then(|s| s.parse::<usize>().ok())
+        .and_then(|n| n.checked_sub(1))
+        .unwrap_or_else(|| run_id.bytes().fold(0usize, |acc, b| acc.wrapping_mul(31).wrapping_add(b as usize)));
+    OWNER_PALETTE[idx % OWNER_PALETTE.len()]
+}
+
+pub const OWNER_PILL_GAP: f32 = 6.0;
+pub const OWNER_PILL_HEIGHT: f32 = 16.0;
+pub const OWNER_PILL_EXTRA_W: f32 = 22.0;
+pub const OWNER_PILL_DOT_OFFSET_X: f32 = 7.0;
+pub const OWNER_PILL_DOT_RADIUS: f32 = 2.5;
+pub const OWNER_PILL_TEXT_LEFT: f32 = 13.0;
+pub const OWNER_PILL_RADIUS: u8 = RADIUS_SEGMENT;
+
+pub const AGENT_RUN_ROW_H: f32 = CONTROL_STANDARD;
+pub const AGENT_RUN_TARGET_SIZE: f32 = TARGET_MIN;
+pub const AGENT_RUN_DOT_RADIUS: f32 = 3.0;
+pub const AGENT_RUN_UNDO_W: f32 = 48.0;
+pub const AGENT_RUN_BTN_INSET_Y: f32 = 2.0;
+pub const HISTORY_RUN_TEXT_RIGHT_PAD: f32 = 64.0;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -291,6 +291,7 @@ pub fn place_svg(app: &mut App, svg: &str, name: &str, center: Vec2, parent: Nod
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     let mut tx = Tx::new();
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: out.nodes }).map_err(|e| e.to_string())?;
+    App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, root);
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);

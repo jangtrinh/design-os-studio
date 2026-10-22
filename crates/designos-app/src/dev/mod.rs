@@ -14,49 +14,8 @@ use crate::app::App;
 use crate::home::dialog::{Dialog, Intent};
 use designos_doc::*;
 
-/// Code languages of the Inspect panel.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Language {
-    #[default]
-    Css,
-    Tailwind,
-    SwiftUi,
-    UiKit,
-    Compose,
-    AndroidXml,
-    React,
-}
-
-impl Language {
-    /// Dropdown order: Figma's groups (CSS, iOS: SwiftUI + UIKit, Android: Compose + XML), then the web frameworks.
-    pub const ALL: [Language; 7] =
-        [Language::Css, Language::Tailwind, Language::SwiftUi, Language::UiKit, Language::Compose, Language::AndroidXml, Language::React];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Css => "CSS",
-            Self::Tailwind => "Tailwind",
-            Self::SwiftUi => "SwiftUI",
-            Self::UiKit => "UIKit",
-            Self::Compose => "Compose",
-            Self::AndroidXml => "Android XML",
-            Self::React => "React",
-        }
-    }
-
-    /// Code for `node`. `react_tailwind` switches React from inline styles to Tailwind classes.
-    pub fn generate(self, doc: &Document, node: NodeId, react_tailwind: bool) -> String {
-        match self {
-            Self::Css => designos_export::css_for(doc, node),
-            Self::Tailwind => designos_export::tailwind_for(doc, node),
-            Self::SwiftUi => designos_export::swiftui_for(doc, node),
-            Self::UiKit => designos_export::uikit_for(doc, node),
-            Self::Compose => designos_export::compose_for(doc, node),
-            Self::AndroidXml => designos_export::android_xml_for(doc, node),
-            Self::React => designos_export::react_with(doc, node, &designos_export::ReactOptions { tailwind: react_tailwind }),
-        }
-    }
-}
+/// Code languages of the Inspect panel (re-exported from `designos-export`).
+pub use designos_export::CodeLanguage as Language;
 
 /// Which list the Dev mode left panel shows under the pages.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

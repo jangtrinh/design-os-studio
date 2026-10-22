@@ -377,23 +377,35 @@ fn kind_label(k: &PropKind) -> &'static str {
 
 fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
     let owner = if matches!(app.doc.get(id).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))) { id } else { app.prop_owner(id) };
-    let defs = app.doc.get(owner).map(|n| n.component.props.clone()).unwrap_or_default();
+    let mut defs: Vec<(NodeId, ComponentPropDef)> =
+        app.doc.get(owner).map(|n| n.component.props.iter().cloned().map(|d| (owner, d)).collect()).unwrap_or_default();
+    if owner != id {
+        if let Some(vn) = app.doc.get(id) {
+            for d in &vn.component.props {
+                if let Some(pos) = defs.iter().position(|(_, existing)| existing.name == d.name) {
+                    defs[pos] = (id, d.clone());
+                } else {
+                    defs.push((id, d.clone()));
+                }
+            }
+        }
+    }
     let plus = pane.rect(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, "prop-add", plus);
     if title(ui, pane, "Properties", Some(Icon::Plus), defs.is_empty()) {
         app.ui.prop_menu = if app.ui.prop_menu.is_some() { None } else { Some(plus) };
     }
-    for def in &defs {
+    for (def_owner, def) in &defs {
         let name_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W - 28.0, theme::FIELD_HEIGHT);
         widgets::record(ui, &format!("propdef:{}", def.name), name_r);
         if let Some(new) = field::text_input(ui, name_r, ("propdef", &def.name), &def.name) {
-            app.rename_prop_def(owner, &def.name, &new);
+            app.rename_prop_def(*def_owner, &def.name, &new);
         }
         if !matches!(def.kind, PropKind::Variant { .. }) {
             let minus = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
             widgets::record(ui, &format!("propdel:{}", def.name), minus);
             if widgets::icon_button(ui, minus, ("propdel", &def.name), Icon::Minus, false, "Delete property").clicked() {
-                app.delete_prop_def(owner, &def.name);
+                app.delete_prop_def(*def_owner, &def.name);
             }
         }
         row_end(pane);
@@ -404,33 +416,33 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         match (&def.kind, &def.default) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
                 if let Some(v) = toggle(ui, ctl, &key, *b) {
-                    app.set_prop_default(owner, &def.name, PropValue::Bool(v));
+                    app.set_prop_default(*def_owner, &def.name, PropValue::Bool(v));
                 }
             }
             (PropKind::Text, PropValue::Text(s)) => {
                 if let Some(v) = field::text_input(ui, ctl, &key, s) {
-                    app.set_prop_default(owner, &def.name, PropValue::Text(v));
+                    app.set_prop_default(*def_owner, &def.name, PropValue::Text(v));
                 }
             }
             (PropKind::Variant { options }, PropValue::Variant(cur)) => {
                 if let Some(i) = dropdown(ui, ctl, &key, cur, options) {
-                    app.set_prop_default(owner, &def.name, PropValue::Variant(options[i].clone()));
+                    app.set_prop_default(*def_owner, &def.name, PropValue::Variant(options[i].clone()));
                 }
             }
             (PropKind::InstanceSwap { .. }, PropValue::Instance(c)) => {
                 let cur_label = comp_label(&app.doc, *c);
                 if is_dropdown_open(ui, &key) {
-                    let comps: Vec<NodeId> = all_components_cached(app).into_iter().filter(|x| *x != owner).collect();
+                    let comps: Vec<NodeId> = all_components_cached(app).into_iter().filter(|x| *x != *def_owner && *x != owner).collect();
                     let names: Vec<String> = comps.iter().map(|x| comp_label(&app.doc, *x)).collect();
                     if let Some(i) = dropdown(ui, ctl, &key, &cur_label, &names) {
-                        app.set_prop_default(owner, &def.name, PropValue::Instance(comps[i]));
+                        app.set_prop_default(*def_owner, &def.name, PropValue::Instance(comps[i]));
                     }
                 } else {
                     let _ = dropdown(ui, ctl, &key, &cur_label, &[]);
                 }
             }
             (PropKind::Slot, _) => {
-                let cfg = app.doc.get(owner).and_then(|n| n.component.slot_configs.get(&def.name)).cloned().unwrap_or_default();
+                let cfg = app.doc.get(*def_owner).and_then(|n| n.component.slot_configs.get(&def.name)).cloned().unwrap_or_default();
                 let summary = match (cfg.min_children, cfg.max_children) {
                     (Some(min), Some(max)) => format!("{min}–{max} items"),
                     (Some(min), None) => format!("≥ {min} items"),
@@ -443,7 +455,7 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         }
         row_end(pane);
         if matches!(def.kind, PropKind::Slot) {
-            slot_settings_rows(app, ui, pane, owner, &def.name);
+            slot_settings_rows(app, ui, pane, *def_owner, &def.name);
         }
         pane.y += 4.0;
     }
@@ -602,7 +614,6 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         return;
     }
     let Some(n) = app.doc.get(id).cloned() else { return };
-    let owner = app.prop_owner(comp);
     let defs = prop_defs(&app.doc, comp);
     let is_frame = matches!(n.kind, NodeKind::Frame { .. });
     let bound_slot = n.component.bindings.get(&OverrideField::SlotContent).cloned();
@@ -672,8 +683,9 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
 
     if is_frame && is_slot {
         let prop_name = bound_slot.or_else(|| defs.iter().find(|d| matches!(d.kind, PropKind::Slot)).map(|d| d.name.clone())).unwrap_or_else(|| n.name.clone());
+        let slot_owner = app.prop_def_owner(comp, &prop_name);
         title(ui, pane, "Slot settings", None, false);
-        slot_settings_rows(app, ui, pane, owner, &prop_name);
+        slot_settings_rows(app, ui, pane, slot_owner, &prop_name);
         pane.y += theme::SPACE_ROW;
         section_sep(ui, pane, false);
     }

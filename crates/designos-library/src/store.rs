@@ -55,6 +55,9 @@ pub struct FileEntry {
     /// PNG thumbnail, relative to the library root (resolve with [`Library::thumbnail_path`]).
     #[serde(default)]
     pub thumbnail: Option<PathBuf>,
+    /// Branches belonging to this file (`branches/<file-id>/<branch-id>.designos`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branches: Vec<crate::BranchMeta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,11 +81,11 @@ pub struct TrashItem {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Manifest {
+pub(crate) struct Manifest {
     #[serde(flatten)]
-    project: Project,
+    pub(crate) project: Project,
     #[serde(default)]
-    files: Vec<FileEntry>,
+    pub(crate) files: Vec<FileEntry>,
 }
 
 /// Milliseconds since the epoch, strictly increasing within the process so
@@ -104,7 +107,7 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialises manifest read-modify-write cycles within the process (the app saves
 /// thumbnails on a background thread while the UI thread keeps editing the index).
-fn write_lock() -> MutexGuard<'static, ()> {
+pub(crate) fn write_lock() -> MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -479,13 +482,13 @@ impl Library {
         Ok(serde_json::from_str(&text)?)
     }
 
-    fn save_manifest(&self, m: &Manifest) -> Result<()> {
+    pub(crate) fn save_manifest(&self, m: &Manifest) -> Result<()> {
         let p = self.project_dir(&m.project.id).join(MANIFEST);
         write_atomic(&p, serde_json::to_string_pretty(m)?.as_bytes())
     }
 
     /// Finds the manifest holding `file` and the file's index in it.
-    fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
+    pub(crate) fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
         for p in self.list_projects() {
             if let Ok(m) = self.load_manifest(&p.id) {
                 if let Some(i) = m.files.iter().position(|f| f.id == file) {
@@ -646,6 +649,7 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
         };
         let (json, replaced) = doc.to_json_counted()?;
         let file_path = self.file_path(project, &entry.id);
@@ -763,6 +767,7 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
             ..src.clone()
         };
         std::fs::copy(self.file_path(&src.project, &src.id), self.file_path(&src.project, &new.id))?;
@@ -917,6 +922,11 @@ impl Library {
         if let Some(t) = &entry.thumbnail {
             let _ = std::fs::rename(self.path(t), dir.join("thumb.png"));
         }
+        let branches_dir = self.path("branches").join(id);
+        if branches_dir.exists() {
+            let _ = std::fs::remove_dir_all(dir.join("branches"));
+            let _ = std::fs::rename(branches_dir, dir.join("branches"));
+        }
         m.files.remove(i);
         m.project.modified = now_ms();
         self.save_manifest(&m)
@@ -959,6 +969,13 @@ impl Library {
             if std::fs::rename(dir.join("thumb.png"), self.path(&rel)).is_ok() {
                 entry.thumbnail = Some(rel);
             }
+        }
+        if dir.join("branches").exists() {
+            let branches_root = self.path("branches");
+            std::fs::create_dir_all(&branches_root)?;
+            let dst_branches = branches_root.join(id);
+            let _ = std::fs::remove_dir_all(&dst_branches);
+            std::fs::rename(dir.join("branches"), dst_branches)?;
         }
         m.files.push(entry.clone());
         m.project.modified = now_ms();

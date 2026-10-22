@@ -7,17 +7,22 @@
 //! them on its full document. Layout passes the agent runs on its partial copy are not commands,
 //! so they never reach the editor; the editor lays out the touched containers itself.
 
+pub mod lease;
 mod record;
 mod replay;
 mod replay_comments;
 mod validate;
 
-pub use record::live_ops_for_command;
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
+pub use lease::{
+    is_root_frame, is_within_frames, root_frame_of, stamp_command_authorship, AffectedSet, Lease, LeasePurpose, LeaseTable, LeaseViolation, PLUGIN_DATA_RUN_KEY,
+};
+pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
+pub use replay::{replay_live_patch, replay_live_patch_with_leases, LivePatchReport, LivePatchState};
 
-use crate::{Comment, CommentAnchor, CommentThread, Node, NodeId};
+use crate::{Comment, CommentAnchor, CommentThread, ExternalAsset, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 /// Format version written in every [`LivePatch`].
 pub const LIVE_PATCH_VERSION: u32 = 1;
@@ -31,16 +36,32 @@ pub struct LivePatch {
     /// base: after the agent reloads a newer canvas it sees the editor's own ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<u64>,
+    /// Optional undo-group label shown in Studio's History panel (e.g. `Agent: <run>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Identifier of the agent run (`$DESIGNOS_AGENT_RUN_ID`) that produced this patch (`RD-3` / `#572`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, run_id: None, ops }
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {
         self.base = base;
+        self
+    }
+
+    pub fn with_label(mut self, label: Option<String>) -> Self {
+        self.label = label;
+        self
+    }
+
+    pub fn with_run_id(mut self, run_id: Option<String>) -> Self {
+        self.run_id = run_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         self
     }
 }
@@ -168,6 +189,50 @@ pub enum LiveOp {
         changed: Vec<ThreadChange>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed: Vec<String>,
+    },
+    /// Shared styles added, updated or removed.
+    Styles {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted: BTreeMap<String, Style>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted_meta: BTreeMap<String, StyleMeta>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_meta: Vec<String>,
+    },
+    /// Variables and variable collections added, updated or removed.
+    Variables {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted_collections: BTreeMap<String, VariableCollection>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_collections: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted_variables: BTreeMap<String, Variable>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_variables: Vec<String>,
+    },
+    /// Library state and hidden library page changes.
+    LibraryState {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        published: Option<Option<PublishInfo>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        upserted_enabled: Vec<LibraryRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_enabled: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted_external: BTreeMap<String, ExternalAsset>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_external: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        library_page: Option<Option<NodeId>>,
+    },
+    /// Embedded image blobs added or removed.
+    Images {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        add: BTreeMap<String, Vec<u8>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remove: Vec<String>,
     },
 }
 

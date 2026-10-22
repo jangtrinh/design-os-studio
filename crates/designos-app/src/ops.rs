@@ -432,6 +432,23 @@ impl App {
         }
     }
 
+    /// Stretches `child` to fill `slot` when `slot` is a slot container whose `SlotPropConfig`
+    /// has `stretch_child_on_insert == Some(true)`, writing the change through `ed` so it joins
+    /// the caller's undo step. Does nothing unless the slot's config says stretch.
+    pub(crate) fn stretch_into_slot_if_configured(doc: &mut Document, ed: &mut Edit, slot: NodeId, child: NodeId) {
+        if !is_slot_container(doc, slot) {
+            return;
+        }
+        if slot_config_of(doc, slot).and_then(|cfg| cfg.stretch_child_on_insert) != Some(true) {
+            return;
+        }
+        let Some(mut cloned) = doc.get(child).cloned() else { return };
+        apply_slot_stretch_on_insert(doc, slot, &mut cloned);
+        if let Some(n) = ed.node(doc, child) {
+            *n = cloned;
+        }
+    }
+
     /// Existing layers `ids` are about to be parented under `to`: refuses (with a toast) when that
     /// breaks the max, preferred-only or min limits of a slot they enter or leave. Layers that
     /// already sit in `to` only reorder and are not counted.
@@ -1486,13 +1503,8 @@ impl App {
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 n.transform = npw * world;
             }
-            if old_p != Some(new_parent) && is_slot_container(&self.doc, new_parent) {
-                if let Some(mut cloned) = self.doc.get(*id).cloned() {
-                    apply_slot_stretch_on_insert(&self.doc, new_parent, &mut cloned);
-                    if let Some(n) = tx.ed.node(&mut self.doc, *id) {
-                        *n = cloned;
-                    }
-                }
+            if old_p != Some(new_parent) {
+                Self::stretch_into_slot_if_configured(&mut self.doc, &mut tx.ed, new_parent, *id);
             }
         }
         for p in old_parents {
@@ -1807,6 +1819,13 @@ impl App {
     pub fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
         crate::decks::ui::flush_notes(self);
         self.stop_plugin();
+        if !self.tabs.parked_in_home && self.home.is_none() && self.tabs.is_hist_in_app() {
+            self.cleanup_image_jobs_on_file_close();
+        } else if self.tabs.is_hist_in_app() && (!self.tabs.entries.is_empty() || !self.image_jobs.jobs.is_empty()) {
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.park_active_from_app(self);
+            self.tabs = tabs;
+        }
         // Pending edits of the library file being left are saved first (from the live state, not an old version).
         self.exit_version_view();
         self.flush_autosave();

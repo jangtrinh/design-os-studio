@@ -159,24 +159,12 @@ After #654 for the shared layer-reference wording; library components wait for T
 - The selection is never auto-injected; mentions are explicit. Related decided ruling, unchanged: MCP tools default to the editor selection when attached, configurable per user and session
   (owner decision 4 in `plans/261017-epics-full-scope/owner-decisions-and-cross-check.md`); a mention names a thing explicitly and works whatever that default is.
 - Skip-permissions stays the default.
+- Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
+  1. Which input gets the picker: **Option A** — the composer gets the `@` popup, and the terminal header gets a "Mention" button that opens the same popup and pastes the reference text into the agent tab (no Enter).
+  2. Library components: **Option A** — leave them out until T7.9 / T7.38 land in this pack, then add them as a sixth kind.
+  3. Inserted text format: **Option A** — short `@Hero/Title` label in the text, with the reference in a `References:` footer block.
+  4. Overlap with CLI `@file` mentions: **Option A** — keep `@` for Studio's picker only in the places Studio owns (composer, Mention button) and paste plain text into the CLI.
 
 ## Open questions for the owner
 
-1. **Which input gets the picker.** The default panel is the live terminal, where the user types into the agent's own screen;
-   the composer exists only in chat mode.
-   - A (recommended): both. The chat-mode composer gets the `@` popup, and the terminal view gets a "Mention" button in the panel header
-     that opens the same popup and pastes the reference text into the agent tab (no Enter). This covers the default surface without
-     reading keystrokes inside another program.
-   - B: chat-mode composer only. Smallest, but the default surface has no mentions.
-   - C: intercept `@` typed in the terminal view. It reads the user's keystrokes to guess when a prompt starts and breaks when a CLI changes
-     its prompt; not recommended.
-2. **Library components.** Components from enabled libraries are not nodes of the file.
-   - A (recommended): leave them out until T7.9 / T7.38 land in this pack, then add them as a sixth kind.
-   - B: offer them now by name only, with no way for the agent to resolve them.
-3. **What the inserted text looks like in the prompt.**
-   - A (recommended): the short `@Hero/Title` label in the text, with the reference in a footer block, so the sentence reads normally.
-   - B: the full reference inline, `designos:node/4521`, which is exact but noisy to read and edit.
-4. **Overlap with the CLIs' own `@file` mentions.** Claude Code and others treat `@` as a file mention in their own input.
-   - A (recommended): keep `@` for Studio's picker only in the places Studio owns (composer, Mention button) and paste plain text into the
-     CLI, so the CLI's own completion is untouched.
-   - B: use a different trigger character for Studio's picker (for example `#`) to avoid any confusion.
+None. All four questions of the first draft were answered by the owner on 2026-10-19 and are reflected in §3 and §13 above.

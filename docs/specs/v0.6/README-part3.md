@@ -70,11 +70,10 @@ graph LR
 
 - FU-578, FU-583, FU-605, FU-639, FU-645, FU-663, FU-669, FU-673 and SF-570 (its mechanism part) need no other part-3 or part-1 task.
 - SF-570 finishes only when the coordinator hands over the step list and the 2.21 key shapes (its last section lists exactly what is missing). E15-7's scene-format test is gated on it, the rest of E15-7 is not.
-- Owner rulings of 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`, round 2) are applied as behaviour rules in FU-644, FU-645, FU-663, AX-651 and AX-652, and their questions are gone.
-  AX-653, AX-654, AX-655, AX-656, AX-677, AX-678 and AX-679 still carry **Open questions for the owner** (collected in the PR body and in `plans/reports/release-060-evidence/specs-part3-report.md`); the owner is
-  answering them one spec at a time, and a task becomes Ready only after its questions are answered. Behaviour tagged "pending Qn" in AX-656 is not built and not covered by a required test until then.
+- Owner rulings of 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md` and `#698`) are applied as behaviour rules in FU-644, FU-645, FU-663, AX-651, AX-652, AX-653, AX-654, AX-655 and AX-656, and their questions are closed.
+  AX-677, AX-678 and AX-679 still carry **Open questions for the owner** (collected in `#698` and in `plans/reports/release-060-evidence/specs-part3-report.md`); a task becomes Ready only after its questions are answered.
 - Live checks that gate a task before it becomes Ready (not decided here, only recorded): Codex `resume --last` and agy `--continue` working-directory scoping (AX-653); the Codex signed-out output of
-  `codex login status` (AX-652); Claude honouring a `permissions.allow` rule from a `--settings` file (AX-656, pending Q3); Gemini's `mcp add` argument parsing and project-settings path (AX-679).
+  `codex login status` (AX-652); Claude honouring a `permissions.allow` rule from a `--settings` file (AX-656, Q3 Option A); Gemini's `mcp add` argument parsing and project-settings path (AX-679).
 - The recorded rulings that every agent UX spec respects: clicking Agent resumes the last session; skip-permissions stays the default and ask mode is optional (#656); the
   selection is a live chip sent only on click, never auto-injected (#654); Codex tabs keep the heuristic status for now and it is revisited with #656; `GROK_FOLDER_TRUST=0` stays.
 

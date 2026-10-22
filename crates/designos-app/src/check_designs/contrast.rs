@@ -30,7 +30,7 @@ mod subtree;
 use super::{Finding, Fix, Rule};
 use backdrop::{backdrop, blends_as_group, Backdrop};
 pub(super) use behind::{has_layer_behind, Behind};
-use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind};
+use designos_doc::{resolved_node, BlendMode, Color, ContrastLevel, Document, Node, NodeId, NodeKind, Paint, PaintKind};
 pub(in crate::check_designs) use subtree::SubtreeBounds;
 
 fn linear(v: f32) -> f64 {
@@ -53,12 +53,16 @@ pub fn contrast_ratio(a: Color, b: Color) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-/// AA ratio for text: 3:1 for large text (24 px, or 18.66 px and bold from weight 700), else 4.5:1.
-pub fn required_ratio(font_size: f32, weight: u16) -> f64 {
-    if font_size >= 24.0 || (font_size >= 18.66 && weight >= 700) {
-        3.0
-    } else {
-        4.5
+/// Required WCAG contrast ratio for text at `level`:
+/// - `AA`: 3:1 for large text (24 px, or 18.66 px and bold from weight 700), else 4.5:1.
+/// - `AAA`: 4.5:1 for large text, else 7:1.
+pub fn required_ratio(font_size: f32, weight: u16, level: ContrastLevel) -> f64 {
+    let large = font_size >= 24.0 || (font_size >= 18.66 && weight >= 700);
+    match (level, large) {
+        (ContrastLevel::AA, true) => 3.0,
+        (ContrastLevel::AA, false) => 4.5,
+        (ContrastLevel::AAA, true) => 4.5,
+        (ContrastLevel::AAA, false) => 7.0,
     }
 }
 
@@ -77,7 +81,7 @@ fn text_paint(n: &Node) -> Option<(usize, Color)> {
     }
 }
 
-/// Everything the rule needs about a text layer that currently fails AA.
+/// Everything the rule needs about a text layer that currently fails the active contrast level.
 struct Failure {
     paint: usize,
     color: Color,
@@ -123,7 +127,7 @@ fn failure(doc: &Document, id: NodeId, bounds: &SubtreeBounds) -> Option<Failure
     }
     let bg = backdrop.pixel(None);
     let ratio = contrast_ratio(backdrop.pixel(Some((color, alpha))), bg);
-    let required = required_ratio(t.style.font_size, t.style.font_weight);
+    let required = required_ratio(t.style.font_size, t.style.font_weight, doc.check_designs.contrast_level);
     (ratio < required).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
 }
 
@@ -143,7 +147,7 @@ fn suggest(f: &Failure) -> Option<Color> {
 }
 
 /// Paint index and replacement colour for `id` as it is right now, or `None` when it passes, is
-/// not checkable, or no recolouring can reach AA. Fixes use this rather than a stored suggestion.
+/// not checkable, or no recolouring can reach the required level. Fixes use this rather than a stored suggestion.
 pub(super) fn fresh_fix(doc: &Document, id: NodeId) -> Option<(usize, Color)> {
     let f = failure(doc, id, &SubtreeBounds::default())?;
     if owner(doc, doc.get(id)?, f.paint).is_some() {
@@ -176,6 +180,7 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
         return;
     }
     let Some(f) = failure(doc, n.id, bounds) else { return };
+    let level = doc.check_designs.contrast_level;
     if let Some(src_id) = n.component.source {
         let same_own = match (resolved_node(doc, n.id).as_deref(), resolved_node(doc, src_id).as_deref()) {
             (Some(a), Some(b)) => match (&a.kind, &b.kind) {
@@ -184,7 +189,7 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
                         && a.blend == b.blend
                         && ta.style.fills == tb.style.fills
                         && ta.runs == tb.runs
-                        && required_ratio(ta.style.font_size, ta.style.font_weight) == required_ratio(tb.style.font_size, tb.style.font_weight)
+                        && required_ratio(ta.style.font_size, ta.style.font_weight, level) == required_ratio(tb.style.font_size, tb.style.font_weight, level)
                 }
                 _ => false,
             },
@@ -194,7 +199,11 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
             return;
         }
     }
-    let mut message = format!("Contrast {:.2}:1 is below {}:1 (WCAG AA)", floor2(f.ratio), ratio_label(f.required));
+    let level_tag = match level {
+        ContrastLevel::AA => "WCAG AA",
+        ContrastLevel::AAA => "WCAG AAA",
+    };
+    let mut message = format!("Contrast {:.2}:1 is below {}:1 ({level_tag})", floor2(f.ratio), ratio_label(f.required));
     let (fix, fix_label) = match (owner(doc, n, f.paint), suggest(&f)) {
         (Some(owner), _) => {
             message.push_str(&format!(" · colour comes from {owner}"));
@@ -206,5 +215,5 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
         }
         (None, None) => (None, String::new()),
     };
-    out.push(Finding { node: n.id, node_name: n.name.clone(), rule: Rule::Contrast, message, fix, fix_label });
+    out.push(Finding { node: n.id, node_name: n.name.clone(), rule: Rule::Contrast, property: String::new(), message, fix, fix_label });
 }

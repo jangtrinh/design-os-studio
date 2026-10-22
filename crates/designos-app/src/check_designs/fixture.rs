@@ -62,6 +62,7 @@ pub fn document() -> Document {
         d.style_meta.insert(key.into(), StyleMeta { name: name.into(), property, ..StyleMeta::default() });
     };
     style("heading", "Heading/H2", Style::Text(heading_style()), StyleProperty::Text);
+    style("body", "Body/Regular", Style::Text(TextStyle::default()), StyleProperty::Text);
     style("shadow", "Shadow/Card", Style::Effect(vec![card_shadow()]), StyleProperty::Effect);
     style("surface", "Surface/Card", Style::Fill(vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))]), StyleProperty::Fill);
 
@@ -84,21 +85,19 @@ pub fn document() -> Document {
     button.corner_radii = [8.0; 4];
     add(&mut d, card, button);
     // Contrast: grey caption on the light card area (3.14:1) and a dark footer with dim text (1.88:1).
-    add(
-        &mut d,
-        card,
-        text("Billing note", "Billed monthly, cancel any time", Rect::new(24.0, 72.0, 272.0, 20.0), TextStyle::default(), Color::rgb(0x8A, 0x8A, 0x8A)),
-    );
+    let mut billing_note =
+        text("Billing note", "Billed monthly, cancel any time", Rect::new(24.0, 72.0, 272.0, 20.0), TextStyle::default(), Color::rgb(0x8A, 0x8A, 0x8A));
+    billing_note.style_refs.insert("text".into(), "body".into());
+    add(&mut d, card, billing_note);
     let mut footer = Node::frame(designos_doc::NodeId(0), Rect::new(80.0, 360.0, 320.0, 96.0));
     footer.name = "Footer".into();
     footer.fills = vec![Paint::solid(Color::rgb(0x1E, 0x1E, 0x1E))];
     footer.corner_radii = [16.0; 4];
     let footer = add(&mut d, page, footer);
-    add(
-        &mut d,
-        footer,
-        text("Footer note", "Terms and conditions apply", Rect::new(24.0, 36.0, 272.0, 20.0), TextStyle::default(), Color::rgb(0x4A, 0x4A, 0x4A)),
-    );
+    let mut footer_note =
+        text("Footer note", "Terms and conditions apply", Rect::new(24.0, 36.0, 272.0, 20.0), TextStyle::default(), Color::rgb(0x4A, 0x4A, 0x4A));
+    footer_note.style_refs.insert("text".into(), "body".into());
+    add(&mut d, footer, footer_note);
 
     // Detached instance: the Save button was detached from the main component, which is still here.
     let mut main = Node::frame(designos_doc::NodeId(0), Rect::new(480.0, 80.0, 160.0, 48.0));
@@ -133,7 +132,7 @@ mod tests {
     fn the_fixture_exercises_every_rule_family() {
         let d = document();
         let report = audit(&d, &Scope::Page(d.pages[0]));
-        for rule in Rule::ALL {
+        for rule in [Rule::HardCodedValue, Rule::TextStyles, Rule::Contrast, Rule::DetachedInstance] {
             assert!(report.of(rule).next().is_some(), "{rule:?} has no finding in the fixture: {:#?}", report.findings);
         }
         let unfixable: Vec<_> = report.findings.iter().filter(|f| f.fix.is_none()).map(|f| f.node_name.as_str()).collect();

@@ -211,3 +211,15 @@ fn an_exhausted_counter_over_sane_ids_is_reset_without_touching_ids() {
     assert_eq!(back.renumber_ids_for_headroom(), 0);
     assert_eq!(back.alloc_id(), NodeId(11));
 }
+
+#[test]
+fn renumber_ids_remaps_ignore_keys() {
+    let mut d = Document::new("IgnoreRemap");
+    let page = d.add_page("P");
+    let high = d.insert(page, rect(MAX)).unwrap();
+    d.check_designs.ignored.insert(crate::IgnoreKey { node: high, rule: "RECOMMEND_VARIABLES".into(), property: "fills/0".into() });
+    assert_eq!(d.renumber_ids_for_headroom(), 1);
+    let remapped = d.nodes[&page].children[0];
+    assert_ne!(remapped, high);
+    assert!(d.check_designs.ignored.contains(&crate::IgnoreKey { node: remapped, rule: "RECOMMEND_VARIABLES".into(), property: "fills/0".into() }));
+}
