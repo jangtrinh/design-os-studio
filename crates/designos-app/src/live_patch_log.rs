@@ -195,6 +195,18 @@ impl LivePatchLog {
         self.wake.watch(ctx, &[&self.path, spec_path]);
     }
 
+    /// Stops the wake thread (a project tab that is parked: only the showing tab's log is read, so an agent
+    /// writing in the background must not wake the window). `wake_on_writes` starts it again.
+    pub fn stop_wake(&mut self) {
+        self.wake = Default::default();
+    }
+
+    /// Whether the log's wake thread is running (tests).
+    #[cfg(test)]
+    pub fn wake_running(&self) -> bool {
+        self.wake.is_running()
+    }
+
     /// Current byte offset read in `doc-patch.jsonl`.
     pub fn current_offset(&self) -> u64 {
         self.offset

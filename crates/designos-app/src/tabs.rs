@@ -241,6 +241,14 @@ impl TabsState {
         std::mem::take(&mut app.doc)
     }
 
+    /// Takes the terminal out of the window for a parked tab. Its log watcher stops here and starts again when
+    /// the tab shows (`LivePatchLog::stop_wake`).
+    fn park_terminal(app: &mut App) -> crate::terminal::TerminalState {
+        let mut terminal = std::mem::take(&mut app.terminal);
+        terminal.live_patch.stop_wake();
+        terminal
+    }
+
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
     pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
@@ -254,7 +262,7 @@ impl TabsState {
             tab.doc = Self::take_live_doc(app);
             tab.hist = std::mem::take(&mut app.hist);
             app.terminal.bind_session(&sid);
-            tab.terminal = std::mem::take(&mut app.terminal);
+            tab.terminal = Self::park_terminal(app);
             tab.image_jobs = app.image_jobs.take_for_park();
             tab.dirty = tab.hist.can_undo() || app.autosave.pending();
             self.entries.push(tab);
@@ -274,7 +282,7 @@ impl TabsState {
                     self.entries[self.active_idx].doc = Self::take_live_doc(app);
                 }
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
-                self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
+                self.entries[self.active_idx].terminal = Self::park_terminal(app);
                 self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
                 self.hist_in_app = false;
             }
@@ -291,7 +299,7 @@ impl TabsState {
             app.terminal.bind_session(&sid);
             self.entries[self.active_idx].doc = Self::take_live_doc(app);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
-            self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
+            self.entries[self.active_idx].terminal = Self::park_terminal(app);
             self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
             self.entries[self.active_idx].dirty = self.entries[self.active_idx].hist.can_undo() || app.autosave.pending();
             self.hist_in_app = false;

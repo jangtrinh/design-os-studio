@@ -9,13 +9,16 @@
 
 use super::*;
 use crate::canvas::tiles::picture_errors;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Seconds the window is watched after an edit. The Agents panel repaints every 50 ms or 500 ms, so a
 /// picture that is still wrong after this long is stuck, not late.
 const WATCH_SECS: f64 = 2.0;
+
+/// Real time to wait for a wake-up that must come: generous, because a loaded machine runs a debug build slowly.
+const WAKE_WAIT: Duration = Duration::from_secs(20);
 
 /// A window bound to a live agent session, with the Agents panel closed (no shell is spawned, so no
 /// timer repaints the window).
@@ -25,27 +28,28 @@ struct Live {
     workspace: std::path::PathBuf,
     /// How long the last frame said the window can sleep before the next one.
     wake: Duration,
-    /// Set when another thread asks egui for a repaint while no frame runs.
-    woken: Arc<AtomicBool>,
+    /// Repaints another thread asked egui for while no frame ran, and how many of them a frame has answered.
+    wakes: Arc<AtomicUsize>,
+    answered_wakes: usize,
 }
 
 impl Live {
     fn new() -> Self {
         let sim = Sim::new();
-        let woken = Arc::new(AtomicBool::new(false));
-        let (flag, ui_thread) = (woken.clone(), std::thread::current().id());
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (count, ui_thread) = (wakes.clone(), std::thread::current().id());
         // Repaints requested by the frames themselves are in each frame's schedule; only another thread (the
         // log watcher) wakes a sleeping window from outside.
         sim.ctx.set_request_repaint_callback(move |info| {
             if info.delay == Duration::ZERO && std::thread::current().id() != ui_thread {
-                flag.store(true, Ordering::SeqCst);
+                count.fetch_add(1, Ordering::SeqCst);
             }
         });
         assert!(!sim.app().canvas.gpu.active(), "precondition: the CPU tile path, as on the QA machine (GPU off)");
         let workspace = std::env::temp_dir().join(format!("designos-stale-canvas-ws-{}", crate::live_sync_tests::unique_tab_id()));
         std::fs::create_dir_all(&workspace).unwrap();
         let session = designos_mcp::server::Session::with_session_dir(&workspace, &sim.app().terminal.session_dir).expect("mcp session");
-        Live { sim, session, workspace, wake: Duration::ZERO, woken }
+        Live { sim, session, workspace, wake: Duration::ZERO, wakes, answered_wakes: 0 }
     }
 
     fn marks_path(&self) -> std::path::PathBuf {
@@ -92,7 +96,9 @@ impl Live {
     fn idle_until(&mut self, real: Duration, done: impl Fn(&Sim) -> bool) -> bool {
         let deadline = Instant::now() + real;
         loop {
-            if self.woken.swap(false, Ordering::SeqCst) {
+            let wakes = self.wakes();
+            if wakes != self.answered_wakes {
+                self.answered_wakes = wakes;
                 self.wake = Duration::ZERO;
             }
             self.watch();
@@ -104,6 +110,11 @@ impl Live {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// Repaints requested from outside a frame so far (by the log watcher).
+    fn wakes(&self) -> usize {
+        self.wakes.load(Ordering::SeqCst)
     }
 
     fn picture_errors(&mut self) -> Vec<String> {
@@ -238,8 +249,8 @@ fn an_agent_delete_reaches_a_window_that_receives_no_input() {
     l.turn_mark("start");
     l.agent_deletes(row);
     l.turn_mark("end");
-    let applied = l.idle_until(Duration::from_secs(5), |s| s.app().doc.get(row).is_none());
-    assert!(applied, "the agent deleted the layer 5 s ago and the window (Agents panel closed, no input) never read the edit log");
+    let applied = l.idle_until(WAKE_WAIT, |s| s.app().doc.get(row).is_none());
+    assert!(applied, "the agent deleted the layer {} s ago and the window (Agents panel closed, no input) never read the edit log", WAKE_WAIT.as_secs());
     assert_picture(&mut l, "after the agent delete, no input");
 }
 
@@ -249,9 +260,9 @@ fn an_idle_window_with_a_live_session_asks_for_no_repaint() {
     let mut l = Live::new();
     // The log watcher looks at the files once on its own thread; let that settle, then nothing may follow.
     l.idle_until(Duration::from_secs(2), |_| false);
-    l.woken.store(false, Ordering::SeqCst);
+    let settled = l.wakes();
     l.idle_until(Duration::from_secs(1), |_| false);
-    assert!(!l.woken.load(Ordering::SeqCst), "an idle window with nobody writing must stay idle");
+    assert_eq!(l.wakes(), settled, "an idle window with nobody writing must stay idle");
     assert_eq!(l.wake, Duration::MAX, "egui sleeps until an input event (0% idle CPU)");
 }
 
@@ -316,4 +327,59 @@ fn revert_after_an_undo_of_the_same_turn_keeps_document_and_canvas_in_step() {
     l.watch();
     assert_eq!(names_in(&l.sim, card), before, "the layer is back exactly once");
     assert_picture(&mut l, "after Revert of an undone turn");
+}
+
+/// Appends a blank line to a log: its length changes, and the reader skips the line.
+fn touch_log(path: &std::path::Path) {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).expect("open the log");
+    f.write_all(b"\n").expect("append to the log");
+}
+
+fn parked_log_watcher_running(s: &Sim, log: &std::path::Path) -> Option<bool> {
+    s.app().tabs.entries.iter().find(|t| t.terminal.live_patch.path == log).map(|t| t.terminal.live_patch.wake_running())
+}
+
+/// A project tab that is not showing has no watcher: an agent still writing there must not wake the window for
+/// frames that read nothing (only the active tab's log is polled). Showing the tab again restarts the watcher,
+/// whose first look wakes for what was written meanwhile.
+#[test]
+fn a_parked_tabs_log_does_not_wake_the_active_window() {
+    let mut l = Live::new();
+    let first_log = l.patch_path();
+    touch_log(&first_log);
+    l.frame();
+    l.idle_until(Duration::from_secs(2), |_| false);
+    assert!(l.sim.app().terminal.live_patch.wake_running(), "precondition: the showing tab's log is watched");
+
+    // A second project tab opens and the first is parked.
+    l.sim.shell.app.open_new_design_tab();
+    l.frame();
+    l.frame();
+    let second_dir = l.sim.app().terminal.session_dir.clone();
+    assert_ne!(l.patch_path(), first_log, "precondition: the new tab has its own session");
+    l.idle_until(Duration::from_secs(2), |_| false);
+    let before = l.wakes();
+    touch_log(&first_log);
+    l.idle_until(Duration::from_secs(2), |_| false);
+    assert_eq!(l.wakes(), before, "the parked tab's agent woke the window for frames that read nothing");
+    assert_eq!(parked_log_watcher_running(&l.sim, &first_log), Some(false), "a parked tab keeps no watcher thread");
+
+    // The first tab shows again and its watcher restarts. (Its first look wakes once for what was written
+    // meanwhile; egui folds that wake into a repaint a frame already asked for, so it is not asserted here.)
+    let first = l.sim.app().tabs.entries.iter().position(|t| t.terminal.live_patch.path == first_log).expect("the parked tab");
+    l.sim.shell.app.switch_tab(first);
+    l.frame();
+    l.frame();
+    assert_eq!(l.patch_path(), first_log);
+    assert!(l.sim.app().terminal.live_patch.wake_running(), "the watcher did not restart when the tab showed again");
+    l.idle_until(Duration::from_secs(2), |_| false);
+    let (wakes, count) = (l.wakes.clone(), l.wakes());
+    touch_log(&first_log);
+    assert!(l.idle_until(WAKE_WAIT, move |_| wakes.load(Ordering::SeqCst) > count), "a write after the tab showed again woke nothing");
+
+    for tab in &mut l.sim.shell.app.tabs.entries {
+        tab.terminal.shutdown();
+    }
+    let _ = std::fs::remove_dir_all(second_dir);
 }

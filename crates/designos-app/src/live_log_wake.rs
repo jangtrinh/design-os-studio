@@ -28,6 +28,8 @@ struct Shared {
 #[derive(Default)]
 pub struct LogWake {
     shared: Option<Arc<Shared>>,
+    /// The thread could not be started: not tried again by this owner (a rebound log gets a new one).
+    start_failed: bool,
 }
 
 impl std::fmt::Debug for LogWake {
@@ -51,6 +53,14 @@ impl LogWake {
     /// Watches exactly `paths` from now on (call it every frame: it only does work when they changed).
     /// `ctx` is woken once per change.
     pub fn watch(&mut self, ctx: &egui::Context, paths: &[&Path]) {
+        self.watch_with(ctx, paths, |job| std::thread::Builder::new().name("designos-live-log-wake".into()).spawn(job).map(drop));
+    }
+
+    /// [`Self::watch`] with the thread start injected, so a failing start can be tested.
+    fn watch_with(&mut self, ctx: &egui::Context, paths: &[&Path], spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>) {
+        if self.start_failed {
+            return;
+        }
         if let Some(shared) = &self.shared {
             let Ok(mut state) = shared.state.lock() else { return };
             if !state.0.iter().map(PathBuf::as_path).eq(paths.iter().copied()) {
@@ -60,9 +70,19 @@ impl LogWake {
         }
         let shared = Arc::new(Shared { state: Mutex::new((paths.iter().map(|p| p.to_path_buf()).collect(), false)), cvar: Condvar::new() });
         let (worker, ctx) = (shared.clone(), ctx.clone());
-        if std::thread::Builder::new().name("designos-live-log-wake".into()).spawn(move || run(&worker, &ctx)).is_ok() {
-            self.shared = Some(shared);
+        match spawn(Box::new(move || run(&worker, &ctx))) {
+            Ok(()) => self.shared = Some(shared),
+            Err(e) => {
+                self.start_failed = true;
+                eprintln!("designos: agent edits will show on the next input, the log watcher did not start ({e})");
+            }
         }
+    }
+
+    /// Whether the thread is running (tests).
+    #[cfg(test)]
+    pub fn is_running(&self) -> bool {
+        self.shared.is_some()
     }
 }
 
@@ -133,7 +153,8 @@ mod tests {
     }
 
     fn wait_until(ctx: &egui::Context, what: &str, mut done: impl FnMut() -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // Generous: a loaded machine runs a debug build slowly.
+        let deadline = Instant::now() + Duration::from_secs(20);
         while !done() {
             assert!(Instant::now() < deadline, "timed out waiting for {what}");
             pump(ctx, Duration::from_millis(20));
@@ -183,6 +204,26 @@ mod tests {
         wait_until(&ctx, "the log to appear", || wakeups.load(Ordering::SeqCst) >= 1);
         drop(wake);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_failed_thread_start_is_tried_once_not_on_every_frame() {
+        let ctx = egui::Context::default();
+        let attempts = std::cell::Cell::new(0);
+        let failing = |_job: Box<dyn FnOnce() + Send>| {
+            attempts.set(attempts.get() + 1);
+            Err(std::io::Error::other("no threads left"))
+        };
+        let mut wake = LogWake::default();
+        for _ in 0..5 {
+            wake.watch_with(&ctx, &[Path::new("doc-patch.jsonl")], failing);
+        }
+        assert_eq!(attempts.get(), 1, "a frame must not retry a thread start that failed");
+        assert!(!wake.is_running());
+        // A rebound log starts from a fresh `LogWake`, which tries again.
+        let mut rebound = LogWake::default();
+        rebound.watch_with(&ctx, &[Path::new("doc-patch.jsonl")], failing);
+        assert_eq!(attempts.get(), 2);
     }
 
     #[test]
