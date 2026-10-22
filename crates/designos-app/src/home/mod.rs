@@ -7,6 +7,8 @@
 
 pub mod dialog;
 mod session;
+#[cfg(test)]
+mod spec_bundle_hidden_tests;
 pub mod thumb;
 pub mod time;
 #[path = "../updater.rs"]
@@ -1228,6 +1230,13 @@ mod main_view {
     const UI3_AMBER: Color32 = Color32::from_rgb(0xF5, 0x9E, 0x0B);
     const UI3_ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x3D);
 
+    /// Whether Home offers the spec bundle: the `+ Spec bundle` header button and the spec bundle
+    /// template card. Both push `Act::OpenSpecs`, which only switches the rail to the spec reader,
+    /// and that reader is switched off (`shell.rs`, `specs_reader_open`). With it off they led to a
+    /// blank canvas and no Recents entry, so Home hides them until spec files exist. Turn this on
+    /// together with the reader, never alone.
+    const SPEC_BUNDLE_ENTRY_ENABLED: bool = false;
+
     #[derive(Clone, Copy, PartialEq)]
     enum Kind {
         PrimaryBlue,
@@ -1241,7 +1250,7 @@ mod main_view {
         let pad = theme::HOME_PAD;
         let trash = h.section == Section::Trash && !h.searching();
 
-        // 1. Top Header & Creation Strip (`+ Design file`, `+ FigJam board`, `+ Spec bundle`, `Import`, context `+ New folder`)
+        // 1. Top Header & Creation Strip (`+ Design file`, `+ FigJam board`, `+ Spec bundle` while `SPEC_BUNDLE_ENTRY_ENABLED`, `Import`, context `+ New folder`)
         let head = Rect::from_min_size(rect.min, Vec2::new(rect.width(), theme::HOME_HEADER_H));
         breadcrumb(h, ui, &p, Pos2::new(rect.left() + pad, head.center().y), acts);
         let mut right = rect.right() - pad;
@@ -1263,11 +1272,13 @@ mod main_view {
                 acts.push(Act::NewBoard);
             }
             right -= 8.0;
-            let r = button(ui, &p, &mut right, head.center().y, "+ Spec bundle", Kind::Secondary, "home-new-spec");
-            if r.clicked() {
-                acts.push(Act::OpenSpecs);
+            if SPEC_BUNDLE_ENTRY_ENABLED {
+                let r = button(ui, &p, &mut right, head.center().y, "+ Spec bundle", Kind::Secondary, "home-new-spec");
+                if r.clicked() {
+                    acts.push(Act::OpenSpecs);
+                }
+                right -= 8.0;
             }
-            right -= 8.0;
             let r = button(ui, &p, &mut right, head.center().y, "Import", Kind::Secondary, "home-import");
             if r.clicked() {
                 acts.push(Act::Import);
@@ -1437,41 +1448,16 @@ mod main_view {
     }
 
     /// Dedicated view for `Section::Templates` (`"Templates & Specs"`):
-    /// 6 starter template & spec cards + user's matching template/spec files below.
+    /// 5 starter template cards (a 6th spec bundle card while `SPEC_BUNDLE_ENTRY_ENABLED`) + user's matching template/spec files below.
     fn templates_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         let files = h.files();
         let now = wall_ms();
         let pad = theme::HOME_PAD;
         let list = h.view == ViewMode::List;
         let inner_w = (content.width() - pad * 2.0).max(240.0);
-        let (tcw, tch, tgap_x, tgap_y) = (240.0_f32, 188.0_f32, 16.0_f32, 16.0_f32);
-        let tcols = (((inner_w + tgap_x) / (tcw + tgap_x)).floor() as usize).max(1);
-        let template_rows = 6usize.div_ceil(tcols) as f32 * (tch + tgap_y);
-
-        let (cw, ch, gap_x, gap_y) = (theme::HOME_CARD_W, theme::HOME_CARD_H, theme::HOME_CARD_GAP, 24.0);
-        let cols = (((inner_w + gap_x) / (cw + gap_x)).floor() as usize).max(1);
-        let file_rows = if files.is_empty() {
-            0.0
-        } else if list {
-            28.0 + files.len() as f32 * theme::HOME_LIST_ROW_H + 28.0
-        } else {
-            28.0 + files.len().div_ceil(cols) as f32 * (ch + gap_y)
-        };
-
-        let content_h = pad + 28.0 + template_rows + 12.0 + file_rows + pad;
-        crate::panels::wheel_scroll(ui, content, &mut h.scroll, content_h);
-        let scroll = h.scroll;
-        let dragging = h.drag.is_some();
-        let mut budget = 4u32;
-        let selected = h.selected.clone();
-        let mut new_selected = None;
-        let mut menu = None;
-        let mut drag = None;
-        let ctx = ui.ctx().clone();
-
         /// (title, badge, accent, icon, description, button label, action, record key)
         type TemplateCard<'a> = (&'a str, &'a str, Color32, Icon, &'a str, &'a str, Act, &'a str);
-        let cards: [TemplateCard; 6] = [
+        let mut cards: Vec<TemplateCard> = vec![
             (
                 "Marlow \u{2014} Mobile Banking Kit",
                 "Design Kit",
@@ -1522,7 +1508,9 @@ mod main_view {
                 Act::CreateFromTemplate(TemplateKind::SlideDeck),
                 "home-template-deck",
             ),
-            (
+        ];
+        if SPEC_BUNDLE_ENTRY_ENABLED {
+            cards.push((
                 "PRODUCT:OS Spec Bundle v2",
                 "Spec Driven",
                 UI3_TEAL,
@@ -1531,8 +1519,33 @@ mod main_view {
                 "Open Spec Hub",
                 Act::OpenSpecs,
                 "home-template-specs",
-            ),
-        ];
+            ));
+        }
+
+        let (tcw, tch, tgap_x, tgap_y) = (240.0_f32, 188.0_f32, 16.0_f32, 16.0_f32);
+        let tcols = (((inner_w + tgap_x) / (tcw + tgap_x)).floor() as usize).max(1);
+        let template_rows = cards.len().div_ceil(tcols) as f32 * (tch + tgap_y);
+
+        let (cw, ch, gap_x, gap_y) = (theme::HOME_CARD_W, theme::HOME_CARD_H, theme::HOME_CARD_GAP, 24.0);
+        let cols = (((inner_w + gap_x) / (cw + gap_x)).floor() as usize).max(1);
+        let file_rows = if files.is_empty() {
+            0.0
+        } else if list {
+            28.0 + files.len() as f32 * theme::HOME_LIST_ROW_H + 28.0
+        } else {
+            28.0 + files.len().div_ceil(cols) as f32 * (ch + gap_y)
+        };
+
+        let content_h = pad + 28.0 + template_rows + 12.0 + file_rows + pad;
+        crate::panels::wheel_scroll(ui, content, &mut h.scroll, content_h);
+        let scroll = h.scroll;
+        let dragging = h.drag.is_some();
+        let mut budget = 4u32;
+        let selected = h.selected.clone();
+        let mut new_selected = None;
+        let mut menu = None;
+        let mut drag = None;
+        let ctx = ui.ctx().clone();
 
         crate::panels::clipped(ui, content, |ui| {
             let p = ui.painter().clone();
