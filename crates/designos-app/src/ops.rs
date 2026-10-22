@@ -209,6 +209,7 @@ impl App {
             return true;
         }
         let before_nodes = tx.ed.before_nodes().clone();
+        let opened_at = tx.ed.opened_at();
         match tx.commit(&mut self.doc, &mut self.hist) {
             Ok(changed) => {
                 if changed {
@@ -216,7 +217,12 @@ impl App {
                     // finished layout and undo and redo replay it as stored. Agent edits, agent turn
                     // reverts and image-job results commit their own `Tx` and never reach this line:
                     // they lay out after the commit, or not at all, so their steps keep the re-solve.
-                    self.hist.mark_last_undo_as_layout_recorded(&self.doc);
+                    // An edit kept open across frames may also have seen layout written outside every
+                    // step (the drain of another step's deferred layout), which its "before" values
+                    // predate: the epoch it took when it began tells, and then the step is not marked.
+                    if let Some(opened_at) = opened_at {
+                        self.hist.mark_last_undo_as_layout_recorded(&self.doc, opened_at);
+                    }
                     for (id, before) in &before_nodes {
                         if let Some(after) = self.doc.get(*id) {
                             self.agent_busy_frames.record_user_node_update(before, after);
@@ -285,7 +291,7 @@ impl App {
         match (active, self.scrub.is_some()) {
             (true, false) => {
                 if self.doc.nodes.len() <= 5_000 {
-                    self.scrub = Some(self.doc.nodes.clone());
+                    self.begin_scrub(self.doc.nodes.clone());
                 } else {
                     let mut snap = std::collections::BTreeMap::new();
                     if let Some(pn) = self.doc.get(self.page) {
@@ -321,12 +327,20 @@ impl App {
                             stack.extend(n.children.iter().copied());
                         }
                     }
-                    self.scrub = Some(snap);
+                    self.begin_scrub(snap);
                 }
             }
             (false, true) => self.scrub_end(),
             _ => {}
         }
+    }
+
+    /// Opens a scrub on `snapshot` of the document. The scrub's step is diffed against the snapshot
+    /// when it ends, so the document's layout epoch is taken here with it: layout written outside
+    /// every step while the scrub is open lands in that diff with "before" values that predate it.
+    pub(crate) fn begin_scrub(&mut self, snapshot: std::collections::BTreeMap<NodeId, Node>) {
+        self.scrub_opened_at = self.doc.layout_epoch();
+        self.scrub = Some(snapshot);
     }
 
     /// Folds everything changed since the scrub began into one undo step.
@@ -355,7 +369,7 @@ impl App {
         let cmd = crate::comp_ops::with_sync(&mut self.doc, cmd);
         match self.hist.exec(&mut self.doc, cmd) {
             Ok(()) if whole_doc => {
-                self.hist.mark_last_undo_as_layout_recorded(&self.doc);
+                self.hist.mark_last_undo_as_layout_recorded(&self.doc, self.scrub_opened_at);
             }
             Ok(()) => {}
             Err(e) => self.show_toast(format!("Edit failed: {e}"), true),
@@ -2306,7 +2320,7 @@ mod tests {
     fn a_scrub_over_the_whole_document_is_one_recorded_step_that_undoes_and_redoes_exactly() {
         let (mut app, column, first) = app_with_a_stored_column();
         let before = layout_snapshot(&app);
-        app.scrub = Some(app.doc.nodes.clone());
+        app.begin_scrub(app.doc.nodes.clone());
         app.edit_nodes(&[first], |n| n.size.y = 50.0);
         let after = layout_snapshot(&app);
         assert_eq!(app.doc.get(column).unwrap().size.y, 80.0, "precondition: the column hugged the taller rectangle while scrubbing");
@@ -2326,7 +2340,7 @@ mod tests {
     fn a_scrub_snapshot_of_part_of_the_document_is_not_recorded() {
         let (mut app, column, first) = app_with_a_stored_column();
         let partial: std::collections::BTreeMap<NodeId, Node> = [column, first].iter().map(|id| (*id, app.doc.get(*id).unwrap().clone())).collect();
-        app.scrub = Some(partial);
+        app.begin_scrub(partial);
         app.edit_nodes(&[first], |n| n.size.y = 50.0);
         app.scrub_end();
         assert_eq!(app.hist.undo_depth(), 1);

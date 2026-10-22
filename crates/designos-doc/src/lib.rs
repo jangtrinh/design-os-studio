@@ -232,6 +232,9 @@ pub struct Document {
     /// after [`MAX_RELAYOUT_RESOLVES`] or [`MAX_RELAYOUT_RESOLVE_DEPTH`] was reached.
     #[serde(skip)]
     pub(crate) pending_relayout: Vec<NodeId>,
+    /// Count of layout writes made to this document outside any history step; see [`Self::layout_epoch`].
+    #[serde(skip)]
+    layout_epoch: u64,
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
@@ -626,6 +629,7 @@ impl Document {
             gap_cursor: self.gap_cursor,
             dirty: self.dirty.clone(),
             pending_relayout: self.pending_relayout.clone(),
+            layout_epoch: self.layout_epoch,
             page_hydrator: self.page_hydrator.clone(),
         }
     }

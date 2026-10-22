@@ -8,6 +8,9 @@ use std::collections::BTreeMap;
 #[derive(Default)]
 pub struct Edit {
     before: BTreeMap<NodeId, Node>,
+    /// [`Document::layout_epoch`] when this edit first touched the document: the baseline for
+    /// telling whether layout was written outside every step while the edit stayed open.
+    opened_at: Option<u64>,
 }
 
 impl Edit {
@@ -15,8 +18,23 @@ impl Edit {
         Self::default()
     }
 
+    /// Takes the document's layout epoch if this edit has not yet (first call wins). Every way an
+    /// edit starts to change the document calls it, so the value is the document's state when the
+    /// edit began, not when it commits.
+    pub fn note_opened(&mut self, doc: &Document) {
+        self.opened_at.get_or_insert_with(|| doc.layout_epoch());
+    }
+
+    /// [`Document::layout_epoch`] when this edit first touched the document, or `None` for an edit
+    /// that has not touched it. Read it before the edit commits and give it to
+    /// [`History::mark_last_undo_as_layout_recorded`].
+    pub fn opened_at(&self) -> Option<u64> {
+        self.opened_at
+    }
+
     /// Records the original state of `id` (first touch wins).
     pub fn touch(&mut self, doc: &Document, id: NodeId) {
+        self.note_opened(doc);
         if let std::collections::btree_map::Entry::Vacant(slot) = self.before.entry(id) {
             if let Some(n) = doc.get(id) {
                 slot.insert(n.clone());
@@ -91,6 +109,7 @@ impl Tx {
 
     /// Applies a structural command now and remembers it for the commit.
     pub fn cmd(&mut self, doc: &mut Document, c: Command) -> Result<(), DocError> {
+        self.ed.note_opened(doc);
         let inv = c.clone().apply(doc)?;
         self.cmds.push(c);
         self.inverses.push(inv);

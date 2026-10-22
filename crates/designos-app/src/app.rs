@@ -192,6 +192,8 @@ pub struct App {
     pub fonts: FontLoader,
     /// Document snapshot while a numeric field is being scrubbed (see `widgets::field::SCRUB_FLAG`).
     pub scrub: Option<std::collections::BTreeMap<NodeId, designos_doc::Node>>,
+    /// `Document::layout_epoch` when the open scrub began; set by `App::begin_scrub` together with `scrub`.
+    pub(crate) scrub_opened_at: u64,
     /// Zoom (as a factor) to apply on the first frame instead of fitting the page (`--zoom`).
     pub startup_zoom: Option<f32>,
     /// The projects library (None until opened; tests run without one).
@@ -285,6 +287,7 @@ impl App {
             first_fit_done: false,
             fonts: FontLoader::default(),
             scrub: None,
+            scrub_opened_at: 0,
             startup_zoom: None,
             lib: None,
             lib_file: None,

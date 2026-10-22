@@ -172,6 +172,7 @@ impl Document {
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
         let out = compute_with_stroke(&al, frame, own_limits, &stroke, &kids);
+        self.note_layout_written_outside_history();
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
         }
@@ -195,6 +196,30 @@ impl Document {
                 self.relayout_top_down(*cid, hops + 1, budget);
             }
         }
+    }
+
+    /// How many times layout was written to this document outside any history step. Runtime only:
+    /// it is never saved, and two values mean something only as a pair taken from one document.
+    ///
+    /// Every headless solve adds one: [`Self::relayout_subtree`], the undo of a step that did not
+    /// record its layout, and each step of the deferred queue the frame loop drains
+    /// ([`Self::flush_pending_relayout_step`]; an empty queue solves nothing and adds nothing). A
+    /// writer that fits boxes behind both the history and the solver reports itself with
+    /// [`Self::note_layout_written_outside_history`].
+    ///
+    /// A recorder that stays open across frames (a scrub, an edit session kept alive by a gesture)
+    /// takes the value when it opens. If the value moved by the time it commits, layout landed in
+    /// between that the recorder's "before" values do not hold, so its step must not be marked as
+    /// layout-recorded ([`crate::History::mark_last_undo_as_layout_recorded`]).
+    pub fn layout_epoch(&self) -> u64 {
+        self.layout_epoch
+    }
+
+    /// Reports one layout write made outside every history step. The headless solver calls it
+    /// itself. The font re-fit that follows a late-arriving face lays boxes out with the editor
+    /// solver on the live document and commits nothing; it calls this once per pass that wrote.
+    pub fn note_layout_written_outside_history(&mut self) {
+        self.layout_epoch = self.layout_epoch.wrapping_add(1);
     }
 
     /// Number of auto-layout subtrees whose box changed during [`Self::relayout_subtree`] but
@@ -577,6 +602,28 @@ mod tests {
         doc.relayout_subtree(parent);
         assert_eq!(doc.get(last).unwrap().transform.tx, 240.0, "a queued row must be solved by the next relayout, not skipped again");
         assert_eq!(doc.relayout_skipped_count(), 0, "a solved row leaves the queue");
+    }
+
+    #[test]
+    fn a_relayout_and_each_drain_step_move_the_layout_epoch_and_an_idle_drain_does_not() {
+        let (mut doc, parent, _rects) = rows_doc();
+        let start = doc.layout_epoch();
+        doc.get_mut(parent).unwrap().size.x = 500.0;
+        doc.relayout_subtree(parent);
+        let relaid = doc.layout_epoch();
+        assert!(relaid > start, "a headless relayout writes layout outside every history step");
+        assert_eq!(doc.relayout_skipped_count(), 1, "precondition: a row is queued");
+
+        assert_eq!(doc.flush_pending_relayout_step(), 0);
+        let drained = doc.layout_epoch();
+        assert!(drained > relaid, "the drain step solved the queued row, which is a layout write too");
+
+        assert_eq!(doc.flush_pending_relayout_step(), 0);
+        doc.flush_pending_relayout();
+        assert_eq!(doc.layout_epoch(), drained, "draining an empty queue writes nothing, so idle frames never move the epoch");
+
+        doc.note_layout_written_outside_history();
+        assert_eq!(doc.layout_epoch(), drained + 1, "a writer that is not the solver reports itself with one call");
     }
 
     #[test]

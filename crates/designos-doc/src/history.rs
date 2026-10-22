@@ -422,13 +422,20 @@ impl History {
     /// Marks the most recently pushed undo step as layout-recorded, so undoing and redoing it
     /// replays the stored command without solving auto layout again.
     ///
-    /// The caller vouches that the step's recorder captured its own layout writes. The step is
-    /// marked only when `doc` has no deferred layout queued, because a queued subtree is solved
-    /// after the step and the solve is in no step. Returns whether the step was marked. Call it
-    /// right after the step was pushed, and only when one was.
-    pub fn mark_last_undo_as_layout_recorded(&mut self, doc: &Document) -> bool {
+    /// The caller vouches that the step's recorder captured its own layout writes, and passes the
+    /// [`Document::layout_epoch`] it took when it opened. The step is marked only when both hold:
+    /// - `doc` has no deferred layout queued, because a queued subtree is solved after the step
+    ///   and the solve is in no step;
+    /// - no layout was written outside every step since the recorder opened. A recorder that
+    ///   stayed open across frames would otherwise take credit for the drain of another step's
+    ///   deferred layout, with "before" values from before that layout was solved, and its undo
+    ///   would put an unsolved nest back with an empty queue.
+    ///
+    /// Returns whether the step was marked. Call it right after the step was pushed, and only
+    /// when one was.
+    pub fn mark_last_undo_as_layout_recorded(&mut self, doc: &Document, recorder_opened_at: u64) -> bool {
         self.sync_meta_lengths();
-        if !doc.pending_relayout().is_empty() {
+        if doc.layout_epoch() != recorder_opened_at || !doc.pending_relayout().is_empty() {
             return false;
         }
         match self.undo_meta.last_mut() {
@@ -1157,8 +1164,9 @@ mod tests {
         let before = layout_of(&d);
         let mut h = History::default();
         let cmd = widen_header(&d, header);
+        let opened = d.layout_epoch();
         h.exec(&mut d, cmd).unwrap();
-        assert!(h.mark_last_undo_as_layout_recorded(&d), "no layout is queued, so the step can be marked");
+        assert!(h.mark_last_undo_as_layout_recorded(&d, opened), "no layout is queued and none was written meanwhile, so the step can be marked");
         let after = layout_of(&d);
         assert_eq!(after, before, "the edit changed no geometry");
 
@@ -1218,24 +1226,61 @@ mod tests {
     fn marking_needs_a_step_and_an_empty_layout_queue_and_an_agent_step_is_never_recorded() {
         let (mut d, _column, header, _sibling) = column_with_a_childless_header();
         let mut h = History::default();
-        assert!(!h.mark_last_undo_as_layout_recorded(&d), "there is no step to mark");
+        assert!(!h.mark_last_undo_as_layout_recorded(&d, d.layout_epoch()), "there is no step to mark");
 
         let cmd = widen_header(&d, header);
+        let opened = d.layout_epoch();
         h.exec(&mut d, cmd).unwrap();
-        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        assert!(h.mark_last_undo_as_layout_recorded(&d, opened));
         assert!(h.peek_undo_layout_recorded());
         h.mark_last_undo_as_agent();
         assert!(!h.peek_undo_layout_recorded(), "marking a step as the agent's takes the recorded mark away");
 
         let (mut chain, frames, _leaf) = nested_fill_frames();
-        let mut h2 = History::default();
-        let mut wide = chain.get(frames[0]).unwrap().clone();
-        wide.size.x = 600.0;
-        h2.exec(&mut chain, Command::Update { node: Box::new(wide) }).unwrap();
+        chain.get_mut(frames[0]).unwrap().size.x = 600.0;
         chain.relayout_subtree(frames[0]);
         assert!(chain.relayout_skipped_count() > 0, "precondition: the nest is deeper than one relayout reaches");
-        assert!(!h2.mark_last_undo_as_layout_recorded(&chain), "a tail still queued after the step is solved outside it, so the step is not recorded");
+        // The recorder opens after that layout was written, so the epoch does not move: only the queue refuses the mark.
+        let mut renamed = chain.get(frames[0]).unwrap().clone();
+        renamed.name = "renamed".into();
+        let mut h2 = History::default();
+        let opened = chain.layout_epoch();
+        h2.exec(&mut chain, Command::Update { node: Box::new(renamed) }).unwrap();
+        assert_eq!(chain.layout_epoch(), opened, "precondition: the step wrote no layout");
+        assert!(!h2.mark_last_undo_as_layout_recorded(&chain, opened), "a tail still queued after the step is solved outside it, so the step is not recorded");
         assert!(!h2.peek_undo_layout_recorded());
+    }
+
+    #[test]
+    fn a_step_is_not_recorded_when_layout_was_written_outside_history_after_its_recorder_opened() {
+        let (mut d, frames, leaf) = nested_fill_frames();
+        let mut h = History::default();
+        let opened = d.layout_epoch();
+        // Another step's deferred layout is drained while the recorder is open.
+        d.get_mut(frames[0]).unwrap().size.x = 600.0;
+        d.relayout_subtree(frames[0]);
+        d.flush_pending_relayout();
+        assert_ne!(d.layout_epoch(), opened, "precondition: the drain wrote layout");
+        assert_eq!(d.relayout_skipped_count(), 0, "precondition: nothing is queued, so only the epoch can refuse the mark");
+
+        let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        h.exec(&mut d, step).unwrap();
+        assert!(!h.mark_last_undo_as_layout_recorded(&d, opened), "the recorder's before values predate the drain, so it must not take credit for it");
+        assert!(!h.peek_undo_layout_recorded());
+
+        // A recorder that opens after the drain is recorded again.
+        let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        let reopened = d.layout_epoch();
+        h.exec(&mut d, step).unwrap();
+        assert!(h.mark_last_undo_as_layout_recorded(&d, reopened));
+        assert!(h.peek_undo_layout_recorded());
+
+        // A writer that is not the solver reports itself and has the same effect.
+        let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        let opened = d.layout_epoch();
+        d.note_layout_written_outside_history();
+        h.exec(&mut d, step).unwrap();
+        assert!(!h.mark_last_undo_as_layout_recorded(&d, opened));
     }
 
     /// The step an editor commit records for widening the outermost frame of `nested_fill_frames`:
@@ -1256,9 +1301,10 @@ mod tests {
         let (innermost, before) = (*frames.last().unwrap(), layout_of(&d));
         let mut h = History::default();
         let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        let opened = d.layout_epoch();
         h.exec(&mut d, step).unwrap();
         assert_eq!(d.relayout_skipped_count(), 0, "the recorder laid everything out, so no tail is queued");
-        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        assert!(h.mark_last_undo_as_layout_recorded(&d, opened));
         let after = layout_of(&d);
         assert_eq!(d.get(innermost).unwrap().size.x, 600.0);
         assert_eq!(d.get(leaf).unwrap().transform.tx, 590.0);
@@ -1279,8 +1325,9 @@ mod tests {
         let (mut d, frames, leaf) = nested_fill_frames();
         let mut h = History::default();
         let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        let opened = d.layout_epoch();
         h.exec(&mut d, step).unwrap();
-        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        assert!(h.mark_last_undo_as_layout_recorded(&d, opened));
         // Something outside the history widens the nest again and leaves its tail queued.
         d.get_mut(frames[0]).unwrap().size.x = 900.0;
         d.relayout_subtree(frames[0]);
