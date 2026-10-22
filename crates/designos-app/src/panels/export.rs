@@ -12,6 +12,7 @@ use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 const ROW_GAP: f32 = 8.0;
 const PREVIEW_H: f32 = 120.0;
@@ -429,8 +430,30 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
     jobs
 }
 
+/// Where a batch of export files goes.
+enum Sink {
+    /// The one file the save dialog chose.
+    File(PathBuf),
+    /// A folder: the chosen one (files are replaced) or the fallback one (nothing is replaced).
+    Dir { dir: PathBuf, keep_existing: bool },
+}
+
+impl Sink {
+    fn write(&self, job: &ExportJob, bytes: &[u8]) -> std::io::Result<PathBuf> {
+        match self {
+            Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()),
+            Sink::Dir { dir, keep_existing: false } => {
+                let path = dir.join(&job.file);
+                std::fs::write(&path, bytes).map(|()| path)
+            }
+            Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes),
+        }
+    }
+}
+
 /// Writes every selected layer with its own export rows. One file asks for a
-/// path; several ask for a folder and use `name@2x.png` style names.
+/// path; several ask for a folder and use `name@2x.png` style names. When no
+/// dialog can open the files go to the fallback folder and the toast says so.
 pub fn run_export(app: &mut App, ids: &[NodeId]) {
     run_export_with(app, ids, &crate::io::SystemDialogs);
 }
@@ -442,56 +465,59 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
         app.show_toast("Nothing to export", true);
         return;
     }
+    let single = jobs.len() == 1;
+    let outcome = match jobs.as_slice() {
+        [job] => dialogs.pick(&FileRequest::save(job.file.as_str()).filter(job.setting.format.label(), &[job.setting.format.extension()])),
+        _ => dialogs.pick(&FileRequest::folder("Choose export folder")),
+    };
+    let (sink, without_dialog) = match outcome {
+        DialogOutcome::Cancelled => return,
+        DialogOutcome::Picked(path) if single => (Sink::File(path), false),
+        DialogOutcome::Picked(dir) => (Sink::Dir { dir, keep_existing: false }, false),
+        DialogOutcome::Unavailable => match dialogs.fallback_dir() {
+            Some(dir) => (Sink::Dir { dir, keep_existing: true }, true),
+            None => {
+                app.show_toast(crate::io::NO_FALLBACK_FOLDER, true);
+                return;
+            }
+        },
+    };
+    let lead = if without_dialog { "No save dialog. " } else { "" };
     // Variable bindings are applied like in the preview and the deck PDF.
     let doc = app.export_doc();
     let mut written = Vec::new();
     let mut failed: Vec<String> = Vec::new();
-    if let [job] = jobs.as_slice() {
-        let request = FileRequest::save(job.file.as_str()).filter(job.setting.format.label(), &[job.setting.format.extension()]);
-        let DialogOutcome::Picked(path) = dialogs.pick(&request) else { return };
+    for job in &jobs {
         let bytes = match job.setting.render_many(&doc, &job.nodes) {
             Ok(bytes) => bytes,
-            Err(e) => {
+            Err(e) if single => {
                 drop(doc);
                 app.show_toast(e, true);
                 return;
             }
+            Err(e) => {
+                failed.push(format!("{}: {e}", job.file));
+                continue;
+            }
         };
-        match std::fs::write(&path, bytes) {
-            Ok(()) => written.push(path),
+        match sink.write(job, &bytes) {
+            Ok(path) => written.push(path),
             Err(e) => {
                 drop(doc);
-                app.show_toast(format!("Export failed: {e}"), true);
+                app.show_toast(format!("{lead}Export failed: {e}"), true);
                 return;
-            }
-        }
-    } else {
-        let DialogOutcome::Picked(dir) = dialogs.pick(&FileRequest::folder("Choose export folder")) else { return };
-        for job in &jobs {
-            let bytes = match job.setting.render_many(&doc, &job.nodes) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    failed.push(format!("{}: {e}", job.file));
-                    continue;
-                }
-            };
-            let path = dir.join(&job.file);
-            match std::fs::write(&path, bytes) {
-                Ok(()) => written.push(path),
-                Err(e) => {
-                    drop(doc);
-                    app.show_toast(format!("Export failed: {e}"), true);
-                    return;
-                }
             }
         }
     }
     drop(doc);
     let skipped = if failed.is_empty() { String::new() } else { format!(" ({} skipped: {})", failed.len(), failed.join("; ")) };
-    match written.as_slice() {
-        [] => app.show_toast(format!("Nothing exported{skipped}"), true),
-        [one] => app.show_toast(format!("Exported {}{skipped}", one.display()), !failed.is_empty()),
-        many => app.show_toast(format!("Exported {} files{skipped}", many.len()), !failed.is_empty()),
+    let warn = without_dialog || !failed.is_empty();
+    match (written.as_slice(), &sink) {
+        ([], _) => app.show_toast(format!("Nothing exported{skipped}"), true),
+        ([one], _) if without_dialog => app.show_toast(format!("{lead}Saved to {}{skipped}", one.display()), warn),
+        ([one], _) => app.show_toast(format!("Exported {}{skipped}", one.display()), warn),
+        (many, Sink::Dir { dir, .. }) if without_dialog => app.show_toast(format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display()), warn),
+        (many, _) => app.show_toast(format!("Exported {} files{skipped}", many.len()), warn),
     }
 }
 

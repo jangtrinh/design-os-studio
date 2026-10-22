@@ -5,8 +5,15 @@
 //! cancel and says so on a failure. Callers take `&dyn FileDialogs`, so tests drive every outcome
 //! without a real dialog.
 
+use super::dialog_probe::{classify, dialog_backend_present};
+use super::fallback_save::{fallback_dir_in, user_home, write_new_in};
 use crate::app::App;
 use std::path::PathBuf;
+
+/// Open, Save As, Import and every other dialog that cannot open and has nothing to fall back to.
+pub const NO_FILE_DIALOG: &str = "No file dialog. Install zenity or xdg-desktop-portal.";
+/// An export had no dialog and no Downloads or home folder to land in.
+pub const NO_FALLBACK_FOLDER: &str = "No save dialog. No Downloads or home folder found.";
 
 /// How a file dialog request ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,21 +78,15 @@ pub struct SystemDialogs;
 
 impl FileDialogs for SystemDialogs {
     fn pick(&self, request: &FileRequest) -> DialogOutcome {
-        match show_with_rfd(request) {
-            Some(path) => DialogOutcome::Picked(path),
-            None => DialogOutcome::Cancelled,
-        }
+        classify(show_with_rfd(request), dialog_backend_present)
     }
 
     fn pick_many(&self, request: &FileRequest) -> DialogOutcome<Vec<PathBuf>> {
-        match rfd_dialog(request).pick_files() {
-            Some(paths) => DialogOutcome::Picked(paths),
-            None => DialogOutcome::Cancelled,
-        }
+        classify(rfd_dialog(request).pick_files(), dialog_backend_present)
     }
 
     fn fallback_dir(&self) -> Option<PathBuf> {
-        None
+        user_home().map(|home| fallback_dir_in(&home))
     }
 }
 
@@ -113,20 +114,41 @@ fn show_with_rfd(request: &FileRequest) -> Option<PathBuf> {
 }
 
 impl App {
-    /// The path a dialog gave, or `None` after a cancel or a failure.
+    /// The path a dialog gave. A cancel returns `None` in silence; a dialog that could not open says so first.
     pub fn picked_path(&mut self, outcome: DialogOutcome) -> Option<PathBuf> {
         match outcome {
             DialogOutcome::Picked(path) => Some(path),
-            DialogOutcome::Cancelled | DialogOutcome::Unavailable => None,
+            DialogOutcome::Cancelled => None,
+            DialogOutcome::Unavailable => {
+                self.show_toast(NO_FILE_DIALOG, true);
+                None
+            }
         }
     }
 
-    /// The paths a multi-select dialog gave, or `None` after a cancel or a failure.
+    /// The paths a multi-select dialog gave, with the same silence on a cancel and message on a failure.
     pub fn picked_paths(&mut self, outcome: DialogOutcome<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
         match outcome {
             DialogOutcome::Picked(paths) => Some(paths),
-            DialogOutcome::Cancelled | DialogOutcome::Unavailable => None,
+            DialogOutcome::Cancelled => None,
+            DialogOutcome::Unavailable => {
+                self.show_toast(NO_FILE_DIALOG, true);
+                None
+            }
         }
+    }
+
+    /// The export had no save dialog: puts `bytes` in the fallback folder under a name that is not taken,
+    /// and says where it went, or why it could not.
+    pub fn save_without_dialog(&mut self, dialogs: &dyn FileDialogs, file_name: &str, bytes: &[u8]) {
+        let text = match dialogs.fallback_dir() {
+            None => NO_FALLBACK_FOLDER.to_string(),
+            Some(dir) => match write_new_in(&dir, file_name, bytes) {
+                Ok(path) => format!("No save dialog. Saved to {}", path.display()),
+                Err(e) => format!("No save dialog. Export failed: {e}"),
+            },
+        };
+        self.show_toast(text, true);
     }
 }
 

@@ -2147,12 +2147,21 @@ impl App {
             return;
         };
         let name = self.doc.get(id).map(|n| n.name.clone()).unwrap_or_default();
-        let io::DialogOutcome::Picked(path) = dialogs.pick(&io::export_request(&name)) else { return };
+        let outcome = dialogs.pick(&io::export_request(&name));
+        let path = match outcome {
+            io::DialogOutcome::Picked(path) => Some(path),
+            io::DialogOutcome::Cancelled => return,
+            io::DialogOutcome::Unavailable => None,
+        };
         let png = designos_export::export_png(&self.export_doc(), id, 1.0);
         if png.is_empty() {
             self.show_toast("Nothing to export", true);
             return;
         }
+        let Some(path) = path else {
+            self.save_without_dialog(dialogs, &format!("{name}.png"), &png);
+            return;
+        };
         match std::fs::write(&path, png) {
             Ok(()) => self.show_toast(format!("Exported {}", path.display()), false),
             Err(e) => self.show_toast(format!("Export failed: {e}"), true),

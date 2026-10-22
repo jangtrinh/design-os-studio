@@ -559,7 +559,6 @@ fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
     }
 }
 
-/// Runs one action against the library, reporting failures as toasts.
 /// Import: asks for design files and brings them into the current project (or the first one, or a new one).
 pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) {
     let request = crate::io::FileRequest::open()
@@ -590,6 +589,7 @@ pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) 
     }
 }
 
+/// Runs one action against the library, reporting failures as toasts.
 pub fn apply(app: &mut App, act: Act) {
     let Some(lib) = app.lib.clone() else { return };
     fn ok<T>(app: &mut App, r: designos_library::Result<T>) -> Option<T> {

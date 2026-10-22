@@ -69,6 +69,8 @@ sudo apt install ./designos_<version>_amd64.deb
 
 This installs `/usr/bin/{designos-studio,designos,designos-mcp,designos-diff}`, the desktop launcher (`/usr/share/applications/designos.desktop`), hicolor icons, and `.designos` / `.fig` MIME types.
 
+The package recommends `xdg-desktop-portal | zenity` for the file dialog (see [File dialogs](#file-dialogs-on-linux)).
+
 ### Option B: Universal Linux Tarball (`install.sh`, No Root Required)
 
 ```bash
@@ -84,6 +86,17 @@ By default, `./install.sh` installs under `~/.local/bin` and `~/.local/share` (o
 ```
 
 The binaries link the glibc of the build machine, so they run on that Linux distribution or newer.
+
+### File dialogs on Linux
+
+Open, Save As, Import and Export show your system's file dialog. Linux needs one of these installed:
+
+- `xdg-desktop-portal` with a desktop backend, such as `xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`. Most desktop installs already have them.
+- `zenity`, the fallback when no portal is available.
+
+On a minimal system, a VM, or a bare window manager, install one: `sudo apt install zenity`.
+
+Without a dialog, Studio says so and cannot browse for a file. An export still saves, to `~/Downloads` (or your home folder when there is no Downloads folder), under a name that is not taken, and the message shows the full path. You can still open a `.designos` or `.fig` file by dragging it onto the window.
 
 ---
 

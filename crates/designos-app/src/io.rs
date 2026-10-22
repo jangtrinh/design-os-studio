@@ -1,12 +1,15 @@
 //! Opening and saving documents.
 
+mod dialog_probe;
+mod fallback_save;
 mod file_dialog;
-
-#[cfg(test)]
-pub use file_dialog::ScriptedDialogs;
-pub use file_dialog::{DialogOutcome, FileDialogs, FileRequest, SystemDialogs};
 #[cfg(test)]
 mod file_dialog_flow_tests;
+
+pub use fallback_save::write_new_in;
+#[cfg(test)]
+pub use file_dialog::ScriptedDialogs;
+pub use file_dialog::{DialogOutcome, FileDialogs, FileRequest, SystemDialogs, NO_FALLBACK_FOLDER};
 
 use designos_doc::{Document, Vec2};
 use std::collections::{HashMap, HashSet};
