@@ -1115,6 +1115,7 @@ mod proto;
 mod proto_vars;
 mod relayout_budget;
 mod slot_canvas_edits;
+mod stale_canvas_after_agent_edit;
 mod style_edit;
 mod svg;
 mod typography;
