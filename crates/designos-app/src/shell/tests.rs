@@ -1144,6 +1144,7 @@ mod live_patch_agent_switch;
 mod live_patch_agent_switch_edges;
 mod live_patch_agent_switch_guards;
 mod menus;
+mod palette_autofix_undo;
 mod panel_keys;
 mod proto;
 mod proto_vars;

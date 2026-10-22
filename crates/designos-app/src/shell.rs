@@ -1758,15 +1758,20 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
         }
         crate::cmdk::CmdKAction::OpenCheckDesigns => app.open_check_designs(),
         crate::cmdk::CmdKAction::AutoFixDesignGate => {
-            let sel = app.selection.clone();
-            let page = app.page;
-            let fixed_count = crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &sel);
-            app.changed();
+            let Some(fixed_count) = crate::cmdk::run_auto_fix_design_gate(app) else {
+                // A refused edit (old version, failed commit) was explained by `run_tx`; only a clean no-op needs words.
+                if !app.toast.as_ref().is_some_and(|t| t.error) {
+                    app.show_toast("Nothing changed", false);
+                }
+                return;
+            };
             app.cmdk.last_audit = Some(crate::cmdk::run_design_gate_audit(&app.doc, app.page, &app.selection));
+            // The palette's search field keeps the keyboard while it is open, so Cmd+Z would not reach the canvas.
+            app.cmdk.open = false;
             let fp = app.file_path.clone();
             app.show_agents_panel();
             app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
-            app.show_toast(format!("Applied {fixed_count} Figma AI change(s) (Cmd+Z to Undo)"), false);
+            app.show_toast("Changes applied · Cmd+Z to undo", false);
         }
     }
 }

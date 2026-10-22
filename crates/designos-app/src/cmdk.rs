@@ -8,6 +8,8 @@
 //! - Concentric radii (`12px` outer dialog, `6px` inner rows and controls)
 //! - Semantic status pills (`OK #4CC58B`, `WARN #E0A53C`, `BAD #FF7A8C`, `INFO #8FB0FF`)
 
+use crate::app::App;
+use crate::edit::Tx;
 use crate::icons::{self, Icon};
 use crate::terminal::{
     AgentCliPreset, STATUS_BAD_BG, STATUS_BAD_BORDER, STATUS_BAD_TEXT, STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT, STATUS_OK_BG, STATUS_OK_BORDER,
@@ -15,7 +17,7 @@ use crate::terminal::{
 };
 use crate::theme;
 use crate::widgets;
-use designos_doc::{Document, LayoutSpec, NodeId, NodeKind, NodeSpec, PaintKind};
+use designos_doc::{Command, Document, LayoutSpec, NodeId, NodeKind, NodeSpec, PaintKind};
 use egui::{Align2, Area, Color32, Context, CornerRadius, Id, Key, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 /// Persistent UI state for the floating `Cmd+K` Agent & Design Gate Bar.
@@ -77,6 +79,10 @@ fn queue_pending_ai_op(op: FigmaAiOp) {
 
 fn take_pending_ai_op() -> Option<FigmaAiOp> {
     PENDING_AI_OP.lock().ok().and_then(|mut slot| slot.take())
+}
+
+fn peek_pending_ai_op() -> Option<FigmaAiOp> {
+    PENDING_AI_OP.lock().ok().and_then(|slot| *slot)
 }
 
 /// Actions returned by `cmdk::show` for the host `App` / `Shell` to execute.
@@ -591,6 +597,7 @@ fn render_audit_section(
     // 1-Click "Auto-Fix Spacing & Tap Targets" button with Sparkle vector icon
     let fix_w = 198.0;
     let fix_rect = Rect::from_min_size(Pos2::new(sec_rect.right() - fix_w - 12.0, sec_rect.top() + 8.0), Vec2::new(fix_w, 22.0));
+    widgets::record(ui, "cmdk-autofix-gate-btn", fix_rect);
     let fix_resp = ui.interact(fix_rect, Id::new("cmdk-autofix-gate-btn"), Sense::click());
     p.rect_filled(fix_rect, CornerRadius::same(6), if fix_resp.hovered() { TERM_BG_HOVER } else { STATUS_WARN_BG });
     p.rect_stroke(fix_rect, CornerRadius::same(6), Stroke::new(1.0, STATUS_WARN_BORDER), StrokeKind::Inside);
@@ -1043,6 +1050,46 @@ pub fn run_design_gate_audit(doc: &Document, page: NodeId, selection: &[NodeId])
     let score = if node_count == 0 { 100 } else { 100u32.saturating_sub(penalty).max(15) };
 
     DesignGateReport { score: if warnings.is_empty() { 100 } else { score }, passed, warnings, node_count }
+}
+
+/// Every node [`auto_fix_design_gate`] may write for `selection` (or the whole `page` when nothing is selected):
+/// the subtrees it walks, and the page's frames when the queued operation is the prototype wiring, which takes
+/// them whenever fewer than two frames are selected. A relayout only moves nodes below the one that changed, so
+/// the subtrees are the whole write set.
+pub fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId]) -> Vec<NodeId> {
+    let wires_page_frames = matches!(peek_pending_ai_op(), Some(FigmaAiOp::MakePrototype));
+    let roots: Vec<NodeId> =
+        if selection.is_empty() || wires_page_frames { doc.get(page).map(|pg| pg.children.clone()).unwrap_or_default() } else { selection.to_vec() };
+    let mut scope = Vec::new();
+    for root in roots {
+        collect_subtree(doc, root, &mut scope);
+    }
+    scope
+}
+
+/// Runs the queued Figma AI operation, or the design-gate fix when none is queued, as one undo step through
+/// [`App::run_tx`]. The operations write straight into `app.doc`, so the nodes they may write are recorded in the
+/// transaction before they run, and the prototype flows, which belong to the document and not to a node, go
+/// through their own command. Returns the operation's count when its changes were committed, and `None` when
+/// it changed nothing or the edit was refused (`run_tx` has already said why).
+pub fn run_auto_fix_design_gate(app: &mut App) -> Option<usize> {
+    let selection = app.selection.clone();
+    let page = app.page;
+    let mut tx = Tx::new();
+    for id in auto_fix_scope(&app.doc, page, &selection) {
+        tx.ed.touch(&app.doc, id);
+    }
+    let flows_before = app.doc.flows.clone();
+    let fixed = auto_fix_design_gate(&mut app.doc, page, &selection);
+    if app.doc.flows != flows_before {
+        let flows = std::mem::replace(&mut app.doc.flows, flows_before);
+        if let Err(e) = tx.cmd(&mut app.doc, Command::SetFlows { flows }) {
+            tx.cancel(&mut app.doc);
+            app.show_toast(format!("Edit failed: {e}"), true);
+            return None;
+        }
+    }
+    app.run_tx(tx).then_some(fixed)
 }
 
 /// Auto-fixes spacing rhythm (snaps `item_spacing` and `padding` to nearest 4px multiple),
