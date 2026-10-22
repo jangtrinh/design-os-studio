@@ -54,6 +54,15 @@ fn overlays() -> Vec<Overlay> {
         select(s, "Hero");
         s.shell.app.props.style_menu = Some(designos_doc::StyleProperty::Effect);
     }
+    fn open_paint_styles_menu(s: &mut Sim) {
+        select(s, "Hero");
+        s.shell.app.props.styles_menu = Some(false);
+    }
+    fn open_variables_menu(s: &mut Sim) {
+        s.shell.app.open_variables();
+        let anchor = Rect::from_min_size(Pos2::new(690.0, 280.0), Vec2::splat(20.0));
+        s.shell.app.vars.menu = Some(crate::variables::VarMenu { kind: crate::variables::VarMenuKind::Filter, pos: Pos2::new(700.0, 310.0), anchor });
+    }
     fn open_ai_fill_menu(s: &mut Sim) {
         let hero = s.by_name("Hero");
         s.shell.app.image_jobs.open_fill_menu = Some((hero, 0, Rect::from_min_size(Pos2::new(1300.0, 300.0), Vec2::splat(20.0))));
@@ -69,6 +78,8 @@ fn overlays() -> Vec<Overlay> {
         ("overlapping layer picker", open_layer_picker, |s| s.app().ui.layer_picker.is_some()),
         ("inspector effects menu", open_effects_menu, |s| s.app().props.fx_menu),
         ("inspector style menu", open_style_menu, |s| s.app().props.style_menu.is_some()),
+        ("inspector paint styles menu", open_paint_styles_menu, |s| s.app().props.styles_menu.is_some()),
+        ("variables menu", open_variables_menu, |s| s.app().vars.menu.is_some()),
         ("AI fill menu", open_ai_fill_menu, |s| s.app().image_jobs.open_fill_menu.is_some()),
     ]
 }
@@ -175,6 +186,49 @@ fn esc_closes_the_overlay_without_also_closing_the_session_menu_below_it() {
 
     s.key(Key::Escape);
     assert!(!s.app().terminal.runtime_dropdown_open, "the next Esc closes the menu");
+}
+
+/// The menus whose host section draws only while something is selected or the Variables view is open: the host can stop
+/// drawing (an agent edit removes the node, an undo, the view closes) without a press, and the flag then has nothing to
+/// clear it.
+const HOST_DEPENDENT: &[&str] = &[
+    "inspector instance menu",
+    "inspector add-property menu",
+    "inspector effects menu",
+    "inspector style menu",
+    "inspector paint styles menu",
+    "variables menu",
+];
+
+#[test]
+fn a_menu_whose_host_stopped_drawing_does_not_leave_the_terminal_deaf() {
+    let mut problems = Vec::new();
+    for overlay in overlays().into_iter().filter(|(name, _, _)| HOST_DEPENDENT.contains(name)) {
+        let (name, _, is_open) = overlay;
+        let mut s = match sim_with_overlay_open(&overlay) {
+            Ok(s) => s,
+            Err(why) => {
+                problems.push(why);
+                continue;
+            }
+        };
+        // What an agent edit that deletes the selected node does: the inspector section that draws the menu is gone.
+        s.shell.app.selection.clear();
+        s.shell.app.vars.open = false;
+        s.frame(vec![]);
+        s.frame(vec![]);
+        if !is_open(&s) {
+            problems.push(format!("{name}: precondition failed, the flag was cleared by something else"));
+            continue;
+        }
+        s.shell.app.terminal.tabs[0].written_bytes.clear();
+        s.type_text("y");
+        if !terminal_bytes(&s).contains(&b'y') {
+            problems.push(format!("{name}: the menu is not on screen but the terminal ignores typing: {:?}", terminal_bytes(&s)));
+        }
+        finish(s);
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 /// The web capture import report: a floating sheet at the right of the canvas with no backdrop, closed by its own button or Esc.
