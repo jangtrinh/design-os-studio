@@ -12,6 +12,7 @@ use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 const ROW_GAP: f32 = 8.0;
 const PREVIEW_H: f32 = 120.0;
@@ -429,66 +430,94 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
     jobs
 }
 
+/// Where a batch of export files goes.
+enum Sink {
+    /// The one file the save dialog chose.
+    File(PathBuf),
+    /// A folder: the chosen one (files are replaced) or the fallback one (nothing is replaced).
+    Dir { dir: PathBuf, keep_existing: bool },
+}
+
+impl Sink {
+    fn write(&self, job: &ExportJob, bytes: &[u8]) -> std::io::Result<PathBuf> {
+        match self {
+            Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()),
+            Sink::Dir { dir, keep_existing: false } => {
+                let path = dir.join(&job.file);
+                std::fs::write(&path, bytes).map(|()| path)
+            }
+            Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes),
+        }
+    }
+}
+
 /// Writes every selected layer with its own export rows. One file asks for a
-/// path; several ask for a folder and use `name@2x.png` style names.
+/// path; several ask for a folder and use `name@2x.png` style names. When no
+/// dialog can open the files go to the fallback folder and the toast says so.
 pub fn run_export(app: &mut App, ids: &[NodeId]) {
+    run_export_with(app, ids, &crate::io::SystemDialogs);
+}
+
+pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::FileDialogs) {
+    use crate::io::{DialogOutcome, FileRequest};
     let jobs = plan_export(&app.doc, ids);
     if jobs.is_empty() {
         app.show_toast("Nothing to export", true);
         return;
     }
+    let single = jobs.len() == 1;
+    let outcome = match jobs.as_slice() {
+        [job] => dialogs.pick(&FileRequest::save(job.file.as_str()).filter(job.setting.format.label(), &[job.setting.format.extension()])),
+        _ => dialogs.pick(&FileRequest::folder("Choose export folder")),
+    };
+    let (sink, without_dialog) = match outcome {
+        DialogOutcome::Cancelled => return,
+        DialogOutcome::Picked(path) if single => (Sink::File(path), false),
+        DialogOutcome::Picked(dir) => (Sink::Dir { dir, keep_existing: false }, false),
+        DialogOutcome::Unavailable => match dialogs.fallback_dir() {
+            Some(dir) => (Sink::Dir { dir, keep_existing: true }, true),
+            None => {
+                app.show_toast(crate::io::NO_FALLBACK_FOLDER, true);
+                return;
+            }
+        },
+    };
+    let lead = if without_dialog { "No save dialog. " } else { "" };
     // Variable bindings are applied like in the preview and the deck PDF.
     let doc = app.export_doc();
     let mut written = Vec::new();
     let mut failed: Vec<String> = Vec::new();
-    if let [job] = jobs.as_slice() {
-        let Some(path) = rfd::FileDialog::new().add_filter(job.setting.format.label(), &[job.setting.format.extension()]).set_file_name(&job.file).save_file()
-        else {
-            return;
-        };
+    for job in &jobs {
         let bytes = match job.setting.render_many(&doc, &job.nodes) {
             Ok(bytes) => bytes,
-            Err(e) => {
+            Err(e) if single => {
                 drop(doc);
                 app.show_toast(e, true);
                 return;
             }
+            Err(e) => {
+                failed.push(format!("{}: {e}", job.file));
+                continue;
+            }
         };
-        match std::fs::write(&path, bytes) {
-            Ok(()) => written.push(path),
+        match sink.write(job, &bytes) {
+            Ok(path) => written.push(path),
             Err(e) => {
                 drop(doc);
-                app.show_toast(format!("Export failed: {e}"), true);
+                app.show_toast(format!("{lead}Export failed: {e}"), true);
                 return;
-            }
-        }
-    } else {
-        let Some(dir) = rfd::FileDialog::new().set_title("Choose export folder").pick_folder() else { return };
-        for job in &jobs {
-            let bytes = match job.setting.render_many(&doc, &job.nodes) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    failed.push(format!("{}: {e}", job.file));
-                    continue;
-                }
-            };
-            let path = dir.join(&job.file);
-            match std::fs::write(&path, bytes) {
-                Ok(()) => written.push(path),
-                Err(e) => {
-                    drop(doc);
-                    app.show_toast(format!("Export failed: {e}"), true);
-                    return;
-                }
             }
         }
     }
     drop(doc);
     let skipped = if failed.is_empty() { String::new() } else { format!(" ({} skipped: {})", failed.len(), failed.join("; ")) };
-    match written.as_slice() {
-        [] => app.show_toast(format!("Nothing exported{skipped}"), true),
-        [one] => app.show_toast(format!("Exported {}{skipped}", one.display()), !failed.is_empty()),
-        many => app.show_toast(format!("Exported {} files{skipped}", many.len()), !failed.is_empty()),
+    let warn = without_dialog || !failed.is_empty();
+    match (written.as_slice(), &sink) {
+        ([], _) => app.show_toast(format!("Nothing exported{skipped}"), true),
+        ([one], _) if without_dialog => app.show_toast(format!("{lead}Saved to {}{skipped}", one.display()), warn),
+        ([one], _) => app.show_toast(format!("Exported {}{skipped}", one.display()), warn),
+        (many, Sink::Dir { dir, .. }) if without_dialog => app.show_toast(format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display()), warn),
+        (many, _) => app.show_toast(format!("Exported {} files{skipped}", many.len()), warn),
     }
 }
 
@@ -624,6 +653,129 @@ mod tests {
         app.edit_export_rows(&[a, b], &RowEdit::Remove(new));
         assert_eq!(app.doc.get(b).unwrap().export_settings, vec![]);
         assert_eq!(app.doc.get(a).unwrap().export_settings.len(), 1, "the non-shared row is kept");
+    }
+
+    /// Two rectangles named Alpha and Beta, each with one PNG row.
+    fn named_rects_with_png_rows() -> (App, NodeId, NodeId) {
+        let (mut app, a, b) = two_rects();
+        app.doc.get_mut(a).unwrap().name = "Alpha".into();
+        app.doc.get_mut(b).unwrap().name = "Beta".into();
+        app.edit_export_rows(&[a, b], &RowEdit::Add(ExportPreset::default()));
+        (app, a, b)
+    }
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("designos_export_{}_{name}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files_in(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    fn toast_of(app: &App) -> Option<(String, bool)> {
+        app.toast.as_ref().map(|t| (t.text.clone(), t.error))
+    }
+
+    #[test]
+    fn one_file_without_a_save_dialog_lands_in_the_fallback_folder_and_says_so() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("one_unavailable");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let saved = dir.join("Alpha.png");
+        assert!(saved.is_file(), "{:?}", files_in(&dir));
+        assert!(std::fs::read(&saved).unwrap().starts_with(b"\x89PNG"));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn one_file_in_the_fallback_folder_never_overwrites() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("one_no_overwrite");
+        std::fs::write(dir.join("Alpha.png"), b"keep me").unwrap();
+        let (mut app, a, _) = named_rects_with_png_rows();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        assert_eq!(std::fs::read(dir.join("Alpha.png")).unwrap(), b"keep me");
+        let saved = dir.join("Alpha 2.png");
+        assert!(saved.is_file(), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app).unwrap().0, format!("No save dialog. Saved to {}", saved.display()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn several_files_without_a_dialog_all_land_in_the_fallback_folder() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("many_unavailable");
+        std::fs::write(dir.join("Beta.png"), b"keep me").unwrap();
+        let (mut app, a, b) = named_rects_with_png_rows();
+        run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        assert_eq!(files_in(&dir), ["Alpha.png", "Beta 2.png", "Beta.png"], "the existing Beta.png is kept");
+        assert_eq!(std::fs::read(dir.join("Beta.png")).unwrap(), b"keep me");
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved 2 files to {}", dir.display()), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_very_long_layer_name_still_saves_to_the_fallback_folder() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("long_name");
+        let (mut app, a, b) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "a".repeat(300);
+        app.doc.get_mut(b).unwrap().name = "b".repeat(300);
+        for ids in [vec![a], vec![a, b]] {
+            run_export_with(&mut app, &ids, &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+            assert!(toast_of(&app).unwrap().0.starts_with("No save dialog. Saved"), "{:?}", toast_of(&app));
+        }
+        let names = files_in(&dir);
+        assert_eq!(names.len(), 3, "one file, then two more: {names:?}");
+        assert!(names.iter().all(|n| n.len() <= 255 && n.ends_with(".png")), "{names:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_without_a_dialog_or_a_fallback_folder_still_says_so() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let (mut app, a, b) = named_rects_with_png_rows();
+        for ids in [vec![a], vec![a, b]] {
+            app.toast = None;
+            run_export_with(&mut app, &ids, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
+            assert_eq!(toast_of(&app), Some(("No save dialog. No Downloads or home folder found.".to_string(), true)));
+        }
+    }
+
+    #[test]
+    fn export_cancel_is_silent_and_writes_nothing() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("cancel");
+        let (mut app, a, b) = named_rects_with_png_rows();
+        for ids in [vec![a], vec![a, b]] {
+            run_export_with(&mut app, &ids, &ScriptedDialogs::answering(DialogOutcome::Cancelled).with_fallback(dir.clone()));
+            assert_eq!(toast_of(&app), None);
+        }
+        assert!(files_in(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_writes_where_the_dialog_picked() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("picked");
+        let (mut app, a, b) = named_rects_with_png_rows();
+        let target = dir.join("chosen.png");
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())).with_fallback(dir.join("unused")));
+        assert_eq!(toast_of(&app), Some((format!("Exported {}", target.display()), false)));
+        let folder = scratch_dir("picked_folder");
+        run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Picked(folder.clone())));
+        assert_eq!(files_in(&folder), ["Alpha.png", "Beta.png"]);
+        assert_eq!(files_in(&dir), ["chosen.png"], "nothing lands in the fallback folder");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     fn two_frames_with_pdf_rows() -> (App, NodeId, NodeId) {

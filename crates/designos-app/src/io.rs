@@ -1,5 +1,16 @@
 //! Opening and saving documents.
 
+mod dialog_probe;
+mod fallback_save;
+mod file_dialog;
+#[cfg(test)]
+mod file_dialog_flow_tests;
+
+pub use fallback_save::write_new_in;
+#[cfg(test)]
+pub use file_dialog::ScriptedDialogs;
+pub use file_dialog::{DialogOutcome, FileDialogs, FileRequest, SystemDialogs, NO_FALLBACK_FOLDER};
+
 use designos_doc::{Document, Vec2};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -347,33 +358,30 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
     Ok((p, replaced))
 }
 
-pub fn pick_open() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .add_filter("Design files", &[NATIVE_EXT, LEGACY_EXT, "fig", "pen", "json", "webcapture", "svg"])
-        .add_filter("design:os studio", &[NATIVE_EXT, LEGACY_EXT])
-        .add_filter("Figma file", &["fig"])
-        .add_filter("Pencil file", &["pen"])
-        .add_filter("Web capture", &["json", "webcapture"])
-        .add_filter("SVG", &["svg"])
-        .add_filter("JSON", &["json"])
-        .pick_file()
+pub fn open_request() -> FileRequest {
+    FileRequest::open()
+        .filter("Design files", &[NATIVE_EXT, LEGACY_EXT, "fig", "pen", "json", "webcapture", "svg"])
+        .filter("design:os studio", &[NATIVE_EXT, LEGACY_EXT])
+        .filter("Figma file", &["fig"])
+        .filter("Pencil file", &["pen"])
+        .filter("Web capture", &["json", "webcapture"])
+        .filter("SVG", &["svg"])
+        .filter("JSON", &["json"])
 }
 
-pub fn pick_web_capture() -> Option<PathBuf> {
-    rfd::FileDialog::new().add_filter("Web capture", &["json", "webcapture"]).pick_file()
+pub fn web_capture_request() -> FileRequest {
+    FileRequest::open().filter("Web capture", &["json", "webcapture"])
 }
 
-pub fn pick_save(default_name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .add_filter("design:os studio", &[NATIVE_EXT, LEGACY_EXT])
-        .add_filter("Figma file", &["fig"])
-        .add_filter("Pencil file", &["pen"])
-        .set_file_name(format!("{default_name}.{NATIVE_EXT}"))
-        .save_file()
+pub fn save_request(default_name: &str) -> FileRequest {
+    FileRequest::save(format!("{default_name}.{NATIVE_EXT}"))
+        .filter("design:os studio", &[NATIVE_EXT, LEGACY_EXT])
+        .filter("Figma file", &["fig"])
+        .filter("Pencil file", &["pen"])
 }
 
-pub fn pick_export(default_name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name(format!("{default_name}.png")).save_file()
+pub fn export_request(default_name: &str) -> FileRequest {
+    FileRequest::save(format!("{default_name}.png")).filter("PNG", &["png"])
 }
 
 /// Like [`save_path`], also returning the once-per-file notice when non-finite numbers were replaced.

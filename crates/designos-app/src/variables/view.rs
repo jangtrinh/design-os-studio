@@ -1579,9 +1579,7 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                         1 => designos_fig::VariablesFormat::Dtcg,
                         _ => designos_fig::VariablesFormat::FigmaRest,
                     };
-                    if let Some(paths) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", &["json", "zip"]).pick_files() {
-                        app.spawn_import_variables_files_with_format(paths, fmt);
-                    }
+                    import_variables_dialog(app, fmt, &crate::io::SystemDialogs);
                 }
                 (VarMenuKind::Settings, 3..=5) => {
                     let (fmt, default_name, exts) = match i {
@@ -1589,9 +1587,7 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                         4 => (designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"][..]),
                         _ => (designos_fig::VariablesFormat::FigmaRest, "variables.json", &["json"][..]),
                     };
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", exts).set_file_name(default_name).save_file() {
-                        app.spawn_export_variables_with_format(path, fmt);
-                    }
+                    export_variables_dialog(app, fmt, default_name, exts, &crate::io::SystemDialogs);
                 }
                 (VarMenuKind::Settings, _) => {
                     app.vars.show_skipped_details = true;
@@ -1608,6 +1604,26 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 }
             }
         }
+    }
+}
+
+pub(crate) fn import_variables_dialog(app: &mut App, fmt: designos_fig::VariablesFormat, dialogs: &dyn crate::io::FileDialogs) {
+    let outcome = dialogs.pick_many(&crate::io::FileRequest::open().filter("Variables / Design Tokens", &["json", "zip"]));
+    if let Some(paths) = app.picked_paths(outcome) {
+        app.spawn_import_variables_files_with_format(paths, fmt);
+    }
+}
+
+pub(crate) fn export_variables_dialog(
+    app: &mut App,
+    fmt: designos_fig::VariablesFormat,
+    default_name: &str,
+    exts: &[&str],
+    dialogs: &dyn crate::io::FileDialogs,
+) {
+    let outcome = dialogs.pick(&crate::io::FileRequest::save(default_name).filter("Variables / Design Tokens", exts));
+    if let Some(path) = app.picked_path(outcome) {
+        app.spawn_export_variables_with_format(path, fmt);
     }
 }
 

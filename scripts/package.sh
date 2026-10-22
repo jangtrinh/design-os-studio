@@ -150,6 +150,7 @@ Priority: optional
 Architecture: $deb_arch
 Installed-Size: $installed_kb
 Depends: libc6, libgl1, libx11-6, libwayland-client0, libxkbcommon0, libfontconfig1
+Recommends: zenity | xdg-desktop-portal
 Maintainer: design:os studio contributors <opensource@designos.dev>
 Homepage: https://github.com/jangtrinh/design-os-studio
 Description: design:os studio — vector, UI, and spec design studio
