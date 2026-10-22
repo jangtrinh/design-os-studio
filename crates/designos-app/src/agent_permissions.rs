@@ -608,6 +608,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Commands Studio runs for screenshot fixtures and previews run whatever the user's mode is, so none of them
+    /// may carry a skip or bypass flag. A new fixture command goes into this list.
+    #[test]
+    fn no_fixture_or_preview_command_carries_a_skip_or_bypass_flag() {
+        const FIXTURE_COMMANDS: [(&str, &str); 1] = [("--panel agents-start-failure", crate::terminal::START_FAILURE_FIXTURE_COMMAND)];
+        const BYPASS_FLAGS: [&str; 4] =
+            ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--always-approve", "--approval-mode yolo"];
+        for (fixture, command) in FIXTURE_COMMANDS {
+            for flag in BYPASS_FLAGS {
+                assert!(!command.contains(flag), "fixture `{fixture}` runs `{command}`, which carries `{flag}`");
+            }
+        }
+    }
+
     #[test]
     fn skip_mode_launch_commands_unchanged() {
         for preset in

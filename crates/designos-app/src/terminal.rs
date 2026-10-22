@@ -74,6 +74,11 @@ macro_rules! codex_mcp_overrides {
     };
 }
 
+/// The command behind the `--panel agents-start-failure` screenshot fixture. `agy` rejects `--mcp-config` and
+/// exits at once, which is what the failure panel shows. It must never carry a skip or bypass flag: it runs
+/// whatever the user's permission mode is (`#841`).
+pub(crate) const START_FAILURE_FIXTURE_COMMAND: &str = "agy --mcp-config /nonexistent/mcp.json";
+
 /// How Studio launches an agent CLI with respect to tool-approval prompts (`#645`, `#679`).
 /// Ask is the default and the fail-closed answer for any unknown or unreadable setting (`#841`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -2480,8 +2485,7 @@ impl TerminalState {
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
     /// `agy` invocation that exits at once with a usage error, then waits for the failure panel.
     pub fn open_failed_start_fixture(&mut self, file_path: Option<&Path>) {
-        let command = "agy --dangerously-skip-permissions --mcp-config /nonexistent/mcp.json";
-        if self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(command)).is_err() {
+        if self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(START_FAILURE_FIXTURE_COMMAND)).is_err() {
             return;
         }
         let deadline = std::time::Instant::now() + agent_start_failure::START_FAILURE_WINDOW;
