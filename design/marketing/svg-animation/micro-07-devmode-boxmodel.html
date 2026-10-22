@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DESIGN:OS Studio — Dev Mode Box-Model & 5-Target Codegen (07 / 08)</title>
+  <title>DESIGN:OS Studio — Dev Mode Box-Model &amp; 5-Target Codegen (07 / 08)</title>
   <link rel="stylesheet" href="./sf-pro-rounded.css" />
   <style>
     :root {
@@ -421,6 +421,11 @@
       width: fit-content;
     }
 
+    .outro-credit-badge {
+      font-family: var(--font-mono);
+      color: #a1a1aa;
+    }
+
     /* Bottom iOS 26 Liquid Glass HUD Dock */
     #bottom-dock {
       position: absolute;
@@ -652,7 +657,7 @@
       </div>
       <div class="apple-pill-dark">
         <svg width="15" height="15"><use href="#icon-code"></use></svg>
-        <span id="top-phase-label">07 / 08 · Dev Mode Box-Model & 5-Target Codegen</span>
+        <span id="top-phase-label">07 / 08 · Dev Mode Box-Model &amp; 5-Target Codegen</span>
       </div>
     </header>
 
@@ -672,13 +677,13 @@
           <div class="intro-icon-orb">
             <svg width="36" height="36"><use href="#icon-code"></use></svg>
           </div>
-          <h1 class="intro-title">Dev Mode Box-Model & 5-Target Codegen</h1>
-          <p class="intro-subtitle">Emerald padding & orange gap redlines + live React, Tailwind, CSS, SwiftUI & Compose</p>
+          <h1 class="intro-title">Dev Mode Box-Model &amp; 5-Target Codegen</h1>
+          <p class="intro-subtitle">Box model and generated code for an auto-layout frame: React, Tailwind, CSS, SwiftUI and Compose</p>
         </div>
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-chip">Shift+D Dev Mode</span><span class="apple-chip">Emerald Padding</span><span class="apple-chip">React / Tailwind</span><span class="apple-chip">SwiftUI / Compose</span>
+            <span class="apple-chip">Dev Mode</span><span class="apple-chip">Box Model</span><span class="apple-chip">React / Tailwind</span><span class="apple-chip">CSS / SwiftUI / Compose</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-check-circle"></use></svg>
@@ -697,19 +702,19 @@
           </div>
           <div class="window-title-pill">
             <svg width="14" height="14"><use href="#icon-code"></use></svg>
-            <span>designos-studio — Dev Mode Box-Model & 5-Target Codegen</span>
+            <span>designos-studio — Dev Mode Box-Model &amp; 5-Target Codegen</span>
           </div>
           <div id="header-step-readout" class="window-step-counter">STEP 01 / 06</div>
         </div>
 
         <div class="studio-viewport">
           <div id="camera-rig">
-            <img id="real-step-1" class="real-studio-shot" src="../screenshots/micro/m07-step1.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 1: Press Shift + D -> Enter Dev Mode Inspector" style="opacity:1" />
-              <img id="real-step-2" class="real-studio-shot" src="../screenshots/micro/m07-step2.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 2: Hover Auto-Layout Frame -> Emerald Padding & Orange Gap" style="opacity:0" />
-              <img id="real-step-3" class="real-studio-shot" src="../screenshots/micro/m07-step3.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 3: Switch Target Language -> Tailwind v4 Utility Codegen" style="opacity:0" />
-              <img id="real-step-4" class="real-studio-shot" src="../screenshots/micro/m07-step4.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 4: Switch Target Language -> Modern CSS & Token Vars" style="opacity:0" />
-              <img id="real-step-5" class="real-studio-shot" src="../screenshots/micro/m07-step5.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 5: Switch Target Language -> Native Apple SwiftUI" style="opacity:0" />
-              <img id="real-step-6" class="real-studio-shot" src="../screenshots/micro/m07-step6.png" alt="Dev Mode Box-Model & 5-Target Codegen — Step 6: Switch Target Language -> Android Jetpack Compose" style="opacity:0" />
+            <img id="real-step-1" class="real-studio-shot" src="./micro-kit/m07-step1.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 1: Dev Mode: Inspect panel with React code" style="opacity:1" />
+            <img id="real-step-2" class="real-studio-shot" src="./micro-kit/m07-step2.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 2: Box model: padding 16 around the frame" style="opacity:0" />
+            <img id="real-step-3" class="real-studio-shot" src="./micro-kit/m07-step3.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 3: Target: Tailwind" style="opacity:0" />
+            <img id="real-step-4" class="real-studio-shot" src="./micro-kit/m07-step4.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 4: Target: CSS" style="opacity:0" />
+            <img id="real-step-5" class="real-studio-shot" src="./micro-kit/m07-step5.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 5: Target: SwiftUI" style="opacity:0" />
+            <img id="real-step-6" class="real-studio-shot" src="./micro-kit/m07-step6.webp" width="2160" height="2850" alt="Dev Mode Box-Model &amp; 5-Target Codegen - step 6: Target: Compose" style="opacity:0" />
             <div id="active-target-ring" data-interactive="true"></div>
           </div>
         </div>
@@ -735,6 +740,7 @@
             <svg width="18" height="18"><use href="#icon-terminal-window"></use></svg>
             <span>cargo run --release -p designos-app --bin designos-studio</span>
           </div>
+          <div class="intro-real-badge outro-credit-badge"><span>Demo UI: Untitled UI PRO v8.0 kit by Untitled UI</span></div>
         </div>
 
         <div class="intro-bottom-row">
@@ -757,8 +763,8 @@
       <div class="step-dots">
         <div id="step-dot-0" class="step-dot active"><span>01</span></div><div id="step-dot-1" class="step-dot"><span>02</span></div><div id="step-dot-2" class="step-dot"><span>03</span></div><div id="step-dot-3" class="step-dot"><span>04</span></div><div id="step-dot-4" class="step-dot"><span>05</span></div><div id="step-dot-5" class="step-dot"><span>06</span></div>
       </div>
-      <span id="dock-step-title" class="dock-step-label">Press Shift + D -> Enter Dev Mode Inspector</span>
-      <span id="dock-shortcut-pill">Shift + D · React</span>
+      <span id="dock-step-title" class="dock-step-label">Dev Mode: Inspect panel with React code</span>
+      <span id="dock-shortcut-pill">Dev Mode · React</span>
     </footer>
 
     <!-- Concentric Click Ripple & Canonical macOS Pointer Tip at (0,0) -->
@@ -791,7 +797,31 @@
       const BEAT = 0.5964214711729623;
       const TOTAL_BEATS = 50;
       const DURATION = 29.821074;
-      const STEPS = [{"step":1,"label":"Press Shift + D -> Enter Dev Mode Inspector","detail":"Activates Ready for dev frame badges, CSS box-model diagram, and React JSX output","shortcut":"Shift + D · React","cam":{"zoom":1.04,"panX":-10,"panY":8},"cursor":{"x0":0.5,"y0":0.44,"x1":0.84,"y1":0.14,"action":"click"}},{"step":2,"label":"Hover Auto-Layout Frame -> Emerald Padding & Orange Gap","detail":"Canvas overlay highlights padding bands in emerald green and gaps in orange","shortcut":"Hover Box-Model","cam":{"zoom":1.22,"panX":-24,"panY":14},"cursor":{"x0":0.84,"y0":0.14,"x1":0.48,"y1":0.44,"action":"click"}},{"step":3,"label":"Switch Target Language -> Tailwind v4 Utility Codegen","detail":"Right Inspector deterministically generates clean flex/grid Tailwind classes","shortcut":"Target: Tailwind v4","cam":{"zoom":1.24,"panX":38,"panY":14},"cursor":{"x0":0.48,"y0":0.44,"x1":0.88,"y1":0.54,"action":"click"}},{"step":4,"label":"Switch Target Language -> Modern CSS & Token Vars","detail":"Outputs standards-compliant CSS layout properties and resolved variable aliases","shortcut":"Target: CSS","cam":{"zoom":1.24,"panX":38,"panY":18},"cursor":{"x0":0.88,"y0":0.54,"x1":0.88,"y1":0.58,"action":"click"}},{"step":5,"label":"Switch Target Language -> Native Apple SwiftUI","detail":"Generates HStack / VStack / .padding() / .background() SwiftUI view code","shortcut":"Target: SwiftUI","cam":{"zoom":1.24,"panX":38,"panY":20},"cursor":{"x0":0.88,"y0":0.58,"x1":0.88,"y1":0.62,"action":"click"}},{"step":6,"label":"Switch Target Language -> Android Jetpack Compose","detail":"Completes all 5 deterministic codegen targets (React, Tailwind, CSS, SwiftUI, Compose)","shortcut":"Target: Compose","cam":{"zoom":1,"panX":0,"panY":0},"cursor":{"x0":0.88,"y0":0.62,"x1":0.86,"y1":0.5,"action":"click"}}];
+      const STEPS = [{"step": 1, "label": "Dev Mode: Inspect panel with React code", "detail": "Metric cards frame, Code: React", "shortcut": "Dev Mode · React", "cam": {"zoom": 1.0, "focus": [0.5, 0.5]}, "cursor": {"x0": 0.52, "y0": 0.87, "x1": 0.52, "y1": 0.97, "action": "click"}}, {"step": 2, "label": "Box model: padding 16 around the frame", "detail": "Box-model diagram in Layer properties", "shortcut": "Box Model", "cam": {"zoom": 1.9, "focus": [0.915, 0.64]}, "cursor": {"x0": 0.52, "y0": 0.97, "x1": 0.915, "y1": 0.64, "action": "click"}}, {"step": 3, "label": "Target: Tailwind", "detail": "Code: Tailwind, flex gap-3 p-4", "shortcut": "Target: Tailwind", "cam": {"zoom": 2.1, "focus": [0.915, 0.82]}, "cursor": {"x0": 0.915, "y0": 0.64, "x1": 0.89, "y1": 0.72, "action": "click"}}, {"step": 4, "label": "Target: CSS", "detail": "Code: CSS, display flex, gap 12px", "shortcut": "Target: CSS", "cam": {"zoom": 2.1, "focus": [0.915, 0.82]}, "cursor": {"x0": 0.89, "y0": 0.72, "x1": 0.89, "y1": 0.72, "action": "click"}}, {"step": 5, "label": "Target: SwiftUI", "detail": "Code: SwiftUI", "shortcut": "Target: SwiftUI", "cam": {"zoom": 2.1, "focus": [0.915, 0.82]}, "cursor": {"x0": 0.89, "y0": 0.72, "x1": 0.89, "y1": 0.72, "action": "click"}}, {"step": 6, "label": "Target: Compose", "detail": "Code: Compose", "shortcut": "Target: Compose", "cam": {"zoom": 2.1, "focus": [0.915, 0.82]}, "cursor": {"x0": 0.89, "y0": 0.72, "x1": 0.89, "y1": 0.72, "action": "click"}}];
+
+
+      const IMG_ASPECT = 2160 / 2850;
+
+      // Rect the contained screenshot occupies inside the studio viewport (letterboxed)
+      function imageRect(vw, vh) {
+        let w = vw;
+        let h = vw / IMG_ASPECT;
+        if (h > vh) {
+          h = vh;
+          w = vh * IMG_ASPECT;
+        }
+        return { x: (vw - w) / 2, y: (vh - h) / 2, w: w, h: h };
+      }
+
+      // Camera of a step: either fixed zoom/pan or zoom centred on a point of the screenshot
+      function cameraFor(step, rect, vw, vh, boost) {
+        const c = step.cam;
+        if (!c.focus) return { zoom: c.zoom * boost, panX: c.panX, panY: c.panY };
+        const z = c.zoom * boost;
+        const px = rect.x + rect.w * c.focus[0];
+        const py = rect.y + rect.h * c.focus[1];
+        return { zoom: z, panX: -(px - vw / 2) * z, panY: -(py - vh / 2) * z };
+      }
 
       const morphShell = document.getElementById('morph-shell');
       const introCard = document.getElementById('intro-card');
@@ -908,14 +938,16 @@
 
         // Smooth spring camera zoom/pan across the 6 real steps
         const stepSpring = springStep(stepLocalBeat * BEAT, 11.0, 0.85);
-        let camZoom = lerp(prevStep.cam.zoom, activeStep.cam.zoom, stepSpring);
-        let camPanX = lerp(prevStep.cam.panX, activeStep.cam.panX, stepSpring);
-        let camPanY = lerp(prevStep.cam.panY, activeStep.cam.panY, stepSpring);
-
+        const viewW = curW;
+        const viewH = curH - 38;
+        const shotRect = imageRect(viewW, viewH);
         // In 9:16 portrait mode, slightly boost zoom so the real Studio canvas & Inspector read crisply on mobile
-        if (isPortrait) {
-          camZoom *= 1.12;
-        }
+        const zoomBoost = isPortrait ? 1.12 : 1;
+        const prevCam = cameraFor(prevStep, shotRect, viewW, viewH, zoomBoost);
+        const nextCam = cameraFor(activeStep, shotRect, viewW, viewH, zoomBoost);
+        const camZoom = lerp(prevCam.zoom, nextCam.zoom, stepSpring);
+        const camPanX = lerp(prevCam.panX, nextCam.panX, stepSpring);
+        const camPanY = lerp(prevCam.panY, nextCam.panY, stepSpring);
 
         cameraRig.style.transform =
           'translate3d(' + camPanX.toFixed(2) + 'px, ' + camPanY.toFixed(2) + 'px, 0) scale(' + camZoom.toFixed(4) + ')';
@@ -931,8 +963,11 @@
         const relX = lerp(activeStep.cursor.x0, activeStep.cursor.x1, moveProgress);
         const relY = lerp(activeStep.cursor.y0, activeStep.cursor.y1, moveProgress);
 
-        const studioCursorX = shellLeft + curW * relX;
-        const studioCursorY = shellTop + 38 + (curH - 38) * relY;
+        // The pointer path is stored as fractions of the screenshot; map it through the camera so it lands on the frame
+        const shotX = shotRect.x + shotRect.w * relX;
+        const shotY = shotRect.y + shotRect.h * relY;
+        const studioCursorX = shellLeft + viewW / 2 + (shotX - viewW / 2) * camZoom + camPanX;
+        const studioCursorY = shellTop + 38 + viewH / 2 + (shotY - viewH / 2) * camZoom + camPanY;
 
         const outroTargetX = W * 0.50;
         const outroTargetY = H * 0.48;
@@ -949,8 +984,8 @@
         );
 
         // Position active target ring inside viewport so cursor hit-test is 100% verified
-        activeTargetRing.style.left = (relX * 100).toFixed(2) + '%';
-        activeTargetRing.style.top = (relY * 100).toFixed(2) + '%';
+        activeTargetRing.style.left = (shotRect.x + shotRect.w * relX).toFixed(1) + 'px';
+        activeTargetRing.style.top = (shotRect.y + shotRect.h * relY).toFixed(1) + 'px';
         activeTargetRing.style.opacity = (studioWeight * 0.85).toFixed(3);
 
         // Click / Drag impulse at stepLocalBeat = 2.4
