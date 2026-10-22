@@ -1042,7 +1042,10 @@ impl Shell {
             self.app.web_capture_report_open = false;
             return;
         };
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+        // A floating sheet, not a dialog: while the agent's terminal holds the keyboard Esc is the terminal's key, so one
+        // press never closes the sheet and interrupts the agent at once (`#923`).
+        let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+        if !self.app.terminal.is_capturing_keyboard(agent_rail_open) && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.app.web_capture_report_open = false;
             return;
         }

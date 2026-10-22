@@ -4988,7 +4988,13 @@ pub fn show_left_with_selection(
 }
 
 /// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
-/// keyboard to it (`#923`). Floating panels that do not take the keyboard (the variables panel, toasts) are not listed.
+/// keyboard to it (`#923`).
+///
+/// Only surfaces that every press outside them closes are listed: a flag that stays set with nothing to clear it would
+/// leave the terminal deaf. So the web capture report sheet (no backdrop, no outside-click close, nothing to type in) and
+/// the image Expand and Erase popovers are not here; the terminal keeps its keys while they are open.
+/// A menu that draws before the panel in the frame (the canvas draws the slot picker) takes its keys first, so it needs
+/// no flag, but it is listed to keep the rule in one place.
 pub fn overlay_owns_keyboard(app: &crate::app::App) -> bool {
     app.dialog.is_some()
         || app.history.save_modal.is_some()
@@ -4998,7 +5004,13 @@ pub fn overlay_owns_keyboard(app: &crate::app::App) -> bool {
         || app.cmdk.open
         || app.ui.menu.is_some()
         || app.ui.ctx_menu.is_some()
-        || app.web_capture_report_open
+        || app.ui.layer_picker.is_some()
+        || app.ui.inst_menu.is_some()
+        || app.ui.prop_menu.is_some()
+        || app.ui.slot_picker.is_some()
+        || app.props.fx_menu
+        || app.props.style_menu.is_some()
+        || app.image_jobs.open_fill_menu.is_some()
         || app.libs.open
         || app.libs.review
 }
