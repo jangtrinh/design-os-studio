@@ -507,6 +507,10 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
     let other_popup = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l.order == egui::Order::Foreground && l != layer);
     let outside = pressed && ptr.is_some_and(|p| !rect.contains(p) && !anchor.contains(p) && !other_popup(p));
+    if !(outside || esc) {
+        // An open popover holds the keys from a surface that draws before it (`widgets::popup_open`).
+        crate::widgets::popup_open::mark_open(&ctx);
+    }
     match picked {
         Some(Pick::Shape(k)) => {
             edit(app, ids, |n| {

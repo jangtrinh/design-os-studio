@@ -1312,6 +1312,7 @@ fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) ->
         (B::Luminosity, "Luminosity"),
     ];
     let id = ui.id().with("picker-blend");
+    crate::widgets::record(ui, "picker-blend", rect);
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     button_bg(ui.painter(), rect, &r, open, theme::cr(theme::RADIUS_CONTROL));

@@ -4993,27 +4993,21 @@ pub fn show_left_with_selection(
     show_left_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
 }
 
-/// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
-/// keyboard to it (`#923`).
+/// True while a dialog, palette or popup that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
+/// keyboard to it (`#923`, `#960`).
 ///
-/// Only surfaces that stop being open on their own are listed: a flag that stays set with nothing to clear it would leave
-/// the terminal deaf. So the web capture report sheet (no backdrop, no outside-click close, nothing to type in) and the
-/// image Expand and Erase popovers are not here; the terminal keeps its keys while they are open.
+/// Every popup the shared helpers draw (`widgets::menu::popup_tree`, `widgets::popover::show`, the Variables picker, the
+/// board popovers) marks itself open in the pass it is drawn, and [`crate::widgets::popup_open::open_recently`] reads that
+/// mark one frame later. That covers every menu whatever state it keeps its open flag in, and a popup whose host stops
+/// drawing counts for one frame at most, so it never leaves the terminal deaf.
 ///
-/// The inspector and Variables menus are drawn by a section that exists only while something is selected or the view is
-/// open, and an agent edit, an undo or a closed view removes that section without a press. Their flag stays set and nothing
-/// draws or closes the menu, so they count only while the menu was on screen in the previous frame
-/// ([`popup_menu_was_drawn`]). The menus the shell draws every frame need no such check.
-/// A menu that draws before the panel in the frame (the canvas draws the slot picker) takes its keys first, so it needs no
-/// flag, but it is listed to keep the rule in one place.
+/// Listed here is what does not mark itself: the dialogs and modals, the command palette, `ui.menu` (it also holds the zoom
+/// menu, which has its own text field, and the palette) and the overlapping layer picker (a custom area). Those are drawn every
+/// frame the flag can be set, and every press outside them closes them, so a stale flag cannot stick.
+///
+/// Not here, on purpose: the web capture report sheet and the image Expand and Erase popovers do not close on an outside
+/// press, so counting them would leave the terminal deaf until the user found their close button.
 pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool {
-    let drawn = |id: &str| popup_menu_was_drawn(ctx, Id::new(id));
-    let paint_styles_menu = app.props.styles_menu.is_some_and(|stroke| popup_menu_was_drawn(ctx, Id::new(("styles-menu", stroke))));
-    let style_menu = app.props.style_menu.is_some_and(|prop| match prop {
-        designos_doc::StyleProperty::Effect => popup_menu_was_drawn(ctx, Id::new(("style-menu", "effect-style-button"))),
-        designos_doc::StyleProperty::Grid => popup_menu_was_drawn(ctx, Id::new(("style-menu", "grid-style-button"))),
-        _ => false,
-    });
     app.dialog.is_some()
         || app.history.save_modal.is_some()
         || app.dev.compare.is_some()
@@ -5021,25 +5015,10 @@ pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool
         || app.ui.permissions_modal_open
         || app.cmdk.open
         || app.ui.menu.is_some()
-        || app.ui.ctx_menu.is_some()
         || app.ui.layer_picker.is_some()
-        || app.ui.slot_picker.is_some()
-        || app.image_jobs.open_fill_menu.is_some()
-        || (app.ui.inst_menu.is_some() && drawn("inst-menu"))
-        || (app.ui.prop_menu.is_some() && drawn("prop-add-menu"))
-        || (app.props.fx_menu && drawn("fx-add-menu"))
-        || (app.vars.menu.is_some() && drawn("vars-menu"))
-        || paint_styles_menu
-        || style_menu
         || app.libs.open
         || app.libs.review
-}
-
-/// Whether the popup menu `id` was on screen in the previous frame. A popup menu draws each of its levels as a
-/// `Foreground` area named `id.with(("lvl", level))` (`widgets/menu.rs::popup_tree`); level 0 is always there.
-fn popup_menu_was_drawn(ctx: &egui::Context, id: Id) -> bool {
-    let level0 = egui::LayerId::new(egui::Order::Foreground, id.with(("lvl", 0usize)));
-    ctx.memory(|m| m.areas().visible_last_frame(&level0))
+        || crate::widgets::popup_open::open_recently(ctx)
 }
 
 /// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).

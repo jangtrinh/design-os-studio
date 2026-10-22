@@ -43,7 +43,12 @@ pub fn show(ctx: &egui::Context, id: Id, anchor: Rect, region: Rect, w: f32, h: 
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
     let other_popup = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l.order == egui::Order::Foreground && l != layer);
     let outside = pressed && ptr.is_some_and(|p| !rect.contains(p) && !anchor.contains(p) && !other_popup(p));
-    close || outside || esc
+    let closing = close || outside || esc;
+    if !closing {
+        // An open popover holds the keys from a surface that draws before it (`widgets::popup_open`).
+        super::popup_open::mark_open(ctx);
+    }
+    closing
 }
 
 /// A labelled row of the popover body: label at x+16, then `control(ui, rect)` in the 112px column.
