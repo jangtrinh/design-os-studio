@@ -789,10 +789,7 @@ pub fn apply(app: &mut App, act: Act) {
         }
         Act::ExportFig(id) => {
             changed = false;
-            let result = lib
-                .load_file(&id)
-                .map_err(|e| e.to_string())
-                .and_then(|doc| crate::fig_export::export_new(&doc, &lib.path("exports"), &crate::fig_export::safe_stem(&doc.name)));
+            let result = lib.load_file(&id).map_err(|e| e.to_string()).and_then(|doc| crate::fig_export::export_new(&doc, &lib.path("exports"), &doc.name));
             app.show_fig_export_result(result);
         }
         Act::Trash(id) => {

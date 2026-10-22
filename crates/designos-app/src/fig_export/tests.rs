@@ -1,6 +1,6 @@
 //! Tests for the `.fig` export: destination, naming, failures and the reveal command.
 
-use super::{export_new, reveal_command, safe_stem, Exported};
+use super::{export_new, reveal_command, Exported};
 use crate::app::App;
 use crate::cmdk::CmdKAction;
 use crate::home::Act;
@@ -212,24 +212,20 @@ fn home_export_reports_a_file_that_cannot_be_loaded() {
 
 #[test]
 fn a_document_name_never_leaves_the_exports_folder() {
-    let cases = [
-        ("My Design", "My Design"),
-        ("a/b", "a_b"),
-        ("..\\x", "_x"),
-        ("a:b*c?", "a_b_c_"),
-        ("name. ", "name"),
-        ("", "Untitled"),
-        ("...", "Untitled"),
-        ("///", "Untitled"),
-    ];
-    for (name, stem) in cases {
-        assert_eq!(safe_stem(name), stem, "stem of {name:?}");
+    let dir = scratch("names");
+    let names = ["My Design", "a/b", "../../escape", "/etc/passwd", "a\\b", "C:\\x", "tab\there", "", "...", "///", "name. "];
+    for name in names {
+        let done = export_new(&doc_named("N"), &dir, name).unwrap_or_else(|e| panic!("{name:?}: {e}"));
+        assert_eq!(done.path.parent(), Some(dir.as_path()), "{name:?} stays in the folder: {}", done.path.display());
+        let file = done.path.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(file.ends_with(".fig") && !file.starts_with('.') && file.len() > ".fig".len(), "{name:?} gives a real file name: {file}");
     }
-    for name in ["../../escape", "/etc/passwd", "a\\b", "C:\\x", "tab\there"] {
-        let stem = safe_stem(name);
-        assert!(!stem.contains(['/', '\\', ':', '\t']) && !stem.starts_with('.'), "stem {stem:?} of {name:?} is a plain file name");
-    }
-    assert!(safe_stem(&"x".repeat(500)).chars().count() <= 100, "a very long name is cut");
+    assert_eq!(figs_in(&dir).len(), names.len(), "one file per export, nothing outside the folder");
+    assert!(
+        dir.join("My Design.fig").is_file() && dir.join("a_b.fig").is_file() && dir.join("Untitled.fig").is_file(),
+        "plain names are kept, empty ones become Untitled"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -297,7 +293,7 @@ fn export_new_names_the_file_it_cannot_write() {
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
     if enforced {
         let err = result.err().expect("a read-only folder cannot be written");
-        assert!(err.starts_with("cannot write ") && err.contains("Design.fig"), "unexpected error: {err}");
+        assert!(err.starts_with("cannot write to ") && err.contains(&locked.display().to_string()), "unexpected error: {err}");
         assert!(figs_in(&locked).is_empty(), "a failed write leaves no file behind");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -338,4 +334,49 @@ fn reveal_command_selects_the_file_in_each_file_manager() {
 fn a_test_never_opens_a_real_file_manager() {
     let err = super::reveal_file(Path::new("/lib/exports/Design.fig")).expect_err("the production reveal refuses to run under test");
     assert!(err.contains("/lib/exports/Design.fig"), "{err}");
+}
+
+// ---------------------------------------------------------------- long names and relative paths
+
+/// A document name of 100 CJK characters: 300 bytes, over the 255-byte file name limit of ext4 and most file systems.
+fn long_cjk_name() -> String {
+    "漢".repeat(100)
+}
+
+/// The longest file name the writer may produce: its stem cap plus ` 10000.fig`.
+const LONGEST_EXPORT_NAME_BYTES: usize = 255;
+
+#[test]
+fn export_new_cuts_a_name_that_is_too_long_for_the_file_system() {
+    let dir = scratch("long-name");
+    let done = export_new(&doc_named("Long"), &dir, &long_cjk_name()).unwrap();
+    let name = done.path.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.len() <= LONGEST_EXPORT_NAME_BYTES, "a {}-byte file name does not fit ext4", name.len());
+    assert!(name.ends_with(".fig") && done.path.starts_with(&dir), "still a .fig in the folder: {name}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_library_file_with_a_very_long_name_exports_with_a_cut_file_name() {
+    let root = scratch("long-library-name");
+    let (mut app, _) = app_with_open_library_file(&root, &long_cjk_name());
+
+    app.export_fig_copy();
+
+    let exports = figs_in(&root.join("exports"));
+    assert_eq!(exports.len(), 1, "the export succeeds: {:?}", app.toast.as_ref().map(|t| &t.text));
+    assert!(exports[0].file_name().unwrap().len() <= LONGEST_EXPORT_NAME_BYTES, "file name is cut to fit");
+    assert_offers_reveal(&app, &exports[0]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_relative_file_path_still_exports_to_a_full_path() {
+    let mut app = App::new(doc_named("Relative"));
+    app.file_path = Some(PathBuf::from("some-relative-folder/Relative.designos"));
+
+    let (dir, stem) = app.fig_export_target().unwrap();
+
+    assert!(dir.is_absolute(), "the toast must show a full path, got {}", dir.display());
+    assert!(dir.ends_with("some-relative-folder") && stem == "Relative", "{} / {stem}", dir.display());
 }

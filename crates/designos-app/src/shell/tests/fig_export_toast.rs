@@ -117,3 +117,65 @@ fn show_in_folder_works_on_the_home_screen_after_an_export() {
     assert!(revealed(&exported), "clicking Show in folder on Home reveals the exported file");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The text and the action of an export toast are painted; its body is the rest of the toast, left of the button.
+fn toast_body_point(s: &Sim, text: &str) -> Pos2 {
+    let bounds = s
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => Some(t.visual_bounding_rect()),
+            _ => None,
+        })
+        .expect("the toast text is painted");
+    Pos2::new(bounds.left() + 12.0, bounds.center().y)
+}
+
+#[test]
+fn a_click_on_the_toast_body_reaches_the_canvas_below() {
+    let mut s = Sim::new();
+    // One shape that covers everything the toast can sit on.
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let mut shape = designos_doc::Node::rectangle(id, designos_doc::Rect::new(-5000.0, -5000.0, 10000.0, 10000.0));
+    shape.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0x40, 0x90, 0xF0))];
+    s.shell.app.doc.insert(page, shape).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    let path = long_export_path("click-through");
+    let text = raise(&mut s, &path);
+    let body = toast_body_point(&s, &text);
+
+    // Control: with no toast, the same click selects the shape.
+    s.shell.app.toast = None;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.click(body);
+    assert_eq!(s.app().selection, vec![id], "precondition: the point is on the shape");
+    s.shell.app.clear_selection();
+    s.frame(vec![]);
+    assert!(s.app().selection.is_empty(), "precondition: nothing is selected");
+
+    raise(&mut s, &path);
+    s.click(body);
+
+    assert_eq!(s.app().selection, vec![id], "a click on the toast body selects the layer under it");
+}
+
+#[test]
+fn a_click_on_a_plain_toast_reaches_the_canvas_below() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let mut shape = designos_doc::Node::rectangle(id, designos_doc::Rect::new(-5000.0, -5000.0, 10000.0, 10000.0));
+    shape.fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(0x40, 0x90, 0xF0))];
+    s.shell.app.doc.insert(page, shape).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.shell.app.show_toast("Copied properties", false);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let body = toast_body_point(&s, "Copied properties");
+    s.click(body);
+    assert_eq!(s.app().selection, vec![id], "a click on a plain toast selects the layer under it");
+}

@@ -1003,40 +1003,26 @@ impl Shell {
         let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
         let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
-        let r = lay.rect;
-        // Its own top-most layer: the full-screen Variables view is an Area above the root layer and would hide the toast.
-        // No fade-in: the toast has always appeared at full strength. The Area sizes itself on its first frame and repaints.
-        let (mut details_clicked, mut reveal_clicked) = (false, false);
-        egui::Area::new(egui::Id::new("shell-toast"))
-            .order(egui::Order::Tooltip)
-            .fixed_pos(r.min)
-            .constrain(false)
-            .fade_in(false)
-            .interactable(details || reveal.is_some())
-            .show(ui.ctx(), |ui| {
-                let (_, resp) = ui.allocate_exact_size(r.size(), if details { egui::Sense::click() } else { egui::Sense::hover() });
-                let p = ui.painter();
-                widgets::elevation_shadow(p, r, theme::RADIUS_FRAME);
-                p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-                p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
-                p.galley(lay.text_pos, lay.text, theme::TEXT);
-                details_clicked = details && resp.clicked();
-                if let Some((target, label)) = lay.action {
-                    let id = egui::Id::new("shell-toast-reveal");
-                    let button = ui.interact(target, id, egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    widgets::record(ui, "toast-reveal", target);
-                    widgets::labelled(ui, id, egui::accesskit::Role::Button, REVEAL_LABEL);
-                    if button.hovered() {
-                        p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-                    }
-                    p.galley(
-                        Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0),
-                        label,
-                        theme::TEXT_BRAND,
-                    );
-                    reveal_clicked = button.clicked();
-                }
-            });
+        let (r, ctx) = (lay.rect, ui.ctx().clone());
+        // Only the "Details" link and the action take clicks, each as its own small Area. The body has no widget at all:
+        // any widget in the layer, even a hover-only one, hides the canvas and the cards below it from the pointer.
+        let details_clicked = details && toast_click_target(&ctx, "toast-details", r, "Details").clicked();
+        let action = lay.action.map(|(target, label)| (toast_click_target(&ctx, "toast-reveal", target, REVEAL_LABEL), target, label));
+        // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
+        // hide the toast. No fade-in: the toast has always appeared at full strength.
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast")));
+        widgets::elevation_shadow(&p, r, theme::RADIUS_FRAME);
+        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+        p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
+        p.galley(lay.text_pos, lay.text, theme::TEXT);
+        let mut reveal_clicked = false;
+        if let Some((button, target, label)) = action {
+            if button.hovered() {
+                p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+            }
+            p.galley(Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0), label, theme::TEXT_BRAND);
+            reveal_clicked = button.clicked();
+        }
         if details_clicked {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
@@ -3479,6 +3465,24 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         );
         p.rect_filled(prog_rect, 1.0, accent);
     }
+}
+
+/// An invisible click target over `rect` on the top-most layer, named `name` for screen readers. It is its own small
+/// Area so the toast around it, which registers no widget, lets pointer input through.
+fn toast_click_target(ctx: &Context, id: &str, rect: Rect, name: &str) -> egui::Response {
+    egui::Area::new(egui::Id::new(id))
+        .order(egui::Order::Tooltip)
+        .fixed_pos(rect.min)
+        .constrain(false)
+        .fade_in(false)
+        .interactable(true)
+        .show(ctx, |ui| {
+            let (_, response) = ui.allocate_exact_size(rect.size(), egui::Sense::click());
+            widgets::record(ui, id, rect);
+            widgets::labelled(ui, response.id, egui::accesskit::Role::Button, name);
+            response.on_hover_cursor(egui::CursorIcon::PointingHand)
+        })
+        .inner
 }
 
 /// The toolbar is centered on the window (not the canvas).

@@ -4,13 +4,7 @@
 use crate::app::App;
 use designos_doc::Document;
 use std::ffi::OsString;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-
-/// Names tried before giving up: `Name.fig`, `Name 2.fig`, up to `Name 999.fig`.
-const MAX_NAMES: u32 = 999;
-/// Longest file name stem taken from a document name.
-const MAX_STEM_CHARS: usize = 100;
 
 /// A finished export.
 pub struct Exported {
@@ -19,40 +13,17 @@ pub struct Exported {
     pub omitted_keys: usize,
 }
 
-/// A file name stem for a document name: path separators, reserved and control characters become `_`,
-/// leading dots go, and an empty result is `Untitled`.
-pub fn safe_stem(name: &str) -> String {
-    let cleaned: String = name.chars().map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c }).take(MAX_STEM_CHARS).collect();
-    let trimmed = cleaned.trim().trim_start_matches('.').trim_end_matches(['.', ' ']);
-    if trimmed.trim_matches('_').is_empty() {
-        "Untitled".to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
 /// Writes `doc` as `<dir>/<stem>.fig`, or `<stem> 2.fig`, `<stem> 3.fig`, ... when that name is taken.
-/// An existing file is never replaced, not even the one open in the editor: the name is claimed with
-/// `create_new`. A write that fails leaves no partial file behind.
+/// The file name is cleaned and cut to fit the file system by [`crate::io::write_new_in`], which never replaces a
+/// file (not even the one open in the editor) and leaves no partial file behind. A stem with nothing to name the
+/// file by (blank, only separators) becomes `Untitled`.
 pub fn export_new(doc: &Document, dir: &Path, stem: &str) -> Result<Exported, String> {
     let (bytes, omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    for n in 1..=MAX_NAMES {
-        let name = if n == 1 { format!("{stem}.fig") } else { format!("{stem} {n}.fig") };
-        let path = dir.join(name);
-        let mut file = match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(format!("cannot write {}: {e}", path.display())),
-        };
-        if let Err(e) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
-            drop(file);
-            let _ = std::fs::remove_file(&path);
-            return Err(format!("cannot write {}: {e}", path.display()));
-        }
-        return Ok(Exported { path, omitted_keys: omitted.len() });
-    }
-    Err(format!("{} already holds {MAX_NAMES} exports named {stem}", dir.display()))
+    let clean = designos_export::sanitize_file_name(stem);
+    let stem = if stem.trim().is_empty() || clean.trim_matches('_').is_empty() { "Untitled" } else { clean.as_str() };
+    let path = crate::io::write_new_in(dir, &format!("{stem}.fig"), &bytes).map_err(|e| format!("cannot write to {}: {e}", dir.display()))?;
+    Ok(Exported { path, omitted_keys: omitted.len() })
 }
 
 impl App {
@@ -61,11 +32,13 @@ impl App {
     pub(crate) fn fig_export_target(&self) -> Result<(PathBuf, String), String> {
         if let Some(file) = &self.file_path {
             let dir = file.parent().filter(|d| !d.as_os_str().is_empty()).map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-            let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| safe_stem(&self.doc.name));
+            // The toast shows the full path, so a file opened by a relative path exports to an absolute one.
+            let dir = std::path::absolute(&dir).unwrap_or(dir);
+            let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| self.doc.name.clone());
             return Ok((dir, stem));
         }
         match &self.lib {
-            Some(lib) => Ok((lib.path("exports"), safe_stem(&self.doc.name))),
+            Some(lib) => Ok((lib.path("exports"), self.doc.name.clone())),
             None => Err("save the file first".to_string()),
         }
     }
