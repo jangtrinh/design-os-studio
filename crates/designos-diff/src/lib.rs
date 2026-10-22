@@ -81,6 +81,28 @@ pub struct DiffReport {
     pub changed_bbox: Option<Rect>,
 }
 
+impl DiffReport {
+    /// Verdict against a mismatch-ratio threshold. Images of different sizes
+    /// never pass: the ratio counts the pixels one of them lacks as
+    /// mismatched, but a lenient threshold must not hide that the two renders
+    /// are not the same frame.
+    pub fn passes(&self, threshold: f64) -> bool {
+        !self.size_mismatch && self.ratio <= threshold
+    }
+
+    /// Short note for one-line summaries, e.g. `size mismatch: 8x8 vs 4x4`.
+    /// `None` when both images have the same size.
+    pub fn size_note(&self) -> Option<String> {
+        self.size_mismatch.then(|| format!("size mismatch: {}x{} vs {}x{}", self.size_a.0, self.size_a.1, self.size_b.0, self.size_b.1))
+    }
+
+    /// Plain sentence naming both sizes, e.g. `Images differ in size: 8×8 vs 4×4`.
+    /// `None` when both images have the same size.
+    pub fn size_mismatch_message(&self) -> Option<String> {
+        self.size_mismatch.then(|| format!("Images differ in size: {}\u{d7}{} vs {}\u{d7}{}", self.size_a.0, self.size_a.1, self.size_b.0, self.size_b.1))
+    }
+}
+
 const CLASS_SAME: u8 = 0;
 const CLASS_MISMATCH: u8 = 1;
 const CLASS_AA: u8 = 2;
@@ -117,6 +139,12 @@ impl Plane<'_> {
 
     /// True if more than two neighbours of (x,y) have the identical colour.
     fn has_many_siblings(&self, x: u32, y: u32) -> bool {
+        // The pixel can come from a larger image than this plane (size
+        // mismatch). A pixel this plane does not have confirms nothing, so it
+        // cannot vouch for an anti-aliasing edge.
+        if x >= self.w || y >= self.h {
+            return false;
+        }
         let c = self.at(x, y);
         let mut n = 0;
         for dy in -1i64..=1 {
@@ -444,6 +472,90 @@ mod tests {
         assert_eq!((r.width, r.height), (12, 10));
         assert_eq!(r.mismatched, 20);
         assert!(r.ssim < 1.0);
+    }
+
+    /// 8x8 `a` and the 4x4 crop `b` of it that differs only at (3,3). In `a`,
+    /// (3,3) is gray and its only lighter neighbour is (4,4), which lies
+    /// outside `b`: the anti-aliasing cross-check has to look at a pixel the
+    /// smaller image does not have.
+    fn pair_with_aa_candidate_on_the_overlap_edge() -> (RgbaImage, RgbaImage) {
+        let mut a = solid(8, 8, [255, 255, 255, 255]);
+        a.put_pixel(3, 3, Rgba([128, 128, 128, 255]));
+        for (x, y) in [(2, 2), (3, 2), (4, 2), (2, 3), (4, 3), (2, 4), (3, 4)] {
+            a.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+        }
+        let mut b = crop(&a, Rect::new(0, 0, 4, 4));
+        b.put_pixel(3, 3, Rgba([255, 255, 255, 255]));
+        (a, b)
+    }
+
+    #[test]
+    fn compare_survives_a_candidate_pixel_next_to_the_smaller_image_edge() {
+        let (a, b) = pair_with_aa_candidate_on_the_overlap_edge();
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let r = compare(x, y, &DiffOptions::default());
+            assert!(r.size_mismatch);
+            assert_eq!((r.size_a, r.size_b), ((x.width(), x.height()), (y.width(), y.height())));
+            assert_eq!((r.width, r.height), (8, 8));
+            // 48 pixels outside the overlap, plus the one differing pixel inside it.
+            assert_eq!(r.mismatched, 49);
+            assert_eq!(r.aa_pixels, 0);
+        }
+    }
+
+    #[test]
+    fn diff_image_survives_a_candidate_pixel_next_to_the_smaller_image_edge() {
+        let (a, b) = pair_with_aa_candidate_on_the_overlap_edge();
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let (r, img) = diff_image(x, y, &DiffOptions::default());
+            assert!(r.size_mismatch);
+            assert_eq!(img.dimensions(), (8, 8));
+            assert_eq!(*img.get_pixel(3, 3), Rgba([255, 0, 0, 255]));
+            assert_eq!(*img.get_pixel(7, 7), Rgba([255, 0, 0, 255]), "outside the overlap");
+        }
+    }
+
+    #[test]
+    fn size_mismatch_never_passes_and_names_both_sizes() {
+        let a = solid(10, 10, [0, 0, 0, 255]);
+        let b = solid(12, 10, [0, 0, 0, 255]);
+        let r = compare(&a, &b, &DiffOptions::default());
+        assert!(r.ratio > 0.0 && r.ratio < 1.0);
+        assert!(!r.passes(1.0), "a lenient threshold must not pass a size mismatch");
+        assert_eq!(r.size_mismatch_message().as_deref(), Some("Images differ in size: 10\u{d7}10 vs 12\u{d7}10"));
+        assert_eq!(r.size_note().as_deref(), Some("size mismatch: 10x10 vs 12x10"));
+
+        let same = compare(&a, &a, &DiffOptions::default());
+        assert!(same.passes(0.0));
+        assert_eq!((same.size_mismatch_message(), same.size_note()), (None, None));
+    }
+
+    /// Deterministic noise: dense with neighbouring pixels of every brightness,
+    /// so anti-aliasing candidates show up along every edge of the overlap.
+    fn noise(w: u32, h: u32, seed: u32) -> RgbaImage {
+        let mut s = seed;
+        RgbaImage::from_fn(w, h, |_, _| {
+            s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let v = (s >> 24) as u8;
+            Rgba([v, v, v, 255])
+        })
+    }
+
+    #[test]
+    fn noisy_images_of_any_two_sizes_compare_without_panicking() {
+        let sizes = [(1, 1), (3, 9), (7, 7), (9, 3), (12, 5), (16, 16), (5, 12)];
+        for (i, &(aw, ah)) in sizes.iter().enumerate() {
+            for (j, &(bw, bh)) in sizes.iter().enumerate() {
+                let (a, b) = (noise(aw, ah, 7 + i as u32), noise(bw, bh, 91 + j as u32));
+                for opts in [DiffOptions::default(), DiffOptions { tolerance: 40, ..Default::default() }] {
+                    let r = compare(&a, &b, &opts);
+                    assert_eq!(r.size_mismatch, (aw, ah) != (bw, bh));
+                    let (r2, img) = diff_image(&a, &b, &opts);
+                    assert_eq!(r, r2);
+                    assert_eq!(img.dimensions(), (r2.width, r2.height));
+                }
+            }
+        }
     }
 
     #[test]

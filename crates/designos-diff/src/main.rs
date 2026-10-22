@@ -72,7 +72,7 @@ fn run(cli: Cli) -> Result<bool, String> {
             } else {
                 compare(&ia, &ib, &opts)
             };
-            let pass = report.ratio <= threshold;
+            let pass = report.passes(threshold);
             if json {
                 let mut v = serde_json::to_value(&report).map_err(|e| e.to_string())?;
                 v["threshold"] = threshold.into();
@@ -90,12 +90,11 @@ fn run(cli: Cli) -> Result<bool, String> {
                     report.ssim,
                     report.width,
                     report.height,
-                    if report.size_mismatch {
-                        format!(" (size mismatch: {}x{} vs {}x{})", report.size_a.0, report.size_a.1, report.size_b.0, report.size_b.1)
-                    } else {
-                        String::new()
-                    }
+                    report.size_note().map(|n| format!(" ({n})")).unwrap_or_default()
                 );
+            }
+            if let Some(message) = report.size_mismatch_message() {
+                eprintln!("{message}. Render both at the same size.");
             }
             Ok(pass)
         }
