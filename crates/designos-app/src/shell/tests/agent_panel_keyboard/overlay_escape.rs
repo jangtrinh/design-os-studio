@@ -63,6 +63,34 @@ fn overlays() -> Vec<Overlay> {
         let anchor = Rect::from_min_size(Pos2::new(690.0, 280.0), Vec2::splat(20.0));
         s.shell.app.vars.menu = Some(crate::variables::VarMenu { kind: crate::variables::VarMenuKind::Filter, pos: Pos2::new(700.0, 310.0), anchor });
     }
+    // The two menus below keep their open state in egui temp data, keyed by ids the inspector builds, so a test can only
+    // open them with a click.
+    fn open_blend_menu(s: &mut Sim) {
+        select(s, "Hero");
+        let screen = s.ctx.content_rect().size();
+        crate::panels::properties::preset_popup(&mut s.shell.app, "picker", screen);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let blend = s.rect_of("picker-blend");
+        s.click(blend.center());
+    }
+    fn open_export_scale_menu(s: &mut Sim) {
+        select(s, "Hero");
+        // The Export section is the last of the inspector: scroll to it, then lay it out from its title. The "+" sits at
+        // SECTION_TRAILING_X; once a row exists, the 56 px scale field sits at SECTION_CONTENT_X under the title row and its
+        // chevron takes the right 20 px.
+        let scroll_to_the_end = |s: &mut Sim| {
+            s.shell.app.props.scroll = 1.0e6;
+            s.frame(vec![]);
+            s.frame(vec![]);
+        };
+        scroll_to_the_end(s);
+        let (x0, top) = export_section_origin(s);
+        s.click(Pos2::new(x0 + theme::SECTION_TRAILING_X + theme::PANEL_ACTION_BUTTON / 2.0, top + 8.0 + theme::PANEL_ACTION_BUTTON / 2.0));
+        scroll_to_the_end(s);
+        let (x0, top) = export_section_origin(s);
+        s.click(Pos2::new(x0 + theme::SECTION_CONTENT_X + 56.0 - 10.0, top + theme::SECTION_TITLE_HEIGHT + theme::FIELD_HEIGHT / 2.0));
+    }
     fn open_ai_fill_menu(s: &mut Sim) {
         let hero = s.by_name("Hero");
         s.shell.app.image_jobs.open_fill_menu = Some((hero, 0, Rect::from_min_size(Pos2::new(1300.0, 300.0), Vec2::splat(20.0))));
@@ -81,7 +109,31 @@ fn overlays() -> Vec<Overlay> {
         ("inspector paint styles menu", open_paint_styles_menu, |s| s.app().props.styles_menu.is_some()),
         ("variables menu", open_variables_menu, |s| s.app().vars.menu.is_some()),
         ("AI fill menu", open_ai_fill_menu, |s| s.app().image_jobs.open_fill_menu.is_some()),
+        ("export scale menu", open_export_scale_menu, |s| painted_text(s).iter().any(|(t, _)| t == "0.75x")),
+        ("blend mode menu", open_blend_menu, |s| painted_text(s).iter().any(|(t, _)| t == "Multiply")),
     ]
+}
+
+/// Every text painted in the last frame, with the centre of its first line.
+fn painted_text(s: &Sim) -> Vec<(String, Pos2)> {
+    fn collect(shape: &egui::Shape, out: &mut Vec<(String, Pos2)>) {
+        match shape {
+            egui::Shape::Text(t) => out.push((t.galley.job.text.clone(), t.pos + Vec2::new(0.0, t.galley.size().y / 2.0))),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|x| collect(x, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    s.shapes.iter().for_each(|c| collect(&c.shape, &mut out));
+    out
+}
+
+/// `(x0, top)` of the inspector's Export section, read from where its title "Export" was painted (left aligned at
+/// SECTION_CONTENT_X, centred in a SECTION_TITLE_HEIGHT row).
+fn export_section_origin(s: &Sim) -> (f32, f32) {
+    let (_, at) =
+        painted_text(s).into_iter().rfind(|(t, p)| t == "Export" && p.x > s.app().canvas_rect.right()).expect("the Export section is painted in the inspector");
+    (at.x - theme::SECTION_CONTENT_X, at.y - theme::SECTION_TITLE_HEIGHT / 2.0)
 }
 
 fn terminal_bytes(s: &Sim) -> Vec<u8> {
@@ -229,6 +281,21 @@ fn a_menu_whose_host_stopped_drawing_does_not_leave_the_terminal_deaf() {
         finish(s);
     }
     assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf() {
+    // Its open flag lives in egui temp data and cannot be cleared from outside: only the pass counter keeps the terminal
+    // from waiting for a menu nothing draws any more.
+    let overlay = overlays().into_iter().find(|(name, _, _)| *name == "export scale menu").expect("the export scale row");
+    let mut s = sim_with_overlay_open(&overlay).expect("the export scale menu opens");
+    s.shell.app.selection.clear();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.shell.app.terminal.tabs[0].written_bytes.clear();
+    s.type_text("y");
+    assert!(terminal_bytes(&s).contains(&b'y'), "the menu is gone but the terminal ignores typing: {:?}", terminal_bytes(&s));
+    finish(s);
 }
 
 /// The web capture import report: a floating sheet at the right of the canvas with no backdrop, closed by its own button or Esc.

@@ -9,6 +9,7 @@ pub mod field_tab;
 pub mod menu;
 pub mod picker;
 pub mod popover;
+pub mod popup_open;
 
 use crate::icons::{self, Icon};
 use crate::theme;

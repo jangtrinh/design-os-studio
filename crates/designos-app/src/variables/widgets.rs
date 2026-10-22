@@ -350,6 +350,9 @@ pub fn picker(
             d.remove_temp::<bool>(id.with("focused"));
             d.remove_temp::<f32>(scroll_id);
         });
+    } else {
+        // An open picker holds the keys from a surface that draws before it (`widgets::popup_open`).
+        crate::widgets::popup_open::mark_open(ctx);
     }
     result
 }

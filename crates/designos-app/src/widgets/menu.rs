@@ -552,6 +552,10 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
         ctx.request_repaint();
     }
     store_state(ctx, id, st);
+    // An open menu holds the keys from a surface that draws before it (`widgets::popup_open`); one that closed here does not.
+    if result == TreeResult::Open {
+        super::popup_open::mark_open(ctx);
+    }
     result
 }
 
