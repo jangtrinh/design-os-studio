@@ -72,6 +72,8 @@ pub fn apply_pending_live_patches(app: &mut App) {
     // A stopped turn is closed once its held patches are in: fold its agent undo steps into one and clear its flags (`#684`).
     let pending_close = app.terminal.pending_stop_close.take();
     let pending_depth = app.terminal.pending_stop_fold_depth.take().or_else(|| pending_close.as_ref().map(|c| c.turn_start_depth));
+    // Shown after the edits that did apply: their toast would otherwise replace it.
+    let fence_notice = app.terminal.live_patch.fence_notice.take();
     if !app.terminal.live_patch.has_held() {
         if let Some(depth) = pending_depth {
             crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
@@ -108,6 +110,9 @@ pub fn apply_pending_live_patches(app: &mut App) {
         }
     } else if let Some(depth) = pending_depth {
         crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
+    }
+    if let Some(notice) = fence_notice.filter(|_| !patches.is_empty()) {
+        app.show_toast(notice, true);
     }
     if dropped > 0 {
         note_dropped_edits(app, dropped);

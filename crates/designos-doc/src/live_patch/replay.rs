@@ -3,7 +3,7 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::replay_tokens::{filter_missing_token_links_on_insert, filter_missing_token_links_on_update};
 use super::validate::insert_problem;
-use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
+use super::{log_version_refusal, LiveOp, LivePatch, SiblingHint, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -119,8 +119,8 @@ pub fn replay_live_patch(
     exec: &mut dyn FnMut(&mut Document, Command) -> Result<(), DocError>,
 ) -> Result<LivePatchReport, DocError> {
     let mut report = LivePatchReport::default();
-    if patch.v != LIVE_PATCH_VERSION {
-        report.skipped.push(format!("unsupported live patch version {}", patch.v));
+    if let Some(refusal) = log_version_refusal(patch.v) {
+        report.skipped.push(refusal);
         return Ok(report);
     }
     // A failed replay is cancelled by the caller, so the remaps it made must go too.

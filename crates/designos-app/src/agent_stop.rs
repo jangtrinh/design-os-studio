@@ -1280,7 +1280,7 @@ mod tests {
         app.terminal.tabs.push(spawn_looping_stub_tab(1, AgentCliPreset::Claude, false));
         app.terminal.active_tab = 0;
         let mark = crate::agent_turn_marks::TurnMarkLine {
-            v: designos_doc::live_patch::LIVE_PATCH_VERSION,
+            v: crate::agent_turn_marks::TURN_MARK_VERSION,
             turn_mark: crate::agent_turn_marks::TurnPhase::Start,
             cli: Some("claude".into()),
             patch_bytes: 0,

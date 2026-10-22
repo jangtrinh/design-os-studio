@@ -23,8 +23,30 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-/// Format version written in every [`LivePatch`].
-pub const LIVE_PATCH_VERSION: u32 = 1;
+/// Format version written in every [`LivePatch`] and [`DocEpoch`].
+///
+/// Version 2 is the v0.6 log: the `variables`, `styles`, `library_state`, `images` and `set_in_progress`
+/// ops and the `label`, `session_id` and `agent_label` fields. A build reads every version from
+/// [`MIN_LIVE_PATCH_VERSION`] up to this one and refuses a newer one ([`log_version_refusal`]).
+pub const LIVE_PATCH_VERSION: u32 = 2;
+
+/// Oldest format version this build still reads.
+pub const MIN_LIVE_PATCH_VERSION: u32 = 1;
+
+/// What to do about a log written by a newer build: Studio and `designos-mcp` must be the same version.
+pub const UPDATE_BOTH_HINT: &str = "Update Studio and designos-mcp to the same version.";
+
+/// Why this build cannot read a log line written in format version `v`, or `None` when it can.
+/// A newer log means Studio and `designos-mcp` are different builds, so the text names the fix.
+pub fn log_version_refusal(v: u32) -> Option<String> {
+    if v > LIVE_PATCH_VERSION {
+        Some(format!("Log version {v} is newer than this build reads. {UPDATE_BOTH_HINT}"))
+    } else if v < MIN_LIVE_PATCH_VERSION {
+        Some(format!("Log version {v} is not supported."))
+    } else {
+        None
+    }
+}
 
 /// The edits of one agent tool call: one line of the session's `doc-patch.jsonl`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -105,18 +127,31 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 pub enum LiveLogLine {
     Patch(LivePatch),
     DocEpoch(DocEpoch),
+    /// An edit written in a format version newer than this build reads. Its ops are not parsed: a
+    /// newer writer may use ops this build has never heard of, and the reader must still say "newer"
+    /// instead of "unreadable". Never replay it; report [`log_version_refusal`].
+    Newer {
+        v: u32,
+    },
 }
 
 impl LiveLogLine {
-    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit.
+    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit. An
+    /// edit in a newer format version is named, not parsed. A switch always parses, so a reader
+    /// that cannot honour it still stops following the agent's previous document.
     pub fn parse(line: &[u8]) -> Result<Self, serde_json::Error> {
         #[derive(Deserialize)]
         struct Probe {
             #[serde(default)]
+            v: Option<u32>,
+            #[serde(default)]
             doc_epoch: Option<u64>,
         }
-        if serde_json::from_slice::<Probe>(line)?.doc_epoch.is_some() {
+        let probe = serde_json::from_slice::<Probe>(line)?;
+        if probe.doc_epoch.is_some() {
             serde_json::from_slice(line).map(Self::DocEpoch)
+        } else if let Some(v) = probe.v.filter(|v| *v > LIVE_PATCH_VERSION) {
+            Ok(Self::Newer { v })
         } else {
             serde_json::from_slice(line).map(Self::Patch)
         }
@@ -280,3 +315,5 @@ mod log_line_tests;
 mod tests;
 #[cfg(test)]
 mod validate_tests;
+#[cfg(test)]
+mod version_tests;
