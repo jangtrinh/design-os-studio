@@ -34,11 +34,34 @@ pub fn publish_live_context(app: &mut App) {
     app.terminal.flush_live_sync();
 }
 
+/// Puts the document the agent opened on screen. The agent's document never takes the file of the one it replaces: a
+/// save of it would write the agent's document over the user's file. A library file is written first, and
+/// then the document has nothing unsaved. A document outside the library with edits no save has written is kept in
+/// a tab of its own, with its file, and the agent's document opens in the tab the agent works in. There is no
+/// question, so a running agent never waits for one.
 fn replace_live_document(app: &mut App, mut new_doc: Document) {
     crate::io::ensure_page(&mut new_doc);
-    let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
-    app.doc = new_doc;
-    app.page = keep_page;
+    app.commit_open_edits();
+    app.stop_plugin();
+    app.exit_version_view();
+    app.flush_autosave();
+    if app.home.is_none() && !app.tabs.parked_in_home && app.tabs.is_hist_in_app() && app.has_unsaved_edits() {
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.show_agent_document_beside_the_users(app, new_doc);
+        app.tabs = tabs;
+        // A new history starts at depth 0: a turn that began on the document left behind began above it.
+        let depth = app.hist.undo_depth();
+        for tab in &mut app.terminal.tabs {
+            tab.turn_start_undo_depth = tab.turn_start_undo_depth.min(depth);
+        }
+    } else {
+        let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
+        app.doc = new_doc;
+        app.page = keep_page;
+        app.file_path = None;
+        app.lib_file = None;
+        app.autosave.adopt_disk_state(Default::default(), None);
+    }
     // No undo step comes with a whole document, so the history cannot tell this is a change.
     app.mark_edited_outside_history();
     // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
@@ -68,12 +91,17 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if user_edit_in_progress(app) {
         return;
     }
+    // A question about unsaved edits names tabs by id, and the agent's document changes what a tab holds: it waits
+    // for the answer. Edits made on the document it opened wait behind it.
+    if app.leave.is_asking() && app.terminal.live_patch.pending_doc.is_some() {
+        return;
+    }
     if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
         crate::agent_turn_card::execute_revert(app, tab_idx, turn_id);
     }
     // A stopped turn is closed once its held patches are in: fold its agent undo steps into one and clear its flags (`#684`).
     let pending_close = app.terminal.pending_stop_close.take();
-    let pending_depth = app.terminal.pending_stop_fold_depth.take().or_else(|| pending_close.as_ref().map(|c| c.turn_start_depth));
+    let mut pending_depth = app.terminal.pending_stop_fold_depth.take().or_else(|| pending_close.as_ref().map(|c| c.turn_start_depth));
     // Shown after the edits that did apply: their toast would otherwise replace it.
     let fence_notice = app.terminal.live_patch.fence_notice.take();
     if !app.terminal.live_patch.has_held() {
@@ -87,6 +115,8 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if let Some(doc) = app.terminal.live_patch.pending_doc.take() {
         dropped = std::mem::take(&mut app.terminal.live_patch.dropped_old_epoch);
         replace_live_document(app, doc);
+        // The document left behind may have taken its history with it: nothing starts above the one on screen.
+        pending_depth = pending_depth.map(|d| d.min(app.hist.undo_depth()));
         app.terminal.active_turn_ledger_mut().on_doc_epoch(std::time::Instant::now());
     } else if epoch_switched {
         app.terminal.active_turn_ledger_mut().on_doc_epoch(std::time::Instant::now());
