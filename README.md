@@ -48,7 +48,7 @@ Browser-based design tools keep your files on a vendor's servers and give coding
 | **MCP server** | `designos-mcp` serves 36 tools over stdio: see the design, read its design system, write in one step (`designos_apply_batch`) and lint the result (`designos_lint`). | Send `tools/list` to `designos-mcp --workspace <dir>`. The tool table below is generated from that list. |
 | **Variables** | Color, number, string and boolean variables in collections with modes. A frame can pin its own mode per collection, and modes round-trip through `.fig`. Import and export Figma JSON and W3C Design Tokens (DTCG). | `designos <file> --export-variables <out>` |
 | **Dev Mode** | Built-in Dev Mode (`Shift+D`) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
-| **Privacy and license** | No telemetry. The network is used to download open-licensed fonts that a file needs (Fontsource API) and by the agent CLIs you start. Source-available under `PolyForm Shield 1.0.0`. | `crates/designos-fonts` is the only crate with an HTTP client. |
+| **Privacy and license** | No telemetry. Studio makes these network requests: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, a public status-page check after an agent provider error, and a plugin download from GitHub when you install a plugin. The agent CLIs you start use the network under their own terms. Source-available under `PolyForm Shield 1.0.0`. | `git grep -n 'ureq::' -- crates` lists the HTTP calls. The Figma REST client in `designos-fig` is a cargo feature that is off by default. |
 
 To read the container version of an exported file, run `unzip -p out.fig canvas.fig | head -c 12 | xxd`. The header starts with `fig-kiwi` and ends with `6a00 0000`, which is 106 in little-endian.
 
@@ -65,7 +65,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 | **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, tested by their users) · No Electron |
 | **Figma Interop** | Reads `.fig`; writes container version 106 | `crates/designos-fig` round-trip tests · more than `6,000` automated tests pass in the macOS CI job · [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834) |
 | **Agent Surface** | Agents panel + `designos-mcp` | `Claude Code` · `Codex` · `Grok` · `Antigravity` · `Gemini CLI`, each with its own sign-in |
-| **Telemetry / Network** | No telemetry | Network use: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, and the agent CLIs you start |
+| **Telemetry / Network** | No telemetry | Network use: font downloads from the Fontsource API for fonts a file needs, a status-page check after an agent provider error, plugin downloads you start from GitHub, and the agent CLIs you start |
 | **License** | `PolyForm Shield 1.0.0` (source-available) | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
 
 ---
@@ -91,7 +91,7 @@ cargo run --release -p designos-app --bin designos-studio
 <a id="first-safe-use--the-practical-loop"></a>
 ### 2. First Safe Use & The Practical Loop
 
-**First safe use. Three bounded steps that write only the files named in the commands:**
+**First safe use (three bounded, non-destructive steps):**
 
 1. **Run the deterministic offline repository, crate, and skill self-check:**
    ```bash
@@ -255,10 +255,10 @@ The Studio implements the small, tactile interactions Figma users expect on the 
 | :--- | :--- |
 | **Inspector fields** | Drag a field label to scrub the value, step it with the arrow keys, type math such as `+ - * /`, and edit `Mixed` selections. The digits `0` to `9` set opacity. |
 | **Auto layout and CSS Grid** | On-canvas gap and padding handles, add (`⇧A`) and remove (`⌥⇧A`) auto layout, Suggest Auto-Layout, CSS Grid track pills, and Smart Selection with Tidy up. |
-| **Selection and guides** | Deep select, marquee select, hierarchy keys (`Enter`, `Tab`, and `N` or `⇧N` between frames), `⌥`-hover distance guides, and smart snap guides. |
-| **Shapes and vectors** | On-canvas corner radius handles, star and ellipse controls, and vector network editing with join and split. |
+| **Selection and guides** | Marquee select, hierarchy keys (`Enter`, `Tab`, and `N` or `⇧N` between frames), `⌥`-hover distance guides, and smart snap guides. |
+| **Shapes and vectors** | On-canvas corner radius handles, ellipse, polygon and star controls, and vector network editing with join and split. |
 | **Layers, Eyedropper and Scale** | Inline layer rename, the Eyedropper (`I`) and the Scale tool (`K`). |
-| **Arrange** | Group (`⌘G`), ungroup (`⇧⌘G`) and frame selection (`⌥⌘G`), plus align with `⌥` and a letter key. |
+| **Arrange** | Group (`⌘G`), ungroup (`⇧⌘G`) and frame selection (`⌥⌘G`), plus align with `⌥A`, `⌥W`, `⌥S`, `⌥D`, `⌥H` and `⌥V`. |
 | **Components, prototype and comments** | Create component (`⌥⌘K`) and detach instance (`⌥⌘B`), variants, variable binding, prototype flows, pin comments, and copy and paste of properties (`⌥⌘C`, `⌥⌘V`). |
 
 ### How large files stay fast
@@ -570,7 +570,7 @@ design-os-studio/
 
 ### Known issues
 
-- Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. Releases before 0.6.0 behave the same.
+- Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
