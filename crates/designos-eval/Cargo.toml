@@ -3,7 +3,7 @@ name = "designos-eval"
 description = "Offline reproducible evaluation harness for DESIGN:OS Studio agents"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 default-run = "designos-eval"
 
 [[bin]]

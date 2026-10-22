@@ -80,7 +80,7 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 | `build` `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `designos-<version>-<target>.tar.gz` (adds `designos.desktop`, `icons/`, `install.sh`) and `designos_<version>_amd64.deb` (built when `dpkg-deb` is available) |
 | `macos` | `macos-14` (builds `aarch64-apple-darwin` and cross-compiles `x86_64-apple-darwin`; `macos-13` is retired) | `designos-<version>-macos.dmg` and `designos-<version>-macos-universal.tar.gz` |
 
-Every package holds all four tools (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) plus `LICENSE-MIT`, `LICENSE-APACHE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
+Every package holds all four tools (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) plus `LICENSE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
 
 The macOS job runs `scripts/package-macos.sh <version>`. It `lipo`s a universal build of each of the four tools, assembles `designos.app` (bundle id `os.design.studio`, `Info.plist` from `packaging/macos/Info.plist.in`, `designos.icns` built with `iconutil` from `assets/icon/designos.iconset`), ad-hoc signs it, and writes the `.dmg` (app, `Applications` link, `install-cli.command`, `Read me first.txt`) and the universal `.tar.gz` (app, `install-cli.command`, licenses, README). It needs a Mac, so test changes to it with a dry run (below).
 

@@ -2,7 +2,7 @@
 name: design-system-rhythm
 description: Enforce 4px spacing grid, typographic scale, and semantic token bindings across frames.
 version: 0.6.0
-license: MIT OR Apache-2.0
+license: LicenseRef-PolyForm-Shield-1.0.0
 attribution: DESIGN:OS Studio contributors
 ---
 

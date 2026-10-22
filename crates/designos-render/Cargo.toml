@@ -3,7 +3,7 @@ name = "designos-render"
 description = "CPU renderer (tiny-skia) for designos documents; deterministic for pixel diffs"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 cosmic-text = "0.19.0"

@@ -12,7 +12,7 @@
 - **Figma Parity & Micro-Interactions**: `387 / 387` (`100.00%`) verified parity with Figma Desktop `126.9.13` UI3 dark chrome (`#1e1e1e`) & `fig-kiwi` v106 binary schema + `100 / 100` (`#1..#100`) Figma A-to-Z Micro-Interactions + `12 / 12` Zero-Fake-UI invariants + `9 / 9` Self-Evolution ALIVE gates (`856` automated tests, `0` failures)
 - **Enterprise Scale (`VSF - PCP.fig`)**: Opens and renders `723,136` Kiwi records / `112,474` scene nodes in `1.48s - 1.63s` with `0.0%` static viewport CPU usage and `-96.5%` compact disk size (`242 MB` vs `6.80 GB`)
 - **Cross-Platform Installers**: macOS `.dmg` + `.tar.gz`, Windows NSIS `-setup.exe` + `.zip`, Linux `.deb` + `.tar.gz` bundling all 4 binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`)
-- **Privacy & License**: Zero telemetry (`PRIVACY.md`), dual-licensed under MIT OR Apache-2.0 (`LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`)
+- **Privacy & License**: Zero telemetry (`PRIVACY.md`), source-available under PolyForm Shield 1.0.0 (`LICENSE`)
 
 ## Core Documentation Links
 

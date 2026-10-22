@@ -18,7 +18,7 @@ nav:                        # one entry per Markdown page under docs/, in readin
   - { title: Deep dive, url: /deep-dive.html }
 footer:
   - { title: GitHub, url: https://github.com/jangtrinh/design-os-studio }
-  - { title: MIT, url: https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE }
+  - { title: PolyForm Shield 1.0.0, url: https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE }
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap

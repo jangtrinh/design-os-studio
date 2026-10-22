@@ -34,7 +34,7 @@ foreach ($bin in $Binaries) {
     Copy-Item -Force $src (Join-Path $InstallRoot $bin)
 }
 
-foreach ($doc in @("README.md", "LICENSE-MIT", "LICENSE-APACHE", "designos.ico", "uninstall.ps1")) {
+foreach ($doc in @("README.md", "LICENSE", "designos.ico", "uninstall.ps1")) {
     $p = Join-Path $SourceDir $doc
     if (Test-Path $p) {
         Copy-Item -Force $p (Join-Path $InstallRoot $doc)

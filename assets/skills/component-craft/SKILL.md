@@ -2,7 +2,7 @@
 name: component-craft
 description: Structure reusable components with variants, slots, and resilient auto-layout constraints.
 version: 0.6.0
-license: MIT OR Apache-2.0
+license: LicenseRef-PolyForm-Shield-1.0.0
 attribution: DESIGN:OS Studio contributors
 ---
 
