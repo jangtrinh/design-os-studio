@@ -334,6 +334,22 @@ pub fn advance_mock_now_ms(delta_ms: u64) -> u64 {
     next
 }
 
+/// Like [`set_mock_now_ms`], but only the calling thread sees the injected clock (`None` clears it).
+///
+/// [`set_mock_now_ms`] also writes a process-wide clock, so every parallel test on the real clock
+/// reads the mock until it is cleared. A flag stamped under that mock and read after it is cleared
+/// looks decades old and is dropped as stale. Tests that run next to others use this setter.
+pub fn set_thread_mock_now_ms(ms: Option<u64>) {
+    THREAD_MOCK_NOW_MS.with(|c| c.set(ms));
+}
+
+/// Like [`advance_mock_now_ms`], but moves only the calling thread's injected clock.
+pub fn advance_thread_mock_now_ms(delta_ms: u64) -> u64 {
+    let next = now_ms().saturating_add(delta_ms);
+    set_thread_mock_now_ms(Some(next));
+    next
+}
+
 /// Transient agent work-in-progress marker for a root frame or section (`E15-7` / `#592`).
 #[derive(Clone, Debug, Default, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1713,7 +1729,7 @@ mod tests {
 
     #[test]
     fn killed_agent_flag_goes_stale() {
-        set_mock_now_ms(Some(1_000_000));
+        set_thread_mock_now_ms(Some(1_000_000));
         let mut d = Document::new("t");
         let page = d.add_page("Page 1");
         let fid = d.alloc_id();
@@ -1733,7 +1749,7 @@ mod tests {
         assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Claude Code working");
 
         // Advance injected clock by 61 seconds without sleeping.
-        advance_mock_now_ms(61_000);
+        advance_thread_mock_now_ms(61_000);
         assert!(d.get_in_progress(frame).is_none(), "stale flag must be hidden from readers");
 
         // Next save / prune removes the stale entry from the persisted map.
@@ -1743,17 +1759,17 @@ mod tests {
         assert!(reloaded.in_progress.is_empty());
 
         // Clock skew: future since_ms is treated as now_ms().
-        set_mock_now_ms(Some(2_000_000));
+        set_thread_mock_now_ms(Some(2_000_000));
         d.set_in_progress(frame, Some(InProgress { run_id: Some("run_skew".into()), agent: None, since_ms: 9_000_000, stale_after_s: Some(60), status: None }));
         assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Agent working");
-        advance_mock_now_ms(61_000);
+        advance_thread_mock_now_ms(61_000);
         assert!(d.get_in_progress(frame).is_none(), "clock-skewed flag must expire 60s after effective now");
-        set_mock_now_ms(None);
+        set_thread_mock_now_ms(None);
     }
 
     #[test]
     fn undo_does_not_touch_flag() {
-        set_mock_now_ms(Some(1_000_000));
+        set_thread_mock_now_ms(Some(1_000_000));
         let mut d = Document::new("t");
         let page = d.add_page("Page 1");
         let fid = d.alloc_id();
@@ -1783,7 +1799,7 @@ mod tests {
         assert!(h.redo(&mut d).unwrap());
         assert!(d.get(fid2).is_some());
         assert!(d.get_in_progress(fid2).is_none(), "redo must not restore transient work state");
-        set_mock_now_ms(None);
+        set_thread_mock_now_ms(None);
     }
 
     #[test]
@@ -1843,7 +1859,7 @@ mod tests {
 
     #[test]
     fn run_end_clear_without_agent_matches_only_the_finishing_run_id() {
-        set_mock_now_ms(Some(1_000_000));
+        set_thread_mock_now_ms(Some(1_000_000));
         let mut d = Document::new("t");
         let page = d.add_page("Page 1");
         let f1 = d.alloc_id();
@@ -1868,12 +1884,12 @@ mod tests {
         assert!(d.get_in_progress(frame1).is_none());
         assert!(d.get_in_progress(frame2).is_some(), "other concurrent tab's flag must stay active");
         assert!(d.get_in_progress(frame3).is_some(), "run_id: None entry must never be cleared by a run id");
-        set_mock_now_ms(None);
+        set_thread_mock_now_ms(None);
     }
 
     #[test]
     fn in_progress_stale_minutes_setting_controls_default_staleness() {
-        set_mock_now_ms(Some(10_000_000));
+        set_thread_mock_now_ms(Some(10_000_000));
         set_in_progress_stale_minutes(Some(2));
         assert_eq!(in_progress_stale_minutes(), 2);
         assert_eq!(default_in_progress_stale_s(), 120);
@@ -1887,9 +1903,9 @@ mod tests {
             frame,
             Some(InProgress { run_id: Some("run_cfg".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }),
         );
-        advance_mock_now_ms(119_000);
+        advance_thread_mock_now_ms(119_000);
         assert!(d.get_in_progress(frame).is_some());
-        advance_mock_now_ms(2_000);
+        advance_thread_mock_now_ms(2_000);
         assert!(d.get_in_progress(frame).is_none());
         assert_eq!(d.prune_in_progress(), vec![frame]);
 
@@ -1899,6 +1915,22 @@ mod tests {
         assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_MAX_STALE_MINUTES);
         set_in_progress_stale_minutes(None);
         assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_DEFAULT_STALE_MINUTES);
-        set_mock_now_ms(None);
+        set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn thread_mock_clock_is_invisible_to_other_threads() {
+        // No other test uses this value, so a sibling test's process-wide mock cannot be mistaken for it.
+        const SENTINEL_MS: u64 = 123_456_789;
+        set_thread_mock_now_ms(Some(SENTINEL_MS));
+        assert_eq!(now_ms(), SENTINEL_MS);
+        assert_eq!(advance_thread_mock_now_ms(1_000), SENTINEL_MS + 1_000);
+        assert_eq!(now_ms(), SENTINEL_MS + 1_000);
+
+        let seen_elsewhere = std::thread::spawn(now_ms).join().unwrap();
+        assert!(seen_elsewhere != SENTINEL_MS && seen_elsewhere != SENTINEL_MS + 1_000, "the thread mock leaked to another thread: {seen_elsewhere}");
+
+        set_thread_mock_now_ms(None);
+        assert_ne!(now_ms(), SENTINEL_MS + 1_000, "clearing must restore this thread's own clock");
     }
 }

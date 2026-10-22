@@ -418,6 +418,9 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     use crate::canvas::tools::Tool;
 
     let mut s = Sim::new();
+    // The runtime picks below start agent CLIs. Stubs that stay alive keep the tab bar still between a click and
+    // the next one, on a machine with the real CLIs and on a runner without any.
+    s.use_stub_agent_clis();
     s.frame(vec![]);
 
     // UF-01: Left Icon Rail Navigation & Collapse
@@ -442,6 +445,20 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     click_rect(&mut s, "agents-runtime-add-btn");
     click_rect(&mut s, "agents-dropdown-claude");
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Claude);
+    // One tab per pick, all still running: a tab that exited would have moved the `+` button mid-flow.
+    #[cfg(unix)]
+    {
+        let terminal = &mut s.shell.app.terminal;
+        assert_eq!(terminal.tabs.len(), 3, "Codex, Antigravity and Claude each started a tab");
+        for tab in terminal.tabs.iter_mut() {
+            assert!(
+                tab.start_failure.is_none() && tab.is_alive(),
+                "{} must still be running, not {:?}",
+                tab.title,
+                tab.start_failure.as_ref().map(|f| f.cause)
+            );
+        }
+    }
 
     s.shell.app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", None);
     assert!(

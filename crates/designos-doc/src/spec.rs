@@ -2129,7 +2129,7 @@ mod tests {
 
     #[test]
     fn spec_in_progress_flag_applies_and_exports_on_a_root_frame() {
-        set_mock_now_ms(Some(10_000));
+        set_thread_mock_now_ms(Some(10_000));
         let mut doc = Document::new("Spec in_progress");
         let page = doc.add_page("P");
         let spec: NodeSpec = serde_json::from_value(serde_json::json!({
@@ -2154,7 +2154,7 @@ mod tests {
         let cleared: NodeSpec = serde_json::from_value(serde_json::json!({ "kind": "frame", "name": "Done", "in_progress": false })).unwrap();
         let cleared_id = doc.apply_spec(page, &cleared).unwrap();
         assert!(doc.get_in_progress(cleared_id).is_none(), "`in_progress: false` sets no flag");
-        set_mock_now_ms(None);
+        set_thread_mock_now_ms(None);
     }
 
     #[test]
