@@ -30,6 +30,7 @@
 
     @layer base { .lyr-imp { background: var(--base) !important; } }
     @layer theme { .lyr-imp { background: var(--theme) !important; } }
+    .lyr, .lyr-imp, .cp-use { color: #ffffff; }
 
     .lit { background-color: var(--brand); }
     .lit { background-color: #ff0000; }
@@ -77,12 +78,12 @@
   <div id="bd" class="bd">shorthand border</div>
   <div id="tok" class="tok" style="display:flex">relative-unit tokens</div>
   <div id="host"></div>
-  <iframe id="frame" width="400" height="120" srcdoc="<!DOCTYPE html><html><head><style>:root{--narrow:#555555;--frame-brand:#abcdef} body{margin:0} .ibtn{background:var(--frame-brand)} .m{background:#ffffff} @media (max-width:500px){.imed{background:var(--narrow)}}</style></head><body><button class='ibtn' id='ibtn'>x</button><div class='m' id='im'>m</div><div class='imed' id='imed'>narrow</div></body></html>"></iframe>
+  <iframe id="frame" title="Cascade frame" width="400" height="120" srcdoc="<!DOCTYPE html><html><head><style>:root{--narrow:#555555;--frame-brand:#abcdef} body{margin:0} .ibtn{background:var(--frame-brand)} .m{background:#ffffff} @media (max-width:500px){.imed{background:var(--narrow);color:#fff}}</style></head><body><button class='ibtn' id='ibtn'>x</button><div class='m' id='im'>m</div><div class='imed' id='imed'>narrow</div></body></html>"></iframe>
   <script>
     const host = document.getElementById("host");
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML =
-      '<style>.inner{background:var(--shadow-brand)}</style><button class="inner" id="inner-btn">inner</button>';
+      '<style>.inner{background:var(--shadow-brand);color:#fff}</style><button class="inner" id="inner-btn">inner</button>';
   </script>
 </body>
 </html>

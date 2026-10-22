@@ -52,7 +52,7 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
      token-usage errors.
 
   9. G09 · `design_os_project_audit`:
-     Executes `design-os audit` over every HTML file in the repository except `skills/vendor/**`, plus one
+     Executes `design-os audit` over every HTML file in the repository except the two exclusions below, plus one
      repo-level run (`--dir .`) for the DS specimen / DS a11y / flow-lint sections, plus
      `ui audit design/studio-ui-nodes.json` and `ui flow lint design/flow.json` when present, verifying `0`
      errors across everything audited.
@@ -61,9 +61,13 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
      out) and audits file by file; the DS/flow sections run exactly once. `toolsRun`, `toolsFailed`, `errors` and
      `warnings` are summed over the runs; the gate passes only when every run exits 0 and reports ok, with
      `toolsRun > 0`, `toolsFailed == 0` and `errors == 0`.
-     Excluded: `skills/vendor/**` only (owner ruling 2026-10-22). It holds SHA-pinned third-party upstream files
-     that must stay byte-identical (`scripts/check_vendor_skills.py verify`), so lint findings there cannot be
-     fixed in this repository. Every other HTML file stays audited, test fixtures included.
+     Excluded (owner rulings 2026-10-22), and nothing else:
+       - `skills/vendor/**`: SHA-pinned third-party upstream files that must stay byte-identical
+         (`scripts/check_vendor_skills.py verify`), so lint findings there cannot be fixed in this repository.
+       - `crates/designos-webcapture/tests/playwright/fixtures/stacking.html`: it tests capture of the maximum
+         32-bit `z-index: 2147483647`, and its test (`paint_index_dense_and_stacking_aware`) asserts that value,
+         which taste-lint reports as `z-index-inflation`. Changing the value would defeat the test.
+     Every other HTML file stays audited, the other test fixtures included.
 """
 
 from __future__ import annotations
@@ -92,8 +96,15 @@ ZERO_FAKE_GATE = REPO_ROOT / "scripts" / "zero_fake_ui_gate.py"
 
 # G09 audit scope. Mirror of `design_os.commands.audit._EXCLUDED_SEGMENTS` (the CLI's own HTML walk).
 AUDIT_WALK_EXCLUDED_SEGMENTS = frozenset({"node_modules", ".git", "dist", "build", ".next", "out"})
-# The only subtree G09 leaves out: SHA-pinned MIT upstream, kept byte-identical (owner ruling 2026-10-22).
+# Exclusion 1, a subtree: SHA-pinned MIT upstream, kept byte-identical (owner ruling 2026-10-22).
 AUDIT_EXCLUDED_PREFIX: Tuple[str, ...] = ("skills", "vendor")
+# Exclusion 2, one file (owner ruling 2026-10-22). It tests capture of the maximum 32-bit z-index
+# (`z-index: 2147483647`) and its test asserts that value (`paint_index_dense_and_stacking_aware` in
+# run_capture_tests.mjs), which taste-lint reports as `z-index-inflation`; lowering it would defeat the test.
+AUDIT_EXCLUDED_FILES = frozenset({"crates/designos-webcapture/tests/playwright/fixtures/stacking.html"})
+AUDIT_EXCLUSION_SUMMARY = " and ".join(
+    [f"{'/'.join(AUDIT_EXCLUDED_PREFIX)}/**", *(f"{Path(f).parent.name}/{Path(f).name}" for f in sorted(AUDIT_EXCLUDED_FILES))]
+)
 
 BANNED_PURPLES = {"#9747ff", "#8755e9", "#c4a1ff", "#a855f7"}
 
@@ -507,17 +518,26 @@ def collect_audit_html_targets(root: Path = REPO_ROOT) -> Tuple[List[str], List[
     """HTML files `design-os audit .` would lint, split into (audited, excluded) repo-relative POSIX paths.
 
     Same walk as the CLI (`rglob("*.html")`, any path segment in AUDIT_WALK_EXCLUDED_SEGMENTS dropped,
-    sorted); then only the pinned vendored subtree (AUDIT_EXCLUDED_PREFIX) moves to `excluded`.
+    sorted); then only the two exclusions move to `excluded`: the pinned vendored subtree
+    (AUDIT_EXCLUDED_PREFIX) and the files in AUDIT_EXCLUDED_FILES.
     """
     audited: List[str] = []
     excluded: List[str] = []
     for rel in sorted(path.relative_to(root) for path in root.rglob("*.html")):
         if not AUDIT_WALK_EXCLUDED_SEGMENTS.isdisjoint(rel.parts):
             continue
-        (excluded if rel.parts[: len(AUDIT_EXCLUDED_PREFIX)] == AUDIT_EXCLUDED_PREFIX else audited).append(
-            rel.as_posix()
+        is_excluded = (
+            rel.parts[: len(AUDIT_EXCLUDED_PREFIX)] == AUDIT_EXCLUDED_PREFIX or rel.as_posix() in AUDIT_EXCLUDED_FILES
         )
+        (excluded if is_excluded else audited).append(rel.as_posix())
     return audited, excluded
+
+
+def audit_exclusion_reason(rel: str) -> str:
+    """Why `rel` (an excluded path from `collect_audit_html_targets`) is not audited."""
+    if tuple(Path(rel).parts[: len(AUDIT_EXCLUDED_PREFIX)]) == AUDIT_EXCLUDED_PREFIX:
+        return "SHA-pinned upstream, byte-identical"
+    return "tests capture of z-index 2147483647, its test asserts that value"
 
 
 def run_design_os_audit(label: str, cmd: List[str]) -> Dict[str, Any]:
@@ -569,8 +589,7 @@ def check_design_os_project_audit() -> Tuple[bool, str, Dict[str, Any]]:
     a_err = "; ".join(f"{r['target']}: {r['stderr']}" for r in runs if r["stderr"] and not r["ok"])[:300]
     failing = [r for r in runs if (not r["ok"]) or r["errors"] or r["tools_failed"]]
     scope_lines = [
-        f"audit scope: design-os audit . minus {'/'.join(AUDIT_EXCLUDED_PREFIX)}/** "
-        "(pinned upstream, owner ruling 2026-10-22)",
+        f"audit scope: design-os audit . minus {AUDIT_EXCLUSION_SUMMARY} (owner rulings 2026-10-22)",
         f"audited html targets ({len(audited)}), plus 1 repo-level DS/flow run:",
         *(
             f"  {'FAIL' if (not r['ok'] or r['errors'] or r['tools_failed']) else 'ok  '} {r['target']} "
@@ -578,10 +597,11 @@ def check_design_os_project_audit() -> Tuple[bool, str, Dict[str, Any]]:
             for r in runs[1:]
         ),
         f"repo-level DS/flow: tools={runs[0]['tools_run']}, errors={runs[0]['errors']}, exit={runs[0]['exit_code']}",
-        f"excluded ({len(excluded)}): {', '.join(excluded) if excluded else 'none'}",
+        f"excluded ({len(excluded)}):" + ("" if excluded else " none"),
+        *(f"  {rel} ({audit_exclusion_reason(rel)})" for rel in excluded),
     ]
     a_payload: Dict[str, Any] = {
-        "excluded_rule": f"{'/'.join(AUDIT_EXCLUDED_PREFIX)}/**",
+        "excluded_rule": AUDIT_EXCLUSION_SUMMARY,
         "audited_targets": audited,
         "excluded_targets": excluded,
         "runs": runs,
@@ -624,7 +644,7 @@ def check_design_os_project_audit() -> Tuple[bool, str, Dict[str, Any]]:
     ok = audit_ok and nodes_ok and flow_ok
     if ok:
         summary = (
-            f"design-os audit . minus {'/'.join(AUDIT_EXCLUDED_PREFIX)}/** ({len(audited)} html targets + repo-level, "
+            f"design-os audit . minus {AUDIT_EXCLUSION_SUMMARY} ({len(audited)} html targets + repo-level, "
             f"{tools_run} tools, errors={audit_errors}, warnings={audit_warnings}, excluded={len(excluded)}); "
             f"nodes violations={nodes_total}; flow errors={flow_errors}"
         )
@@ -681,7 +701,7 @@ def main() -> int:
         ("G05", "ui_ds_soul_check", "Ratified Soul Integrity (ui ds soul check)", check_ui_ds_soul),
         ("G06", "ui_agents_check", "Roster & Cross-Runtime Design Agents Parity", check_ui_agents),
         ("G08", "ui_gate_specimen", "6-Family Specimen Gate & DS Usage Lint (design/specimen.html)", check_ui_gate_specimen),
-        ("G09", "design_os_project_audit", "Full Repository Audit, Node Tree & Flow Lint (design-os audit . minus skills/vendor/**)", check_design_os_project_audit),
+        ("G09", "design_os_project_audit", "Full Repository Audit, Node Tree & Flow Lint (design-os audit . minus skills/vendor/** and fixtures/stacking.html)", check_design_os_project_audit),
         ("G07", "design_os_evolution", "Self-Evolution Loop Proof (design-os evolution)", lambda: run_self_evolution_pulse(check_only=check_only)),
     ]
 
