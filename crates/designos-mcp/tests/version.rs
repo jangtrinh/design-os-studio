@@ -2,8 +2,11 @@
 use std::process::Command;
 
 /// Runs the binary in an empty scratch directory, so an argument read as a path can never touch the checkout.
+/// Each call gets its own directory: the tests run in parallel, and a shared one was removed under a running test.
 fn run(args: &[&str]) -> (bool, String, String) {
-    let dir = std::env::temp_dir().join(format!("designos_mcp_version_{}", std::process::id()));
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("designos_mcp_version_{}_{n}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create the scratch directory");
     let out = Command::new(env!("CARGO_BIN_EXE_designos-mcp")).args(args).current_dir(&dir).output().expect("run designos-mcp");
     let _ = std::fs::remove_dir_all(&dir);
