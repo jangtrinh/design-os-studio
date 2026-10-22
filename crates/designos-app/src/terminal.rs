@@ -1087,11 +1087,6 @@ impl TerminalTab {
 /// parallel with the handler that appends that event, so they may read a file a moment after the event was written.
 const SKILLS_HOOK_SETTLE: std::time::Duration = if cfg!(test) { std::time::Duration::from_millis(150) } else { std::time::Duration::from_secs(2) };
 
-/// How long a test waits for a stub CLI it started to print, exit or fail. Every such wait ends on its event, so a healthy run never pays
-/// for it. It is long because a loaded machine can stall every process start for tens of seconds.
-#[cfg(test)]
-pub(crate) const STUB_START_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
-
 /// Shared state of a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`).
 #[derive(Clone, Debug)]
 pub struct BootstrapJobState {
@@ -6235,6 +6230,7 @@ mod ask_mode_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_timing::ScopedTerminalState;
     use designos_doc::{Comment, CommentAnchor, CommentThread, Node, NodeSpec};
 
     #[test]
@@ -6242,7 +6238,7 @@ mod tests {
         let mut tab = TerminalTab::spawn(1, AgentCliPreset::Shell, 24, 80, None).expect("should spawn shell PTY");
         tab.send_line("echo DESIGNOS_PTY_OK");
 
-        let deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         let mut found = false;
         while std::time::Instant::now() < deadline {
             if let Ok(p) = tab.parser.lock() {
@@ -6278,7 +6274,7 @@ mod tests {
 
     #[test]
     fn poll_live_agent_bridge_detects_updated_spec_file() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         let _ = std::fs::create_dir_all(&st.session_dir);
         let live_path = st.live_spec_path.clone();
         st.last_watched_mtime = Some(std::time::UNIX_EPOCH);
@@ -6295,7 +6291,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         assert!(st.side_panel_pty_open, "Default Agents panel must open directly into live PTY Shell");
         assert_eq!(st.active_runtime, AgentCliPreset::Shell);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(240.0, 800.0));
@@ -6369,7 +6365,7 @@ mod tests {
 
     #[test]
     fn agents_chat_wrapper_executes_in_pty_shell_and_streams_clean_output() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         assert_eq!(st.active_runtime, AgentCliPreset::Shell);
         st.side_panel_pty_open = false;
         st.chat_mode = true;
@@ -6418,7 +6414,7 @@ mod tests {
 
     #[test]
     fn all_four_agent_cli_runtimes_claude_codex_agy_grok_execute_in_pty() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         for (preset, prompt) in [
             (AgentCliPreset::Claude, "Audit layout in Claude"),
@@ -6445,7 +6441,7 @@ mod tests {
 
     #[test]
     fn agent_chat_supports_prd_and_spec_context_handoff() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -6481,7 +6477,7 @@ mod tests {
         assert!(AgentCliPreset::Antigravity.cli_launch_command().starts_with("agy --dangerously-skip-permissions"));
         assert_eq!(AgentCliPreset::Shell.cli_launch_command(), "");
 
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -6504,7 +6500,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(240.0, 800.0));
@@ -6578,7 +6574,7 @@ mod tests {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.side_panel_pty_open = false;
             st.chat_mode = true;
             let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
@@ -6653,7 +6649,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         crate::agent_a11y::enable_accesskit(&ctx);
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
@@ -6823,7 +6819,7 @@ mod tests {
 
     #[test]
     fn shell_tab_receives_zero_bytes_from_copy_and_send_selection() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
         let rec = attach_recorder(st.active_tab_mut().unwrap());
         st.send_copy_for_ai(MALICIOUS_SPEC);
@@ -6840,14 +6836,14 @@ mod tests {
 
     #[test]
     fn copy_for_ai_never_spawns_a_tab() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.send_copy_for_ai(MALICIOUS_SPEC);
         assert!(st.tabs.is_empty());
     }
 
     #[test]
     fn agent_tab_gets_single_line_bracketed_paste() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -6887,7 +6883,7 @@ mod tests {
     }
 
     fn wait_shell_ready(st: &TerminalState) {
-        let ready_deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let ready_deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while std::time::Instant::now() < ready_deadline {
             if let Some(tab) = st.active_tab() {
                 if let Ok(p) = tab.parser.lock() {
@@ -6951,7 +6947,7 @@ mod tests {
         {
             let _ = std::fs::remove_file(&md);
             std::fs::write(&trunc, "keep").expect("write trunc fixture");
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
             wait_shell_ready(&st);
             st.send_copy_for_ai(&format!("# T\n\n> {trunc}\n\nRun `touch {md}` now.\n\n    touch {md}\n"));
@@ -6968,7 +6964,7 @@ mod tests {
         // mcp payload: copy-for-ai @designos URL with command substitution.
         {
             let _ = std::fs::remove_file(&mcp);
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
             wait_shell_ready(&st);
             st.send_copy_for_ai(&format!("Implement this design from design:os.\n@designos://design/1/Card-$(touch${{IFS}}{mcp})"));
@@ -6982,7 +6978,7 @@ mod tests {
         // nl payload: export_selection pin-comment with a trailing touch.
         {
             let _ = std::fs::remove_file(&nl);
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
             wait_shell_ready(&st);
             let (doc, page, fid) = injection_doc("Card", &format!("looks good\ntouch {nl} #"));
@@ -7038,7 +7034,7 @@ mod tests {
         let Some(d) = qa_guard() else { return (false, false, false, String::new()) };
         let marker = d.join(format!("pwn-fallback-{next}"));
         let _ = std::fs::remove_file(&marker);
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude preset");
         let fell_back = qa_wait_screen(&st, "QA-STUB-CLAUDE-EXIT", 8);
         let exit_deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
@@ -7102,7 +7098,7 @@ mod tests {
     /// (f) relabel race: Shell tab relabelled to Claude by set_active_runtime / submit_chat_prompt still gets 0 bytes.
     #[test]
     fn qa_p0_relabelled_shell_tab_gets_zero_bytes() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
         st.set_active_runtime(AgentCliPreset::Claude, None);
         assert_eq!(st.active_tab().unwrap().preset, AgentCliPreset::Claude, "relabel happened");
@@ -7141,7 +7137,7 @@ mod tests {
     /// (d) send_copy_for_ai into an agent tab: only the fixed file-reference sentence, never payload text.
     #[test]
     fn qa_p0_copy_for_ai_agent_tab_carries_no_payload() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
@@ -7164,7 +7160,7 @@ mod tests {
         let Some(d) = qa_guard() else { return };
         let marker = d.join("pwn-fallback-comment-subst");
         let _ = std::fs::remove_file(&marker);
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude preset");
         let exit_deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
         while std::time::Instant::now() < exit_deadline {
@@ -7203,7 +7199,7 @@ mod tests {
     }
 
     fn wait_until_tab_exits(st: &mut TerminalState) -> bool {
-        let dl = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let dl = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while std::time::Instant::now() < dl {
             if let Some(tab) = st.active_tab_mut() {
                 if !tab.is_alive() {
@@ -7217,7 +7213,7 @@ mod tests {
 
     #[test]
     fn export_selection_pastes_fixed_sentence_only() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
@@ -7274,7 +7270,7 @@ mod tests {
         let marker = pty_fixture_path(&format!("dos-p0-r2-dead-{pid}"));
         let _ = std::fs::remove_file(&marker);
 
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         spawn_stub_exiting_agent_into(&mut st);
         assert!(wait_until_tab_exits(&mut st), "stub agent must exit");
         assert!(!st.active_tab_mut().unwrap().is_alive());
@@ -7311,7 +7307,7 @@ mod tests {
         let _ = std::fs::remove_file(&m_chat);
         let _ = std::fs::remove_file(&m_ai);
 
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
         wait_shell_ready(&st);
 
@@ -7336,7 +7332,7 @@ mod tests {
 
     #[test]
     fn submit_chat_prompt_sanitizes_control_chars() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -7704,7 +7700,7 @@ mod tests {
         serde_json::from_str::<serde_json::Value>(&raw).ok()?.get("state")?.as_str().map(str::to_string)
     }
 
-    fn provisioned_session(tab: u64) -> TerminalState {
+    fn provisioned_session(tab: u64) -> ScopedTerminalState {
         let mut st = isolated_683_state(tab);
         let mut doc = Document::new("Hooks File");
         let page = doc.add_page("Page 1");
@@ -7805,8 +7801,8 @@ mod tests {
 
     /// A state whose stub agent has exited but whose exit the terminal has not yet observed: the
     /// bridge is not polled here, so each test decides the spawn time the exit is judged against.
-    fn exited_stub_state() -> TerminalState {
-        let mut st = TerminalState::default();
+    fn exited_stub_state() -> ScopedTerminalState {
+        let mut st = ScopedTerminalState::default();
         spawn_stub_exiting_agent_into(&mut st);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while st.active_tab_mut().unwrap().is_alive() || !st.active_tab().unwrap().reader_eof.load(std::sync::atomic::Ordering::Acquire) {
@@ -7952,7 +7948,7 @@ mod tests {
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("'{}'", stub_path.display()));
         isolate_zsh_from_home(&mut cmd);
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Grok, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.tabs = vec![tab];
         st.active_tab = 0;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -8078,7 +8074,7 @@ mod tests {
         st.active_runtime = AgentCliPreset::Claude;
         st.path_override = Some(std::ffi::OsString::new());
         let _ = st.spawn_tab(AgentCliPreset::Claude, None);
-        st.poll_until_start_failure(crate::terminal::STUB_START_WAIT);
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("missing CLI must populate start_failure on the active tab");
         assert_eq!(failure.preset, AgentCliPreset::Claude);
@@ -8682,7 +8678,7 @@ mod tests {
         let mut clean_cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo BYE; exit 0'");
         isolate_zsh_from_home(&mut clean_cmd);
         let tab = TerminalTab::spawn_with_session_cmd(2, AgentCliPreset::Claude, 24, 80, None, None, Some(clean_cmd)).expect("spawn clean stub");
-        let mut st_clean = TerminalState::default();
+        let mut st_clean = ScopedTerminalState::default();
         st_clean.tabs = vec![tab];
         st_clean.active_tab = 0;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -8829,11 +8825,12 @@ mod tests {
         assert_eq!(AgentCliPreset::OpenCode.cli_launch_command_for_mode(PermissionMode::Ask), "opencode \"$DESIGNOS_SESSION_DIR\"");
     }
 
-    fn isolated_683_state(tab_id: u64) -> TerminalState {
+    /// A terminal state on a cleared session folder, which is removed again when the test ends (see [`ScopedTerminalState`]).
+    fn isolated_683_state(tab_id: u64) -> ScopedTerminalState {
         let dir = std::env::temp_dir().join("designos-sessions").join(tab_session_id(&format!("p{}", std::process::id()), tab_id));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        TerminalState::for_tab(tab_id)
+        ScopedTerminalState::new(TerminalState::for_tab(tab_id))
     }
 
     fn spawn_mock_agent_tab(st: &mut TerminalState, preset: AgentCliPreset, session_uuid: Option<&str>) -> usize {
@@ -9044,7 +9041,7 @@ mod tests {
 
     #[test]
     fn the_header_names_the_status_not_the_hook_detail_or_the_raw_failure_slug() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-header-label"));
         let set = |st: &TerminalState, status: AgentTabStatus| *st.tabs[idx].agent_status.lock().unwrap() = status;
 
@@ -9486,7 +9483,7 @@ mod tests {
             tab.pty_waiting_heuristic.store(ask, std::sync::atomic::Ordering::Release);
             std::fs::write(&go, "go").expect("write go-ahead");
             // The reader decides the status before it puts the chunk on the screen, so once the prompt is on screen the status is final.
-            let printed = crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+            let printed = crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
                 tab.parser.lock().is_ok_and(|p| p.screen().contents().contains("Allow this edit?"))
             });
             assert!(printed, "the stub agy must print its approval prompt");
@@ -9768,7 +9765,7 @@ mod tests {
         std::fs::write(&events_path, "{\"t\":10.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-exit-1\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
 
-        let deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while st.tabs[0].is_alive() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -9842,7 +9839,7 @@ mod tests {
         let delivered = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let delivered_bg = std::sync::Arc::clone(&delivered);
         let slow_failing_sink = std::sync::Arc::new(OsNotificationSink::with_runner(move |_notif| {
-            let _ = delivery_gate.lock().map(|gate| gate.recv_timeout(crate::terminal::STUB_START_WAIT));
+            let _ = delivery_gate.lock().map(|gate| gate.recv_timeout(crate::test_timing::STUB_WAIT));
             delivered_bg.store(true, std::sync::atomic::Ordering::SeqCst);
             false
         }));
@@ -9871,7 +9868,7 @@ mod tests {
             ),
         )
         .unwrap();
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             let _ = st_denied.poll_live_agent_bridge();
             st_denied.status_msg.as_deref() == Some(crate::agent_notify::NOTIFICATIONS_OFF_STATUS_MSG)
         });
@@ -9937,7 +9934,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-bridge-{}", std::process::id()));
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         st.ensure_default_tab(None);
@@ -10029,7 +10026,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-status-{}", std::process::id()));
         st.open_approval_fixture("agents-approval-command", None);
         assert!(st.needs_approval());
@@ -10058,7 +10055,7 @@ mod tests {
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
 
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.bind_session(&format!("656-non-claude-{}-{:?}", std::process::id(), preset));
             st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
             st.ensure_default_tab(None);
@@ -10117,7 +10114,7 @@ mod tests {
     #[test]
     fn unfocused_window_sends_one_notification_without_the_command_text() {
         let recorder = crate::agent_permissions::RecordingNotifier::default();
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-notify-{}", std::process::id()));
         st.doc_name = "Checkout Flow".into();
         st.set_approval_notifier(Arc::new(recorder.clone()));
@@ -10155,7 +10152,7 @@ mod tests {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
-            let mut st = TerminalState::default();
+            let mut st = ScopedTerminalState::default();
             st.bind_session(&format!("656-lint-{preset_slug}-{}", std::process::id()));
             st.open_approval_fixture(preset_slug, None);
 
@@ -10197,7 +10194,7 @@ mod tests {
 
     #[test]
     fn closing_or_exiting_one_tab_preserves_other_tab_pending_approvals() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-tab-isolation-{}", std::process::id()));
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         st.ensure_default_tab(None);
@@ -10252,7 +10249,7 @@ mod tests {
         let env = st.session_env();
         let stub = TerminalTab::spawn_exiting_stub_agent(2, 24, 80, None, Some(&env)).expect("spawn stub tab 2");
         st.tabs.push(stub);
-        let deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while st.tabs.get(1).is_some_and(|t| !t.exited_notice_shown) && std::time::Instant::now() < deadline {
             let _ = st.poll_live_agent_bridge();
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -10273,7 +10270,7 @@ mod tests {
         crate::theme::apply(&ctx);
 
         let recorder = crate::agent_permissions::RecordingNotifier::default();
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-skip-guard-{}", std::process::id()));
         st.set_approval_notifier(Arc::new(recorder.clone()));
         st.set_window_focused(false);
@@ -10304,7 +10301,7 @@ mod tests {
 
     #[test]
     fn resumed_tab_preserves_login_and_install_fix_actions() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-resumed-fix-{}", std::process::id()));
         let env = st.session_env();
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo \"Not logged in · Please run /login\"; exit 1'");
@@ -10313,7 +10310,7 @@ mod tests {
         tab.is_resumed = true;
         st.tabs.push(tab);
 
-        let deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while st.tabs[0].start_failure.is_none() && std::time::Instant::now() < deadline {
             let _ = st.poll_live_agent_bridge();
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -10336,7 +10333,7 @@ mod tests {
         for tid in 0..8usize {
             let barrier = std::sync::Arc::clone(&barrier);
             handles.push(std::thread::spawn(move || {
-                let mut st = TerminalState::default();
+                let mut st = ScopedTerminalState::default();
                 barrier.wait();
                 for iter in 0..10usize {
                     let node_name = format!("x'; touch /tmp/never-t{tid}-i{iter} #");
@@ -10675,9 +10672,9 @@ mod tests {
         use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
         let root = permission_window_root("other-window");
         save_permission_mode(&root, AgentPermissionMode::Skip).expect("the library holds Skip (Ask is the default)");
-        let mut window_a = isolated_683_state(1);
+        let mut window_a = isolated_683_state(68491);
         window_a.bind_library_file(&root, "file-a", "win-a");
-        let mut window_b = isolated_683_state(2);
+        let mut window_b = isolated_683_state(68492);
         window_b.bind_library_file(&root, "file-b", "win-b");
         assert_eq!(window_b.permission_mode, AgentPermissionMode::Skip, "window B cached the saved Skip when it bound");
 
@@ -11223,7 +11220,7 @@ mod tests {
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         spawn_stub_exiting_agent_into(&mut st);
-        let deadline = std::time::Instant::now() + crate::terminal::STUB_START_WAIT;
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while st.active_tab_mut().unwrap().is_alive() {
             assert!(std::time::Instant::now() < deadline, "stub agent must exit");
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -11844,7 +11841,7 @@ mod tests {
 
     #[test]
     fn the_turn_start_moves_down_with_the_bytes_the_reader_trimmed() {
-        let mut st = TerminalState::default();
+        let mut st = ScopedTerminalState::default();
         quiet_claude_tab_into(&mut st);
         kill_tabs_after(&mut st, |st| {
             let tab = st.active_tab_mut().unwrap();
@@ -12097,13 +12094,14 @@ mod tests {
     #[test]
     fn retry_when_online_probes_on_worker_without_blocking_ui_thread() {
         // The server takes the probe's connection and never answers until the test lets it go, so the probe can only end by its own
-        // read timeout (800 ms), which is far later than a click that does not wait for it.
+        // read timeout (800 ms). The check right after the click still depends on this thread not stalling for those 800 ms between two
+        // statements: that holds by a wide margin, not by construction.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind slow probe listener");
         let addr = listener.local_addr().unwrap();
         let (release_server, server_gate) = std::sync::mpsc::channel::<()>();
         let server_handle = std::thread::spawn(move || {
             if let Ok((_stream, _)) = listener.accept() {
-                let _ = server_gate.recv_timeout(crate::terminal::STUB_START_WAIT);
+                let _ = server_gate.recv_timeout(crate::test_timing::STUB_WAIT);
             }
         });
 
@@ -12130,7 +12128,7 @@ mod tests {
         );
         assert_eq!(st.status_msg.as_deref(), Some("Checking network connection…"), "the click answers at once while the probe runs");
 
-        let reported = crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        let reported = crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             let _ = st.poll_live_agent_bridge();
             st.status_msg.as_deref() == Some("Still offline. Check your network.")
         });
@@ -12272,7 +12270,7 @@ mod tests {
 
         /// How long a test waits for a bootstrap build it expects to finish. The wait ends as soon as the build is done, so the
         /// figure only matters when the build never finishes; the 500 ms of the production hook is a different thing (below).
-        const BUILD_WAIT: std::time::Duration = crate::terminal::STUB_START_WAIT;
+        const BUILD_WAIT: std::time::Duration = crate::test_timing::STUB_WAIT;
 
         /// Waits for the in-flight bootstrap job so the hook finds the full reply instead of the compact fallback.
         fn settle_bootstrap(st: &mut TerminalState) -> String {
@@ -12541,21 +12539,24 @@ mod tests {
 
             let mut st = isolated_683_state(8604);
             st.sync_live_file_context(&doc, page, &[], None);
-            let job = st.bootstrap_job.clone().expect("the sync started a bootstrap job");
+            assert!(st.bootstrap_job.is_some(), "the sync started a bootstrap job");
             // The build is delivered whole, not as the compact fallback, however long a loaded machine takes to write it out.
             let md = settle_bootstrap(&mut st);
             assert!(!md.contains("Bootstrap build exceeded 500 ms"), "the settled build must be the full block, not the compact fallback");
 
-            // The full block has to be ready within the 500 ms the Claude hook waits for it, or the agent gets the compact one. That is
-            // the cost of the build itself, so the build is what is timed, not the disk writes around it. A lone timing on a shared
-            // machine still includes stalls that are not the build's cost: it is timed until one run is within budget. Noise only adds
-            // time; a build that really got slower stays over the budget on every run.
-            let rules = session_rules_pack(job.enabled_tools.as_ref());
+            // The full block has to be on disk within the 500 ms the Claude hook waits for it, or the agent gets the compact one. That is
+            // the cost of the whole background job: the rules pack, the compact fallback and its write, the full build and its write. So the
+            // job itself is timed, from the call that starts it until its worker is done, and not any one stage of it: a delay anywhere in
+            // the worker (outside `agent_context::bootstrap` too) counts. A lone timing on a shared machine includes stalls that are not
+            // the job's cost, so it is timed until one run is within budget. Noise only adds time; a job that really got slower stays over
+            // the budget on every run. The budget is the hook's 500 ms less room for the hook's own scheduling.
             let budget = std::time::Duration::from_millis(300);
-            let (fastest, _) = crate::test_timing::fastest_within(budget, std::time::Duration::from_secs(30), || {
-                designos_export::agent_context::bootstrap(&job.doc, &job.opts, &job.doc.library.enabled, &rules)
+            let (fastest, finished) = crate::test_timing::fastest_within(budget, std::time::Duration::from_secs(30), || {
+                st.start_bootstrap_job_held(doc.clone_without_images(), page, None, None);
+                wait_for_job(&in_flight_job(&st))
             });
-            assert!(fastest <= budget, "large fixture bootstrap build took {fastest:?} at best (> {budget:?} budget)");
+            assert!(finished, "the bootstrap worker must finish");
+            assert!(fastest <= budget, "large fixture bootstrap job took {fastest:?} at best (> {budget:?} budget)");
 
             let boot_json = read_json(&st.bootstrap_json_path);
             let total_tokens = boot_json["total_tokens"].as_u64().unwrap();
@@ -12704,6 +12705,43 @@ mod tests {
             release_build.send(()).expect("the held build is still waiting");
             assert!(wait_for_job(&build), "the released build must finish");
             kill_tabs(&mut st);
+        }
+
+        /// The longest the Claude prompt hook waits for the full bootstrap reply before it prints the compact one: the number of rounds of its
+        /// wait loop (`[ $i -lt N ]`) times the sleep of each (`sleep S`), read from the command text the session's `hooks.json` carries.
+        /// Panics when the command has no such loop, so a reshaped hook fails the test instead of passing it.
+        fn prompt_hook_wait_bound(command: &str) -> std::time::Duration {
+            // The command has other `while` loops (the event log's lock retry); the one that waits for the full reply is the one that tests for it.
+            let waits_for_full_reply: Vec<&str> = command
+                .split("i=0; while ")
+                .skip(1)
+                .filter_map(|after_while| after_while.split_once("; done").map(|(wait_loop, _)| wait_loop))
+                .filter(|wait_loop| wait_loop.contains("bootstrap-context-reply.json"))
+                .collect();
+            assert_eq!(waits_for_full_reply.len(), 1, "the prompt hook must have exactly one loop that waits for the full bootstrap reply:\n{command}");
+            let wait_loop = waits_for_full_reply[0];
+            let rounds: u32 = wait_loop
+                .split_once("[ $i -lt ")
+                .and_then(|(_, rest)| rest.split_once(" ]"))
+                .and_then(|(n, _)| n.trim().parse().ok())
+                .unwrap_or_else(|| panic!("the wait loop must count its rounds with `[ $i -lt N ]`:\n{wait_loop}"));
+            let pause: f64 = wait_loop
+                .split_once("do sleep ")
+                .and_then(|(_, rest)| rest.split_once(';'))
+                .and_then(|(s, _)| s.trim().parse().ok())
+                .unwrap_or_else(|| panic!("the wait loop must pause with `sleep S`:\n{wait_loop}"));
+            std::time::Duration::from_secs_f64(f64::from(rounds) * pause)
+        }
+
+        /// The hook promises the agent its first prompt within 500 ms, with the compact block if the full one is not ready. The wait is
+        /// read from the command and not timed: a timing needs a build that is late by a wall-clock margin, which a loaded machine can
+        /// turn either way, while the loop's bound is the thing the hook cannot exceed.
+        #[test]
+        fn claude_prompt_hook_waits_at_most_half_a_second_for_the_full_bootstrap() {
+            let st = provisioned_session(68493);
+            let command = claude_prompt_hook_command(&st);
+            let bound = prompt_hook_wait_bound(&command);
+            assert_eq!(bound.as_millis(), 500, "the Claude prompt hook must bound its wait for the full block to 500 ms, not {bound:?}:\n{command}");
         }
 
         #[test]

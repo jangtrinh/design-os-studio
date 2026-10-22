@@ -1228,10 +1228,10 @@ mod tests {
         src.find("#[cfg(test)]").map(|idx| &src[..idx]).unwrap_or(src)
     }
 
-    /// Polls the bridge every 25 ms until `condition` holds or `STUB_START_WAIT` passes, and returns whether it held. The stub CLIs
+    /// Polls the bridge every 25 ms until `condition` holds or `STUB_WAIT` passes, and returns whether it held. The stub CLIs
     /// are real child processes, and a loaded machine can take seconds just to start one, so the wait ends on the event it names.
     fn poll_bridge_until(st: &mut TerminalState, mut condition: impl FnMut(&mut TerminalState) -> bool) -> bool {
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             let _ = st.poll_live_agent_bridge();
             condition(st)
         })
@@ -1245,6 +1245,31 @@ mod tests {
                 tab.composer.pending_enter_deadline = Some(Instant::now() + Duration::from_secs(3600));
             }
         }
+    }
+
+    /// Checks the real-clock deadline of the delayed `\r` the active tab holds right after a send, before
+    /// [`defer_pending_enter_to_frame_time`] pushes it out of reach. `before` and `after` are read around the send.
+    ///
+    /// The delay is the CLI's own. The deadline is the instant the paste was written plus that delay, so it lies in
+    /// `[before + delay, after + delay]` on the real clock, and it is exactly `awaiting_confirm_since + delay`. The second check holds
+    /// however long a loaded machine stalled inside the send, so a deadline set to the send instant (no delay at all) fails it on every run.
+    fn assert_enter_deadline_follows_the_send(st: &TerminalState, expected_delay: Duration, before: Instant, after: Instant, which: &str) {
+        let tab = st.active_tab().expect("the active tab");
+        let delay = tab.composer.pending_enter_delay.expect("a send leaves its Enter delay on the composer");
+        assert_eq!(delay, expected_delay, "{which}: the Enter delay of this CLI");
+        let deadline = tab.composer.pending_enter_deadline.expect("a send leaves its Enter deadline on the composer");
+        assert!(
+            deadline >= before + delay,
+            "{which}: the Enter deadline must be at least {delay:?} after the send, but it is only {:?} after the moment before it",
+            deadline.saturating_duration_since(before)
+        );
+        assert!(
+            deadline <= after + delay,
+            "{which}: the Enter deadline must be at most {delay:?} after the send, but it is {:?} after the moment it returned",
+            deadline.saturating_duration_since(after)
+        );
+        let sent_at = tab.composer.awaiting_confirm_since.expect("a send stamps the instant it wrote the paste");
+        assert_eq!(deadline, sent_at + delay, "{which}: the Enter deadline must be the instant the paste was written plus the delay");
     }
 
     /// Waits until the active tab's stub CLI has printed its `Ready>` prompt.
@@ -1291,7 +1316,7 @@ mod tests {
 
         // Wait for both lines to be written by the single running process.
         let mut log_contents = String::new();
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             log_contents = std::fs::read_to_string(&log_file).unwrap_or_default();
             log_contents.contains("First message in session") && log_contents.contains("Second message in session")
         });
@@ -1345,7 +1370,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1393,12 +1418,16 @@ mod tests {
             events: vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
             ..Default::default()
         };
+        let before_send = Instant::now();
         let _ = ctx.run_ui(raw_enter, |ui| {
             let mut acts = Vec::new();
             let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
+        let after_send = Instant::now();
         assert_eq!(st.composer_draft(), "", "Plain Enter must clear the draft after sending");
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Bracketed paste payload must be written first, before the delayed Enter");
+        // The real-clock delay is judged here, before the deadline is pushed out so that only the simulated frame times below decide the flush.
+        assert_enter_deadline_follows_the_send(&st, CLAUDE_ENTER_DELAY, before_send, after_send, "Claude");
         defer_pending_enter_to_frame_time(&mut st);
 
         // Intermediate frame (+24ms < 50ms CLAUDE_ENTER_DELAY): `\r` must NOT flush early.
@@ -1437,11 +1466,16 @@ mod tests {
             events: vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
             ..Default::default()
         };
+        let before_codex_send = Instant::now();
         let _ = ctx.run_ui(raw_codex_enter, |ui| {
             let mut acts = Vec::new();
             let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
+        let after_codex_send = Instant::now();
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~");
+        let codex_delay = enter_delay_for_preset(AgentCliPreset::Codex, rec.lock().unwrap().len());
+        assert!(codex_delay >= OTHER_CLI_BASE_ENTER_DELAY, "a non-Claude CLI waits at least the base delay: {codex_delay:?}");
+        assert_enter_deadline_follows_the_send(&st, codex_delay, before_codex_send, after_codex_send, "Codex");
         defer_pending_enter_to_frame_time(&mut st);
 
         // +83ms spinner frame (< 500ms OTHER_CLI_BASE_ENTER_DELAY): `\r` must NOT flush yet.
@@ -1478,7 +1512,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 720.0));
 
         let mut heights = Vec::new();
@@ -1512,7 +1546,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1578,7 +1612,7 @@ mod tests {
     // 6. `each_tab_keeps_its_draft`
     #[test]
     fn each_tab_keeps_its_draft() {
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab 0");
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab 1");
         for tab in &mut st.tabs {
@@ -1651,7 +1685,7 @@ mod tests {
         assert_eq!(outcome, SendOutcome::Queued);
         assert_eq!(st.composer_draft(), "", "Draft is cleared while queued");
 
-        assert!(st.poll_until_start_failure(crate::terminal::STUB_START_WAIT), "Start failure must be recorded");
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
         assert_eq!(
             st.composer_draft(),
             "Restore this draft when start fails",
@@ -1666,7 +1700,7 @@ mod tests {
     // 9. `pasting_copied_layers_makes_a_chip`
     #[test]
     fn pasting_copied_layers_makes_a_chip() {
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1719,7 +1753,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1802,7 +1836,7 @@ mod tests {
 
         st.shutdown();
     }
-    /// Polls the bridge until `file` contains `needle` or `STUB_START_WAIT` passes; returns the file text.
+    /// Polls the bridge until `file` contains `needle` or `STUB_WAIT` passes; returns the file text.
     fn wait_for_file_containing(st: &mut TerminalState, file: &Path, needle: &str) -> String {
         let mut text = String::new();
         poll_bridge_until(st, |_| {
@@ -1942,7 +1976,7 @@ mod tests {
 
         st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
 
-        assert!(st.poll_until_start_failure(crate::terminal::STUB_START_WAIT), "the stub CLI fails to start");
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "the stub CLI fails to start");
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.composer_draft(), "", "a system prompt is dropped, never returned to the user's draft");
         assert!(st.active_composer().pending_send.is_none());
@@ -2525,7 +2559,7 @@ mod tests {
         assert_ne!(ids[0], ids[1]);
 
         // The hook handlers read the tab id from the environment of the CLI process: it must be the id the files are named after.
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || std::fs::read_to_string(&ids_file).is_ok_and(|raw| raw.lines().count() >= 2));
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || std::fs::read_to_string(&ids_file).is_ok_and(|raw| raw.lines().count() >= 2));
         let mut exported: Vec<usize> = std::fs::read_to_string(&ids_file).unwrap_or_default().lines().filter_map(|l| l.parse().ok()).collect();
         exported.sort_unstable();
         assert_eq!(exported, ids, "each Claude tab exports DESIGNOS_TAB_ID = its tab id");

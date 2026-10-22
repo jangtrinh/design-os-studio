@@ -534,7 +534,7 @@ mod tests {
     /// and the next stub's line then joins it.
     fn wait_for_whole_logged_line(path: &Path) -> String {
         let mut text = String::new();
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             text = std::fs::read_to_string(path).unwrap_or_default();
             text.ends_with('\n')
         });
@@ -1147,7 +1147,7 @@ mod tests {
 
         st2.resume_last_session(None).expect("resume last session");
         let mut log_contents = String::new();
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             log_contents = std::fs::read_to_string(st2.session_dir.join("argv.log")).unwrap_or_default();
             log_contents.ends_with('\n') && log_contents.lines().count() >= 2
         });
@@ -1250,7 +1250,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
 
         st.resume_last_session(None).expect("spawn resume");
-        st.poll_until_start_failure(crate::terminal::STUB_START_WAIT);
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
@@ -1480,7 +1480,7 @@ mod tests {
         st.open_for_agent_use(None);
         assert_eq!(st.tabs.len(), 1, "opening resumes the file's session");
         let resumes = |st: &TerminalState| std::fs::read_to_string(st.session_dir.join("argv.log")).unwrap_or_default().matches("--resume").count();
-        crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || resumes(&st) > 0);
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || resumes(&st) > 0);
         st.close_tab(0);
         assert!(st.tabs.is_empty(), "closing the last tab leaves no tab");
         assert!(st.picker_open, "closing the last tab shows the new-session picker");
@@ -1587,7 +1587,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
 
         st.resume_last_session(None).expect("spawn resume");
-        st.poll_until_start_failure(crate::terminal::STUB_START_WAIT);
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.cause, crate::agent_start_failure::StartFailureCause::NotLoggedIn);
@@ -1605,7 +1605,7 @@ mod tests {
         // offers a new session (spec 653 rule 8 and 651 rule 7: only install and login keep the entry resumable).
         write_executable_script(&bin_dir, "claude", "#!/bin/sh\necho 'error: unknown option --bad-flag'\nexit 1\n");
         st.resume_last_session(None).expect("spawn resume for unknown flag");
-        st.poll_until_start_failure(crate::terminal::STUB_START_WAIT);
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
         let failure2 = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card for unknown flag");
         assert_eq!(failure2.cause, crate::agent_start_failure::StartFailureCause::UnknownFlag);
         assert_eq!(failure2.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
@@ -1831,7 +1831,7 @@ mod tests {
         // seen the end of the output, which is the state the old 100 ms sleep waited for, and only the poll is timed.
         let mut poll_after_silent_exit = || {
             st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn silent exiting claude");
-            let ended = crate::test_timing::poll_until(crate::terminal::STUB_START_WAIT, || {
+            let ended = crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
                 let tab = st.active_tab_mut().unwrap();
                 !tab.is_alive() && tab.reader_eof.load(std::sync::atomic::Ordering::Acquire)
             });
