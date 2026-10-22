@@ -10,8 +10,8 @@ fn no_system_clipboard() -> Option<String> {
 
 /// Directory of stub agent CLIs (`claude`, `codex`, `agy`, `grok`, `gemini`, `opencode`). Every stub blocks reading
 /// its PTY, so it lives exactly as long as the tab that started it and never exits on its own. A timer-based stub
-/// would bring back the race this exists to remove: an agent that exits while the test is still clicking appends
-/// ` (exited)` to its tab title, and the `+` button moves out from under the pointer.
+/// would bring back the race this exists to remove: an agent that exits while the test is still clicking changes
+/// its tab and the panel under the pointer.
 /// The directory is shared by every test process, so a run leaves nothing new behind. Each script is written to a
 /// private name and renamed into place, so a process that execs a stub never sees a half-written file or a file
 /// that is still open for writing.
@@ -1126,6 +1126,7 @@ mod vector;
 
 mod agent_picker_return;
 mod agents_panel_only;
+mod agents_tab_strip;
 mod assets_thumbs;
 mod libraries;
 mod lint;

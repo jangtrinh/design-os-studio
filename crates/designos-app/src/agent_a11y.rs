@@ -373,7 +373,7 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
     if state.side_panel_pty_open {
         let can_close = state.tabs.len() > 1;
         for tab in &state.tabs {
-            widgets::labelled(ui, Id::new(("agents-left-tab-select", tab.id)), Role::Tab, &tab.title);
+            widgets::labelled(ui, Id::new(("agents-left-tab-select", tab.id)), Role::Tab, &tab.display_title());
             if can_close {
                 widgets::labelled(ui, Id::new(("agents-left-tab-close", tab.id)), Role::Button, "Close tab");
             }

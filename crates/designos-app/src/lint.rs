@@ -231,7 +231,7 @@ fn rel_luminance(c: egui::Color32) -> f32 {
     0.2126 * srgb_to_linear(r) + 0.7152 * srgb_to_linear(g) + 0.0722 * srgb_to_linear(b)
 }
 
-fn composite_over(fg: egui::Color32, bg: egui::Color32) -> egui::Color32 {
+pub(crate) fn composite_over(fg: egui::Color32, bg: egui::Color32) -> egui::Color32 {
     let [fr, fg_g, fb, fa] = fg.to_srgba_unmultiplied();
     if fa == 255 {
         return fg;
@@ -244,7 +244,7 @@ fn composite_over(fg: egui::Color32, bg: egui::Color32) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-fn contrast_ratio(a: egui::Color32, b: egui::Color32) -> f32 {
+pub(crate) fn contrast_ratio(a: egui::Color32, b: egui::Color32) -> f32 {
     let la = rel_luminance(a);
     let lb = rel_luminance(b);
     let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };

@@ -47,11 +47,13 @@ impl AgentPickerState {
     }
 
     /// Resets the open-latch when the picker or `+` menu closes so the next open triggers a fresh
-    /// background probe while keeping the cached result on screen (`#652` §5).
+    /// background probe while keeping the cached result on screen (`#652` §5). Closing also drops the `Other CLI…`
+    /// form and what was typed in it, however the menu was closed (a press elsewhere, `+`, a tab, Esc, a pick).
     pub fn on_close(&mut self) {
         self.probe_started = false;
         self.open_row_order.clear();
         self.open_row_order_settled = false;
+        self.close_other_form();
     }
 
     /// Triggers a fresh background probe (e.g. when re-opening the picker).
@@ -262,7 +264,15 @@ fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, C
     }
 }
 
-const OTHER_FORM_HEIGHT: f32 = 108.0;
+/// Height of the `Other CLI…` form card: padding, the label and command fields, a caption block of two caption lines
+/// at `theme::LINE_CAPTION`, 8 px, and the button row at the 24 px target minimum. The card is the same in the full
+/// picker and in the `+` menu, and its height is a multiple of 4 px.
+const OTHER_FORM_CARD_HEIGHT: f32 = 128.0;
+/// Room the picker and the `+` menu give the open form: the 2 px inset above the card, the card, and a 6 px margin.
+const OTHER_FORM_HEIGHT: f32 = OTHER_FORM_CARD_HEIGHT + 8.0;
+/// Two lines of the caption at its line height. The caption wraps to this block and never runs under the buttons.
+const OTHER_FORM_CAPTION_HEIGHT: f32 = 2.0 * theme::LINE_CAPTION;
+const OTHER_FORM_BUTTON_HEIGHT: f32 = theme::TARGET_MIN;
 const PICKER_FOOTER_HEIGHT: f32 = 22.0;
 
 /// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
@@ -420,7 +430,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
     }
 
     if state.picker.other_form_open {
-        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::INSET_SEGMENT), Vec2::new(inner_w, 100.0));
+        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::INSET_SEGMENT), Vec2::new(inner_w, OTHER_FORM_CARD_HEIGHT));
         render_other_cli_inline_form(state, ui, form_r, &mut interaction);
         y += form_h;
     }
@@ -466,7 +476,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let header_h = 22.0;
     let footer_h = 20.0;
     let resume_h = if last_resume.is_some() { row_h + row_gap } else { 0.0 };
-    let form_h = if state.picker.other_form_open { 104.0 } else { 0.0 };
+    let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let menu_h = header_h + resume_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h + theme::SPACE_INLINE;
     let menu_x = (panel_rect.right() - menu_w - menu_edge).max(panel_rect.left() + menu_edge);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
@@ -577,7 +587,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     }
 
     if state.picker.other_form_open {
-        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::INSET_SEGMENT), Vec2::new(inner_w, 98.0));
+        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::INSET_SEGMENT), Vec2::new(inner_w, OTHER_FORM_CARD_HEIGHT));
         render_other_cli_inline_form(state, ui, form_r, &mut interaction);
         y += form_h;
     }
@@ -591,13 +601,15 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
     } else if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-runtime-add-btn".to_string()))));
-            let in_add = add_btn.map(|r| r.contains(pos)).unwrap_or(false);
-            if !menu_r.contains(pos) && !in_add {
-                state.runtime_dropdown_open = false;
-                state.picker.on_close();
-                state.picker.close_other_form();
+        let opened_this_pass = ui.ctx().data(|d| d.get_temp::<u64>(Id::new("agents-runtime-opened-pass"))) == Some(ui.ctx().cumulative_pass_nr());
+        if !opened_this_pass {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-runtime-add-btn-rect")));
+                let in_add = add_btn.is_some_and(|r| r.contains(pos));
+                if !menu_r.contains(pos) && !in_add {
+                    state.runtime_dropdown_open = false;
+                    state.picker.on_close();
+                }
             }
         }
     }
@@ -654,17 +666,24 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     });
     widgets::record(ui, "agents-other-cli-command-input", cmd_rect);
 
-    let warn_y = cmd_rect.bottom() + theme::SPACE_INLINE;
-    let warn_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
-    let warn_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
-    let warn_elided = widgets::elide(&p, warn_txt, &theme::font_caption(), (field_w - 96.0).max(36.0));
-    p.text(Pos2::new(form_r.left() + pad, warn_y), Align2::LEFT_CENTER, warn_elided, theme::font_caption(), warn_col);
+    // The caption has a row of its own under the fields and wraps to two lines at the field width, so it never
+    // shares the button row. The buttons sit 8 px under its block.
+    let caption_block =
+        Rect::from_min_size(Pos2::new(form_r.left() + pad, cmd_rect.bottom() + theme::SPACE_ROW), Vec2::new(field_w, OTHER_FORM_CAPTION_HEIGHT));
+    let caption_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
+    let caption_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
+    let caption_format = egui::TextFormat { line_height: Some(theme::LINE_CAPTION), ..egui::TextFormat::simple(theme::font_caption(), caption_col) };
+    let mut caption_job = egui::text::LayoutJob::single_section(caption_txt.to_string(), caption_format);
+    caption_job.wrap = egui::text::TextWrapping { max_width: field_w, max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
+    let caption = p.layout_job(caption_job);
+    let caption_pos = Pos2::new(caption_block.left(), caption_block.center().y - caption.size().y * 0.5);
+    p.galley(caption_pos, caption, caption_col);
 
     let save_w = 48.0;
     let cancel_w = 44.0;
-    let btn_y = cmd_rect.bottom() + theme::SPACE_ROW;
-    let save_r = Rect::from_min_size(Pos2::new(form_r.right() - pad - save_w, btn_y), Vec2::new(save_w, 20.0));
-    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - theme::SPACE_FACT - cancel_w, btn_y), Vec2::new(cancel_w, 20.0));
+    let btn_y = form_r.bottom() - pad - OTHER_FORM_BUTTON_HEIGHT;
+    let save_r = Rect::from_min_size(Pos2::new(form_r.right() - pad - save_w, btn_y), Vec2::new(save_w, OTHER_FORM_BUTTON_HEIGHT));
+    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - theme::SPACE_FACT - cancel_w, btn_y), Vec2::new(cancel_w, OTHER_FORM_BUTTON_HEIGHT));
 
     let cancel_resp = ui.interact(cancel_r, Id::new("agents-other-cli-cancel"), Sense::click());
     p.rect_filled(cancel_r, theme::cr(theme::RADIUS_CONTROL), if cancel_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
@@ -1162,5 +1181,136 @@ mod tests {
         assert_eq!(step_row(&[true], 0, true), Some(0), "a lone enabled row keeps focus");
         assert_eq!(step_row(&[false, false], 0, true), None, "nothing to step to");
         assert_eq!(step_row(&[], 0, true), None);
+    }
+
+    /// Where the open `Other CLI…` form is painted.
+    #[derive(Clone, Copy, Debug)]
+    enum FormSurface {
+        /// The `+` menu over a running session.
+        PlusMenu,
+        /// The Agents panel before any session exists.
+        Picker,
+    }
+
+    /// What one frame of the open `Other CLI…` form painted.
+    struct PaintedForm {
+        /// Text runs inside the form card, other than the two fields' own text.
+        texts: Vec<crate::lint::TextRun>,
+        card: Rect,
+        cancel: Rect,
+        save: Rect,
+    }
+
+    /// Distance between two rects along their widest gap: 0 when they touch or overlap.
+    fn gap_between(a: Rect, b: Rect) -> f32 {
+        let dx = (a.left() - b.right()).max(b.left() - a.right()).max(0.0);
+        let dy = (a.top() - b.bottom()).max(b.top() - a.bottom()).max(0.0);
+        dx.max(dy)
+    }
+
+    fn paint_other_form(surface: FormSurface, panel_w: f32, error: Option<&str>) -> PaintedForm {
+        let root = temp_test_dir("other-form-layout");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.picker.open_other_form();
+        st.picker.other_error = error.map(str::to_string);
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(panel_w, 800.0));
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| match surface {
+            FormSurface::PlusMenu => {
+                st.runtime_dropdown_open = true;
+                render_runtime_dropdown_menu(&mut st, ui, panel_rect, 40.0, None);
+            }
+            FormSurface::Picker => show_picker_panel(&mut st, ui, panel_rect, None),
+        });
+        let rect_of =
+            |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("nothing recorded for {name}"));
+        let card = rect_of("agents-other-cli-form");
+        let fields = [rect_of("agents-other-cli-label-input"), rect_of("agents-other-cli-command-input")];
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        let texts = texts.into_iter().filter(|t| card.contains(t.rect.center()) && !fields.iter().any(|f| f.contains(t.rect.center()))).collect();
+        let painted = PaintedForm { texts, card, cancel: rect_of("agents-other-cli-cancel"), save: rect_of("agents-other-cli-save") };
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+        painted
+    }
+
+    /// The caption of the form: every text run in the card that is not a button label.
+    fn caption_of(form: &PaintedForm) -> crate::lint::TextRun {
+        let mut runs = form.texts.iter().filter(|t| t.text != "Cancel" && t.text != "Save");
+        let caption = runs.next().expect("the form paints a caption").clone();
+        assert!(runs.next().is_none(), "the form paints one caption, found more: {:?}", form.texts);
+        caption
+    }
+
+    #[test]
+    fn closing_the_picker_discards_the_other_cli_draft() {
+        let mut st = TerminalState::for_tab(1);
+        st.picker.open_other_form();
+        st.picker.other_label_input = "Aider".into();
+        st.picker.other_command_input = "aider --draft".into();
+        st.picker.other_error = Some("Enter a command to run.".into());
+
+        st.picker.on_close();
+
+        assert!(!st.picker.other_form_open);
+        assert!(st.picker.other_label_input.is_empty() && st.picker.other_command_input.is_empty());
+        assert_eq!(st.picker.other_error, None);
+        st.shutdown();
+    }
+
+    fn one_line(s: &str) -> String {
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn assert_caption_clear_of_buttons(form: &PaintedForm, what: &str) {
+        let caption = caption_of(form);
+        for (name, button) in [("Cancel", form.cancel), ("Save", form.save)] {
+            let gap = gap_between(caption.rect, button);
+            assert!(
+                gap >= theme::SPACE_INLINE,
+                "{what}: the caption ({:?} at {:?}) is {gap} px from {name} at {button:?}, 8 px is the least",
+                caption.text,
+                caption.rect
+            );
+        }
+        let rows = caption.text.lines().count() as f32;
+        assert!(
+            (caption.rect.height() - rows * theme::LINE_CAPTION).abs() < 0.5,
+            "{what}: a caption row is {} px high, the caption line height is {} px ({:?})",
+            caption.rect.height() / rows,
+            theme::LINE_CAPTION,
+            caption.text
+        );
+        for (name, button) in [("Cancel", form.cancel), ("Save", form.save)] {
+            assert!(button.height() >= theme::TARGET_MIN, "{what}: {name} is {} px high, the least for a target is {}", button.height(), theme::TARGET_MIN);
+        }
+        assert!(form.card.height() % theme::SPACE_FACT == 0.0, "{what}: the card is {} px high, a multiple of 4 is the rhythm", form.card.height());
+        assert!(form.card.contains_rect(caption.rect), "{what}: the caption {:?} stays inside the form card {:?}", caption.rect, form.card);
+        assert!(form.card.contains_rect(form.cancel) && form.card.contains_rect(form.save), "{what}: both buttons stay inside the form card {:?}", form.card);
+    }
+
+    #[test]
+    fn the_other_cli_caption_keeps_8px_from_the_buttons_and_is_not_cut() {
+        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::PlusMenu, 260.0), (FormSurface::Picker, 260.0), (FormSurface::Picker, 440.0)] {
+            let what = format!("{surface:?} in a {panel_w} px panel");
+            let form = paint_other_form(surface, panel_w, None);
+            assert_caption_clear_of_buttons(&form, &what);
+            assert_eq!(one_line(&caption_of(&form).text), CUSTOM_CLI_WARNING, "{what}: the caption is shown whole, not cut with an ellipsis");
+        }
+    }
+
+    #[test]
+    fn a_long_other_cli_error_keeps_8px_from_the_buttons_and_stays_in_the_card() {
+        let error = "Enter a command to run, for example aider or ollama run llama3, then save it.";
+        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::Picker, 260.0), (FormSurface::Picker, 440.0)] {
+            let what = format!("{surface:?} in a {panel_w} px panel, error shown");
+            let form = paint_other_form(surface, panel_w, Some(error));
+            assert_caption_clear_of_buttons(&form, &what);
+        }
     }
 }

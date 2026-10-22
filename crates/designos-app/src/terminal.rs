@@ -912,6 +912,16 @@ impl TerminalTab {
         crate::agent_usage::header_usage_caption_for_tab(self.spawn_preset, self.usage_reading().as_ref())
     }
 
+    /// The name of this tab for a reader: `title`, plus `(exited)` once the agent is gone. The strip never paints
+    /// the suffix (it would widen the tab and move the buttons after it); the tooltip and the screen-reader name carry it.
+    pub fn display_title(&self) -> String {
+        if self.exited_notice_shown {
+            format!("{} (exited)", self.title)
+        } else {
+            self.title.clone()
+        }
+    }
+
     /// Hover tooltip text for this tab (`#678` §3.7, §7).
     pub fn usage_tooltip_text(&self) -> Option<String> {
         crate::agent_usage::tooltip_usage_text_for_tab(self.spawn_preset, self.usage_reading().as_ref())
@@ -1181,7 +1191,11 @@ pub struct TerminalState {
     pub lock_owner: Option<String>,
     /// Inputs and resulting key of the last [`Self::bind_open_file`], so a steady frame does no IO.
     pub open_file_binding: Option<crate::agent_sessions::OpenFileBinding>,
-    /// Whether `codex resume --last` has passed the runtime cwd-scoping check (`#653` §6).
+    /// Whether `codex resume --last` is verified to stay in this file's session folder (`#653` §6). Nothing sets it
+    /// yet, and it does not decide whether a Codex tab is recorded: Codex is never recorded, so it always starts new.
+    /// Cwd scoping alone would not be enough: `resume --last` takes no session id, so it continues the newest Codex
+    /// conversation whichever session was picked. Recording Codex waits until it can be resumed by its own id
+    /// (`#926`); the flag only gates resuming an entry that already exists.
     pub codex_cwd_scoped: bool,
     /// Whether `agy --continue` has passed the runtime cwd-scoping check (`#653` §6).
     pub agy_cwd_scoped: bool,
@@ -1923,6 +1937,8 @@ impl TerminalState {
                 let mut reg = crate::agent_sessions::load_or_init_registry(&dir);
                 if !prior_fallback_sessions.is_empty() && reg.sessions.is_empty() {
                     reg.sessions = prior_fallback_sessions;
+                    let _ = crate::agent_sessions::save_registry(&dir, &reg);
+                } else if reg.rename_legacy_default_titles() {
                     let _ = crate::agent_sessions::save_registry(&dir, &reg);
                 }
                 self.session_registry = reg;
@@ -2909,7 +2925,7 @@ impl TerminalState {
                 let has_queued = tab.composer.pending_send.is_some();
                 if register_new_entry && crate::agent_sessions::is_agent_cli_preset(preset) {
                     self.session_registry.last_cli = Some(preset.binary_name().to_string());
-                    if crate::agent_sessions::is_registrable_cli_scoped(preset, self.codex_cwd_scoped, self.agy_cwd_scoped) {
+                    if crate::agent_sessions::is_registrable_cli_scoped(preset, self.agy_cwd_scoped) {
                         let now = crate::agent_sessions::unix_timestamp_secs();
                         let entry = crate::agent_sessions::SessionEntry {
                             tab_id: id as u64,
@@ -3466,7 +3482,6 @@ impl TerminalState {
                         *st = AgentTabStatus::Idle;
                     }
                 }
-                tab.title.push_str(" (exited)");
                 tab.exited_notice_shown = true;
                 agent_exited = true;
                 stopped_exited |= was_stopped;
@@ -4198,6 +4213,10 @@ fn paint_orca_tab_status_and_provider(ui: &Ui, p: &Painter, tab: &TerminalTab, t
         }
         AgentTabStatus::Error(_) => {
             p.circle_filled(status_center, 2.7, theme::DANGER);
+        }
+        // An exited tab shows a hollow ring, so it never reads as an idle tab, which has the filled dot.
+        AgentTabStatus::Done | AgentTabStatus::Idle | AgentTabStatus::Stopped if tab.exited_notice_shown => {
+            p.circle_stroke(status_center, 3.0, Stroke::new(1.3, theme::TEXT_SECONDARY));
         }
         AgentTabStatus::Done | AgentTabStatus::Idle => {
             p.circle_filled(status_center, 2.7, theme::TEXT_SECONDARY);
@@ -5013,6 +5032,13 @@ pub fn show_left_with_doc(
                 (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
                 (false, usage) => usage,
             };
+            // The strip keeps an exited tab's width. It shows a hollow status ring and a title that is one step dimmer
+            // than an active tab's but still readable; the tooltip says it exited.
+            let tab_tip = match (tab.exited_notice_shown, tab_tip) {
+                (true, Some(tip)) => Some(format!("{}\n{tip}", tab.display_title())),
+                (true, None) => Some(tab.display_title()),
+                (false, tip) => tip,
+            };
             let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
             let close_resp = if can_close { Some(ui.interact(close_rect, Id::new(("agents-left-tab-close", tab.id)), Sense::click())) } else { None };
 
@@ -5040,7 +5066,7 @@ pub fn show_left_with_doc(
                 Align2::LEFT_CENTER,
                 title_str,
                 theme::font_caption_medium(),
-                if is_active { theme::TEXT } else { theme::TEXT_SECONDARY },
+                if is_active && !tab.exited_notice_shown { theme::TEXT } else { theme::TEXT_SECONDARY },
             );
             if let Some(cr) = &close_resp {
                 icons::paint(&p, Icon::Close, close_rect.center(), 9.0, if cr.hovered() { STATUS_BAD_TEXT } else { theme::ICON_TERTIARY });
@@ -5094,11 +5120,16 @@ pub fn show_left_with_doc(
         icons::paint(&p, Icon::Plus, Pos2::new(add_rect.left() + 10.0, add_rect.center().y), 11.0, add_fg);
         icons::paint(&p, Icon::ChevronDown, Pos2::new(add_rect.right() - 7.0, add_rect.center().y), 8.0, add_fg);
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
+        // The menu below reads these two, not the test hook: a press on `+` is not a press outside the menu, and the
+        // press of the click that opens the menu must not close it in the pass that opens it.
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-add-btn-rect"), add_rect));
         if add_resp.clicked() {
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
             state.resume_notice = None;
             if state.runtime_dropdown_open {
                 state.sessions_popover_open = false;
+                let pass_nr = ui.ctx().cumulative_pass_nr();
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-opened-pass"), pass_nr));
             } else {
                 state.picker.on_close();
             }

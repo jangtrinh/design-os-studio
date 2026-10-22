@@ -63,7 +63,36 @@ impl Default for SessionRegistry {
     }
 }
 
+/// Default tab titles a CLI's sessions were recorded with before its tab title changed, as `(cli, old name)`.
+/// Claude tabs were named `Claude CLI #<n>` until they were named `Claude Code #<n>` like the CLI is everywhere else.
+const LEGACY_DEFAULT_TITLE_NAMES: &[(&str, &str)] = &[("claude", "Claude CLI")];
+
+/// The current default title for a session recorded with its CLI's old default title, else `None`.
+fn current_default_title(cli: &str, title: &str) -> Option<String> {
+    let (name, number) = title.rsplit_once(" #")?;
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let cli = cli.trim();
+    LEGACY_DEFAULT_TITLE_NAMES.iter().find(|(legacy_cli, legacy_name)| *legacy_cli == cli && *legacy_name == name)?;
+    Some(format!("{} #{number}", preset_from_cli_name(cli)?.button_label()))
+}
+
 impl SessionRegistry {
+    /// Renames every entry that still has the old default title of its CLI (`Claude CLI #3`) to the current default
+    /// (`Claude Code #3`), and reports whether any entry changed. A title the user typed never matches: only the
+    /// exact `<old name> #<digits>` of the entry's own CLI does.
+    pub fn rename_legacy_default_titles(&mut self) -> bool {
+        let mut changed = false;
+        for entry in &mut self.sessions {
+            if let Some(title) = current_default_title(&entry.cli, &entry.title) {
+                entry.title = title;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Finds the mutable [`SessionEntry`] matching `session_uuid` when present, falling back to
     /// matching `tab_id` only for entries without a `session_id` (`None`).
     pub fn find_entry_mut(&mut self, tab_id: u64, session_uuid: Option<&str>) -> Option<&mut SessionEntry> {
@@ -336,25 +365,28 @@ pub fn is_agent_cli_preset(preset: AgentCliPreset) -> bool {
     )
 }
 
-/// True only for agent CLIs whose resume command is verified to be scoped to the session folder (`#653` §3 rules 4 & 6).
-/// `Codex` (`codex resume --last`) and `Antigravity` (`agy --continue`) are gated on `codex_cwd_scoped`
-/// and `agy_cwd_scoped` respectively; `Shell` and `DesignOsHelp` are never registered.
-pub fn is_registrable_cli_scoped(preset: AgentCliPreset, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> bool {
+/// True only for agent CLIs whose sessions Studio can resume safely (`#653` §3 rules 4 & 6), so the newest entry is
+/// always one that can be resumed.
+/// - `Codex` is never registered: its `resume --last` takes no session id, so it continues the newest Codex
+///   conversation whichever session was picked. Codex is registered once Studio captures a session id and resumes by
+///   it (`#926`); verifying the cwd scope (`codex_cwd_scoped`) does not change that.
+/// - `Antigravity` (`agy --continue`) is registered once `agy_cwd_scoped` is verified.
+/// - `Shell` and `DesignOsHelp` are never registered.
+pub fn is_registrable_cli_scoped(preset: AgentCliPreset, agy_cwd_scoped: bool) -> bool {
     match preset {
         AgentCliPreset::Claude | AgentCliPreset::Grok | AgentCliPreset::Gemini | AgentCliPreset::OpenCode => true,
-        AgentCliPreset::Codex => codex_cwd_scoped,
         AgentCliPreset::Antigravity => agy_cwd_scoped,
-        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => false,
+        AgentCliPreset::Codex | AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => false,
     }
 }
 
-/// Default registrability check when neither `codex_cwd_scoped` nor `agy_cwd_scoped` has been verified.
+/// Default registrability check when `agy_cwd_scoped` has not been verified.
 pub fn is_registrable_cli(preset: AgentCliPreset) -> bool {
-    is_registrable_cli_scoped(preset, false, false)
+    is_registrable_cli_scoped(preset, false)
 }
 
 /// True for CLIs that accept `--session-id <uuid>` on new start (`Claude` and `Grok`).
-/// `Codex`, `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`).
+/// `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`); Codex is not recorded.
 pub fn uses_preassigned_session_id(preset: AgentCliPreset) -> bool {
     matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Grok)
 }
@@ -421,6 +453,8 @@ pub fn preset_from_cli_name(cli: &str) -> Option<AgentCliPreset> {
 }
 
 /// Builds the CLI resume command for `entry` with explicit `codex_cwd_scoped` and `agy_cwd_scoped` gates (`#653` §3 rule 6, `#679` §3).
+/// The gates only decide whether an entry that already exists can be resumed. Codex entries are not recorded today
+/// ([`is_registrable_cli_scoped`]), so `codex_cwd_scoped` resumes nothing in practice.
 /// Rejects any non-empty `entry.session_id` that is not a valid 36-char UUID (`is_valid_session_uuid`) for Claude/Grok.
 pub fn build_resume_command_scoped(entry: &SessionEntry, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> Option<String> {
     let preset = preset_from_cli_name(&entry.cli)?;
@@ -954,21 +988,116 @@ mod tests {
         st.bind_library_file(&dir, "file-codex-1", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
 
-        // Before `codex_cwd_scoped` / `agy_cwd_scoped` are verified, neither CLI records an entry in `sessions`.
-        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn unscoped codex");
+        // Codex is recorded only with its own session id, and `codex resume --last` gives Studio none (`#926`).
+        // So it is not recorded, and Antigravity is not either until `agy_cwd_scoped` is verified.
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex");
         st.spawn_tab(AgentCliPreset::Antigravity, None).expect("spawn unscoped agy");
-        assert!(st.session_registry.sessions.is_empty(), "unverified codex/agy must not be registered");
+        assert!(st.session_registry.sessions.is_empty(), "codex has no session id and unverified agy is not scoped: neither is registered");
 
-        // Once `codex_cwd_scoped` is verified, Codex registers with `session_id: null` and no SQLite query.
+        // Verifying the cwd scope of `codex resume --last` does not make Codex recordable: it still has no id.
         st.codex_cwd_scoped = true;
-        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn scoped codex");
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex with a verified cwd scope");
+        assert!(st.session_registry.sessions.is_empty(), "a verified cwd scope does not record Codex");
+        assert!(load_or_init_registry(&st.session_dir).sessions.is_empty(), "and none reaches sessions.json (which only remembers `last_cli`)");
 
+        // Antigravity is recorded once its scope is verified.
+        st.agy_cwd_scoped = true;
+        st.spawn_tab(AgentCliPreset::Antigravity, None).expect("spawn scoped agy");
         assert_eq!(st.session_registry.sessions.len(), 1);
-        assert_eq!(st.session_registry.sessions[0].cli, "codex");
-        assert_eq!(st.session_registry.sessions[0].session_id, None);
+        assert_eq!(st.session_registry.sessions[0].cli, "agy");
 
-        let raw = std::fs::read_to_string(st.session_dir.join("sessions.json")).expect("read sessions.json");
-        assert!(raw.contains("\"session_id\": null"), "Codex entry must serialize session_id: null, got:\n{raw}");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Codex tab started after a Claude session is not recorded: only a session that can be resumed by its own id
+    /// is (`#653` rules 4 and 6), and `codex resume --last` takes no id. So it never becomes the newest entry, and
+    /// opening the file still resumes the Claude session.
+    #[cfg(unix)]
+    #[test]
+    fn a_codex_tab_started_after_a_claude_session_leaves_auto_resume_on_the_claude_session() {
+        let dir = temp_test_dir("codex-after-claude");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        write_executable_script(&bin_dir, "codex", "#!/bin/sh\nsleep 30\n");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-codex-after-claude", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+        let claude_uuid = st.tabs[0].session_uuid.clone().expect("claude session id");
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex after claude");
+        assert_eq!(st.tabs.len(), 2);
+        assert_eq!(st.session_registry.sessions.len(), 1, "only the Claude session is recorded");
+        assert_eq!(st.session_registry.sessions[0].cli, "claude");
+
+        // Close the Claude tab first and the Codex tab last, so a recorded Codex entry would be the newest.
+        st.close_tab(0);
+        st.close_tab(0);
+        assert!(st.tabs.is_empty());
+
+        st.open_for_agent_use(None);
+        assert_eq!(st.tabs.len(), 1, "opening the Agents panel resumes a session");
+        assert_eq!(st.tabs[0].spawn_preset, AgentCliPreset::Claude, "and it is the Claude session");
+        assert!(st.tabs[0].is_resumed);
+        assert_eq!(st.tabs[0].session_uuid.as_deref(), Some(claude_uuid.as_str()));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Sessions recorded before Claude was named "Claude Code" everywhere carry the old default title
+    /// `Claude CLI #<n>`. Opening the file renames exactly those, once, in `sessions.json` too: a resumed tab and the
+    /// Sessions list show the current name, and a title the user typed is never touched.
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_file_renames_old_default_titles_and_keeps_the_users_own() {
+        let dir = temp_test_dir("legacy-titles");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        let entry = |tab_id: u64, cli: &str, title: &str, session_id: Option<&str>| SessionEntry {
+            tab_id,
+            title: title.into(),
+            cli: cli.into(),
+            session_id: session_id.map(str::to_string),
+            created_at: 50,
+            last_active_at: 100 + tab_id,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        };
+        let uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let session_dir = stable_session_dir(&dir, "file-legacy-titles");
+        std::fs::create_dir_all(&session_dir).expect("session dir");
+        let seeded = SessionRegistry {
+            version: 1,
+            last_cli: None,
+            sessions: vec![
+                entry(1, "claude", "Claude CLI #1", Some(uuid)),
+                entry(2, "claude", "Claude CLI #2 notes", None),
+                entry(3, "claude", "Checkout polish", None),
+                entry(4, "grok", "Claude CLI #4", None),
+                entry(5, "claude", "Claude Code #5", None),
+            ],
+            extra: BTreeMap::new(),
+        };
+        save_registry(&session_dir, &seeded).expect("seed sessions.json");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-legacy-titles", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+
+        let titles = |reg: &SessionRegistry| reg.sessions.iter().map(|e| e.title.clone()).collect::<Vec<_>>();
+        let expected = ["Claude Code #1", "Claude CLI #2 notes", "Checkout polish", "Claude CLI #4", "Claude Code #5"];
+        assert_eq!(titles(&st.session_registry), expected, "only the exact old default of a Claude session is renamed");
+        assert_eq!(titles(&load_or_init_registry(&session_dir)), expected, "and the file on disk carries the new names");
+        assert_eq!(st.sessions_popover_rows()[4].label, "Claude Code #1", "the Sessions list shows the current name");
+        assert!(!st.session_registry.rename_legacy_default_titles(), "a second pass finds nothing left to rename");
+
+        st.resume_session_by_tab_id(1, None).expect("resume the renamed session");
+        assert_eq!(st.tabs[0].title, "Claude Code #1", "a resumed tab is named with the current default");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1243,10 +1372,10 @@ mod tests {
         }
     }
 
-    // 14. `codex_registration_is_gated_on_cwd_scope`
+    // 14. `codex_is_never_registered_and_its_resume_stays_gated_on_cwd_scope`
     #[test]
-    fn codex_registration_is_gated_on_cwd_scope() {
-        assert!(!is_registrable_cli(AgentCliPreset::Codex), "Codex must not register until cwd scope is verified");
+    fn codex_is_never_registered_and_its_resume_stays_gated_on_cwd_scope() {
+        assert!(!is_registrable_cli(AgentCliPreset::Codex), "Codex is not registered without a session id of its own");
         assert!(!is_registrable_cli(AgentCliPreset::Antigravity), "Antigravity must not register until cwd scope is verified");
         assert!(is_registrable_cli(AgentCliPreset::Claude));
         assert!(is_registrable_cli(AgentCliPreset::Grok));
