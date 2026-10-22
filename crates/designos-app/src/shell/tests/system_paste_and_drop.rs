@@ -481,3 +481,70 @@ fn a_dropped_design_file_still_opens_even_beside_an_image() {
     assert_eq!(s.app().doc.name, "Dropped design", "the non-image file keeps its old meaning");
     assert!(!s.app().doc.images.values().any(|b| b.starts_with(b"\x89PNG")), "no image layer was made");
 }
+
+// ------------------------------------------------------------------------ the window keeps drawing for a waiting paste
+
+/// A clipboard image that takes a while to read, as a large screenshot does.
+fn slow_image() -> Option<ClipImage> {
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    Some(solid(40, 40))
+}
+
+impl Sim {
+    /// One frame like `Sim::frame`, but it does not wait for pending pastes. Returns how long egui may wait before
+    /// the next frame: `Duration::MAX` when nothing asks for one.
+    fn frame_without_settling(&mut self, events: Vec<Event>) -> std::time::Duration {
+        self.t += 0.05;
+        let raw = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
+            time: Some(self.t),
+            events,
+            modifiers: self.mods,
+            ..Default::default()
+        };
+        let ctx = self.ctx.clone();
+        let shell = &mut self.shell;
+        let out = ctx.run_ui(raw, |ui| shell.draw(ui));
+        out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay).unwrap_or(std::time::Duration::MAX)
+    }
+
+    /// Draws frames until the window is idle, as a real one is when the user does nothing: no frame asks for the next.
+    fn draw_until_idle(&mut self) {
+        let started = std::time::Instant::now();
+        while self.frame_without_settling(vec![]) != std::time::Duration::MAX {
+            assert!(started.elapsed() < std::time::Duration::from_secs(10), "the window never went idle");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+}
+
+#[test]
+fn a_paste_waiting_for_the_clipboard_worker_keeps_the_window_drawing_until_it_lands() {
+    use std::time::Duration;
+    let mut s = Sim::new();
+    s.shell.app.system_image = slow_image;
+    let before = ids(&s);
+    s.draw_until_idle();
+    // Cmd+V on an image-only clipboard: the V release starts the worker after this frame's own poll of the jobs, and
+    // an idle window draws nothing more by itself.
+    s.mods = Modifiers::COMMAND;
+    let delay = s.frame_without_settling(vec![key_v_release()]);
+    s.mods = Modifiers::NONE;
+    assert!(!s.shell.app.paste_jobs.is_empty(), "precondition: the worker is still reading");
+    assert!(delay <= Duration::from_millis(50), "the frame that started the paste must ask for the next one soon, it waits {delay:?}");
+    // Frames as the window draws them until the paste lands. egui follows an input event with one more frame by
+    // itself, so the chain is only kept alive by the paste when every frame, with no input, asks for the next.
+    let started = std::time::Instant::now();
+    let mut frames_without_input = 0;
+    while !s.shell.app.paste_jobs.is_empty() {
+        assert!(started.elapsed() < Duration::from_secs(10), "the paste never landed");
+        std::thread::sleep(Duration::from_millis(10));
+        let delay = s.frame_without_settling(vec![]);
+        frames_without_input += 1;
+        if !s.shell.app.paste_jobs.is_empty() {
+            assert!(delay <= Duration::from_millis(50), "frame {frames_without_input} after the paste started leaves the paste waiting {delay:?}");
+        }
+    }
+    assert!(frames_without_input >= 2, "precondition: the worker outlasted several frames");
+    the_image_layer(&s, &before);
+}

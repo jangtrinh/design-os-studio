@@ -1325,6 +1325,11 @@ impl Shell {
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
+        // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
+        // worker; an idle window draws nothing more, so ask for the frame that finishes it.
+        if !self.app.paste_jobs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         self.request_screenshot(&ctx);
     }
 
@@ -1335,9 +1340,7 @@ impl Shell {
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
         self.app.poll_image_jobs();
-        if self.app.poll_paste_jobs() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(16));
-        }
+        self.app.poll_paste_jobs();
         if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
