@@ -1037,6 +1037,110 @@ mod tests {
         assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0));
     }
 
+    fn family_text(family: &str) -> TextStyle {
+        TextStyle { font_family: family.into(), font_size: 16.0, ..Default::default() }
+    }
+
+    /// 25,100 Inter text layers: past the 25,000 where `requests_for` reads only the first 8,192.
+    /// Returns the app and the ids of the last `n` layers, which that scan never reaches.
+    fn large_app(n: usize) -> (App, Vec<NodeId>) {
+        let mut d = Document::new("big");
+        let page = d.add_page("p");
+        let mut ids = Vec::new();
+        for _ in 0..25_100 {
+            let id = d.alloc_id();
+            d.insert(page, Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), "hello world", TextStyle::default())).unwrap();
+            ids.push(id);
+        }
+        let last = ids.split_off(ids.len() - n);
+        (App::new(d), last)
+    }
+
+    #[test]
+    fn ctrl_b_fetches_the_bold_face_after_the_regular_face_of_its_family_is_registered() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestLatoOne"));
+        app.fonts = serving(&["TestLatoOne"]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).loaded, 1, "the open load fetches the regular face");
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        let done = settle(&mut app.fonts);
+        assert!(done.failed.is_empty(), "{:?}", done.failed);
+        assert_eq!(done.loaded, 1, "the 700 face is fetched although the regular one is already registered");
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoOne", 700, false)));
+    }
+
+    #[test]
+    fn a_family_installed_on_the_system_is_never_fetched_at_any_weight() {
+        use crate::fonts::testkit::{font_named, serving, settle};
+        designos_render::register_font(font_named("TestSysFamy")); // stands in for a system font
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestSysFamy"));
+        app.fonts = serving(&[]); // a download attempt would fail
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        let done = settle(&mut app.fonts);
+        assert_eq!((done.loaded, done.failed.is_empty()), (0, true), "{:?}", done.failed);
+    }
+
+    #[test]
+    fn the_family_picker_keeps_its_face_on_a_large_document() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, ids) = large_app(1);
+        app.fonts = serving(&["TestLatoTwo"]);
+        crate::panels::typography::pick_family(&mut app, &ids, "TestLatoTwo");
+        assert!(asked_for(&app, "TestLatoTwo", 400), "{:?}", app.fonts.requested());
+        settle(&mut app.fonts);
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoTwo", 400, false)));
+    }
+
+    #[test]
+    fn back_to_back_edits_on_a_large_document_each_keep_their_face() {
+        use crate::fonts::testkit::{serving, settle};
+        use crate::panels::typography::set_style;
+        let (mut app, ids) = large_app(2);
+        app.fonts = serving(&["TestLatoTre", "TestLatoFor"]);
+        set_style(&mut app, &ids[..1], |s| s.font_family = "TestLatoTre".into());
+        set_style(&mut app, &ids[1..], |s| s.font_family = "TestLatoFor".into());
+        settle(&mut app.fonts);
+        for family in ["TestLatoTre", "TestLatoFor"] {
+            assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new(family, 400, false)), "{family}: {:?}", app.fonts.registered());
+        }
+    }
+
+    #[test]
+    fn undoing_a_second_quick_style_edit_finds_the_face_of_the_first() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, id) = app_with_styled_text("hello world", family_text("TestLatoFiv"));
+        app.fonts = serving(&["TestLatoFiv"]);
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        key(&mut app, egui::Key::I, false, true); // before the first fetch returns
+        key(&mut app, egui::Key::Z, false, true);
+        let run = text_of(&app, id).runs[0].style.clone();
+        assert_eq!((run.font_weight, run.italic), (700, false), "undo brings the upright bold run back");
+        settle(&mut app.fonts);
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoFiv", 700, false)), "{:?}", app.fonts.registered());
+    }
+
+    #[test]
+    fn stepping_the_wght_field_asks_for_the_100_step_face_only() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_styled_text("hello", family_text("TestLatoSix"));
+        finish_text(&mut app, true);
+        // what the Variable tab writes for one wheel step
+        set_style(&mut app, &[id], |s| {
+            s.set_axis("wght", 401.0);
+            s.font_weight = 401;
+        });
+        assert!(app.fonts.requested().is_empty(), "{:?}", app.fonts.requested());
+        set_style(&mut app, &[id], |s| {
+            s.set_axis("wght", 520.0);
+            s.font_weight = 520;
+        });
+        assert!(asked_for(&app, "TestLatoSix", 500) && !asked_for(&app, "TestLatoSix", 520), "{:?}", app.fonts.requested());
+    }
+
     #[test]
     fn bold_leaves_text_without_a_wght_axis_free_of_axes() {
         let (mut app, id) = app_with_text("hello");

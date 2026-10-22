@@ -16,8 +16,15 @@ impl FontRequest {
     }
 
     fn of(style: &TextStyle) -> Self {
-        Self::new(style.font_family.clone(), style.font_weight, style.italic)
+        Self::new(style.font_family.clone(), face_weight(style.font_weight), style.italic)
     }
+}
+
+/// The 100-step face a weight is drawn from. Fonts ship in steps of 100, and the cache stores one
+/// file per requested weight, so a weight between steps (a Variable tab value such as 401) asks
+/// for the nearest step instead of fetching a copy of the same file for every value.
+fn face_weight(weight: u16) -> u16 {
+    (weight.saturating_add(50) / 100 * 100).clamp(100, 900)
 }
 
 /// Every family/weight/italic combination used by text nodes and their runs.
@@ -42,7 +49,7 @@ pub fn requests_for(doc: &Document) -> BTreeSet<FontRequest> {
 
 /// The faces a text uses, borrowed: its base style and every run.
 fn faces(t: &TextProps) -> BTreeSet<(&str, u16, bool)> {
-    std::iter::once(&t.style).chain(t.runs.iter().map(|r| &r.style)).map(|s| (s.font_family.as_str(), s.font_weight, s.italic)).collect()
+    std::iter::once(&t.style).chain(t.runs.iter().map(|r| &r.style)).map(|s| (s.font_family.as_str(), face_weight(s.font_weight), s.italic)).collect()
 }
 
 /// Faces `after` uses that `before` did not: what an edit just introduced and the renderer cannot
@@ -66,6 +73,28 @@ mod tests {
             .map(|(i, (w, italic))| TextRun { start: i, end: i + 1, style: TextStyle { font_weight: *w, italic: *italic, ..base.clone() } })
             .collect();
         TextProps { content: "abc".into(), style: base, runs, ..Default::default() }
+    }
+
+    #[test]
+    fn a_weight_between_the_steps_asks_for_the_nearest_100_step_face() {
+        let at = |w: u16| text("Lato", &[(w, false)]);
+        assert!(new_faces(&at(400), &at(401)).is_empty(), "the Variable tab steps 401, 402, ... without a new face");
+        assert_eq!(new_faces(&at(400), &at(520)), vec![FontRequest::new("Lato", 500, false)]);
+        assert_eq!(new_faces(&at(400), &at(1000)), vec![FontRequest::new("Lato", 900, false)]);
+        let mut doc = Document::new("w");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        doc.insert(
+            page,
+            designos_doc::Node::text(
+                id,
+                designos_doc::Rect::new(0.0, 0.0, 1.0, 1.0),
+                "x",
+                TextStyle { font_family: "Lato".into(), font_weight: 450, ..Default::default() },
+            ),
+        )
+        .unwrap();
+        assert_eq!(requests_for(&doc).into_iter().collect::<Vec<_>>(), vec![FontRequest::new("Lato", 500, false)]);
     }
 
     #[test]

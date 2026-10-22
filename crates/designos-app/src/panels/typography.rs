@@ -83,6 +83,13 @@ pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     });
 }
 
+/// Sets the family of the edited text. Picking the family again retries a face whose fetch failed
+/// ("Font unavailable"), so the document's fonts are loaded even when nothing changed.
+pub(crate) fn pick_family(app: &mut App, sel: &[NodeId], family: &str) {
+    set_style(app, sel, |s| s.font_family = family.to_string());
+    app.fonts.load_for(&app.doc);
+}
+
 /// Applies `f` to the base style only (paragraph level fields such as alignment).
 fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     if editing(app, sel) {
@@ -175,9 +182,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     // ---- family
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
     if let Some(f) = family_picker(ui, pane.full(0.0), &fam_label) {
-        set_style(app, sel, |s| s.font_family = f.clone());
-        // Picking the family again retries a face whose fetch failed ("Font unavailable").
-        app.fonts.load_for(&app.doc);
+        pick_family(app, sel, &f);
     }
     row_end(pane);
 
