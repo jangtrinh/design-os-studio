@@ -1593,7 +1593,7 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     Ok(spec) => {
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
                         let before = app.hist.undo_depth();
-                        app.apply_node_spec(&spec, label);
+                        app.apply_live_spec(&path, &raw, &spec, label);
                         if app.hist.undo_depth() > before {
                             app.hist.mark_last_undo_as_agent();
                             app.terminal.current_undo_depth = app.hist.undo_depth();

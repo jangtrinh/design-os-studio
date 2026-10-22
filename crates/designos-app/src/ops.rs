@@ -691,7 +691,12 @@ impl App {
         if system_text.is_some_and(|t| clipboard::paste_svg(self, t)) {
             return;
         }
-        let clip = system_text.and_then(clipboard::from_json).or_else(|| self.clip.clone());
+        // Text that is not Studio's own markup came from another app after the in-app copy, so it never brings the
+        // older in-app layers back. Only a clipboard with no text at all (`None`) pastes the in-app copy.
+        let clip = match system_text {
+            Some(text) => clipboard::from_json(text),
+            None => self.clip.clone(),
+        };
         let Some(clip) = clip else { return };
         let parent = self.container_for_insert();
         let lists = clipboard::instantiate(&mut self.doc, &clip);
