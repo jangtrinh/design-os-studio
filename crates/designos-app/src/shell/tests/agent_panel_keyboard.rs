@@ -6,6 +6,7 @@
 use super::*;
 use crate::terminal::AgentCliPreset;
 
+mod hand_built_popovers;
 mod overlay_escape;
 mod review_card_focus;
 

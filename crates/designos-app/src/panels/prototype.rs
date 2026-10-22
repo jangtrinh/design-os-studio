@@ -650,6 +650,9 @@ fn popover(app: &mut App, ui: &mut Ui, region: Rect) {
     let on_anchor = ptr.is_some_and(|p| app.proto.editing_anchor.is_some_and(|a| a.contains(p)));
     if esc || (pressed && !over_area && !on_anchor) {
         app.proto.editing = None;
+    } else {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(&ctx);
     }
 }
 

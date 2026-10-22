@@ -4,10 +4,15 @@
 //! not take the `Esc`, `Enter` and arrow keys a popup is about to read. egui has no "is a popup open" query, and the open
 //! state of many popups lives in egui temp data under ids their host builds, so the panel cannot read it.
 //!
-//! Every shared popup helper therefore calls [`mark_open`] each time it draws a popup that stays open, and the panel asks
+//! Every shared popup helper therefore calls [`mark_open`] each time it draws a popup that stays open, and so does each
+//! popover built by hand (the colour picker, the font dropdown, the prototype and Variables popovers), and the panel asks
 //! [`open_recently`]. Only the number of the pass is stored. A popup whose host stops drawing (its node was deleted, its
 //! view closed) stops counting after one frame, so it can never leave the terminal deaf, and a popup that closed in a frame
-//! is not marked in that frame.
+//! is not marked in that frame. The exceptions are a board menu pick and a `dropdown` closed by its own anchor: they mark in
+//! the pass that closes them, and the follow-up pass egui runs after any input consumes that mark before the next key.
+//!
+//! Only a popup that closes on `Esc` and on an outside press may mark itself. One that does neither, like the Check designs
+//! panel, would keep the terminal deaf until the user found its close button.
 //!
 //! Cost: one write of a `u64` into a slot that already exists (`get_temp_mut_or_default` keeps the boxed value after the
 //! first insert), so no allocation and no repaint request per frame. Nothing is stored while no popup is open.

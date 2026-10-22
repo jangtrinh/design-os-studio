@@ -726,12 +726,33 @@ mod tests {
             }
         }
 
+        /// A bare pass that draws nothing, like the Agents panel asking before the popups of the same frame draw: does an open
+        /// popup hold the keys from it?
+        fn holds_the_keys_in_the_next_pass(&mut self) -> bool {
+            self.t += 0.05;
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), time: Some(self.t), ..Default::default() };
+            let mut held = false;
+            let _ = self.ctx.run_ui(raw, |ui| held = crate::widgets::popup_open::open_recently(ui.ctx()));
+            held
+        }
+
         fn click(&mut self, at: Pos2) {
             self.frame(vec![egui::Event::PointerMoved(at)]);
             for pressed in [true, false] {
                 self.frame(vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }]);
             }
         }
+    }
+
+    #[test]
+    fn a_menu_that_closed_in_a_frame_stops_holding_the_keys_from_the_next_frame() {
+        let mut m = Popup::new(vec![MenuItem::new("One"), MenuItem::new("Two")], Pos2::new(100.0, 100.0));
+        assert!(m.holds_the_keys_in_the_next_pass(), "an open menu holds the keys: without this the check below proves nothing");
+        // The press frame alone: `key` spends a second frame that draws the closed menu again.
+        let press = egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        m.frame(vec![press]);
+        assert!(m.closed, "Esc closes the menu");
+        assert!(!m.holds_the_keys_in_the_next_pass(), "the menu closed in the last frame, so it must not hold the keys in this one");
     }
 
     #[test]
