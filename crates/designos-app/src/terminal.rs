@@ -4352,18 +4352,25 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std:
 }
 
 /// Publishes the session's MCP server config as Gemini CLI's project settings at
-/// `<session_dir>/.gemini/settings.json` (`"trust": true`, identical to the output of
-/// `gemini mcp add --scope project --trust`) plus `<session_dir>/.gemini/trustedFolders.json`
+/// `<session_dir>/.gemini/settings.json` plus `<session_dir>/.gemini/trustedFolders.json`
 /// (`GEMINI_CLI_TRUSTED_FOLDERS_PATH`), leaving `~/.gemini/` untouched (`#679` §3 rule 4).
-pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
+///
+/// The server entry carries `"trust": true` (what `gemini mcp add --scope project --trust` writes) only in
+/// [`PermissionMode::Skip`]. Gemini skips every tool confirmation of a trusted server in a trusted folder
+/// (`isTrustedFolder() && trust`, gemini-cli `packages/core/src/tools/mcp-tool.ts`), so in `Ask` mode the entry stays
+/// untrusted and each `designos_*` call asks. The folder stays trusted in both modes: without it Gemini ignores the
+/// project settings and never starts the server, and a trusted folder alone still confirms (`#924`).
+pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value, mode: PermissionMode) {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
     // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
     if let Some(obj) = gemini_cfg.as_object_mut() {
         obj.remove("designos");
     }
-    if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
-        designos.insert("trust".to_string(), serde_json::Value::Bool(true));
+    if mode == PermissionMode::Skip {
+        if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
+            designos.insert("trust".to_string(), serde_json::Value::Bool(true));
+        }
     }
     if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
         let settings_path = session_dir.join(".gemini").join("settings.json");
@@ -4534,7 +4541,7 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
     atomic_write_session_file(&mcp_config_path, &bytes)?;
     write_agy_session_plugin(&job.session_dir, &bytes)?;
-    write_gemini_session_config(&job.session_dir, &mcp_config);
+    write_gemini_session_config(&job.session_dir, &mcp_config, if job.ask_mode { PermissionMode::Ask } else { PermissionMode::Skip });
     write_grok_session_config(&job.session_dir, &mcp_config)?;
 
     let page_context = page_context_json(&job.session_id, &job.doc_name, job.file_path.as_deref(), job.current_page_id, &job.current_page_name);
@@ -6117,6 +6124,9 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
         }
     }
 }
+
+#[cfg(test)]
+mod ask_mode_tests;
 
 #[cfg(test)]
 mod tests {
@@ -8634,7 +8644,7 @@ mod tests {
         let session_settings = std::fs::read_to_string(&session_settings_path).expect("<session_dir>/.gemini/settings.json");
         let parsed: serde_json::Value = serde_json::from_str(&session_settings).expect("parse .gemini/settings.json");
         assert!(parsed["mcpServers"]["designos"]["command"].as_str().is_some());
-        assert_eq!(parsed["mcpServers"]["designos"]["trust"].as_bool(), Some(true));
+        assert!(parsed["mcpServers"]["designos"].get("trust").is_none(), "Ask (the default) must leave the server untrusted so each tool call asks");
         assert!(parsed.get("designos").is_none(), "Gemini settings must not carry the designos.enabled_tools block");
         assert_eq!(parsed["mcpServers"]["designos"]["env"]["DESIGNOS_FILE"].as_str(), Some("/tmp/gemini-session-file.designos"));
         assert!(st.session_dir.join(".gemini").join("trustedFolders.json").is_file(), "trustedFolders.json must be written in session_dir/.gemini/");
