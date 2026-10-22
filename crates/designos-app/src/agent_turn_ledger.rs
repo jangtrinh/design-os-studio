@@ -921,14 +921,14 @@ fn approx_command_bytes(cmd: &Command) -> usize {
 mod tests {
     use super::*;
     use crate::agent_turn_card::{self, TurnCardAction};
-    use crate::agent_turn_marks::{turn_mark_hook_command, TurnMarkLine, TurnMarkLog, TurnPhase};
+    use crate::agent_turn_marks::{turn_mark_hook_command, TurnMarkLine, TurnMarkLog, TurnPhase, TURN_MARK_VERSION};
     use crate::app::App;
     use crate::edit::Tx;
     use crate::home::doc_hash;
     use crate::live_patch_log::LivePatchLog;
     use crate::live_sync_tests::unique_tab_id;
     use crate::terminal::TerminalState;
-    use designos_doc::live_patch::{LiveLogLine, LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION};
+    use designos_doc::live_patch::{LiveLogLine, LiveOp, LivePatch, SiblingHint};
     use designos_doc::{Document, Node, NodeId, Rect};
     use serde_json::json;
     use std::io::Write;
@@ -1099,7 +1099,7 @@ mod tests {
         let mut mark_log = TurnMarkLog::bind(r.marks_path());
         let marks = mark_log.poll();
         assert_eq!(marks.len(), 1);
-        assert_eq!(marks[0], TurnMarkLine { v: LIVE_PATCH_VERSION, turn_mark: TurnPhase::End, cli: Some("claude".to_string()), patch_bytes: 1337 });
+        assert_eq!(marks[0], TurnMarkLine { v: TURN_MARK_VERSION, turn_mark: TurnPhase::End, cli: Some("claude".to_string()), patch_bytes: 1337 });
     }
 
     /// §10 Case 4: offsets of three lines equal their positions.
@@ -1742,7 +1742,7 @@ mod tests {
         let mut ledger = AgentTurnLedger::default();
         let stop_sent = Instant::now();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let start = TurnMarkLine { v: LIVE_PATCH_VERSION, turn_mark: TurnPhase::Start, cli: Some("claude".to_string()), patch_bytes: 10 };
+        let start = TurnMarkLine { v: TURN_MARK_VERSION, turn_mark: TurnPhase::Start, cli: Some("claude".to_string()), patch_bytes: 10 };
         ledger.ingest_marks([start], Instant::now());
 
         ledger.on_turn_stopped(10, Instant::now(), Some(stop_sent));

@@ -3,7 +3,7 @@
 //! Runs on the UI thread every frame, so each poll reads a bounded amount, and a log that was
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
-use designos_doc::live_patch::{DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{log_version_refusal, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES};
 use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -252,6 +252,7 @@ impl LivePatchLog {
 
     fn split_lines(&mut self, base_offset: u64, buf: &[u8]) -> (usize, Vec<(u64, LiveLogLine)>, Vec<String>) {
         let (mut patches, mut errors) = (Vec::new(), Vec::new());
+        let mut newer: Vec<u32> = Vec::new();
         let mut pos = 0;
         if self.skipping {
             let Some(nl) = buf.iter().position(|b| *b == b'\n') else { return (buf.len(), patches, errors) };
@@ -266,10 +267,15 @@ impl LivePatchLog {
                 errors.push(self.too_large(line.len()));
             } else if !line.iter().all(u8::is_ascii_whitespace) {
                 match LiveLogLine::parse(line) {
+                    // Reported once for the batch below; never held, so a newer edit cannot be half-applied.
+                    Ok(LiveLogLine::Newer { v }) => newer.push(v),
                     Ok(p) => patches.push((line_start, p)),
                     Err(e) => errors.push(format!("Unreadable agent edit in {}: {e}", display_name(&self.path))),
                 }
             }
+        }
+        if !newer.is_empty() {
+            errors.push(newer_edits_error(&newer));
         }
         // A line still being written has no newline yet and waits for the next poll, unless it
         // is already over the limit.
@@ -306,6 +312,7 @@ impl LivePatchLog {
                     self.pending.push(patch);
                     self.pending_offsets.push(line_offset);
                 }
+                LiveLogLine::Newer { v } => errors.push(newer_edits_error(&[v])),
                 LiveLogLine::DocEpoch(epoch) => {
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
@@ -344,8 +351,8 @@ impl LivePatchLog {
 
     /// The document written for `epoch`; `None` when a later switch has already replaced it.
     fn load_epoch(&self, epoch: &DocEpoch) -> Result<Option<Document>, String> {
-        if epoch.v != LIVE_PATCH_VERSION {
-            return Err(format!("Agent opened a document with an unsupported log version {}", epoch.v));
+        if let Some(refusal) = log_version_refusal(epoch.v) {
+            return Err(format!("The document the agent opened was not loaded. {refusal}"));
         }
         let bytes =
             std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
@@ -370,6 +377,17 @@ impl LivePatchLog {
     }
 }
 
+/// What the user is told when edits written by a newer build are read: they are not applied, and
+/// the message names the fix. `versions` holds the format version of each refused edit.
+fn newer_edits_error(versions: &[u32]) -> String {
+    let newest = versions.iter().copied().max().unwrap_or(LIVE_PATCH_VERSION + 1);
+    let lead = match versions.len() {
+        1 => "An agent edit was".to_string(),
+        n => format!("{n} agent edits were"),
+    };
+    format!("{lead} not applied. {}", log_version_refusal(newest).unwrap_or_default())
+}
+
 fn display_name(path: &Path) -> String {
     path.file_name().and_then(|n| n.to_str()).unwrap_or("doc-patch.jsonl").to_string()
 }
@@ -384,12 +402,24 @@ mod tests {
         serde_json::to_string(&LivePatch::new(vec![LiveOp::Remove { id: NodeId(id) }])).unwrap() + "\n"
     }
 
+    /// A line from a newer build, with an op this build has never heard of.
+    fn newer_line() -> String {
+        format!(r#"{{"v":{},"ops":[{{"from_the_future":{{"id":1}}}}]}}"#, LIVE_PATCH_VERSION + 1) + "\n"
+    }
+
+    /// A line written in format version 1, before the v0.6 operations.
+    fn version_one_line(id: u64) -> String {
+        let mut patch = LivePatch::new(vec![LiveOp::Remove { id: NodeId(id) }]);
+        patch.v = 1;
+        serde_json::to_string(&patch).unwrap() + "\n"
+    }
+
     fn ids(lines: &[LiveLogLine]) -> Vec<u64> {
         lines
             .iter()
             .flat_map(|l| match l {
                 LiveLogLine::Patch(p) => p.ops.iter().collect(),
-                LiveLogLine::DocEpoch(_) => Vec::new(),
+                LiveLogLine::DocEpoch(_) | LiveLogLine::Newer { .. } => Vec::new(),
             })
             .map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 })
             .collect()
@@ -405,6 +435,51 @@ mod tests {
     fn append(path: &Path, text: &str) {
         use std::io::Write;
         std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap().write_all(text.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn newer_edits_are_refused_with_one_update_message_and_the_lines_around_them_still_read() {
+        let path = temp_log("newer");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &(line(1) + &newer_line() + &newer_line() + &line(2)));
+        let (lines, errors) = log.poll();
+        assert_eq!(ids(&lines), [1, 2], "the edits this build can read are still read");
+        assert_eq!(errors.len(), 1, "one message for the whole batch: {errors:?}");
+        assert!(errors[0].starts_with("2 agent edits were not applied."), "{}", errors[0]);
+        assert!(errors[0].contains(&format!("Log version {}", LIVE_PATCH_VERSION + 1)), "{}", errors[0]);
+        assert!(errors[0].ends_with("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
+    }
+
+    #[test]
+    fn one_newer_edit_is_reported_in_the_singular() {
+        let path = temp_log("newer-one");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &newer_line());
+        let (lines, errors) = log.poll();
+        assert!(lines.is_empty());
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].starts_with("An agent edit was not applied."), "{}", errors[0]);
+    }
+
+    #[test]
+    fn a_newer_edit_that_reaches_ingest_is_refused_too() {
+        let mut log = LivePatchLog::bind(temp_log("newer-ingest"));
+        let errors = log.ingest(vec![LiveLogLine::Newer { v: LIVE_PATCH_VERSION + 1 }]);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
+        assert!(log.pending.is_empty(), "nothing is held for replay");
+    }
+
+    #[test]
+    fn version_one_edits_still_read() {
+        let path = temp_log("version-one");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &(version_one_line(3) + &line(4)));
+        let (lines, errors) = log.poll();
+        assert_eq!(ids(&lines), [3, 4]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.pending.len(), 2);
     }
 
     #[test]
@@ -547,6 +622,21 @@ mod tests {
     }
 
     #[test]
+    fn a_version_one_document_switch_still_loads() {
+        let path = temp_log("switch-v1");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Old switch");
+        doc.add_page("Page");
+        let bytes = doc.to_json().unwrap().into_bytes();
+        let mark = DocEpoch { v: 1, ..DocEpoch::of(1, &bytes) };
+        std::fs::write(path.with_file_name("doc-sync.designos"), &bytes).unwrap();
+        append(&path, &(serde_json::to_string(&mark).unwrap() + "\n"));
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Old switch"));
+    }
+
+    #[test]
     fn a_switch_whose_document_was_overwritten_by_a_later_one_waits_for_that_later_switch() {
         let path = temp_log("superseded");
         let mut log = LivePatchLog::bind(path.clone());
@@ -608,7 +698,8 @@ mod tests {
         let (lines, _) = log.poll();
         let errors = log.ingest(lines);
         assert_eq!(errors.len(), 1, "the switch that loads reports the dropped edit, so no second error: {errors:?}");
-        assert!(errors[0].contains("unsupported log version"), "{}", errors[0]);
+        assert!(errors[0].contains("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
+        assert!(errors[0].contains(&format!("Log version {}", LIVE_PATCH_VERSION + 1)), "{}", errors[0]);
         assert_eq!(log.dropped_old_epoch, 1, "the edit made while stuck is reported with the switch that follows");
         assert_eq!(log.pending.iter().flat_map(|p| &p.ops).count(), 1, "only the edit after the loaded switch is held");
         assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Recovered"));

@@ -4,10 +4,13 @@
 //! byte length of `doc-patch.jsonl` when a turn starts (`UserPromptSubmit` / `PreInvocation`) and
 //! when a turn ends (`Stop` / `StopCancelled` / `StopFailure`).
 
-use designos_doc::live_patch::LIVE_PATCH_VERSION;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+
+/// Version of the `turn-marks.jsonl` line format. It is its own format, written by shell hooks
+/// (`"v":1` in [`turn_mark_hook_command`]), and does not move with the edit log's version.
+pub const TURN_MARK_VERSION: u32 = 1;
 
 const HEAD_BYTES: usize = 64;
 const MAX_POLL_BYTES: u64 = 1 << 20;
@@ -32,7 +35,7 @@ pub struct TurnMarkLine {
 impl TurnMarkLine {
     pub fn parse(line: &[u8]) -> Result<Self, String> {
         let mark: Self = serde_json::from_slice(line).map_err(|e| e.to_string())?;
-        if mark.v != LIVE_PATCH_VERSION {
+        if mark.v != TURN_MARK_VERSION {
             return Err(format!("unsupported turn mark version {}", mark.v));
         }
         Ok(mark)
@@ -141,7 +144,7 @@ fn sh_quote_path(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
 
-/// Shell command that appends a `{"v":1,"turn_mark":"...","cli":"...","patch_bytes":N}` JSON line
+/// Shell command that appends a `{"v":TURN_MARK_VERSION,"turn_mark":"...","cli":"...","patch_bytes":N}` JSON line
 /// to `mark_path`, where `N` is the current byte length of `patch_log_path` (or `0` when absent).
 /// Produces no stdout so CLI hook output contracts remain untouched.
 pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &str, cli: &str) -> String {
@@ -149,6 +152,6 @@ pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &s
     let patch_q = sh_quote_path(patch_log_path);
     format!(
         "n=$( (wc -c < {patch_q}) 2>/dev/null || echo 0); \
-         printf '{{\"v\":1,\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}"
+         printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}"
     )
 }

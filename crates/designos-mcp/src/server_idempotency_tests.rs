@@ -243,6 +243,43 @@ fn unabsorbed_patches_keeps_only_lines_after_the_last_switch_made_on_this_snapsh
 }
 
 #[test]
+fn a_reconnect_replays_a_version_one_edit_log() {
+    use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
+    let (mut doc, _, frames) = doc_with_frames(&["Hero"]);
+    let mut patch = LivePatch::new(vec![LiveOp::Remove { id: frames[0] }]).with_base(Some(10));
+    patch.v = 1;
+    let log = serde_json::to_string(&patch).unwrap() + "\n";
+    assert_eq!(replay_unabsorbed_patches(&mut doc, log.as_bytes(), Some(10)), Ok(1));
+    assert!(doc.get(frames[0]).is_none(), "the version 1 edit was replayed");
+}
+
+#[test]
+fn a_reconnect_refuses_an_edit_log_from_a_newer_build_and_keeps_the_canvas() {
+    use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
+    let (mut doc, _, frames) = doc_with_frames(&["Hero"]);
+    let before = doc.to_json().unwrap();
+    let newer = designos_doc::live_patch::LIVE_PATCH_VERSION + 1;
+    // An older line that replays fine, then a line whose ops this build cannot read.
+    let good = serde_json::to_string(&LivePatch::new(vec![LiveOp::Remove { id: frames[0] }]).with_base(Some(10))).unwrap();
+    let log = format!("{good}\n{{\"v\":{newer},\"base\":10,\"ops\":[{{\"from_the_future\":{{}}}}]}}\n");
+    let err = replay_unabsorbed_patches(&mut doc, log.as_bytes(), Some(10)).unwrap_err();
+    assert!(err.contains(&format!("Log version {newer}")), "{err}");
+    assert!(err.contains("Update Studio and designos-mcp to the same version."), "{err}");
+    assert_eq!(doc.to_json().unwrap(), before, "the loaded canvas is kept as it was");
+}
+
+#[test]
+fn a_newer_line_before_the_last_switch_does_not_block_the_reconnect() {
+    use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
+    let (mut doc, _, frames) = doc_with_frames(&["Hero"]);
+    let newer = designos_doc::live_patch::LIVE_PATCH_VERSION + 1;
+    let switch = serde_json::to_string(&DocEpoch::of(1, b"doc")).unwrap();
+    let good = serde_json::to_string(&LivePatch::new(vec![LiveOp::Remove { id: frames[0] }]).with_base(Some(10))).unwrap();
+    let log = format!("{{\"v\":{newer},\"ops\":[]}}\n{switch}\n{good}\n");
+    assert_eq!(replay_unabsorbed_patches(&mut doc, log.as_bytes(), Some(10)), Ok(1));
+}
+
+#[test]
 fn studio_undo_lets_the_retry_run_as_a_new_write() {
     let (ws, sess) = temp_dirs("studio-undo");
     let (doc, page, _) = doc_with_frames(&[]);
