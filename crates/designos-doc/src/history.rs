@@ -333,6 +333,11 @@ pub struct UndoStepMeta {
     pub label: Option<String>,
     /// True for the single batch step [`History::fold_since`] produces; it is never folded again.
     pub folded: bool,
+    /// True when the step's recorder captured every layout write its edit made and no deferred
+    /// layout was left to finish afterwards (see [`History::mark_last_undo_as_layout_recorded`]).
+    /// [`History::undo`] and [`History::redo`] then replay the stored command as it is. A re-solve
+    /// would write outside every step, and the stored command already holds the exact geometry.
+    pub layout_recorded: bool,
 }
 
 /// Linear undo stack.
@@ -359,7 +364,7 @@ impl History {
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
-        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, folded: false });
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, ..Default::default() });
         Ok(())
     }
 
@@ -368,14 +373,14 @@ impl History {
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
-        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, label: None, folded: false });
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, ..Default::default() });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
-        self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, label: None, folded: false });
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, ..Default::default() });
         Ok(())
     }
 
@@ -404,11 +409,34 @@ impl History {
         !self.clean_lost && self.undo.len() == self.clean_depth
     }
 
-    /// Marks the most recently pushed undo step as an agent step.
+    /// Marks the most recently pushed undo step as an agent step. An agent step never counts as
+    /// layout-recorded: the agent's layout is solved after the step, outside it.
     pub fn mark_last_undo_as_agent(&mut self) {
         self.sync_meta_lengths();
         if let Some(m) = self.undo_meta.last_mut() {
             m.origin = StepOrigin::Agent;
+            m.layout_recorded = false;
+        }
+    }
+
+    /// Marks the most recently pushed undo step as layout-recorded, so undoing and redoing it
+    /// replays the stored command without solving auto layout again.
+    ///
+    /// The caller vouches that the step's recorder captured its own layout writes. The step is
+    /// marked only when `doc` has no deferred layout queued, because a queued subtree is solved
+    /// after the step and the solve is in no step. Returns whether the step was marked. Call it
+    /// right after the step was pushed, and only when one was.
+    pub fn mark_last_undo_as_layout_recorded(&mut self, doc: &Document) -> bool {
+        self.sync_meta_lengths();
+        if !doc.pending_relayout().is_empty() {
+            return false;
+        }
+        match self.undo_meta.last_mut() {
+            Some(m) => {
+                m.layout_recorded = true;
+                true
+            }
+            None => false,
         }
     }
 
@@ -475,7 +503,7 @@ impl History {
         // the newest inverse first and the oldest inverse last when undoing the folded batch.
         run.reverse();
         self.undo.insert(fold_start, Command::Batch(run));
-        self.undo_meta.insert(fold_start, UndoStepMeta { origin: StepOrigin::Agent, label: Some(label.into()), folded: true });
+        self.undo_meta.insert(fold_start, UndoStepMeta { origin: StepOrigin::Agent, label: Some(label.into()), folded: true, ..Default::default() });
         let mut keep_redo = Vec::with_capacity(self.redo.len());
         let mut keep_meta = Vec::with_capacity(self.redo_meta.len());
         for (cmd, meta) in self.redo.drain(..).zip(self.redo_meta.drain(..)) {
@@ -498,25 +526,26 @@ impl History {
         Some((fold_start, fold_end))
     }
 
-    /// Reverts the latest step. Any deferred auto-layout queue from the superseded edit is dropped
-    /// before applying the inverse command, and affected auto-layout containers are re-solved from
-    /// their restored state so descendants return to the pre-edit layout.
+    /// Reverts the latest step. A step whose layout was recorded (see
+    /// [`Self::mark_last_undo_as_layout_recorded`]) is replayed as stored. Any other step, such as
+    /// an agent or MCP edit whose layout was solved after it, re-solves the auto-layout containers
+    /// it changed from their restored state, so descendants return to the pre-edit layout.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         self.sync_meta_lengths();
         let Some(c) = self.undo.pop() else { return Ok(false) };
         let meta = self.undo_meta.pop().unwrap_or_default();
-        let inv = apply_and_relayout(doc, c)?;
+        let inv = apply_step(doc, c, meta.layout_recorded)?;
         self.redo.push(inv);
         self.redo_meta.push(meta);
         Ok(true)
     }
-    /// Re-applies the latest undone step, dropping any superseded queue and re-solving affected
-    /// auto-layout containers from their restored state, like [`Self::undo`].
+    /// Re-applies the latest undone step, solving auto layout again only for a step whose layout
+    /// was not recorded, like [`Self::undo`].
     pub fn redo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         self.sync_meta_lengths();
         let Some(c) = self.redo.pop() else { return Ok(false) };
         let meta = self.redo_meta.pop().unwrap_or_default();
-        let inv = apply_and_relayout(doc, c)?;
+        let inv = apply_step(doc, c, meta.layout_recorded)?;
         self.undo.push(inv);
         self.undo_meta.push(meta);
         Ok(true)
@@ -532,6 +561,10 @@ impl History {
     /// The command [`Self::redo`] would apply next.
     pub fn peek_redo(&self) -> Option<&Command> {
         self.redo.last()
+    }
+    /// Whether the step [`Self::undo`] would apply next is layout-recorded, so undoing it solves no layout.
+    pub fn peek_undo_layout_recorded(&self) -> bool {
+        self.undo.len().checked_sub(1).and_then(|i| self.undo_meta.get(i)).is_some_and(|m| m.layout_recorded)
     }
     /// The label of the step [`Self::undo`] would apply next, if any.
     pub fn peek_undo_label(&self) -> Option<&str> {
@@ -700,6 +733,17 @@ fn collect_relayout_seeds(doc: &Document, cmd: &Command, seeds: &mut Vec<NodeId>
     }
 }
 
+/// Applies one undo or redo step. A layout-recorded step is replayed as stored while no deferred
+/// layout is queued. With a queue present it re-solves like any other step, so a queued subtree is
+/// never drained against a state the step restored without that solve.
+fn apply_step(doc: &mut Document, c: Command, layout_recorded: bool) -> Result<Command, DocError> {
+    if layout_recorded && doc.pending_relayout().is_empty() {
+        c.apply(doc)
+    } else {
+        apply_and_relayout(doc, c)
+    }
+}
+
 /// Applies `c` and re-solves only the auto-layout frames it changed: each seeded frame is solved on
 /// its own and the walk climbs to a parent only while a frame's size changed. Containers below a
 /// seed are not walked, so untouched siblings keep their positions. `pending_relayout` is left as
@@ -800,6 +844,9 @@ mod tests {
         d.flush_pending_relayout();
         let after_undo = widths(&d, &frames);
         assert!(after_undo.iter().all(|w| *w == 200.0), "draining the queue restores the 200 px layout across all 70 frames: {after_undo:?}");
+        let innermost = *frames.last().unwrap();
+        assert_eq!(d.get(innermost).unwrap().size.x, 200.0, "undo restores the innermost frame of the nest, not only the outermost one");
+        assert_eq!(d.get(leaf).unwrap().size.x, 10.0, "the leaf keeps its own size");
         assert_eq!(d.get(leaf).unwrap().transform.tx, 190.0, "undo restores the leaf position inside the innermost frame");
         assert_eq!(d.relayout_skipped_count(), 0);
 
@@ -807,6 +854,8 @@ mod tests {
         assert!(d.relayout_skipped_count() > 0);
         d.flush_pending_relayout();
         assert!(widths(&d, &frames).iter().all(|w| *w == 600.0), "redo brings back the whole edited layout: {:?}", widths(&d, &frames));
+        assert_eq!(d.get(innermost).unwrap().size.x, 600.0, "redo widens the innermost frame of the nest");
+        assert_eq!(d.get(leaf).unwrap().size.x, 10.0, "the leaf keeps its own size");
         assert_eq!(d.get(leaf).unwrap().transform.tx, 590.0, "redo places the leaf at the right edge of the 600 px frame");
     }
 
@@ -1063,6 +1112,189 @@ mod tests {
         assert!(queued.iter().all(|q| d.pending_relayout().contains(q)), "an undo elsewhere must not drop the queued tail");
         d.flush_pending_relayout();
         assert_eq!(d.get(leaf).unwrap().transform.tx, 590.0);
+    }
+
+    /// Size and position of every node, in id order: what a canvas shows.
+    fn layout_of(d: &Document) -> Vec<(NodeId, Vec2, f32, f32)> {
+        d.nodes.values().map(|n| (n.id, n.size, n.transform.tx, n.transform.ty)).collect()
+    }
+
+    fn hugging_column() -> AutoLayout {
+        AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() }
+    }
+
+    /// A hugging column of [header, sibling]. The header hugs and has no children, as a `.fig`
+    /// instance on a page that has not been opened yet has none; the file stores it at 375x1332
+    /// and the sibling right below it.
+    fn column_with_a_childless_header() -> (Document, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut column = Node::frame(d.alloc_id(), Rect::new(0.0, 0.0, 375.0, 1432.0));
+        if let NodeKind::Frame(fp) = &mut column.kind {
+            fp.auto_layout = Some(hugging_column());
+        }
+        let column_id = d.insert(page, column).unwrap();
+        let mut header = Node::frame(d.alloc_id(), Rect::new(0.0, 0.0, 375.0, 1332.0));
+        if let NodeKind::Frame(fp) = &mut header.kind {
+            fp.auto_layout = Some(hugging_column());
+        }
+        let header_id = d.insert(column_id, header).unwrap();
+        let sibling = Node::frame(d.alloc_id(), Rect::new(0.0, 1332.0, 375.0, 100.0));
+        let sibling_id = d.insert(column_id, sibling).unwrap();
+        (d, column_id, header_id, sibling_id)
+    }
+
+    /// An `Update` of the header's child sizing: it changes a layout input and no geometry.
+    fn widen_header(d: &Document, header: NodeId) -> Command {
+        let mut edited = d.get(header).unwrap().clone();
+        edited.layout_child.horizontal = Sizing::Fill;
+        Command::Update { node: Box::new(edited) }
+    }
+
+    #[test]
+    fn undo_and_redo_of_a_recorded_step_replay_it_exactly_and_solve_no_frame() {
+        let (mut d, _column, header, _sibling) = column_with_a_childless_header();
+        let before = layout_of(&d);
+        let mut h = History::default();
+        let cmd = widen_header(&d, header);
+        h.exec(&mut d, cmd).unwrap();
+        assert!(h.mark_last_undo_as_layout_recorded(&d), "no layout is queued, so the step can be marked");
+        let after = layout_of(&d);
+        assert_eq!(after, before, "the edit changed no geometry");
+
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), before, "undo gives back the geometry the file stored, 1332 px header included");
+        h.redo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), after);
+        assert!(h.peek_undo_layout_recorded(), "the mark travels with the step through undo and redo");
+        h.undo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), before, "a second undo of the same step is as exact as the first");
+        assert_eq!(crate::layout_apply::solve_calls(), 0, "a recorded step is replayed as stored; nothing is solved again");
+    }
+
+    #[test]
+    fn a_step_nobody_marked_still_solves_layout_on_undo() {
+        let (mut d, column, header, sibling) = column_with_a_childless_header();
+        let mut h = History::default();
+        let cmd = widen_header(&d, header);
+        h.exec(&mut d, cmd).unwrap();
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert!(crate::layout_apply::solve_calls() > 0, "an unmarked step keeps the re-solve that its tail of deferred layout relies on");
+        assert_eq!(d.get(header).unwrap().size.y, 0.0, "an empty hugging frame solves to nothing: the plain solver reading, unchanged for unmarked steps");
+        assert_eq!((d.get(sibling).unwrap().transform.ty, d.get(column).unwrap().size.y), (0.0, 100.0));
+    }
+
+    #[test]
+    fn undo_and_redo_of_an_unmarked_step_never_solve_an_instance_whose_children_are_not_loaded() {
+        let (mut d, column, header, sibling) = column_with_a_childless_header();
+        // The header is an instance of a main component that has a child; its page has not been
+        // opened, so the child has not been cloned into it yet. This is the agent and MCP path:
+        // their steps are never marked, and their undo keeps the re-solve.
+        let page = d.pages[0];
+        let main_id = d.alloc_id();
+        let main = d.insert(page, Node::new(main_id, NodeKind::Component(FrameProps::default()))).unwrap();
+        let child = d.alloc_id();
+        d.insert(main, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 1332.0))).unwrap();
+        let header_node = d.get_mut(header).unwrap();
+        let frame = header_node.kind.frame_props().unwrap().clone();
+        header_node.kind = NodeKind::Instance { frame, component: Some(main), component_key: None };
+        let before = layout_of(&d);
+
+        let mut h = History::default();
+        let cmd = widen_header(&d, header);
+        h.exec(&mut d, cmd).unwrap();
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert!(crate::layout_apply::solve_calls() > 0, "the unmarked step still re-solves its seeds");
+        assert_eq!(layout_of(&d), before, "a header that was never loaded is not collapsed to 0, and its sibling stays at 1332");
+        h.redo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), before);
+        assert_eq!((d.get(header).unwrap().size.y, d.get(sibling).unwrap().transform.ty, d.get(column).unwrap().size.y), (1332.0, 1332.0, 1432.0));
+    }
+
+    #[test]
+    fn marking_needs_a_step_and_an_empty_layout_queue_and_an_agent_step_is_never_recorded() {
+        let (mut d, _column, header, _sibling) = column_with_a_childless_header();
+        let mut h = History::default();
+        assert!(!h.mark_last_undo_as_layout_recorded(&d), "there is no step to mark");
+
+        let cmd = widen_header(&d, header);
+        h.exec(&mut d, cmd).unwrap();
+        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        assert!(h.peek_undo_layout_recorded());
+        h.mark_last_undo_as_agent();
+        assert!(!h.peek_undo_layout_recorded(), "marking a step as the agent's takes the recorded mark away");
+
+        let (mut chain, frames, _leaf) = nested_fill_frames();
+        let mut h2 = History::default();
+        let mut wide = chain.get(frames[0]).unwrap().clone();
+        wide.size.x = 600.0;
+        h2.exec(&mut chain, Command::Update { node: Box::new(wide) }).unwrap();
+        chain.relayout_subtree(frames[0]);
+        assert!(chain.relayout_skipped_count() > 0, "precondition: the nest is deeper than one relayout reaches");
+        assert!(!h2.mark_last_undo_as_layout_recorded(&chain), "a tail still queued after the step is solved outside it, so the step is not recorded");
+        assert!(!h2.peek_undo_layout_recorded());
+    }
+
+    /// The step an editor commit records for widening the outermost frame of `nested_fill_frames`:
+    /// every node the layout changed, taken from a copy that was solved to the end.
+    fn recorded_widening_of_the_nest(d: &Document, frames: &[NodeId], leaf: NodeId) -> Command {
+        let mut solved = d.clone();
+        solved.get_mut(frames[0]).unwrap().size.x = 600.0;
+        solved.relayout_subtree(frames[0]);
+        solved.flush_pending_relayout();
+        let changed: Vec<Command> =
+            frames.iter().chain(std::iter::once(&leaf)).map(|id| Command::Update { node: Box::new(solved.get(*id).unwrap().clone()) }).collect();
+        Command::Batch(changed)
+    }
+
+    #[test]
+    fn a_recorded_widening_of_a_nest_past_the_relayout_budget_undoes_and_redoes_exactly() {
+        let (mut d, frames, leaf) = nested_fill_frames();
+        let (innermost, before) = (*frames.last().unwrap(), layout_of(&d));
+        let mut h = History::default();
+        let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        h.exec(&mut d, step).unwrap();
+        assert_eq!(d.relayout_skipped_count(), 0, "the recorder laid everything out, so no tail is queued");
+        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        let after = layout_of(&d);
+        assert_eq!(d.get(innermost).unwrap().size.x, 600.0);
+        assert_eq!(d.get(leaf).unwrap().transform.tx, 590.0);
+
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), before, "undo restores all 70 frames and the leaf at once");
+        assert_eq!((d.get(innermost).unwrap().size.x, d.get(leaf).unwrap().size.x, d.get(leaf).unwrap().transform.tx), (200.0, 10.0, 190.0));
+        h.redo(&mut d).unwrap();
+        assert_eq!(layout_of(&d), after, "redo restores the widened nest and the leaf at once");
+        assert_eq!((d.get(innermost).unwrap().size.x, d.get(leaf).unwrap().size.x, d.get(leaf).unwrap().transform.tx), (600.0, 10.0, 590.0));
+        assert_eq!(crate::layout_apply::solve_calls(), 0);
+        assert_eq!(d.relayout_skipped_count(), 0, "nothing was left queued for a later frame");
+    }
+
+    #[test]
+    fn a_recorded_step_undone_while_layout_is_queued_still_solves_layout() {
+        let (mut d, frames, leaf) = nested_fill_frames();
+        let mut h = History::default();
+        let step = recorded_widening_of_the_nest(&d, &frames, leaf);
+        h.exec(&mut d, step).unwrap();
+        assert!(h.mark_last_undo_as_layout_recorded(&d));
+        // Something outside the history widens the nest again and leaves its tail queued.
+        d.get_mut(frames[0]).unwrap().size.x = 900.0;
+        d.relayout_subtree(frames[0]);
+        assert!(d.relayout_skipped_count() > 0, "precondition: a tail is queued");
+
+        crate::layout_apply::reset_solve_calls();
+        h.undo(&mut d).unwrap();
+        assert!(
+            crate::layout_apply::solve_calls() > 0,
+            "with a queue present the undo takes the solving path, so the queue is never drained against an unsolved state"
+        );
+        d.flush_pending_relayout();
+        assert!(widths(&d, &frames).iter().all(|w| *w == 200.0), "{:?}", widths(&d, &frames));
+        assert_eq!(d.get(leaf).unwrap().transform.tx, 190.0);
     }
 
     #[test]

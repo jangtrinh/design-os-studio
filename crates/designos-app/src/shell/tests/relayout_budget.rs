@@ -265,6 +265,9 @@ fn undo_and_redo_finish_the_queue_and_retire_the_notice() {
         "undo restores every frame in the chain to 200 px: {:?}",
         frames.iter().map(|f| s.app().doc.get(*f).unwrap().size.x).collect::<Vec<_>>()
     );
+    let innermost = *frames.last().unwrap();
+    assert_eq!(s.app().doc.get(innermost).unwrap().size.x, 200.0, "undo restores the innermost frame, not only the outermost one");
+    assert_eq!(s.app().doc.get(leaf).unwrap().size.x, 10.0, "the leaf keeps its own size");
     assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 190.0, "undo restores the leaf position to 190 px");
 
     s.shell.app.redo();
@@ -273,6 +276,42 @@ fn undo_and_redo_finish_the_queue_and_retire_the_notice() {
     }
     assert_eq!(s.app().doc.relayout_skipped_count(), 0);
     assert!(frames.iter().all(|f| s.app().doc.get(*f).unwrap().size.x == 600.0), "redo restores every frame in the chain to 600 px");
+    assert_eq!(s.app().doc.get(innermost).unwrap().size.x, 600.0, "redo widens the innermost frame");
+    assert_eq!(s.app().doc.get(leaf).unwrap().size.x, 10.0, "the leaf keeps its own size");
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
+}
+
+/// The same nest edited through the editor: its layout is solved to the end inside the edit, so
+/// nothing is queued, the step is recorded, and undo and redo restore every frame at once.
+#[test]
+fn undo_and_redo_of_an_editor_widening_of_a_deep_nest_restore_every_frame_at_once() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (frames, leaf) = add_chain(&mut s.shell.app.doc, page, 200.0);
+    s.shell.app.doc.relayout_subtree(page);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let innermost = *frames.last().unwrap();
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 190.0, "precondition: the leaf hugs the 200 px frame");
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0);
+
+    s.shell.app.edit_nodes(&[frames[0]], |n| n.size.x = 600.0);
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "the editor's layout has no budget to run out of");
+    assert_eq!(s.app().doc.get(innermost).unwrap().size.x, 600.0);
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
+    assert!(s.app().hist.peek_undo_layout_recorded(), "an editor edit with nothing queued is recorded");
+
+    s.shell.app.undo();
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "a recorded step leaves nothing for a later frame");
+    assert!(frames.iter().all(|f| s.app().doc.get(*f).unwrap().size.x == 200.0), "undo restores all 70 frames in the same call");
+    assert_eq!(s.app().doc.get(leaf).unwrap().size.x, 10.0);
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 190.0);
+
+    s.shell.app.redo();
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0);
+    assert!(frames.iter().all(|f| s.app().doc.get(*f).unwrap().size.x == 600.0), "redo restores all 70 frames in the same call");
+    assert_eq!(s.app().doc.get(leaf).unwrap().size.x, 10.0);
     assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
 }
 

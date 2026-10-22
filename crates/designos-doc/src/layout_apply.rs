@@ -59,6 +59,16 @@ impl Document {
         }
     }
 
+    /// An instance that holds no children while its main component has some. A `.fig` import
+    /// leaves an instance like that on a page that has not been opened yet (its children are cloned
+    /// in when the page is first shown), and when the clone budget ran out. A main with no children
+    /// makes an empty instance, which is an ordinary empty frame.
+    fn is_unexpanded_instance(&self, id: NodeId) -> bool {
+        let Some(n) = self.get(id) else { return false };
+        let NodeKind::Instance { component: Some(main), .. } = &n.kind else { return false };
+        n.children.is_empty() && self.get(*main).is_some_and(|m| !m.children.is_empty())
+    }
+
     fn is_auto_layout_frame(&self, id: NodeId) -> bool {
         self.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
     }
@@ -143,6 +153,11 @@ impl Document {
             return;
         };
         let children = root_node.children.clone();
+        // A hugging frame that has no children to measure keeps the size it has: solving it would shrink
+        // the hugged axes to nothing. That is what an instance is until its children are cloned in.
+        if children.is_empty() && hugged_axes(&al) != (false, false) && self.is_unexpanded_instance(root) {
+            return;
+        }
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&root_node.layout_child);
         let stroke = resolved.stroke.clone();
@@ -736,5 +751,71 @@ mod tests {
         assert_eq!(doc.get(f).unwrap().size, Vec2::new(156.0, 84.0));
         assert_eq!((doc.get(c0).unwrap().transform.tx, doc.get(c0).unwrap().transform.ty), (36.0, 30.0));
         assert_eq!((doc.get(c1).unwrap().transform.tx, doc.get(c1).unwrap().transform.ty), (94.0, 30.0));
+    }
+
+    /// A hugging column of [instance, sibling] on a page, plus the instance's main component. The
+    /// instance hugs and has no children, as a `.fig` instance on a page that has not been opened
+    /// yet has none; the file stores it at 375x1332 and the sibling right below it. The main has a
+    /// child only when `main_has_children`.
+    fn column_with_a_childless_instance(main_has_children: bool) -> (Document, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let hugging =
+            || AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() };
+        let main_id = doc.alloc_id();
+        let main = doc.insert(page, Node::new(main_id, NodeKind::Component(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }))).unwrap();
+        if main_has_children {
+            let child = doc.alloc_id();
+            doc.insert(main, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 1332.0))).unwrap();
+        }
+        let column_id = doc.alloc_id();
+        let mut column_node = Node::frame(column_id, Rect::new(0.0, 0.0, 375.0, 1432.0));
+        column_node.kind = NodeKind::Frame(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() });
+        let column = doc.insert(page, column_node).unwrap();
+        let instance_id = doc.alloc_id();
+        let mut instance_node = Node::new(
+            instance_id,
+            NodeKind::Instance { frame: FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }, component: Some(main), component_key: None },
+        );
+        instance_node.size = Vec2::new(375.0, 1332.0);
+        let instance = doc.insert(column, instance_node).unwrap();
+        let sibling_id = doc.alloc_id();
+        let sibling = doc.insert(column, Node::frame(sibling_id, Rect::new(0.0, 1332.0, 375.0, 100.0))).unwrap();
+        (doc, column, instance, sibling)
+    }
+
+    #[test]
+    fn a_hugging_instance_whose_children_are_not_loaded_keeps_its_stored_size_on_every_solve_path() {
+        let (mut doc, column, instance, sibling) = column_with_a_childless_instance(true);
+        let stored = |d: &Document| (d.get(column).unwrap().size, d.get(instance).unwrap().size, d.get(sibling).unwrap().transform.ty);
+        let before = stored(&doc);
+        assert_eq!(before, (Vec2::new(375.0, 1432.0), Vec2::new(375.0, 1332.0), 1332.0));
+
+        doc.relayout_subtree(column);
+        assert_eq!(stored(&doc), before, "relayout_subtree");
+        doc.relayout_subtree(instance);
+        assert_eq!(stored(&doc), before, "relayout_subtree on the instance itself");
+        doc.relayout_seeds_upward(&[instance, column]);
+        assert_eq!(stored(&doc), before, "relayout_seeds_upward, the path of undo and redo");
+
+        // A queued instance leaves the queue instead of stalling the lazy pass, and keeps its size too.
+        doc.pending_relayout.push(instance);
+        doc.flush_pending_relayout();
+        assert!(doc.pending_relayout().is_empty());
+        assert_eq!(stored(&doc), before, "the lazy pass");
+    }
+
+    #[test]
+    fn an_instance_of_an_empty_main_or_with_children_is_solved_like_any_frame() {
+        let (mut doc, column, instance, sibling) = column_with_a_childless_instance(false);
+        doc.relayout_subtree(column);
+        assert_eq!(doc.get(instance).unwrap().size.y, 0.0, "an instance of an empty component is an empty frame");
+        assert_eq!((doc.get(sibling).unwrap().transform.ty, doc.get(column).unwrap().size.y), (0.0, 100.0));
+
+        let (mut doc, column, instance, _sibling) = column_with_a_childless_instance(true);
+        let child = doc.alloc_id();
+        doc.insert(instance, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 200.0))).unwrap();
+        doc.relayout_subtree(column);
+        assert_eq!(doc.get(instance).unwrap().size.y, 200.0, "an expanded instance hugs its children");
     }
 }
