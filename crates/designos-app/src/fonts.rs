@@ -5,7 +5,7 @@
 //! worker thread. Results are registered with the renderer on the UI thread.
 
 use designos_doc::Document;
-use designos_fonts::{ensure_font_requests_with, FontCache, FontReport, FontRequest};
+use designos_fonts::{ensure_font_requests_with, FontCache, FontReport, FontRequest, LoadedFont};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
@@ -17,11 +17,18 @@ pub struct FontLoader {
     /// Faces edits asked for that no finished load has resolved yet. Every load asks for them
     /// again, so a load started by a later edit never drops what an earlier one wanted.
     wanted: BTreeSet<FontRequest>,
+    /// Faces whose failure has been reported this session. Edits leave them out of their loads, so
+    /// a Ctrl+B on one text never fetches or toasts a face of another that is not on Fontsource.
+    /// A document-level load still tries them (the network may be back) but does not toast again.
+    failed: HashSet<FontRequest>,
     /// Opens the cache a load resolves through.
     open_cache: Arc<dyn Fn() -> FontCache + Send + Sync>,
     /// The faces the latest `load_for` asked for (tests read it instead of waiting for a fetch).
     #[cfg(test)]
     requested: BTreeSet<FontRequest>,
+    /// How many loads have started.
+    #[cfg(test)]
+    started: usize,
 }
 
 impl Default for FontLoader {
@@ -30,9 +37,12 @@ impl Default for FontLoader {
             pending: None,
             registered: HashSet::new(),
             wanted: BTreeSet::new(),
+            failed: HashSet::new(),
             open_cache: Arc::new(default_cache),
             #[cfg(test)]
             requested: Default::default(),
+            #[cfg(test)]
+            started: 0,
         }
     }
 }
@@ -44,20 +54,50 @@ pub struct FontsLoaded {
 }
 
 impl FontLoader {
-    /// Starts resolving the document's fonts; a previous load is abandoned.
+    /// Starts resolving the document's fonts (an open, a tab switch, a paste, the family picker);
+    /// a previous load is abandoned. Faces that failed before are tried again.
     pub fn load_for(&mut self, doc: &Document) {
         self.load_for_with(doc, []);
     }
 
-    /// [`Self::load_for`] plus `extra` faces the caller knows the document now uses. A large
-    /// document is only scanned in part (`requests_for` stops after 8,192 nodes), so a face an edit
-    /// added further down would never be asked for. The extras stay wanted until a load finishes.
+    /// [`Self::load_for`] plus `extra` faces the caller knows the document uses. A large document
+    /// is only scanned in part (`requests_for` stops after 8,192 nodes), so a face further down
+    /// would never be asked for. The extras stay wanted until a load finishes.
     pub fn load_for_with(&mut self, doc: &Document, extra: impl IntoIterator<Item = FontRequest>) {
         self.wanted.extend(extra);
+        self.start(doc, false);
+    }
+
+    /// An edit introduced the faces `added`. Asks for the ones that still need a fetch and starts
+    /// no load when there are none: a face that is bundled, installed, already registered, or that
+    /// failed before needs nothing, and a Ctrl+B in Inter must not wake the network.
+    pub fn request_new_faces(&mut self, doc: &Document, added: Vec<FontRequest>) {
+        let fresh: BTreeSet<FontRequest> = added.into_iter().filter(|r| !self.failed.contains(r)).collect();
+        let covered = self.available(&fresh);
+        let needed: Vec<FontRequest> = fresh.into_iter().filter(|r| !covered.contains(r)).collect();
+        if needed.is_empty() {
+            return;
+        }
+        self.wanted.extend(needed);
+        self.start(doc, true);
+    }
+
+    /// Forgets that `family` failed, so the next load reports it again: picking the family again
+    /// is the explicit retry.
+    pub fn retry_family(&mut self, family: &str) {
+        self.failed.retain(|r| !r.family.eq_ignore_ascii_case(family));
+    }
+
+    /// Starts a load of the document's faces and everything wanted, leaving out the faces that
+    /// failed before when `skip_failed`.
+    fn start(&mut self, doc: &Document, skip_failed: bool) {
         // Fonts the text names, plus the Noto fallbacks of the complex scripts it uses (Arabic, Hebrew, Devanagari).
         let mut requests = designos_fonts::requests_for(doc);
         requests.extend(self.wanted.iter().cloned());
         requests.extend(designos_fonts::script_requests_for(doc));
+        if skip_failed {
+            requests.retain(|r| !self.failed.contains(r));
+        }
         #[cfg(test)]
         {
             self.requested = requests.clone();
@@ -65,6 +105,10 @@ impl FontLoader {
         if requests.is_empty() {
             self.pending = None;
             return;
+        }
+        #[cfg(test)]
+        {
+            self.started += 1;
         }
         let available = self.available(&requests);
         let open_cache = self.open_cache.clone();
@@ -79,7 +123,7 @@ impl FontLoader {
     /// The faces that need no fetch. The renderer's font database is thread-local, so this is
     /// decided here on the UI thread, not in the worker.
     ///
-    /// A face this loader registered is available. A family installed on the system is available
+    /// A face this loader registered, or one embedded in the binary, is available. A family installed on the system is available
     /// at every weight, because the system serves the nearest face. A family the loader fetched is
     /// not: having its regular face says nothing about its bold one, so each face is its own request.
     fn available(&self, requests: &BTreeSet<FontRequest>) -> HashSet<FontRequest> {
@@ -89,6 +133,7 @@ impl FontLoader {
             .iter()
             .filter(|r| {
                 self.registered.contains(*r)
+                    || is_bundled(r)
                     || *system.entry(r.family.as_str()).or_insert_with(|| !fetched.contains(&r.family.to_lowercase()) && is_installed(&r.family))
             })
             .cloned()
@@ -104,14 +149,27 @@ impl FontLoader {
         self.wanted.clear();
         let loaded = report.loaded.len();
         for f in report.loaded {
-            // Under the name the document uses and under the one the font database holds ("Gotham" is drawn with Montserrat).
-            self.registered.insert(FontRequest::new(f.family.clone(), f.request.weight, f.request.italic));
-            self.registered.insert(f.request.clone());
-            designos_export::register_font(f.data.clone());
-            designos_render::register_font(f.data);
+            self.failed.remove(&f.request);
+            self.register(f);
         }
-        let failed = report.failed.iter().map(|(req, err)| format!("{} {}: {err}", req.family, req.weight)).collect();
+        // A failure is reported the first time; a later load that fails again stays quiet.
+        let failed =
+            report.failed.iter().filter(|(req, _)| self.failed.insert(req.clone())).map(|(req, err)| format!("{} {}: {err}", req.family, req.weight)).collect();
         Some(FontsLoaded { loaded, failed })
+    }
+
+    /// Registers one fetched font with the renderer and remembers its face.
+    fn register(&mut self, f: LoadedFont) {
+        // Under the name the document uses and under the one the font database holds ("Gotham" is
+        // drawn with Montserrat). A family that was installed before this font arrived stays a
+        // system family: it still covers every weight, so it is not recorded as fetched.
+        let fetched = self.registered.iter().any(|r| r.family.eq_ignore_ascii_case(&f.family));
+        if fetched || !is_installed(&f.family) {
+            self.registered.insert(FontRequest::new(f.family.clone(), f.request.weight, f.request.italic));
+        }
+        self.registered.insert(f.request.clone());
+        designos_export::register_font(f.data.clone());
+        designos_render::register_font(f.data);
     }
 
     pub fn is_loading(&self) -> bool {
@@ -127,6 +185,17 @@ impl FontLoader {
     pub(crate) fn registered(&self) -> &HashSet<FontRequest> {
         &self.registered
     }
+
+    #[cfg(test)]
+    pub(crate) fn started(&self) -> usize {
+        self.started
+    }
+}
+
+/// The face is embedded in the binary, under its own name or a substitute's (SF Pro is drawn with Inter).
+fn is_bundled(r: &FontRequest) -> bool {
+    let family = designos_fonts::substitute(&r.family).unwrap_or(r.family.as_str());
+    designos_fonts::bundled_for(&FontRequest::new(family, r.weight, r.italic)).is_some()
 }
 
 /// `family` is in the renderer's font database under its own name.
@@ -179,6 +248,15 @@ pub(crate) mod testkit {
         data
     }
 
+    /// A private cache directory, removed on drop.
+    struct Scratch(std::path::PathBuf);
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// What a download returns, by URL.
     struct Served(Arc<HashMap<String, Vec<u8>>>);
 
@@ -213,7 +291,9 @@ pub(crate) mod testkit {
             serve(&mut routes, family);
         }
         let routes = Arc::new(routes);
-        FontLoader { open_cache: Arc::new(move || FontCache::with_dir(&dir).with_fetcher(Box::new(Served(routes.clone())))), ..FontLoader::default() }
+        // The directory goes when the loader and its last worker are gone.
+        let scratch = Scratch(dir);
+        FontLoader { open_cache: Arc::new(move || FontCache::with_dir(&scratch.0).with_fetcher(Box::new(Served(routes.clone())))), ..FontLoader::default() }
     }
 
     /// Waits for the running load and registers what it fetched.
@@ -247,6 +327,29 @@ mod tests {
         for family in ["Gotham", "Montserrat"] {
             assert!(fonts.registered().contains(&FontRequest::new(family, 400, false)), "{family}: {:?}", fonts.registered());
         }
+    }
+
+    #[test]
+    fn a_substitute_installed_on_the_system_stays_a_system_family() {
+        use designos_fonts::LoadedFont;
+        let loaded = |doc_family: &str, font_family: &str| LoadedFont {
+            request: FontRequest::new(doc_family, 400, false),
+            family: font_family.into(),
+            data: testkit::font_named(font_family),
+        };
+        // The substitute is on the system already: only the name the document uses is remembered as fetched.
+        designos_render::register_font(testkit::font_named("TestSysSubs"));
+        let mut fonts = FontLoader::default();
+        fonts.register(loaded("TestDocOne", "TestSysSubs"));
+        assert!(fonts.registered().contains(&FontRequest::new("TestDocOne", 400, false)));
+        assert!(!fonts.registered().contains(&FontRequest::new("TestSysSubs", 400, false)), "{:?}", fonts.registered());
+        let heavier: BTreeSet<_> = [FontRequest::new("TestSysSubs", 700, false)].into();
+        assert_eq!(fonts.available(&heavier).len(), 1, "the system still covers every weight of its family");
+        // A substitute that only this loader fetched is not a system family.
+        fonts.register(loaded("TestDocTwo", "TestFetched"));
+        assert!(fonts.registered().contains(&FontRequest::new("TestFetched", 400, false)), "{:?}", fonts.registered());
+        let heavier: BTreeSet<_> = [FontRequest::new("TestFetched", 700, false)].into();
+        assert!(fonts.available(&heavier).is_empty(), "its bold face still has to be fetched");
     }
 
     #[test]

@@ -25,6 +25,6 @@ pub use assets::{bundled, bundled_for, FontAsset};
 pub use cache::{write_atomic, Fetch, FontCache, Sidecar};
 pub use ensure::{ensure_font_requests_with, ensure_fonts, ensure_fonts_with, FontReport, LoadedFont};
 pub use error::FontError;
-pub use request::{new_faces, requests_for, FontRequest};
+pub use request::{new_faces, requests_for, text_faces, FontRequest};
 pub use scripts::{script_of, script_requests_for, scripts_in, Script};
 pub use subst::{substitute, SUBSTITUTIONS};

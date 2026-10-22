@@ -359,7 +359,7 @@ fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut 
     // Edit > Bold, the inspector, a bold typing style) is asked for in the same frame. Typing and
     // edits that keep the faces start no load.
     if !added_faces.is_empty() {
-        app.fonts.load_for_with(&app.doc, added_faces);
+        app.fonts.request_new_faces(&app.doc, added_faces);
     }
 }
 
@@ -372,7 +372,7 @@ pub fn requesting_new_faces(app: &mut App, ids: &[NodeId], edit: impl FnOnce(&mu
     added.sort();
     added.dedup();
     if !added.is_empty() {
-        app.fonts.load_for_with(&app.doc, added);
+        app.fonts.request_new_faces(&app.doc, added);
     }
 }
 
@@ -866,7 +866,7 @@ mod tests {
 
     /// A family that is not bundled, so its faces have to be fetched.
     fn lato() -> TextStyle {
-        TextStyle { font_family: "Lato".into(), font_size: 16.0, ..Default::default() }
+        TextStyle { font_family: "TestLato".into(), font_size: 16.0, ..Default::default() }
     }
 
     fn asked_for(app: &App, family: &str, weight: u16) -> bool {
@@ -879,7 +879,7 @@ mod tests {
         set_sel(&mut app, 5, 0, false);
         key(&mut app, egui::Key::B, false, true);
         assert_eq!(text_of(&app, id).runs[0].style.font_weight, 700);
-        assert!(asked_for(&app, "Lato", 700), "the 700 face must be requested in the frame Ctrl+B ran: {:?}", app.fonts.requested());
+        assert!(asked_for(&app, "TestLato", 700), "the 700 face must be requested in the frame Ctrl+B ran: {:?}", app.fonts.requested());
     }
 
     #[test]
@@ -887,14 +887,14 @@ mod tests {
         let (mut app, id) = app_with_styled_text("hello world", lato());
         set_sel(&mut app, 5, 0, false);
         text_command(&mut app, TextCmd::Bold);
-        assert!(asked_for(&app, "Lato", 700), "session: {:?}", app.fonts.requested());
+        assert!(asked_for(&app, "TestLato", 700), "session: {:?}", app.fonts.requested());
 
         let (mut app, id2) = app_with_styled_text("hello world", lato());
         finish_text(&mut app, true);
         app.selection = vec![id2];
         text_command(&mut app, TextCmd::Bold);
         assert_eq!(text_of(&app, id2).style.font_weight, 700);
-        assert!(asked_for(&app, "Lato", 700), "selected layer: {:?}", app.fonts.requested());
+        assert!(asked_for(&app, "TestLato", 700), "selected layer: {:?}", app.fonts.requested());
         let _ = id;
     }
 
@@ -905,7 +905,7 @@ mod tests {
         key(&mut app, egui::Key::B, false, true);
         insert_text(&mut app, "C", EditKind::Typing);
         assert_eq!(text_of(&app, id).runs.len(), 1);
-        assert!(asked_for(&app, "Lato", 700), "{:?}", app.fonts.requested());
+        assert!(asked_for(&app, "TestLato", 700), "{:?}", app.fonts.requested());
     }
 
     #[test]
@@ -923,15 +923,15 @@ mod tests {
         use crate::panels::typography::set_style;
         let (mut app, id) = app_with_text("hello world");
         set_sel(&mut app, 5, 0, false);
-        set_style(&mut app, &[id], |s| s.font_family = "Lato".into());
-        assert!(asked_for(&app, "Lato", 400), "session: {:?}", app.fonts.requested());
+        set_style(&mut app, &[id], |s| s.font_family = "TestLato".into());
+        assert!(asked_for(&app, "TestLato", 400), "session: {:?}", app.fonts.requested());
 
         let (mut app, id) = app_with_text("hello world");
         finish_text(&mut app, true);
-        set_style(&mut app, &[id], |s| s.font_family = "Lato".into());
-        assert!(asked_for(&app, "Lato", 400), "layer: {:?}", app.fonts.requested());
+        set_style(&mut app, &[id], |s| s.font_family = "TestLato".into());
+        assert!(asked_for(&app, "TestLato", 400), "layer: {:?}", app.fonts.requested());
         set_style(&mut app, &[id], |s| s.font_weight = 700);
-        assert!(asked_for(&app, "Lato", 700), "layer weight: {:?}", app.fonts.requested());
+        assert!(asked_for(&app, "TestLato", 700), "layer weight: {:?}", app.fonts.requested());
     }
 
     fn wght_inter(weight: u16, axis: f32) -> TextStyle {
@@ -1005,7 +1005,7 @@ mod tests {
         begin_text_edit(&mut app, id);
         set_sel(&mut app, 5, 0, false);
         key(&mut app, egui::Key::B, false, true);
-        assert!(asked_for(&app, "Lato", 700), "{} faces requested", app.fonts.requested().len());
+        assert!(asked_for(&app, "TestLato", 700), "{} faces requested", app.fonts.requested().len());
     }
 
     #[test]
@@ -1079,6 +1079,8 @@ mod tests {
         app.fonts = serving(&[]); // a download attempt would fail
         set_sel(&mut app, 5, 0, false);
         key(&mut app, egui::Key::B, false, true);
+        assert_eq!(app.fonts.started(), 0, "Ctrl+B on a system family starts no load");
+        app.fonts.load_for(&app.doc); // a document load names the bold face too
         let done = settle(&mut app.fonts);
         assert_eq!((done.loaded, done.failed.is_empty()), (0, true), "{:?}", done.failed);
     }
@@ -1124,21 +1126,116 @@ mod tests {
     }
 
     #[test]
-    fn stepping_the_wght_field_asks_for_the_100_step_face_only() {
+    fn stepping_the_wght_field_costs_one_load_per_face() {
         use crate::panels::typography::set_style;
         let (mut app, id) = app_with_styled_text("hello", family_text("TestLatoSix"));
         finish_text(&mut app, true);
         // what the Variable tab writes for one wheel step
-        set_style(&mut app, &[id], |s| {
-            s.set_axis("wght", 401.0);
-            s.font_weight = 401;
-        });
-        assert!(app.fonts.requested().is_empty(), "{:?}", app.fonts.requested());
-        set_style(&mut app, &[id], |s| {
-            s.set_axis("wght", 520.0);
-            s.font_weight = 520;
-        });
-        assert!(asked_for(&app, "TestLatoSix", 500) && !asked_for(&app, "TestLatoSix", 520), "{:?}", app.fonts.requested());
+        let step = |app: &mut App, w: u16| {
+            set_style(app, &[id], |s| {
+                s.set_axis("wght", f32::from(w));
+                s.font_weight = w;
+            })
+        };
+        step(&mut app, 401);
+        assert!(asked_for(&app, "TestLatoSix", 500) && !asked_for(&app, "TestLatoSix", 401), "401 is drawn with the 500 face: {:?}", app.fonts.requested());
+        assert_eq!(app.fonts.started(), 1);
+        step(&mut app, 402);
+        step(&mut app, 450);
+        assert_eq!(app.fonts.started(), 1, "every weight up to 500 is the same face");
+        step(&mut app, 520);
+        assert!(asked_for(&app, "TestLatoSix", 600), "{:?}", app.fonts.requested());
+        assert_eq!(app.fonts.started(), 2);
+    }
+
+    /// Two texts: the first in `first`, the second in `other_family`.
+    fn app_with_two_texts(first: TextStyle, other_family: &str) -> (App, NodeId, NodeId) {
+        let (mut app, id) = app_with_styled_text("hello world", first);
+        let other = app.doc.alloc_id();
+        let page = app.page;
+        app.doc.insert(page, Node::text(other, Rect::new(0.0, 100.0, 10.0, 10.0), "brand", family_text(other_family))).unwrap();
+        (app, id, other)
+    }
+
+    #[test]
+    fn bold_on_bundled_inter_starts_no_load_while_another_face_has_failed() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandOne");
+        app.fonts = serving(&[]); // nothing is served: the brand family fails
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "reported once, as on open");
+        let started = app.fonts.started();
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        assert_eq!(app.fonts.started(), started, "Inter's bold face is bundled: nothing to fetch");
+        assert!(!app.fonts.is_loading());
+    }
+
+    #[test]
+    fn an_edit_that_adds_a_face_does_not_refetch_or_report_a_failed_face_of_another_text() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(family_text("TestLatoEit"), "TestBrandTwo");
+        app.fonts = serving(&["TestLatoEit"]);
+        app.fonts.load_for(&app.doc);
+        let open = settle(&mut app.fonts);
+        assert_eq!((open.loaded, open.failed.len()), (1, 1));
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        let done = settle(&mut app.fonts);
+        assert_eq!(done.loaded, 1, "the bold face of the text the user touched is fetched");
+        assert!(done.failed.is_empty(), "the other text's failure is not toasted again: {:?}", done.failed);
+    }
+
+    #[test]
+    fn toggling_bold_back_on_needs_no_second_load() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestLatoSev"));
+        app.fonts = serving(&["TestLatoSev"]);
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        settle(&mut app.fonts);
+        let started = app.fonts.started();
+        key(&mut app, egui::Key::B, false, true); // off
+        key(&mut app, egui::Key::B, false, true); // on again: the 700 face is registered
+        assert_eq!(app.fonts.started(), started);
+    }
+
+    #[test]
+    fn a_failed_face_is_reported_once_per_session_but_retried_when_the_document_reloads() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandThr");
+        app.fonts = serving(&[]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1);
+        let started = app.fonts.started();
+        app.fonts.load_for(&app.doc); // a tab switch, an open
+        assert_eq!(app.fonts.started(), started + 1, "the face is fetched again, in case the network is back");
+        assert!(settle(&mut app.fonts).failed.is_empty(), "but its failure is not toasted again");
+    }
+
+    #[test]
+    fn picking_the_family_again_retries_a_failed_face_and_reports_it_again() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, other) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandFor");
+        app.fonts = serving(&[]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1);
+        crate::panels::typography::pick_family(&mut app, &[other], "TestBrandFor");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "an explicit retry says so when it fails again");
+    }
+
+    #[test]
+    fn picking_the_family_again_reaches_a_failed_face_on_a_large_document() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, ids) = large_app(1);
+        if let Some(NodeKind::Text(t)) = app.doc.get_mut(ids[0]).map(|n| &mut n.kind) {
+            t.style.font_family = "TestBrandFiv".into();
+        }
+        app.fonts = serving(&[]);
+        crate::panels::typography::pick_family(&mut app, &ids, "TestBrandFiv");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "the retry names the face, the capped scan would not");
+        crate::panels::typography::pick_family(&mut app, &ids, "TestBrandFiv");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "and again on the next pick");
     }
 
     #[test]

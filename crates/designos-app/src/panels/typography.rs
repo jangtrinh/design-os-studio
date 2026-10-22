@@ -86,8 +86,16 @@ pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
 /// Sets the family of the edited text. Picking the family again retries a face whose fetch failed
 /// ("Font unavailable"), so the document's fonts are loaded even when nothing changed.
 pub(crate) fn pick_family(app: &mut App, sel: &[NodeId], family: &str) {
+    app.fonts.retry_family(family);
     set_style(app, sel, |s| s.font_family = family.to_string());
-    app.fonts.load_for(&app.doc);
+    // Name the faces the picked text uses, so the retry reaches them in a document too large to scan.
+    let faces: Vec<_> = sel
+        .iter()
+        .filter_map(|id| app.doc.get(*id)?.kind.any_text())
+        .flat_map(designos_fonts::text_faces)
+        .filter(|r| r.family.eq_ignore_ascii_case(family))
+        .collect();
+    app.fonts.load_for_with(&app.doc, faces);
 }
 
 /// Applies `f` to the base style only (paragraph level fields such as alignment).
