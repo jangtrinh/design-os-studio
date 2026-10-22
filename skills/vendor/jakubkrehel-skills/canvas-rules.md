@@ -90,7 +90,7 @@
 - **`better-layout/grouping-and-alignment#2`** (`rubric:layout`): Use a background shape, a card or filled container, where a group must read as one unit, such as a selectable row or a draggable card.
 - **`better-layout/grouping-and-alignment#3`** (`rubric:layout`): Use separator lines only for dense data where space costs too much, such as tables and long settings lists.
 - **`better-layout/grouping-and-alignment#4`** (`lint:off-scale`): Fix stray edges: an icon 2 px off the text edge, or a card padded unlike its neighbour; check with `designos_lint` off-scale.
-- **`better-layout/grouping-and-alignment#5`** (`lint:inconsistent-spacing`): Repeat the same spacing step in deeper nesting instead of inventing a new one; check with `designos_lint` inconsistent-spacing.
+- **`better-layout/grouping-and-alignment#5`** (`lint:off-scale`): Repeat the same spacing step in deeper nesting instead of inventing a new one; check with `designos_lint` off-scale.
 - **`better-layout/grouping-and-alignment#6`** (`rubric:typography`): Right-align numbers in tables (end) and left-align text (start); tabular figures belong to typography.
 - **`better-layout/spacing-and-adaptivity#1`** (`rubric:layout`): Let a row of cards peek past the container edge: a row that ends exactly at the edge looks complete and nobody scrolls it.
 - **`better-layout/spacing-and-adaptivity#2`** (`rubric:layout`): Give a collapsed section a chevron or a control that names what is hidden ("Show 12 more results", not "More").
@@ -102,7 +102,7 @@
 
 - **`better-typography/SKILL#1`** (`rubric:typography`): Balance the line lengths of headings and short descriptions so the lines even out; never on paragraphs.
 - **`better-typography/SKILL#2`** (`lint:text-unexpected-wrap`): Keep a lone word off the last line of a paragraph; check with `designos_lint` text-unexpected-wrap.
-- **`better-typography/SKILL#3`** (`lint:overflowing-children`): Where a long word, link or ID could escape its container, let the text break inside the frame instead of overflowing it; check with `designos_lint` overflowing-children.
+- **`better-typography/SKILL#3`** (`lint:overflow-parent`): Where a long word, link or ID could escape its container, let the text break inside the frame instead of overflowing it; check with `designos_lint` overflow-parent.
 - **`better-typography/SKILL#4`** (`lint:text-unexpected-wrap`): Keep labels and badges on one line where a line break looks broken; check with `designos_lint` text-unexpected-wrap.
 - **`better-typography/SKILL#5`** (`rubric:typography`): Size input text up on mobile frames (16 px) so the control stays legible and does not trigger zoom.
 - **`better-typography/variable-fonts-and-opentype#1`** (`rubric:typography`): A static font is one weight and style per file: regular, medium and bold are three files, so count them when choosing a family.

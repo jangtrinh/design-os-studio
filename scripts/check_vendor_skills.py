@@ -31,35 +31,37 @@ ATTRIBUTION_HEADER = (
     "Copyright (c) 2026 Jakub Krehel, MIT License (see LICENSE)."
 )
 
-# Canonical E15-9 / E15-10 / E15-11 + Check-Designs lint rule registry IDs
+# Canonical lint rule registry ids (`designos_doc::lint::all_rule_ids()`), the set `lint:` targets are checked against
+# when no built `designos-mcp` is available (CI runs this check before it builds). Aliases are not valid targets.
+# `crates/designos-mcp/tests/list_lint_rules.rs` fails when this set and the registry differ.
 CANONICAL_LINT_RULE_IDS: Set[str] = {
-    "overflow-parent",
-    "overflowing-children",
-    "clipped-partial",
+    "absolute-in-auto-layout",
+    "broken-style-binding",
     "clipped-full",
+    "clipped-partial",
+    "collapsed-size",
+    "contrast",
+    "deeply-nested",
+    "default-layer-name",
+    "detached-instance",
+    "detached-text-style",
+    "empty-container",
+    "hardcoded-color",
+    "hardcoded-value",
+    "misaligned-siblings",
+    "missing-auto-layout",
+    "non-4px-grid",
+    "off-scale",
+    "overflow-parent",
+    "placeholder-text",
     "sibling-overlap",
-    "overlapping-siblings",
+    "sizing-conflict",
+    "small-touch-target",
+    "text-missing-fill",
     "text-truncated",
     "text-unexpected-wrap",
-    "collapsed-size",
-    "zero-bounds",
-    "sizing-conflict",
-    "text-missing-fill",
-    "absolute-in-auto-layout",
-    "placeholder-text",
-    "contrast",
-    "low-contrast-text",
-    "off-scale",
-    "inconsistent-spacing",
-    "non-scale-font-size",
-    "inconsistent-radius",
-    "hardcoded-value",
-    "hardcoded-color",
-    "hardcoded-number",
-    "unstyled-text",
-    "detached-instance",
-    "missing-auto-layout",
-    "tap-target-size",
+    "tiny-text",
+    "unbalanced-padding",
 }
 
 # Canonical E15-31 / E15-34 critique rubric axes
@@ -137,7 +139,7 @@ def load_vendor_register(repo_root: Path) -> Tuple[Dict[str, dict], Optional[str
 
 
 def load_lint_rule_ids(repo_root: Path) -> Set[str]:
-    """Lint rule IDs: the output of a built `designos-mcp --list-lint-rules` when there is one, else the canonical set."""
+    """Lint rule IDs: the output of a built `designos-mcp --list-lint-rules` when there is one, else the registry ids pinned in `CANONICAL_LINT_RULE_IDS`."""
     ids = set(CANONICAL_LINT_RULE_IDS)
     target_dir = Path(os.environ.get("CARGO_TARGET_DIR", str(repo_root / "target")))
     for profile in ("debug", "release"):
