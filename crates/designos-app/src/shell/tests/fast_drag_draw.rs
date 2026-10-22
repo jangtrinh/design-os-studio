@@ -218,6 +218,119 @@ fn a_middle_press_in_the_frame_of_the_last_move_draws_to_that_move_and_ends_the_
     assert!(!s.app().hist.can_undo());
 }
 
+// ---------------------------------------------------------------- order of events inside a frame
+
+fn new_nodes(s: &Sim, known: &std::collections::HashSet<NodeId>) -> Vec<NodeId> {
+    let mut ids: Vec<NodeId> = s.app().doc.nodes.keys().copied().filter(|id| !known.contains(id)).collect();
+    ids.sort_by_key(|id| id.0);
+    ids
+}
+
+fn all_nodes(s: &Sim) -> std::collections::HashSet<NodeId> {
+    s.app().doc.nodes.keys().copied().collect()
+}
+
+#[test]
+fn press_release_press_in_one_frame_leaves_the_second_draw_open() {
+    let mut s = sim_with(Tool::Rectangle);
+    let before = s.count();
+    let (a, b) = ends(&s);
+    s.mv(a);
+    // the release happened BEFORE the last press: it ends nothing that is open now
+    s.one_frame().press().release().press().send();
+    assert!(matches!(s.app().canvas.inter, Interaction::Draw(_)), "the draw of the last press is open");
+    assert!(!s.app().hist.can_undo(), "no shape is committed yet");
+    assert!(s.ctx.input(|i| i.pointer.primary_down()), "the button is still down");
+
+    // the real release comes after a drag
+    s.mv(b);
+    s.one_frame().release().send();
+    s.frame(vec![]);
+    assert_dragged_shape(&s, Tool::Rectangle, before);
+    s.cmd_key(Key::Z);
+    assert_eq!(s.count(), before, "undo removes the shape");
+}
+
+#[test]
+fn release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released() {
+    let mut s = sim_with(Tool::Rectangle);
+    s.shell.app.keep_tool = true; // the tool stays armed, so the new press draws as well
+    let known = all_nodes(&s);
+    let (a, b) = ends(&s);
+    let elsewhere = s.screen(700.0, 950.0);
+    s.mv(a);
+    s.button(true);
+    s.mv(a + (b - a) * 0.5);
+    // the open draw is released at `b`, then a new press happens at `elsewhere`, all in one frame
+    s.one_frame().move_to(b).release().move_to(elsewhere).press().send();
+    assert!(matches!(s.app().canvas.inter, Interaction::Draw(_)), "the draw of the new press is open");
+    assert!(s.ctx.input(|i| i.pointer.primary_down()), "the button is down again");
+    s.one_frame().release().send();
+    s.frame(vec![]);
+
+    let ids = new_nodes(&s, &known);
+    assert_eq!(ids.len(), 2, "two shapes: the dragged one and the click");
+    let first = s.app().doc.get(ids[0]).unwrap();
+    near(first.size.x, DRAGGED.0, "first width");
+    near(first.size.y, DRAGGED.1, "first height");
+    let second = s.app().doc.get(ids[1]).unwrap();
+    near(second.size.x, DEFAULT, "second width");
+    near(second.size.y, DEFAULT, "second height");
+}
+
+// ---------------------------------------------------------------- drag versus click uses the raw pointer
+
+/// A rectangle whose top-left corner is the snap point the tests aim at, in page space.
+const GUIDE: (f32, f32) = (500.0, 800.0);
+
+fn sim_with_guide(tool: Tool) -> Sim {
+    let mut s = sim_with(tool);
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let node = designos_doc::Node::rectangle(id, designos_doc::Rect::new(GUIDE.0, GUIDE.1, 60.0, 60.0));
+    let mut tx = crate::edit::Tx::new();
+    let _ = tx.cmd(&mut s.shell.app.doc, designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![node] });
+    s.shell.app.run_tx(tx);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s
+}
+
+#[test]
+fn an_eight_pixel_drag_across_a_snap_guide_is_a_drag_not_a_click() {
+    for tool in [Tool::Rectangle, Tool::Ellipse, Tool::Frame] {
+        // in one frame
+        let mut s = sim_with_guide(tool);
+        let before = s.count();
+        let c = s.screen(GUIDE.0, GUIDE.1);
+        s.one_frame().move_to(c + Vec2::new(-4.0, -4.0)).press().move_to(c + Vec2::new(4.0, 4.0)).release().send();
+        s.frame(vec![]);
+        assert_eq!(s.count(), before + 1, "{tool:?}: one new shape");
+        let (_, size, _) = drawn(&s);
+        assert!(size.x < DEFAULT / 2.0 && size.y < DEFAULT / 2.0, "{tool:?} in one frame: a drag across the guide, not the default: {size:?}");
+
+        // one event per frame
+        let mut s = sim_with_guide(tool);
+        let before = s.count();
+        let c = s.screen(GUIDE.0, GUIDE.1);
+        s.drag(c + Vec2::new(-4.0, -4.0), c + Vec2::new(4.0, 4.0));
+        assert_eq!(s.count(), before + 1, "{tool:?}: one new shape");
+        let (_, size, _) = drawn(&s);
+        assert!(size.x < DEFAULT / 2.0 && size.y < DEFAULT / 2.0, "{tool:?} over several frames: a drag across the guide, not the default: {size:?}");
+    }
+}
+
+#[test]
+fn a_jitter_next_to_a_snap_guide_is_still_a_click() {
+    let mut s = sim_with_guide(Tool::Rectangle);
+    let before = s.count();
+    let c = s.screen(GUIDE.0, GUIDE.1);
+    let p = c + Vec2::new(-3.0, -3.0);
+    s.one_frame().move_to(p).press().move_to(p + Vec2::new(1.0, 1.0)).release().send();
+    s.frame(vec![]);
+    assert_default_click(&s, Tool::Rectangle, before, GUIDE);
+}
+
 // ---------------------------------------------------------------- the one-frame helper itself
 
 #[test]

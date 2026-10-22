@@ -23,16 +23,22 @@ pub fn dv(p: Pos2) -> DV {
     DV::new(p.x, p.y)
 }
 
+#[derive(Clone)]
 struct Inp {
     /// Where the pointer is at the end of the frame (egui reports only the last position of the frame).
     pos: Option<Pos2>,
     /// Where the button that went down this frame went down. It differs from `pos` when the pointer moved on within
     /// the same frame, which happens on a slow frame or a quick flick.
     press_pos: Option<Pos2>,
-    /// Where the primary button went up this frame, when it did.
+    /// Where the primary button went up this frame, when that release came after the last press of the frame.
     release_pos: Option<Pos2>,
+    /// Where the primary button went up before the last press of the frame: the end of the gesture that was open
+    /// when the frame began.
+    prior_release_pos: Option<Pos2>,
     pressed: bool,
     down: bool,
+    /// The primary button went up after the last press of this frame, so the gesture that press started is over.
+    /// A release that came before that press belongs to the previous gesture (see `prior_release_pos`).
     released: bool,
     mid_pressed: bool,
     mid_down: bool,
@@ -45,11 +51,15 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
     ui.input(|i| {
         // The pointer state keeps only the last position of the frame; the button events know where each press and
         // release happened, even when the press, the moves and the release arrive in one frame.
-        let (mut press, mut mid_press, mut release) = (None, None, None);
+        // Events are walked in arrival order: a release only ends the gesture of the press that came before it.
+        let (mut press, mut mid_press, mut release, mut prior_release) = (None, None, None, None);
         for ev in &i.events {
             if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
                 match (button, pressed) {
-                    (egui::PointerButton::Primary, true) => press = Some(*pos),
+                    (egui::PointerButton::Primary, true) => {
+                        press = Some(*pos);
+                        prior_release = release.take().or(prior_release);
+                    }
                     (egui::PointerButton::Primary, false) => release = Some(*pos),
                     (egui::PointerButton::Middle, true) => mid_press = Some(*pos),
                     _ => {}
@@ -61,9 +71,10 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
             pos: i.pointer.latest_pos(),
             press_pos: if pressed { press } else { mid_press },
             release_pos: release,
+            prior_release_pos: prior_release,
             pressed,
             down: i.pointer.primary_down(),
-            released: i.pointer.primary_released(),
+            released: i.pointer.primary_released() && (release.is_some() || press.is_none()),
             mid_pressed: i.pointer.button_pressed(egui::PointerButton::Middle),
             mid_down: i.pointer.middle_down(),
             mods: i.modifiers,
@@ -337,7 +348,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         // after a lost release). Without this the press starts another gesture over the draw's state, and the
         // half-drawn shape stays in the document outside undo.
         if matches!(app.canvas.inter, Interaction::Draw(_)) {
-            on_release(app, rect, &inp);
+            on_release(app, rect, &Inp { release_pos: inp.prior_release_pos, ..inp.clone() });
         }
         on_press(app, &ctx, rect, &inp);
     }
@@ -970,17 +981,19 @@ fn start_draw(app: &mut App, tool: Tool, page: DV) {
     }
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.selection = vec![id];
-    app.canvas.inter = Interaction::Draw(DrawState { tx, tool, id, parent, start, last_page: start, targets, dragged: false });
+    app.canvas.inter = Interaction::Draw(DrawState { tx, tool, id, parent, start, press: page, last_page: start, targets, dragged: false });
     app.changed();
 }
 
 /// Reshapes the shape being drawn so its far corner is at `cur` (page space), and records whether the pointer has
-/// moved far enough from the press for this to be a drag rather than a click.
+/// moved far enough from the press for this to be a drag rather than a click. That distance is the raw pointer
+/// distance on screen; snapping only moves the corners of the shape.
 fn update_draw(app: &mut App, d: &mut DrawState, cur: DV, inp: &Inp) {
     let zoom = app.view.zoom;
     if inp.space {
         let delta = sub(cur, d.last_page);
         d.start = add(d.start, delta);
+        d.press = add(d.press, delta);
     }
     d.last_page = cur;
     let (mut c, snapped) = if inp.mods.command { (cur, snap::SnapResult::default()) } else { snap_point(cur, &d.targets, zoom) };
@@ -997,7 +1010,7 @@ fn update_draw(app: &mut App, d: &mut DrawState, cur: DV, inp: &Inp) {
     }
     app.canvas.guides = snapped.guides;
     app.canvas.measures.clear();
-    if dist(d.start, c) * zoom > theme::DRAG_THRESHOLD_PX {
+    if dist(d.press, cur) * zoom > theme::DRAG_THRESHOLD_PX {
         d.dragged = true;
     }
     let g = create::draw_geom(d.tool, d.start, c, inp.mods.shift || crate::board::create::keeps_square(d.tool), inp.mods.alt);
@@ -2348,6 +2361,7 @@ mod tests {
             pos: None,
             press_pos: None,
             release_pos: None,
+            prior_release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2378,6 +2392,7 @@ mod tests {
             pos: None,
             press_pos: None,
             release_pos: None,
+            prior_release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2412,6 +2427,7 @@ mod tests {
             pos: None,
             press_pos: None,
             release_pos: None,
+            prior_release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2566,6 +2582,7 @@ mod tests {
             pos: Some(Pos2::new(50.0, 50.0)),
             press_pos: None,
             release_pos: None,
+            prior_release_pos: None,
             pressed: false,
             down: false,
             released: false,
@@ -2741,6 +2758,7 @@ mod tests {
             pos: None,
             press_pos: None,
             release_pos: None,
+            prior_release_pos: None,
             pressed: false,
             down: true,
             released: false,

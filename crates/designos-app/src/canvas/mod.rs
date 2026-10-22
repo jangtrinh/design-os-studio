@@ -79,7 +79,10 @@ pub struct DrawState {
     pub tool: tools::Tool,
     pub id: NodeId,
     pub parent: NodeId,
+    /// Where the shape starts: the press, snapped.
     pub start: DV,
+    /// Where the pointer went down, unsnapped. Space moves it along with `start`.
+    pub press: DV,
     pub last_page: DV,
     pub targets: Vec<Rect>,
     pub dragged: bool,
