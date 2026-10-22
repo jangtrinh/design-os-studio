@@ -103,8 +103,8 @@ fn dont_save_closes_the_tab_and_drops_the_edits() {
 }
 
 #[test]
-fn cancel_escape_enter_and_a_click_outside_leave_everything_as_it_was() {
-    for how in ["button", "escape", "enter", "outside"] {
+fn cancel_escape_and_a_click_outside_leave_everything_as_it_was() {
+    for how in ["button", "escape", "outside"] {
         let (mut s, _d, path) = external_sim_with(&two_rects());
         make_two_tabs(&mut s);
         let (edited, on_disk) = (s.app().doc.nodes.len(), nodes_on_disk(&path));
@@ -114,7 +114,6 @@ fn cancel_escape_enter_and_a_click_outside_leave_everything_as_it_was() {
         match how {
             "button" => click(&mut s, "dialog-cancel"),
             "escape" => s.key(Key::Escape),
-            "enter" => s.key(Key::Enter),
             _ => s.click(Pos2::new(5.0, 5.0)),
         }
         wait(&mut s, SETTLED);
@@ -125,6 +124,30 @@ fn cancel_escape_enter_and_a_click_outside_leave_everything_as_it_was() {
         assert!(dot(&s), "still unsaved ({how})");
         assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written ({how})");
     }
+}
+
+#[test]
+fn enter_means_save_and_the_action_goes_on() {
+    // closing a tab
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    make_two_tabs(&mut s);
+    let edited = s.app().doc.nodes.len();
+    close_tab_by_click(&mut s, 0);
+    assert!(asks_about(&s, "Outside"));
+    s.key(Key::Enter);
+    wait(&mut s, SETTLED);
+    assert_eq!(nodes_on_disk(&path), edited, "Enter saved");
+    assert_eq!(s.app().tabs.entries.len(), 1, "and the tab closed");
+    // quitting
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    make_two_tabs(&mut s);
+    let edited = s.app().doc.nodes.len();
+    s.close_frame();
+    assert!(asks_about(&s, "Outside"));
+    s.sent_commands.clear();
+    s.key(Key::Enter);
+    assert_eq!(nodes_on_disk(&path), edited, "Enter saved");
+    assert!(s.sent_commands.contains(&egui::ViewportCommand::Close), "and the quit went on");
 }
 
 #[test]
@@ -488,4 +511,108 @@ fn a_new_file_or_a_library_file_opened_over_unsaved_edits_asks_first() {
         assert!(s.app().lib_file.is_some(), "{what}: a library file is on screen");
         assert!(s.app().dialog.is_none());
     }
+}
+
+/// Where a layer is: the translation of its transform.
+fn position_of(s: &Sim, id: designos_doc::NodeId) -> (f32, f32) {
+    let t = s.app().doc.get(id).unwrap().transform;
+    (t.tx, t.ty)
+}
+
+#[test]
+fn a_drag_in_progress_is_ended_where_it_is_as_one_undo_step_before_the_question_and_save_writes_it() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    let mut second = two_rects();
+    second.name = "Second".into();
+    s.shell.app.open_new_tab("Second", second, crate::tabs::ProjectTabKind::Design);
+    wait(&mut s, SETTLED);
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(0, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s));
+    let first = s.app().doc.get(s.app().page).unwrap().children[0];
+    let before = position_of(&s, first);
+    let depth = s.app().hist.undo_depth();
+    // a drag that has started: the pointer is down on the layer and has moved
+    let from = s.screen(25.0, 25.0);
+    s.mv(from);
+    s.button(true);
+    s.mv(s.screen(60.0, 60.0));
+    s.mv(s.screen(90.0, 90.0));
+    assert!(crate::live_patch_apply::user_edit_in_progress(s.app()), "a drag is under way");
+    let dragged = position_of(&s, first);
+    assert_ne!(dragged, before, "the layer follows the pointer");
+    assert_eq!(s.app().hist.undo_depth(), depth, "and nothing is in the history yet");
+    // Ctrl+W while the pointer is still down
+    s.cmd_key(Key::W);
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert!(!crate::live_patch_apply::user_edit_in_progress(s.app()), "the drag was ended before the question");
+    assert_eq!(position_of(&s, first), dragged, "where it was");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "as one undo step");
+    // one undo brings back the position before the drag, one redo the dragged one
+    s.shell.app.undo();
+    assert_eq!(position_of(&s, first), before, "one undo restores the pre-drag position");
+    s.shell.app.redo();
+    assert_eq!(position_of(&s, first), dragged);
+    // Save writes a settled document: the file holds the dragged position
+    s.shell.app.dialog = None;
+    s.shell.app.answer_save_changes_with(None, Answer::Save, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    wait(&mut s, SETTLED);
+    let saved = Document::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let t = saved.get(first).unwrap().transform;
+    assert_eq!((t.tx, t.ty), dragged, "the file holds the dragged position");
+    assert_eq!(s.app().tabs.entries.len(), 1, "and the tab closed");
+}
+
+#[test]
+fn a_property_scrub_in_progress_is_ended_as_one_undo_step_before_the_question() {
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    let mut second = two_rects();
+    second.name = "Second".into();
+    s.shell.app.open_new_tab("Second", second, crate::tabs::ProjectTabKind::Design);
+    wait(&mut s, SETTLED);
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(0, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    wait(&mut s, SETTLED);
+    let first = s.app().doc.get(s.app().page).unwrap().children[0];
+    let depth = s.app().hist.undo_depth();
+    // the state a numeric field's scrub leaves: a snapshot of the document, and the layer already changed
+    s.shell.app.scrub = Some(s.app().doc.nodes.clone());
+    let mut n = s.app().doc.get(first).unwrap().clone();
+    n.opacity = 0.25;
+    s.shell.app.doc.nodes.insert(first, n);
+    s.shell.app.changed();
+    let tab = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(tab));
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert!(s.app().scrub.is_none(), "the scrub was ended");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "as one undo step");
+    assert_eq!(s.app().doc.get(first).unwrap().opacity, 0.25, "where it was");
+    s.shell.app.undo();
+    assert_eq!(s.app().doc.get(first).unwrap().opacity, 1.0, "one undo restores the value before the scrub");
+}
+
+#[test]
+fn a_press_that_has_not_become_a_drag_is_not_made_into_an_edit_by_the_question() {
+    // the rectangle tool, the pointer down on an empty spot and not moved: ending that as a release would draw a default shape
+    let (mut s, _d, _path) = external_sim_with(&two_rects());
+    let mut second = two_rects();
+    second.name = "Second".into();
+    s.shell.app.open_new_tab("Second", second, crate::tabs::ProjectTabKind::Design);
+    wait(&mut s, SETTLED);
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(0, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    wait(&mut s, SETTLED);
+    s.shell.app.set_tool(Tool::Rectangle);
+    let spot = s.app().canvas_rect.min + egui::vec2(100.0, 420.0);
+    s.mv(spot);
+    s.button(true);
+    assert!(crate::live_patch_apply::user_edit_in_progress(s.app()), "a draw has started");
+    let tab = tab_id(&s, 0);
+    s.shell.app.request_leave(None, Leave::CloseTab(tab));
+    assert!(s.app().dialog.is_none(), "the document had nothing unsaved: {:?}", dialog_title(&s));
+    assert_eq!(s.app().tabs.entries.len(), 1, "so the tab closed");
 }

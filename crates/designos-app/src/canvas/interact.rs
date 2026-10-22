@@ -2068,6 +2068,39 @@ fn pen_press(app: &mut App, rect: ERect, pos: Pos2, page: DV, mods: Modifiers) {
     app.canvas.inter = Interaction::PenDrag;
 }
 
+/// Ends the gesture that is open (a move, a resize, a rotate, a draw, a stroke, a vector drag) where it last drew, as
+/// the one undo step the release would have made. For a place that must leave the document settled while the pointer
+/// may still be down: the document is already in the state the gesture drew, so nothing moves.
+pub fn commit_open_gesture(app: &mut App) {
+    match &app.canvas.inter {
+        Interaction::None => return,
+        // A press with a drawing tool that has not become a drag draws nothing yet: a release would make a default shape.
+        Interaction::Draw(d) if !d.dragged => {
+            app.cancel_interaction();
+            return;
+        }
+        _ => {}
+    }
+    let inp = Inp {
+        pos: None,
+        press_pos: None,
+        release_pos: None,
+        prior_release_pos: None,
+        release_mods: None,
+        prior_release_mods: None,
+        pressed: false,
+        down: false,
+        released: true,
+        mid_pressed: false,
+        mid_down: false,
+        mods: Modifiers::NONE,
+        space: false,
+        z_down: false,
+    };
+    on_release(app, app.canvas_rect, &inp, None);
+    app.changed();
+}
+
 pub fn finish_pen(app: &mut App) {
     let Some(pen) = app.canvas.pen.take() else { return };
     if matches!(app.canvas.inter, Interaction::PenDrag) {

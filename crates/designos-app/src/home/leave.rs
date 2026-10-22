@@ -4,8 +4,9 @@
 //! quitting, closing the other tabs and opening a file over it each end that: they ask "Save changes to
 //! <name>?" first, once per document, in tab order. A library file autosaves and never asks, and a document
 //! with no unsaved edits is not asked about. What counts as unsaved is [`crate::tabs::tab_is_unsaved`], the
-//! same state the dot shows, plus an edit still under way (a drag or a scrub), which no history holds yet;
-//! an open text session is committed first so that its text is in the history.
+//! same state the dot shows. What is under way (an open text session, a drag, a scrub) is ended where it is first,
+//! as one undo step ([`App::commit_open_edits`]), so it is in the history and Save writes a settled document; an
+//! edit that cannot be ended that way (a colour picker, a brush) still counts as unsaved.
 //!
 //! The actions themselves (`App::close_tab` and the like) stay unconditional; the places a user can reach
 //! them from go through [`App::request_leave`].
@@ -118,8 +119,9 @@ impl App {
 
     /// Starts the questions for `action`. False when there is nothing to ask about.
     fn begin_leave(&mut self, ctx: Option<&egui::Context>, action: Leave) -> bool {
-        // Typed text is not in the history until its session ends: commit it, so that it counts, and is saved.
-        self.commit_open_text_session();
+        // Typed text, a drag and a scrub are not in the history until they end: end them where they are, so that they
+        // count, and so that Save writes a settled document.
+        self.commit_open_edits();
         let queue: VecDeque<u64> = self.tabs_to_ask_about(&action).into();
         if queue.is_empty() {
             return false;

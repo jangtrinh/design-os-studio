@@ -99,12 +99,12 @@ impl Dialog {
         Self { lines: body.iter().map(|l| (l.to_string(), String::new())).collect(), ..Self::base(intent, title, ok) }
     }
 
-    /// A document outside the library has edits no save has written, and an action would drop them. Enter, Esc and a
-    /// click outside answer Cancel; only a click on Don't save drops the edits.
+    /// A document outside the library has edits no save has written, and an action would drop them. Enter means Save
+    /// (the default button: saving loses nothing); Esc and a click outside mean Cancel; only a click on Don't save
+    /// drops the edits.
     pub fn save_changes(name: &str) -> Self {
         let name = if name.chars().count() > 28 { format!("{}\u{2026}", name.chars().take(27).collect::<String>()) } else { name.to_string() };
         Self {
-            safe_label: Some("Cancel".into()),
             alt_label: Some("Don't save".into()),
             ..Self::confirm(Intent::SaveChanges, &format!("Save changes to {name}?"), &["Your changes are lost if you don't save."], "Save")
         }
