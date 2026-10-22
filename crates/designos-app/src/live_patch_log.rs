@@ -75,6 +75,15 @@ pub struct LivePatchLog {
     /// dropped meanwhile are reported at once, unless a switch that loads follows in the same
     /// batch (see `ingest`).
     load_failed: bool,
+    /// An edit written by a newer build was read in this document epoch. It may have changed layers
+    /// the edits after it build on, so none of them applies until the next document switch. Set once
+    /// per epoch, which is also what limits the toast to one.
+    fenced: bool,
+    /// Readable edits dropped behind the fence. Reset with it.
+    pub fenced_dropped: usize,
+    /// The message for the fence, until the apply step has run. Edits before the newer one still apply
+    /// and their own toast would replace the one `ingest` returned, so the apply step shows this after them.
+    pub fence_notice: Option<String>,
 }
 
 /// The read position of a [`LivePatchLog`] at one moment (`#690` §6): enough to tell, later and from
@@ -168,6 +177,9 @@ impl LivePatchLog {
             dropped_old_epoch: 0,
             discarding: false,
             load_failed: false,
+            fenced: false,
+            fenced_dropped: 0,
+            fence_notice: None,
             path,
         };
         log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
@@ -237,6 +249,9 @@ impl LivePatchLog {
             self.dropped_old_epoch = 0;
             self.discarding = false;
             self.load_failed = false;
+            self.fenced = false;
+            self.fenced_dropped = 0;
+            self.fence_notice = None;
         }
         self.identity = Some(id);
         if rewritten || self.head.len() < HEAD_BYTES {
@@ -254,7 +269,6 @@ impl LivePatchLog {
 
     fn split_lines(&mut self, base_offset: u64, buf: &[u8]) -> (usize, Vec<(u64, LiveLogLine)>, Vec<String>) {
         let (mut patches, mut errors) = (Vec::new(), Vec::new());
-        let mut newer: Vec<u32> = Vec::new();
         let mut pos = 0;
         if self.skipping {
             let Some(nl) = buf.iter().position(|b| *b == b'\n') else { return (buf.len(), patches, errors) };
@@ -269,15 +283,11 @@ impl LivePatchLog {
                 errors.push(self.too_large(line.len()));
             } else if !line.iter().all(u8::is_ascii_whitespace) {
                 match LiveLogLine::parse(line) {
-                    // Reported once for the batch below; never held, so a newer edit cannot be half-applied.
-                    Ok(LiveLogLine::Newer { v }) => newer.push(v),
+                    // A newer edit stays in the stream: `ingest` fences what follows it, so the order matters.
                     Ok(p) => patches.push((line_start, p)),
                     Err(e) => errors.push(format!("Unreadable agent edit in {}: {e}", display_name(&self.path))),
                 }
             }
-        }
-        if !newer.is_empty() {
-            errors.push(newer_edits_error(&newer));
         }
         // A line still being written has no newline yet and waits for the next poll, unless it
         // is already over the limit.
@@ -310,12 +320,25 @@ impl LivePatchLog {
                         self.dropped_old_epoch += 1;
                     }
                 }
+                LiveLogLine::Patch(_) if self.fenced => self.fenced_dropped += 1,
                 LiveLogLine::Patch(patch) => {
                     self.pending.push(patch);
                     self.pending_offsets.push(line_offset);
                 }
-                LiveLogLine::Newer { v } => errors.push(newer_edits_error(&[v])),
+                // Edits before it stay held. Everything after it waits for a document switch, and the
+                // user is told once.
+                LiveLogLine::Newer { v } => {
+                    if !self.fenced {
+                        self.fenced = true;
+                        let notice = newer_edit_error(v);
+                        self.fence_notice = Some(notice.clone());
+                        errors.push(notice);
+                    }
+                }
                 LiveLogLine::DocEpoch(epoch) => {
+                    self.fenced = false;
+                    self.fenced_dropped = 0;
+                    self.fence_notice = None;
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
                     self.pending_offsets.clear();
@@ -379,15 +402,10 @@ impl LivePatchLog {
     }
 }
 
-/// What the user is told when edits written by a newer build are read: what was not applied, then the fix.
-/// `versions` holds the format version of each refused edit.
-fn newer_edits_error(versions: &[u32]) -> String {
-    let newest = versions.iter().copied().max().unwrap_or(LIVE_PATCH_VERSION + 1);
-    let lead = match versions.len() {
-        1 => "Agent edit not applied.".to_string(),
-        n => format!("{n} agent edits not applied."),
-    };
-    format!("{lead} {}", refusal_next_step(newest))
+/// What the user is told, once per document epoch, when an edit written by a newer build is read: what was
+/// not applied, then the fix. `v` is the format version of that edit.
+fn newer_edit_error(v: u32) -> String {
+    format!("Agent edit not applied. {}", refusal_next_step(v))
 }
 
 /// The second sentence of a refusal toast: the fix for a newer log, the plain fact for a version nothing writes.
@@ -448,28 +466,100 @@ mod tests {
         std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap().write_all(text.as_bytes()).unwrap();
     }
 
-    #[test]
-    fn newer_edits_are_refused_with_one_update_message_and_the_lines_around_them_still_read() {
-        let path = temp_log("newer");
-        let mut log = LivePatchLog::bind(path.clone());
-        append(&path, &(line(1) + &newer_line() + &newer_line() + &line(2)));
-        let (lines, errors) = log.poll();
-        assert_eq!(ids(&lines), [1, 2], "the edits this build can read are still read");
-        assert_eq!(errors.len(), 1, "one message for the whole batch: {errors:?}");
-        assert_eq!(errors[0], format!("2 agent edits not applied. {UPDATE_BOTH_HINT}"));
-        assert!(errors[0].split_whitespace().count() <= 14, "a toast, not a paragraph: {}", errors[0]);
-        assert!(!errors[0].contains('('), "no parenthetical in the toast: {}", errors[0]);
+    fn pending_ids(log: &LivePatchLog) -> Vec<u64> {
+        log.pending.iter().flat_map(|p| &p.ops).map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 }).collect()
+    }
+
+    /// Reads what the agent appended and hands it to `ingest`, as the editor does each frame.
+    fn read(log: &mut LivePatchLog) -> Vec<String> {
+        let (lines, poll_errors) = log.poll();
+        let mut errors = poll_errors;
+        errors.extend(log.ingest(lines));
+        errors
+    }
+
+    fn newer_message() -> String {
+        format!("Agent edit not applied. {UPDATE_BOTH_HINT}")
     }
 
     #[test]
-    fn one_newer_edit_is_reported_in_the_singular() {
-        let path = temp_log("newer-one");
+    fn an_edit_before_a_newer_one_applies_and_every_edit_after_it_waits_for_the_next_switch() {
+        let path = temp_log("fence");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &(line(1) + &newer_line() + &line(2) + &newer_line() + &line(3)));
+        let errors = read(&mut log);
+        assert_eq!(errors, [newer_message()], "one message for the epoch");
+        assert!(errors[0].split_whitespace().count() <= 14, "a toast, not a paragraph: {}", errors[0]);
+        assert!(!errors[0].contains('('), "no parenthetical in the toast: {}", errors[0]);
+        assert_eq!(pending_ids(&log), [1], "the edit before the newer one is applied, nothing after it is");
+        assert_eq!(log.fenced_dropped, 2, "the readable edits behind the fence are counted, not lost silently");
+        assert_eq!(log.fence_notice, Some(newer_message()), "kept for the apply step, which shows it after the edits that did apply");
+    }
+
+    #[test]
+    fn an_edit_to_a_layer_a_newer_edit_may_have_removed_is_not_held() {
+        // A newer build's line removes layer 7 (this build cannot tell); the next line, in a format this
+        // build reads, renames layer 7. Applying it would act on a layer in an unknown state.
+        let path = temp_log("fence-update");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut set = serde_json::Map::new();
+        set.insert("name".into(), "Renamed".into());
+        let rename = serde_json::to_string(&LivePatch::new(vec![LiveOp::Update { id: NodeId(7), set, unset: Vec::new() }])).unwrap() + "\n";
+        append(&path, &(newer_line() + &rename));
+        assert_eq!(read(&mut log), [newer_message()]);
+        assert!(log.pending.is_empty(), "the later edit is not held: {:?}", log.pending);
+        assert_eq!(log.fenced_dropped, 1);
+    }
+
+    #[test]
+    fn the_message_shows_once_per_epoch_even_when_the_newer_edits_arrive_in_different_polls() {
+        let path = temp_log("fence-polls");
         let mut log = LivePatchLog::bind(path.clone());
         append(&path, &newer_line());
-        let (lines, errors) = log.poll();
-        assert!(lines.is_empty());
-        assert_eq!(errors.len(), 1, "{errors:?}");
-        assert_eq!(errors[0], format!("Agent edit not applied. {UPDATE_BOTH_HINT}"));
+        assert_eq!(read(&mut log), [newer_message()]);
+        append(&path, &newer_line());
+        assert!(read(&mut log).is_empty(), "the second poll says nothing more");
+        append(&path, &line(5));
+        assert!(read(&mut log).is_empty());
+        assert!(log.pending.is_empty());
+        assert_eq!(log.fenced_dropped, 1);
+    }
+
+    #[test]
+    fn a_document_switch_lifts_the_fence_and_the_next_newer_edit_is_reported_again() {
+        let path = temp_log("fence-switch");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Switched");
+        doc.add_page("Page");
+        let (mark, bytes) = switch_line(&doc, 1);
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes).unwrap();
+        append(&path, &(newer_line() + &line(4)));
+        assert_eq!(read(&mut log), [newer_message()]);
+        assert_eq!(log.fenced_dropped, 1);
+        // The agent opens another document: its edits apply again, and the count starts over.
+        append(&path, &(mark + &line(7)));
+        assert!(read(&mut log).is_empty(), "no message for edits that apply");
+        assert_eq!(pending_ids(&log), [7]);
+        assert_eq!(log.fenced_dropped, 0);
+        assert_eq!(log.fence_notice, None, "a stale notice must not outlive the epoch it belongs to");
+        assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Switched"));
+        // A newer edit on the new document is a new report.
+        append(&path, &(newer_line() + &line(8)));
+        assert_eq!(read(&mut log), [newer_message()]);
+        assert_eq!(pending_ids(&log), [7]);
+    }
+
+    #[test]
+    fn a_recreated_log_is_a_new_epoch_for_the_message() {
+        let path = temp_log("fence-recreate");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &(newer_line() + &line(1)));
+        assert_eq!(read(&mut log), [newer_message()]);
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &(line(2) + &newer_line() + &line(3)));
+        assert_eq!(read(&mut log), [newer_message()], "the new session's newer edit is reported");
+        assert_eq!(pending_ids(&log), [2], "and its earlier edit applies");
+        assert_eq!(log.fenced_dropped, 1);
     }
 
     #[test]
