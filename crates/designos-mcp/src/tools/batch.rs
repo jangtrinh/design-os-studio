@@ -3295,7 +3295,7 @@ mod tests {
 
     #[test]
     fn batch_flag_and_clear_on_run_end() {
-        designos_doc::set_mock_now_ms(Some(2_000_000));
+        designos_doc::set_thread_mock_now_ms(Some(2_000_000));
         let mut engine = Engine::default();
         let page = engine.resolve_default_page().unwrap();
         let res = engine
@@ -3380,12 +3380,12 @@ mod tests {
         let cleared = engine.doc.clear_in_progress_for_run_or_agent(Some("run_test_1"), Some("Claude Code"));
         assert_eq!(cleared, vec![hero_id]);
         assert!(engine.doc.get_in_progress(hero_id).is_none());
-        designos_doc::set_mock_now_ms(None);
+        designos_doc::set_thread_mock_now_ms(None);
     }
 
     #[test]
     fn undo_does_not_touch_flag() {
-        designos_doc::set_mock_now_ms(Some(2_100_000));
+        designos_doc::set_thread_mock_now_ms(Some(2_100_000));
         let mut engine = Engine::default();
         let page = engine.resolve_default_page().unwrap();
         let created =
@@ -3405,7 +3405,7 @@ mod tests {
         assert_eq!(undo_res["changed"], true);
         assert_eq!(engine.doc.get(NodeId(frame_id)).unwrap().name, "Card");
         assert!(engine.doc.get_in_progress(NodeId(frame_id)).is_some(), "undo must not clear in_progress flag");
-        designos_doc::set_mock_now_ms(None);
+        designos_doc::set_thread_mock_now_ms(None);
     }
 
     #[test]
@@ -3470,7 +3470,7 @@ mod tests {
 
     #[test]
     fn mcp_set_in_progress_goes_stale_after_15_minutes_without_env_run_id() {
-        designos_doc::set_mock_now_ms(Some(5_000_000));
+        designos_doc::set_thread_mock_now_ms(Some(5_000_000));
         std::env::remove_var("DESIGNOS_AGENT_RUN_ID");
         std::env::remove_var("DESIGNOS_AGENT_RUNTIME");
         let mut engine = Engine::default();
@@ -3484,7 +3484,7 @@ mod tests {
         assert!(engine.doc.get_in_progress(NodeId(frame_id)).is_some());
 
         // Advance clock 15 minutes with no status file: MCP-set flag must go stale and prune.
-        designos_doc::advance_mock_now_ms(15 * 60 * 1000);
+        designos_doc::advance_thread_mock_now_ms(15 * 60 * 1000);
         assert!(engine.doc.get_in_progress(NodeId(frame_id)).is_none(), "MCP-set in_progress flag must go stale after 15 minutes");
         assert_eq!(engine.doc.prune_in_progress(), vec![NodeId(frame_id)]);
 
@@ -3519,9 +3519,9 @@ mod tests {
         let sip = session.engine.doc.get_in_progress(NodeId(sframe_id)).expect("session frame flagged");
         assert_eq!(sip.run_id.as_deref(), Some("p100-tab-1-1-1"));
         assert_eq!(sip.agent.as_deref(), Some("claude"));
-        designos_doc::advance_mock_now_ms(15 * 60 * 1000);
+        designos_doc::advance_thread_mock_now_ms(15 * 60 * 1000);
         assert!(session.engine.doc.get_in_progress(NodeId(sframe_id)).is_none(), "session flag must go stale after 15 minutes with no status file");
         let _ = std::fs::remove_dir_all(&tmp_dir);
-        designos_doc::set_mock_now_ms(None);
+        designos_doc::set_thread_mock_now_ms(None);
     }
 }
