@@ -185,9 +185,9 @@ fn the_agents_terminal_follows_its_new_tab_and_later_patches_never_reach_the_use
 
     agent_switches(&mut s, doc);
     assert_eq!(s.app().doc.name, "Agent opened this");
-    assert_eq!(s.app().terminal.tabs[0].turn_start_undo_depth, 0, "a turn that began above the new, empty history begins at its start");
     assert_eq!(s.app().terminal.tabs.len(), 1, "the running agent is in the terminal on screen");
     assert_eq!((&s.app().terminal.live_patch.path, &s.app().terminal.session_id), (&log, &session), "and it is still bound to the log the agent writes");
+    assert_eq!(s.app().terminal.tabs[0].turn_start_undo_depth, 0, "a turn that began above the new, empty history begins at its start");
     let user = tab_of_file(&s, &path).expect("the user's tab");
     let users_terminal = &s.app().tabs.entries[user].terminal;
     assert!(users_terminal.tabs.is_empty(), "no agent runs in the user's tab");
