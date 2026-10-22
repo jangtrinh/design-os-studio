@@ -521,7 +521,9 @@ impl Shell {
             self.handle_terminal_undo_keys(ctx);
             return;
         }
-        let typing = crate::agent_a11y::non_canvas_has_focus(ctx);
+        // A click on a text field gives it the focus only while the panel draws, after this runs: the keys
+        // that arrive in the same frame are the field's.
+        let typing = crate::agent_a11y::non_canvas_has_focus(ctx) || crate::widgets::field_tab::press_lands_on_field(ctx);
         if self.app.vars.open {
             // The Variables view handles its own keys (and undo / redo).
             return;
@@ -1194,6 +1196,10 @@ impl eframe::App for Shell {
         if self.app.plugins.open {
             return;
         }
+        // A layer being renamed in the Layers panel moves its rename to the next row on Tab, so Tab is left to it.
+        if self.app.layers.renaming.is_none() {
+            crate::widgets::field_tab::take_tab_press(ctx, raw);
+        }
         if crate::agent_a11y::non_canvas_has_focus(ctx) {
             return;
         }
@@ -1303,6 +1309,7 @@ impl Shell {
     fn draw_window(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         crate::agent_a11y::sync_frame(&ctx);
+        crate::widgets::field_tab::start_frame(&ctx);
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
         self.app.poll_image_jobs();
