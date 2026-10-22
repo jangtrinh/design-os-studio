@@ -5010,19 +5010,26 @@ pub fn show_left_with_selection(
 }
 
 /// True while a dialog, palette or popup that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
-/// keyboard to it (`#923`, `#960`).
+/// keyboard to it (`#923`, `#960`, `#981`).
 ///
 /// Every popup the shared helpers draw (`widgets::menu::popup_tree`, `widgets::popover::show`, the Variables picker, the
 /// board popovers) marks itself open in the pass it is drawn, and [`crate::widgets::popup_open::open_recently`] reads that
-/// mark one frame later. That covers every menu whatever state it keeps its open flag in, and a popup whose host stops
-/// drawing counts for one frame at most, so it never leaves the terminal deaf.
+/// mark one frame later. So do six popovers built by hand: the colour picker, the font dropdown, the prototype popover and
+/// the Variables edit popover, cell colour picker and skipped-details popover. Each closes on `Esc` and on an outside press.
+/// That covers each of them whatever state it keeps its open flag in, and a popup whose host stops drawing counts for one
+/// frame at most, so it never leaves the terminal deaf.
 ///
 /// Listed here is what does not mark itself: the dialogs and modals, the command palette, `ui.menu` (it also holds the zoom
 /// menu, which has its own text field, and the palette) and the overlapping layer picker (a custom area). Those are drawn every
 /// frame the flag can be set, and every press outside them closes them, so a stale flag cannot stick.
 ///
-/// Not here, on purpose: the web capture report sheet and the image Expand and Erase popovers do not close on an outside
-/// press, so counting them would leave the terminal deaf until the user found their close button.
+/// Not here, on purpose: the web capture report sheet, the image Expand and Erase popovers and the Check designs panel with
+/// its rules popover do not close on an outside press (the Check designs panel does not close on `Esc` either), so counting
+/// them would leave the terminal deaf until the user found their close button.
+///
+/// Not marked yet: the comment thread, which can also open from the Comments panel. The comment composer and the auto-layout
+/// gap and padding editor are not marked either; they open from a press on the canvas, which takes the keyboard from the
+/// terminal.
 pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool {
     app.dialog.is_some()
         || app.history.save_modal.is_some()

@@ -214,6 +214,8 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     }
     let _ = g;
     if !close {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(ctx);
         app.vars.edit = Some(ep);
     }
 }

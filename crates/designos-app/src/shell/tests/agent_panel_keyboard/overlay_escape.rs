@@ -4,12 +4,12 @@
 use super::*;
 use crate::terminal::AgentTabStatus;
 
-const ESC_BYTE: u8 = 0x1b;
+pub(super) const ESC_BYTE: u8 = 0x1b;
 
 /// One dialog, menu or palette that reads `Esc`: its name, how a test opens it, and how it tells that it is open.
-type Overlay = (&'static str, fn(&mut Sim), fn(&Sim) -> bool);
+pub(super) type Overlay = (&'static str, fn(&mut Sim), fn(&Sim) -> bool);
 
-fn overlays() -> Vec<Overlay> {
+pub(super) fn overlays() -> Vec<Overlay> {
     fn open_main_menu(s: &mut Sim) {
         s.click(Pos2::new(28.0, 24.0));
     }
@@ -95,7 +95,7 @@ fn overlays() -> Vec<Overlay> {
         let hero = s.by_name("Hero");
         s.shell.app.image_jobs.open_fill_menu = Some((hero, 0, Rect::from_min_size(Pos2::new(1300.0, 300.0), Vec2::splat(20.0))));
     }
-    vec![
+    let mut rows: Vec<Overlay> = vec![
         ("Agent permissions modal", |s| s.shell.app.ui.permissions_modal_open = true, |s| s.app().ui.permissions_modal_open),
         ("command palette", |s| s.shell.app.cmdk.open = true, |s| s.app().cmdk.open),
         ("keyboard shortcuts dialog", |s| s.shell.app.show_shortcuts(), |s| s.app().dialog.is_some()),
@@ -111,11 +111,13 @@ fn overlays() -> Vec<Overlay> {
         ("AI fill menu", open_ai_fill_menu, |s| s.app().image_jobs.open_fill_menu.is_some()),
         ("export scale menu", open_export_scale_menu, |s| painted_text(s).iter().any(|(t, _)| t == "0.75x")),
         ("blend mode menu", open_blend_menu, |s| painted_text(s).iter().any(|(t, _)| t == "Multiply")),
-    ]
+    ];
+    rows.extend(super::hand_built_popovers::rows());
+    rows
 }
 
 /// Every text painted in the last frame, with the centre of its first line.
-fn painted_text(s: &Sim) -> Vec<(String, Pos2)> {
+pub(super) fn painted_text(s: &Sim) -> Vec<(String, Pos2)> {
     fn collect(shape: &egui::Shape, out: &mut Vec<(String, Pos2)>) {
         match shape {
             egui::Shape::Text(t) => out.push((t.galley.job.text.clone(), t.pos + Vec2::new(0.0, t.galley.size().y / 2.0))),
@@ -136,12 +138,12 @@ fn export_section_origin(s: &Sim) -> (f32, f32) {
     (at.x - theme::SECTION_CONTENT_X, at.y - theme::SECTION_TITLE_HEIGHT / 2.0)
 }
 
-fn terminal_bytes(s: &Sim) -> Vec<u8> {
+pub(super) fn terminal_bytes(s: &Sim) -> Vec<u8> {
     s.app().terminal.tabs[0].written_bytes.clone()
 }
 
 /// Opens `overlay` over a terminal that holds the keyboard; `None` when it did not open (the test setup is wrong).
-fn sim_with_overlay_open(overlay: &Overlay) -> Result<Sim, String> {
+pub(super) fn sim_with_overlay_open(overlay: &Overlay) -> Result<Sim, String> {
     let (name, open, is_open) = overlay;
     let mut s = agent_sim();
     assert!(s.app().terminal.is_capturing_keyboard(true), "precondition: the terminal holds the keyboard");
@@ -153,6 +155,18 @@ fn sim_with_overlay_open(overlay: &Overlay) -> Result<Sim, String> {
     }
     s.shell.app.terminal.tabs[0].written_bytes.clear();
     Ok(s)
+}
+
+/// Closes the popover that hosts the open menu, if there is one: the blend menu lives in the colour picker, which stays open
+/// when only the menu closes. False when the popover is still open after three Esc.
+pub(super) fn close_host_popover(s: &mut Sim) -> bool {
+    for _ in 0..3 {
+        if s.app().props.picker.is_none() {
+            return true;
+        }
+        s.key(Key::Escape);
+    }
+    s.app().props.picker.is_none()
 }
 
 #[test]
@@ -174,6 +188,16 @@ fn esc_closes_the_open_overlay_and_never_reaches_the_terminal() {
         if terminal_bytes(&s).contains(&ESC_BYTE) {
             problems.push(format!("{name}: Esc went to the agent's terminal as well: {:?}", terminal_bytes(&s)));
         }
+        // A menu inside a popover (the blend menu in the colour picker) leaves the popover open. Close it too, and check that
+        // its Esc did not reach the terminal either, before the key that must.
+        s.shell.app.terminal.tabs[0].written_bytes.clear();
+        if !close_host_popover(&mut s) {
+            problems.push(format!("{name}: the popover that hosts the menu did not close on Esc"));
+        }
+        if terminal_bytes(&s).contains(&ESC_BYTE) {
+            problems.push(format!("{name}: the Esc that closed the host popover went to the agent's terminal: {:?}", terminal_bytes(&s)));
+        }
+        s.shell.app.terminal.tabs[0].written_bytes.clear();
         // With nothing open the same key belongs to the terminal again.
         s.key(Key::Escape);
         if !terminal_bytes(&s).contains(&ESC_BYTE) {
@@ -199,6 +223,32 @@ fn enter_never_reaches_the_terminal_while_an_overlay_is_open() {
         s.key(Key::Enter);
         if terminal_bytes(&s).contains(&b'\r') {
             problems.push(format!("{name}: Enter went to the agent's terminal as well: {:?}", terminal_bytes(&s)));
+        }
+        finish(s);
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn enter_reaches_the_terminal_again_once_the_overlay_is_closed() {
+    let mut problems = Vec::new();
+    for overlay in overlays() {
+        let (name, _, _) = overlay;
+        let mut s = match sim_with_overlay_open(&overlay) {
+            Ok(s) => s,
+            Err(why) => {
+                problems.push(why);
+                continue;
+            }
+        };
+        s.key(Key::Escape);
+        if !close_host_popover(&mut s) {
+            problems.push(format!("{name}: the popover that hosts the menu did not close on Esc"));
+        }
+        s.shell.app.terminal.tabs[0].written_bytes.clear();
+        s.key(Key::Enter);
+        if !terminal_bytes(&s).contains(&b'\r') {
+            problems.push(format!("{name}: with nothing open Enter must reach the terminal"));
         }
         finish(s);
     }
@@ -240,9 +290,9 @@ fn esc_closes_the_overlay_without_also_closing_the_session_menu_below_it() {
     assert!(!s.app().terminal.runtime_dropdown_open, "the next Esc closes the menu");
 }
 
-/// The menus whose host section draws only while something is selected or the Variables view is open: the host can stop
-/// drawing (an agent edit removes the node, an undo, the view closes) without a press, and the flag then has nothing to
-/// clear it.
+/// The menus and popovers whose host section draws only while something is selected or the Variables view is open: the host
+/// can stop drawing (an agent edit removes the node, an undo, the view closes) without a press, and the flag then has nothing
+/// to clear it.
 const HOST_DEPENDENT: &[&str] = &[
     "inspector instance menu",
     "inspector add-property menu",
@@ -250,6 +300,9 @@ const HOST_DEPENDENT: &[&str] = &[
     "inspector style menu",
     "inspector paint styles menu",
     "variables menu",
+    "Variables edit popover",
+    "Variables cell colour picker",
+    "Variables skipped-details popover",
 ];
 
 #[test]
@@ -283,19 +336,30 @@ fn a_menu_whose_host_stopped_drawing_does_not_leave_the_terminal_deaf() {
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
-#[test]
-fn an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf() {
-    // Its open flag lives in egui temp data and cannot be cleared from outside: only the pass counter keeps the terminal
-    // from waiting for a menu nothing draws any more.
-    let overlay = overlays().into_iter().find(|(name, _, _)| *name == "export scale menu").expect("the export scale row");
-    let mut s = sim_with_overlay_open(&overlay).expect("the export scale menu opens");
+/// Opens the popup `row`, then removes the inspector section that draws it: the terminal must hear typing again.
+fn assert_typing_returns_once_the_section_stops_drawing(row: &str) {
+    let overlay = overlays().into_iter().find(|(name, _, _)| *name == row).expect("the row");
+    let mut s = sim_with_overlay_open(&overlay).expect("the popup opens");
     s.shell.app.selection.clear();
     s.frame(vec![]);
     s.frame(vec![]);
     s.shell.app.terminal.tabs[0].written_bytes.clear();
     s.type_text("y");
-    assert!(terminal_bytes(&s).contains(&b'y'), "the menu is gone but the terminal ignores typing: {:?}", terminal_bytes(&s));
+    assert!(terminal_bytes(&s).contains(&b'y'), "{row}: it is gone but the terminal ignores typing: {:?}", terminal_bytes(&s));
     finish(s);
+}
+
+#[test]
+fn an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf() {
+    // Its open flag lives in egui temp data and cannot be cleared from outside: only the pass counter keeps the terminal
+    // from waiting for a menu nothing draws any more.
+    assert_typing_returns_once_the_section_stops_drawing("export scale menu");
+}
+
+#[test]
+fn a_font_dropdown_whose_section_disappeared_does_not_leave_the_terminal_deaf() {
+    // Same as the export scale menu: its open flag lives in egui temp data under an id the inspector builds.
+    assert_typing_returns_once_the_section_stops_drawing("font dropdown");
 }
 
 /// The web capture import report: a floating sheet at the right of the canvas with no backdrop, closed by its own button or Esc.

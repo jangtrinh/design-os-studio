@@ -1694,6 +1694,9 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
     let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|pt| !area.inner.contains(pt)));
     if close || esc || outside {
         app.vars.show_skipped_details = false;
+    } else {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(ctx);
     }
 }
 
@@ -1777,6 +1780,8 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
     if outside || esc {
         app.finish_cell_picker(pk);
     } else {
+        // Open: the Agents panel draws before this picker and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(ctx);
         app.vars.cell_picker = Some(pk);
     }
 }

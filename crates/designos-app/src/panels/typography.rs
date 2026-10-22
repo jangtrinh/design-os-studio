@@ -457,6 +457,9 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
             d.insert_temp(open_id, false);
             d.insert_temp(id.with("focused"), false);
         });
+    } else {
+        // Open: the Agents panel draws before this dropdown and must leave it `Esc`.
+        crate::widgets::popup_open::mark_open(&ctx);
     }
     picked
 }

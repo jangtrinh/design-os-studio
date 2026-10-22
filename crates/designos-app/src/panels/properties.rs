@@ -2029,6 +2029,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             app.apply_style(&ids, &key);
         }
     } else {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(&ctx);
         app.props.picker = Some(pk);
     }
 }
