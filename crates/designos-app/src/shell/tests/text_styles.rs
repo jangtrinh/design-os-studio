@@ -597,25 +597,107 @@ fn no_style_toast_shows_a_layer_id() {
     assert_eq!(toast(&s), "Style not changed: nothing to style");
 }
 
+const ONLY_NEW_BOX: &str = "Only the new text box was styled";
+
+/// What a layer's type is and which style it is linked to: what a style pick would change.
+fn look_of(s: &Sim, id: NodeId) -> (TextStyle, Option<String>) {
+    (text_of(s, id).style, link_of(s, id))
+}
+
+/// A new text box made inside the auto-layout frame Card with the Text tool, selected together with
+/// the card's own text "Quarterly report". Returns (box, sibling).
+fn new_box_in_card_with_its_sibling(s: &mut Sim) -> (NodeId, NodeId) {
+    let (card, sibling) = (s.by_name("Card"), s.by_name("Quarterly report"));
+    // Empty space inside the card, right of the title.
+    let at = s.app().doc.world_transform(card).apply(DV::new(250.0, 30.0));
+    s.key(Key::T);
+    let p = s.screen(at.x, at.y);
+    s.click(p);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.app().canvas.text.as_ref().is_some_and(|t| t.created), "the Text tool opened a session on a new box");
+    let id = s.app().selection[0];
+    assert_eq!(s.app().doc.get(id).and_then(|n| n.parent), Some(card), "the box is inside the auto-layout frame");
+    s.shell.app.selection = vec![id, sibling];
+    redraw(s);
+    (id, sibling)
+}
+
+fn toast_text(s: &Sim) -> Option<String> {
+    s.app().toast.as_ref().map(|t| t.text.clone())
+}
+
 #[test]
-fn a_new_box_selected_with_another_layer_styles_and_detaches_both() {
+fn a_style_picked_for_a_new_box_and_its_sibling_styles_the_box_alone_and_undo_stays_exact() {
+    let mut s = Sim::new();
+    let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
+    let before = look_of(&s, sibling);
+    pick(&mut s, BUTTON, 1, 0);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Heading/Large"));
+    let toast = s.app().toast.as_ref().map(|t| (t.text.clone(), t.error)).expect("the pick says what was and was not styled");
+    assert_eq!(toast, (ONLY_NEW_BOX.to_string(), false));
+    assert_eq!(look_of(&s, sibling), before, "the sibling is untouched");
+    s.shell.app.toast = None;
+    s.type_text("q");
+    s.key(Key::Escape);
+    assert_eq!(text_of(&s, id).content, "q");
+    assert_eq!(look_of(&s, sibling), before);
+    // Undo until nothing is left: no step fails, none is announced, the sibling never changes.
+    while s.app().hist.can_undo() {
+        s.cmd_key(Key::Z);
+        assert_eq!(toast_text(&s), None, "no toast at any undo step");
+        assert_eq!(look_of(&s, sibling), before, "the sibling keeps its own style and link");
+    }
+    s.cmd_key(Key::Z);
+    assert_eq!(toast_text(&s), None);
+    assert!(s.app().doc.get(id).is_none(), "the box went with its one step");
+}
+
+#[test]
+fn escape_after_a_pick_for_a_new_box_and_its_sibling_leaves_the_sibling_and_the_history_alone() {
+    let mut s = Sim::new();
+    let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
+    let (before, depth) = (look_of(&s, sibling), s.app().hist.undo_depth());
+    pick(&mut s, BUTTON, 1, 0);
+    s.key(Key::Escape);
+    assert!(s.app().doc.get(id).is_none(), "the box is empty, so it goes");
+    assert_eq!(look_of(&s, sibling), before);
+    assert_eq!(s.app().hist.undo_depth(), depth);
+}
+
+#[test]
+fn cmd_z_after_a_pick_for_a_new_box_and_its_sibling_takes_back_the_box_style_only() {
+    let mut s = Sim::new();
+    let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
+    let (before, start) = (look_of(&s, sibling), text_of(&s, id).style);
+    pick(&mut s, BUTTON, 1, 0);
+    s.cmd_key(Key::Z);
+    assert!(s.app().canvas.text.is_some(), "the undo stays inside the session");
+    assert_eq!(link_of(&s, id), None, "the box loses the link");
+    assert_eq!(text_of(&s, id).style, start, "and the style");
+    assert_eq!(look_of(&s, sibling), before, "the sibling never changed");
+}
+
+#[test]
+fn a_new_box_selected_with_another_layer_is_styled_alone_but_detached_together() {
     let mut s = Sim::new();
     let other = s.by_name("Continue");
+    s.shell.app.apply_style(&[other], "Body/Regular");
     let id = new_text_box(&mut s);
     s.shell.app.selection = vec![id, other];
     redraw(&mut s);
-    let depth = s.app().hist.undo_depth();
-    pick(&mut s, BUTTON, 0, 0);
-    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
-    assert_eq!(link_of(&s, other).as_deref(), Some("Body/Regular"), "the other layer is styled too");
-    assert_eq!(text_of(&s, other).style.font_weight, 400);
-    assert_eq!(s.app().hist.undo_depth(), depth + 1, "as a step of its own: the box is not in the history yet");
+    let (before, depth) = (look_of(&s, other), s.app().hist.undo_depth());
+    pick(&mut s, BUTTON, 1, 0);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Heading/Large"));
+    assert_eq!(look_of(&s, other), before, "the other layer keeps Body/Regular");
+    assert_eq!(s.app().hist.undo_depth(), depth, "nothing is recorded for it");
+    assert_eq!(toast_text(&s).as_deref(), Some(ONLY_NEW_BOX));
     assert!(s.app().canvas.text.is_some());
     s.frame(vec![]);
     let detach = s.rect_of("text-style-detach");
     s.click(detach.center());
-    assert_eq!((link_of(&s, id), link_of(&s, other)), (None, None), "both are detached");
-    assert_eq!(s.app().hist.undo_depth(), depth + 2);
+    assert_eq!((link_of(&s, id), link_of(&s, other)), (None, None), "detaching reaches both");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "the other layer's detach is a step of its own");
     assert!(s.app().canvas.text.is_some() && s.app().doc.get(id).is_some());
 }
 

@@ -11,6 +11,9 @@ use designos_doc::*;
 /// What is said when a style change needs text that is not there yet.
 pub const TYPE_FIRST: &str = "Type some text first";
 
+/// What is said when a style is applied to a new, empty text box that was selected with other layers.
+const ONLY_NEW_BOX: &str = "Only the new text box was styled";
+
 impl App {
     /// The text box being edited when it is new, still empty, and one of `ids`. Empty as
     /// `finish_text` judges it: a composition in progress is thrown away when editing ends, so it is
@@ -39,14 +42,15 @@ impl App {
 
     /// Applies text style `key` to `sel` from the inspector. A new, empty text box takes it inside
     /// its session (the box and the session stay, the next typing uses the style, and it all commits
-    /// as the one step that makes the box); any other selected layer is styled as a step of its own.
-    /// Other text being edited is committed first, so the style is a step of its own.
+    /// as the one step that makes the box). It is the only layer styled then: a step for another
+    /// selected layer would re-lay out their shared parent and record the uncommitted box in it, so
+    /// undo would fail on a layer that does not exist yet. Other text being edited is committed
+    /// first, so the style is a step of its own.
     pub(crate) fn apply_text_style(&mut self, sel: &[NodeId], key: &str) {
         if let Some(new_box) = self.new_empty_text_id(sel) {
             self.apply_text_style_in_new_box(key);
-            let others = without(sel, new_box);
-            if !others.is_empty() {
-                self.apply_style(&others, key);
+            if sel.iter().any(|id| *id != new_box) {
+                self.show_toast(ONLY_NEW_BOX, false);
             }
             return;
         }
