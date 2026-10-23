@@ -1,6 +1,6 @@
 {
   "name": "design-os-studio",
-  "description": "Native GPU-accelerated interface design studio, Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Spec Reader, and 22-tool MCP server built in Rust.",
+  "description": "Native GPU-accelerated interface design studio in Rust. Opens and saves Figma .fig files, runs your agent CLI in an Agents panel, and ships a 36-tool MCP server.",
   "version": "0.2.0",
   "author": {
     "name": "Jang Trinh",
@@ -22,8 +22,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "DESIGN:OS Studio",
-    "shortDescription": "Native GPU-accelerated interface design studio, Figma .fig v106 binary read/write engine, and 22-tool MCP server built in Rust.",
-    "longDescription": "Open and save 700k+ record enterprise Figma .fig v106 binary archives in ~1.5s with 0.0% idle CPU, run Claude Code / Codex / Antigravity inside the native Agentic PTY Chat UI, inspect 11-stage PRODUCT:OS Spec Driven v2 packages, generate multi-target Dev Mode code, and automate headless GPU visual QA.",
+    "shortDescription": "Native GPU-accelerated interface design studio in Rust that opens and saves Figma .fig files, with a 36-tool MCP server.",
+    "longDescription": "Open and save Figma .fig files, large kits included, with no CPU use while the canvas is idle. Run Claude Code, Codex, Grok, Antigravity or Gemini CLI in the Agents panel on the open file, read spec packages in the Spec Reader, generate Dev Mode code in 8 languages, and capture headless GPU screenshots for visual QA.",
     "developerName": "DESIGN:OS",
     "category": "Developer Tools",
     "capabilities": [

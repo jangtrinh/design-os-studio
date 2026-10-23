@@ -1,6 +1,6 @@
 {
   "name": "design-os-studio",
-  "description": "Native GPU-accelerated interface design studio, Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Spec Reader, and 22-tool MCP server built in Rust.",
+  "description": "Native GPU-accelerated interface design studio in Rust. Opens and saves Figma .fig files, runs your agent CLI in an Agents panel, and ships a 36-tool MCP server.",
   "version": "0.2.0",
   "author": {
     "name": "Jang Trinh",
