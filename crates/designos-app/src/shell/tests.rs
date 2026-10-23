@@ -1132,6 +1132,7 @@ mod gpu_screenshot_wait;
 mod grid_track_editing;
 mod history;
 mod home;
+mod idle_repaint;
 mod layer_drag_fast;
 #[cfg(target_os = "macos")]
 mod leave_menu_quit;

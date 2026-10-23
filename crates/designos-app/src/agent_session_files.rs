@@ -1056,18 +1056,37 @@ mod tests {
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
 
-        let t_json = std::time::Instant::now();
-        let _old_sync_json = doc.to_json().expect("serialize 24k doc");
-        let old_to_json_elapsed = t_json.elapsed();
+        // The absolute budgets hold on a fast machine. A slower or busier one stretches the sync and what it replaced (serializing the
+        // whole document on the UI thread) together, so the budget never drops below a twelfth of that serialization, measured next to
+        // the sync: a sync that serializes on the UI thread costs a whole one.
+        let absolute_per_call_budget = if cfg!(debug_assertions) { Duration::from_millis(12) } else { Duration::from_millis(4) };
+        let per_call_budget_for = |old_to_json: Duration| absolute_per_call_budget.max(old_to_json / 12);
 
-        let per_call_budget = if cfg!(debug_assertions) { Duration::from_millis(12) } else { Duration::from_millis(4) };
-        let total_budget = per_call_budget * 4;
-        let (fastest_five, ()) = crate::test_timing::fastest_within(total_budget, Duration::from_secs(5), || {
+        // One sample is five syncs plus one serialization, repeated until the fastest sync is within budget (noise only adds time, as
+        // `test_timing::fastest_within` relies on, so both are taken at their fastest). Every sync hands the worker thread a snapshot to
+        // serialize and write, which takes far longer than a sample. The worker is waited for after each sample, outside the timed
+        // region: otherwise each sample is timed next to the worker of the one before it, and on a runner with few cores that worker
+        // takes the UI thread's turn.
+        let patience = std::time::Instant::now() + Duration::from_secs(15);
+        let mut fastest_five = Duration::MAX;
+        let mut old_to_json_elapsed = Duration::MAX;
+        loop {
             st.last_synced_key = None;
+            let started = std::time::Instant::now();
             for _ in 0..5 {
                 st.sync_live_file_context(&doc, page, &[], None);
             }
-        });
+            fastest_five = fastest_five.min(started.elapsed());
+            st.flush_live_sync();
+            let started = std::time::Instant::now();
+            let _ = doc.to_json().expect("serialize 24k doc");
+            old_to_json_elapsed = old_to_json_elapsed.min(started.elapsed());
+            if fastest_five < per_call_budget_for(old_to_json_elapsed) * 4 || std::time::Instant::now() >= patience {
+                break;
+            }
+        }
+        let per_call_budget = per_call_budget_for(old_to_json_elapsed);
+        let total_budget = per_call_budget * 4;
         let per_call = fastest_five / 5;
         eprintln!(
             "[24K LIVE SYNC BENCH] nodes={} | 5x sync_live_file_context={fastest_five:?} ({per_call:?}/call) | old synchronous doc.to_json()={old_to_json_elapsed:?}",
