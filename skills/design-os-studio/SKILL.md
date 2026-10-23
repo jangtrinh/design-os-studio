@@ -29,7 +29,7 @@ Activate this skill when the user asks to:
 | Binary | Role | Key Flags / Subcommands |
 | :--- | :--- | :--- |
 | `designos-studio` | Native GPU/CPU Desktop Studio & Headless Visual QA Runner | `--open-id <id>`, `--select <name>`, `--zoom <pct>`, `--gpu`, `--size <WxH>`, `--screenshot <out.png>`, `--rail <files\|assets\|agents\|specs\|variables\|components>`, `--tab <design\|prototype\|dev>`, `--dev-lang <react\|tailwind\|css\|swiftui\|compose>`, `--panel <specs\|variables\|cmdk\|main-menu\|color-picker>`, `--tool-mode <comment>` |
-| `designos` | Agent-First CLI for Spec Apply, `.fig` Binary Export & Comment Loops | `--apply-spec <spec.json>`, `--export-fig <out.fig>`, `--export-spec <out.spec.json>`, `--inspect-json`, `--comments-json`, `--add-comment <text>`, `--reply-comment <id> --message <msg> --resolve` |
+| `designos` | Agent-First CLI for Spec Apply, `.fig` Binary Export & Comment Loops | `--apply-spec <spec.json>`, `--export-fig <out.fig> [--overwrite]`, `--export-spec <out.spec.json>`, `--inspect-json`, `--comments-json`, `--add-comment <text>`, `--reply-comment <id> --message <msg> --resolve` |
 | `designos-mcp` | Local stdio Model Context Protocol Server | `--workspace <dir>` (`designos_open_file`, `designos_apply_spec`, `designos_export_fig_file`, `designos_generate_code`, `designos_list_comments`, etc.) |
 | `designos-diff` | Perceptual SSIM & Structural Diff CLI | `compare <ref.png> <actual.png> --out <diff.png>` |
 

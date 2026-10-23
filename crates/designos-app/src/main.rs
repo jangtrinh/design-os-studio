@@ -2,6 +2,8 @@ mod agent_a11y;
 mod agent_approval_card;
 mod agent_busy_frames;
 pub mod agent_cli_catalog;
+#[cfg(test)]
+mod agent_cli_export_fig_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
 mod agent_mention;
@@ -30,6 +32,7 @@ mod board;
 mod canvas;
 mod check_designs;
 mod cli;
+mod cli_export_write;
 mod clipboard;
 mod cmdk;
 mod comments;
@@ -236,6 +239,10 @@ fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Op
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
+    // An unusable --export-fig target stops the command before it loads, applies or saves anything.
+    if let Some(out_path) = &opts.export_fig {
+        cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
+    }
     let (mut doc, save_target) = if let Some(id) = &opts.open_id {
         let root = opts.library.clone().unwrap_or_else(designos_library::Library::default_root);
         let lib = designos_library::Library::open(&root).map_err(|e| format!("Cannot open library at {}: {e}", root.display()))?;
@@ -371,10 +378,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
     if let Some(out_path) = &opts.export_fig {
         let (bytes, omitted) = designos_fig::export_fig_with_report(&doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
-        if let Some(parent) = out_path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        std::fs::write(out_path, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
+        cli_export_write::write_export(out_path, "fig", &bytes, opts.overwrite)?;
         let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len(), "omitted_extensions": omitted });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }

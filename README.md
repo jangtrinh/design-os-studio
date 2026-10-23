@@ -100,6 +100,7 @@ cargo run --release -p designos-app --bin designos-studio
    designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
    designos app.designos --export-fig out.fig
    ```
+   `--export-fig` writes only to a path that ends in `.fig` and does not exist yet. Re-running it needs `--overwrite`, which replaces an existing regular file; a symbolic link is never written through.
 3. **Capture a headless GPU verification screenshot and run perceptual SSIM diffing:**
    ```bash
    designos-studio out.fig --gpu --size 1600x1000 --screenshot actual.png
@@ -387,7 +388,7 @@ Once installed, `skills/design-os-studio/SKILL.md` activates automatically when 
 | `/doctor` | Claude Code / Codex | Read-only diagnostic check of installed skill paths, plugin manifests, Cargo crates, and binary availability |
 | `python3 scripts/self_check.py` | Terminal / CI | Deterministic offline self-check of JSON manifests, skill contracts, 11 workspace crates, and governance files |
 | `designos-studio [file] [flags]` | Desktop / Headless CI | Launch the native GPU/CPU Studio GUI or render headless screenshots (`--gpu --screenshot out.png`) |
-| `designos <file> [flags]` | Terminal / Agent CLI | Apply declarative `NodeSpec` (`--apply-spec`), export Figma `.fig` v106 (`--export-fig`), inspect JSON (`--inspect-json`), or manage comments (`--comments-json`) |
+| `designos <file> [flags]` | Terminal / Agent CLI | Apply declarative `NodeSpec` (`--apply-spec`), export Figma `.fig` v106 (`--export-fig OUT.fig`, add `--overwrite` to replace an existing file), inspect JSON (`--inspect-json`), or manage comments (`--comments-json`) |
 | `designos-mcp --workspace <dir>` | MCP Client (`stdio`) | Expose typed MCP tools listed below (`designos_open_file`, `designos_apply_spec`, `designos_export_fig_file`, `designos_generate_code`, etc.) |
 | `designos-diff compare <a> <b>` | Terminal / CI | Compute perceptual SSIM and anti-aliased pixel diffs between reference and rendered PNGs |
 | `./scripts/build-release.sh <ver> --local-host` | Terminal / CI | Compile all 4 binaries and package the host's native release packages (`.dmg`, `.zip`, `.deb`), `release-manifest.json`, and `SHA256SUMS` |
