@@ -240,21 +240,17 @@ impl<'a> Reader<'a> {
         Ok(s)
     }
     pub fn var_u64(&mut self) -> Result<u64> {
+        // Kiwi caps a 64-bit varint at 9 bytes: the first 8 carry 7 bits plus a continuation flag, the ninth
+        // carries a full 8 bits and never continues.
         let mut v: u64 = 0;
-        let mut shift = 0u32;
-        loop {
+        for i in 0..8 {
             let b = self.byte()?;
-            if shift < 64 {
-                v |= ((b & 0x7f) as u64) << shift;
-            }
+            v |= ((b & 0x7f) as u64) << (7 * i);
             if b & 0x80 == 0 {
                 return Ok(v);
             }
-            shift += 7;
-            if shift > 70 {
-                return Err(KiwiError::Bad("varint too long".into()));
-            }
         }
+        Ok(v | (self.byte()? as u64) << 56)
     }
     pub fn var_u32(&mut self) -> Result<u32> {
         Ok(self.var_u64()? as u32)
@@ -975,7 +971,8 @@ impl Writer {
         self.buf.push(b);
     }
     pub fn var_u64(&mut self, mut v: u64) {
-        loop {
+        // Mirror of `Reader::var_u64`: at most 9 bytes, the ninth a full 8 bits.
+        for _ in 0..8 {
             let b = (v & 0x7f) as u8;
             v >>= 7;
             if v == 0 {
@@ -984,6 +981,7 @@ impl Writer {
             }
             self.buf.push(b | 0x80);
         }
+        self.buf.push(v as u8);
     }
     pub fn var_i64(&mut self, v: i64) {
         self.var_u64(((v << 1) ^ (v >> 63)) as u64);
@@ -1238,6 +1236,37 @@ mod tests {
         for v in [0i64, 1, -1, 63, -64, 64, 1 << 31, i32::MIN as i64, i64::MAX, i64::MIN] {
             assert_eq!(r.var_i64().unwrap(), v);
         }
+    }
+
+    /// Kiwi's 64-bit varint is at most 9 bytes: the ninth carries a full 8 bits and no continuation flag.
+    /// Figma's random `strokeSeed` values hit this whenever bit 63 is set.
+    #[test]
+    fn varint64_ninth_byte_is_full_width() {
+        // Real `strokeSeed` bytes from a Figma file, followed by the next field id (0x1c0 = c0 03).
+        let wire = [0x86, 0xc4, 0xa9, 0xed, 0xff, 0xae, 0xd2, 0xc4, 0xa3, 0xc0, 0x03];
+        let mut r = Reader::new(&wire);
+        let v = r.var_u64().unwrap();
+        assert_eq!(r.var_u32().unwrap(), 0x1c0);
+        assert!(r.at_end());
+
+        let mut w = Writer::default();
+        w.var_u64(v);
+        assert_eq!(w.buf, wire[..9]);
+
+        let mut w = Writer::default();
+        w.var_u64(u64::MAX);
+        assert_eq!(w.buf, [0xff; 9]);
+
+        let vals = [0u64, 127, 128, (1 << 56) - 1, 1 << 56, 1 << 63, u64::MAX - 1, u64::MAX];
+        let mut w = Writer::default();
+        for v in vals {
+            w.var_u64(v);
+        }
+        let mut r = Reader::new(&w.buf);
+        for v in vals {
+            assert_eq!(r.var_u64().unwrap(), v);
+        }
+        assert!(r.at_end());
     }
 
     #[test]
