@@ -76,6 +76,9 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
+    /// With `--export-fig`: replace the output file when it already exists. Without it an existing file is refused. Only a
+    /// regular file is ever replaced, never a symbolic link or a directory.
+    pub overwrite: bool,
     /// Headless agent CLI: generate code for `--select` (or first screen/page) in the given target language and print to stdout.
     pub codegen: Option<String>,
     /// Import a `.webcapture` / `.capture.json` file into the document (`--import-capture <path>`).
@@ -307,6 +310,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--apply-spec" => o.apply_spec = Some(it.next().ok_or("--apply-spec needs a spec JSON path")?.into()),
             "--export-spec" => o.export_spec = Some(it.next().ok_or("--export-spec needs an output JSON path")?.into()),
             "--export-fig" => o.export_fig = Some(it.next().ok_or("--export-fig needs an output .fig path")?.into()),
+            "--overwrite" => o.overwrite = true,
             "--import-capture" | "--import-web-capture" => o.import_capture = Some(it.next().ok_or("--import-capture needs a capture JSON path")?.into()),
             "--out" => o.out = Some(it.next().ok_or("--out needs an output path")?.into()),
             "--import-variables" => o.import_variables = Some(it.next().ok_or("--import-variables needs a file path")?.into()),
@@ -346,7 +350,7 @@ pub fn missing_file_message(opts: &Options) -> Option<String> {
     (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -360,6 +364,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
+  --export-fig  headless Agent CLI: write the document to OUT.fig. The path must end in .fig and must not exist yet; --overwrite replaces an existing regular file. A symbolic link is never written through
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
   --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
@@ -525,6 +530,21 @@ mod tests {
         assert_eq!(o.export_fig, Some("out.fig".into()));
         assert_eq!(o.reply_comment.as_deref(), Some("t-1"));
         assert_eq!(o.message.as_deref(), Some("Fixed spacing"));
+    }
+
+    #[test]
+    fn overwrite_is_off_unless_given() {
+        assert!(!p(&["doc.designos", "--export-fig", "out.fig"]).unwrap().overwrite);
+        let o = p(&["doc.designos", "--export-fig", "out.fig", "--overwrite"]).unwrap();
+        assert!(o.overwrite && o.export_fig == Some("out.fig".into()));
+        assert!(o.is_agent_cli());
+    }
+
+    #[test]
+    fn the_help_text_names_the_export_fig_rules() {
+        assert!(USAGE.contains("[--export-fig OUT.fig [--overwrite]]"));
+        assert!(USAGE.contains("--overwrite replaces an existing regular file"), "the help says what --overwrite does");
+        assert!(USAGE.contains("never written through"), "the help says a symbolic link is refused");
     }
 
     #[test]

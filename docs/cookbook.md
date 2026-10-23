@@ -12,7 +12,9 @@ Copy-paste recipes for **DESIGN:OS Studio** (`skills/design-os-studio/SKILL.md`,
 # 1. Generate or update a screen from a declarative NodeSpec JSON with Auto-Layout 5.0
 designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
 
-# 2. Save any document (.designos or .fig) directly to a standard Figma .fig v106 binary archive
+# 2. Save any document (.designos or .fig) directly to a standard Figma .fig v106 binary archive.
+#    The path must end in .fig and must not exist yet; add --overwrite to replace an existing regular
+#    file. A symbolic link is never written through.
 designos app.designos --export-fig out.fig
 
 # 3. Export any canvas frame back to a clean, diffable NodeSpec JSON
