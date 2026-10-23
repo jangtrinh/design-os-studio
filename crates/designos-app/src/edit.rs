@@ -71,21 +71,42 @@ impl Edit {
         }
     }
 
+    /// Forgets every touched node whose properties are what they were when it was touched, so the edit holds
+    /// only what it changed. For an operation that writes straight into the document and records a whole
+    /// scope up front: what it left alone then costs nothing in the undo step or in anything that walks the
+    /// edit afterwards. A touched node that is no longer in the document stays, as it does for [`Edit::revert`].
+    /// The epoch from [`Edit::note_opened`] is kept.
+    pub fn retain_changed(&mut self, doc: &Document) {
+        self.before.retain(|id, old| match doc.get(*id) {
+            Some(cur) => properties_changed(old, cur),
+            None => true,
+        });
+    }
+
     /// Update commands for every touched node whose properties changed.
     fn updates(&self, doc: &Document) -> Vec<Command> {
         let mut out = Vec::new();
         for (id, old) in &self.before {
             if let Some(cur) = doc.get(*id) {
-                let mut o = old.clone();
-                o.parent = cur.parent;
-                o.children = cur.children.clone();
-                if *cur != o {
+                if properties_changed(old, cur) {
                     out.push(Command::Update { node: Box::new(cur.clone()) });
                 }
             }
         }
         out
     }
+}
+
+/// Whether `cur` differs from `old` in anything but its place in the tree: parent and children belong to
+/// structural commands, not to an edit's property changes.
+fn properties_changed(old: &Node, cur: &Node) -> bool {
+    if old == cur {
+        return false;
+    }
+    let mut o = old.clone();
+    o.parent = cur.parent;
+    o.children = cur.children.clone();
+    *cur != o
 }
 
 /// A transaction: structural commands applied immediately plus an [`Edit`] for
@@ -288,6 +309,57 @@ mod tests {
         assert_eq!(d.get(a).unwrap().opacity, 1.0);
         assert_eq!(d.get(b).unwrap().opacity, 1.0);
         assert!(!h.can_undo());
+    }
+
+    #[test]
+    fn retain_changed_keeps_only_what_changed_and_commits_the_same_step() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ids: Vec<NodeId> = (0..3)
+            .map(|i| {
+                let id = d.alloc_id();
+                d.insert(page, Node::rectangle(id, Rect::new(i as f32 * 20.0, 0.0, 10.0, 10.0))).unwrap();
+                id
+            })
+            .collect();
+        let (changed, nudged_back, untouched) = (ids[0], ids[1], ids[2]);
+        let mut h = History::default();
+        let mut tx = Tx::new();
+        for id in &ids {
+            tx.ed.touch(&d, *id);
+        }
+        d.get_mut(changed).unwrap().opacity = 0.5;
+        d.get_mut(nudged_back).unwrap().opacity = 0.5;
+        d.get_mut(nudged_back).unwrap().opacity = 1.0;
+        let opened_at = tx.ed.opened_at();
+        assert!(opened_at.is_some(), "touching a node opens the edit");
+
+        tx.ed.retain_changed(&d);
+
+        assert_eq!(tx.ed.touched(), vec![changed], "the node written back to its original and the one never written are forgotten");
+        assert_eq!(tx.ed.opened_at(), opened_at, "the epoch the edit opened at is kept");
+        assert!(tx.commit(&mut d, &mut h).unwrap());
+        assert_eq!(d.get(changed).unwrap().opacity, 0.5);
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(changed).unwrap().opacity, 1.0, "one undo restores the node that changed");
+        assert_eq!(d.get(untouched).unwrap().opacity, 1.0);
+        assert!(!h.can_undo(), "and it was the only step");
+    }
+
+    #[test]
+    fn retain_changed_ignores_a_change_of_place_in_the_tree() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame = d.alloc_id();
+        d.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut ed = Edit::new();
+        ed.touch(&d, frame);
+        let child = d.alloc_id();
+        d.insert(frame, Node::rectangle(child, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+
+        ed.retain_changed(&d);
+
+        assert!(ed.touched().is_empty(), "children belong to structural commands, so a frame that only gained one did not change");
     }
 
     #[test]

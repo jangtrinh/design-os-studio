@@ -9,7 +9,7 @@
 //! - Semantic status pills (`OK #4CC58B`, `WARN #E0A53C`, `BAD #FF7A8C`, `INFO #8FB0FF`)
 
 use crate::app::App;
-use crate::edit::Tx;
+use crate::edit::{Edit, Tx};
 use crate::icons::{self, Icon};
 use crate::terminal::{
     AgentCliPreset, STATUS_BAD_BG, STATUS_BAD_BORDER, STATUS_BAD_TEXT, STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT, STATUS_OK_BG, STATUS_OK_BORDER,
@@ -79,10 +79,6 @@ fn queue_pending_ai_op(op: FigmaAiOp) {
 
 fn take_pending_ai_op() -> Option<FigmaAiOp> {
     PENDING_AI_OP.lock().ok().and_then(|mut slot| slot.take())
-}
-
-fn peek_pending_ai_op() -> Option<FigmaAiOp> {
-    PENDING_AI_OP.lock().ok().and_then(|slot| *slot)
 }
 
 /// Actions returned by `cmdk::show` for the host `App` / `Shell` to execute.
@@ -1052,12 +1048,36 @@ pub fn run_design_gate_audit(doc: &Document, page: NodeId, selection: &[NodeId])
     DesignGateReport { score: if warnings.is_empty() { 100 } else { score }, passed, warnings, node_count }
 }
 
-/// Every node [`auto_fix_design_gate`] may write for `selection` (or the whole `page` when nothing is selected):
-/// the subtrees it walks, and the page's frames when the queued operation is the prototype wiring, which takes
+/// How a click on the palette's fix button ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoFixOutcome {
+    /// The operation changed the document and the change is one undo step. `op` is the Figma AI operation that
+    /// ran, or `None` for the design-gate fix; `count` is the number the operation reports.
+    Committed { op: Option<FigmaAiOp>, count: usize },
+    /// The operation ran and left the document as it was: no undo step, nothing to tell the agent.
+    NoChange,
+    /// The edit was refused (an old version is open, or the commit failed); [`App::run_tx`] has said why.
+    Refused,
+}
+
+/// The toast after a committed fix: it names the operation that ran and promises the undo that works.
+pub fn done_toast(op: Option<FigmaAiOp>) -> &'static str {
+    match op {
+        None => "Spacing and tap targets fixed · Cmd+Z to undo",
+        Some(FigmaAiOp::MakePrototype) => "Prototype flows wired · Cmd+Z to undo",
+        Some(FigmaAiOp::RenameLayers) => "Layers renamed · Cmd+Z to undo",
+        Some(FigmaAiOp::RewriteText(_)) => "Text rewritten · Cmd+Z to undo",
+        Some(FigmaAiOp::PopulateContent) => "Content replaced · Cmd+Z to undo",
+        Some(FigmaAiOp::BoostResolution) => "Resolution boosted · Cmd+Z to undo",
+    }
+}
+
+/// Every node [`auto_fix_design_gate`] may write for `selection` (or the whole `page` when nothing is selected)
+/// when it runs `op`: the subtrees it walks, and the page's frames when `op` is the prototype wiring, which takes
 /// them whenever fewer than two frames are selected. A relayout only moves nodes below the one that changed, so
 /// the subtrees are the whole write set.
-pub fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId]) -> Vec<NodeId> {
-    let wires_page_frames = matches!(peek_pending_ai_op(), Some(FigmaAiOp::MakePrototype));
+fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> Vec<NodeId> {
+    let wires_page_frames = op == Some(FigmaAiOp::MakePrototype);
     let roots: Vec<NodeId> =
         if selection.is_empty() || wires_page_frames { doc.get(page).map(|pg| pg.children.clone()).unwrap_or_default() } else { selection.to_vec() };
     let mut scope = Vec::new();
@@ -1067,37 +1087,55 @@ pub fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId]) -> Vec
     scope
 }
 
+/// Runs `op` (the design-gate fix when `None`) on `doc` and leaves `ed` holding exactly the nodes it changed.
+/// The operations write straight into the document, so each node they may write is recorded before they run,
+/// and the ones they left as they were are dropped afterwards: the undo step, the transaction's bookkeeping and
+/// the record of the user's edits then only handle what changed, not the whole page. Returns the operation's count.
+fn run_recorded(doc: &mut Document, ed: &mut Edit, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> usize {
+    for id in auto_fix_scope(doc, page, selection, op) {
+        ed.touch(doc, id);
+    }
+    let count = auto_fix_design_gate(doc, page, selection, op);
+    ed.retain_changed(doc);
+    count
+}
+
 /// Runs the queued Figma AI operation, or the design-gate fix when none is queued, as one undo step through
-/// [`App::run_tx`]. The operations write straight into `app.doc`, so the nodes they may write are recorded in the
-/// transaction before they run, and the prototype flows, which belong to the document and not to a node, go
-/// through their own command. Returns the operation's count when its changes were committed, and `None` when
-/// it changed nothing or the edit was refused (`run_tx` has already said why).
-pub fn run_auto_fix_design_gate(app: &mut App) -> Option<usize> {
+/// [`App::run_tx`]. The prototype flows, which belong to the document and not to a node, go through their own
+/// command.
+pub fn run_auto_fix_design_gate(app: &mut App) -> AutoFixOutcome {
+    let op = take_pending_ai_op();
     let selection = app.selection.clone();
     let page = app.page;
     let mut tx = Tx::new();
-    for id in auto_fix_scope(&app.doc, page, &selection) {
-        tx.ed.touch(&app.doc, id);
-    }
     let flows_before = app.doc.flows.clone();
-    let fixed = auto_fix_design_gate(&mut app.doc, page, &selection);
+    let count = run_recorded(&mut app.doc, &mut tx.ed, page, &selection, op);
     if app.doc.flows != flows_before {
         let flows = std::mem::replace(&mut app.doc.flows, flows_before);
         if let Err(e) = tx.cmd(&mut app.doc, Command::SetFlows { flows }) {
             tx.cancel(&mut app.doc);
             app.show_toast(format!("Edit failed: {e}"), true);
-            return None;
+            return AutoFixOutcome::Refused;
         }
     }
-    app.run_tx(tx).then_some(fixed)
+    // `run_tx` raises a toast for every edit it refuses and none for one that changes nothing, so it starts from
+    // a clear screen: a toast that is there afterwards is its refusal, never an older message.
+    app.toast = None;
+    if app.run_tx(tx) {
+        AutoFixOutcome::Committed { op, count }
+    } else if app.toast.is_some() {
+        AutoFixOutcome::Refused
+    } else {
+        AutoFixOutcome::NoChange
+    }
 }
 
 /// Auto-fixes spacing rhythm (snaps `item_spacing` and `padding` to nearest 4px multiple),
 /// enlarges interactive buttons/inputs `<32px` up to `32px`, and raises `<11px` text to `11px`
-/// (or executes a queued `FigmaAiOp` when triggered from a Figma AI `CmdKAction`).
+/// (or runs `op`, the Figma AI operation the palette queued).
 /// Returns the number of modified nodes.
-pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeId]) -> usize {
-    if let Some(op) = take_pending_ai_op() {
+pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> usize {
+    if let Some(op) = op {
         return match op {
             FigmaAiOp::MakePrototype => auto_wire_prototype_flows(doc, page, selection),
             FigmaAiOp::RenameLayers => auto_rename_layers_semantically(doc, page, selection),
@@ -1661,13 +1699,124 @@ mod tests {
         assert!(report.warnings.iter().any(|w| w.rule == "Token Compliance"));
         assert!(report.warnings.iter().any(|w| w.rule == "Text Readability (>=11px)"));
 
-        let fixed = auto_fix_design_gate(&mut doc, page, &[]);
+        let fixed = auto_fix_design_gate(&mut doc, page, &[], None);
         assert!(fixed >= 2);
 
         let after = run_design_gate_audit(&doc, page, &[]);
         assert!(!after.warnings.iter().any(|w| w.rule == "Spacing Rhythm (4px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Tap Target (>=32px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Text Readability (>=11px)"));
+    }
+
+    /// A page the fixes can change in several places and leave alone in others: a screen with a small button,
+    /// small copy, a generic name and a fractional position; a screen of crisp, well-named shapes; a toolbar on a
+    /// 7px rhythm whose children move when it snaps; and a placeholder text. Returns the layers no operation writes.
+    fn page_with_untouched_layers() -> (Document, NodeId, Vec<NodeId>) {
+        let mut doc = Document::new("Write set");
+        let page = doc.add_page("Page 1");
+
+        let first = doc.alloc_id();
+        let mut frame = Node::frame(first, Rect::new(0.0, 0.4, 320.0, 240.0));
+        frame.name = "Frame 1".into();
+        doc.insert(page, frame).unwrap();
+        let button = doc.alloc_id();
+        let mut btn = Node::frame(button, Rect::new(16.0, 180.0, 140.0, 24.0));
+        btn.name = "Primary Button".into();
+        doc.insert(first, btn).unwrap();
+        let copy = doc.alloc_id();
+        doc.insert(first, Node::text(copy, Rect::new(16.0, 20.0, 120.0, 12.0), "Welcome back", TextStyle { font_size: 9.0, ..TextStyle::default() })).unwrap();
+
+        let second = doc.alloc_id();
+        let mut screen = Node::frame(second, Rect::new(400.0, 0.0, 320.0, 240.0));
+        screen.name = "Onboarding".into();
+        doc.insert(page, screen).unwrap();
+        let card = doc.alloc_id();
+        let mut c = Node::rectangle(card, Rect::new(16.0, 16.0, 100.0, 100.0));
+        c.name = "Card".into();
+        doc.insert(second, c).unwrap();
+        let divider = doc.alloc_id();
+        let mut d = Node::rectangle(divider, Rect::new(16.0, 130.0, 100.0, 2.0));
+        d.name = "Divider".into();
+        doc.insert(second, d).unwrap();
+
+        let toolbar = doc.alloc_id();
+        let mut tb = Node::frame(toolbar, Rect::new(800.0, 0.0, 400.0, 60.0));
+        tb.name = "Toolbar".into();
+        if let Some(fp) = tb.kind.frame_props_mut() {
+            fp.auto_layout = Some(AutoLayout { item_spacing: 7.0, padding: [5.0, 12.0, 5.0, 12.0], ..Default::default() });
+        }
+        doc.insert(page, tb).unwrap();
+        for (name, w) in [("Save Button", 120.0), ("Tail", 40.0)] {
+            let id = doc.alloc_id();
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, w, 24.0));
+            n.name = name.into();
+            doc.insert(toolbar, n).unwrap();
+        }
+        // a saved file already holds an auto-layout frame's children where the layout puts them
+        doc.relayout_subtree(toolbar);
+
+        let placeholder = doc.alloc_id();
+        let mut ph = Node::text(placeholder, Rect::new(0.0, 300.0, 120.0, 20.0), "$0", TextStyle::default());
+        ph.name = "Text 4".into();
+        doc.insert(page, ph).unwrap();
+        (doc, page, vec![card, divider])
+    }
+
+    #[test]
+    fn every_operation_records_exactly_the_nodes_it_writes() {
+        use std::collections::BTreeSet;
+        let ops = [
+            ("design-gate fix", None),
+            ("prototype wiring", Some(FigmaAiOp::MakePrototype)),
+            ("layer rename", Some(FigmaAiOp::RenameLayers)),
+            ("text rewrite", Some(FigmaAiOp::RewriteText(TextAiMode::TranslateVi))),
+            ("content replace", Some(FigmaAiOp::PopulateContent)),
+            ("resolution boost", Some(FigmaAiOp::BoostResolution)),
+        ];
+        for (what, op) in ops {
+            let (mut doc, page, untouched) = page_with_untouched_layers();
+            let before = doc.nodes.clone();
+            let mut ed = Edit::new();
+
+            run_recorded(&mut doc, &mut ed, page, &[], op);
+
+            let changed: BTreeSet<NodeId> = before.iter().filter(|(id, n)| doc.nodes.get(id) != Some(n)).map(|(id, _)| *id).collect();
+            let touched: BTreeSet<NodeId> = ed.touched().into_iter().collect();
+            assert!(!changed.is_empty(), "{what} has something to do on the fixture");
+            let names = |ids: BTreeSet<NodeId>| ids.iter().map(|id| before[id].name.clone()).collect::<Vec<_>>();
+            assert!(
+                changed.is_subset(&touched),
+                "{what} wrote layers it did not record, so undo would miss them: {:?}",
+                names(changed.difference(&touched).copied().collect())
+            );
+            assert_eq!(touched, changed, "{what} recorded layers it never wrote: {:?}", names(touched.difference(&changed).copied().collect()));
+            for id in untouched {
+                assert!(!touched.contains(&id), "{what} recorded the untouched layer {:?}", before[&id].name);
+            }
+        }
+    }
+
+    #[test]
+    fn the_recorded_scope_is_the_selection_unless_nothing_is_selected_or_frames_are_wired() {
+        use std::collections::BTreeSet;
+        let (doc, page, _) = page_with_untouched_layers();
+        let set = |ids: Vec<NodeId>| ids.into_iter().collect::<BTreeSet<_>>();
+        let first = doc.get(page).unwrap().children[0];
+        let first_subtree = set(std::iter::once(first).chain(doc.get(first).unwrap().children.iter().copied()).collect());
+        let whole_page = set(doc.nodes.iter().filter(|(_, n)| !matches!(n.kind, NodeKind::Page { .. })).map(|(id, _)| *id).collect());
+
+        assert_eq!(
+            set(auto_fix_scope(&doc, page, &[first], None)),
+            first_subtree,
+            "a selected screen records that screen and what is in it, not the rest of the page"
+        );
+        assert_eq!(set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::RenameLayers))), first_subtree);
+        assert_eq!(set(auto_fix_scope(&doc, page, &[], None)), whole_page, "with nothing selected the fix walks the whole page");
+        assert_eq!(
+            set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::MakePrototype))),
+            whole_page,
+            "wiring takes every frame of the page when fewer than two are selected"
+        );
     }
 
     #[test]

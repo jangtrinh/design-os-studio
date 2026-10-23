@@ -210,11 +210,82 @@ fn the_toast_follows_the_ux_writing_rules_and_promises_only_what_works() {
     let (mut s, _l) = sim_on_fixable_doc();
     auto_fix(&mut s);
     let toast = toast_text(&s).expect("the fix shows a toast");
-    assert_eq!(toast, "Changes applied · Cmd+Z to undo");
+    assert_eq!(toast, "Spacing and tap targets fixed · Cmd+Z to undo");
     assert!(!toast.contains("(s)") && !toast.contains('('), "no (s) and no parentheses: {toast:?}");
-    assert!(toast.split_whitespace().count() <= 8, "microcopy of about eight words: {toast:?}");
+    let words = toast.split_whitespace().filter(|w| w.chars().any(char::is_alphanumeric)).count();
+    assert!(words <= 8, "microcopy of about eight words, the · separator is not one: {toast:?}");
     s.cmd_key(Key::Z);
     assert!(!s.app().hist.can_undo(), "the promised undo works");
+}
+
+#[test]
+fn every_operation_names_what_it_did_in_its_toast() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    for (row, query, expected) in AI_ROWS {
+        s.shell.app.toast = None;
+        s.shell.app.cmdk.open = true;
+        s.shell.app.cmdk.query = query.into();
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let rect = s.rect_of(row);
+        s.click(rect.center());
+        assert_eq!(toast_text(&s).as_deref(), Some(expected), "{row} says what it did");
+        assert!(s.app().hist.can_undo(), "{row} changed the document, so the promised undo exists");
+        s.cmd_key(Key::Z);
+        s.shell.app.cmdk.open = false;
+        s.shell.app.cmdk.query.clear();
+    }
+    let all: Vec<&str> = AI_ROWS.iter().map(|r| r.2).collect();
+    let mut distinct = all.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(distinct.len(), all.len(), "no two operations share a toast: {all:?}");
+}
+
+#[test]
+fn a_no_op_says_nothing_changed_while_an_older_error_toast_is_still_on_screen() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    auto_fix(&mut s);
+    let undo_label = s.app().hist.peek_undo_label().map(str::to_string);
+    s.shell.app.show_toast("Something else failed", true);
+
+    auto_fix(&mut s);
+
+    let toast = s.app().toast.as_ref().expect("the no-op shows a toast");
+    assert_eq!((toast.text.as_str(), toast.error), ("Nothing changed", false), "the notice replaces the older error");
+    assert_eq!(s.app().hist.peek_undo_label().map(str::to_string), undo_label, "and no step was added");
+}
+
+#[test]
+fn a_fix_in_an_old_version_view_keeps_its_read_only_toast_and_changes_nothing() {
+    let _guard = serialized();
+    let (mut s, _dir) = library_sim();
+    let id = s.app().lib_file.as_ref().unwrap().id.clone();
+    {
+        let app = &mut s.shell.app;
+        let page = app.page;
+        add_fixable_layers(&mut app.doc, page);
+        app.mark_edited_outside_history();
+        app.changed();
+    }
+    wait(&mut s, 2.5);
+    assert!(s.shell.app.save_named_version("before", ""));
+    let n = lib(&s).list_versions(&id).last().expect("the saved version").n;
+    s.shell.app.view_version(n);
+    wait(&mut s, SETTLED);
+    assert!(s.app().history.viewing.is_some(), "an old version is shown read-only");
+    let before = state(&s);
+    s.shell.app.selection.clear();
+    s.shell.app.show_toast("Saved", false);
+
+    auto_fix(&mut s);
+
+    let toast = s.app().toast.as_ref().expect("the refusal shows a toast");
+    assert_eq!((toast.text.as_str(), toast.error), ("Viewing an old version is read-only", true), "the refusal is not turned into a no-op notice");
+    assert_same_state(&state(&s), &before, "a refused fix writes nothing, flows included");
+    assert!(!s.app().hist.can_undo(), "and leaves no undo step");
 }
 
 #[test]
@@ -249,12 +320,12 @@ fn the_fix_lights_the_unsaved_dot_and_autosave_writes_it() {
 }
 
 /// What the Figma AI rows run: each shares the action and the queue, so each must be one exact undo step too.
-const AI_ROWS: [(&str, &str); 5] = [
-    ("cmdk-wire-prototype", "prototype"),
-    ("cmdk-rename-layers", "boost"),
-    ("cmdk-semantic-rename", "semantic"),
-    ("cmdk-translate-vi", "translate"),
-    ("cmdk-populate-content", "replace"),
+const AI_ROWS: [(&str, &str, &str); 5] = [
+    ("cmdk-wire-prototype", "prototype", "Prototype flows wired · Cmd+Z to undo"),
+    ("cmdk-rename-layers", "boost", "Resolution boosted · Cmd+Z to undo"),
+    ("cmdk-semantic-rename", "semantic", "Layers renamed · Cmd+Z to undo"),
+    ("cmdk-translate-vi", "translate", "Text rewritten · Cmd+Z to undo"),
+    ("cmdk-populate-content", "replace", "Content replaced · Cmd+Z to undo"),
 ];
 
 #[test]
@@ -262,7 +333,7 @@ fn every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection() {
     let _guard = serialized();
     let (mut s, l) = sim_on_fixable_doc();
     for selection in [vec![], vec![l.placeholder], vec![l.first_frame]] {
-        for (row, query) in AI_ROWS {
+        for (row, query, _) in AI_ROWS {
             s.shell.app.selection = selection.clone();
             let before = state(&s);
             s.shell.app.cmdk.open = true;
