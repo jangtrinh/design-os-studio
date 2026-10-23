@@ -441,6 +441,9 @@ fn an_open_text_session_is_committed_and_counted() {
 fn an_open_question_asks_for_no_repaint() {
     let (mut s, _d, _path) = external_sim_with(&two_rects());
     make_two_tabs(&mut s);
+    // Opening a file, switching tabs and editing make the canvas draw its tiles again, a few per frame, and a runner with
+    // few cores draws them more slowly than a laptop: the question must open on a window that is idle (see `idle_repaint`).
+    s.settle().expect("a window finishes the work it has after opening a file");
     close_tab_by_click(&mut s, 0);
     assert!(asks_about(&s, "Outside"));
     // A background thread of the window (a file watcher, a scan) can wake it once while the question waits: a wake, not a

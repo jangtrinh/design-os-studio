@@ -196,6 +196,9 @@ fn rewriting_the_same_bytes_under_unsaved_edits_asks_nothing() {
 fn an_open_question_asks_for_no_repaint() {
     let (mut s, _d, path) = external_sim_with(&two_rects());
     edit(&mut s);
+    // Opening a file and editing make the canvas draw its tiles again, a few per frame, and a runner with few cores draws
+    // them more slowly than a laptop: the question must open on a window that is idle (see `idle_repaint`).
+    s.settle().expect("a window finishes the work it has after opening a file");
     rewrite_on_disk(&path, &other_document());
     wait(&mut s, 1.5);
     assert!(conflict_open(&s));
