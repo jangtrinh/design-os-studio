@@ -32,33 +32,79 @@ fn code_key(lang: Language, code: &str) -> u64 {
     h.finish()
 }
 
-/// The sideways offset of the box `r` for this frame: drag, then a mostly sideways wheel or trackpad swipe over it, kept
-/// inside `0..=max_x`. A new code (another layer or language) starts at the first column. Returns the offset and
-/// whether the pointer is using the box.
-fn side_scroll(ui: &Ui, r: Rect, key: u64, max_x: f32) -> (f32, bool) {
+/// Where the code box, its text area and its scroll thumb sit.
+struct SideView {
+    /// The whole box.
+    r: Rect,
+    /// The text area: the box without its side insets.
+    view: Rect,
+    /// How far the code can scroll; 0 when every line fits.
+    max_x: f32,
+    thumb_w: f32,
+}
+
+impl SideView {
+    fn new(r: Rect, view: Rect, content_w: f32) -> Self {
+        let max_x = (content_w - view.width()).max(0.0);
+        // as wide as the share of the code the box shows, but never narrower than a pointer target
+        let thumb_w = (view.width() * view.width() / content_w.max(1.0)).clamp(theme::TARGET_MIN.min(view.width()), view.width());
+        Self { r, view, max_x, thumb_w }
+    }
+
+    /// How far the thumb can travel along the text area.
+    fn travel(&self) -> f32 {
+        self.view.width() - self.thumb_w
+    }
+
+    /// The thumb for the code scrolled to `x`: a bar one 4px step tall with one step of padding above and below it.
+    fn thumb(&self, x: f32) -> Rect {
+        let share = if self.max_x > 0.0 { x / self.max_x } else { 0.0 };
+        let top = self.r.bottom() - theme::SPACE_FACT - theme::SPACE_FACT;
+        Rect::from_min_size(Pos2::new(self.view.left() + self.travel() * share, top), Vec2::new(self.thumb_w, theme::SPACE_FACT))
+    }
+
+    /// The pointer target of the thumb: as wide as the thumb, `TARGET_MIN` tall, reaching from the bottom of the box up
+    /// over the lower part of the last row.
+    fn grab(&self, x: f32) -> Rect {
+        let thumb = self.thumb(x);
+        Rect::from_min_max(Pos2::new(thumb.left(), self.r.bottom() - theme::TARGET_MIN), Pos2::new(thumb.right(), self.r.bottom()))
+    }
+}
+
+/// The sideways offset of the code for this frame, kept inside `0..=max_x`. Dragging the thumb moves it with the pointer,
+/// scaled to the thumb's track; dragging anywhere else on the box pans the code; so does a mostly sideways wheel or
+/// trackpad swipe over it. A new code (another layer or language) starts at the first column. Returns the offset and
+/// whether the pointer is on the thumb.
+fn side_scroll(ui: &Ui, side: &SideView, key: u64) -> (f32, bool) {
     let state_id = Id::new("dev-code-side-scroll");
     let mut x = ui.ctx().data(|d| d.get_temp::<SideScroll>(state_id)).filter(|s| s.code == key).map_or(0.0, |s| s.x);
-    let mut active = false;
-    if max_x > 0.0 {
-        let pan = ui.interact(r, ui.id().with("dev-code-pan"), Sense::drag());
-        if pan.dragged() {
+    let mut on_thumb = false;
+    if side.max_x > 0.0 {
+        let pan = ui.interact(side.r, ui.id().with("dev-code-pan"), Sense::drag());
+        // added after the pan, so it takes the pointer where the two overlap
+        let thumb = ui.interact(side.grab(x), ui.id().with("dev-code-thumb"), Sense::drag());
+        if thumb.dragged() {
+            if side.travel() > 0.0 {
+                x += thumb.drag_delta().x * side.max_x / side.travel();
+            }
+        } else if pan.dragged() {
             x -= pan.drag_delta().x;
         }
         // a mostly vertical swipe belongs to the panel, which scrolls up and down
         let swipe = ui.input(|i| i.smooth_scroll_delta);
-        if ui.rect_contains_pointer(r) && swipe.x.abs() > swipe.y.abs() {
+        if ui.rect_contains_pointer(side.r) && swipe.x.abs() > swipe.y.abs() {
             x -= swipe.x;
         }
-        active = pan.hovered() || pan.dragged();
+        on_thumb = thumb.hovered() || thumb.dragged();
         if pan.dragged() {
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         } else if pan.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
         }
     }
-    x = x.clamp(0.0, max_x);
+    x = x.clamp(0.0, side.max_x);
     ui.ctx().data_mut(|d| d.insert_temp(state_id, SideScroll { code: key, x }));
-    (x, active)
+    (x, on_thumb)
 }
 
 /// The part of the span `s` (starting `left` px from the origin of the painter) that falls inside `view`, with the x it
@@ -82,14 +128,17 @@ pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
     let cw = mono_char_w(ui.painter());
     let rows = highlight::highlight(lang, code);
     let widest = rows.iter().map(|row| highlight::line_len(row)).max().unwrap_or(0);
-    let h = rows.len() as f32 * line_h + 2.0 * inset;
-    let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, h);
+    let content_w = widest as f32 * cw;
+    let box_w = c.w - 2.0 * PAD;
+    // a box with a hidden part keeps one more 4px step under the code, for the thumb and its padding
+    let strip = if content_w > box_w - 2.0 * inset { theme::SPACE_FACT } else { 0.0 };
+    let h = rows.len() as f32 * line_h + 2.0 * inset + strip;
+    let r = c.rect(PAD, 0.0, box_w, h);
     widgets::record(ui, "dev-code-block", r);
     // the code never runs into the box's padding or its rounded corners
     let view = Rect::from_min_max(Pos2::new(r.left() + inset, r.top()), Pos2::new(r.right() - inset, r.bottom()));
-    let content_w = widest as f32 * cw;
-    let max_x = (content_w - view.width()).max(0.0);
-    let (x, active) = side_scroll(ui, r, code_key(lang, code), max_x);
+    let side = SideView::new(r, view, content_w);
+    let (x, on_thumb) = side_scroll(ui, &side, code_key(lang, code));
 
     ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let shown = ui.clip_rect();
@@ -109,13 +158,13 @@ pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
             }
         }
     }
-    if max_x > 0.0 {
-        // how much of the code the box shows, in the padding under the last row
-        let thumb_w = (view.width() * view.width() / content_w).max(theme::TARGET_MIN);
-        let thumb_h = theme::SPACE_FACT;
-        let at = Pos2::new(view.left() + (view.width() - thumb_w) * x / max_x, r.bottom() - theme::INSET_SEGMENT - thumb_h);
-        let color = if active { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY };
-        ui.painter().rect_filled(Rect::from_min_size(at, Vec2::new(thumb_w, thumb_h)), theme::cr(theme::RADIUS_MARK), color);
+    if side.max_x > 0.0 {
+        // how much of the code the box shows, under the last row; it drags like the panel's own scrollbar thumb
+        let thumb = side.thumb(x);
+        widgets::record(ui, "dev-code-thumb", thumb);
+        widgets::record(ui, "dev-code-thumb-grab", side.grab(x));
+        let color = if on_thumb { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY };
+        ui.painter().rect_filled(thumb, theme::cr(theme::RADIUS_MARK), color);
     }
     c.y += h + theme::SPACE_INLINE;
 }

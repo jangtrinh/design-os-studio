@@ -87,11 +87,41 @@ fn right_of(texts: &[Painted], needle: &str) -> f32 {
 
 const XML: &str = "<FrameLayout\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\n    android:layout_width=\"120dp\">\n</FrameLayout>";
 
+/// Height of the code box: a row per line between the control insets, plus one 4px step under the code for the scroll
+/// thumb when a line is wider than the box.
+fn block_height(lines: usize, scrolls: bool) -> f32 {
+    lines as f32 * theme::CODE_LINE_HEIGHT + 2.0 * theme::INSET_CONTROL + if scrolls { theme::SPACE_FACT } else { 0.0 }
+}
+
 /// Block geometry of `code_block` at `PANEL_W`: the box spans `PAD..PANEL_W-PAD` and the text sits one control inset in.
-fn block_inner(lines: usize) -> Rect {
+fn block_inner(lines: usize, scrolls: bool) -> Rect {
     let top = 0.0;
-    let height = lines as f32 * theme::CODE_LINE_HEIGHT + 2.0 * theme::INSET_CONTROL;
-    Rect::from_min_size(Pos2::new(PAD + theme::INSET_CONTROL, top), Vec2::new(PANEL_W - 2.0 * PAD - 2.0 * theme::INSET_CONTROL, height))
+    Rect::from_min_size(Pos2::new(PAD + theme::INSET_CONTROL, top), Vec2::new(PANEL_W - 2.0 * PAD - 2.0 * theme::INSET_CONTROL, block_height(lines, scrolls)))
+}
+
+/// A rect the code box recorded for tests on its last frame.
+fn recorded(b: &Bench, name: &str) -> Option<Rect> {
+    b.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))))
+}
+
+fn button(pos: Pos2, pressed: bool) -> Event {
+    Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }
+}
+
+/// Presses at `from` and drags by `by` in two moves, then releases.
+fn drag_code(b: &mut Bench, from: Pos2, by: Vec2) {
+    draw_code(b, vec![Event::PointerMoved(from)], Language::AndroidXml, XML);
+    draw_code(b, vec![button(from, true)], Language::AndroidXml, XML);
+    draw_code(b, vec![Event::PointerMoved(from + by * 0.5)], Language::AndroidXml, XML);
+    draw_code(b, vec![Event::PointerMoved(from + by)], Language::AndroidXml, XML);
+    draw_code(b, vec![button(from + by, false)], Language::AndroidXml, XML);
+}
+
+fn settle(b: &mut Bench, frames: usize) -> Vec<Painted> {
+    for _ in 1..frames {
+        draw_code(b, vec![], Language::AndroidXml, XML);
+    }
+    draw_code(b, vec![], Language::AndroidXml, XML).0
 }
 
 #[test]
@@ -102,8 +132,8 @@ fn a_code_line_stays_on_one_row_whatever_the_panel_width() {
     let ys: Vec<f32> = texts.iter().map(|p| p.rect.center().y).collect();
     let (lo, hi) = ys.iter().fold((f32::MAX, f32::MIN), |(lo, hi), y| (lo.min(*y), hi.max(*y)));
     assert!(hi - lo < 0.5, "the line broke into several rows: {ys:?}");
-    let block_h = theme::CODE_LINE_HEIGHT + 2.0 * theme::INSET_CONTROL;
-    assert!((height - block_h - 8.0).abs() < 0.01, "one source line is one row: block {block_h}, advanced {height}");
+    let block_h = block_height(1, true);
+    assert!((height - block_h - theme::SPACE_INLINE).abs() < 0.01, "one source line is one row: block {block_h}, advanced {height}");
     // the line is wider than the box and starts at the first column
     assert!(texts.iter().any(|p| p.text.starts_with("background")), "{:?}", texts.iter().map(|p| &p.text).collect::<Vec<_>>());
 }
@@ -111,7 +141,7 @@ fn a_code_line_stays_on_one_row_whatever_the_panel_width() {
 #[test]
 fn a_long_line_scrolls_sideways_with_the_trackpad_and_stops_at_both_ends() {
     let mut b = Bench::new();
-    let inner = block_inner(XML.lines().count());
+    let inner = block_inner(XML.lines().count(), true);
     let centre = Pos2::new(inner.center().x, inner.center().y);
     let (texts, _) = draw_code(&mut b, vec![Event::PointerMoved(centre)], Language::AndroidXml, XML);
     let start = left_of(&texts, "\"http");
@@ -153,7 +183,7 @@ fn a_long_line_scrolls_sideways_with_the_trackpad_and_stops_at_both_ends() {
 #[test]
 fn only_a_mostly_sideways_swipe_over_the_code_scrolls_it() {
     let mut b = Bench::new();
-    let inner = block_inner(XML.lines().count());
+    let inner = block_inner(XML.lines().count(), true);
     let centre = Pos2::new(inner.center().x, inner.center().y);
     let (texts, _) = draw_code(&mut b, vec![Event::PointerMoved(centre)], Language::AndroidXml, XML);
     let start = left_of(&texts, "\"http");
@@ -185,7 +215,7 @@ fn only_a_mostly_sideways_swipe_over_the_code_scrolls_it() {
 #[test]
 fn dragging_the_code_pans_it_sideways() {
     let mut b = Bench::new();
-    let inner = block_inner(XML.lines().count());
+    let inner = block_inner(XML.lines().count(), true);
     let a = Pos2::new(inner.center().x, inner.center().y);
     let (texts, _) = draw_code(&mut b, vec![Event::PointerMoved(a)], Language::AndroidXml, XML);
     let start = left_of(&texts, "\"http");
@@ -201,10 +231,68 @@ fn dragging_the_code_pans_it_sideways() {
 }
 
 #[test]
+fn dragging_the_thumb_moves_it_with_the_pointer_and_scrolls_the_code_by_the_scaled_amount() {
+    let mut b = Bench::new();
+    let inner = block_inner(XML.lines().count(), true);
+    let (texts, _) = draw_code(&mut b, vec![Event::PointerMoved(inner.center())], Language::AndroidXml, XML);
+    // the widest line, in px, is the whole width of the code
+    let column = texts.iter().find(|p| p.text == "FrameLayout").expect("the first tag is painted").rect.width() / "FrameLayout".len() as f32;
+    let content_w = XML.lines().map(|l| l.chars().count()).max().unwrap() as f32 * column;
+    // scroll a little first, so a thumb that runs the wrong way has room to show it
+    draw_code(&mut b, vec![wheel(Vec2::new(-20.0, 0.0))], Language::AndroidXml, XML);
+    let texts = settle(&mut b, 12);
+    let before = left_of(&texts, "\"http");
+    let thumb = recorded(&b, "dev-code-thumb").expect("a box with a hidden part shows a thumb");
+    drag_code(&mut b, thumb.center(), Vec2::new(40.0, 0.0));
+    let texts = settle(&mut b, 4);
+    let moved_thumb = recorded(&b, "dev-code-thumb").unwrap().center().x - thumb.center().x;
+    assert!((moved_thumb - 40.0).abs() < 1.0, "dragging the thumb 40px right moves it 40px right, moved {moved_thumb}");
+    let scrolled = before - left_of(&texts, "\"http");
+    let expected = 40.0 * content_w / inner.width();
+    assert!((scrolled - expected).abs() < 1.5, "the code scrolls toward its end by the scaled amount {expected}, scrolled {scrolled}");
+}
+
+#[test]
+fn the_thumb_has_a_grab_area_of_at_least_24px_and_dragging_elsewhere_still_pans() {
+    let mut b = Bench::new();
+    let inner = block_inner(XML.lines().count(), true);
+    draw_code(&mut b, vec![Event::PointerMoved(inner.center())], Language::AndroidXml, XML);
+    draw_code(&mut b, vec![wheel(Vec2::new(-20.0, 0.0))], Language::AndroidXml, XML);
+    settle(&mut b, 12);
+    let thumb = recorded(&b, "dev-code-thumb").expect("a thumb");
+    let grab = recorded(&b, "dev-code-thumb-grab").expect("the thumb has its own grab area");
+    assert!(grab.height() >= theme::TARGET_MIN && grab.width() >= theme::TARGET_MIN, "grab area {grab:?}");
+    assert!(grab.contains_rect(thumb), "the grab area covers the thumb: {grab:?} vs {thumb:?}");
+    // pressing at the top edge of the grab area, well above the 4px thumb, still takes the thumb
+    drag_code(&mut b, Pos2::new(thumb.center().x, grab.top() + 1.0), Vec2::new(40.0, 0.0));
+    settle(&mut b, 4);
+    let moved = recorded(&b, "dev-code-thumb").unwrap().center().x - thumb.center().x;
+    assert!((moved - 40.0).abs() < 1.0, "the thumb follows a drag that starts on its grab area, moved {moved}");
+    // a drag on the code itself pans it by the pointer, as before
+    let texts = settle(&mut b, 2);
+    let panned_from = left_of(&texts, "\"http");
+    drag_code(&mut b, Pos2::new(inner.center().x, inner.top() + 8.0), Vec2::new(30.0, 0.0));
+    let texts = settle(&mut b, 4);
+    assert!((left_of(&texts, "\"http") - (panned_from + 30.0)).abs() < 1.0, "dragging the code 30px right moves it 30px right");
+}
+
+#[test]
+fn the_scroll_thumb_sits_on_the_four_pixel_rhythm() {
+    let mut b = Bench::new();
+    draw_code(&mut b, vec![], Language::AndroidXml, XML);
+    let block = recorded(&b, "dev-code-block").unwrap();
+    let thumb = recorded(&b, "dev-code-thumb").expect("a thumb");
+    let last_row_bottom = block.top() + theme::INSET_CONTROL + XML.lines().count() as f32 * theme::CODE_LINE_HEIGHT;
+    let (above, below) = (thumb.top() - last_row_bottom, block.bottom() - thumb.bottom());
+    assert_eq!((above, below), (theme::SPACE_FACT, theme::SPACE_FACT), "gaps above and below the thumb, in px");
+    assert_eq!(thumb.height(), theme::SPACE_FACT);
+}
+
+#[test]
 fn code_that_fits_does_not_scroll() {
     let mut b = Bench::new();
     let code = "width: 12px;";
-    let inner = block_inner(1);
+    let inner = block_inner(1, false);
     let (texts, _) = draw_code(&mut b, vec![Event::PointerMoved(inner.center())], Language::Css, code);
     let start = left_of(&texts, "width");
     draw_code(&mut b, vec![wheel(Vec2::new(-80.0, 0.0))], Language::Css, code);
@@ -254,7 +342,7 @@ fn the_dev_inspector_shows_the_code_on_one_row_per_line() {
     let code = s.app().dev_code_for(card, Language::AndroidXml, false);
     scroll_dev_inspector_to(&mut s, 1.0e6);
     let block = s.rect_of("dev-code-block");
-    let expected = code.lines().count() as f32 * theme::CODE_LINE_HEIGHT + 2.0 * theme::INSET_CONTROL;
+    let expected = block_height(code.lines().count(), true);
     assert!((block.height() - expected).abs() < 0.01, "{} lines of code in a box {}px tall, expected {expected}px", code.lines().count(), block.height());
 }
 
