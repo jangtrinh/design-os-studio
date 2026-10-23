@@ -777,10 +777,9 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         }
         PressAction::TextCreate => text_press(app, page),
         PressAction::Nothing => {
+            // The Comment tool does its work on the click, in `comments::pins::process`; the press itself says nothing.
             if app.tool == Tool::Image {
                 place_image(app, page);
-            } else if app.tool == Tool::Comment {
-                app.show_toast("Comments are not available in the offline editor", false);
             }
         }
     }
