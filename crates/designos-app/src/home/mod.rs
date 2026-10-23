@@ -1963,8 +1963,8 @@ mod main_view {
                 "Agent CLI & MCP Server",
                 Icon::Terminal,
                 UI3_ORANGE,
-                "Per-file Claude Code, Codex, Grok & Antigravity + 24 MCP tools",
-                ("Open Agent Terminal", Act::OpenAgents, "home-resource-agents"),
+                "Per-file Claude Code, Codex, Grok, Antigravity & Gemini CLI + the MCP server",
+                ("Open Agents", Act::OpenAgents, "home-resource-agents"),
                 None,
             ),
         ];
@@ -2014,6 +2014,7 @@ mod main_view {
                     p.rect_stroke(b1, theme::cr_pill(b1.height()), Stroke::new(1.0, *accent), StrokeKind::Inside);
                     p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_caption_strong(), Color32::WHITE);
                     widgets::record(ui, btn1_key, b1);
+                    widgets::labelled(ui, r1.id, egui::accesskit::Role::Button, btn1_lbl);
                     if r1.clicked() {
                         acts.push(btn1_act.clone());
                     }
@@ -2022,6 +2023,7 @@ mod main_view {
                     p.rect_stroke(b2, theme::cr_pill(b2.height()), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
                     p.text(b2.center(), Align2::CENTER_CENTER, *btn2_lbl, theme::font_caption_strong(), theme::TEXT);
                     widgets::record(ui, btn2_key, b2);
+                    widgets::labelled(ui, r2.id, egui::accesskit::Role::Button, btn2_lbl);
                     if r2.clicked() {
                         acts.push(btn2_act.clone());
                     }
@@ -2032,6 +2034,7 @@ mod main_view {
                     p.rect_stroke(b1, theme::cr_pill(b1.height()), Stroke::new(1.0, *accent), StrokeKind::Inside);
                     p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_caption_strong(), Color32::WHITE);
                     widgets::record(ui, btn1_key, b1);
+                    widgets::labelled(ui, r1.id, egui::accesskit::Role::Button, btn1_lbl);
                     if r1.clicked() {
                         acts.push(btn1_act.clone());
                     }

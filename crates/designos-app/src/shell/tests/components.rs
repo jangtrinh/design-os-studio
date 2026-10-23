@@ -477,7 +477,7 @@ fn slot_toggles_of_a_second_slot_change_only_that_slot() {
 }
 
 /// Every text run painted last frame.
-fn painted_strings(s: &Sim) -> Vec<String> {
+pub(super) fn painted_strings(s: &Sim) -> Vec<String> {
     fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),

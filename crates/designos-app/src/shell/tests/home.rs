@@ -7,7 +7,7 @@ use designos_doc::Document;
 use designos_library::Library;
 use std::path::PathBuf;
 
-struct TmpDir(PathBuf);
+pub(super) struct TmpDir(PathBuf);
 
 impl TmpDir {
     fn new() -> Self {
@@ -26,7 +26,7 @@ impl Drop for TmpDir {
     }
 }
 
-fn home_sim() -> (Sim, TmpDir) {
+pub(super) fn home_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let s = Sim::with(Options { home: true, library: Some(dir.0.clone()), ..Default::default() });
     (s, dir)
