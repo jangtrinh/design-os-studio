@@ -83,10 +83,17 @@ impl Cards {
         }
     }
 
+    /// Remembers a request as over, so it never gets a card: one held for an items lookup may be resolved, or its turn
+    /// may end, before the lookup answers.
+    pub fn mark_over(&mut self, request_id: &Value) {
+        self.seen.insert(card_key(self.generation, request_id));
+    }
+
     /// The server resolved a request (answered in the terminal, withdrawn, or its turn ended).
     pub fn resolved(&mut self, request_id: &Value) -> Vec<Action> {
         let key = card_key(self.generation, request_id);
         self.live.remove(&key);
+        self.mark_over(request_id);
         vec![Action::Emit(CodexEvent::Resolved { key })]
     }
 

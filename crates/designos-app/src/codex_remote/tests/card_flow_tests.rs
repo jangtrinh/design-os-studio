@@ -102,6 +102,21 @@ fn a_request_whose_item_was_not_seen_asks_for_the_turns_items_once() {
 }
 
 #[test]
+fn a_request_resolved_or_ended_while_its_items_are_looked_up_never_gets_a_card() {
+    for ending in [fixture("request-resolved"), fixture("turn-completed")] {
+        let mut h = joined();
+        h.conn.send(&fixture("mcp-elicitation-request-late"));
+        let list = h.conn.expect("thread/items/list");
+        h.conn.send(&ending);
+        h.conn.reply(&list, fixture("items-list-response.synthetic")["result"].clone());
+        assert!(h.conn.silence().is_empty(), "the reply to the lookup is taken in; no card means no write");
+        click(&h, "cx-7-0", Decision::Approve);
+        assert!(h.conn.silence().is_empty(), "a click on a request that was already over writes nothing");
+        assert!(!std::iter::from_fn(|| h.events.try_recv().ok()).any(|event| matches!(event, CodexEvent::Card(_))), "no card for it either");
+    }
+}
+
+#[test]
 fn a_resolved_request_and_a_finished_turn_remove_their_cards_and_a_late_click_sends_nothing() {
     let mut h = joined();
     h.conn.send(&fixture("item-started-mcp"));
