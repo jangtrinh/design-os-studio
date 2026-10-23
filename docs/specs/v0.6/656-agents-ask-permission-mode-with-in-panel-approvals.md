@@ -78,9 +78,15 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    id from its environment. A file in the session folder, however named, answers nothing and raises no card. The hooks file that
    names the script is just as decisive, and Claude's docs say edits to hooks in settings files are normally picked up as they
    happen. So in Ask mode Claude's `--settings` names `<private folder>/hooks.json` (the tab's `DESIGNOS_CLAUDE_SETTINGS`, mode
-   0600, rewritten at every sync), and the session folder holds no Claude hooks (a leftover `hooks.json` that names the approval hook
-   is removed). With no private folder, Claude gets the inline settings `{}`: none of Studio's hooks, its own terminal prompts. Skip
-   mode keeps `<session>/hooks.json` and its launch strings byte for byte. The hook script puts `/usr/bin:/bin` first on `PATH`. See
+   0600, rewritten at every sync), and Studio writes no Claude hooks into the session folder (a leftover `hooks.json` that names the
+   approval hook is removed). With no private folder, Claude gets the inline settings `{}`: none of Studio's hooks, its own terminal
+   prompts. Skip mode keeps `<session>/hooks.json` and its launch strings byte for byte. On Unix the handler runs `/bin/sh` by path,
+   and the hook script puts `/usr/bin:/bin` first on `PATH`.
+   Claude also loads `<session>/.claude/settings.json` and `settings.local.json` from its working folder; Studio writes neither. Who
+   guards them: Claude's own Write and Edit tools treat `.claude` as a protected path, so a write there is prompted in the `default`
+   and `acceptEdits` modes and `permissions.allow` rules do not pre-approve it (Claude Code, Permission modes, "Protected paths":
+   https://code.claude.com/docs/en/permission-modes). Another runtime's sandbox does not: a sandboxed Codex `workspace-write` command
+   writes both files without a prompt (checked with Codex 0.164.0), and Claude reloads them. That gap is tracked in #1044. See
    `crates/designos-app/src/agent_approval_channel.rs`.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive

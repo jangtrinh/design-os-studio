@@ -323,6 +323,44 @@ fn removing_the_channel_leaves_no_trace() {
     crate::agent_approval_channel::remove_channel(&fx.session);
 }
 
+/// The interpreter of the handler is resolved before the script can pin anything, so on Unix the command names it by path:
+/// a `sh` planted early on `PATH` is not what runs the script.
+#[cfg(unix)]
+#[test]
+fn a_sh_planted_early_on_path_does_not_run_the_approval_handler() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fixture::new("planted-sh");
+    let handler = approval_hook_handler(&fx.script);
+    let command = handler["command"].as_str().unwrap();
+    assert!(command.starts_with("/bin/sh '"), "the handler must run an absolute interpreter: {command}");
+
+    let planted = fx.session.join("planted-bin");
+    std::fs::create_dir_all(&planted).unwrap();
+    let marker = planted.join("ran-sh");
+    let fake = planted.join("sh");
+    std::fs::write(&fake, format!("#!/bin/sh\n: > '{}'\nexec /bin/sh \"$@\"\n", marker.display())).unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // Claude hands the command to a shell, with the `PATH` it has; here that shell is named by path too.
+    let path_env = format!("{}:{}", planted.display(), std::env::var("PATH").unwrap_or_default());
+    let mut child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(command)
+        .env("PATH", path_env)
+        .env("DESIGNOS_TAB_ID", TAB)
+        .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "10000")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(bash_payload("echo hi").to_string().as_bytes()).unwrap();
+    let req = wait_for_request(&fx.tab_dir);
+    write_approval_answer_in_dir(&fx.tab_dir, &req.id, ApprovalDecision::Allow).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(decision_of(&out.stdout)["hookSpecificOutput"]["decision"]["behavior"], "allow", "the flow itself works with that PATH");
+    assert!(!marker.exists(), "a sh planted early on PATH ran the approval handler");
+}
+
 /// The commands the hook runs come from the system folders, whatever the `PATH` it inherits says first: a command planted
 /// in a folder an agent can write, and put ahead on `PATH`, is never run.
 #[cfg(unix)]

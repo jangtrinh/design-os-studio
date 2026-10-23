@@ -92,7 +92,10 @@ pub const CLAUDE_SETTINGS_ENV: &str = "DESIGNOS_CLAUDE_SETTINGS";
 /// The launch command of an agent started in `Ask` mode, from the `Skip` one: [`strip_skip_permission_flags`], and Claude's
 /// hooks come from the Studio-private folder instead of the session folder (see [`claude_settings_value`]).
 pub fn ask_mode_launch_command(skip_cmd: &str) -> String {
-    strip_skip_permission_flags(skip_cmd).replace(SKIP_SETTINGS_ARG, ASK_SETTINGS_ARG)
+    let ask_cmd = strip_skip_permission_flags(skip_cmd).replace(SKIP_SETTINGS_ARG, ASK_SETTINGS_ARG);
+    // The swap above is a text replace: a Skip launch that spelt `--settings` another way would pass through it unchanged.
+    debug_assert!(!ask_cmd.contains("$DESIGNOS_SESSION_DIR/hooks.json"), "an Ask launch names a hooks file in the session folder: {ask_cmd}");
+    ask_cmd
 }
 
 /// The value of Claude's `--settings` for a tab started in `mode`, set as [`CLAUDE_SETTINGS_ENV`]; `None` in Skip mode,
@@ -325,11 +328,15 @@ pub(crate) fn install_hook_script(channel_dir: &Path, session_dir: &Path) -> std
 /// to `APPROVAL_HOOK_TIMEOUT_SECS` for the answer given in the in-panel approval card, and never sets
 /// `permissions.allow` (`#656`). It runs next to the status handler of that group, so the turn status
 /// (`agent-events.jsonl`) still sees the request.
+///
+/// On Unix the interpreter is `/bin/sh` by path: it is looked up on Claude's `PATH` before the script can pin anything,
+/// so a `sh` earlier on that `PATH` would otherwise be the one that runs the script. Windows (Git Bash) keeps `sh`.
 pub fn approval_hook_handler(script_path: &Path) -> serde_json::Value {
     let s = script_path.display().to_string().replace('\'', "'\\''");
+    let interpreter = if cfg!(windows) { "sh" } else { "/bin/sh" };
     serde_json::json!({
         "type": "command",
-        "command": format!("sh '{s}'"),
+        "command": format!("{interpreter} '{s}'"),
         "timeout": APPROVAL_HOOK_TIMEOUT_SECS,
     })
 }
@@ -747,6 +754,23 @@ mod tests {
         remove_stale_session_hooks(&session);
         assert!(!path.exists(), "a hooks file with the approval handler goes");
         let _ = std::fs::remove_dir_all(&session);
+    }
+
+    /// A Skip launch whose `--settings` is spelt some other way is not rewritten by the swap, so the Ask string would keep
+    /// naming the session folder's file: debug builds stop at the source.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "names a hooks file in the session folder")]
+    fn an_ask_launch_that_still_names_the_session_hooks_file_is_caught_in_debug_builds() {
+        ask_mode_launch_command("claude --always-approve --settings $DESIGNOS_SESSION_DIR/hooks.json --mcp-config x");
+    }
+
+    #[test]
+    fn the_approval_handler_names_an_absolute_sh_on_unix_and_sh_on_windows() {
+        let handler = approval_hook_handler(Path::new("/chan/it's/approve-hook.sh"));
+        let expected = if cfg!(windows) { "sh '/chan/it'\\''s/approve-hook.sh'" } else { "/bin/sh '/chan/it'\\''s/approve-hook.sh'" };
+        assert_eq!(handler["command"].as_str(), Some(expected));
+        assert_eq!(handler["timeout"].as_u64(), Some(APPROVAL_HOOK_TIMEOUT_SECS));
     }
 
     #[test]

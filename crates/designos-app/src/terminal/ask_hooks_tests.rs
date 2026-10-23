@@ -149,6 +149,57 @@ fn in_skip_mode_claude_still_reads_hooks_json_in_the_session_folder() {
     finish(dir, st);
 }
 
+/// The command, the files Studio writes and the environment of a tab all follow one reading of the saved mode. A second
+/// read between building the command and choosing the environment could pair an Ask command with a Skip environment (no
+/// `DESIGNOS_CLAUDE_SETTINGS`, so `--settings ""`).
+#[test]
+fn the_permission_mode_is_read_once_per_spawn_and_once_per_resume() {
+    let dir = unique_dir("one-read");
+    write_stub_claude(&dir.join("bin"));
+    save_permission_mode(&dir, AgentPermissionMode::Ask).unwrap();
+    let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    st.bind_library_file(&dir, "file-hooks", &format!("p{}-w1-tab-1", std::process::id()));
+    st.path_prepend.push(dir.join("bin"));
+    let reads = || MODE_READS.with(std::cell::Cell::get);
+
+    let before = reads();
+    st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+    assert_eq!(reads() - before, 1, "a spawn reads the saved mode once");
+
+    let entry = crate::agent_sessions::SessionEntry {
+        tab_id: 99,
+        title: "Claude Code #9".into(),
+        cli: "claude".into(),
+        session_id: Some("11111111-2222-4333-8444-555555555555".into()),
+        created_at: 1,
+        last_active_at: 2,
+        status: crate::agent_sessions::SessionEntryStatus::Exited,
+        extra: Default::default(),
+    };
+    let before = reads();
+    st.resume_session_entry(&entry, None).expect("resume claude");
+    assert_eq!(reads() - before, 1, "a resume reads the saved mode once");
+    finish(dir, st);
+}
+
+/// Skip mode names no `DESIGNOS_CLAUDE_SETTINGS`, and a value Studio's own environment held must not reach the tab either.
+#[test]
+fn a_launch_outside_ask_mode_never_passes_on_a_claude_settings_value_it_inherited() {
+    let inherited = "/agent/writable/evil-hooks.json";
+    let value_in_tab_env = |session: Option<&SessionEnv>| {
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, inherited);
+        configure_pty_env_with_session(&mut cmd, AgentCliPreset::Claude, None, session);
+        cmd.get_env(crate::agent_permissions::CLAUDE_SETTINGS_ENV).map(|v| v.to_string_lossy().into_owned())
+    };
+    let mut env = SessionEnv::for_session_id("inherit");
+    env.claude_settings = None;
+    assert_eq!(value_in_tab_env(Some(&env)), None, "a Skip tab got the inherited value");
+    assert_eq!(value_in_tab_env(None), None, "a tab without a session got the inherited value");
+    env.claude_settings = Some("{}".into());
+    assert_eq!(value_in_tab_env(Some(&env)).as_deref(), Some("{}"), "an Ask tab gets Studio's value, not the inherited one");
+}
+
 #[test]
 fn without_a_private_folder_ask_claude_starts_with_empty_inline_settings() {
     let (dir, st, arg) = crate::agent_approval_channel::without_private_root(|| start_claude("no-root", AgentPermissionMode::Ask));

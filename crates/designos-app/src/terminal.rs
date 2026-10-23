@@ -1423,6 +1423,12 @@ fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>
     }
 }
 
+// How often this thread read the saved permission mode from disk (tests count the reads of one spawn or resume).
+#[cfg(test)]
+thread_local! {
+    static MODE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl TerminalState {
     /// Creates an isolated `TerminalState` bound to document tab `tab_id` of this process
     /// (`/tmp/designos-sessions/p<pid>-tab-{tab_id}`). A window's terminal is bound to its own
@@ -2013,6 +2019,8 @@ impl TerminalState {
     /// Skip never outlives the setting. Without a library the in-memory mode stays.
     fn refresh_permission_mode_from_disk(&mut self) {
         if let Some(root) = self.library_root.as_deref() {
+            #[cfg(test)]
+            MODE_READS.with(|reads| reads.set(reads.get() + 1));
             self.permission_mode = crate::agent_permissions::load_permission_mode(root);
         }
     }
@@ -2896,14 +2904,16 @@ impl TerminalState {
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
     /// For registrable agent CLIs, records a new entry in `sessions.json` (`#653`) and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        // One reading of the saved mode serves the launch command, the session files, the environment and the tab.
         self.refresh_permission_mode_from_disk();
+        let mode = self.permission_mode;
         if crate::agent_sessions::is_agent_cli_preset(preset) {
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
-            let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, self.permission_mode, session_uuid.as_deref());
-            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true)
+            let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, mode, session_uuid.as_deref());
+            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true, mode)
         } else {
-            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false)
+            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false, mode)
         }
     }
 
@@ -2911,11 +2921,17 @@ impl TerminalState {
     /// `login`) instead of the preset's launch command and does not register in `sessions.json`.
     fn spawn_tab_running(&mut self, preset: AgentCliPreset, file_path: Option<&Path>, command: Option<&str>) -> Result<usize, String> {
         match command {
-            Some(cmd) => self.spawn_tab_with_registration(preset, file_path, Some(cmd), None, false, None, false),
+            Some(cmd) => {
+                self.refresh_permission_mode_from_disk();
+                let mode = self.permission_mode;
+                self.spawn_tab_with_registration(preset, file_path, Some(cmd), None, false, None, false, mode)
+            }
             None => self.spawn_tab(preset, file_path),
         }
     }
 
+    /// Starts the tab. `mode` is the permission mode `command` was built for, read once by the caller; it is what the
+    /// session files, the environment and the tab use too, so none of them can follow a later reading of the saved mode.
     #[allow(clippy::too_many_arguments)]
     fn spawn_tab_with_registration(
         &mut self,
@@ -2926,8 +2942,9 @@ impl TerminalState {
         is_resumed: bool,
         custom_title: Option<String>,
         register_new_entry: bool,
+        mode: crate::agent_permissions::AgentPermissionMode,
     ) -> Result<usize, String> {
-        self.refresh_permission_mode_from_disk();
+        self.permission_mode = mode;
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let run_seq = self.next_run_seq.max(1);
@@ -3076,13 +3093,22 @@ impl TerminalState {
 
     fn resume_session_entry(&mut self, entry_clone: &crate::agent_sessions::SessionEntry, file_path: Option<&Path>) -> Result<usize, String> {
         self.refresh_permission_mode_from_disk();
+        let mode = self.permission_mode;
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
-        let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, self.permission_mode)
+        let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, mode)
             .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
 
-        let tab_idx =
-            self.spawn_tab_with_registration(preset, file_path, Some(&cmd_str), entry_clone.session_id.clone(), true, Some(entry_clone.title.clone()), false)?;
+        let tab_idx = self.spawn_tab_with_registration(
+            preset,
+            file_path,
+            Some(&cmd_str),
+            entry_clone.session_id.clone(),
+            true,
+            Some(entry_clone.title.clone()),
+            false,
+            mode,
+        )?;
         let new_tab_id = self.tabs[tab_idx].id as u64;
         if let Some(entry) = self.session_registry.find_entry_mut(entry_clone.tab_id, entry_clone.session_id.as_deref()) {
             entry.tab_id = new_tab_id;
@@ -4856,6 +4882,12 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         // `~/.grok/trusted_folders.toml`.
         cmd.env("GROK_FOLDER_TRUST", "0");
     }
+    // Only an Ask-mode tab carries the private hooks file Studio names; a value Studio's own environment held (or
+    // an earlier tab left) must never reach any other tab, and Skip mode names no such file.
+    match session.and_then(|sess| sess.claude_settings.as_deref()) {
+        Some(settings) => cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings),
+        None => cmd.env_remove(crate::agent_permissions::CLAUDE_SETTINGS_ENV),
+    }
 
     if let Some(sess) = session {
         cmd.env("DESIGNOS_SESSION_DIR", sess.session_dir.as_os_str());
@@ -4870,9 +4902,6 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_TARGET_PAGE_ID", sess.current_page_id.to_string());
         cmd.env("DESIGNOS_TARGET_PAGE_NAME", &sess.current_page_name);
         cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
-        if let Some(settings) = &sess.claude_settings {
-            cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings);
-        }
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
         }
