@@ -142,7 +142,7 @@ impl App {
     /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
     fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
-        let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
+        let applied = op.map_err(|e| style_op_message(&e)).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| style_op_message(&StyleOpError::Doc(e))));
         match applied {
             Ok(()) => {
                 after(self, &mut tx);
@@ -233,9 +233,8 @@ impl App {
     /// Unlinks the effect, grid or text style of `sel`; the nodes keep their values.
     pub fn detach_style_of(&mut self, sel: &[NodeId], prop: StyleProperty) -> bool {
         let op = if prop == StyleProperty::Text {
-            if self.is_new_empty_text(sel) {
-                self.detach_text_style_in_new_box();
-                return true;
+            if let Some(new_box) = self.new_empty_text_id(sel) {
+                return self.detach_text_style_in_new_box(sel, new_box);
             }
             self.end_text_edit_of(sel);
             detach_text_style(&self.doc, sel)
@@ -264,8 +263,8 @@ impl App {
     pub(crate) fn bind_style_variable_in(&mut self, tx: &mut crate::edit::Tx, key: &str, property: &str, var: &str) -> Result<(), String> {
         let op = bind_style_property(&self.doc, key, property, var);
         let linked = linked_style_nodes(&self.doc, key);
-        let cmd = op.map_err(|e| e.to_string())?;
-        tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())?;
+        let cmd = op.map_err(|e| style_op_message(&e))?;
+        tx.cmd(&mut self.doc, cmd).map_err(|e| style_op_message(&StyleOpError::Doc(e)))?;
         for id in linked {
             if size_comes_from_main(&self.doc, id) {
                 continue;
@@ -317,6 +316,17 @@ impl App {
         let mut tx = crate::edit::Tx::new();
         replace_color(&mut self.doc, &mut tx.ed, sel, old, new);
         self.run_tx(tx);
+    }
+}
+
+/// What a refused style change tells the user: plain words, never a layer id.
+fn style_op_message(e: &StyleOpError) -> String {
+    match e {
+        StyleOpError::Doc(DocError::NotFound(_)) => "the layer is gone".into(),
+        StyleOpError::Doc(_) => "the layer cannot change".into(),
+        StyleOpError::WrongNodeKind(_) => "wrong layer type".into(),
+        StyleOpError::NothingToStyle(_) => "nothing to style".into(),
+        other => other.to_string(),
     }
 }
 

@@ -598,7 +598,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 }
             }
             if resp.clicked() && !edit_clicked && !target.is_empty() {
-                app.apply_style(target, &e.key);
+                app.apply_picked_style(target, &e.key);
             }
             pane.y += theme::STYLE_ROW_H;
         }
@@ -648,7 +648,7 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                 }
                 if resp.clicked() && !target.is_empty() {
                     if let Some(key) = app.use_library_style(&s.library_id, &s.key) {
-                        app.apply_style(target, &key);
+                        app.apply_picked_style(target, &key);
                     }
                 }
                 pane.y += theme::STYLE_ROW_H;

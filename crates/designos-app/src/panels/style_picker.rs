@@ -163,8 +163,7 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
         MenuResult::Picked(i) => {
             app.props.style_menu = None;
             match picks.into_iter().nth(i).flatten() {
-                Some(Pick::Apply(style)) if prop == StyleProperty::Text => app.apply_text_style(sel, &style),
-                Some(Pick::Apply(style)) => app.apply_style(sel, &style),
+                Some(Pick::Apply(style)) => app.apply_picked_style(sel, &style),
                 Some(Pick::Create) if prop == StyleProperty::Text => {
                     app.create_text_style_from(sel);
                 }

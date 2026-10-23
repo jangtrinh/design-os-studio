@@ -512,6 +512,152 @@ fn detaching_and_editing_the_style_of_a_new_empty_text_box_never_delete_it() {
     assert_eq!(text_of(&s, id).style.font_size, 16.0, "the box keeps the values");
 }
 
+/// The link and the size of a layer: what a style pick sets.
+fn picked(s: &Sim, id: NodeId) -> (Option<String>, f32) {
+    (link_of(s, id), text_of(s, id).style.font_size)
+}
+
+#[test]
+fn cmd_z_in_a_new_box_takes_back_the_picked_style_and_its_link_together() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    let start = text_of(&s, id).style;
+    // The second row is the demo file's Heading/Large: 32 px.
+    pick(&mut s, BUTTON, 1, 0);
+    assert_eq!(picked(&s, id), (Some("Heading/Large".into()), 32.0));
+    s.cmd_key(Key::Z);
+    assert!(s.app().canvas.text.is_some(), "the undo stays inside the session");
+    assert_eq!(link_of(&s, id), None, "the link goes with the values");
+    assert_eq!(text_of(&s, id).style, start, "and the values are the ones the box had");
+    redo(&mut s);
+    assert_eq!(picked(&s, id), (Some("Heading/Large".into()), 32.0), "redo brings both back");
+}
+
+#[test]
+fn two_picks_undo_one_at_a_time_and_the_committed_box_matches_its_link() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    pick(&mut s, BUTTON, 0, 0);
+    pick(&mut s, BUTTON, 1, 0);
+    assert_eq!(picked(&s, id), (Some("Heading/Large".into()), 32.0));
+    s.cmd_key(Key::Z);
+    assert_eq!(picked(&s, id), (Some("Body/Regular".into()), 16.0), "one undo gives the first style with its link");
+    s.type_text("a");
+    s.key(Key::Escape);
+    let t = text_of(&s, id);
+    assert_eq!(t.content, "a");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    assert_eq!(t.style, TextStyle { fills: t.style.fills.clone(), ..style_of(&s, "Body/Regular").clone() }, "the box is what its style says");
+}
+
+fn preedit(s: &mut Sim, text: &str) {
+    s.frame(vec![Event::Ime(egui::ImeEvent::Preedit { text: text.into(), active_range_chars: None })]);
+}
+
+#[test]
+fn a_composition_in_a_new_box_is_not_text_so_applying_a_style_keeps_the_box() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    preedit(&mut s, "vie");
+    assert_eq!(text_of(&s, id).content, "vie");
+    assert!(s.app().canvas.text.as_ref().is_some_and(|t| t.preedit.is_some()), "the composition is under way");
+    pick(&mut s, BUTTON, 0, 0);
+    assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some(), "the box and its session stay");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    // The composition goes on, and what it ends in takes the style.
+    s.frame(vec![Event::Ime(egui::ImeEvent::Commit("việt".into()))]);
+    let t = text_of(&s, id);
+    assert_eq!((t.content.as_str(), t.style.font_size), ("việt", 16.0));
+}
+
+#[test]
+fn a_composition_in_a_new_box_leaves_create_off_with_its_reason() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    preedit(&mut s, "vie");
+    let row = style_picker::create_style_row(s.app(), &[id], StyleProperty::Text);
+    assert!(row.disabled);
+    assert_eq!(row.tooltip, TYPE_FIRST);
+    assert_eq!(s.shell.app.create_style_from(id, StyleProperty::Text), None);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some(TYPE_FIRST), "no layer id, and nothing deleted");
+    assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some());
+}
+
+#[test]
+fn no_style_toast_shows_a_layer_id() {
+    let mut s = Sim::new();
+    let hero = s.by_name("Hero");
+    let toast = |s: &Sim| s.app().toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    // A layer that is gone, one of the wrong kind, and one with nothing to turn into a style.
+    s.shell.app.detach_style_of(&[NodeId(99_999)], StyleProperty::Text);
+    assert_eq!(toast(&s), "Style not changed: the layer is gone");
+    s.shell.app.create_style_from(hero, StyleProperty::Text);
+    assert_eq!(toast(&s), "Style not changed: wrong layer type");
+    s.shell.app.create_style_from(hero, StyleProperty::Effect);
+    assert_eq!(toast(&s), "Style not changed: nothing to style");
+}
+
+#[test]
+fn a_new_box_selected_with_another_layer_styles_and_detaches_both() {
+    let mut s = Sim::new();
+    let other = s.by_name("Continue");
+    let id = new_text_box(&mut s);
+    s.shell.app.selection = vec![id, other];
+    redraw(&mut s);
+    let depth = s.app().hist.undo_depth();
+    pick(&mut s, BUTTON, 0, 0);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    assert_eq!(link_of(&s, other).as_deref(), Some("Body/Regular"), "the other layer is styled too");
+    assert_eq!(text_of(&s, other).style.font_weight, 400);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "as a step of its own: the box is not in the history yet");
+    assert!(s.app().canvas.text.is_some());
+    s.frame(vec![]);
+    let detach = s.rect_of("text-style-detach");
+    s.click(detach.center());
+    assert_eq!((link_of(&s, id), link_of(&s, other)), (None, None), "both are detached");
+    assert_eq!(s.app().hist.undo_depth(), depth + 2);
+    assert!(s.app().canvas.text.is_some() && s.app().doc.get(id).is_some());
+}
+
+#[test]
+fn the_styles_list_styles_a_new_box_inside_its_session() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    let depth = s.app().hist.undo_depth();
+    s.scroll_inspector_down();
+    let row = s.rect_of("style:Body/Regular");
+    s.click(row.center());
+    assert!(s.app().canvas.text.is_some() && s.app().doc.get(id).is_some(), "the box and its session stay");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    assert_eq!(s.app().hist.undo_depth(), depth, "no document step is recorded for a box that is not committed");
+    s.key(Key::Escape);
+    assert!(s.app().doc.get(id).is_none(), "an empty new box goes when editing ends");
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), None, "there is nothing to undo, and nothing is said about a layer");
+}
+
+#[test]
+fn the_styles_list_ends_a_text_session_before_it_applies_a_style() {
+    let mut s = Sim::with(Options { select: Some("Continue".into()), ..Default::default() });
+    let id = s.by_name("Continue");
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    let end = text_of(&s, id).content.len();
+    {
+        let sess = s.shell.app.canvas.text.as_mut().unwrap();
+        sess.caret = end;
+        sess.anchor = end;
+    }
+    crate::canvas::textsession::insert_text(&mut s.shell.app, "!", crate::textedit::EditKind::Typing);
+    let depth = s.app().hist.undo_depth();
+    s.scroll_inspector_down();
+    let row = s.rect_of("style:Body/Regular");
+    s.click(row.center());
+    assert!(s.app().canvas.text.is_none(), "the session ends first");
+    assert_eq!(text_of(&s, id).content, "Continue!");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    assert_eq!(s.app().hist.undo_depth(), depth + 2, "the typing is one step and the style another");
+}
+
 /// "Continue" and "Welcome back" selected with the same type.
 fn two_alike_layers() -> (Sim, NodeId, NodeId) {
     let (mut s, a) = bare_sim("Continue");
