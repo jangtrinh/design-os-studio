@@ -1,0 +1,33 @@
+{
+  "method": "mcpServer/elicitation/request",
+  "id": 0,
+  "params": {
+    "threadId": "11111111-1111-4111-8111-111111111111",
+    "turnId": "22222222-2222-4222-8222-222222222222",
+    "serverName": "designos",
+    "mode": "form",
+    "_meta": {
+      "codex_approval_kind": "mcp_tool_call",
+      "persist": [
+        "session",
+        "always"
+      ],
+      "tool_description": "Start a blank document with one page. Unsaved changes require discard_changes=true.",
+      "tool_params": {
+        "name": "spike930"
+      },
+      "tool_params_display": [
+        {
+          "name": "name",
+          "value": "spike930",
+          "display_name": "name"
+        }
+      ]
+    },
+    "message": "Allow the designos MCP server to run tool \"designos_new_document\"?",
+    "requestedSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}
