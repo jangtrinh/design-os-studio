@@ -1030,7 +1030,15 @@ impl Session {
                     .and_then(|_| file.sync_all())
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Cannot write .fig file: {e}")))?;
                 *files_created += 1;
-                Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true, "omitted_extensions": omitted}))
+                // A `.fig` has no place for comments: the result says how many threads this file left out.
+                Ok(json!({
+                    "output_path": path,
+                    "path": path,
+                    "bytes": bytes.len(),
+                    "saved": true,
+                    "omitted_extensions": omitted,
+                    "omitted_comment_threads": self.engine.doc.comments.len(),
+                }))
             }
             _ => {
                 if matches!(name, "designos_undo" | "designos_redo") && self.history_dropped && self.strict_history_dropped {

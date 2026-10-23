@@ -904,7 +904,15 @@ impl Engine {
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
                     .map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Failed to export .fig: {e}")))?;
                 std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot write .fig file: {e}")))?;
-                Ok(json!({"output_path": a.output_path, "path": a.output_path, "bytes": bytes.len(), "saved": true, "omitted_extensions": omitted}))
+                // A `.fig` has no place for comments: the result says how many threads this file left out.
+                Ok(json!({
+                    "output_path": a.output_path,
+                    "path": a.output_path,
+                    "bytes": bytes.len(),
+                    "saved": true,
+                    "omitted_extensions": omitted,
+                    "omitted_comment_threads": self.doc.comments.len(),
+                }))
             }
             "designos_query_xpath" | "query_nodes" => {
                 self.settle_layout();
@@ -2487,6 +2495,21 @@ mod tests {
             e.call(tool, args).unwrap();
             assert_settled(&e, last, tool);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_fig_file_reports_the_comment_threads_a_fig_leaves_out() {
+        let dir = std::env::temp_dir().join(format!("designos_engine_fig_comments_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut e = Engine::default();
+        let none = e.call("designos_export_fig_file", json!({"output_path": dir.join("none.fig").to_str().unwrap()})).unwrap();
+        assert_eq!(none["omitted_comment_threads"], 0);
+        e.call("designos_add_comment", json!({"text": "Make this bigger"})).unwrap();
+        e.call("designos_add_comment", json!({"text": "And this one"})).unwrap();
+        let two = e.call("designos_export_fig_file", json!({"output_path": dir.join("two.fig").to_str().unwrap()})).unwrap();
+        assert_eq!(two["omitted_comment_threads"], 2);
+        assert_eq!(e.doc.comments.len(), 2, "the session keeps its comments");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
