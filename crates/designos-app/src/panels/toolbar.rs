@@ -331,10 +331,7 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
                         app.set_tool(Tool::Move);
                     }
                 }
-                _ => {
-                    app.ui.dev_mode = true;
-                    app.ui.right_tab = Some(crate::app::RightTab::Design);
-                }
+                _ => app.set_dev_mode(true),
             }
         }
     }
@@ -468,8 +465,7 @@ fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
     p.rect_filled(toggle_r, theme::cr(theme::RADIUS_CONTROL), if toggle_resp.hovered() { Color32::from_rgb(0x22, 0xD4, 0x89) } else { dev_green });
     icons::paint(&p, Icon::Dev, toggle_r.center(), 16.0, Color32::WHITE);
     if toggle_resp.on_hover_text("Exit Dev Mode   Shift+D").clicked() {
-        app.ui.dev_mode = false;
-        app.ui.right_tab = Some(crate::app::RightTab::Design);
+        app.set_dev_mode(false);
     }
 }
 

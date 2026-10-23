@@ -909,6 +909,8 @@ impl Shell {
             Key::W if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Top)),
             Key::S if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Bottom)),
             Key::D if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Right)),
+            // A board has no `</>` button and no Inspect panel, so it has no Dev Mode to switch.
+            Key::D if m.shift && !m.alt && !app.is_board() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
