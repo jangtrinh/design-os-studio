@@ -314,7 +314,7 @@ fn a_document_with_no_file_and_no_library_asks_to_save_first() {
 fn the_toast_says_what_the_format_could_not_carry_without_a_parenthesised_count() {
     let mut app = App::new(doc_named("Notes"));
     for (omitted_keys, tail) in [(0, ""), (1, ". 1 extension key not carried"), (4, ". 4 extension keys not carried")] {
-        app.show_fig_export_result(Ok(Exported { path: PathBuf::from("/exports/Notes.fig"), omitted_keys }));
+        app.show_fig_export_result(Ok(Exported { path: PathBuf::from("/exports/Notes.fig"), omitted_keys, omitted_comment_threads: 0 }));
         assert_eq!(app.toast.as_ref().unwrap().text, format!("Exported .fig to /exports/Notes.fig{tail}"));
     }
 }

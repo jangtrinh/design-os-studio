@@ -2215,9 +2215,12 @@ impl App {
                     0
                 };
                 let fig_note = if fig_omitted == 0 { String::new() } else { format!(" ({fig_omitted} extension keys not carried)") };
+                // One toast per save: a `.fig` or `.pen` save tells again each time, because each one leaves the comments out again.
+                let comments_left_out = io::comment_threads_left_out(&self.doc, &p) > 0;
+                let comments_note = if comments_left_out { format!(". {}", io::COMMENTS_ONLY_IN_NATIVE_NOTICE) } else { String::new() };
                 match notice {
-                    Some(w) => self.show_toast(format!("Saved {} ({w}){fig_note}", p.display()), true),
-                    None => self.show_toast(format!("Saved {}{fig_note}", p.display()), false),
+                    Some(w) => self.show_toast(format!("Saved {} ({w}){fig_note}{comments_note}", p.display()), true),
+                    None => self.show_toast(format!("Saved {}{fig_note}{comments_note}", p.display()), comments_left_out),
                 }
                 if self.lib_file.is_none() {
                     if let Some(old) = self.file_path.replace(p.clone()) {

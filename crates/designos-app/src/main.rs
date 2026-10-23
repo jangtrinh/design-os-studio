@@ -379,7 +379,14 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     if let Some(out_path) = &opts.export_fig {
         let (bytes, omitted) = designos_fig::export_fig_with_report(&doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
         cli_export_write::write_export(out_path, "fig", &bytes, opts.overwrite)?;
-        let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len(), "omitted_extensions": omitted });
+        // A `.fig` has no place for comments: say how many threads this file left out (the native format keeps them).
+        let out = serde_json::json!({
+            "exported_fig": true,
+            "path": out_path,
+            "bytes": bytes.len(),
+            "omitted_extensions": omitted,
+            "omitted_comment_threads": doc.comments.len(),
+        });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 

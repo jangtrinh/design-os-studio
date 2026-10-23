@@ -11,6 +11,8 @@ pub struct Exported {
     pub path: PathBuf,
     /// Extension keys of the document that the `.fig` format cannot carry.
     pub omitted_keys: usize,
+    /// Comment threads of the exported document, which the `.fig` format has no place for.
+    pub omitted_comment_threads: usize,
 }
 
 /// Writes `doc` as `<dir>/<stem>.fig`, or `<stem> 2.fig`, `<stem> 3.fig`, ... when that name is taken.
@@ -23,7 +25,8 @@ pub fn export_new(doc: &Document, dir: &Path, stem: &str) -> Result<Exported, St
     let clean = designos_export::sanitize_file_name(stem);
     let stem = if stem.trim().is_empty() || clean.trim_matches('_').is_empty() { "Untitled" } else { clean.as_str() };
     let path = crate::io::write_new_in(dir, &format!("{stem}.fig"), &bytes).map_err(|e| format!("cannot write to {}: {e}", dir.display()))?;
-    Ok(Exported { path, omitted_keys: omitted.len() })
+    let omitted_comment_threads = crate::io::comment_threads_left_out(doc, &path);
+    Ok(Exported { path, omitted_keys: omitted.len(), omitted_comment_threads })
 }
 
 impl App {
@@ -52,7 +55,13 @@ impl App {
                     1 => ". 1 extension key not carried".to_string(),
                     n => format!(". {n} extension keys not carried"),
                 };
-                self.show_toast_with_reveal(format!("Exported .fig to {}{note}", done.path.display()), done.path);
+                let comments_left_out = done.omitted_comment_threads > 0;
+                let comments_note = if comments_left_out { format!(". {}", crate::io::COMMENTS_ONLY_IN_NATIVE_NOTICE) } else { String::new() };
+                self.show_toast_with_reveal(format!("Exported .fig to {}{note}{comments_note}", done.path.display()), done.path);
+                // Comments left out are a warning, the same flag a save to `.fig` raises.
+                if let Some(toast) = self.toast.as_mut().filter(|_| comments_left_out) {
+                    toast.error = true;
+                }
             }
             Err(e) => self.show_toast(format!("Export .fig failed: {e}"), true),
         }
@@ -84,5 +93,7 @@ pub fn reveal_file(file: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod comment_notice_tests;
 #[cfg(test)]
 mod tests;

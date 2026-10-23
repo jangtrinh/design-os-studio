@@ -1,5 +1,7 @@
 //! Opening and saving documents.
 
+#[cfg(test)]
+mod comments_in_saved_files_tests;
 mod dialog_probe;
 mod fallback_save;
 mod file_dialog;
@@ -330,11 +332,48 @@ pub fn writes_native_format(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(NATIVE_EXT))
 }
 
+/// What a save or export of a document that has comments tells the user when the file cannot keep them.
+pub const COMMENTS_ONLY_IN_NATIVE_NOTICE: &str = "Comments are kept only in .designos files";
+
+/// The writer [`save_path_counted`] picks for a path: the extension decides, case-insensitively. Anything that is
+/// not `.fig` or `.pen` is written by the native writer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SaveFormat {
+    Native,
+    Fig,
+    Pen,
+}
+
+fn save_format(path: &Path) -> SaveFormat {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext.eq_ignore_ascii_case("fig") {
+        SaveFormat::Fig
+    } else if ext.eq_ignore_ascii_case("pen") {
+        SaveFormat::Pen
+    } else {
+        SaveFormat::Native
+    }
+}
+
+/// How many comment threads a save of `doc` to `path` leaves out of the file: every thread (resolved ones too) for
+/// a `.fig` or `.pen`, whose writers have no place for comments, none for the native writer. A path without an
+/// extension is written natively, as [`save_path_counted`] does.
+pub fn comment_threads_left_out(doc: &Document, path: &Path) -> usize {
+    match save_format(path) {
+        SaveFormat::Fig | SaveFormat::Pen => doc.comments.len(),
+        SaveFormat::Native => 0,
+    }
+}
+
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
+/// This is the headless save (the Agent CLI), so what the file leaves out goes to stderr.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     let (p, replaced) = save_path_counted(doc, path)?;
     if replaced > 0 {
         eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
+    }
+    if comment_threads_left_out(doc, &p) > 0 {
+        eprintln!("designos: {}: {COMMENTS_ONLY_IN_NATIVE_NOTICE}", p.display());
     }
     Ok(p)
 }
@@ -347,15 +386,17 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
         p.set_extension(NATIVE_EXT);
     }
     let mut replaced = 0;
-    let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
-        let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
-        bytes
-    } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
-        designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
-    } else {
-        let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
-        replaced = n;
-        json.into_bytes()
+    let payload = match save_format(&p) {
+        SaveFormat::Fig => {
+            let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
+            bytes
+        }
+        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes(),
+        SaveFormat::Native => {
+            let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
+            replaced = n;
+            json.into_bytes()
+        }
     };
 
     let wrote_backup = write_pending_repair_backup(&p)?;
