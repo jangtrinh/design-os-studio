@@ -6,7 +6,7 @@
 //! scratch document positioned at the expanded origin and drawn with
 //! `render_page` instead.
 
-use crate::bounds::render_bounds;
+use crate::bounds::try_render_bounds;
 use designos_doc::{Affine, Color, Document, Node, NodeId, NodeKind, PaintKind, Rect, Vec2};
 use designos_render::{checked_pixmap_size, render_node, render_page, Viewport};
 use std::collections::BTreeSet;
@@ -83,9 +83,10 @@ pub fn render_export(doc: &Document, node: NodeId, scale: f32) -> Option<Pixmap>
     let n = designos_doc::resolve_node(doc, doc.get(node)?);
     let scale = scale.clamp(0.01, 32.0);
     let is_page = matches!(n.kind, NodeKind::Page { .. });
-    let b = render_bounds(doc, node);
+    let is_group = matches!(n.kind, NodeKind::Group);
+    let b = try_render_bounds(doc, node)?;
     let nominal = Rect::new(0.0, 0.0, n.size.x, n.size.y);
-    if !is_page && b == nominal {
+    if !is_page && !is_group && b == nominal {
         return render_node(doc, node, scale);
     }
     let (w, h) = checked_pixmap_size(b.w * scale, b.h * scale)?;
