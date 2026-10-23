@@ -524,6 +524,13 @@ impl Engine {
                 };
                 let id = n.id;
                 self.check_owned_frames(id, "/node_id")?;
+                if designos_doc::is_linked(n) && !designos_doc::is_top_instance(n) && !designos_doc::is_instance_slot(&self.doc, former_parent) {
+                    return Err(ToolError::new(
+                        ErrorCode::FieldNotAllowedOnInstance,
+                        "/node_id",
+                        "layers inside an instance cannot be deleted; hide the layer or edit an instance slot instead",
+                    ));
+                }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture(&self.doc, &[former_parent], &self.session_options.issues, a.lint, self.lint_env());
@@ -3487,6 +3494,29 @@ mod tests {
         designos_doc::sync_instances(&mut e.doc, comp_id).apply(&mut e.doc).unwrap();
 
         assert!(e.doc.get(inst_slot).unwrap().children.is_empty(), "synced instance slot must stay empty after default mirror was deleted");
+    }
+
+    #[test]
+    fn mcp_delete_rejects_a_linked_instance_child() {
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+        let component_id = e.doc.alloc_id();
+        let mut component = Node::new(component_id, NodeKind::Component(designos_doc::FrameProps::default()));
+        component.name = "Card".into();
+        e.doc.insert(page, component).unwrap();
+        let child_id = e.doc.alloc_id();
+        e.doc.insert(component_id, Node::rectangle(child_id, Rect::new(0.0, 0.0, 80.0, 24.0))).unwrap();
+        designos_doc::create_instance(&mut e.doc, component_id, page, Vec2::new(160.0, 0.0)).apply(&mut e.doc).unwrap();
+        let instance_id = designos_doc::instances_of(&e.doc, component_id)[0];
+        let instance_child = e.doc.get(instance_id).unwrap().children[0];
+        let before = e.doc.to_json().unwrap();
+
+        let err = e.call("designos_delete_node", json!({"node_id": instance_child.0})).unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::FieldNotAllowedOnInstance);
+        assert!(err.message.contains("instance"), "{err}");
+        assert_eq!(e.doc.to_json().unwrap(), before);
+        assert!(!e.history.can_undo(), "a rejected delete must not create history");
     }
 
     #[test]
