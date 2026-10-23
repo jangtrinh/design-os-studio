@@ -1133,6 +1133,7 @@ mod gpu_screenshot_wait;
 mod grid_track_editing;
 mod history;
 mod home;
+mod home_agents_card;
 mod idle_repaint;
 mod layer_drag_fast;
 #[cfg(target_os = "macos")]
