@@ -14,7 +14,8 @@
 # Optional: DESIGNOS_PROOF_OUT (default docs/images) is the output folder, and
 # DESIGNOS_PROOF_ONLY="designos-hero,v0.3/text-wrap-balance" re-captures only those names.
 # The designos-agents-chat step starts a live agent session; leave it out of ONLY to skip it.
-# Captures that need an edited kit (agent spec, wrap, balanced text) edit a temporary copy.
+# Captures that need an edited kit (interaction editor, agent spec, wrap, balanced text) edit a
+# temporary copy.
 
 set -euo pipefail
 
@@ -59,7 +60,7 @@ capture() {
   echo "==> $file"
   for attempt in 1 2 3; do
     rm -f "$file"
-    if "$BIN" ${doc:+"$doc"} "$@" --scale 2 --screenshot "$file" && [[ -s "$file" ]]; then
+    if "$BIN" ${doc:+"$doc"} "$@" --scale "${CAPTURE_SCALE:-2}" --no-toast --screenshot "$file" && [[ -s "$file" ]]; then
       return 0
     fi
     echo "    attempt $attempt did not produce $file" >&2
@@ -68,21 +69,46 @@ capture() {
   exit 1
 }
 
-CHART='Line and bar chart'
+DASHBOARD='Desktop'  # the kit's 1440 x 960 dashboard screen (lowest id top-level frame of that name)
 
-capture designos-hero "$DOC" --select "$CHART" --zoom 20 --size 1440x900
+capture designos-hero "$DOC" --select "$DASHBOARD" --zoom 55 --size 1440x900
 want designos-hero && cp "$OUT/designos-hero.png" "$OUT/cover.png"
 capture designos-agents-chat "$DOC" --select "Avatar group" --zoom 100 --panel agents-chat --size 1440x900
-capture designos-assets-panel "$DOC" --select "$CHART" --zoom 20 --panel assets --size 1440x900
-capture designos-actions-cmdk "$DOC" --select "$CHART" --zoom 20 --panel cmdk --size 1440x900
+capture designos-assets-panel "$DOC" --select "$DASHBOARD" --zoom 55 --panel assets --size 1440x900
+capture designos-actions-cmdk "$DOC" --select "$DASHBOARD" --zoom 55 --panel cmdk --size 1440x900
 capture designos-devmode "$DOC" --select "Avatar group" --zoom 100 --dev react --size 1440x900
 capture designos-variables "$DOC" --panel variables --size 1440x900
 capture designos-components "$DOC" --select "Buttons/Button" --zoom 35 --size 1440x900
-capture designos-main-menu "$DOC" --select "$CHART" --zoom 20 --menu main --size 1440x900
+capture designos-main-menu "$DOC" --select "$DASHBOARD" --zoom 55 --menu main --size 1440x900
 capture designos-color-picker "$DOC" --select "Theme=Gradient strip, Lines=False" --zoom 150 --panel picker-gradient --size 1440x900
 capture designos-overview "$DOC" --select none --rulers --size 1440x900
-# The Prototype tab of a kit component that carries an interaction.
-capture designos-prototype "$DOC" --select "State=Open inactive filter, Orientation=Left aligned" --zoom 120 --tab prototype --size 1440x900
+# The interaction editor of the one kit component that carries an interaction (On click, Scroll to
+# Button). `--panel interaction` opens the editor on the layer named "Add", and the kit has none, so
+# a temporary copy renames that component to "Add"; the interaction itself is the kit's own.
+INTERACTION_DOC="$WORK/kit-interaction.designos"
+if want designos-prototype; then
+  python3 - "$DOC" "$INTERACTION_DOC" <<'PY'
+import re, sys
+src, dst = sys.argv[1:3]
+data = open(src, "rb").read()
+needle = b'"name":"State=Open inactive filter, Orientation=Left aligned"'
+node = re.compile(rb'"(\d+)":\{"id":\1,')
+pos = 0
+while True:
+    at = data.find(needle, pos)
+    if at < 0:
+        sys.exit("error: the document is not the Untitled UI PRO v8.0 kit (the component with the interaction was not found)")
+    starts = list(node.finditer(data, max(0, at - 400), at))
+    begin = starts[-1].start() if starts else -1
+    following = node.search(data, at + len(needle), at + 12000)
+    layer = data[begin:following.start() if following else at + 12000]
+    if begin >= 0 and b'"reactions":[{' in layer:
+        break
+    pos = at + 1
+open(dst, "wb").write(data[:at] + b'"name":"Add"' + data[at + len(needle):])
+PY
+fi
+capture designos-prototype "$INTERACTION_DOC" --select "Add" --panel interaction --tab prototype --zoom 150 --size 1440x900
 
 # Home: the kit copy stored as a project of a temporary library (a symlink, nothing is copied).
 # The app skips thumbnails for files over 25,000 nodes, so the card shows the generic file icon.
@@ -137,8 +163,11 @@ fi
 capture designos-agent-spec "$SPEC_DOC" --select "Metric group (from NodeSpec)" --zoom 100 --size 1440x900
 
 capture v0.3/auto-layout-space-evenly-vertical-wrap "$SPEC_DOC" --select "Badges (space-evenly wrap)" --zoom 200 --size 1440x900
-capture v0.3/dev-mode-android-xml "$DOC" --select "Olivia Rhye" --zoom 300 --dev android-xml --size 1080x1040
-capture v0.3/dev-mode-uikit "$DOC" --select "Olivia Rhye" --zoom 300 --dev uikit --size 1080x1040
+# Dev Mode shots: the Code section sits far down the inspector. A window taller than the display
+# (about 1040 points on a 1080p one) is clamped and the PNG silently resized, so these use scale 1.5
+# on a 1340 point layout (a 1005 point window, a 1620 x 2010 PNG) and show about 25 lines of code.
+CAPTURE_SCALE=1.5 capture v0.3/dev-mode-android-xml "$DOC" --select "Cards" --zoom 120 --dev android-xml --size 1080x1340
+CAPTURE_SCALE=1.5 capture v0.3/dev-mode-uikit "$DOC" --select "Cards" --zoom 120 --dev uikit --size 1080x1340
 # The effect style picker of a kit shadow card, and the grid style picker of a kit MacBook Pro frame.
 capture v0.3/styles-edit-effect-style "$DOC" --select "_Shadow card" --zoom 100 --panel effect-styles --size 1440x900
 capture v0.3/styles-effect-and-grid-styles "$DOC" --select "MacBook Pro" --zoom 50 --panel grid-styles --size 1440x900
