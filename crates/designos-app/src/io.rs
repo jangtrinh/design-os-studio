@@ -333,7 +333,7 @@ pub fn writes_native_format(path: &Path) -> bool {
 }
 
 /// What a save or export of a document that has comments tells the user when the file cannot keep them.
-pub const COMMENTS_ONLY_IN_NATIVE_NOTICE: &str = "Comments are kept only in .designos files";
+pub const COMMENTS_ONLY_IN_NATIVE_NOTICE: &str = "Comments left out: only .designos files keep them";
 
 /// The writer [`save_path_counted`] picks for a path: the extension decides, case-insensitively. Anything that is
 /// not `.fig` or `.pen` is written by the native writer.

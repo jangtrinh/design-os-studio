@@ -5,7 +5,7 @@ use super::*;
 use crate::app::App;
 use designos_doc::{CommentThread, Document, Vec2};
 
-const NOTICE: &str = "Comments are kept only in .designos files";
+const NOTICE: &str = "Comments left out: only .designos files keep them";
 
 fn scratch_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("designos_comment_notice_{}_{name}", std::process::id()));

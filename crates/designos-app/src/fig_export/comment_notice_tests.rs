@@ -7,7 +7,7 @@ use crate::home::Act;
 use designos_doc::{CommentThread, Document, Vec2};
 use std::path::{Path, PathBuf};
 
-const NOTICE: &str = "Comments are kept only in .designos files";
+const NOTICE: &str = "Comments left out: only .designos files keep them";
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("designos_fig_export_comments_{tag}_{}", std::process::id()));
