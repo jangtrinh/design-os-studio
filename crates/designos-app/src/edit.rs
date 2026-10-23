@@ -32,6 +32,21 @@ impl Edit {
         self.opened_at
     }
 
+    /// Takes the document's layout epoch as this edit's baseline again, for an edit that has opened (one that has
+    /// not stays unopened). [`Edit::opened_at`] then says the document was at this epoch when the edit's own
+    /// work began, so [`History::mark_last_undo_as_layout_recorded`] counts layout written before this call as
+    /// the edit's.
+    ///
+    /// The caller vouches for that: every layout write made since the edit opened landed on a node this edit
+    /// holds, with its original state recorded before the write. An operation that records its whole write
+    /// scope first and then solves layout on the live document may say so. One that can write outside what it
+    /// recorded must not: its step would replay without a solve and leave those nodes where the write put them.
+    pub fn rebase_layout_epoch(&mut self, doc: &Document) {
+        if let Some(at) = self.opened_at.as_mut() {
+            *at = doc.layout_epoch();
+        }
+    }
+
     /// Records the original state of `id` (first touch wins).
     pub fn touch(&mut self, doc: &Document, id: NodeId) {
         self.note_opened(doc);
@@ -71,21 +86,42 @@ impl Edit {
         }
     }
 
+    /// Forgets every touched node whose properties are what they were when it was touched, so the edit holds
+    /// only what it changed. For an operation that writes straight into the document and records a whole
+    /// scope up front: what it left alone then costs nothing in the undo step or in anything that walks the
+    /// edit afterwards. A touched node that is no longer in the document stays, as it does for [`Edit::revert`].
+    /// The epoch from [`Edit::note_opened`] is kept.
+    pub fn retain_changed(&mut self, doc: &Document) {
+        self.before.retain(|id, old| match doc.get(*id) {
+            Some(cur) => properties_changed(old, cur),
+            None => true,
+        });
+    }
+
     /// Update commands for every touched node whose properties changed.
     fn updates(&self, doc: &Document) -> Vec<Command> {
         let mut out = Vec::new();
         for (id, old) in &self.before {
             if let Some(cur) = doc.get(*id) {
-                let mut o = old.clone();
-                o.parent = cur.parent;
-                o.children = cur.children.clone();
-                if *cur != o {
+                if properties_changed(old, cur) {
                     out.push(Command::Update { node: Box::new(cur.clone()) });
                 }
             }
         }
         out
     }
+}
+
+/// Whether `cur` differs from `old` in anything but its place in the tree: parent and children belong to
+/// structural commands, not to an edit's property changes.
+fn properties_changed(old: &Node, cur: &Node) -> bool {
+    if old == cur {
+        return false;
+    }
+    let mut o = old.clone();
+    o.parent = cur.parent;
+    o.children = cur.children.clone();
+    *cur != o
 }
 
 /// A transaction: structural commands applied immediately plus an [`Edit`] for
@@ -288,6 +324,82 @@ mod tests {
         assert_eq!(d.get(a).unwrap().opacity, 1.0);
         assert_eq!(d.get(b).unwrap().opacity, 1.0);
         assert!(!h.can_undo());
+    }
+
+    #[test]
+    fn retain_changed_keeps_only_what_changed_and_commits_the_same_step() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ids: Vec<NodeId> = (0..3)
+            .map(|i| {
+                let id = d.alloc_id();
+                d.insert(page, Node::rectangle(id, Rect::new(i as f32 * 20.0, 0.0, 10.0, 10.0))).unwrap();
+                id
+            })
+            .collect();
+        let (changed, nudged_back, untouched) = (ids[0], ids[1], ids[2]);
+        let mut h = History::default();
+        let mut tx = Tx::new();
+        for id in &ids {
+            tx.ed.touch(&d, *id);
+        }
+        d.get_mut(changed).unwrap().opacity = 0.5;
+        d.get_mut(nudged_back).unwrap().opacity = 0.5;
+        d.get_mut(nudged_back).unwrap().opacity = 1.0;
+        let opened_at = tx.ed.opened_at();
+        assert!(opened_at.is_some(), "touching a node opens the edit");
+
+        tx.ed.retain_changed(&d);
+
+        assert_eq!(tx.ed.touched(), vec![changed], "the node written back to its original and the one never written are forgotten");
+        assert_eq!(tx.ed.opened_at(), opened_at, "the epoch the edit opened at is kept");
+        assert!(tx.commit(&mut d, &mut h).unwrap());
+        assert_eq!(d.get(changed).unwrap().opacity, 0.5);
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(changed).unwrap().opacity, 1.0, "one undo restores the node that changed");
+        assert_eq!(d.get(untouched).unwrap().opacity, 1.0);
+        assert!(!h.can_undo(), "and it was the only step");
+    }
+
+    #[test]
+    fn retain_changed_ignores_a_change_of_place_in_the_tree() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame = d.alloc_id();
+        d.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut ed = Edit::new();
+        ed.touch(&d, frame);
+        let child = d.alloc_id();
+        d.insert(frame, Node::rectangle(child, Rect::new(0.0, 0.0, 5.0, 5.0))).unwrap();
+
+        ed.retain_changed(&d);
+
+        assert!(ed.touched().is_empty(), "children belong to structural commands, so a frame that only gained one did not change");
+    }
+
+    #[test]
+    fn rebasing_the_layout_epoch_moves_an_opened_edit_to_now_and_leaves_an_unopened_one_alone() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame = d.alloc_id();
+        d.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut ed = Edit::new();
+        d.note_layout_written_outside_history();
+        ed.rebase_layout_epoch(&d);
+        assert_eq!(ed.opened_at(), None, "an edit that has not touched the document has no baseline to move");
+
+        ed.touch(&d, frame);
+        let opened = d.layout_epoch();
+        assert_eq!(ed.opened_at(), Some(opened));
+        d.note_layout_written_outside_history();
+        d.note_layout_written_outside_history();
+        assert_ne!(d.layout_epoch(), opened, "precondition: layout was written after the edit opened");
+
+        ed.rebase_layout_epoch(&d);
+
+        assert_eq!(ed.opened_at(), Some(d.layout_epoch()), "the baseline is now");
+        ed.retain_changed(&d);
+        assert_eq!(ed.opened_at(), Some(d.layout_epoch()), "forgetting what did not change keeps it");
     }
 
     #[test]

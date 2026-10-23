@@ -1535,8 +1535,14 @@ mod tests {
         assert!(app.terminal.picker_open, "execute_cmdk_action must open the picker when no resumable session exists");
         assert_eq!(app.terminal.pending_prompt, Some(("Make Design".to_string(), spec_name)));
 
-        // Case B: resumable session exists -> execute_cmdk_action resumes it and dispatches the prompt
-        let mut app_resumable = crate::app::App::new(designos_doc::Document::new("Test"));
+        // Case B: resumable session exists -> execute_cmdk_action resumes it and dispatches the prompt.
+        // The auto-fix only tells the agent about changes it made, so the document has copy under the 11px floor.
+        let mut doc = designos_doc::Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let small_text = doc.alloc_id();
+        let style = designos_doc::TextStyle { font_size: 8.0, ..designos_doc::TextStyle::default() };
+        doc.insert(page, designos_doc::Node::text(small_text, designos_doc::Rect::new(0.0, 0.0, 80.0, 12.0), "Small", style)).expect("insert the small text");
+        let mut app_resumable = crate::app::App::new(doc);
         app_resumable.terminal = TerminalState::new_for_session("doc-shell-cmdk-b", "Landing", Some(&dir));
         app_resumable.terminal.path_prepend.push(bin_dir);
         app_resumable.terminal.session_registry.sessions.push(make_session_entry(
@@ -1550,7 +1556,11 @@ mod tests {
         ));
         save_registry(&app_resumable.terminal.session_dir, &app_resumable.terminal.session_registry).expect("save registry");
 
-        crate::shell::execute_cmdk_action(&mut app_resumable, crate::cmdk::CmdKAction::AutoFixDesignGate);
+        {
+            // the auto-fix takes the AI operation another test may have queued in this process
+            let _ai_ops = crate::cmdk::ai_op_test_lock();
+            crate::shell::execute_cmdk_action(&mut app_resumable, crate::cmdk::CmdKAction::AutoFixDesignGate);
+        }
         assert_eq!(app_resumable.terminal.tabs.len(), 1, "execute_cmdk_action must resume the last session when tabs is empty");
         assert!(app_resumable.terminal.tabs[0].is_resumed);
         assert!(!app_resumable.terminal.picker_open);
