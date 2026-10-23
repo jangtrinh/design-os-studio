@@ -47,7 +47,7 @@ Browser-based design tools keep your files on a vendor's servers and give coding
 | **Agents** | The Agents panel starts your own agent CLI (Claude Code, Codex, Grok, Antigravity or Gemini CLI) as a live session on the open file, and keeps a file's sessions across restarts. Each CLI uses its own sign-in, so Studio needs no API key. | `designos-studio <file> --panel agents` |
 | **MCP server** | `designos-mcp` serves its tools over stdio: see the design, read its design system, write in one step (`designos_apply_batch`) and lint the result (`designos_lint`). | Send `tools/list` to `designos-mcp --workspace <dir>`. The tool table below is generated from that list. |
 | **Variables** | Color, number, string and boolean variables in collections with modes. A frame can pin its own mode per collection, and modes round-trip through `.fig`. Import and export Figma JSON and W3C Design Tokens (DTCG). | `designos <file> --export-variables <out>` |
-| **Dev Mode** | Built-in Dev Mode (`Shift+D`) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
+| **Dev Mode** | Built-in Dev Mode (the `</>` button in the toolbar) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
 | **Privacy and license** | No telemetry. Studio makes these network requests: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, a public status-page check after an agent provider error, a connection check when you click Retry connection, and a plugin download from GitHub when you install a plugin. The agent CLIs you start use the network under their own terms. Source-available under `PolyForm Shield 1.0.0`. | `git grep -n 'ureq::' -- crates` lists the HTTP calls. The Figma REST client in `designos-fig` is a cargo feature that is off by default. |
 
 To read the container version of an exported file, run `unzip -p out.fig canvas.fig | head -c 12 | xxd`. The header starts with `fig-kiwi` and ends with `6a00 0000`, which is 106 in little-endian.
@@ -62,11 +62,11 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 | Instrument Field | Specification | Verification / Notes |
 | :--- | :--- | :--- |
 | **Repository** | [`jangtrinh/design-os-studio`](https://github.com/jangtrinh/design-os-studio) | Cargo workspace, `crates/designos-*`. Four binaries ship: `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
-| **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, tested by their users) · No Electron |
+| **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, not verified before release) · No Electron |
 | **Figma Interop** | Reads `.fig`; writes container version 106 | `crates/designos-fig` round-trip tests · more than `6,000` automated tests pass in the macOS CI job · [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834) |
 | **Agent Surface** | Agents panel + `designos-mcp` | `Claude Code` · `Codex` · `Grok` · `Antigravity` · `Gemini CLI`, each with its own sign-in |
 | **Telemetry / Network** | No telemetry | Network use: font downloads from the Fontsource API for fonts a file needs, a status-page check after an agent provider error, a connection check when you click Retry connection, plugin downloads you start from GitHub, and the agent CLIs you start |
-| **License** | `PolyForm Shield 1.0.0` (source-available) | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
+| **License** | `PolyForm Shield 1.0.0` (source-available) | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (built, not verified before release) |
 
 ---
 
@@ -136,7 +136,18 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest, [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0), has captures from the release build; older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.1, a short list. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v061"></a>
+### 0.6.1
+
+- **Agents panel.** The bottom terminal dock and the `>_` rail button are gone. ``Cmd+` `` (``Ctrl+` `` on Windows and Linux) opens and closes the Agents panel. Agents ask before acting by default.
+- **Unsaved edits.** Studio asks `Save changes to {name}?` before a close, a quit or an open drops edits to a file outside the library, and asks before a file changed on disk replaces them. On macOS, Cmd+Q asks too. An agent that opens another document no longer replaces yours.
+- **Undo.** Undo and redo of your own edits restore the document exactly. The command palette's design fix and its Figma AI rows are one undo step each. After a font face arrives, and for an agent's edits, undo solves layout again.
+- **Paste and drop.** Paste text and images from other apps, and drop PNG, JPEG or WebP files on the canvas. Pasting a main component in its own file makes an instance.
+- **`.fig` files.** Export never replaces an existing file and says where it wrote. `designos --export-fig` refuses a path that does not end in `.fig` and a symbolic link, and needs `--overwrite` to replace a file. A save or export to `.fig` or `.pen` warns when it leaves comments out.
+- **Slow machines.** Draw, move, resize and rotate end where the pointer let go. A software renderer starts on the CPU canvas.
+- **CLI.** `designos --version` prints the version, and a file argument that is not on disk stops with an error.
 
 <a id="new-in-v060"></a>
 ### 0.6.0
@@ -208,7 +219,7 @@ Screenshots below are headless captures from the v0.6.0 macOS build on a copy of
   The new-session picker reads each CLI's version and sign-in state from the machine that took the capture. A live session is not shown.</sub>
 </p>
 
-The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. An optional ask mode (Preferences > Agent permissions… > Ask before acting) shows Claude Code's requests to run a command as Approve or Deny in the panel. The other CLIs ask in their own tab.
+The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. Agents ask before acting by default, and Preferences > Agent permissions… switches to Skip permissions. In Ask mode, Claude Code's requests to run a command show as Approve or Deny in the panel. The other CLIs ask in their own tab.
 
 ### Pillar 2 — Variables, Multi-Edit (`Q`) & Suggest Auto-Layout
 
@@ -217,16 +228,16 @@ The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `
   <sub>Command: <code>designos-studio untitled-ui-kit.fig --panel variables --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-variables.png</code></sub>
 </p>
 
-The Variables view lists a file's collections, groups and modes in one table, with an alias picker for bindings. Variables are color, number, string or boolean. A frame can pin its own mode per collection (for example `Light` or `Dark`), and modes survive a `.fig` round trip. Import and export variables as Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with `--import-variables` and `--export-variables`. Press **`Q`** (or `⌘⌥A`; `Ctrl+Alt+A` on Windows and Linux) to select matching layers across top-level frames and component variants for Multi-Edit. Press **`⌘⇧⌥A`** (`Ctrl+Shift+Alt+A`) to run Suggest Auto-Layout on the selection. `⇧A` adds auto layout.
+The Variables view lists a file's collections, groups and modes in one table, with an alias picker for bindings. Variables are color, number, string or boolean. A frame can pin its own mode per collection (for example `Light` or `Dark`), and modes survive a `.fig` round trip. Import and export variables as Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with `--import-variables` and `--export-variables`. Press **`Q`** (or `⌘⌥A`; `Ctrl+Alt+A` on Windows and Linux) to run Select matching layers: it selects the layers that share the selection's name and type across top-level frames and component variants, for Multi-Edit. Press **`⌘⇧⌥A`** (`Ctrl+Shift+Alt+A`) to run Suggest Auto-Layout on the selection. `⇧A` runs Add auto layout.
 
-### Pillar 3 — Dev Mode (`Shift+D` / `</>`) Multi-Target Codegen & Box-Model Inspector
+### Pillar 3 — Dev Mode (`</>`) Multi-Target Codegen & Box-Model Inspector
 
 <p align="center">
   <img src="docs/images/designos-devmode.png" alt="DESIGN:OS Studio Dev Mode on the Untitled UI kit with the Avatar group component set selected. The Inspect tab on the right shows the Ready for dev button, a component playground with its properties, annotations, dev links, the MCP section with a Copy link button, Code Connect and Layer properties" width="880"><br>
   <sub>Command: <code>designos-studio untitled-ui-kit.fig --select "Avatar group" --zoom 100 --dev react --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-devmode.png</code></sub>
 </p>
 
-Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
+Switch into **Dev Mode** with the `</>` button in the toolbar to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> `.fig` export
 
@@ -287,7 +298,7 @@ You can install **`design-os-studio`** either as a native desktop + CLI applicat
 | **Windows** (x64) | `designos-<ver>-x86_64-pc-windows-msvc.zip` (per-user `install.ps1` / `uninstall.ps1`, no admin prompt) | None. An NSIS installer is built only when NSIS is on the build machine, and the release runner does not have it. | `designos-studio.exe`, `designos.exe`, `designos-mcp.exe`, `designos-diff.exe` |
 | **Linux** (x64) | `designos_<ver>_amd64.deb` (`apt install`, `.desktop`, `.designos`/`.fig` MIME) | `designos-<ver>-x86_64-unknown-linux-gnu.tar.gz` (`./install.sh`) | `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
 
-Releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow and tested by their users. Please report anything that breaks.
+Releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow but are not verified before release. A failed Windows or Linux build leaves its package out of the release and does not block it. Please report anything that breaks.
 
 ```bash
 # Build & package native installers + release-manifest.json + SHA256SUMS locally into dist/
@@ -599,7 +610,7 @@ The panel starts your already-signed-in local CLI (`claude`, `codex`, `grok`, `a
 It limits work to the viewport with a spatial index of 2048-unit grid cells (`SceneIndex`) and zoom-based level of detail, shares meshes between repeated shapes (`GeomCache`), and reuses the cached frame when nothing changed (`FrameKey`). On Metal, an idle view used 0.01 s of CPU in 20 s on the 336 MB Untitled UI PRO kit, which has 207,601 nodes, measured with v0.6.0 on an Apple M4 Max. Load time depends on the file and the machine.
 
 **How is DESIGN:OS Studio installed and licensed?**
-Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Apple Silicon), Windows (`.zip` with a per-user `install.ps1`), and Linux (`.deb` + `.tar.gz`). Windows and Linux are tested by their users. Or you can build from source with `cargo run --release -p designos-app --bin designos-studio`. It is source-available under PolyForm Shield 1.0.0, with no telemetry.
+Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Apple Silicon), Windows (`.zip` with a per-user `install.ps1`), and Linux (`.deb` + `.tar.gz`). The Windows and Linux packages are built by the same release workflow but are not verified before release. Or you can build from source with `cargo run --release -p designos-app --bin designos-studio`. It is source-available under PolyForm Shield 1.0.0, with no telemetry.
 
 </details>
 
