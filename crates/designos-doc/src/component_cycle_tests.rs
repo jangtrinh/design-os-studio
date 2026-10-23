@@ -356,3 +356,143 @@ fn syncing_rings_and_tangles_of_mains_settles() {
         assert!(counts[59] < 5000 && max_depth(&d) < 40, "{n} mains, links {links:?}: {} nodes, depth {}", counts[59], max_depth(&d));
     }
 }
+
+// ---------- a stored variant value that a sync refuses must not swallow other edits
+
+/// A set "State" with the given variants, a Boolean "Show" bound to the layer of every variant, and a main B that holds an
+/// instance I of the first variant with State stored as that variant. Nothing holds itself yet.
+/// Returns (document, B, the variant mains in order, I).
+fn show_toggle_fixture(variants: &[&str]) -> (Document, NodeId, Vec<NodeId>, NodeId) {
+    let mut d = Document::new("show toggle");
+    let page = d.add_page("P");
+    let b = main_on(&mut d, page, "B");
+    let mains: Vec<NodeId> = variants.iter().map(|v| main_on(&mut d, page, &format!("State={v}"))).collect();
+    combine_as_variants(&mut d, &mains).apply(&mut d).unwrap();
+    let set = d.get(mains[0]).unwrap().parent.unwrap();
+    let def = ComponentPropDef { name: "Show".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) };
+    add_prop(&mut d, set, def).apply(&mut d).unwrap();
+    for m in &mains {
+        let layer = layer_of(&d, *m);
+        bind_prop(&mut d, layer, OverrideField::Visible, Some("Show")).apply(&mut d).unwrap();
+    }
+    let i = place(&mut d, mains[0], b);
+    set_instance_prop(&mut d, i, "State", Some(PropValue::Variant(variants[0].into()))).apply(&mut d).unwrap();
+    assert_eq!(d.get(i).unwrap().component.values.get("State"), Some(&PropValue::Variant(variants[0].into())));
+    assert!(self_holding(&d).is_empty());
+    (d, b, mains, i)
+}
+
+fn rename(d: &mut Document, id: NodeId, name: &str) {
+    let mut n = d.get(id).unwrap().clone();
+    n.name = name.into();
+    Command::Update { node: Box::new(n) }.apply(d).unwrap();
+}
+
+/// The stored value an older build or an agent can leave: State set on I without the sync that would refuse it.
+fn store_state(d: &mut Document, i: NodeId, variant: &str) {
+    let mut n = d.get(i).unwrap().clone();
+    n.component.values.insert("State".into(), PropValue::Variant(variant.into()));
+    Command::Update { node: Box::new(n) }.apply(d).unwrap();
+}
+
+fn show_of(d: &Document, i: NodeId) -> Option<PropValue> {
+    d.get(i).unwrap().component.values.get("Show").cloned()
+}
+
+/// I has State=One stored, and an instance of B sits in variant Two (allowed: B holds One, not Two). Then the two
+/// variants swap their names by renaming the layers, so the stored "One" now selects the variant that holds B: a sync
+/// keeps I where it is. Turning "Show" off on I must still work.
+#[test]
+fn a_property_edit_lands_when_the_stored_variant_value_selects_a_main_that_holds_itself() {
+    let (mut d, b, v, i) = show_toggle_fixture(&["One", "Two"]);
+    let (one, two) = (v[0], v[1]);
+    let set = d.get(one).unwrap().parent.unwrap();
+    place(&mut d, b, two);
+    for (id, name) in [(two, "State=Tmp"), (one, "State=Two"), (two, "State=One")] {
+        rename(&mut d, id, name);
+        sync_instances(&mut d, set).apply(&mut d).unwrap();
+    }
+    assert_eq!(instance_component(d.get(i).unwrap()), Some(one), "I stays on the node it is on");
+    assert_eq!(d.get(i).unwrap().component.values.get("State"), Some(&PropValue::Variant("One".into())));
+    assert!(self_holding(&d).is_empty());
+    let dot = child_named(&d, i, "Layer");
+    assert!(d.get(dot).unwrap().visible);
+    let before = d.nodes.clone();
+
+    let cmd = set_instance_prop(&mut d, i, "Show", Some(PropValue::Bool(false)));
+    assert!(!is_nothing(&cmd), "the edit is not dropped");
+    assert_eq!(d.nodes, before, "building the edit writes nothing");
+
+    let undo = cmd.clone().apply(&mut d).unwrap();
+    assert!(!d.get(dot).unwrap().visible, "the bound layer hides");
+    assert_eq!(show_of(&d, i), Some(PropValue::Bool(false)));
+    assert_eq!(instance_component(d.get(i).unwrap()), Some(one), "I still stays on its main");
+    assert!(self_holding(&d).is_empty());
+    let after = d.nodes.clone();
+
+    undo.apply(&mut d).unwrap();
+    assert_eq!(d.nodes, before, "one undo takes the whole edit back");
+    cmd.apply(&mut d).unwrap();
+    assert_eq!(d.nodes, after, "and one redo puts it back");
+}
+
+/// While an older refused value stays stored, a value of the user's own that would make a main hold itself is still
+/// refused as a whole.
+#[test]
+fn a_new_variant_value_that_would_make_a_main_hold_itself_is_still_refused_next_to_a_stored_one() {
+    let (mut d, b, v, i) = show_toggle_fixture(&["One", "Two", "Three"]);
+    let (one, two, three) = (v[0], v[1], v[2]);
+    place(&mut d, b, two);
+    place(&mut d, b, three);
+    store_state(&mut d, i, "Two");
+    let set = d.get(one).unwrap().parent.unwrap();
+    sync_instances(&mut d, set).apply(&mut d).unwrap();
+    assert_eq!(instance_component(d.get(i).unwrap()), Some(one), "the stored Two is refused by the sync");
+    let before = d.nodes.clone();
+
+    let cmd = set_instance_prop(&mut d, i, "State", Some(PropValue::Variant("Three".into())));
+    assert!(is_nothing(&cmd), "Three would make B hold itself: refused as a whole");
+    assert_eq!(d.nodes, before);
+    cmd.apply(&mut d).unwrap();
+    assert_eq!(d.get(i).unwrap().component.values.get("State"), Some(&PropValue::Variant("Two".into())), "the stored value stays as it was");
+    assert_eq!(instance_component(d.get(i).unwrap()), Some(one));
+    assert!(self_holding(&d).is_empty());
+}
+
+/// An edit around a stored refused value, refused or taken, builds its command without writing to the document, and the
+/// command undoes and redoes exactly.
+#[test]
+fn edits_next_to_a_stored_refused_variant_value_leave_no_stray_writes() {
+    let (mut d, b, v, i) = show_toggle_fixture(&["One", "Two", "Three"]);
+    let (one, two, three) = (v[0], v[1], v[2]);
+    place(&mut d, b, two);
+    place(&mut d, b, three);
+    store_state(&mut d, i, "Two");
+    let set = d.get(one).unwrap().parent.unwrap();
+    sync_instances(&mut d, set).apply(&mut d).unwrap();
+    let dot = child_named(&d, i, "Layer");
+    let (nodes0, next0) = (d.nodes.clone(), d.peek_next_id());
+
+    let refused = set_instance_prop(&mut d, i, "State", Some(PropValue::Variant("Three".into())));
+    assert!(is_nothing(&refused));
+    assert_eq!((&d.nodes, d.peek_next_id()), (&nodes0, next0), "a refused edit writes nothing");
+
+    let hide = set_instance_prop(&mut d, i, "Show", Some(PropValue::Bool(false)));
+    assert!(!is_nothing(&hide), "the edit is taken");
+    assert_eq!((&d.nodes, d.peek_next_id()), (&nodes0, next0), "a taken edit builds its command without writing");
+    let undo = hide.clone().apply(&mut d).unwrap();
+    assert!(!d.get(dot).unwrap().visible);
+    let nodes1 = d.nodes.clone();
+    undo.apply(&mut d).unwrap();
+    assert_eq!(d.nodes, nodes0, "undo");
+    hide.apply(&mut d).unwrap();
+    assert_eq!(d.nodes, nodes1, "redo");
+
+    // clearing the value is an edit too, and it lands the same way
+    let show = set_instance_prop(&mut d, i, "Show", None);
+    assert!(!is_nothing(&show));
+    show.apply(&mut d).unwrap();
+    assert!(d.get(dot).unwrap().visible);
+    assert_eq!(show_of(&d, i), None);
+    assert!(self_holding(&d).is_empty());
+}
