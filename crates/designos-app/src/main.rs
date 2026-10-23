@@ -67,6 +67,7 @@ mod live_sync_interaction_tests;
 mod live_sync_tests;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+mod node_field_diff;
 mod ops;
 mod panels;
 mod paste_placement;
@@ -84,6 +85,8 @@ mod system_paste;
 mod tabs;
 mod terminal;
 mod terminal_undo_chord;
+#[cfg(test)]
+mod test_alloc_count;
 #[cfg(test)]
 mod test_timing;
 mod textedit;
