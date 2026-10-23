@@ -215,7 +215,7 @@ is verified by the worker before adding; no dependency is added by this spec.
 - Codex tabs keep the OSC/PTY heuristic status in 0.5.0; hook-based Codex status is revisited here, together with the ask mode
   (comment of 2026-10-19).
 - Studio never forges or writes Codex's hook trust (`terminal.rs:164-169`). `GROK_FOLDER_TRUST=0` stays.
-- Owner ruling 2026-10-24 (`plans/reports/v062-evidence/owner-rulings-v062.md`, ruling 22): Ask tabs of Claude ignore project and local
+- Owner ruling 2026-10-24 (the owner chose "Ship the fix" when asked about #1044): Ask tabs of Claude ignore project and local
   settings (`--setting-sources user`), and Claude's own "don't ask again" no longer persists there. This supersedes §9's "the CLIs
   keep their own" for Claude in Ask mode. Claude's MCP config is a private copy too (#1044, #1046).
 - Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
