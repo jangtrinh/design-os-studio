@@ -26,7 +26,7 @@ background. The default stays as today: agents run with permissions skipped.
   Antigravity `--dangerously-skip-permissions`. The `+` menu header says "LAUNCH CLI (SKIP PERMISSIONS)" (`:3123`).
 - There is no Settings window. App settings live in `settings.json` in the library root, read by `comments/settings.rs`
   (`load_flag`, `save_flag`); the menu has Preferences with "Your name..." and "Use GPU rendering" (`panels/menus.rs:511-521`).
-- Studio writes `hooks.json` (a Claude-shaped settings file passed with `--settings`) and equivalents for Grok and agy
+- Studio writes `hooks.json` (a Claude-shaped settings file passed with `--settings`; in Ask mode it lives in the Studio-private folder, see rule 4) and equivalents for Grok and agy
   (`session_hooks_settings`, `agy_session_hooks`, `terminal.rs:2194-2233`). Its hooks write `{"state": ...}` to
   `agent-status.json`: `UserPromptSubmit`, `PreToolUse`, `PostToolUse` -> working, `PermissionRequest` -> waiting, `Stop` -> done.
   `poll_live_agent_bridge` reads that file for the active tab (`terminal.rs:1328-1338`). Because every launch skips permissions,
@@ -75,7 +75,12 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    Whoever can write an answer, or the script that decides what to print, approves the agent's next action. So the script and the
    `<private folder>` (`<data dir>/designos/ap/<session id>/`, mode 0700; on macOS under `~/Library/Application Support`) sit outside
    the session folder (the agent's working folder), `/tmp`, `$TMPDIR` and every `--add-dir`, and the script takes no path or request
-   id from its environment. A file in the session folder, however named, answers nothing and raises no card. See
+   id from its environment. A file in the session folder, however named, answers nothing and raises no card. The hooks file that
+   names the script is just as decisive, and Claude's docs say edits to hooks in settings files are normally picked up as they
+   happen. So in Ask mode Claude's `--settings` names `<private folder>/hooks.json` (the tab's `DESIGNOS_CLAUDE_SETTINGS`, mode
+   0600, rewritten at every sync), and the session folder holds no Claude hooks (a leftover `hooks.json` that names the approval hook
+   is removed). With no private folder, Claude gets the inline settings `{}`: none of Studio's hooks, its own terminal prompts. Skip
+   mode keeps `<session>/hooks.json` and its launch strings byte for byte. The hook script puts `/usr/bin:/bin` first on `PATH`. See
    `crates/designos-app/src/agent_approval_channel.rs`.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive

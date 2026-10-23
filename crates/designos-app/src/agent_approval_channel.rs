@@ -1,9 +1,9 @@
 //! The Studio-private folder behind Ask-mode approvals.
 //!
 //! Claude's `PermissionRequest` hook raises a request and waits for Studio's answer. Whatever can write that answer,
-//! or the hook script that decides what to print, approves the agent's next action. So none of it may sit where an
-//! agent can write: not in its working folder (the session folder), not in an `--add-dir`, and not in `/tmp` or
-//! `$TMPDIR` (the writable roots of Codex's `workspace-write` sandbox).
+//! the hook script that decides what to print, or the hooks file that tells Claude which script to run, approves the
+//! agent's next action. So none of it may sit where an agent can write: not in its working folder (the session folder),
+//! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writable roots of Codex's `workspace-write` sandbox).
 //!
 //! One folder per session, named by a hash of the session folder's path so a restarted Studio finds it again:
 //!
@@ -11,13 +11,14 @@
 //! <data dir>/designos/ap/        0700  Studio-private root (macOS: ~/Library/Application Support/designos/ap)
 //!   <sid>/                       0700  16 hex digits: FNV-1a 64 of the session folder's path
 //!     approve-hook.sh            0700  the hook; everything it decides with is in this folder or in the script itself
+//!     hooks.json                 0600  Claude's hooks, the file its `--settings` names in Ask mode
 //!     tab-<id>/                  0700  `<request id>.request.json` and `<request id>.answer` of one tab
 //! ```
 //!
 //! The path is short on purpose: the Codex app-server socket is meant to sit next to `approve-hook.sh`, and a unix
-//! socket path is limited to 104 bytes on macOS. The folder is not secret (the agent can read `hooks.json`); the
-//! protection is that no agent write grant reaches it. A process that runs unsandboxed as the same user can already
-//! rewrite the agent's own settings, so no folder or socket stops that case.
+//! socket path is limited to 104 bytes on macOS. The folder is not secret (the agent can read it); the protection is
+//! that no agent write grant reaches it. A process that runs unsandboxed as the same user can already rewrite the
+//! agent's own settings, so no folder or socket stops that case.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,9 @@ const ROOT_DIR_NAME: &str = "ap";
 
 /// File name of the approval hook inside a session's channel folder.
 pub const HOOK_SCRIPT_NAME: &str = "approve-hook.sh";
+
+/// File name of Claude's hooks inside a session's channel folder (what `--settings` names in Ask mode).
+pub const HOOKS_FILE_NAME: &str = "hooks.json";
 
 /// Folders any agent can write without a prompt: `/tmp` and `$TMPDIR` (Codex's sandbox grants both), in the spelling
 /// given and as the file system resolves it (macOS: `/tmp` is `/private/tmp`).
@@ -70,6 +74,9 @@ pub fn default_private_root() -> Option<PathBuf> {
 pub fn private_root() -> Option<PathBuf> {
     #[cfg(test)]
     {
+        if NO_PRIVATE_ROOT.with(std::cell::Cell::get) {
+            return None;
+        }
         Some(std::env::temp_dir().join("designos-approval-channels-test"))
     }
     #[cfg(not(test))]
@@ -77,6 +84,25 @@ pub fn private_root() -> Option<PathBuf> {
         static ROOT: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
         ROOT.get_or_init(default_private_root).clone()
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static NO_PRIVATE_ROOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `body` on this thread as if the platform had no private data folder (see [`default_private_root`]).
+#[cfg(test)]
+pub fn without_private_root<R>(body: impl FnOnce() -> R) -> R {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NO_PRIVATE_ROOT.with(|flag| flag.set(false));
+        }
+    }
+    NO_PRIVATE_ROOT.with(|flag| flag.set(true));
+    let _restore = Restore;
+    body()
 }
 
 /// Short, stable name of the channel folder for `session_dir`: 16 hex digits of the FNV-1a 64 hash of its path.
@@ -98,6 +124,11 @@ pub fn channel_dir(session_dir: &Path) -> Option<PathBuf> {
 /// `<channel>/approve-hook.sh` of `session_dir`.
 pub fn hook_script_path(session_dir: &Path) -> Option<PathBuf> {
     channel_dir(session_dir).map(|dir| dir.join(HOOK_SCRIPT_NAME))
+}
+
+/// `<channel>/hooks.json` of `session_dir`: the hooks Claude reads in Ask mode.
+pub fn hooks_file_path(session_dir: &Path) -> Option<PathBuf> {
+    channel_dir(session_dir).map(|dir| dir.join(HOOKS_FILE_NAME))
 }
 
 /// `<channel>/tab-<tab_id>`, where the hook of that tab raises requests and Studio answers them.
@@ -141,6 +172,20 @@ pub fn prepare_channel_dir_in(root: &Path, session_dir: &Path) -> io::Result<Pat
     create_private_dir_all(&dir)?;
     require_private_dir(&dir)?;
     Ok(dir)
+}
+
+/// Writes `bytes` to `path` atomically and leaves the file usable by its owner only (Unix: 0600, or 0700 when
+/// `executable`). `path` sits in a folder from [`prepare_channel_dir`], which the owner alone can enter.
+pub fn write_owner_only_file(path: &Path, bytes: &[u8], executable: bool) -> io::Result<()> {
+    designos_library::write_atomic(path, bytes).map_err(|e| io::Error::other(e.to_string()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(if executable { 0o700 } else { 0o600 }))?;
+    }
+    #[cfg(not(unix))]
+    let _ = executable;
+    Ok(())
 }
 
 /// [`prepare_channel_dir_in`] under the private root; an error when there is none.

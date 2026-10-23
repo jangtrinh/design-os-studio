@@ -927,7 +927,7 @@ mod tests {
             Some(st.tabs[second].run_id.as_str()),
             "the session's run id must be the started tab's, not the one a snapshot queued before the start carried"
         );
-        let hooks = std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json");
+        let hooks = std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(&st)).expect("hooks.json");
         assert!(hooks.contains("approve-hook.sh"), "an Ask session keeps its approval hook: {hooks}");
 
         st.shutdown();

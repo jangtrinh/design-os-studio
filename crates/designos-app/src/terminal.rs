@@ -254,7 +254,7 @@ impl AgentCliPreset {
                 "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Claude, PermissionMode::Ask) => {
-                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
             (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
@@ -388,6 +388,8 @@ pub struct SessionEnv {
     pub doc_name: String,
     pub path_prepend: Vec<PathBuf>,
     pub tab_session_uuid: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_SETTINGS`, which an Ask-mode Claude launch passes as `--settings` (`None` in Skip mode).
+    pub claude_settings: Option<String>,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
 }
@@ -415,6 +417,7 @@ impl SessionEnv {
             doc_name: "Untitled".to_string(),
             path_prepend: Vec::new(),
             tab_session_uuid: None,
+            claude_settings: None,
             #[cfg(test)]
             path_override: None,
         }
@@ -2119,6 +2122,7 @@ impl TerminalState {
             #[cfg(test)]
             path_override: self.path_override.clone(),
             tab_session_uuid: None,
+            claude_settings: crate::agent_permissions::claude_settings_value(&self.session_dir, self.permission_mode),
         }
     }
 
@@ -4600,12 +4604,13 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let bootstrap_reply_path = job.session_dir.join("bootstrap-context-reply.json");
     let delivered_marker_path = job.session_dir.join(format!("bootstrap.delivered.{}", job.bootstrap_run_id));
     let status_path = job.session_dir.join("agent-status.json");
-    // The hook script is written to the Studio-private channel folder, before `hooks.json` names it. When it cannot be
-    // installed there (no private data folder, or the folder cannot be made private) `hooks.json` carries no approval
-    // handler and Claude asks in its own terminal prompt: nothing is approved on the way.
-    let approve_script_path = if job.ask_mode {
-        match crate::agent_permissions::write_approval_hook_script(&job.session_dir) {
-            Ok(path) => Some(path),
+    // Ask mode: the hook script and the hooks file that names it go to the Studio-private channel folder, the script first.
+    // Claude reads that file (not one in the session folder, which the agent can write), so the agent cannot swap the
+    // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
+    // nothing is installed: Claude starts with the inline settings `{}` and asks in its own terminal prompt.
+    let private_dir = if job.ask_mode {
+        match crate::agent_approval_channel::prepare_channel_dir(&job.session_dir) {
+            Ok(dir) => Some(dir),
             Err(e) => {
                 eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
                 None
@@ -4614,6 +4619,13 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     } else {
         None
     };
+    let approve_script_path = private_dir.as_deref().and_then(|dir| match crate::agent_permissions::install_hook_script(dir, &job.session_dir) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+            None
+        }
+    });
     let transcript_capture_path = job.session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
     let claude_hooks = session_hooks_settings_with_approval(
         &status_path,
@@ -4622,7 +4634,18 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
         Some(&transcript_capture_path),
     );
     let hooks_bytes = serde_json::to_vec_pretty(&claude_hooks).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join("hooks.json"), &hooks_bytes)?;
+    if job.ask_mode {
+        if let Some(dir) = &private_dir {
+            let hooks_path = dir.join(crate::agent_approval_channel::HOOKS_FILE_NAME);
+            if let Err(e) = crate::agent_approval_channel::write_owner_only_file(&hooks_path, &hooks_bytes, false) {
+                eprintln!("design:os studio: could not write Claude's hooks to {}: {e}", hooks_path.display());
+            }
+        }
+        // An earlier build wrote the hooks, approval handler included, into the session folder; nothing reads them now.
+        crate::agent_permissions::remove_stale_session_hooks(&job.session_dir);
+    } else {
+        atomic_write_session_file(&job.session_dir.join("hooks.json"), &hooks_bytes)?;
+    }
 
     let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
     atomic_write_session_file(&job.session_dir.join(".grok").join("hooks").join("designos-status.json"), &grok_hooks_bytes)?;
@@ -4847,6 +4870,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_TARGET_PAGE_ID", sess.current_page_id.to_string());
         cmd.env("DESIGNOS_TARGET_PAGE_NAME", &sess.current_page_name);
         cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
+        if let Some(settings) = &sess.claude_settings {
+            cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings);
+        }
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
         }
@@ -6221,6 +6247,9 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
 #[cfg(test)]
 mod ask_mode_tests;
 
+#[cfg(all(test, unix))]
+mod ask_hooks_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6687,7 +6716,7 @@ mod tests {
         assert!(st1.context_json_path.exists());
         assert!(st1.live_canvas_path.exists());
         assert!(st1.session_dir.join("mcp-config.json").exists());
-        assert!(st1.session_dir.join("hooks.json").exists());
+        assert!(crate::agent_permissions::claude_hooks_path(&st1).exists());
         assert!(st1.session_dir.join("SKILL.md").exists());
 
         let ctx_val: serde_json::Value =
@@ -7707,14 +7736,20 @@ mod tests {
 
     #[test]
     fn claude_hooks_file_is_a_valid_settings_file_and_the_launch_loads_it() {
+        // Skip mode loads the file in the session folder; Ask mode loads the private one (`ask_hooks_tests`).
         assert!(
             AgentCliPreset::Claude.cli_launch_command().contains("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\""),
             "{}",
             AgentCliPreset::Claude.cli_launch_command()
         );
+        assert!(
+            AgentCliPreset::Claude.cli_launch_command_for_mode(PermissionMode::Ask).contains("--settings \"$DESIGNOS_CLAUDE_SETTINGS\""),
+            "{}",
+            AgentCliPreset::Claude.cli_launch_command_for_mode(PermissionMode::Ask)
+        );
 
         let st = provisioned_session(741);
-        let settings = read_json(&st.session_dir.join("hooks.json"));
+        let settings = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let top: Vec<&String> = settings.as_object().unwrap().keys().collect();
         assert_eq!(top, vec!["hooks"], "a --settings file takes Claude's settings keys only");
         let hooks = settings["hooks"].as_object().unwrap();
@@ -7729,7 +7764,7 @@ mod tests {
     #[test]
     fn session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli() {
         let st = provisioned_session(742);
-        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let claude = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let grok = read_json(&st.session_dir.join(".grok").join("hooks").join("designos-status.json"));
         assert_eq!(
             claude["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
@@ -7771,7 +7806,7 @@ mod tests {
         assert_eq!(run_hook_command(&prompt_command(&grok)), "", "a Grok prompt hook must not print");
 
         // Claude reads `hookSpecificOutput.additionalContext`: the page, never the selection.
-        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let claude = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let printed = run_hook_command(&prompt_command(&claude));
         let reply: serde_json::Value = serde_json::from_str(printed.trim()).expect("Claude hook prints decision json");
         let out = &reply["hookSpecificOutput"];
@@ -8621,7 +8656,7 @@ mod tests {
                 log.push_str("Error: 429 rate_limit_error: Rate limit reached. Resets at 14:30\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -9164,7 +9199,10 @@ mod tests {
                 let raw = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
                 serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel} is not JSON: {e}"))
             };
-            let claude = read("hooks.json");
+            let claude: serde_json::Value = {
+                let path = crate::agent_permissions::claude_hooks_path(&st);
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).expect("hooks are JSON")
+            };
             let grok = read(".grok/hooks/designos-status.json");
             assert!(claude.get("permissions").is_none(), "hooks.json must never set permissions.allow: {claude}");
 
@@ -11779,7 +11817,7 @@ mod tests {
                 log.push_str("API Error: 529 overloaded_error\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -11819,7 +11857,7 @@ mod tests {
                 log.push_str("API Error: 529 overloaded_error\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -11842,7 +11880,7 @@ mod tests {
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
         st.tabs = vec![tab];
         st.active_tab = 0;
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         let raise_failure = |st: &mut TerminalState| {
             if let Some(t) = st.active_tab_mut() {
@@ -11961,7 +11999,7 @@ mod tests {
     fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_stop_failure_scan() {
         let mut st = provisioned_session(686_010);
         quiet_claude_tab_into(&mut st);
-        let hooks = read_json(&st.session_dir.join("hooks.json"));
+        let hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         kill_tabs_after(&mut st, |st| {
             let tab = st.active_tab_mut().unwrap();
@@ -12060,7 +12098,7 @@ mod tests {
         st.tabs = vec![tab1, tab2];
         st.active_tab = 1; // Shell tab is active while Claude tab finishes with StopFailure
 
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -12091,7 +12129,7 @@ mod tests {
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::RateLimited));
 
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         for hook_name in ["PreToolUse", "PostToolUse"] {
             let tool_cmd = claude_hooks["hooks"][hook_name][0]["hooks"][0]["command"].as_str().expect("tool hook command").to_string();
             run_hook_command(&tool_cmd);
@@ -12338,7 +12376,7 @@ mod tests {
 
         /// Command of the Claude `UserPromptSubmit` hook currently provisioned in `st`'s session dir.
         fn claude_prompt_hook_command(st: &TerminalState) -> String {
-            let hooks = read_json(&st.session_dir.join("hooks.json"));
+            let hooks = read_json(&crate::agent_permissions::claude_hooks_path(st));
             hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().expect("UserPromptSubmit command").to_string()
         }
 
@@ -12853,7 +12891,7 @@ mod tests {
             st_claude.start_bootstrap_job_held(fx.doc.clone_without_images(), fx.page1, Some(file_path.clone()), Some(hold));
             let build = in_flight_job(&st_claude);
 
-            let claude_hooks = read_json(&st_claude.session_dir.join("hooks.json"));
+            let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st_claude));
             let hook_cmd = claude_hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap();
             let hook_turn_1 = run_hook_command(hook_cmd);
             assert!(!job_is_done(&build), "Claude hook must bound its wait: it answered while the full build was still held back");

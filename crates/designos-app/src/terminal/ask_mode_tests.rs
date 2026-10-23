@@ -71,8 +71,11 @@ fn launch_commands(preset: AgentCliPreset, cli: &str, mode: PermissionMode) -> V
     out
 }
 
+/// The JSON file `rel` of the session folder. `hooks.json` is Claude's hooks, wherever Studio wrote them for the mode: in
+/// the session folder in Skip mode, in the Studio-private folder in Ask mode.
 fn read_json(st: &TerminalState, rel: &str) -> Value {
-    let raw = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
+    let path = if rel == "hooks.json" { crate::agent_permissions::claude_hooks_path(st) } else { st.session_dir.join(rel) };
+    let raw = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{rel}: {e}"));
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel} is not JSON: {e}"))
 }
 

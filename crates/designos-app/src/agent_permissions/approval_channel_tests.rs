@@ -322,3 +322,31 @@ fn removing_the_channel_leaves_no_trace() {
     assert!(!channel.exists());
     crate::agent_approval_channel::remove_channel(&fx.session);
 }
+
+/// The commands the hook runs come from the system folders, whatever the `PATH` it inherits says first: a command planted
+/// in a folder an agent can write, and put ahead on `PATH`, is never run.
+#[cfg(unix)]
+#[test]
+fn a_command_planted_early_on_path_is_not_run_by_the_hook() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fixture::new("path");
+    let planted = fx.session.join("planted-bin");
+    std::fs::create_dir_all(&planted).unwrap();
+    let names = ["od", "tr", "mkdir", "mv", "rm", "cat", "date", "sleep", "awk"];
+    for name in names {
+        let real = ["/usr/bin", "/bin"].iter().map(|dir| Path::new(dir).join(name)).find(|p| p.exists()).expect("a system command");
+        let script = format!("#!/bin/sh\n: > '{}/ran-{name}'\nexec {} \"$@\"\n", planted.display(), real.display());
+        let path = planted.join(name);
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path_env = PathBuf::from(format!("{}:{inherited}", planted.display()));
+    let child = spawn_hook("sh", &fx.script, Some(TAB), 10_000, &[("PATH", &path_env)], &bash_payload("echo hi"));
+    let req = wait_for_request(&fx.tab_dir);
+    write_approval_answer_in_dir(&fx.tab_dir, &req.id, ApprovalDecision::Allow).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(decision_of(&out.stdout)["hookSpecificOutput"]["decision"]["behavior"], "allow", "the flow itself works with that PATH");
+    let ran: Vec<_> = names.iter().filter(|name| planted.join(format!("ran-{name}")).exists()).collect();
+    assert!(ran.is_empty(), "the hook ran commands planted early on PATH: {ran:?}");
+}

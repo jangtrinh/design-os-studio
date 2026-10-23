@@ -1387,7 +1387,8 @@ mod tests {
     #[test]
     fn works_for_each_cli_hook_file() {
         let r = rig();
-        let claude: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(r.dir.join("hooks.json")).expect("hooks.json")).unwrap();
+        let claude: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(&r.app.terminal)).expect("hooks.json")).unwrap();
         let grok: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(r.dir.join(".grok").join("hooks").join("designos-status.json")).expect("grok hooks")).unwrap();
         let agy: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(r.dir.join(".agents").join("hooks.json")).expect("agy hooks")).unwrap();

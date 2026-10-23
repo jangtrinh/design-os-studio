@@ -80,12 +80,66 @@ pub fn strip_skip_permission_flags(cmd: &str) -> String {
         .replace(" --approval-mode yolo", " --approval-mode default")
 }
 
+/// How a Skip-mode Claude launch names its hooks: the file Studio writes into the session folder.
+pub const SKIP_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"";
+
+/// How an Ask-mode Claude launch names its hooks: [`CLAUDE_SETTINGS_ENV`], which Studio sets for the tab.
+pub const ASK_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_CLAUDE_SETTINGS\"";
+
+/// Environment variable of an Ask-mode tab that holds the value of Claude's `--settings` (see [`claude_settings_value`]).
+pub const CLAUDE_SETTINGS_ENV: &str = "DESIGNOS_CLAUDE_SETTINGS";
+
+/// The launch command of an agent started in `Ask` mode, from the `Skip` one: [`strip_skip_permission_flags`], and Claude's
+/// hooks come from the Studio-private folder instead of the session folder (see [`claude_settings_value`]).
+pub fn ask_mode_launch_command(skip_cmd: &str) -> String {
+    strip_skip_permission_flags(skip_cmd).replace(SKIP_SETTINGS_ARG, ASK_SETTINGS_ARG)
+}
+
+/// The value of Claude's `--settings` for a tab started in `mode`, set as [`CLAUDE_SETTINGS_ENV`]; `None` in Skip mode,
+/// whose launch names `<session>/hooks.json` itself.
+///
+/// In Ask mode it is the hooks file in the session's private folder once Studio has written it there. The hooks name
+/// the approval handler, so a file an agent can write must never be the one Claude reads: its docs say edits to hooks in
+/// settings files are normally picked up as they happen, and nothing says a `--settings` file is the exception. Without
+/// that file (no private folder, or it could not be written) the value is the inline settings `{}`: Claude starts with
+/// none of Studio's hooks, asks in its own terminal prompt, and reads nothing the agent can write.
+pub fn claude_settings_value(session_dir: &Path, mode: AgentPermissionMode) -> Option<String> {
+    match mode {
+        AgentPermissionMode::Skip => None,
+        AgentPermissionMode::Ask => Some(
+            crate::agent_approval_channel::hooks_file_path(session_dir)
+                .filter(|path| path.is_file())
+                .map_or_else(|| "{}".to_string(), |path| path.display().to_string()),
+        ),
+    }
+}
+
+/// The file Studio wrote Claude's hooks to for the agents `st` starts in its current mode (tests read it back).
+#[cfg(test)]
+pub fn claude_hooks_path(st: &crate::terminal::TerminalState) -> PathBuf {
+    match st.permission_mode {
+        AgentPermissionMode::Skip => st.session_dir.join("hooks.json"),
+        AgentPermissionMode::Ask => crate::agent_approval_channel::hooks_file_path(&st.session_dir).expect("a private channel folder"),
+    }
+}
+
+/// Removes `<session_dir>/hooks.json` when it still names the approval hook. An earlier build wrote it there in Ask mode; nothing
+/// reads it any more, and a file in a folder an agent can write must not carry an approval handler. A hooks file without
+/// one (written in Skip mode, grants nothing) is left alone: a Skip-mode tab still running may be reading it.
+pub fn remove_stale_session_hooks(session_dir: &Path) {
+    let path = session_dir.join("hooks.json");
+    let names_approval_hook = std::fs::read_to_string(&path).is_ok_and(|text| text.contains(crate::agent_approval_channel::HOOK_SCRIPT_NAME));
+    if names_approval_hook {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Mode-aware wrapper around [`crate::agent_sessions::build_new_session_command`].
 pub fn build_new_session_command_for_mode(preset: AgentCliPreset, mode: AgentPermissionMode, session_uuid: Option<&str>) -> String {
     let base = crate::agent_sessions::build_new_session_command(preset, session_uuid);
     match mode {
         AgentPermissionMode::Skip => base,
-        AgentPermissionMode::Ask => strip_skip_permission_flags(&base),
+        AgentPermissionMode::Ask => ask_mode_launch_command(&base),
     }
 }
 
@@ -99,7 +153,7 @@ pub fn build_resume_command_for_mode(
     let base = crate::agent_sessions::build_resume_command_scoped(entry, codex_cwd_scoped, agy_cwd_scoped)?;
     Some(match mode {
         AgentPermissionMode::Skip => base,
-        AgentPermissionMode::Ask => strip_skip_permission_flags(&base),
+        AgentPermissionMode::Ask => ask_mode_launch_command(&base),
     })
 }
 
@@ -114,11 +168,16 @@ pub fn approval_hook_script(channel_dir: &Path, session_dir: &Path) -> String {
     let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
     let channel_dir_escaped = quote(channel_dir);
     let session_dir_escaped = quote(session_dir);
+    // The system's commands go first on `PATH`, so a command of the same name in an earlier entry never decides anything
+    // here. The rest of the inherited `PATH` stays after them: a system without `od` or `awk` in those folders (NixOS) still
+    // finds them. The script Studio writes on Windows (Git Bash) leaves `PATH` alone: Git Bash already leads it with its own
+    // `/usr/bin`, and no CI run of this change could have checked the pin against that shell.
+    let path_pin = if cfg!(windows) { "" } else { "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"\nexport PATH\n" };
     format!(
         r#"#!/bin/sh
 set -eu
 umask 077
-
+{path_pin}
 CHANNEL_DIR='{channel_dir_escaped}'
 STATUS_FILE='{session_dir_escaped}/agent-status.json'
 
@@ -255,15 +314,10 @@ pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf
 }
 
 /// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix) for the agent working in `session_dir`.
-fn install_hook_script(channel_dir: &Path, session_dir: &Path) -> std::io::Result<PathBuf> {
+pub(crate) fn install_hook_script(channel_dir: &Path, session_dir: &Path) -> std::io::Result<PathBuf> {
     let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
     let content = approval_hook_script(channel_dir, session_dir);
-    designos_library::write_atomic(&script_path, content.as_bytes()).map_err(|e| std::io::Error::other(e.to_string()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
-    }
+    crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
     Ok(script_path)
 }
 
@@ -617,6 +671,11 @@ mod tests {
         }
     }
 
+    /// What this asserts, for every agent CLI: an Ask launch is the Skip launch with its skip flag removed
+    /// (`strip_skip_permission_flags`) and nothing else changed, with one exception. Claude's `--settings` names the hooks
+    /// file in the session folder in Skip mode and `$DESIGNOS_CLAUDE_SETTINGS` (the private hooks file) in Ask mode. Put
+    /// that one argument back and the Ask string equals the stripped Skip string, byte for byte; the other CLIs have no
+    /// `--settings` and are identical to their stripped Skip string as they are.
     #[test]
     fn ask_mode_drops_each_skip_flag() {
         for preset in
@@ -627,12 +686,84 @@ mod tests {
             assert!(!cmd.contains("--dangerously-bypass-approvals-and-sandbox"), "{preset:?} ask command kept bypass flag: {cmd}");
             assert!(!cmd.contains("--always-approve"), "{preset:?} ask command kept always-approve flag: {cmd}");
             assert!(!cmd.contains("--dangerously-bypass-hook-trust"), "{preset:?} ask command must never bypass hook trust: {cmd}");
-            assert_eq!(cmd, strip_skip_permission_flags(preset.cli_launch_command()));
+            assert_eq!(cmd.replace(ASK_SETTINGS_ARG, SKIP_SETTINGS_ARG), strip_skip_permission_flags(preset.cli_launch_command()), "{preset:?}");
+            assert_eq!(cmd, ask_mode_launch_command(preset.cli_launch_command()), "{preset:?}: the static Ask string is the derived one");
+            // No Ask launch reads hooks from the session folder.
+            assert!(!cmd.contains("$DESIGNOS_SESSION_DIR/hooks.json"), "{preset:?} ask command reads hooks from the session folder: {cmd}");
+            let claude = preset == AgentCliPreset::Claude;
+            assert_eq!(cmd.contains(ASK_SETTINGS_ARG), claude, "{preset:?}");
+            assert_eq!(preset.cli_launch_command().contains(SKIP_SETTINGS_ARG), claude, "{preset:?}");
         }
+        // The two spellings are the ones the launch strings carry.
+        assert_eq!(ASK_SETTINGS_ARG, format!("--settings \"${CLAUDE_SETTINGS_ENV}\""));
         assert!(AgentCliPreset::Claude.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("claude --mcp-config"));
         assert!(AgentCliPreset::Codex.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("codex -c"));
         assert!(AgentCliPreset::Grok.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("grok --cwd"));
         assert!(AgentCliPreset::Antigravity.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("agy --add-dir"));
+    }
+
+    #[test]
+    fn claude_settings_value_is_the_private_hooks_file_or_inline_empty_settings() {
+        let session = std::env::temp_dir().join("designos-sessions").join(format!("settings-value-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        assert_eq!(claude_settings_value(&session, AgentPermissionMode::Skip), None, "Skip mode names the session folder's file itself");
+
+        // Ask mode before Studio has written the file: nothing to read, so Claude gets empty inline settings.
+        assert_eq!(claude_settings_value(&session, AgentPermissionMode::Ask).as_deref(), Some("{}"));
+
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).unwrap();
+        let hooks = channel.join(crate::agent_approval_channel::HOOKS_FILE_NAME);
+        assert_eq!(claude_settings_value(&session, AgentPermissionMode::Ask).as_deref(), Some("{}"), "a folder without the file is not enough");
+        crate::agent_approval_channel::write_owner_only_file(&hooks, b"{}", false).unwrap();
+        let value = claude_settings_value(&session, AgentPermissionMode::Ask).expect("Ask mode has a value");
+        assert_eq!(Path::new(&value), hooks);
+        assert!(!Path::new(&value).starts_with(&session), "the file Claude reads sits outside the session folder");
+
+        // No private folder at all: the file is not Claude's to read, whatever an earlier run left.
+        let without = crate::agent_approval_channel::without_private_root(|| claude_settings_value(&session, AgentPermissionMode::Ask));
+        assert_eq!(without.as_deref(), Some("{}"));
+        crate::agent_approval_channel::remove_channel(&session);
+    }
+
+    /// A hooks file an earlier build wrote into the session folder in Ask mode names the approval hook, so it goes; one
+    /// written in Skip mode names none and may still be read by a Skip tab that is running, so it stays.
+    #[test]
+    fn a_stale_session_hooks_json_goes_only_when_it_names_the_approval_hook() {
+        let session = std::env::temp_dir().join("designos-sessions").join(format!("stale-hooks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        std::fs::create_dir_all(&session).unwrap();
+        let path = session.join("hooks.json");
+
+        remove_stale_session_hooks(&session);
+        assert!(!path.exists(), "nothing to remove is fine");
+
+        let status_only = r#"{"hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"echo waiting"}]}]}}"#;
+        std::fs::write(&path, status_only).unwrap();
+        remove_stale_session_hooks(&session);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), status_only, "a Skip-mode hooks file stays");
+
+        let with_approval = r#"{"hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"sh '/x/approve-hook.sh'"}]}]}}"#;
+        std::fs::write(&path, with_approval).unwrap();
+        remove_stale_session_hooks(&session);
+        assert!(!path.exists(), "a hooks file with the approval handler goes");
+        let _ = std::fs::remove_dir_all(&session);
+    }
+
+    #[test]
+    fn the_hook_script_puts_the_system_commands_first_on_path() {
+        let script = approval_hook_script(Path::new("/chan"), Path::new("/session"));
+        let first_command = script.lines().position(|line| line.starts_with("CHANNEL_DIR=")).expect("the script bakes in its folder");
+        let pin = script.lines().position(|line| line == "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"");
+        if cfg!(windows) {
+            assert_eq!(pin, None, "the Git Bash script keeps its own PATH");
+        } else {
+            let pin = pin.expect("the script pins PATH");
+            assert!(pin < first_command, "PATH is pinned before the first command runs");
+            assert_eq!(script.lines().nth(pin + 1), Some("export PATH"));
+            // Nothing runs before the pin but the builtins `set` and `umask`.
+            let before: Vec<_> = script.lines().take(pin).filter(|line| !line.is_empty() && !line.starts_with('#')).collect();
+            assert_eq!(before, ["set -eu", "umask 077"]);
+        }
     }
 
     #[test]

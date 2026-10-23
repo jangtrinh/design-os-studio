@@ -2223,7 +2223,7 @@ mod tests {
     /// handler's `additionalContext`.
     fn run_session_hook(st: &TerminalState, event: &str) -> String {
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(st)).expect("hooks.json")).expect("hooks json");
         let handlers = hooks["hooks"][event][0]["hooks"].as_array().expect("handlers");
         let tab_id = st.active_tab().map_or(0, |t| t.id);
         let mut stdout = String::new();
@@ -2415,7 +2415,7 @@ mod tests {
     /// as Claude Code runs them. Returns the `additionalContext` each one printed; a handler that prints nothing adds nothing.
     fn skills_hook_contexts(st: &TerminalState, tab_id: usize) -> Vec<String> {
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(st)).expect("hooks.json")).expect("hooks json");
         let handlers = hooks["hooks"]["UserPromptSubmit"][0]["hooks"].as_array().expect("handlers");
         handlers
             .iter()
@@ -2478,7 +2478,7 @@ mod tests {
 
         // The bootstrap handler is untouched: the first prompt still gets the bootstrap block, and it never carries skills.
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(&st)).expect("hooks.json")).expect("hooks json");
         let first_handler = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().expect("prompt handler").to_string();
         let out = std::process::Command::new("sh").arg("-c").arg(&first_handler).output().expect("run prompt hook");
         let printed = String::from_utf8_lossy(&out.stdout).into_owned();
