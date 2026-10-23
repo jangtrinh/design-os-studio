@@ -52,6 +52,22 @@ fn saved_file_roundtrip_and_unsaved_changes_guard() {
 }
 
 #[test]
+fn exporting_a_fig_reports_the_comment_threads_it_leaves_out() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let none = s.call("designos_export_fig_file", json!({"output_path":"none.fig"})).unwrap();
+    assert_eq!(none["omitted_comment_threads"], 0);
+    s.call("designos_add_comment", json!({"text":"Make this bigger"})).unwrap();
+    s.call("designos_add_comment", json!({"text":"And this one"})).unwrap();
+    let two = s.call("designos_export_fig_file", json!({"output_path":"two.fig"})).unwrap();
+    assert_eq!(two["saved"], true);
+    assert_eq!(two["omitted_comment_threads"], 2);
+    // the native format keeps what the .fig could not
+    s.call("designos_save_file", json!({"path":"kept.designos"})).unwrap();
+    assert!(fs::read_to_string(dir.0.join("kept.designos")).unwrap().contains("Make this bigger"));
+}
+
+#[test]
 fn paths_and_bad_imports_cannot_replace_the_session() {
     let dir = Workspace::new();
     let outside = Workspace::new();
