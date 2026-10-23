@@ -12,7 +12,7 @@ Patch for **AI design** ([milestone v0.6.1 patch](https://github.com/jangtrinh/d
   - Edit > Paste is never disabled. With nothing to paste, a toast says `Nothing to paste` (#877).
   - Drop PNG, JPEG or WebP files on the canvas. Each file becomes an image layer. A drop of several files is one undo step (#878).
   - A pasted or dropped layer lands in the frame under the point where it lands. Inside a frame that clips its content, as every frame imported from Figma does, it stays in the part that shows (#877, #878, #959).
-- **Files and saves.**
+- **Files and export.**
   - Closing a tab, closing the window, quitting, or opening another file over unsaved edits asks `Save changes to {name}?` with Save, Don't save and Cancel. This covers files outside the library. Library files autosave and never ask (#929).
   - On macOS, Cmd+Q and Quit in the app menu ask the same question (#974).
   - When another program changes a file that has unsaved edits in Studio, Studio asks `File changed on disk` with Use file and Keep mine. Enter, Esc and a click outside keep your edits (#933).
@@ -51,9 +51,9 @@ Patch for **AI design** ([milestone v0.6.1 patch](https://github.com/jangtrinh/d
   - The command palette's design fix and its five Figma AI rows (Replace content, Boost resolution, Edit image with prompt, Make prototype flows and Rename layers semantically) are each one undo step. Before, they wrote with no undo step, and Cmd+Z undid the edit before them. Each toast names what it did, as in `Layers renamed · Cmd+Z to undo`. A run that changes nothing shows `Nothing changed`, adds no undo step and keeps the palette open (#984, PR #988).
 - **Agents panel.**
   - After Revert, Keep or Dismiss on the review card, the typing caret returns to the prompt box. Before, the next letter picked a canvas tool (#922).
-  - A dialog, the command palette or a menu gets Esc, Enter and the arrow keys before the agent terminal. The Esc that closes a dialog no longer interrupts a running turn, and Esc in the prompt box only leaves the box (#923). Every popup menu and popover does this, including the color picker, the font dropdown and the Variables popovers (#960, #981).
+  - A dialog, the command palette or a menu gets Esc, Enter and the arrow keys before the agent terminal. The Esc that closes a dialog no longer interrupts a running turn, and Esc in the prompt box only leaves the box (#923). Popup menus and popovers do the same, including the color picker, the font dropdown and the Variables popovers (#960, #981). The Sessions popover does not yet (#1010).
   - Gemini CLI asks before each Studio canvas tool call in Ask mode. Studio no longer writes `trust` for its server in Gemini's settings (#924).
-  - Return acts only on a row you moved to with Tab or the arrow keys. A bare Return no longer opens Other CLI (#885).
+  - Return acts only on a row that has keyboard focus. Tab reaches the rows, and the arrow keys move between them. A bare Return no longer opens Other CLI (#885).
   - The `+` button opens and closes its menu in release builds (#925). The Other CLI caption no longer touches Cancel (#927). When an agent exits, its tab keeps its width and shows a hollow status ring, so the Sessions and `+` buttons stay under the pointer (#829).
   - A session rename takes the keyboard when it opens. The Other CLI form takes no keys while it is clipped out of view (#1001, PR #1007).
   - When an agent opens or creates another document, your unsaved edits stay in their own tab, and the agent's document never takes your file. Save on the agent's document asks where it goes (#966).
@@ -70,7 +70,7 @@ Patch for **AI design** ([milestone v0.6.1 patch](https://github.com/jangtrinh/d
   - The toast paints above the full Variables view (#830).
   - A property edit on an instance goes through when its stored variant would make a main hold itself (#989).
   - Studio no longer aborts when a main component holds an instance of itself through a pair or a ring of mains. Paste, Ctrl+D, Alt-drag, drops from Assets, variant switches and MCP batch `move` no longer put a main inside itself (#860).
-- **Files and saves.**
+- **Files and export.**
   - The unsaved dot clears when a save writes the document, returns with the next edit, and clears again when undo walks back to the saved state. A save as `.fig` or `.pen` leaves the dot lit, because those files drop comments (#847).
   - Switching tabs no longer replaces unsaved edits with the file on disk (#933).
   - The Comment tool no longer shows `Comments are not available in the offline editor`. Comments work, and the click opens the composer (#851, PR #1006).
