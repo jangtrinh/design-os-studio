@@ -81,6 +81,14 @@ fn take_pending_ai_op() -> Option<FigmaAiOp> {
     PENDING_AI_OP.lock().ok().and_then(|mut slot| slot.take())
 }
 
+/// Serializes the tests that queue or take the Figma AI operation. The slot is process-wide, so two such tests
+/// running at once could take each other's operation: every one of them holds this guard while it does.
+#[cfg(test)]
+pub(crate) fn ai_op_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Actions returned by `cmdk::show` for the host `App` / `Shell` to execute.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CmdKAction {
@@ -476,22 +484,22 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                         state.open = false;
                         out_action = Some(CmdKAction::ApplySpec(Box::new(spec)));
                     }
+                    // The Figma AI rows leave the palette open: the shell closes it once the operation has committed
+                    // an undo step (its search field keeps Cmd+Z). A run that changes nothing or is refused leaves no
+                    // step to undo, and the open palette lets the user pick another action.
                     "cmdk-wire-prototype" => {
                         queue_pending_ai_op(FigmaAiOp::MakePrototype);
                         state.status = Some("Wired SmartAnimate prototype flows across frames".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::MakePrototype);
                     }
                     "cmdk-rename-layers" => {
                         queue_pending_ai_op(FigmaAiOp::BoostResolution);
                         state.status = Some("Boosted resolution, snapped integer bounds & renamed layers".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::BoostResolution);
                     }
                     "cmdk-semantic-rename" => {
                         queue_pending_ai_op(FigmaAiOp::RenameLayers);
                         state.status = Some("Renamed generic layers semantically".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::RenameLayers);
                     }
                     "cmdk-translate-vi" => {
@@ -505,13 +513,11 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                             TextAiMode::TranslateVi
                         };
                         state.status = Some(format!("Applied {:?} across selected layers", mode));
-                        state.open = false;
                         out_action = Some(CmdKAction::RewriteText(mode));
                     }
                     "cmdk-populate-content" => {
                         queue_pending_ai_op(FigmaAiOp::PopulateContent);
                         state.status = Some("Populated realistic SaaS content & metrics".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::PopulateContent);
                     }
                     "cmdk-design-gate" => {
@@ -1072,14 +1078,28 @@ pub fn done_toast(op: Option<FigmaAiOp>) -> &'static str {
     }
 }
 
+/// The frames the prototype wiring links, in order: the selected frames when two or more are selected, otherwise
+/// every frame on `page`. `None` when that leaves fewer than two frames, which leaves nothing to link.
+fn prototype_wiring_frames(doc: &Document, page: NodeId, selection: &[NodeId]) -> Option<Vec<NodeId>> {
+    let is_frame = |id: &NodeId| doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_)));
+    let selected: Vec<NodeId> = selection.iter().copied().filter(is_frame).collect();
+    let frames =
+        if selected.len() >= 2 { selected } else { doc.get(page).map(|pg| pg.children.iter().copied().filter(is_frame).collect()).unwrap_or_default() };
+    (frames.len() >= 2).then_some(frames)
+}
+
 /// Every node [`auto_fix_design_gate`] may write for `selection` (or the whole `page` when nothing is selected)
-/// when it runs `op`: the subtrees it walks, and the page's frames when `op` is the prototype wiring, which takes
-/// them whenever fewer than two frames are selected. A relayout only moves nodes below the one that changed, so
-/// the subtrees are the whole write set.
+/// when it runs `op`: the subtrees it walks. The prototype wiring walks the frames it links
+/// ([`prototype_wiring_frames`]) and what is in them, and nothing when there are fewer than two. A relayout only
+/// moves nodes below the one that changed, so the subtrees are the whole write set.
 fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> Vec<NodeId> {
-    let wires_page_frames = op == Some(FigmaAiOp::MakePrototype);
-    let roots: Vec<NodeId> =
-        if selection.is_empty() || wires_page_frames { doc.get(page).map(|pg| pg.children.clone()).unwrap_or_default() } else { selection.to_vec() };
+    let roots: Vec<NodeId> = if op == Some(FigmaAiOp::MakePrototype) {
+        prototype_wiring_frames(doc, page, selection).unwrap_or_default()
+    } else if selection.is_empty() {
+        doc.get(page).map(|pg| pg.children.clone()).unwrap_or_default()
+    } else {
+        selection.to_vec()
+    };
     let mut scope = Vec::new();
     for root in roots {
         collect_subtree(doc, root, &mut scope);
@@ -1121,16 +1141,16 @@ pub fn run_auto_fix_design_gate(app: &mut App) -> AutoFixOutcome {
     let op = take_pending_ai_op();
     let selection = app.selection.clone();
     let page = app.page;
+    if op == Some(FigmaAiOp::MakePrototype) && prototype_wiring_frames(&app.doc, page, &selection).is_none() {
+        // Fewer than two frames to link: decided before anything is recorded, which on a large page clones all of it.
+        return AutoFixOutcome::NoChange;
+    }
     let mut tx = Tx::new();
     let flows_before = app.doc.flows.clone();
     let count = run_recorded(&mut app.doc, &mut tx.ed, page, &selection, op);
     if app.doc.flows != flows_before {
         let flows = std::mem::replace(&mut app.doc.flows, flows_before);
-        if let Err(e) = tx.cmd(&mut app.doc, Command::SetFlows { flows }) {
-            tx.cancel(&mut app.doc);
-            app.show_toast(format!("Edit failed: {e}"), true);
-            return AutoFixOutcome::Refused;
-        }
+        tx.cmd(&mut app.doc, Command::SetFlows { flows }).expect("SetFlows swaps the flow list and cannot fail");
     } else if tx.ed.before_nodes().is_empty() {
         // Everything the operation wrote equals what was there and no flow moved: there is no edit to run, so
         // nothing is committed, redrawn or toasted here and what is on screen stays.
@@ -1227,22 +1247,9 @@ pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeI
 pub fn auto_wire_prototype_flows(doc: &mut Document, page: NodeId, selection: &[NodeId]) -> usize {
     use designos_doc::{Action, Easing, Flow, Reaction, Transition, TransitionKind, Trigger};
 
-    let selected_frames: Vec<NodeId> = selection.iter().copied().filter(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_)))).collect();
-
-    let frames: Vec<NodeId> = if selected_frames.len() >= 2 {
-        selected_frames
-    } else {
-        doc.get(page)
-            .map(|pg| pg.children.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_))))
-            .collect()
-    };
-
-    if frames.len() < 2 {
+    let Some(frames) = prototype_wiring_frames(doc, page, selection) else {
         return 0;
-    }
+    };
 
     let mut wired = 0usize;
     for i in 0..frames.len() {
@@ -1826,11 +1833,66 @@ mod tests {
         );
         assert_eq!(set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::RenameLayers))), first_subtree);
         assert_eq!(set(auto_fix_scope(&doc, page, &[], None)), whole_page, "with nothing selected the fix walks the whole page");
+        let page_frames: Vec<NodeId> =
+            doc.get(page).unwrap().children.iter().copied().filter(|id| matches!(doc.get(*id).unwrap().kind, NodeKind::Frame(_))).collect();
+        let frames_of_the_page = subtree_of(&doc, &page_frames);
+        assert_ne!(frames_of_the_page, whole_page, "precondition: the page also holds copy outside every frame");
         assert_eq!(
             set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::MakePrototype))),
-            whole_page,
-            "wiring takes every frame of the page when fewer than two are selected"
+            frames_of_the_page,
+            "wiring takes every frame of the page, and what is in them, when fewer than two are selected"
         );
+    }
+
+    fn subtree_of(doc: &Document, roots: &[NodeId]) -> std::collections::BTreeSet<NodeId> {
+        let mut out = Vec::new();
+        for &r in roots {
+            collect_subtree(doc, r, &mut out);
+        }
+        out.into_iter().collect()
+    }
+
+    #[test]
+    fn wiring_two_or_more_selected_frames_records_only_those_frames_and_what_is_in_them() {
+        let (doc, page, _) = page_with_untouched_layers();
+        let kids = doc.get(page).unwrap().children.clone();
+        let (first, second, toolbar, placeholder) = (kids[0], kids[1], kids[2], kids[3]);
+        assert!(matches!(doc.get(placeholder).unwrap().kind, NodeKind::Text(_)), "precondition: the last layer on the page is copy, not a frame");
+
+        let scope =
+            |selection: &[NodeId]| auto_fix_scope(&doc, page, selection, Some(FigmaAiOp::MakePrototype)).into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            scope(&[first, second]),
+            subtree_of(&doc, &[first, second]),
+            "two selected frames: those frames and what is in them, nothing else on the page"
+        );
+        assert_eq!(scope(&[second, toolbar, first]), subtree_of(&doc, &[first, second, toolbar]), "three selected frames");
+        assert_eq!(
+            scope(&[first, placeholder]),
+            subtree_of(&doc, &[first, second, toolbar]),
+            "copy is not a frame, so one selected frame plus a text still wires the page's frames"
+        );
+    }
+
+    #[test]
+    fn wiring_with_fewer_than_two_frames_has_nothing_to_record() {
+        let mut doc = Document::new("One frame");
+        let page = doc.add_page("Page 1");
+        let frame = doc.alloc_id();
+        doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let label = doc.alloc_id();
+        doc.insert(frame, Node::text(label, Rect::new(0.0, 0.0, 80.0, 20.0), "Hello", TextStyle::default())).unwrap();
+        let loose = doc.alloc_id();
+        doc.insert(page, Node::text(loose, Rect::new(400.0, 0.0, 80.0, 20.0), "Loose", TextStyle::default())).unwrap();
+
+        for selection in [vec![], vec![frame], vec![frame, loose]] {
+            assert!(
+                auto_fix_scope(&doc, page, &selection, Some(FigmaAiOp::MakePrototype)).is_empty(),
+                "one frame on the page and {} selected: nothing to link, so nothing to record",
+                selection.len()
+            );
+        }
+        assert!(!auto_fix_scope(&doc, page, &[], Some(FigmaAiOp::RenameLayers)).is_empty(), "the other operations still record what they walk");
     }
 
     #[test]

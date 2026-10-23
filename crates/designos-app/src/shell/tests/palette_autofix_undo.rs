@@ -1,20 +1,19 @@
 //! The command palette's auto-fix and Figma AI actions run through the editor's transaction, so one Cmd+Z puts
 //! the document back exactly and the toast that promises it tells the truth.
 //!
-//! The actions share a process-wide queue for the AI operation they run, so these tests hold [`LOCK`] while they
-//! drive one: two of them in parallel could take each other's queued operation.
+//! The actions share a process-wide queue for the AI operation they run, so these tests hold
+//! [`crate::cmdk::ai_op_test_lock`] while they drive one: two of them in parallel could take each other's queued
+//! operation.
 
 use super::unsaved_dot::{dot, lib, library_sim, wait, SETTLED};
 use super::*;
 use crate::cmdk::CmdKAction;
 use designos_doc::{AutoLayout, Document, Flow, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeKind, Rect as DRect, Sizing, TextStyle};
 use std::collections::BTreeMap;
-use std::sync::{Mutex, MutexGuard};
-
-static LOCK: Mutex<()> = Mutex::new(());
+use std::sync::MutexGuard;
 
 fn serialized() -> MutexGuard<'static, ()> {
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    crate::cmdk::ai_op_test_lock()
 }
 
 /// Everything an undo step has to put back.
@@ -140,6 +139,10 @@ fn sim_on_fixable_doc() -> (Sim, Layers) {
 }
 
 fn sim_on(doc: Document, layers: Layers) -> (Sim, Layers) {
+    (open_in_sim(doc), layers)
+}
+
+fn open_in_sim(doc: Document) -> Sim {
     let mut s = Sim::new();
     s.use_stub_agent_clis();
     s.shell.app.replace_document(doc, None);
@@ -147,7 +150,7 @@ fn sim_on(doc: Document, layers: Layers) -> (Sim, Layers) {
     s.frame(vec![]);
     s.shell.app.selection.clear();
     assert!(!s.app().hist.can_undo(), "a freshly opened document has no history");
-    (s, layers)
+    s
 }
 
 fn auto_fix(s: &mut Sim) {
@@ -251,6 +254,7 @@ fn every_operation_names_what_it_did_in_its_toast() {
         s.click(rect.center());
         assert_eq!(toast_text(&s).as_deref(), Some(expected), "{row} says what it did");
         assert!(s.app().hist.can_undo(), "{row} changed the document, so the promised undo exists");
+        assert!(!s.app().cmdk.open, "{row} committed a step: the palette closes so Cmd+Z reaches the canvas");
         s.cmd_key(Key::Z);
         s.shell.app.cmdk.open = false;
         s.shell.app.cmdk.query.clear();
@@ -352,6 +356,88 @@ const AI_ROWS: [(&str, &str, &str); 5] = [
     ("cmdk-populate-content", "replace", "Content replaced · Cmd+Z to undo"),
 ];
 
+/// Opens the palette on `query` and clicks `row`, as a user does.
+fn click_row(s: &mut Sim, row: &str, query: &str) {
+    s.shell.app.cmdk.open = true;
+    s.shell.app.cmdk.query = query.into();
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let rect = s.rect_of(row);
+    s.click(rect.center());
+}
+
+/// A page with one frame that none of the operations has anything to change: whole pixels, a plain name, no copy,
+/// no fills, no layout to solve, and no second frame to link it to.
+fn quiet_doc() -> Document {
+    let mut d = Document::new("Quiet");
+    let page = d.add_page("P");
+    let id = d.alloc_id();
+    let mut frame = Node::frame(id, DRect::new(0.0, 0.0, 320.0, 240.0));
+    frame.name = "Card".into();
+    d.insert(page, frame).unwrap();
+    d
+}
+
+#[test]
+fn a_figma_ai_row_that_changes_nothing_leaves_the_palette_open_so_another_action_can_be_picked() {
+    let _guard = serialized();
+    let mut s = open_in_sim(quiet_doc());
+    for (row, query, _) in AI_ROWS {
+        let before = state(&s);
+        let depth = s.app().hist.undo_depth();
+        s.shell.app.toast = None;
+
+        click_row(&mut s, row, query);
+
+        assert_eq!(toast_text(&s).as_deref(), Some("Nothing changed"), "{row}: the page has nothing for it to change");
+        assert_same_state(&state(&s), &before, &format!("{row}: nothing written"));
+        assert_eq!(s.app().hist.undo_depth(), depth, "{row}: no undo step");
+        assert!(s.app().cmdk.open, "{row}: with no step there is nothing for Cmd+Z to reach, so the palette stays open");
+        s.shell.app.cmdk.open = false;
+        s.shell.app.cmdk.query.clear();
+    }
+}
+
+#[test]
+fn the_palette_button_that_changes_nothing_leaves_the_palette_open() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    auto_fix(&mut s);
+    let fixed = state(&s);
+    let depth = s.app().hist.undo_depth();
+    s.shell.app.toast = None;
+
+    s.shell.app.cmdk.open = true;
+    s.shell.app.cmdk.active_tab = 3;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let button = s.rect_of("cmdk-autofix-gate-btn");
+    s.click(button.center());
+
+    assert_eq!(toast_text(&s).as_deref(), Some("Nothing changed"), "the second fix has nothing left to change");
+    assert_same_state(&state(&s), &fixed, "nothing written");
+    assert_eq!(s.app().hist.undo_depth(), depth, "no undo step");
+    assert!(s.app().cmdk.open, "no step, so the palette stays open");
+}
+
+#[test]
+fn a_figma_ai_row_in_an_old_version_view_is_refused_and_leaves_the_palette_open() {
+    let _guard = serialized();
+    let (mut s, _dir) = library_sim();
+    view_an_old_version_with_fixable_layers(&mut s);
+    s.shell.app.selection.clear();
+    let before = state(&s);
+    s.shell.app.toast = None;
+
+    click_row(&mut s, "cmdk-semantic-rename", "semantic");
+
+    let toast = s.app().toast.as_ref().expect("the refusal shows a toast");
+    assert_eq!((toast.text.as_str(), toast.error), ("Viewing an old version is read-only", true), "the edit is refused, and says why");
+    assert_same_state(&state(&s), &before, "a refused edit writes nothing");
+    assert!(!s.app().hist.can_undo(), "and leaves no undo step");
+    assert!(s.app().cmdk.open, "refused, so there is no step to undo and the palette stays open");
+}
+
 #[test]
 fn every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection() {
     let _guard = serialized();
@@ -380,6 +466,43 @@ fn every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection() {
             s.shell.app.cmdk.query.clear();
         }
     }
+}
+
+#[test]
+fn wiring_two_selected_frames_links_only_those_and_one_cmd_z_restores_the_page() {
+    let _guard = serialized();
+    let (mut s, l) = sim_on_fixable_doc();
+    let page = s.app().page;
+    let third_frame = s
+        .app()
+        .doc
+        .get(page)
+        .unwrap()
+        .children
+        .iter()
+        .copied()
+        .find(|id| s.app().doc.get(*id).unwrap().name == "Onboarding Step 3")
+        .expect("a frame outside the selection");
+    s.shell.app.selection = vec![l.first_frame, l.toolbar];
+    let before = state(&s);
+
+    click_row(&mut s, "cmdk-wire-prototype", "prototype");
+
+    let after = state(&s);
+    assert_eq!(toast_text(&s).as_deref(), Some("Prototype flows wired · Cmd+Z to undo"));
+    assert_eq!(after.flows.len(), 1, "one flow starts the wiring");
+    assert_eq!(after.flows[0].start, l.first_frame, "it starts on the first selected frame");
+    assert_eq!(after.nodes[&third_frame], before.nodes[&third_frame], "the frame outside the selection is not wired");
+    assert_eq!(after.nodes[&l.placeholder], before.nodes[&l.placeholder], "nor is the copy on the page");
+    let wired = |id: NodeId| !s.app().doc.get(id).unwrap().prototype.reactions.is_empty();
+    assert!(wired(l.button) || wired(l.first_frame), "the first frame is wired through its button or itself");
+    assert!(wired(l.toolbar_button) || wired(l.toolbar), "the toolbar is wired through its button or itself");
+
+    s.cmd_key(Key::Z);
+    assert_same_state(&state(&s), &before, "one Cmd+Z restores the nodes and the flows");
+    assert!(!s.app().hist.can_undo(), "and it was the only step");
+    s.cmd_key(Key::Y);
+    assert_same_state(&state(&s), &after, "redo wires them again");
 }
 
 /// Where the toolbar's children are, in the order `Layers` names them.

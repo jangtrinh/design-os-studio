@@ -1556,7 +1556,11 @@ mod tests {
         ));
         save_registry(&app_resumable.terminal.session_dir, &app_resumable.terminal.session_registry).expect("save registry");
 
-        crate::shell::execute_cmdk_action(&mut app_resumable, crate::cmdk::CmdKAction::AutoFixDesignGate);
+        {
+            // the auto-fix takes the AI operation another test may have queued in this process
+            let _ai_ops = crate::cmdk::ai_op_test_lock();
+            crate::shell::execute_cmdk_action(&mut app_resumable, crate::cmdk::CmdKAction::AutoFixDesignGate);
+        }
         assert_eq!(app_resumable.terminal.tabs.len(), 1, "execute_cmdk_action must resume the last session when tabs is empty");
         assert!(app_resumable.terminal.tabs[0].is_resumed);
         assert!(!app_resumable.terminal.picker_open);
