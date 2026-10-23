@@ -216,6 +216,7 @@ pub(super) fn title(ui: &mut Ui, pane: &mut Pane, text: &str, action: Option<Ico
     let mut clicked = false;
     if let Some(ic) = action {
         let b = pane.rect(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        #[cfg(test)]
         widgets::record(ui, &format!("title-action:{text}"), b);
         clicked = widgets::icon_button(ui, b, ("title-action", text), ic, false, "").clicked();
     }
