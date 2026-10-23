@@ -1203,6 +1203,10 @@ impl eframe::App for Shell {
     /// Tab belongs to the text session (it nests list items) or to sibling layer traversal on the
     /// canvas: take it out of the input before egui uses it to move keyboard focus between widgets.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // macOS: a Quit chosen while the window is hidden waits a few seconds for it. The wait starts at the first frame
+        // after the request, and eframe runs this hook for hidden frames too; `ctx.input` still shows the previous one.
+        #[cfg(target_os = "macos")]
+        crate::macos_menu::stamp_pending_quit(ctx, raw.time);
         if self.app.plugins.open {
             return;
         }
@@ -1370,6 +1374,10 @@ impl Shell {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.drive_screenshot(&ctx);
+        // macOS: a Quit chosen while the window was hidden brought it back and waits here for a frame that can draw the
+        // question; the close it asks for comes round to the branch below on the next frame.
+        #[cfg(target_os = "macos")]
+        crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             if !self.app.may_quit(&ctx) {
                 // Edits no save has written are being asked about: the window stays open, and the close comes round again.

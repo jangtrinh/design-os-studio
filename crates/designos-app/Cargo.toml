@@ -54,6 +54,12 @@ portable-pty = "0.8"
 toml = "1"
 vt100 = "0.15"
 
+# macOS only: the app menu's Quit item (`src/macos_menu.rs`). The versions and the feature set are the ones eframe
+# already builds for the app icon, so no package is added to the build.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+
 [build-dependencies]
 winresource = "0.1"
 

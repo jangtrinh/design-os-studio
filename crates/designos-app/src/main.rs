@@ -62,6 +62,8 @@ mod live_spec_apply;
 mod live_sync_interaction_tests;
 #[cfg(test)]
 mod live_sync_tests;
+#[cfg(target_os = "macos")]
+mod macos_menu;
 mod ops;
 mod panels;
 mod paste_placement;
@@ -160,7 +162,21 @@ fn main() {
         }
     }
     let native = eframe::NativeOptions { viewport, ..Default::default() };
-    let result = eframe::run_native("design:os studio", native, Box::new(move |cc| Ok(Box::new(shell::Shell::new(cc, opts)))));
+    let result = eframe::run_native(
+        "design:os studio",
+        native,
+        Box::new(move |cc| {
+            // winit's default app menu quits through `terminate:`, which never raises a window close. Point its Quit
+            // item (and the Cmd+Q key it owns) at the close instead, so the Save changes questions run first.
+            #[cfg(target_os = "macos")]
+            {
+                if !macos_menu::install(&cc.egui_ctx) {
+                    eprintln!("designos: the app menu has no Quit item to route through the window close");
+                }
+            }
+            Ok(Box::new(shell::Shell::new(cc, opts)))
+        }),
+    );
     if let Err(e) = result {
         eprintln!("designos: {e}");
         std::process::exit(1);
