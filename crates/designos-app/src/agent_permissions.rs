@@ -97,9 +97,11 @@ pub const CLAUDE_SETTINGS_ENV: &str = "DESIGNOS_CLAUDE_SETTINGS";
 /// Environment variable of an Ask-mode tab that holds the value of Claude's `--plugin-dir` (see [`claude_plugin_value`]).
 pub const CLAUDE_PLUGIN_ENV: &str = "DESIGNOS_CLAUDE_PLUGIN";
 
-/// `--plugin-dir` value that names no plugin: an absolute path nothing exists at and no user can create. Claude logs
-/// "Plugin path does not exist" and goes on. An empty value would be read as the working folder, and a folder that exists
-/// is loaded as a plugin or as a folder of plugins, so this is what a tab gets when there is no private plugin to give it.
+/// `--plugin-dir` value that names no plugin: an absolute path nothing exists at. Claude logs "Plugin path does not exist"
+/// and goes on. An empty value would be read as the working folder, and a folder that exists is loaded as a plugin or as a
+/// folder of plugins, so this is what a tab gets when there is no private plugin to give it. On Unix only root can create
+/// it. On Windows it resolves under `C:\`, where a user can by default; a write there is outside what the agents Studio
+/// starts can do (their write grants are the working folder and the temp folders), so it stays outside the threat model.
 pub const NO_CLAUDE_PLUGIN_DIR: &str = "/nonexistent/designos-claude-plugin-unavailable";
 
 /// `--settings` value that names no settings: inline JSON, so no file and nothing to reload.
