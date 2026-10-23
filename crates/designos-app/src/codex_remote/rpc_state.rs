@@ -168,7 +168,16 @@ impl Machine {
                 self.cards.record_item(thread_id, turn_id, &params["item"]);
                 Vec::new()
             }
-            (method::TURN_COMPLETED, Some(thread_id), Some(turn_id)) => self.cards.turn_completed(thread_id, turn_id),
+            (method::TURN_COMPLETED, Some(thread_id), Some(turn_id)) => {
+                for pending in self.pending.values() {
+                    if let Pending::Items(held) = pending {
+                        if held.params["threadId"] == thread_id && held.params["turnId"] == turn_id {
+                            self.cards.mark_over(&held.id);
+                        }
+                    }
+                }
+                self.cards.turn_completed(thread_id, turn_id)
+            }
             (method::REQUEST_RESOLVED, ..) => params.get("requestId").map_or_else(Vec::new, |request_id| self.cards.resolved(request_id)),
             _ => Vec::new(),
         }
