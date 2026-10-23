@@ -8,6 +8,7 @@ use super::*;
 use crate::terminal::AgentCliPreset;
 
 mod clipped_other_cli_form;
+mod dev_mode_shortcut;
 mod hand_built_popovers;
 mod hidden_other_cli_form;
 mod overlay_escape;

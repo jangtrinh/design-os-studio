@@ -190,6 +190,7 @@ impl App {
             ("Ctrl+D", "Duplicate"),
             ("Ctrl+G / Ctrl+Shift+G", "Group / ungroup"),
             ("Shift+A", "Add auto layout"),
+            ("Shift+D", "Toggle dev mode"),
             ("Shift+1 / Shift+2", "Zoom to fit / selection"),
             ("Shift+0", "Zoom to 100%"),
             ("Ctrl+\\", "Show or hide the UI"),

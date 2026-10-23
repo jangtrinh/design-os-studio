@@ -103,6 +103,13 @@ pub fn markable(app: &App, id: NodeId) -> bool {
 }
 
 impl App {
+    /// Switches Dev Mode on or off and brings the right panel back to its first tab (Design, which Dev Mode labels
+    /// Inspect). The `</>` segment of the mode switch, the Exit Dev Mode button and `Shift+D` all do this.
+    pub fn set_dev_mode(&mut self, on: bool) {
+        self.ui.dev_mode = on;
+        self.ui.right_tab = Some(crate::app::RightTab::Design);
+    }
+
     /// Generates code for `id` in `lang`, reflecting any active scratch overrides in the Dev Mode Component Playground.
     pub fn dev_code_for(&self, id: NodeId, lang: Language, react_tailwind: bool) -> String {
         if self.dev.playground.has_overrides_for(id) {
