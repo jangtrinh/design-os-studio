@@ -45,13 +45,13 @@ designos app.designos --reply-comment t1 --message "Updated spec and auto-reload
 
 ---
 
-## 3. Headless GPU Screenshot & Visual QA Automation (`15` Studio Surfaces)
+## 3. Headless GPU Screenshot & Visual QA Automation (`13` Studio Surfaces)
 
-> "Run the headless GPU visual proof capture suite across all 15 DESIGN:OS Studio surfaces (`Hero`, `Agents Chat`, `Spec Reader`, `Assets`, `Actions Cmd+K`, `Dev Mode`, `Variables`, `Components`, `Prototype`, `Comments`, `Main Menu`, `Color Picker`, `Agent Spec`, `Overview LOD`, `Home`) and verify SSIM parity."
+> "Run the headless GPU visual proof capture suite across all 13 DESIGN:OS Studio surfaces (`Hero`, `Agents Chat`, `Assets`, `Actions Cmd+K`, `Dev Mode`, `Variables`, `Components`, `Prototype`, `Main Menu`, `Color Picker`, `Agent Spec`, `Overview LOD`, `Home`) and verify SSIM parity."
 
 ```bash
-# Re-capture all 15 deterministic studio screenshots into docs/images/
-./scripts/capture-visual-proof.sh
+# Re-capture the 13 deterministic studio screenshots into docs/images/ from a .designos copy of the Untitled UI PRO v8.0 kit
+DESIGNOS_PROOF_DOC=/path/to/untitled-ui-kit.designos ./scripts/capture-visual-proof.sh
 
 # Render a specific frame at 60% zoom using the Metal/Vulkan/DX12 GPU pipeline
 designos-studio --open-id <file-id> --select "IAM · Audit log" --zoom 60 --gpu --size 1600x1000 --screenshot docs/images/designos-hero.png
