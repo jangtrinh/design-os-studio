@@ -51,8 +51,9 @@ struct Ctx<'a> {
     cmds: Vec<Command>,
     invs: Vec<Command>,
     saved_dirty: crate::DirtyLog,
-    /// Set when a sync left an instance on its main because the swap it asked for would make a main hold itself.
-    refused_swap: bool,
+    /// The swaps a sync left alone because they would make a main hold itself, each as (the main the instance stays on,
+    /// the main it asked for).
+    refused_swap: Vec<(NodeId, NodeId)>,
     /// Whether a main holds an instance of itself, asked the first time a sync meets it inside its own mirror. The
     /// answer holds for the whole sync: a mirror only repeats what the main already reaches.
     holds_itself: BTreeMap<NodeId, bool>,
@@ -61,7 +62,7 @@ struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: false, holds_itself: BTreeMap::new() }
+        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new() }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -1313,7 +1314,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         }
         // not a main that would hold itself: the instance stays on the main it has
         if desired != cur && would_hold_itself(c.s, desired, i) {
-            c.refused_swap = true;
+            c.refused_swap.push((cur, desired));
         } else if desired != cur {
             swap_main(c, i, desired);
             inode = match c.s.get(i) {
@@ -1453,14 +1454,29 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
         c.update(n);
     }
     sync_one(&mut c, instance);
-    // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes.
-    let refused = c.refused_swap;
+    let refused = std::mem::take(&mut c.refused_swap);
     let cmd = c.finish();
-    if refused {
+    if refused.is_empty() {
+        return cmd;
+    }
+    // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes. A swap
+    // the instance already refuses without this value (a stored variant that a rename or an older build left pointing
+    // at such a main) is not this value's doing, so it does not stop the edit.
+    let stored = refused_swaps(doc, instance);
+    if refused.iter().any(|r| !stored.contains(r)) {
         nothing()
     } else {
         cmd
     }
+}
+
+/// The swaps a sync of `instance`, as it stands, refuses. The sync's writes are taken back.
+fn refused_swaps(doc: &mut Document, instance: NodeId) -> Vec<(NodeId, NodeId)> {
+    let mut c = Ctx::new(doc);
+    sync_one(&mut c, instance);
+    let refused = std::mem::take(&mut c.refused_swap);
+    c.finish();
+    refused
 }
 
 /// Adds a property definition to a component or component set.
