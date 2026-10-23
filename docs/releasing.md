@@ -20,6 +20,19 @@ Work ships in **packs**. A pack is one theme a user can describe in one sentence
 - **Composition:** each pack contains one headline feature, plus the review follow-ups of the earlier pack, plus one or two infra items.
 - **Hot files:** tasks that touch the same hot file (`fig.rs`, `kiwi.rs`, `rest_import.rs`) run one after another, never in parallel.
 
+**Spec-ready gate (before a pack opens).** Every task in the pack gets a spec at `docs/specs/<pack>/<task-id>.md` before it can become Ready. The owner decided this on 2026-10-18. A spec contains:
+- the problem and user stories;
+- behaviour rules and algorithms;
+- data-model and schema changes;
+- MCP/API contracts;
+- file-format field mappings, with any reverse-engineered facts already read (no open "REA needed");
+- edge cases;
+- non-goals;
+- fixtures and a test plan;
+- performance budgets.
+
+UI tasks describe the UI in words and follow the project design system; mocks are not required. Specs for later packs are written when those packs come up, so they match the current code.
+
 **Closing a pack.** One **release task** per pack, labelled `release`, is created when the pack opens and is picked up by one machine.
 
 1. **Freeze.** Every other issue in the milestone is closed. Feature merges stop.
