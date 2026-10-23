@@ -65,13 +65,18 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    `"permissions": {"allow": ["mcp__designos__*"]}` so Studio's own design tools do not prompt on every canvas edit; every other tool
    asks. Before enabling this rule in shipped `hooks.json`, a live check on the installed Claude must verify that `permissions.allow` inside `--settings` takes effect for the session (an MCP call to a `designos_*` tool runs without a prompt while a shell command still prompts). Until that live check passes, the settings file carries no allow list and every tool asks.
 4. **Claude in-panel approval (ruled: approval offered in the panel; mechanism documented for Claude).** In Ask mode the session `PermissionRequest` hook (added to `hooks.json`) runs a small script that:
-   1. reads the hook JSON from stdin and writes it to `<session folder>/approvals/<id>.request.json` (`id` = a counter plus the
-      tool name; the file holds `tool_name`, a truncated `tool_input` summary, and a timestamp);
+   1. reads the hook JSON from stdin and writes it to `<private folder>/tab-<tab id>/<id>.request.json` (`id` = 128 random bits as 32 hex
+      digits; the file holds `tool_name`, a truncated `tool_input` summary, and a timestamp);
    2. waits until `<id>.answer` appears (polling every 200 ms) for at most the hook's `timeout` (initial value 300 s);
    3. on `allow` or `deny` prints the decision JSON above (deny carries `message`: "Denied in design:os Studio");
    4. on timeout, or when Studio writes `withdrawn`, prints nothing, so Claude falls back to its own prompt in the terminal.
    Studio's bridge (`poll_live_agent_bridge`) lists new request files each frame, shows the approval card (rule 6) and writes
    the answer file when the user clicks. Requests queue per tab in arrival order.
+   Whoever can write an answer, or the script that decides what to print, approves the agent's next action. So the script and the
+   `<private folder>` (`<data dir>/designos/ap/<session id>/`, mode 0700; on macOS under `~/Library/Application Support`) sit outside
+   the session folder (the agent's working folder), `/tmp`, `$TMPDIR` and every `--add-dir`, and the script takes no path or request
+   id from its environment. A file in the session folder, however named, answers nothing and raises no card. See
+   `crates/designos-app/src/agent_approval_channel.rs`.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no
@@ -83,7 +88,7 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    OS notification: "<CLI> needs approval" with the file name; the notification never contains the command or path text. Clicking it
    (where the platform supports it) focuses the window and the tab.
 8. **Cleanup.** When the tab closes or exits, pending requests are written `withdrawn`; stale request files older than 24 h are
-   deleted at start. The approvals folder lives in the session folder (#653).
+   deleted at start. The private approvals folder is removed when the last tab closes or the session ends.
 9. **Codex revisit (the ruling asks to look at it here).** This task changes nothing in how Codex status works. It records, in the PR, a
    short evaluation of the two candidates, with a live check of each on the installed Codex: (a) hooks passed so that they run
    without forging trust, if the CLI offers a supported way; (b) `--dangerously-bypass-hook-trust`, which the help text calls
@@ -93,7 +98,7 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
 ## 4. Data model / schema changes
 
 - Setting `agent_permission_mode: "skip" | "ask"` (string) in `settings.json`.
-- Files: `<session>/approvals/<id>.request.json`, `<id>.answer` (`allow`, `deny` or `withdrawn`). Both are Studio-internal.
+- Files: `<private folder>/tab-<tab id>/<id>.request.json`, `<id>.answer` (`allow`, `deny` or `withdrawn`). Both are Studio-internal.
 - `AgentTabStatus::WaitingForInput(Option<String>)` already carries an optional label (`terminal.rs:362`); the request summary
   fills it.
 

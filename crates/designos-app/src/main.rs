@@ -1,5 +1,6 @@
 mod agent_a11y;
 mod agent_approval_card;
+pub mod agent_approval_channel;
 mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]

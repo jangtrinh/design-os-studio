@@ -226,13 +226,16 @@ fn claude_launch_and_config_match_the_golden() {
         let handlers = hooks["hooks"]["PermissionRequest"][0]["hooks"].as_array().expect("PermissionRequest handlers");
         let approve: Vec<&Value> = handlers.iter().filter(|h| h.get("timeout").is_some()).collect();
         if ask {
-            let script = st.session_dir.join("approve-hook.sh").display().to_string();
+            // The hook sits in Studio's private folder, never in the session folder the agent works in.
+            let script_path = crate::agent_approval_channel::hook_script_path(&st.session_dir).expect("a private channel folder");
+            assert!(!script_path.starts_with(&st.session_dir), "the approval hook must not sit in the session folder: {}", script_path.display());
+            let script = script_path.display().to_string();
             assert_eq!(
                 approve,
                 [&serde_json::json!({ "type": "command", "command": format!("sh '{script}'"), "timeout": 300 })],
                 "Claude Ask: the only handler with a decision is the in-panel approval hook"
             );
-            let script = std::fs::read_to_string(st.session_dir.join("approve-hook.sh")).expect("approve-hook.sh");
+            let script = std::fs::read_to_string(&script_path).expect("approve-hook.sh");
             assert_eq!(script.matches("\"behavior\":\"allow\"").count(), 1, "the hook allows in exactly one place");
             assert!(script.contains("ANS_FILE=") && script.contains("allow)"), "and only from the answer the card wrote");
         } else {

@@ -189,12 +189,18 @@ pub fn stable_session_dir(lib_root: &Path, file_id: &str) -> PathBuf {
 /// [`stable_session_dir`] keeps it as is.
 pub fn disk_file_session_key(path: &Path) -> String {
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    format!("path-{:016x}", fnv1a_64(canonical.as_os_str().as_encoded_bytes()))
+}
+
+/// FNV-1a 64-bit hash of `bytes`. Spelled out, not taken from `DefaultHasher`, for names that must stay the same
+/// across Rust upgrades.
+pub fn fnv1a_64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in canonical.as_os_str().as_encoded_bytes() {
+    for byte in bytes {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("path-{hash:016x}")
+    hash
 }
 
 /// What [`crate::terminal::TerminalState::bind_open_file`] last bound: its inputs and the session

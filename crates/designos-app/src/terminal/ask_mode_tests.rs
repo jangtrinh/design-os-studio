@@ -45,6 +45,7 @@ fn session_in(mode: PermissionMode) -> TerminalState {
 }
 
 fn finish(st: TerminalState) {
+    crate::agent_approval_channel::remove_channel(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);
 }
 

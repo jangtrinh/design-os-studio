@@ -262,6 +262,8 @@ pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32,
             continue;
         }
         if std::fs::remove_dir_all(&dir).is_ok() {
+            // The session's approval channel lives outside this folder (Studio-private); nobody uses it any more.
+            crate::agent_approval_channel::remove_channel(&dir);
             removed += 1;
         }
     }
@@ -808,14 +810,20 @@ mod tests {
         let mut doc = Document::new("Unsaved Window");
         let page = doc.add_page("Page 1");
 
+        // An Ask-mode session installs its approval hook, outside the session folder, with the rest of its files.
+        let channel = crate::agent_approval_channel::channel_dir(&session_dir).expect("a private channel folder");
+
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
+        assert!(channel.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME).is_file(), "the session installs its approval hook");
         st.shutdown();
         assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert!(!channel.exists(), "shutdown removes the approval channel with the folder");
 
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
         assert!(!session_dir.exists(), "the publish after shutdown re-created {}", session_dir.display());
+        assert!(!channel.exists(), "the publish after shutdown re-created the approval channel {}", channel.display());
 
         // Binding to a session again (a document opened in this terminal) lifts the stop.
         st.bind_session(&unique_test_id("no-recreate-window-next"));
@@ -824,6 +832,7 @@ mod tests {
         st.flush_live_sync();
         assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
         st.shutdown();
+        assert!(!crate::agent_approval_channel::channel_dir(&next_dir).expect("a private channel folder").exists());
     }
 
     fn writer_test_job(session_dir: &Path, key: (u64, u64, u64)) -> SnapshotJob {
@@ -996,13 +1005,23 @@ mod tests {
         std::fs::write(dir_foreign.join("notes.txt"), b"keep").unwrap();
         set_dir_mtime(&dir_foreign, eight_days_ago);
 
+        // Each session of an Ask-mode agent has an approval channel outside its folder.
+        let channels: Vec<_> = [&dir_dead_old, &dir_dead_recent, &dir_live_old]
+            .iter()
+            .map(|dir| crate::agent_approval_channel::prepare_channel_dir(dir).expect("a private channel folder"))
+            .collect();
+
         let removed = sweep_stale_sessions(&root, now, |pid, _started| pid == live_pid);
         assert_eq!(removed, 1);
         assert!(!dir_dead_old.exists(), "dead + 8 days old must be removed");
         assert!(dir_dead_recent.exists(), "dead + 1 hour old must be kept");
         assert!(dir_live_old.exists(), "live PID + 8 days old must be kept");
         assert!(dir_foreign.exists(), "foreign folder must be kept");
+        assert!(!channels[0].exists(), "the channel of a swept session goes with it");
+        assert!(channels[1].exists() && channels[2].exists(), "the channels of kept sessions stay");
 
+        crate::agent_approval_channel::remove_channel(&dir_dead_recent);
+        crate::agent_approval_channel::remove_channel(&dir_live_old);
         let _ = std::fs::remove_dir_all(&temp_parent);
     }
 
