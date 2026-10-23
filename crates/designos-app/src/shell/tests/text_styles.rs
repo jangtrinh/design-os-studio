@@ -3,7 +3,8 @@
 
 use super::effect_grid_styles::pick;
 use super::*;
-use designos_doc::{LineHeight, Style, StyleProperty, TextRun, TextStyle};
+use crate::panels::style_picker;
+use designos_doc::{LineHeight, Style, StyleProperty, TextAlignH, TextAlignV, TextCase, TextDecoration, TextRun, TextStyle};
 
 const BUTTON: &str = "text-style-button";
 
@@ -310,25 +311,254 @@ fn a_created_text_style_survives_a_designos_file() {
     assert_eq!(layer.style_refs.get("text"), Some(&key), "the layer is still linked");
 }
 
+/// A text style with a value in every field, so none can pass a round trip by being a default.
+fn every_field(line_height: LineHeight, fills: Vec<Paint>) -> TextStyle {
+    TextStyle {
+        font_family: "Inter".into(),
+        font_weight: 600,
+        italic: true,
+        font_size: 18.0,
+        line_height,
+        letter_spacing: 1.5,
+        paragraph_spacing: 8.0,
+        align_h: TextAlignH::Center,
+        align_v: TextAlignV::Bottom,
+        case: TextCase::Upper,
+        decoration: TextDecoration::Underline,
+        fills,
+        features: vec![("tnum".into(), 1)],
+        variation_axes: vec![("wdth".into(), 85.0)],
+    }
+}
+
 #[test]
-fn a_created_text_style_survives_a_fig_export_and_import() {
+fn a_created_text_style_survives_a_fig_export_and_import_in_every_field() {
+    // Each kind of line height (the font's own, a percentage, pixels) comes back as it went.
+    for line_height in [LineHeight::Auto, LineHeight::Percent(150.0), LineHeight::Pixels(26.0)] {
+        let (mut s, id) = bare_sim("Continue");
+        let expected = every_field(line_height, text_of(&s, id).style.fills);
+        s.shell.app.edit_nodes(&[id], |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.style = expected.clone();
+            }
+        });
+        redraw(&mut s);
+        pick(&mut s, BUTTON, 1, 1);
+        assert_eq!(style_of(&s, "Text style 1"), &expected, "{line_height:?}: the style holds all of the layer's values");
+        let bytes = designos_fig::export_fig(&s.app().doc).expect("export .fig");
+        let back = designos_fig::import_fig(&bytes).expect("import .fig");
+        let key = find_style(&back, "Text style 1");
+        assert_eq!(back.style_meta[&key].property, StyleProperty::Text);
+        let Style::Text(ts) = &back.styles[&key] else { panic!("{:?} is not a text style", back.styles[&key]) };
+        // Colour is not part of a text style, and a `.fig` text style carries none.
+        assert_eq!(&TextStyle { fills: expected.fills.clone(), ..ts.clone() }, &expected, "{line_height:?}: every field of the style comes back");
+        let name = s.app().doc.get(id).unwrap().name.clone();
+        let layer = back.nodes.values().find(|n| n.name == name).expect("the layer is in the file");
+        assert_eq!(layer.style_refs.get("text"), Some(&key), "the layer is still linked");
+    }
+}
+
+fn type_into(s: &mut Sim, r: Rect, text: &str) {
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text(text);
+    s.key(Key::Enter);
+}
+
+fn redo(s: &mut Sim) {
+    s.mods = Modifiers::COMMAND | Modifiers::SHIFT;
+    s.key(Key::Z);
+    s.mods = Modifiers::NONE;
+}
+
+/// What the layer shows and what its style says: the text, the layer's size, the style's size.
+fn shown(s: &Sim, id: NodeId, key: &str) -> (String, f32, f32) {
+    let t = text_of(s, id);
+    (t.content, t.style.font_size, style_of(s, key).font_size)
+}
+
+/// Types "!" into the linked layer "Continue", changes the size of its style to 30 through the
+/// editor that `open_editor` opens, ends the text editing and walks undo and redo.
+fn editing_the_style_while_typing(open_editor: fn(&mut Sim)) {
     let (mut s, id) = bare_sim("Continue");
     pick(&mut s, BUTTON, 1, 1);
-    let bytes = designos_fig::export_fig(&s.app().doc).expect("export .fig");
-    let back = designos_fig::import_fig(&bytes).expect("import .fig");
-    let key = find_style(&back, "Text style 1");
-    assert_eq!(back.style_meta[&key].property, StyleProperty::Text);
-    let Style::Text(ts) = &back.styles[&key] else { panic!("{:?} is not a text style", back.styles[&key]) };
-    assert_eq!((ts.font_family.as_str(), ts.font_weight), ("Inter", 600));
-    assert!((ts.font_size - 18.0).abs() < 1e-3, "size {}", ts.font_size);
-    assert!((ts.letter_spacing - 0.5).abs() < 1e-3, "letter spacing {}", ts.letter_spacing);
-    match ts.line_height {
-        LineHeight::Pixels(px) => assert!((px - 26.0).abs() < 1e-3, "line height {px}"),
-        other => panic!("line height came back as {other:?}"),
+    s.frame(vec![]);
+    let key = "Text style 1";
+    let (start, typed, edited) = (("Continue".to_string(), 18.0, 18.0), ("Continue!".to_string(), 18.0, 18.0), ("Continue!".to_string(), 30.0, 30.0));
+    assert_eq!(shown(&s, id, key), start);
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    let end = text_of(&s, id).content.len();
+    {
+        let sess = s.shell.app.canvas.text.as_mut().unwrap();
+        sess.caret = end;
+        sess.anchor = end;
     }
-    let name = s.app().doc.get(id).unwrap().name.clone();
-    let layer = back.nodes.values().find(|n| n.name == name).expect("the layer is in the file");
-    assert_eq!(layer.style_refs.get("text"), Some(&key), "the layer is still linked");
+    crate::canvas::textsession::insert_text(&mut s.shell.app, "!", crate::textedit::EditKind::Typing);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    open_editor(&mut s);
+    assert_eq!(s.app().props.style_edit.as_ref().map(|e| e.key.as_str()), Some(key), "the style editor is open");
+    let field = s.field_rect("se-size");
+    type_into(&mut s, field, "30");
+    // The click on the empty canvas that ends the text editing, if the edit left it open.
+    let empty = s.app().canvas_rect.max - Vec2::new(60.0, 60.0);
+    s.click(empty);
+    assert!(s.app().canvas.text.is_none());
+    assert_eq!(shown(&s, id, key), edited);
+    assert_eq!(link_of(&s, id).as_deref(), Some(key));
+    assert_eq!(s.app().hist.undo_depth(), depth + 2, "the typing is one step and the style edit another");
+    s.cmd_key(Key::Z);
+    assert_eq!(shown(&s, id, key), typed, "the first undo takes back the style edit, and the layer matches its style");
+    s.cmd_key(Key::Z);
+    assert_eq!(shown(&s, id, key), start, "the second undo takes back the typing");
+    redo(&mut s);
+    assert_eq!(shown(&s, id, key), typed, "redo returns the typing first");
+    redo(&mut s);
+    assert_eq!(shown(&s, id, key), edited, "and then the style edit");
+    assert_eq!(link_of(&s, id).as_deref(), Some(key), "the layer stays linked through every step");
+}
+
+#[test]
+fn editing_the_style_from_the_linked_row_while_typing_keeps_undo_exact() {
+    editing_the_style_while_typing(|s| {
+        let edit = s.rect_of("text-style-edit");
+        s.click(edit.center());
+    });
+}
+
+#[test]
+fn editing_the_style_from_the_menu_while_typing_keeps_undo_exact() {
+    // Rows: the style, Create (off while linked), Rename, Detach, Edit.
+    editing_the_style_while_typing(|s| {
+        open_menu(s);
+        click_row(s, 4);
+    });
+}
+
+/// A new text box as the Text tool makes it: empty, its session open, the Typography section shown.
+fn new_text_box(s: &mut Sim) -> NodeId {
+    s.key(Key::T);
+    let p = s.screen(300.0, 820.0);
+    s.click(p);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.app().canvas.text.as_ref().is_some_and(|t| t.created), "the Text tool opened a session on a new box");
+    s.app().selection[0]
+}
+
+const TYPE_FIRST: &str = "Type some text first";
+
+#[test]
+fn picking_a_style_on_a_new_empty_text_box_keeps_the_box_and_the_typing_uses_the_style() {
+    let mut s = Sim::new();
+    let depth = s.app().hist.undo_depth();
+    let id = new_text_box(&mut s);
+    // The first row is the demo file's Body/Regular: 16 px, 24 px line.
+    pick(&mut s, BUTTON, 0, 0);
+    assert!(s.app().canvas.text.is_some(), "the session stays open");
+    assert!(s.app().doc.get(id).is_some(), "the box is still there");
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), None, "nothing is announced");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
+    let ts = text_of(&s, id).style;
+    assert_eq!((ts.font_size, ts.line_height), (16.0, LineHeight::Pixels(24.0)));
+    s.type_text("a");
+    let t = text_of(&s, id);
+    assert_eq!(t.content, "a");
+    assert_eq!((t.style.font_size, t.style.line_height), (16.0, LineHeight::Pixels(24.0)), "the typed text takes the style");
+    assert!(t.runs.iter().all(|r| r.style.font_size == 16.0));
+    s.key(Key::Escape);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "the box keeps its style when editing ends");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "one undo step makes the box");
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(id).is_none(), "and one undo removes it, as it always did");
+}
+
+#[test]
+fn creating_a_style_on_a_new_empty_text_box_is_off_with_a_reason_and_deletes_nothing() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    let row = style_picker::create_style_row(s.app(), &[id], StyleProperty::Text);
+    assert!(row.disabled);
+    assert_eq!(row.tooltip, TYPE_FIRST);
+    let styles = s.app().doc.styles.len();
+    // Rows: Body/Regular, Heading/Large, then Create.
+    pick(&mut s, BUTTON, 2, 1);
+    assert!(s.app().doc.get(id).is_some(), "the box is still there");
+    assert!(s.app().canvas.text.is_some(), "and still being edited");
+    assert_eq!(s.app().doc.styles.len(), styles);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), None);
+    // Asked for in code, it says why and touches nothing, instead of reporting a layer id.
+    assert_eq!(s.shell.app.create_style_from(id, StyleProperty::Text), None);
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some(TYPE_FIRST));
+    assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some());
+}
+
+#[test]
+fn detaching_and_editing_the_style_of_a_new_empty_text_box_never_delete_it() {
+    let mut s = Sim::new();
+    let id = new_text_box(&mut s);
+    pick(&mut s, BUTTON, 0, 0);
+    s.frame(vec![]);
+    // Editing the style would need the box to be committed first, which would drop it.
+    assert!(!s.shell.app.update_style_values("Body/Regular", Style::Text(TextStyle { font_size: 30.0, ..Default::default() })));
+    assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), Some(TYPE_FIRST));
+    assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some());
+    assert!(matches!(&s.app().doc.styles["Body/Regular"], Style::Text(ts) if ts.font_size == 16.0), "the style is unchanged");
+    // Detaching works inside the session.
+    let detach = s.rect_of("text-style-detach");
+    s.click(detach.center());
+    assert_eq!(link_of(&s, id), None);
+    assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some());
+    assert_eq!(text_of(&s, id).style.font_size, 16.0, "the box keeps the values");
+}
+
+/// "Continue" and "Welcome back" selected with the same type.
+fn two_alike_layers() -> (Sim, NodeId, NodeId) {
+    let (mut s, a) = bare_sim("Continue");
+    let b = s.by_name("Welcome back");
+    let style = text_of(&s, a).style;
+    s.shell.app.edit_nodes(&[b], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.style = TextStyle { fills: t.style.fills.clone(), ..style.clone() };
+        }
+    });
+    s.shell.app.selection = vec![a, b];
+    redraw(&mut s);
+    (s, a, b)
+}
+
+#[test]
+fn creating_from_several_text_layers_with_the_same_type_links_all_of_them_in_one_step() {
+    let (mut s, a, b) = two_alike_layers();
+    let depth = s.app().hist.undo_depth();
+    pick(&mut s, BUTTON, 1, 1);
+    assert_eq!(link_of(&s, a).as_deref(), Some("Text style 1"));
+    assert_eq!(link_of(&s, b).as_deref(), Some("Text style 1"), "no selected layer is left out");
+    assert_eq!(s.app().doc.styles.len(), 1);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "one undo step");
+    s.frame(vec![]);
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.styles.is_empty());
+    assert_eq!((link_of(&s, a), link_of(&s, b)), (None, None));
+}
+
+#[test]
+fn several_text_layers_with_different_type_have_no_single_style_to_create() {
+    let (mut s, a, b) = two_alike_layers();
+    s.shell.app.edit_nodes(&[b], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.style.font_size = 40.0;
+        }
+    });
+    redraw(&mut s);
+    let row = style_picker::create_style_row(s.app(), &[a, b], StyleProperty::Text);
+    assert!(row.disabled);
+    assert_eq!(row.tooltip, "Selected text has mixed styles");
+    let depth = s.app().hist.undo_depth();
+    pick(&mut s, BUTTON, 1, 1);
+    assert!(s.app().doc.styles.is_empty());
+    assert_eq!((link_of(&s, a), link_of(&s, b)), (None, None), "nothing is left half linked");
+    assert_eq!(s.app().hist.undo_depth(), depth);
 }
 
 #[test]

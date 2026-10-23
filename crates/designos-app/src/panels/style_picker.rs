@@ -7,7 +7,7 @@ use super::properties::Pane;
 use super::style_edit;
 use crate::app::App;
 use crate::icons::{self, Icon};
-use crate::styles::{has_single_text_style, style_entries_of, StyleKind};
+use crate::styles::{shared_text_style, style_entries_of, StyleKind, TYPE_FIRST};
 use crate::theme;
 use crate::widgets::field;
 use crate::widgets::menu::{popup_menu, MenuItem, MenuResult};
@@ -44,16 +44,10 @@ fn button_key(prop: StyleProperty) -> &'static str {
     }
 }
 
-/// Why the create row is off for a text layer whose runs differ, shown as its tooltip.
+/// Why the create row is off for a text layer whose runs differ, and for several layers that differ
+/// from each other: shown as its tooltip.
 const MIXED_TEXT_TIP: &str = "Text has mixed styles";
-
-/// The text props of the first selected node, when it is a text layer.
-fn first_text<'a>(app: &'a App, sel: &[NodeId]) -> Option<&'a TextProps> {
-    match &app.doc.get(*sel.first()?)?.kind {
-        NodeKind::Text(t) => Some(t),
-        _ => None,
-    }
-}
+const MIXED_SELECTION_TIP: &str = "Selected text has mixed styles";
 
 /// Style of `prop` the first selected node is linked to, when that style exists.
 pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Option<String> {
@@ -61,13 +55,26 @@ pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Op
     app.doc.styles.contains_key(key).then(|| key.clone())
 }
 
-/// Whether the first selected node has effects, layout grids or one text style to turn into a style.
+/// Whether the first selected node has effects or layout grids to turn into a style.
 fn has_values(app: &App, sel: &[NodeId], prop: StyleProperty) -> bool {
     let Some(n) = sel.first().and_then(|id| app.doc.get(*id)) else { return false };
     match prop {
         StyleProperty::Effect => !n.effects.is_empty(),
-        StyleProperty::Text => first_text(app, sel).is_some_and(has_single_text_style),
         _ => n.kind.frame_props().is_some_and(|f| !f.grids.is_empty()),
+    }
+}
+
+/// Whether the create row is off and, when there is a reason the user can act on, what it is.
+fn create_state(app: &App, sel: &[NodeId], prop: StyleProperty, linked: bool) -> (bool, &'static str) {
+    if linked {
+        return (true, "");
+    }
+    match prop {
+        // A new text box with no text has nothing to make a style from, and ending its session would delete it.
+        StyleProperty::Text if app.is_new_empty_text(sel) => (true, TYPE_FIRST),
+        StyleProperty::Text if shared_text_style(&app.doc, sel).is_none() => (true, if sel.len() > 1 { MIXED_SELECTION_TIP } else { MIXED_TEXT_TIP }),
+        StyleProperty::Text => (false, ""),
+        _ => (!has_values(app, sel, prop), ""),
     }
 }
 
@@ -103,8 +110,8 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     let linked = current.is_some();
     // A library style is edited and renamed in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
-    let mixed = prop == StyleProperty::Text && !linked && first_text(app, sel).is_some_and(|t| !has_single_text_style(t));
-    items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)).tooltip(if mixed { MIXED_TEXT_TIP } else { "" }));
+    let (create_off, create_tip) = create_state(app, sel, prop, linked);
+    items.push(MenuItem::new(create).disabled(create_off).tooltip(create_tip));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Rename style" }).disabled(!linked || read_only));
     items.push(MenuItem::new("Detach style").disabled(!linked));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
@@ -116,6 +123,13 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
 #[cfg(test)]
 pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
     menu_model(app, sel, prop).0.pop().expect("the menu always ends with the Edit style row")
+}
+
+/// The create row of the menu, so tests can read its label, state and tooltip.
+#[cfg(test)]
+pub(crate) fn create_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    let (items, picks) = menu_model(app, sel, prop);
+    items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Create)).then_some(item)).expect("the menu always has a create row")
 }
 
 /// The "Rename style" row of the menu, so tests can read its label and state.
@@ -149,11 +163,10 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
         MenuResult::Picked(i) => {
             app.props.style_menu = None;
             match picks.into_iter().nth(i).flatten() {
-                Some(Pick::Apply(style)) => {
-                    if prop == StyleProperty::Text {
-                        app.end_text_edit_of(sel);
-                    }
-                    app.apply_style(sel, &style);
+                Some(Pick::Apply(style)) if prop == StyleProperty::Text => app.apply_text_style(sel, &style),
+                Some(Pick::Apply(style)) => app.apply_style(sel, &style),
+                Some(Pick::Create) if prop == StyleProperty::Text => {
+                    app.create_text_style_from(sel);
                 }
                 Some(Pick::Create) => {
                     if let Some(id) = sel.first() {

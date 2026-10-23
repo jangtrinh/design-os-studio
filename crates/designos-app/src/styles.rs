@@ -162,8 +162,17 @@ impl App {
     pub fn update_style_values(&mut self, key: &str, style: Style) -> bool {
         // A numeric scrub still open would swallow the edit (it only records node changes).
         self.scrub_end();
-        let op = update_style(&self.doc, key, style);
         let linked = linked_style_nodes(&self.doc, key);
+        if self.is_new_empty_text(&linked) {
+            // Committing the box first would delete it, and a step recorded around it would break undo.
+            self.show_toast(TYPE_FIRST, true);
+            return false;
+        }
+        // Text being edited is committed first, so this is a step of its own on the typed text: the
+        // session's transaction would otherwise commit around it and undo would step through states
+        // that never existed.
+        self.end_text_edit_of(&linked);
+        let op = update_style(&self.doc, key, style);
         self.run_style_op_then(op, |app, tx| {
             for id in linked {
                 // A layer inside an instance mirrors its main: the main is re-fitted here and the
@@ -183,15 +192,32 @@ impl App {
     }
 
     /// Creates an effect, grid or text style from the values of `node` and links the node to it.
-    /// Returns the new style's key. A text style takes the whole layer's base style (styles link to
-    /// layers, not to character ranges), and text still being edited is committed first.
+    /// Returns the new style's key.
     pub fn create_style_from(&mut self, node: NodeId, prop: StyleProperty) -> Option<String> {
-        let made = if prop == StyleProperty::Text {
-            self.end_text_edit_of(&[node]);
-            create_text_style_from_node(&self.doc, node)
-        } else {
-            create_style_from_node(&self.doc, node, prop, None)
-        };
+        if prop == StyleProperty::Text {
+            return self.create_text_style_from(&[node]);
+        }
+        let made = create_style_from_node(&self.doc, node, prop, None);
+        self.run_creation(made)
+    }
+
+    /// Creates a text style from the text layers among `nodes` (they must share one style, see
+    /// [`shared_text_style`]) and links all of them to it, as one undo step. A text style takes the
+    /// layers' base style (styles link to layers, not to character ranges), and text still being
+    /// edited is committed first. A new text box with no text yet is refused: committing it would
+    /// delete it.
+    pub fn create_text_style_from(&mut self, nodes: &[NodeId]) -> Option<String> {
+        if self.is_new_empty_text(nodes) {
+            self.show_toast(TYPE_FIRST, true);
+            return None;
+        }
+        self.end_text_edit_of(nodes);
+        let made = create_text_style_from_nodes(&self.doc, nodes);
+        self.run_creation(made)
+    }
+
+    /// Runs a style creation as one undo step and announces it once it happened.
+    fn run_creation(&mut self, made: Result<(String, Command), StyleOpError>) -> Option<String> {
         match made {
             Ok((key, cmd)) => self.run_style_op(Ok(cmd)).then(|| {
                 self.show_toast(format!("Created \"{key}\""), false);
@@ -207,6 +233,10 @@ impl App {
     /// Unlinks the effect, grid or text style of `sel`; the nodes keep their values.
     pub fn detach_style_of(&mut self, sel: &[NodeId], prop: StyleProperty) -> bool {
         let op = if prop == StyleProperty::Text {
+            if self.is_new_empty_text(sel) {
+                self.detach_text_style_in_new_box();
+                return true;
+            }
             self.end_text_edit_of(sel);
             detach_text_style(&self.doc, sel)
         } else {
@@ -413,8 +443,10 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
     }
 }
 
+mod new_text_box;
 mod text_style_ops;
-pub use text_style_ops::{create_text_style_from_node, detach_text_style, has_single_text_style};
+pub use new_text_box::TYPE_FIRST;
+pub use text_style_ops::{create_text_style_from_nodes, detach_text_style, shared_text_style};
 
 #[cfg(test)]
 mod fill_binding_tests;
