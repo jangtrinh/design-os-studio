@@ -267,6 +267,7 @@ impl TerminalState {
         if let Some(entry) = self.session_registry.sessions.iter().find(|s| s.tab_id == entry_tab_id) {
             self.renaming_session_tab_id = Some(entry_tab_id);
             self.rename_session_input = entry.title.clone();
+            self.rename_session_focus_pending = true;
         }
     }
 
@@ -274,10 +275,12 @@ impl TerminalState {
     pub fn cancel_rename_session(&mut self) {
         self.renaming_session_tab_id = None;
         self.rename_session_input.clear();
+        self.rename_session_focus_pending = false;
     }
 
     /// Commits the current inline session rename (`Enter`, `#651` §3 rule 6 & §7).
     pub fn commit_rename_session(&mut self) {
+        self.rename_session_focus_pending = false;
         if let Some(tab_id) = self.renaming_session_tab_id.take() {
             let input = std::mem::take(&mut self.rename_session_input);
             self.rename_session_entry(tab_id, &input);
@@ -559,8 +562,15 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
             p.rect_stroke(field_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_SELECTED), StrokeKind::Inside);
             let field_inset = Vec2::new(theme::INSET_SEGMENT, theme::SPACE_FACT);
             ui.scope_builder(egui::UiBuilder::new().max_rect(field_r.shrink2(field_inset)), |ui| {
+                let field_id = Id::new(("agents-session-rename-input", row.tab_id));
+                if std::mem::take(&mut state.rename_session_focus_pending) {
+                    // The caret goes into the field in the frame it appears, whoever held the keyboard before: the agent's
+                    // terminal, or a field of a form that is hidden now. The old title is selected for the letters to replace.
+                    ui.memory_mut(|m| m.request_focus(field_id));
+                    widgets::field::select_value(ui.ctx(), field_id, state.rename_session_input.chars().count());
+                }
                 let te = TextEdit::singleline(&mut state.rename_session_input)
-                    .id(Id::new(("agents-session-rename-input", row.tab_id)))
+                    .id(field_id)
                     .desired_width((label_avail_w - theme::INSET_CONTROL).max(theme::CONTROL_DENSE))
                     .frame(egui::Frame::NONE)
                     .font(theme::font_body())
