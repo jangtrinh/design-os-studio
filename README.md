@@ -47,7 +47,7 @@ Browser-based design tools keep your files on a vendor's servers and give coding
 | **Agents** | The Agents panel starts your own agent CLI (Claude Code, Codex, Grok, Antigravity or Gemini CLI) as a live session on the open file, and keeps a file's sessions across restarts. Each CLI uses its own sign-in, so Studio needs no API key. | `designos-studio <file> --panel agents` |
 | **MCP server** | `designos-mcp` serves its tools over stdio: see the design, read its design system, write in one step (`designos_apply_batch`) and lint the result (`designos_lint`). | Send `tools/list` to `designos-mcp --workspace <dir>`. The tool table below is generated from that list. |
 | **Variables** | Color, number, string and boolean variables in collections with modes. A frame can pin its own mode per collection, and modes round-trip through `.fig`. Import and export Figma JSON and W3C Design Tokens (DTCG). | `designos <file> --export-variables <out>` |
-| **Dev Mode** | Built-in Dev Mode (the `</>` button in the toolbar) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
+| **Dev Mode** | Built-in Dev Mode (`Shift+D`) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
 | **Privacy and license** | No telemetry. Studio makes these network requests: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, a public status-page check after an agent provider error, a connection check when you click Retry connection, and a plugin download from GitHub when you install a plugin. The agent CLIs you start use the network under their own terms. Source-available under `PolyForm Shield 1.0.0`. | `git grep -n 'ureq::' -- crates` lists the HTTP calls. The Figma REST client in `designos-fig` is a cargo feature that is off by default. |
 
 To read the container version of an exported file, run `unzip -p out.fig canvas.fig | head -c 12 | xxd`. The header starts with `fig-kiwi` and ends with `6a00 0000`, which is 106 in little-endian.
@@ -230,14 +230,14 @@ The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `
 
 The Variables view lists a file's collections, groups and modes in one table, with an alias picker for bindings. Variables are color, number, string or boolean. A frame can pin its own mode per collection (for example `Light` or `Dark`), and modes survive a `.fig` round trip. Import and export variables as Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with `--import-variables` and `--export-variables`. Press **`Q`** (or `⌘⌥A`; `Ctrl+Alt+A` on Windows and Linux) to run Select matching layers: it selects the layers that share the selection's name and type across top-level frames and component variants, for Multi-Edit. Press **`⌘⇧⌥A`** (`Ctrl+Shift+Alt+A`) to run Suggest Auto-Layout on the selection. `⇧A` runs Add auto layout.
 
-### Pillar 3 — Dev Mode (`</>`) Multi-Target Codegen & Box-Model Inspector
+### Pillar 3 — Dev Mode (`Shift+D` / `</>`) Multi-Target Codegen & Box-Model Inspector
 
 <p align="center">
   <img src="docs/images/designos-devmode.png" alt="DESIGN:OS Studio Dev Mode on the Untitled UI kit with the Avatar group component set selected. The Inspect tab on the right shows the Ready for dev button, a component playground with its properties, annotations, dev links, the MCP section with a Copy link button, Code Connect and Layer properties" width="880"><br>
   <sub>Command: <code>designos-studio untitled-ui-kit.fig --select "Avatar group" --zoom 100 --dev react --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-devmode.png</code></sub>
 </p>
 
-Switch into **Dev Mode** with the `</>` button in the toolbar to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
+Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> `.fig` export
 
@@ -583,6 +583,8 @@ design-os-studio/
 ### Known issues
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
+- On very large pages (100,000 layers or more), Rename layers semantically and Boost resolution in the command palette can take several seconds ([#993](https://github.com/jangtrinh/design-os-studio/issues/993)). The next release addresses this first.
+- On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use

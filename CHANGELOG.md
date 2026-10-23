@@ -63,6 +63,7 @@ Patch for **AI design** ([milestone v0.6.1 patch](https://github.com/jangtrinh/d
   - On a slow frame, a drawn shape, a move, a resize and a rotate end where the pointer let go. Before, a quick drag made a 100 x 100 shape at the wrong spot, or left the layer short (#842, #862).
   - A quick drag in the Layers panel reorders the layer (#855). A toolbar menu picks the row under the pointer on release (#852).
   - Keys typed in the frame of a click on a field stay in the field, and Tab moves between fields in the order they are drawn (#843, #844).
+  - Shift+D enters and leaves Dev Mode, as the toolbar tooltip says (#1012).
   - Ctrl+B draws bold in a downloaded font, and Bold follows a `wght` axis (#873).
   - Resizing a vector or a boolean group scales its shape, not only its box (#853).
   - Text draws with a font face as soon as it arrives. Text you sized while that face was missing is fitted to it. A text box that came from the file is not changed (#886).
