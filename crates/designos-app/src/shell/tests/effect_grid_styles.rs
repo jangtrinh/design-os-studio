@@ -32,7 +32,7 @@ fn grids_of(s: &Sim, id: NodeId) -> Vec<LayoutGrid> {
 
 /// Opens the menu behind `button` and clicks its `row`-th row, `separators` of which sit above it
 /// (the menu opens 4 px below the button, right-aligned to it).
-fn pick(s: &mut Sim, button: &str, row: usize, separators: usize) {
+pub(super) fn pick(s: &mut Sim, button: &str, row: usize, separators: usize) {
     let r = s.rect_of(button);
     s.click(r.center());
     let top = r.bottom() + 4.0 + theme::MENU_PADDING + row as f32 * theme::MENU_ITEM_HEIGHT + separators as f32 * crate::widgets::menu::SEP_H;

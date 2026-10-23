@@ -182,10 +182,17 @@ impl App {
         })
     }
 
-    /// Creates an effect or grid style from the values of `node` and links the node to it.
-    /// Returns the new style's key.
+    /// Creates an effect, grid or text style from the values of `node` and links the node to it.
+    /// Returns the new style's key. A text style takes the whole layer's base style (styles link to
+    /// layers, not to character ranges), and text still being edited is committed first.
     pub fn create_style_from(&mut self, node: NodeId, prop: StyleProperty) -> Option<String> {
-        match create_style_from_node(&self.doc, node, prop, None) {
+        let made = if prop == StyleProperty::Text {
+            self.end_text_edit_of(&[node]);
+            create_text_style_from_node(&self.doc, node)
+        } else {
+            create_style_from_node(&self.doc, node, prop, None)
+        };
+        match made {
             Ok((key, cmd)) => self.run_style_op(Ok(cmd)).then(|| {
                 self.show_toast(format!("Created \"{key}\""), false);
                 key
@@ -197,10 +204,24 @@ impl App {
         }
     }
 
-    /// Unlinks the effect or grid style of `sel`; the nodes keep their values.
+    /// Unlinks the effect, grid or text style of `sel`; the nodes keep their values.
     pub fn detach_style_of(&mut self, sel: &[NodeId], prop: StyleProperty) -> bool {
-        let op = detach_style(&self.doc, sel, prop);
+        let op = if prop == StyleProperty::Text {
+            self.end_text_edit_of(sel);
+            detach_text_style(&self.doc, sel)
+        } else {
+            detach_style(&self.doc, sel, prop)
+        };
         self.run_style_op(op)
+    }
+
+    /// Commits the text session when it edits one of `ids`. A session changes its layer through its
+    /// own transaction, which only commits when the session ends: a style change made meanwhile would
+    /// be recorded against a half-edited layer. Ending it first makes each its own undo step.
+    pub(crate) fn end_text_edit_of(&mut self, ids: &[NodeId]) {
+        if self.canvas.text.as_ref().is_some_and(|s| ids.contains(&s.id)) {
+            crate::canvas::interact::finish_text(self, true);
+        }
     }
 
     /// Renames style `key` (the display name; folders come from "/").
@@ -391,6 +412,9 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
         }
     }
 }
+
+mod text_style_ops;
+pub use text_style_ops::{create_text_style_from_node, detach_text_style, has_single_text_style};
 
 #[cfg(test)]
 mod fill_binding_tests;

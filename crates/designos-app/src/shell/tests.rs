@@ -1159,6 +1159,7 @@ mod style_edit;
 mod svg;
 mod system_paste_and_drop;
 mod tab_disk_state;
+mod text_styles;
 mod typography;
 mod undo_exact_layout;
 mod undo_layout_epoch;
