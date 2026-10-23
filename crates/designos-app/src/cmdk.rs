@@ -1091,12 +1091,26 @@ fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId], op: Option
 /// The operations write straight into the document, so each node they may write is recorded before they run,
 /// and the ones they left as they were are dropped afterwards: the undo step, the transaction's bookkeeping and
 /// the record of the user's edits then only handle what changed, not the whole page. Returns the operation's count.
+///
+/// The operations also solve auto layout on the live document, which moves the layout epoch inside the
+/// transaction. The edit takes the epoch again once they are done, so the step can be recorded as holding its own
+/// layout and undo and redo replay it as stored. That is sound because every layout write an operation makes lies
+/// under a root recorded before it ran: `auto_fix_scope` records the subtrees an operation walks first, and
+/// `Document::relayout_subtree(r)` writes only `r` and what is below it. Layout written after this returns, while
+/// the transaction commits, is not vouched for: if it moves the epoch the step stays unrecorded and undo solves
+/// layout again. Nor is layout that was already queued when the operation started: a node it solves from that
+/// queue has its unsolved state recorded, which no edit of this step wrote, so such a run keeps the epoch it
+/// opened at and its step is left to the solve on undo.
 fn run_recorded(doc: &mut Document, ed: &mut Edit, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> usize {
     for id in auto_fix_scope(doc, page, selection, op) {
         ed.touch(doc, id);
     }
+    let queue_was_idle = doc.pending_relayout().is_empty();
     let count = auto_fix_design_gate(doc, page, selection, op);
     ed.retain_changed(doc);
+    if queue_was_idle {
+        ed.rebase_layout_epoch(doc);
+    }
     count
 }
 
@@ -1117,16 +1131,16 @@ pub fn run_auto_fix_design_gate(app: &mut App) -> AutoFixOutcome {
             app.show_toast(format!("Edit failed: {e}"), true);
             return AutoFixOutcome::Refused;
         }
+    } else if tx.ed.before_nodes().is_empty() {
+        // Everything the operation wrote equals what was there and no flow moved: there is no edit to run, so
+        // nothing is committed, redrawn or toasted here and what is on screen stays.
+        return AutoFixOutcome::NoChange;
     }
-    // `run_tx` raises a toast for every edit it refuses and none for one that changes nothing, so it starts from
-    // a clear screen: a toast that is there afterwards is its refusal, never an older message.
-    app.toast = None;
     if app.run_tx(tx) {
         AutoFixOutcome::Committed { op, count }
-    } else if app.toast.is_some() {
-        AutoFixOutcome::Refused
     } else {
-        AutoFixOutcome::NoChange
+        // `run_tx` refused it (an old version is open, or the commit failed) and has said why.
+        AutoFixOutcome::Refused
     }
 }
 

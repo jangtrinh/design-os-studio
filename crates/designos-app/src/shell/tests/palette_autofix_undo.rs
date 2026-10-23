@@ -7,7 +7,7 @@
 use super::unsaved_dot::{dot, lib, library_sim, wait, SETTLED};
 use super::*;
 use crate::cmdk::CmdKAction;
-use designos_doc::{AutoLayout, Document, Flow, Node, Rect as DRect, TextStyle};
+use designos_doc::{AutoLayout, Document, Flow, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeKind, Rect as DRect, Sizing, TextStyle};
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
@@ -58,6 +58,9 @@ struct Layers {
     first_frame: NodeId,
     button: NodeId,
     label: NodeId,
+    toolbar: NodeId,
+    toolbar_button: NodeId,
+    toolbar_label: NodeId,
     tail: NodeId,
     placeholder: NodeId,
 }
@@ -109,7 +112,7 @@ fn add_fixable_layers(d: &mut Document, page: NodeId) -> Layers {
     let mut ph = Node::text(placeholder, DRect::new(0.0, 300.4, 120.0, 20.0), "$0", TextStyle::default());
     ph.name = "Text 4".into();
     d.insert(page, ph).unwrap();
-    Layers { first_frame, button, label, tail, placeholder }
+    Layers { first_frame, button, label, toolbar, toolbar_button: tb_button, toolbar_label: tb_label, tail, placeholder }
 }
 
 fn fixable_doc() -> (Document, Layers) {
@@ -119,10 +122,26 @@ fn fixable_doc() -> (Document, Layers) {
     (d, layers)
 }
 
+/// `fixable_doc` as a file written by another tool leaves it: the toolbar's children sit where that tool put them,
+/// not where this solver does, so laying the toolbar out again moves them.
+fn imported_doc() -> (Document, Layers) {
+    let (mut d, layers) = fixable_doc();
+    for (id, x, y) in [(layers.toolbar_button, 3.0, 17.0), (layers.toolbar_label, 157.0, 29.0), (layers.tail, 311.0, 5.0)] {
+        let node = d.get_mut(id).expect("a toolbar child");
+        node.transform.tx = x;
+        node.transform.ty = y;
+    }
+    (d, layers)
+}
+
 fn sim_on_fixable_doc() -> (Sim, Layers) {
+    let (doc, layers) = fixable_doc();
+    sim_on(doc, layers)
+}
+
+fn sim_on(doc: Document, layers: Layers) -> (Sim, Layers) {
     let mut s = Sim::new();
     s.use_stub_agent_clis();
-    let (doc, layers) = fixable_doc();
     s.shell.app.replace_document(doc, None);
     s.frame(vec![]);
     s.frame(vec![]);
@@ -258,10 +277,8 @@ fn a_no_op_says_nothing_changed_while_an_older_error_toast_is_still_on_screen() 
     assert_eq!(s.app().hist.peek_undo_label().map(str::to_string), undo_label, "and no step was added");
 }
 
-#[test]
-fn a_fix_in_an_old_version_view_keeps_its_read_only_toast_and_changes_nothing() {
-    let _guard = serialized();
-    let (mut s, _dir) = library_sim();
+/// Puts the fixable layers into the library file, saves that as a version and shows the version read-only.
+fn view_an_old_version_with_fixable_layers(s: &mut Sim) {
     let id = s.app().lib_file.as_ref().unwrap().id.clone();
     {
         let app = &mut s.shell.app;
@@ -270,12 +287,19 @@ fn a_fix_in_an_old_version_view_keeps_its_read_only_toast_and_changes_nothing() 
         app.mark_edited_outside_history();
         app.changed();
     }
-    wait(&mut s, 2.5);
+    wait(s, 2.5);
     assert!(s.shell.app.save_named_version("before", ""));
-    let n = lib(&s).list_versions(&id).last().expect("the saved version").n;
+    let n = lib(s).list_versions(&id).last().expect("the saved version").n;
     s.shell.app.view_version(n);
-    wait(&mut s, SETTLED);
+    wait(s, SETTLED);
     assert!(s.app().history.viewing.is_some(), "an old version is shown read-only");
+}
+
+#[test]
+fn a_fix_in_an_old_version_view_keeps_its_read_only_toast_and_changes_nothing() {
+    let _guard = serialized();
+    let (mut s, _dir) = library_sim();
+    view_an_old_version_with_fixable_layers(&mut s);
     let before = state(&s);
     s.shell.app.selection.clear();
     s.shell.app.show_toast("Saved", false);
@@ -356,4 +380,188 @@ fn every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection() {
             s.shell.app.cmdk.query.clear();
         }
     }
+}
+
+/// Where the toolbar's children are, in the order `Layers` names them.
+fn toolbar_children_at(doc: &Document, l: &Layers) -> Vec<(f32, f32)> {
+    [l.toolbar_button, l.toolbar_label, l.tail]
+        .iter()
+        .map(|id| {
+            let n = doc.get(*id).expect("a toolbar child");
+            (n.transform.tx, n.transform.ty)
+        })
+        .collect()
+}
+
+#[test]
+fn on_a_page_the_solver_would_move_one_cmd_z_restores_it_exactly_and_redo_replays_the_fix() {
+    let _guard = serialized();
+    let (doc, l) = imported_doc();
+    let hand_placed = toolbar_children_at(&doc, &l);
+    let mut solved = doc.clone();
+    solved.relayout_subtree(l.toolbar);
+    assert_ne!(toolbar_children_at(&solved, &l), hand_placed, "precondition: laying the toolbar out again moves a child, as it does on an imported page");
+
+    // what is selected, and whether the fix lays an auto-layout frame out itself (that moves the layout counter)
+    let cases: [(&str, Vec<NodeId>, bool); 3] =
+        [("nothing selected", vec![], true), ("the toolbar", vec![l.toolbar], true), ("a label inside the toolbar", vec![l.toolbar_label], false)];
+    for (name, selection, lays_out) in cases {
+        let (doc, l) = imported_doc();
+        let (mut s, l) = sim_on(doc, l);
+        assert_eq!(toolbar_children_at(&s.app().doc, &l), hand_placed, "{name}: opening the page left the toolbar as the file has it");
+        s.shell.app.selection = selection;
+        let before = state(&s);
+        let epoch_before = s.app().doc.layout_epoch();
+
+        auto_fix(&mut s);
+
+        let after = state(&s);
+        assert_ne!(after, before, "{name}: the fix changed the document");
+        let epoch_fixed = s.app().doc.layout_epoch();
+        let recorded = s.app().hist.peek_undo_layout_recorded();
+
+        s.cmd_key(Key::Z);
+        assert_same_state(&state(&s), &before, &format!("{name}: one Cmd+Z restores the imported page exactly"));
+        assert_eq!(s.app().doc.layout_epoch(), epoch_fixed, "{name}: undo replays the stored step and solves no layout");
+        s.cmd_key(Key::Y);
+        assert_same_state(&state(&s), &after, &format!("{name}: redo is the fixed state"));
+        assert_eq!(s.app().doc.layout_epoch(), epoch_fixed, "{name}: redo solves no layout either");
+        assert!(recorded, "{name}: the step holds its own layout, so undo and redo replay it as stored");
+        // the case is the one it is meant to be: the fix moves the layout counter exactly when it lays a frame out itself
+        assert_eq!(epoch_fixed != epoch_before, lays_out, "{name}: whether the fix laid a frame out");
+    }
+}
+
+/// Frames in the nest: past the 32 hops one relayout pass reaches, so widening the outer one leaves a tail queued,
+/// and short enough that one more pass from the middle of the nest finishes it.
+const NEST: usize = 40;
+
+/// A nest of `NEST` end-aligned frames, each filling its parent, around a 10 px leaf, laid out at 200 px.
+fn nest_doc() -> (Document, Vec<NodeId>, NodeId) {
+    let mut d = Document::new("Nest");
+    let page = d.add_page("P");
+    let fill = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+    let mut frames = Vec::with_capacity(NEST);
+    let mut parent = page;
+    for i in 0..NEST {
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, DRect::new(0.0, 0.0, 200.0, 40.0));
+        if let NodeKind::Frame(fp) = &mut f.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: LayoutAlign::End,
+                item_spacing: 8.0,
+                ..AutoLayout::default()
+            });
+        }
+        f.layout_child = if i == 0 { LayoutChild::default() } else { fill };
+        d.insert(parent, f).unwrap();
+        frames.push(id);
+        parent = id;
+    }
+    let leaf = d.alloc_id();
+    d.insert(parent, Node::rectangle(leaf, DRect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+    d.relayout_subtree(frames[0]);
+    d.flush_pending_relayout();
+    (d, frames, leaf)
+}
+
+#[test]
+fn a_fix_that_solves_layout_another_edit_left_queued_does_not_claim_it_as_its_own() {
+    let _guard = serialized();
+    let (mut d, frames, _leaf) = nest_doc();
+    let page = d.pages[0];
+    // an edit made the outer frame wider and its relayout stopped part way down, leaving the tail queued
+    d.get_mut(frames[0]).unwrap().size.x = 600.0;
+    d.relayout_subtree(frames[0]);
+    assert!(d.relayout_skipped_count() > 0, "precondition: the nest is queued to be finished");
+    // a frame in the middle of the nest has a spacing off the 4px grid, so the fix lays it, and the queue below it, out
+    if let Some(fp) = d.get_mut(frames[10]).unwrap().kind.frame_props_mut() {
+        if let Some(al) = fp.auto_layout.as_mut() {
+            al.item_spacing = 7.0;
+        }
+    }
+    let mut app = crate::app::App::new(d);
+    app.page = page;
+    let epoch_before = app.doc.layout_epoch();
+
+    let outcome = crate::cmdk::run_auto_fix_design_gate(&mut app);
+
+    assert!(matches!(outcome, crate::cmdk::AutoFixOutcome::Committed { .. }), "the fix changed the spacing: {outcome:?}");
+    assert!(app.doc.pending_relayout().is_empty(), "precondition: the fix solved the queued tail as part of its own layout");
+    assert_ne!(app.doc.layout_epoch(), epoch_before, "precondition: the fix's layout moved the counter");
+    assert!(
+        !app.hist.peek_undo_layout_recorded(),
+        "the step holds the state of that tail from before it was solved, so it is not vouched for and undo solves layout again"
+    );
+}
+
+#[test]
+fn a_fix_with_nothing_to_change_is_decided_before_the_transaction_runs() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    auto_fix(&mut s);
+    let fixed = state(&s);
+    let depth = s.app().hist.undo_depth();
+    // the transaction marks the canvas changed for every edit it handles, an empty one included
+    s.shell.app.canvas.dirty = false;
+
+    let outcome = crate::cmdk::run_auto_fix_design_gate(&mut s.shell.app);
+
+    assert_eq!(outcome, crate::cmdk::AutoFixOutcome::NoChange);
+    assert!(!s.app().canvas.dirty, "the transaction never ran for an edit that holds nothing");
+    assert_same_state(&state(&s), &fixed, "nothing written");
+    assert_eq!(s.app().hist.undo_depth(), depth, "no undo step");
+}
+
+#[test]
+fn the_outcome_tells_a_committed_fix_from_a_no_op_and_from_a_refusal() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    let committed = crate::cmdk::run_auto_fix_design_gate(&mut s.shell.app);
+    assert!(matches!(committed, crate::cmdk::AutoFixOutcome::Committed { op: None, count } if count > 0), "the fix changed layers: {committed:?}");
+    let again = crate::cmdk::run_auto_fix_design_gate(&mut s.shell.app);
+    assert_eq!(again, crate::cmdk::AutoFixOutcome::NoChange, "the second run has nothing left to change");
+
+    let (mut s, _dir) = library_sim();
+    view_an_old_version_with_fixable_layers(&mut s);
+    s.shell.app.selection.clear();
+    let refused = crate::cmdk::run_auto_fix_design_gate(&mut s.shell.app);
+    assert_eq!(refused, crate::cmdk::AutoFixOutcome::Refused, "an old version is read-only");
+    assert_eq!(toast_text(&s).as_deref(), Some("Viewing an old version is read-only"), "and the refusal says why");
+}
+
+const FLUSH_NOTICE: &str = "Saved without 3 numbers that were not finite";
+
+/// Clicks the palette's fix right after a flush raised `FLUSH_NOTICE` in the same frame, as `save_library_file`
+/// leaves it, and checks the toast says what the click did and still carries the notice.
+#[track_caller]
+fn click_the_fix_in_the_frame_of_a_flush_notice(s: &mut Sim, words: &str) {
+    s.shell.app.show_toast(FLUSH_NOTICE, true);
+    let now = s.shell.app.now;
+    s.shell.app.pending_flush_notice = Some((now, FLUSH_NOTICE.to_string()));
+
+    crate::shell::execute_cmdk_action(&mut s.shell.app, CmdKAction::AutoFixDesignGate);
+
+    let toast = s.app().toast.as_ref().expect("the click shows a toast");
+    assert!(toast.text.contains(words), "the click still says what it did: {:?}", toast.text);
+    assert!(toast.text.contains(FLUSH_NOTICE), "the notice raised in the same frame is not dropped: {:?}", toast.text);
+    assert!(toast.error, "a toast that carries a notice is an error toast");
+}
+
+#[test]
+fn a_notice_raised_in_the_frame_of_the_click_is_kept_by_a_fix() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    click_the_fix_in_the_frame_of_a_flush_notice(&mut s, "Spacing and tap targets fixed");
+}
+
+#[test]
+fn a_notice_raised_in_the_frame_of_the_click_is_kept_by_a_no_op() {
+    let _guard = serialized();
+    let (mut s, _l) = sim_on_fixable_doc();
+    auto_fix(&mut s);
+    click_the_fix_in_the_frame_of_a_flush_notice(&mut s, "Nothing changed");
 }

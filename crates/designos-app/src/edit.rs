@@ -32,6 +32,21 @@ impl Edit {
         self.opened_at
     }
 
+    /// Takes the document's layout epoch as this edit's baseline again, for an edit that has opened (one that has
+    /// not stays unopened). [`Edit::opened_at`] then says the document was at this epoch when the edit's own
+    /// work began, so [`History::mark_last_undo_as_layout_recorded`] counts layout written before this call as
+    /// the edit's.
+    ///
+    /// The caller vouches for that: every layout write made since the edit opened landed on a node this edit
+    /// holds, with its original state recorded before the write. An operation that records its whole write
+    /// scope first and then solves layout on the live document may say so. One that can write outside what it
+    /// recorded must not: its step would replay without a solve and leave those nodes where the write put them.
+    pub fn rebase_layout_epoch(&mut self, doc: &Document) {
+        if let Some(at) = self.opened_at.as_mut() {
+            *at = doc.layout_epoch();
+        }
+    }
+
     /// Records the original state of `id` (first touch wins).
     pub fn touch(&mut self, doc: &Document, id: NodeId) {
         self.note_opened(doc);
@@ -360,6 +375,31 @@ mod tests {
         ed.retain_changed(&d);
 
         assert!(ed.touched().is_empty(), "children belong to structural commands, so a frame that only gained one did not change");
+    }
+
+    #[test]
+    fn rebasing_the_layout_epoch_moves_an_opened_edit_to_now_and_leaves_an_unopened_one_alone() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frame = d.alloc_id();
+        d.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut ed = Edit::new();
+        d.note_layout_written_outside_history();
+        ed.rebase_layout_epoch(&d);
+        assert_eq!(ed.opened_at(), None, "an edit that has not touched the document has no baseline to move");
+
+        ed.touch(&d, frame);
+        let opened = d.layout_epoch();
+        assert_eq!(ed.opened_at(), Some(opened));
+        d.note_layout_written_outside_history();
+        d.note_layout_written_outside_history();
+        assert_ne!(d.layout_epoch(), opened, "precondition: layout was written after the edit opened");
+
+        ed.rebase_layout_epoch(&d);
+
+        assert_eq!(ed.opened_at(), Some(d.layout_epoch()), "the baseline is now");
+        ed.retain_changed(&d);
+        assert_eq!(ed.opened_at(), Some(d.layout_epoch()), "forgetting what did not change keeps it");
     }
 
     #[test]
