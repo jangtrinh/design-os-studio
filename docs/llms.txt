@@ -1,8 +1,8 @@
 # DESIGN:OS Studio (design-os-studio)
 
-> Local-first Rust/wgpu interface design studio with native Figma `.fig` v106 binary read/write, Figma-style micro-interactions, a native Agentic PTY Chat UI for Claude Code, Codex, Antigravity and Grok, Live Variables Mode Switching & Multi-Edit, and a 22-tool MCP server.
+> Local-first Rust/wgpu interface design studio with native Figma `.fig` v106 binary read/write, Figma-style micro-interactions, a native Agentic PTY Chat UI for Claude Code, Codex, Antigravity and Grok, Live Variables Mode Switching & Multi-Edit, and an MCP server.
 
-Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release), enterprise Figma `.fig` v106 binary read/write engine, Figma-style micro-interactions, native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML), and a 22-tool Model Context Protocol server (`designos-mcp`) written in Rust.
+Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU renderer; Metal is verified on macOS, Direct3D 12 and Vulkan on Windows and Linux are not verified before release), enterprise Figma `.fig` v106 binary read/write engine, Figma-style micro-interactions, native Agentic PTY Chat UI (`Claude Code` · `Codex` · `Antigravity CLI` · `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML), and a Model Context Protocol server (`designos-mcp`) written in Rust.
 
 ## Key Facts & Verification Metrics
 
