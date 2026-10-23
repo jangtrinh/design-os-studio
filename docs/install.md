@@ -2,7 +2,7 @@
 
 Download the latest package for your platform from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases) or build a local release package directly from source.
 
-> **Platform support:** releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow and tested by their users. Please report anything that breaks.
+> **Platform support:** releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow but are not verified before release. A failed Windows or Linux build leaves its package out of the release and does not block it. Please report anything that breaks.
 
 Every release ships all **4 binaries**:
 - `designos-studio` — Native GPU (`wgpu`) + CPU (`tiny-skia`) Studio GUI
@@ -126,4 +126,4 @@ Outputs are written to `dist/`:
 
 ## 5. GPU Rendering
 
-**design:os studio** renders with `wgpu` (Metal on macOS, Direct3D 12 / Vulkan on Windows, Vulkan / OpenGL ES on Linux) and uses the deterministic `tiny-skia` CPU renderer when the GPU cannot be initialised or when **Use GPU rendering** is off. Only the Metal path on macOS is verified by the maintainers; the other backends are tested by their users. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.
+**design:os studio** renders with `wgpu` (Metal on macOS, Direct3D 12 / Vulkan on Windows, Vulkan / OpenGL ES on Linux) and uses the deterministic `tiny-skia` CPU renderer when the GPU cannot be initialised or when **Use GPU rendering** is off. Only the Metal path on macOS is verified by the maintainers; the other backends are not verified before release. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.

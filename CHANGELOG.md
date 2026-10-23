@@ -2,6 +2,90 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.6.1] - 2026-10-23
+
+Patch for **AI design** ([milestone v0.6.1 patch](https://github.com/jangtrinh/design-os-studio/milestone/48)): the bottom terminal dock is gone, agents ask before acting by default, and Studio asks before it drops unsaved edits. Most other changes fix bugs found while testing 0.6.0.
+
+### Added
+- **Canvas and editing.**
+  - Paste text and images from other apps. Cmd+V (Ctrl+V on Windows and Linux) and Edit > Paste turn plain text into a text layer, and a copied image into an image layer. Text wider than 400 px wraps at 400 px. An image is at most 400 px on its longest side, like the Image tool. Each paste is one undo step (#877).
+  - Edit > Paste is never disabled. With nothing to paste, a toast says `Nothing to paste` (#877).
+  - Drop PNG, JPEG or WebP files on the canvas. Each file becomes an image layer. A drop of several files is one undo step (#878).
+  - A pasted or dropped layer lands in the frame under the point where it lands. Inside a frame that clips its content, as every frame imported from Figma does, it stays in the part that shows (#877, #878, #959).
+- **Files and export.**
+  - Closing a tab, closing the window, quitting, or opening another file over unsaved edits asks `Save changes to {name}?` with Save, Don't save and Cancel. This covers files outside the library. Library files autosave and never ask (#929).
+  - On macOS, Cmd+Q and Quit in the app menu ask the same question (#974).
+  - When another program changes a file that has unsaved edits in Studio, Studio asks `File changed on disk` with Use file and Keep mine. Enter, Esc and a click outside keep your edits (#933).
+  - A save or export to `.fig` or `.pen` ends with `Comments left out: only .designos files keep them`, because those formats have no place for comments. Saves from the `designos` CLI print the same notice on stderr, and `--export-fig` and `designos_export_fig_file` report `omitted_comment_threads` (#851, PR #1006).
+  - A `.fig` export toast shows the full path and a Show in folder action (#874).
+  - On Linux, when no file dialog can open, Studio says so instead of doing nothing. Open, Save as, Import and image placement show `No file dialog. Install zenity or xdg-desktop-portal.` Export saves to `~/Downloads`, or to the home folder, under a name that is not taken, and shows `No save dialog. Saved to {path}`. The `.deb` recommends `zenity` or `xdg-desktop-portal` (#850).
+- **CLI and MCP.**
+  - `designos --version` and `-V` print the version. `designos-studio` and `designos-mcp` do the same (#845).
+  - `designos_update_node`, `designos_create_node` and the batch `update` and `insert` operations accept `var:<collection>/<name>` for a fill or text color and bind the variable. An unknown name returns `UNKNOWN_VARIABLE` with the closest names. A variable of the wrong kind returns `VARIABLE_TYPE_MISMATCH` (#917).
+
+### Changed
+- **Agents panel.**
+  - The bottom terminal dock is removed, and so is the `>_` button at the bottom of the left rail. The canvas keeps its full height. ``Cmd+` `` (``Ctrl+` `` on Windows and Linux) opens the Agents panel and closes it again. Opening it resumes the file's last session, or shows the new-session list. It never starts a plain shell (#838, PR #864).
+  - Cmd+K agent presets, `Send selection to agent`, the Inspect `Send to agent` button and `--panel terminal` open the Agents panel. Sync Canvas and Apply Spec from Output are gone with the dock. The disk watcher still reloads a file that changes on disk, and a spec an agent writes to `live-spec.json` still applies (#838, PR #864).
+  - **The default agent permission is Ask** (PR #861). A new or unset setting asks before acting, and so does a saved value that is unknown or cannot be read. A saved Skip permissions choice is kept, and Preferences > Agent permissions… still offers it. In 0.6.0 the default was Skip permissions (#841).
+- **Canvas and editing.**
+  - Paste, Ctrl+D and Alt-drag of a main component in the file it lives in make an instance, as in Figma. They used to add a second main. A paste into another file still pastes a real copy (#860).
+  - A marquee over part of a main component or a component set selects it as a whole (#854).
+  - The Arrow tool is hidden. It drew a plain line with no head. Shift+L selects Line. Arrows already in files open, render and save as before. The tool comes back when strokes have arrowheads (#858, #859).
+  - On a machine whose GPU is a software renderer, such as Mesa llvmpipe in a VM, Studio starts on the CPU canvas. Preferences > Use GPU rendering says why. A saved choice, or `--gpu`, still wins (#840).
+  - Home no longer shows the `+ Spec bundle` button or the `PRODUCT:OS Spec Bundle v2` card. Both opened a blank canvas (#867).
+- **Files and export.**
+  - One writer serves `.fig` export from the command palette, Home and the File menu. It never replaces an existing file, including the open one. A name already taken becomes `Name 2.fig`. A failed write shows `Export .fig failed: {reason}`. Files in the library export to the library `exports` folder, and files opened from disk export next to them (#874).
+  - Menu labels: `Export .fig…` is now `Export .fig`, and `Save local .fig copy…` is now `Save .fig copy` (#874).
+- **CLI and MCP.**
+  - `designos FILE --export-fig PATH` refuses a path that does not end in `.fig`, an existing file unless you pass `--overwrite`, and a symbolic link. A refusal exits with status 2 and leaves the document alone. `--overwrite` replaces a regular, writable file only. Re-running an export onto the same path now needs `--overwrite` (#1000, PR #1005).
+  - A FILE argument that is not on disk exits with status 2 and prints `No file named {arg}. Run designos --help.` It no longer opens an empty window. `--apply-spec`, `--import-capture` and `--import-variables` still create the file (#845).
+  - Uncolored text in a `NodeSpec` takes `#000000` or `#F4F4F5`, whichever contrasts more with the nearest solid fill behind it. It was always `#F4F4F5`. An explicit color, a style or a `var:` binding still wins. Labels on `easeui-button-primary` are now black (#918).
+  - `designos_open_file` checks the path before it checks unsaved changes. A path outside the workspace always returns `PATH_OUTSIDE_WORKSPACE` and is not echoed back. The unsaved-changes hint names `designos_save_file` and `discard_changes=true` (#919).
+  - The live edit log is version 2. Studio refuses a log line from a newer build and says `Agent edit not applied. Update Studio and designos-mcp to the same version.` Builds up to 0.6.0 show their old message when they read a version 2 log. Use the `designos-mcp` that ships with this build (#824).
+
+### Fixed
+- **Undo.**
+  - **Undo and redo of your own edits restore the document exactly.** Before, one edit and Cmd+Z could move or collapse frames on pages you were not looking at, and Cmd+Z could not take that back. On the Untitled UI kit, one edit and Cmd+Z left 80 layers changed, by up to 1,332 px (#973, PR #982).
+  - After a font face arrives, and after an agent's edits, undo falls back to solving layout again. The re-solve stays for undo of agent edits and reverts, MCP edits, spec applies and web capture imports; for every step recorded before a font face arrived; for a step made while an earlier edit's layout was still queued; and for scrubbing a field on a document over 5,000 layers (#973, PR #982).
+  - The command palette's design fix and its five Figma AI rows (Replace content, Boost resolution, Edit image with prompt, Make prototype flows and Rename layers semantically) are each one undo step. Before, they wrote with no undo step, and Cmd+Z undid the edit before them. Each toast names what it did, as in `Layers renamed · Cmd+Z to undo`. A run that changes nothing shows `Nothing changed`, adds no undo step and keeps the palette open (#984, PR #988).
+- **Agents panel.**
+  - After Revert, Keep or Dismiss on the review card, the typing caret returns to the prompt box. Before, the next letter picked a canvas tool (#922).
+  - A dialog, the command palette or a menu gets Esc, Enter and the arrow keys before the agent terminal. The Esc that closes a dialog no longer interrupts a running turn, and Esc in the prompt box only leaves the box (#923). Popup menus and popovers do the same, including the color picker, the font dropdown and the Variables popovers (#960, #981). The Sessions popover does not yet (#1010).
+  - Gemini CLI asks before each Studio canvas tool call in Ask mode. Studio no longer writes `trust` for its server in Gemini's settings (#924).
+  - Return acts only on a row that has keyboard focus. Tab reaches the rows, and the arrow keys move between them. A bare Return no longer opens Other CLI (#885).
+  - The `+` button opens and closes its menu in release builds (#925). The Other CLI caption no longer touches Cancel (#927). When an agent exits, its tab keeps its width and shows a hollow status ring, so the Sessions and `+` buttons stay under the pointer (#829).
+  - A session rename takes the keyboard when it opens. The Other CLI form takes no keys while it is clipped out of view (#1001, PR #1007).
+  - When an agent opens or creates another document, your unsaved edits stay in their own tab, and the agent's document never takes your file. Save on the agent's document asks where it goes (#966).
+  - A rewritten `live-spec.json` with the same content changes nothing. A changed one replaces the layer its earlier content made. Before, each rewrite added another copy (#846).
+  - With the Agents panel closed, an agent's edit shows up without a mouse move or key press first (PR #948).
+- **Canvas and editing.**
+  - On a slow frame, a drawn shape, a move, a resize and a rotate end where the pointer let go. Before, a quick drag made a 100 x 100 shape at the wrong spot, or left the layer short (#842, #862).
+  - A quick drag in the Layers panel reorders the layer (#855). A toolbar menu picks the row under the pointer on release (#852).
+  - Keys typed in the frame of a click on a field stay in the field, and Tab moves between fields in the order they are drawn (#843, #844).
+  - Shift+D enters and leaves Dev Mode, as the toolbar tooltip says (#1012).
+  - Ctrl+B draws bold in a downloaded font, and Bold follows a `wght` axis (#873).
+  - Resizing a vector or a boolean group scales its shape, not only its box (#853).
+  - Text draws with a font face as soon as it arrives. Text you sized while that face was missing is fitted to it. A text box that came from the file is not changed (#886).
+  - Applying a fill style drops the fill's variable binding (#955).
+  - The toast paints above the full Variables view (#830).
+  - A property edit on an instance goes through when its stored variant would make a main hold itself (#989).
+  - Studio no longer aborts when a main component holds an instance of itself through a pair or a ring of mains. Paste, Ctrl+D, Alt-drag, drops from Assets, variant switches and MCP batch `move` no longer put a main inside itself (#860).
+- **Files and export.**
+  - The unsaved dot clears when a save writes the document, returns with the next edit, and clears again when undo walks back to the saved state. A save as `.fig` or `.pen` leaves the dot lit, because those files drop comments (#847).
+  - Switching tabs no longer replaces unsaved edits with the file on disk (#933).
+  - The Comment tool no longer shows `Comments are not available in the offline editor`. Comments work, and the click opens the composer (#851, PR #1006).
+- **CLI and MCP.**
+  - A literal color written with `designos_update_node` or `designos_apply_batch` to a layer bound to a variable now drops the binding. Before, the call said `changed: true` and the canvas kept the variable's color. Linking a fill style with `set_style` drops the fill bindings too (#916).
+  - `designos-diff compare` on images of different sizes exits with status 1 and prints `Images differ in size: {a} vs {b}. Render both at the same size.` It used to panic (#883).
+
+### Known limits
+- On very large pages (100,000 layers or more), Rename layers semantically and Boost resolution from the command palette can take several seconds. Recording them as one undo step costs time on a big page. The next release addresses this first (#993).
+- On macOS, Quit from the Dock, logout and shutdown still skip the `Save changes` question (#977).
+- A file where several main components hold instances of each other can still run Studio out of memory when you edit it. No Studio gesture or agent tool builds one. The guards cover pairs and rings of mains (#968).
+- On Linux, paste from other apps and file drops work through X11 or XWayland only. A pure Wayland session sends no file drop event (#877, #878).
+- A `var:` color that names a variable from an enabled library binds only through a direct `designos_apply_spec` call. `designos_create_node`, `designos_update_node` and the batch `update` and `insert` operations return an error that says so (#954).
+
 ## [0.6.0] - 2026-10-22
 
 Pack **AI design** ([milestone v0.6 AI design](https://github.com/jangtrinh/design-os-studio/milestone/4)): agents can see a design, read its design system, write in one step and check their own work. The Agents panel gets sessions, review and stop.

@@ -55,7 +55,7 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 
 ## Checklist
 
-1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and Windows and Linux are tested by their users.
+1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and the Windows and Linux packages are not verified before release.
 2. On a branch, bump `version` under `[workspace.package]` in the root `Cargo.toml` and run `cargo update -w` so `Cargo.lock` updates. Commit both (`release: X.Y.Z`) and open a PR. `main` is protected, so the release commit lands through a squash merge like any other change. The workflow's `version-check` job fails the release when the tag and this version differ.
 3. Once the release PR is merged, run the dry run (below) on `main` and smoke-test its `.dmg`. Then tag that same squash commit and push the tag. Release tags cannot be moved or deleted afterwards, so the tagged commit must be the one you tested:
 
@@ -113,5 +113,5 @@ Before every release tag, run it on `main` after the version bump has merged, so
 ## Not covered yet
 
 - macOS: the app is ad-hoc signed but not signed with a Developer ID or notarized, so Gatekeeper asks for a one-time Open Anyway. Double-clicking a file in Finder does not pass it to designos (winit 0.30 does not expose `application:openFiles:`); "Open With" lists designos through `CFBundleDocumentTypes`.
-- Windows binaries are unsigned (SmartScreen warning). In practice there is no installer, because the runner has no `makensis`; the zip with `install.ps1` is the download. Windows and Linux builds are tested by their users; releases are verified on macOS.
+- Windows binaries are unsigned (SmartScreen warning). In practice there is no installer, because the runner has no `makensis`; the zip with `install.ps1` is the download. The Windows and Linux packages are built by the same release workflow but are not verified before release; releases are verified on macOS.
 - Linux binaries link the build runner's glibc; they run on that distribution or newer.
