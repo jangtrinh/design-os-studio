@@ -6,10 +6,13 @@ use designos_doc::{Affine, Document, Effect, Node, NodeId, NodeKind, Rect, Strok
 /// Bounds in the node's local space (origin = its top-left corner, so
 /// `x`/`y` are `<= 0` when effects spill to the top/left).
 pub fn render_bounds(doc: &Document, id: NodeId) -> Rect {
-    match doc.get(id) {
-        Some(n) => bounds_of(doc, n),
-        None => Rect::default(),
-    }
+    try_render_bounds(doc, id).unwrap_or_default()
+}
+
+/// Bounds in the node's local space, or `None` when the node has no painted
+/// bounds (for example, a missing node or a group whose children are all hidden).
+pub(crate) fn try_render_bounds(doc: &Document, id: NodeId) -> Option<Rect> {
+    bounds_of(doc, doc.get(id)?)
 }
 
 fn transform_rect(t: &Affine, r: Rect) -> Rect {
@@ -85,8 +88,9 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
     (l.max(0.0).ceil(), t.max(0.0).ceil(), r.max(0.0).ceil(), b.max(0.0).ceil())
 }
 
-fn bounds_of(doc: &Document, n: &Node) -> Rect {
-    let n = &*designos_doc::resolve_node(doc, n);
+fn bounds_of(doc: &Document, n: &Node) -> Option<Rect> {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let is_group = matches!(n.kind, NodeKind::Group);
     let own = if is_page || is_group {
@@ -102,10 +106,12 @@ fn bounds_of(doc: &Document, n: &Node) -> Rect {
     if draws_kids && !clips {
         for cid in &n.children {
             let Some(c) = doc.get(*cid) else { continue };
-            if !c.visible || c.opacity <= 0.0 {
+            let rc = designos_doc::resolve_node(doc, c);
+            if !rc.visible || rc.opacity <= 0.0 {
                 continue;
             }
-            let cr = transform_rect(&c.transform, bounds_of(doc, c));
+            let Some(cb) = bounds_of(doc, c) else { continue };
+            let cr = transform_rect(&rc.transform, cb);
             acc = Some(match acc {
                 Some(a) => a.union(&cr),
                 None => cr,
@@ -115,8 +121,10 @@ fn bounds_of(doc: &Document, n: &Node) -> Rect {
     if is_group {
         let (l, t, r, b) = own_overflow(n);
         acc = acc.map(|a| grow(a, l, t, r, b));
+    } else if is_page {
+        return Some(acc.unwrap_or_default());
     }
-    acc.unwrap_or_default()
+    acc
 }
 
 #[cfg(test)]
@@ -308,18 +316,187 @@ mod tests {
         let rad = 30.0f32.to_radians();
         let cos = rad.cos();
         let sin = rad.sin();
-        c.transform = Affine { a: cos, b: sin, c: -sin, d: cos, tx: 50.0, ty: 50.0 };
+        c.transform = Affine { a: cos, b: sin, c: -sin, d: cos, tx: 80.0, ty: 80.0 };
         d.insert(f, c).unwrap();
 
+        // Unrotated at (80, 80) size 50x50 would end at (130, 130).
+        // Rotated 30° around (80, 80):
+        // x_min = 80 - 50*sin(30°) = 55, x_max = 80 + 50*cos(30°) ≈ 123.30127
+        // y_min = 80, y_max = 80 + 50*(sin(30°) + cos(30°)) ≈ 148.30127
         let b = render_bounds(&d, f);
-        assert!(b.x <= 0.0);
-        assert!(b.y <= 0.0);
-        assert!(b.w >= 100.0);
-        assert!(b.h >= 100.0);
+        let expected_w = 80.0 + 50.0 * cos;
+        let expected_h = 80.0 + 50.0 * (sin + cos);
+        assert_eq!((b.x, b.y), (0.0, 0.0));
+        assert!((b.w - expected_w).abs() < 1e-4, "expected w={expected_w}, got {}", b.w);
+        assert!((b.h - expected_h).abs() < 1e-4, "expected h={expected_h}, got {}", b.h);
     }
 
     #[test]
-    fn unit_test_100x40_rectangle_with_drop_shadow_figma_rule() {
+    fn scales_0_5_and_1_5_on_odd_sizes_keep_ceil() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 99.0, 49.0));
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.align = StrokeAlign::Outside;
+        n.stroke.weight = 1.0;
+        d.insert(page, n).unwrap();
+
+        // 1x render bounds are 101 x 51
+        let b = render_bounds(&d, id);
+        assert_eq!((b.w, b.h), (101.0, 51.0));
+
+        // 0.5x -> ceil(50.5) x ceil(25.5) = 51 x 26
+        let pm_half = crate::raster::render_export(&d, id, 0.5).expect("0.5x export");
+        assert_eq!((pm_half.width(), pm_half.height()), (51, 26));
+
+        // 1.5x -> ceil(151.5) x ceil(76.5) = 152 x 77
+        let pm_one_half = crate::raster::render_export(&d, id, 1.5).expect("1.5x export");
+        assert_eq!((pm_one_half.width(), pm_one_half.height()), (152, 77));
+    }
+
+    #[test]
+    fn render_bounds_svg_filter_region_matches_own_overflow() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 328.0, 540.0));
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.align = StrokeAlign::Outside;
+        n.stroke.weight = 1.0;
+        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 20.0), radius: 24.0, spread: -4.0, visible: true, show_behind: false });
+        let (l, t, r, b) = own_overflow(&n);
+        d.insert(page, n).unwrap();
+
+        let bounds = render_bounds(&d, id);
+        assert_eq!((bounds.x, bounds.y, bounds.w, bounds.h), (-l, -t, 328.0 + l + r, 540.0 + t + b));
+
+        let svg = crate::svg::export_svg(&d, id, &Default::default());
+        let expected_filter = format!(
+            "<filter id=\"shadow0\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
+            -l,
+            -t,
+            328.0 + l + r,
+            540.0 + t + b
+        );
+        assert!(svg.contains(&expected_filter), "svg missing {expected_filter}:\n{svg}");
+    }
+
+    #[test]
+    fn group_with_offset_children_and_own_shadow() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let gid = d.alloc_id();
+        // Give the group an arbitrary stored box at (0, 0) to prove its own box is ignored.
+        let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        g.kind = NodeKind::Group;
+        g.fills.clear();
+        g.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        let g = d.insert(page, g).unwrap();
+
+        let c1_id = d.alloc_id();
+        let c1 = Node::rectangle(c1_id, Rect::new(20.0, 30.0, 40.0, 50.0));
+        d.insert(g, c1).unwrap();
+
+        let c2_id = d.alloc_id();
+        let c2 = Node::rectangle(c2_id, Rect::new(50.0, 40.0, 30.0, 20.0));
+        d.insert(g, c2).unwrap();
+
+        // Children union is (20, 30, 60, 50); group shadow adds l=8, t=4, r=8, b=12 -> (12, 26, 76, 66).
+        let b = render_bounds(&d, g);
+        assert_eq!((b.x, b.y, b.w, b.h), (12.0, 26.0, 76.0, 66.0));
+    }
+
+    #[test]
+    fn group_with_all_hidden_children_has_no_bounds() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+
+        let gid = d.alloc_id();
+        let mut g = Node::rectangle(gid, Rect::new(-50.0, -50.0, 20.0, 20.0));
+        g.kind = NodeKind::Group;
+        g.fills.clear();
+        let g = d.insert(f, g).unwrap();
+
+        let cid = d.alloc_id();
+        let mut c = Node::rectangle(cid, Rect::new(0.0, 0.0, 20.0, 20.0));
+        c.visible = false;
+        d.insert(g, c).unwrap();
+
+        assert_eq!(try_render_bounds(&d, g), None);
+        assert_eq!(render_bounds(&d, g), Rect::default());
+        assert!(crate::raster::render_export(&d, g, 1.0).is_none());
+        assert!(crate::export_png(&d, g, 1.0).is_empty());
+        // Parent frame is not pulled to (-50, -50) by the empty/all-hidden group.
+        assert_eq!(render_bounds(&d, f), Rect::new(0.0, 0.0, 100.0, 100.0));
+    }
+
+    #[test]
+    fn opacity_zero_child_skipped_in_bounds() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+
+        let cid = d.alloc_id();
+        let mut c = Node::rectangle(cid, Rect::new(200.0, 200.0, 50.0, 50.0));
+        c.opacity = 0.0;
+        d.insert(f, c).unwrap();
+
+        assert_eq!(render_bounds(&d, f), Rect::new(0.0, 0.0, 100.0, 100.0));
+    }
+
+    #[test]
+    fn width_bound_to_variable_resolved_in_bounds() {
+        use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "C".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "Default".into() }],
+                default_mode: "m".into(),
+                variables: vec!["w_var".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "w_var".into(),
+            Variable {
+                id: "w_var".into(),
+                name: "w_var".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [("m".to_string(), VariableValue::Number(240.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 40.0));
+        n.variables.bindings.insert("width".into(), "w_var".into());
+        d.insert(page, n).unwrap();
+
+        assert_eq!(render_bounds(&d, id), Rect::new(0.0, 0.0, 240.0, 40.0));
+    }
+
+    #[test]
+    fn rectangle_100x40_with_drop_shadow_export_bounds_and_svg() {
+        // Guard test for a 100x40 rectangle with drop shadow (offset (0, 4), blur 8);
+        // 116x56 is the uncalibrated per-side prediction until calibrated against Figma.
         let mut d = Document::new("t");
         let page = d.add_page("p");
         let id = d.alloc_id();
