@@ -184,3 +184,16 @@ fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_
     }
     assert!(all.is_empty(), "{} studio screen gate findings", all.len());
 }
+
+#[test]
+fn a_line_half_scrolled_out_of_view_is_judged_by_the_part_that_shows() {
+    let run = |rect, clip| lint::TextRun { text: "-".into(), rect, clip };
+    // a scroll region ends at y 100, a bar fills 100..136 below it, and a line sits across the cut
+    let bar = Rect::from_min_max(Pos2::new(0.0, 100.0), Pos2::new(240.0, 136.0));
+    let region = Rect::from_min_max(Pos2::ZERO, Pos2::new(240.0, 100.0));
+    let line = Rect::from_min_size(Pos2::new(20.0, 97.0), Vec2::new(40.0, 12.0));
+    assert!(lint::check_text(&[run(line, region)], &[bar]).is_empty(), "the half under the cut is not painted, so the bar does not hold the line");
+    // the same line with nothing cutting it does sit across the bar's edge
+    let window = Rect::from_min_max(Pos2::ZERO, Pos2::new(240.0, 136.0));
+    assert_eq!(lint::check_text(&[run(line, window)], &[bar]).len(), 1);
+}

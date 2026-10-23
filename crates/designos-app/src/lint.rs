@@ -114,7 +114,9 @@ pub fn check_text(texts: &[TextRun], boxes: &[Rect]) -> Vec<Finding> {
         if !t.clip.intersects(t.rect) || t.rect.width() <= 0.0 {
             continue;
         }
-        let anchor = t.rect.center();
+        // A line cut by its clip (the edge of a scroll region) shows only the part inside it, so that part picks the
+        // container; the half scrolled out of view must not be matched with whatever box lies under the cut.
+        let anchor = t.rect.intersect(t.clip).center();
         let Some(container) = boxes
             .iter()
             .filter(|b| b.shrink(1.5).contains(anchor) && b.height() <= 64.0 && b.width() >= 8.0)

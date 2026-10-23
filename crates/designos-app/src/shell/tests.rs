@@ -1121,6 +1121,7 @@ mod components_main_copies;
 mod decks;
 mod deferred_page_instances;
 mod dev;
+mod dev_code_panel;
 mod dev_mode_shortcut;
 mod duplicate_order;
 mod effect_grid_styles;
