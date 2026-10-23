@@ -1238,6 +1238,8 @@ pub struct TerminalState {
     pub renaming_session_tab_id: Option<u64>,
     /// Draft text for the active inline session rename (`#651` §3 rule 6).
     pub rename_session_input: String,
+    /// The rename field has not been drawn yet since the rename started: its first frame takes the keyboard.
+    pub rename_session_focus_pending: bool,
     /// Prompt held by `dispatch_figma_ai_prompt` when no live tab and no resumable session exist (`#651` §3 rule 10).
     pub pending_prompt: Option<(String, String)>,
     /// Hook-written turn boundary marks reader (`<session_dir>/turn-marks.jsonl`, `#677`).
@@ -1512,6 +1514,7 @@ impl TerminalState {
             resume_notice: None,
             renaming_session_tab_id: None,
             rename_session_input: String::new(),
+            rename_session_focus_pending: false,
             pending_prompt: None,
             turn_marks,
             turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),

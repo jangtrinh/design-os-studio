@@ -1,14 +1,18 @@
 //! Who owns the keyboard in the Agents panel: the composer keeps it across the review card's buttons (#922), and an open
-//! dialog or menu gets `Esc` before the agent's terminal does (#923).
+//! dialog or menu gets `Esc` before the agent's terminal does (#923), and a rename takes the keys from the terminal and
+//! from a form that is no longer on screen (#1001).
 //!
 //! Every test builds its own `Sim` with stub agent CLIs, so no test starts a real `claude`.
 
 use super::*;
 use crate::terminal::AgentCliPreset;
 
+mod clipped_other_cli_form;
 mod hand_built_popovers;
+mod hidden_other_cli_form;
 mod overlay_escape;
 mod review_card_focus;
+mod session_rename_keyboard;
 
 /// The Agents panel open on a stub Claude tab, with the terminal viewport holding the keyboard.
 fn agent_sim() -> Sim {

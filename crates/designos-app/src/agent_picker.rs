@@ -624,6 +624,13 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     p.rect_filled(form_r, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
     p.rect_stroke(form_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     widgets::record(ui, "agents-other-cli-form", form_r);
+    // Scrolled or clipped out of the panel's view (a short window puts it under the end of the list), nothing of the form is
+    // drawn below: a field that is not drawn cannot be reached with Tab and loses the caret it had, so no letter goes into
+    // a form that cannot be seen.
+    let view = ui.clip_rect();
+    if !view.intersects(form_r) {
+        return;
+    }
 
     let pad = theme::INSET_FRAME;
     let field_w = (form_r.width() - pad * 2.0).max(80.0);
@@ -633,41 +640,45 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     let lbl_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, form_r.top() + pad), Vec2::new(field_w, field_h));
     p.rect_filled(lbl_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
     p.rect_stroke(lbl_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-    ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(field_inset)), |ui| {
-        let te = TextEdit::singleline(&mut state.picker.other_label_input)
-            .id(Id::new("agents-other-cli-label-input"))
-            .desired_width(field_w - theme::SPACE_GROUP)
-            .frame(egui::Frame::NONE)
-            .font(theme::font_caption())
-            .text_color(theme::TEXT)
-            .hint_text(RichText::new("Label (e.g. Aider)").font(theme::font_caption()).color(theme::TEXT_TERTIARY));
-        let r = ui.add(te);
-        if r.clicked() || r.has_focus() {
-            state.viewport_focused = false;
-        }
-    });
+    if view.intersects(lbl_rect) {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(field_inset)), |ui| {
+            let te = TextEdit::singleline(&mut state.picker.other_label_input)
+                .id(Id::new("agents-other-cli-label-input"))
+                .desired_width(field_w - theme::SPACE_GROUP)
+                .frame(egui::Frame::NONE)
+                .font(theme::font_caption())
+                .text_color(theme::TEXT)
+                .hint_text(RichText::new("Label (e.g. Aider)").font(theme::font_caption()).color(theme::TEXT_TERTIARY));
+            let r = ui.add(te);
+            if r.clicked() || r.has_focus() {
+                state.viewport_focused = false;
+            }
+        });
+    }
     widgets::record(ui, "agents-other-cli-label-input", lbl_rect);
 
     let cmd_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, lbl_rect.bottom() + theme::SPACE_ROW), Vec2::new(field_w, field_h));
     p.rect_filled(cmd_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
     p.rect_stroke(cmd_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     let mut enter_pressed = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(field_inset)), |ui| {
-        let te = TextEdit::singleline(&mut state.picker.other_command_input)
-            .id(Id::new("agents-other-cli-command-input"))
-            .desired_width(field_w - theme::SPACE_GROUP)
-            .frame(egui::Frame::NONE)
-            .font(theme::font_mono())
-            .text_color(theme::TEXT)
-            .hint_text(RichText::new("Command (e.g. aider)").font(theme::font_mono()).color(theme::TEXT_TERTIARY));
-        let r = ui.add(te);
-        if r.clicked() || r.has_focus() {
-            state.viewport_focused = false;
-        }
-        if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-            enter_pressed = true;
-        }
-    });
+    if view.intersects(cmd_rect) {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(field_inset)), |ui| {
+            let te = TextEdit::singleline(&mut state.picker.other_command_input)
+                .id(Id::new("agents-other-cli-command-input"))
+                .desired_width(field_w - theme::SPACE_GROUP)
+                .frame(egui::Frame::NONE)
+                .font(theme::font_mono())
+                .text_color(theme::TEXT)
+                .hint_text(RichText::new("Command (e.g. aider)").font(theme::font_mono()).color(theme::TEXT_TERTIARY));
+            let r = ui.add(te);
+            if r.clicked() || r.has_focus() {
+                state.viewport_focused = false;
+            }
+            if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                enter_pressed = true;
+            }
+        });
+    }
     widgets::record(ui, "agents-other-cli-command-input", cmd_rect);
 
     // The caption has a row of its own under the fields and wraps to two lines at the field width, so it never

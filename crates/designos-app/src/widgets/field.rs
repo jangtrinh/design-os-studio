@@ -116,7 +116,7 @@ pub fn edit_text_hint(
 }
 
 /// Selects the `count` characters of the text field `id`, so the next key replaces them.
-fn select_value(ctx: &egui::Context, id: Id, count: usize) {
+pub(crate) fn select_value(ctx: &egui::Context, id: Id, count: usize) {
     let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
     state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(count))));
     state.store(ctx, id);
