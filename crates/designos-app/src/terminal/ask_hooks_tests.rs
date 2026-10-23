@@ -182,22 +182,37 @@ fn the_permission_mode_is_read_once_per_spawn_and_once_per_resume() {
     finish(dir, st);
 }
 
-/// Skip mode names no `DESIGNOS_CLAUDE_SETTINGS`, and a value Studio's own environment held must not reach the tab either.
+/// Skip mode names neither `DESIGNOS_CLAUDE_SETTINGS` nor `DESIGNOS_CLAUDE_PLUGIN`, and a value Studio's own environment held
+/// must not reach the tab either. A tab without a session takes the Ask command as its safety net, so it gets values that name
+/// nothing; an Ask tab gets Studio's own.
 #[test]
-fn a_launch_outside_ask_mode_never_passes_on_a_claude_settings_value_it_inherited() {
-    let inherited = "/agent/writable/evil-hooks.json";
-    let value_in_tab_env = |session: Option<&SessionEnv>| {
+fn a_launch_outside_ask_mode_never_passes_on_claude_values_it_inherited() {
+    use crate::agent_permissions::{CLAUDE_PLUGIN_ENV, CLAUDE_SETTINGS_ENV, NO_CLAUDE_PLUGIN_DIR, NO_CLAUDE_SETTINGS};
+    let inherited = "/agent/writable/evil";
+    let values_in_tab_env = |session: Option<&SessionEnv>| {
         let mut cmd = CommandBuilder::new("sh");
-        cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, inherited);
+        cmd.env(CLAUDE_SETTINGS_ENV, inherited);
+        cmd.env(CLAUDE_PLUGIN_ENV, inherited);
         configure_pty_env_with_session(&mut cmd, AgentCliPreset::Claude, None, session);
-        cmd.get_env(crate::agent_permissions::CLAUDE_SETTINGS_ENV).map(|v| v.to_string_lossy().into_owned())
+        let get = |name: &str| cmd.get_env(name).map(|v| v.to_string_lossy().into_owned());
+        (get(CLAUDE_SETTINGS_ENV), get(CLAUDE_PLUGIN_ENV))
     };
     let mut env = SessionEnv::for_session_id("inherit");
     env.claude_settings = None;
-    assert_eq!(value_in_tab_env(Some(&env)), None, "a Skip tab got the inherited value");
-    assert_eq!(value_in_tab_env(None), None, "a tab without a session got the inherited value");
-    env.claude_settings = Some("{}".into());
-    assert_eq!(value_in_tab_env(Some(&env)).as_deref(), Some("{}"), "an Ask tab gets Studio's value, not the inherited one");
+    env.claude_plugin = None;
+    assert_eq!(values_in_tab_env(Some(&env)), (None, None), "a Skip tab got an inherited value");
+    assert_eq!(
+        values_in_tab_env(None),
+        (Some(NO_CLAUDE_SETTINGS.to_string()), Some(NO_CLAUDE_PLUGIN_DIR.to_string())),
+        "a tab without a session must get values that name nothing"
+    );
+    env.claude_settings = Some("/private/hooks.json".into());
+    env.claude_plugin = Some("/private/claude-plugin".into());
+    assert_eq!(
+        values_in_tab_env(Some(&env)),
+        (Some("/private/hooks.json".to_string()), Some("/private/claude-plugin".to_string())),
+        "an Ask tab gets Studio's values, not the inherited ones"
+    );
 }
 
 #[test]

@@ -82,11 +82,18 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    approval hook is removed). With no private folder, Claude gets the inline settings `{}`: none of Studio's hooks, its own terminal
    prompts. Skip mode keeps `<session>/hooks.json` and its launch strings byte for byte. On Unix the handler runs `/bin/sh` by path,
    and the hook script puts `/usr/bin:/bin` first on `PATH`.
-   Claude also loads `<session>/.claude/settings.json` and `settings.local.json` from its working folder; Studio writes neither. Who
-   guards them: Claude's own Write and Edit tools treat `.claude` as a protected path, so a write there is prompted in the `default`
-   and `acceptEdits` modes and `permissions.allow` rules do not pre-approve it (Claude Code, Permission modes, "Protected paths":
-   https://code.claude.com/docs/en/permission-modes). Another runtime's sandbox does not: a sandboxed Codex `workspace-write` command
-   writes both files without a prompt (checked with Codex 0.164.0), and Claude reloads them. That gap is tracked in #1044. See
+   Claude also loads `<session>/.claude/settings.json`, `settings.local.json` and `.mcp.json` from its working folder, live (allow
+   rules, hooks and MCP servers); Studio writes none of the three. Who guards them: Claude's own Write and Edit tools treat `.claude`
+   as a protected path, so a write there is prompted in the `default` and `acceptEdits` modes and `permissions.allow` rules do not
+   pre-approve it (Claude Code, Permission modes, "Protected paths": https://code.claude.com/docs/en/permission-modes). Another
+   runtime's sandbox does not: a sandboxed Codex `workspace-write` command writes them without a prompt (checked with Codex 0.164.0).
+   So the Ask launch also passes `--setting-sources user`, with which Claude 2.1.304 applied none of a forged allow rule, a forged
+   project or local hook or a forged `.mcp.json` server (probed with the debug log and marker files), while `--settings`,
+   `--mcp-config` and `--plugin-dir` still apply. That flag also drops the project skill folder, so Studio's session skill reaches the
+   Ask launch as a plugin: `--plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"`, a folder in the private folder that holds only the plugin manifest
+   and `skills/designos-studio/SKILL.md` (the session copy under `.claude/skills` stays for Skip tabs). Both variables are never empty:
+   Claude reads an empty `--plugin-dir` as its working folder, so with no private plugin the value is an absolute path nothing exists at.
+   Not covered: `--mcp-config` still names `<session>/mcp-config.json`, a file an agent can write. See
    `crates/designos-app/src/agent_approval_channel.rs`.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive

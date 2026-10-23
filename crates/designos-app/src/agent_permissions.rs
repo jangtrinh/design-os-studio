@@ -83,14 +83,31 @@ pub fn strip_skip_permission_flags(cmd: &str) -> String {
 /// How a Skip-mode Claude launch names its hooks: the file Studio writes into the session folder.
 pub const SKIP_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"";
 
-/// How an Ask-mode Claude launch names its hooks: [`CLAUDE_SETTINGS_ENV`], which Studio sets for the tab.
-pub const ASK_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_CLAUDE_SETTINGS\"";
+/// How an Ask-mode Claude launch names its hooks, its setting sources and its skill. Claude's working folder is the session
+/// folder, which an agent can write, and Claude loads (and live-reloads) `<cwd>/.claude/settings.json`,
+/// `<cwd>/.claude/settings.local.json` and `<cwd>/.mcp.json` from it: allow rules, hooks and MCP servers. `--setting-sources
+/// user` stops Claude loading any of the three, while `--settings`, `--mcp-config` and `--plugin-dir` still apply. It also
+/// drops the project skill folder, so Studio's skill comes as a plugin from the private folder. The values are
+/// [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_PLUGIN_ENV`], which Studio sets for the tab and never leaves empty.
+pub const ASK_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"";
 
 /// Environment variable of an Ask-mode tab that holds the value of Claude's `--settings` (see [`claude_settings_value`]).
 pub const CLAUDE_SETTINGS_ENV: &str = "DESIGNOS_CLAUDE_SETTINGS";
 
+/// Environment variable of an Ask-mode tab that holds the value of Claude's `--plugin-dir` (see [`claude_plugin_value`]).
+pub const CLAUDE_PLUGIN_ENV: &str = "DESIGNOS_CLAUDE_PLUGIN";
+
+/// `--plugin-dir` value that names no plugin: an absolute path nothing exists at and no user can create. Claude logs
+/// "Plugin path does not exist" and goes on. An empty value would be read as the working folder, and a folder that exists
+/// is loaded as a plugin or as a folder of plugins, so this is what a tab gets when there is no private plugin to give it.
+pub const NO_CLAUDE_PLUGIN_DIR: &str = "/nonexistent/designos-claude-plugin-unavailable";
+
+/// `--settings` value that names no settings: inline JSON, so no file and nothing to reload.
+pub const NO_CLAUDE_SETTINGS: &str = "{}";
+
 /// The launch command of an agent started in `Ask` mode, from the `Skip` one: [`strip_skip_permission_flags`], and Claude's
-/// hooks come from the Studio-private folder instead of the session folder (see [`claude_settings_value`]).
+/// hooks, setting sources and skill are the ones of [`ASK_SETTINGS_ARG`] instead of the session folder's (see
+/// [`claude_settings_value`] and [`claude_plugin_value`]).
 pub fn ask_mode_launch_command(skip_cmd: &str) -> String {
     let ask_cmd = strip_skip_permission_flags(skip_cmd).replace(SKIP_SETTINGS_ARG, ASK_SETTINGS_ARG);
     // The swap above is a text replace: a Skip launch that spelt `--settings` another way would pass through it unchanged.
@@ -112,9 +129,51 @@ pub fn claude_settings_value(session_dir: &Path, mode: AgentPermissionMode) -> O
         AgentPermissionMode::Ask => Some(
             crate::agent_approval_channel::hooks_file_path(session_dir)
                 .filter(|path| path.is_file())
-                .map_or_else(|| "{}".to_string(), |path| path.display().to_string()),
+                .map_or_else(|| NO_CLAUDE_SETTINGS.to_string(), |path| path.display().to_string()),
         ),
     }
+}
+
+/// Where Studio's session skill sits inside the private plugin folder, relative to it.
+pub const CLAUDE_PLUGIN_SKILL_PATH: &str = "skills/designos-studio/SKILL.md";
+
+/// The manifest of the private plugin, relative to it. A folder without it is read as a folder of plugins, and every
+/// child of such a folder is loaded.
+pub const CLAUDE_PLUGIN_MANIFEST_PATH: &str = ".claude-plugin/plugin.json";
+
+/// The value of Claude's `--plugin-dir` for a tab started in `mode`, set as [`CLAUDE_PLUGIN_ENV`]; `None` in Skip mode.
+///
+/// In Ask mode it is the session's private plugin folder, once it holds its manifest and Studio's skill. Otherwise it is
+/// [`NO_CLAUDE_PLUGIN_DIR`]. It is never empty, and never the channel folder or any folder an agent can write.
+pub fn claude_plugin_value(session_dir: &Path, mode: AgentPermissionMode) -> Option<String> {
+    match mode {
+        AgentPermissionMode::Skip => None,
+        AgentPermissionMode::Ask => Some(
+            crate::agent_approval_channel::claude_plugin_dir_path(session_dir)
+                .filter(|dir| dir.join(CLAUDE_PLUGIN_MANIFEST_PATH).is_file() && dir.join(CLAUDE_PLUGIN_SKILL_PATH).is_file())
+                .map_or_else(|| NO_CLAUDE_PLUGIN_DIR.to_string(), |dir| dir.display().to_string()),
+        ),
+    }
+}
+
+/// Writes Studio's session skill into `<plugin_dir>` as a Claude plugin (owner-only files in owner-only folders), for an
+/// Ask-mode Claude that loads no project skills. The plugin is named so that it cannot be mistaken for a user's own.
+pub fn write_claude_plugin(plugin_dir: &Path, skill_md: &[u8]) -> std::io::Result<()> {
+    let manifest = serde_json::json!({
+        "name": "designos-studio-session",
+        "description": "DESIGN:OS Studio's skill for the file this session is bound to",
+        "version": env!("CARGO_PKG_VERSION"),
+    });
+    let manifest_path = plugin_dir.join(CLAUDE_PLUGIN_MANIFEST_PATH);
+    let skill_path = plugin_dir.join(CLAUDE_PLUGIN_SKILL_PATH);
+    for file in [&manifest_path, &skill_path] {
+        if let Some(parent) = file.parent() {
+            crate::agent_approval_channel::create_private_dir_all(parent)?;
+        }
+    }
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other)?;
+    crate::agent_approval_channel::write_owner_only_file(&manifest_path, &manifest_bytes, false)?;
+    crate::agent_approval_channel::write_owner_only_file(&skill_path, skill_md, false)
 }
 
 /// The file Studio wrote Claude's hooks to for the agents `st` starts in its current mode (tests read it back).
@@ -679,10 +738,12 @@ mod tests {
     }
 
     /// What this asserts, for every agent CLI: an Ask launch is the Skip launch with its skip flag removed
-    /// (`strip_skip_permission_flags`) and nothing else changed, with one exception. Claude's `--settings` names the hooks
-    /// file in the session folder in Skip mode and `$DESIGNOS_CLAUDE_SETTINGS` (the private hooks file) in Ask mode. Put
-    /// that one argument back and the Ask string equals the stripped Skip string, byte for byte; the other CLIs have no
-    /// `--settings` and are identical to their stripped Skip string as they are.
+    /// (`strip_skip_permission_flags`) and nothing else changed, with one exception. Claude's `--settings "$DESIGNOS_SESSION_DIR/
+    /// hooks.json"` (the hooks file in the session folder) becomes, in Ask mode, `--settings "$DESIGNOS_CLAUDE_SETTINGS"
+    /// --setting-sources user --plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"` (the private hooks file, only the user's own setting
+    /// sources, Studio's skill from the private plugin). Put that one run of arguments back and the Ask string equals the
+    /// stripped Skip string, byte for byte; the other CLIs have none of these flags and are identical to their stripped Skip
+    /// string as they are.
     #[test]
     fn ask_mode_drops_each_skip_flag() {
         for preset in
@@ -702,7 +763,15 @@ mod tests {
             assert_eq!(preset.cli_launch_command().contains(SKIP_SETTINGS_ARG), claude, "{preset:?}");
         }
         // The two spellings are the ones the launch strings carry.
-        assert_eq!(ASK_SETTINGS_ARG, format!("--settings \"${CLAUDE_SETTINGS_ENV}\""));
+        assert_eq!(ASK_SETTINGS_ARG, format!("--settings \"${CLAUDE_SETTINGS_ENV}\" --setting-sources user --plugin-dir \"${CLAUDE_PLUGIN_ENV}\""));
+        // Only Claude's Ask launch restricts the setting sources, and none carries a flag that adds one back.
+        for preset in
+            [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode]
+        {
+            let cmd = preset.cli_launch_command_for_mode(AgentPermissionMode::Ask);
+            assert_eq!(cmd.contains("--setting-sources user"), preset == AgentCliPreset::Claude, "{preset:?}");
+            assert!(!cmd.contains("--add-dir") || preset == AgentCliPreset::Antigravity, "{preset:?} adds a folder: {cmd}");
+        }
         assert!(AgentCliPreset::Claude.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("claude --mcp-config"));
         assert!(AgentCliPreset::Codex.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("codex -c"));
         assert!(AgentCliPreset::Grok.cli_launch_command_for_mode(AgentPermissionMode::Ask).starts_with("grok --cwd"));
@@ -729,6 +798,76 @@ mod tests {
         // No private folder at all: the file is not Claude's to read, whatever an earlier run left.
         let without = crate::agent_approval_channel::without_private_root(|| claude_settings_value(&session, AgentPermissionMode::Ask));
         assert_eq!(without.as_deref(), Some("{}"));
+        crate::agent_approval_channel::remove_channel(&session);
+    }
+
+    #[test]
+    fn claude_plugin_value_is_the_private_plugin_once_it_is_complete_and_never_empty() {
+        let session = std::env::temp_dir().join("designos-sessions").join(format!("plugin-value-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        assert_eq!(claude_plugin_value(&session, AgentPermissionMode::Skip), None, "Skip mode names no plugin");
+        assert_eq!(claude_plugin_value(&session, AgentPermissionMode::Ask).as_deref(), Some(NO_CLAUDE_PLUGIN_DIR), "no private folder yet");
+
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).unwrap();
+        let plugin = channel.join(crate::agent_approval_channel::CLAUDE_PLUGIN_DIR_NAME);
+        // A folder without its manifest is read as a folder of plugins and each child loads: it must not be handed out.
+        std::fs::create_dir_all(plugin.join("skills/designos-studio")).unwrap();
+        std::fs::write(plugin.join(CLAUDE_PLUGIN_SKILL_PATH), "skill").unwrap();
+        assert_eq!(claude_plugin_value(&session, AgentPermissionMode::Ask).as_deref(), Some(NO_CLAUDE_PLUGIN_DIR));
+
+        write_claude_plugin(&plugin, b"skill").unwrap();
+        let value = claude_plugin_value(&session, AgentPermissionMode::Ask).expect("Ask mode has a value");
+        assert_eq!(Path::new(&value), plugin, "the plugin folder itself, never the channel folder whose children are not plugins");
+        assert!(!Path::new(&value).starts_with(&session));
+
+        let without = crate::agent_approval_channel::without_private_root(|| claude_plugin_value(&session, AgentPermissionMode::Ask));
+        assert_eq!(without.as_deref(), Some(NO_CLAUDE_PLUGIN_DIR));
+        for value in [NO_CLAUDE_PLUGIN_DIR, NO_CLAUDE_SETTINGS] {
+            assert!(!value.is_empty());
+        }
+        // The value that names nothing is an absolute path (`cfg(unix)`: Windows paths carry a drive) with nothing at it.
+        assert!(!Path::new(NO_CLAUDE_PLUGIN_DIR).exists());
+        crate::agent_approval_channel::remove_channel(&session);
+    }
+
+    #[test]
+    fn the_private_plugin_holds_only_the_manifest_and_the_skill_and_is_owner_only() {
+        let session = std::env::temp_dir().join("designos-sessions").join(format!("plugin-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).unwrap();
+        let plugin = channel.join(crate::agent_approval_channel::CLAUDE_PLUGIN_DIR_NAME);
+        write_claude_plugin(&plugin, b"---\nname: designos-studio\n---\nrules").unwrap();
+        write_claude_plugin(&plugin, b"---\nname: designos-studio\n---\nrules v2").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(plugin.join(CLAUDE_PLUGIN_SKILL_PATH)).unwrap(),
+            "---\nname: designos-studio\n---\nrules v2",
+            "a sync rewrites the skill"
+        );
+        let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(plugin.join(CLAUDE_PLUGIN_MANIFEST_PATH)).unwrap()).unwrap();
+        assert_eq!(manifest["name"], "designos-studio-session");
+        let mut found = Vec::new();
+        let mut stack = vec![plugin.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                if entry.path().is_dir() {
+                    stack.push(entry.path());
+                } else {
+                    found.push(entry.path().strip_prefix(&plugin).unwrap().display().to_string());
+                }
+            }
+        }
+        found.sort();
+        assert_eq!(found, [CLAUDE_PLUGIN_MANIFEST_PATH, CLAUDE_PLUGIN_SKILL_PATH], "no .mcp.json, hooks/ or other file a plugin root is read for");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&plugin), 0o700);
+            assert_eq!(mode(&plugin.join(".claude-plugin")), 0o700);
+            assert_eq!(mode(&plugin.join("skills/designos-studio")), 0o700);
+            assert_eq!(mode(&plugin.join(CLAUDE_PLUGIN_SKILL_PATH)), 0o600);
+            assert_eq!(mode(&plugin.join(CLAUDE_PLUGIN_MANIFEST_PATH)), 0o600);
+        }
         crate::agent_approval_channel::remove_channel(&session);
     }
 

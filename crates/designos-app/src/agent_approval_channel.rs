@@ -12,6 +12,7 @@
 //!   <sid>/                       0700  16 hex digits: FNV-1a 64 of the session folder's path
 //!     approve-hook.sh            0700  the hook; everything it decides with is in this folder or in the script itself
 //!     hooks.json                 0600  Claude's hooks, the file its `--settings` names in Ask mode
+//!     claude-plugin/             0700  Studio's session skill as a plugin, what Ask mode's `--plugin-dir` names
 //!     tab-<id>/                  0700  `<request id>.request.json` and `<request id>.answer` of one tab
 //! ```
 //!
@@ -31,6 +32,9 @@ pub const HOOK_SCRIPT_NAME: &str = "approve-hook.sh";
 
 /// File name of Claude's hooks inside a session's channel folder (what `--settings` names in Ask mode).
 pub const HOOKS_FILE_NAME: &str = "hooks.json";
+
+/// Folder name of the Claude plugin that carries Studio's session skill inside a session's channel folder.
+pub const CLAUDE_PLUGIN_DIR_NAME: &str = "claude-plugin";
 
 /// Folders any agent can write without a prompt: `/tmp` and `$TMPDIR` (Codex's sandbox grants both), in the spelling
 /// given and as the file system resolves it (macOS: `/tmp` is `/private/tmp`).
@@ -129,6 +133,11 @@ pub fn hook_script_path(session_dir: &Path) -> Option<PathBuf> {
 /// `<channel>/hooks.json` of `session_dir`: the hooks Claude reads in Ask mode.
 pub fn hooks_file_path(session_dir: &Path) -> Option<PathBuf> {
     channel_dir(session_dir).map(|dir| dir.join(HOOKS_FILE_NAME))
+}
+
+/// `<channel>/claude-plugin` of `session_dir`: the plugin folder an Ask-mode Claude loads Studio's skill from.
+pub fn claude_plugin_dir_path(session_dir: &Path) -> Option<PathBuf> {
+    channel_dir(session_dir).map(|dir| dir.join(CLAUDE_PLUGIN_DIR_NAME))
 }
 
 /// `<channel>/tab-<tab_id>`, where the hook of that tab raises requests and Studio answers them.

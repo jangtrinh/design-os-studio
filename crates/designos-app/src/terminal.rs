@@ -254,7 +254,7 @@ impl AgentCliPreset {
                 "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Claude, PermissionMode::Ask) => {
-                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
             (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
@@ -390,6 +390,8 @@ pub struct SessionEnv {
     pub tab_session_uuid: Option<String>,
     /// Value of `DESIGNOS_CLAUDE_SETTINGS`, which an Ask-mode Claude launch passes as `--settings` (`None` in Skip mode).
     pub claude_settings: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_PLUGIN`, which an Ask-mode Claude launch passes as `--plugin-dir` (`None` in Skip mode).
+    pub claude_plugin: Option<String>,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
 }
@@ -418,6 +420,7 @@ impl SessionEnv {
             path_prepend: Vec::new(),
             tab_session_uuid: None,
             claude_settings: None,
+            claude_plugin: None,
             #[cfg(test)]
             path_override: None,
         }
@@ -2131,6 +2134,7 @@ impl TerminalState {
             path_override: self.path_override.clone(),
             tab_session_uuid: None,
             claude_settings: crate::agent_permissions::claude_settings_value(&self.session_dir, self.permission_mode),
+            claude_plugin: crate::agent_permissions::claude_plugin_value(&self.session_dir, self.permission_mode),
         }
     }
 
@@ -4697,6 +4701,15 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     );
     atomic_write_session_file(&job.session_dir.join("SKILL.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes())?;
+    // An Ask-mode Claude loads no project skills (`--setting-sources user`), so the same skill is also written, as a plugin,
+    // to the private folder its `--plugin-dir` names. Skip-mode tabs keep reading the copy above.
+    if job.ask_mode {
+        if let Some(plugin_dir) = private_dir.as_deref().map(|dir| dir.join(crate::agent_approval_channel::CLAUDE_PLUGIN_DIR_NAME)) {
+            if let Err(e) = crate::agent_permissions::write_claude_plugin(&plugin_dir, skill_md.as_bytes()) {
+                eprintln!("design:os studio: could not write Studio's skill for Claude to {}: {e}", plugin_dir.display());
+            }
+        }
+    }
     atomic_write_session_file(&job.session_dir.join(".agents/skills/designos-studio/SKILL.md"), skill_md.as_bytes())?;
     // Codex, Grok, Antigravity, Gemini CLI, and OpenCode read `AGENTS.md` / `GEMINI.md` from their cwd (the session dir).
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
@@ -4882,11 +4895,19 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         // `~/.grok/trusted_folders.toml`.
         cmd.env("GROK_FOLDER_TRUST", "0");
     }
-    // Only an Ask-mode tab carries the private hooks file Studio names; a value Studio's own environment held (or
-    // an earlier tab left) must never reach any other tab, and Skip mode names no such file.
-    match session.and_then(|sess| sess.claude_settings.as_deref()) {
-        Some(settings) => cmd.env(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings),
-        None => cmd.env_remove(crate::agent_permissions::CLAUDE_SETTINGS_ENV),
+    // The Ask launch names these two variables, and Claude reads an empty `--settings` as no settings and an empty
+    // `--plugin-dir` as its own working folder. So an Ask tab always gets non-empty values (a private file or plugin, or
+    // values that name nothing). A tab without a session takes the Ask command as its safety net, so it gets the values
+    // that name nothing. A Skip tab names neither variable, and a value Studio's own environment held must not reach it.
+    let (settings, plugin) = match session {
+        Some(sess) => (sess.claude_settings.as_deref(), sess.claude_plugin.as_deref()),
+        None => (Some(crate::agent_permissions::NO_CLAUDE_SETTINGS), Some(crate::agent_permissions::NO_CLAUDE_PLUGIN_DIR)),
+    };
+    for (name, value) in [(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings), (crate::agent_permissions::CLAUDE_PLUGIN_ENV, plugin)] {
+        match value {
+            Some(value) => cmd.env(name, value),
+            None => cmd.env_remove(name),
+        }
     }
 
     if let Some(sess) = session {
@@ -6278,6 +6299,9 @@ mod ask_mode_tests;
 
 #[cfg(all(test, unix))]
 mod ask_hooks_tests;
+
+#[cfg(all(test, unix))]
+mod ask_launch_sources_tests;
 
 #[cfg(test)]
 mod tests {

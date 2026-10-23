@@ -23,13 +23,18 @@ fn golden_launches(cli: &str, mode: PermissionMode) -> [String; 4] {
     match cli {
         "claude" => {
             let flag = if skip { " --dangerously-skip-permissions" } else { "" };
-            // Skip keeps the tail as pinned above. In Ask mode only the `--settings` value differs: the hooks file is the
-            // private one Studio names in `DESIGNOS_CLAUDE_SETTINGS`, never `hooks.json` in the session folder.
+            // Skip keeps the tail as pinned above. In Ask mode that one `--settings` argument becomes four: the hooks file is the
+            // private one Studio names in `DESIGNOS_CLAUDE_SETTINGS`, never `hooks.json` in the session folder; Claude may
+            // load only the user's own setting sources (so nothing from `<session>/.claude/settings*.json` or `.mcp.json`);
+            // and Studio's skill comes from the private plugin in `DESIGNOS_CLAUDE_PLUGIN`.
             let tail = if skip {
                 CLAUDE_TAIL.to_string()
             } else {
                 assert_eq!(CLAUDE_TAIL.matches("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"").count(), 1, "the tail names the hooks file once");
-                CLAUDE_TAIL.replace("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"", "--settings \"$DESIGNOS_CLAUDE_SETTINGS\"")
+                CLAUDE_TAIL.replace(
+                    "--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"",
+                    "--settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"",
+                )
             };
             [
                 format!("claude{flag}{tail}"),
