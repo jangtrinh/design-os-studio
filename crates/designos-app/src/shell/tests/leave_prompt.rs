@@ -9,8 +9,6 @@ use crate::home::{Answer, Leave};
 use crate::io::{DialogOutcome, ScriptedDialogs};
 use designos_doc::Document;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 pub(super) fn dialog_title(s: &Sim) -> Option<String> {
     s.app().dialog.as_ref().map(|d| d.title.clone())
@@ -443,16 +441,14 @@ fn an_open_text_session_is_committed_and_counted() {
 fn an_open_question_asks_for_no_repaint() {
     let (mut s, _d, _path) = external_sim_with(&two_rects());
     make_two_tabs(&mut s);
+    // Opening a file, switching tabs and editing make the canvas draw its tiles again, a few per frame, and a runner with
+    // few cores draws them more slowly than a laptop: the question must open on a window that is idle (see `idle_repaint`).
+    s.settle().expect("a window finishes the work it has after opening a file");
     close_tab_by_click(&mut s, 0);
     assert!(asks_about(&s, "Outside"));
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let log_in_callback = log.clone();
-    s.ctx.set_request_repaint_callback(move |info| log_in_callback.lock().unwrap().push(info.delay));
-    for _ in 0..40 {
-        s.frame(vec![]);
-    }
-    let requests = log.lock().unwrap().clone();
-    assert!(!requests.contains(&Duration::ZERO), "an idle window with the question open asks for no immediate repaint: {requests:?}");
+    // A background thread of the window (a file watcher, a scan) can wake it once while the question waits: a wake, not a
+    // repaint loop. The check waits for the window to go quiet (see `idle_repaint`).
+    s.assert_idle_window_asks_for_no_repaint("the question open");
 }
 
 #[test]

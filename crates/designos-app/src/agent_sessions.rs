@@ -1876,13 +1876,19 @@ mod tests {
         // A poll that sleeps 100 ms on the UI thread is over the budget on every run. A scheduler stall on a loaded machine only
         // adds time to a run, so the poll is timed until one run is within budget, as `test_timing::fastest_within` does for a
         // pure function. (`failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread` also guards the source.)
+        //
+        // Patience is a number of runs, not a number of seconds: a run starts a child process and waits for it to exit, which
+        // takes tens of seconds on a machine that is busy enough, and a deadline in seconds would then end the loop after one run.
+        const RUNS: usize = 60;
         let budget = std::time::Duration::from_millis(25);
-        let give_up = std::time::Instant::now() + std::time::Duration::from_secs(15);
         let mut fastest = std::time::Duration::MAX;
-        while fastest >= budget && std::time::Instant::now() < give_up {
+        for _ in 0..RUNS {
             fastest = fastest.min(poll_after_silent_exit());
+            if fastest < budget {
+                break;
+            }
         }
-        assert!(fastest < budget, "poll_live_agent_bridge must not sleep 100ms on the UI thread when raw_log is empty (took {fastest:?} at best)");
+        assert!(fastest < budget, "poll_live_agent_bridge must not sleep 100ms on the UI thread when raw_log is empty (took {fastest:?} at best of {RUNS})");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

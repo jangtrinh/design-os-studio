@@ -7,7 +7,6 @@ use super::*;
 use crate::home::Act;
 use designos_doc::Document;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const CONFLICT_TITLE: &str = "File changed on disk";
@@ -197,17 +196,15 @@ fn rewriting_the_same_bytes_under_unsaved_edits_asks_nothing() {
 fn an_open_question_asks_for_no_repaint() {
     let (mut s, _d, path) = external_sim_with(&two_rects());
     edit(&mut s);
+    // Opening a file and editing make the canvas draw its tiles again, a few per frame, and a runner with few cores draws
+    // them more slowly than a laptop: the question must open on a window that is idle (see `idle_repaint`).
+    s.settle().expect("a window finishes the work it has after opening a file");
     rewrite_on_disk(&path, &other_document());
     wait(&mut s, 1.5);
     assert!(conflict_open(&s));
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let log_in_callback = log.clone();
-    s.ctx.set_request_repaint_callback(move |info| log_in_callback.lock().unwrap().push(info.delay));
-    for _ in 0..40 {
-        s.frame(vec![]);
-    }
-    let requests = log.lock().unwrap().clone();
-    assert!(!requests.contains(&Duration::ZERO), "an idle window with the question open asks for no immediate repaint: {requests:?}");
+    // The disk watcher looks at the file every half second of real time, so it reports the outside write once, at a moment
+    // the test does not choose: a wake, not a repaint loop. The check waits for the window to go quiet (see `idle_repaint`).
+    s.assert_idle_window_asks_for_no_repaint("the question open");
 }
 
 #[test]
