@@ -55,6 +55,8 @@ resvg = { version = "0.45", default-features = false }
 portable-pty = "0.8"
 toml = "1"
 vt100 = "0.15"
+# The Codex app-server WebSocket handshake key (`codex_remote/ws.rs`). Already locked: no package is added.
+base64 = "0.22"
 
 # Unix only: `openat`, `mkdirat`, `renameat` and `unlinkat` for the writes below an agent's session folder
 # (`src/agent_session_files/no_follow.rs`). `libc` is already in the lockfile, pulled in by several of the crates above.
@@ -75,6 +77,3 @@ zbus = { version = "5.19", default-features = false, features = ["async-io"] }
 
 [build-dependencies]
 winresource = "0.1"
-
-[dev-dependencies]
-base64 = "0.22"

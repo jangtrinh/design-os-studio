@@ -503,7 +503,7 @@ fn query_system_local_hhmm() -> Option<String> {
 }
 
 /// Extracts a semver-like token (`X.Y` or `X.Y.Z`) from a string.
-pub fn extract_semver_token(s: &str) -> Option<String> {
+pub(crate) fn extract_semver_token(s: &str) -> Option<String> {
     for raw_word in s.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '[' | ']' | ',' | ';' | '"' | '\'')) {
         let word = raw_word.trim_start_matches(['v', 'V']).trim_end_matches('.');
         let core = word.split(['-', '+']).next().unwrap_or("");

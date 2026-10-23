@@ -1,0 +1,50 @@
+{
+  "id": 5,
+  "result": {
+    "thread": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "environments": [
+        {
+          "environmentId": "local",
+          "cwd": "/session",
+          "runtimeWorkspaceRoots": [
+            "/session"
+          ]
+        }
+      ],
+      "extra": null,
+      "sessionId": "11111111-1111-4111-8111-111111111111",
+      "forkedFromId": null,
+      "parentThreadId": null,
+      "preview": "",
+      "ephemeral": false,
+      "section": null,
+      "sectionEnteredAt": null,
+      "projectId": null,
+      "historyMode": "paginated",
+      "modelProvider": "spikemock",
+      "model": "gpt-5.5",
+      "reasoningEffort": "low",
+      "createdAt": 1700000000,
+      "updatedAt": 1700000000,
+      "recencyAt": 1700000000,
+      "status": {
+        "type": "idle"
+      },
+      "path": "/codex-home/rollout.jsonl",
+      "cwd": "/session",
+      "cliVersion": "0.164.0",
+      "originator": "designos-studio-spike-A",
+      "source": "vscode",
+      "canAcceptDirectInput": true,
+      "threadSource": "user",
+      "agentNickname": null,
+      "agentRole": null,
+      "gitInfo": null,
+      "name": null,
+      "daybreakEnabled": null,
+      "turns": []
+    },
+    "readState": null
+  }
+}

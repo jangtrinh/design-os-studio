@@ -40,6 +40,8 @@ mod cli;
 mod cli_export_write;
 mod clipboard;
 mod cmdk;
+#[cfg(target_os = "macos")]
+mod codex_remote;
 mod comments;
 mod comp_ops;
 mod decks;
