@@ -59,6 +59,16 @@ impl Document {
         }
     }
 
+    /// An instance that holds no children while its main component has some. A `.fig` import
+    /// leaves an instance like that on a page that has not been opened yet (its children are cloned
+    /// in when the page is first shown), and when the clone budget ran out. A main with no children
+    /// makes an empty instance, which is an ordinary empty frame.
+    fn is_unexpanded_instance(&self, id: NodeId) -> bool {
+        let Some(n) = self.get(id) else { return false };
+        let NodeKind::Instance { component: Some(main), .. } = &n.kind else { return false };
+        n.children.is_empty() && self.get(*main).is_some_and(|m| !m.children.is_empty())
+    }
+
     fn is_auto_layout_frame(&self, id: NodeId) -> bool {
         self.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
     }
@@ -143,6 +153,11 @@ impl Document {
             return;
         };
         let children = root_node.children.clone();
+        // A hugging frame that has no children to measure keeps the size it has: solving it would shrink
+        // the hugged axes to nothing. That is what an instance is until its children are cloned in.
+        if children.is_empty() && hugged_axes(&al) != (false, false) && self.is_unexpanded_instance(root) {
+            return;
+        }
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&root_node.layout_child);
         let stroke = resolved.stroke.clone();
@@ -157,6 +172,7 @@ impl Document {
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
         let out = compute_with_stroke(&al, frame, own_limits, &stroke, &kids);
+        self.note_layout_written_outside_history();
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
         }
@@ -180,6 +196,30 @@ impl Document {
                 self.relayout_top_down(*cid, hops + 1, budget);
             }
         }
+    }
+
+    /// How many times layout was written to this document outside any history step. Runtime only:
+    /// it is never saved, and two values mean something only as a pair taken from one document.
+    ///
+    /// Every headless solve adds one: [`Self::relayout_subtree`], the undo of a step that did not
+    /// record its layout, and each step of the deferred queue the frame loop drains
+    /// ([`Self::flush_pending_relayout_step`]; an empty queue solves nothing and adds nothing). A
+    /// writer that fits boxes behind both the history and the solver reports itself with
+    /// [`Self::note_layout_written_outside_history`].
+    ///
+    /// A recorder that stays open across frames (a scrub, an edit session kept alive by a gesture)
+    /// takes the value when it opens. If the value moved by the time it commits, layout landed in
+    /// between that the recorder's "before" values do not hold, so its step must not be marked as
+    /// layout-recorded ([`crate::History::mark_last_undo_as_layout_recorded`]).
+    pub fn layout_epoch(&self) -> u64 {
+        self.layout_epoch
+    }
+
+    /// Reports one layout write made outside every history step. The headless solver calls it
+    /// itself. The font re-fit that follows a late-arriving face lays boxes out with the editor
+    /// solver on the live document and commits nothing; it calls this once per pass that wrote.
+    pub fn note_layout_written_outside_history(&mut self) {
+        self.layout_epoch = self.layout_epoch.wrapping_add(1);
     }
 
     /// Number of auto-layout subtrees whose box changed during [`Self::relayout_subtree`] but
@@ -565,6 +605,28 @@ mod tests {
     }
 
     #[test]
+    fn a_relayout_and_each_drain_step_move_the_layout_epoch_and_an_idle_drain_does_not() {
+        let (mut doc, parent, _rects) = rows_doc();
+        let start = doc.layout_epoch();
+        doc.get_mut(parent).unwrap().size.x = 500.0;
+        doc.relayout_subtree(parent);
+        let relaid = doc.layout_epoch();
+        assert!(relaid > start, "a headless relayout writes layout outside every history step");
+        assert_eq!(doc.relayout_skipped_count(), 1, "precondition: a row is queued");
+
+        assert_eq!(doc.flush_pending_relayout_step(), 0);
+        let drained = doc.layout_epoch();
+        assert!(drained > relaid, "the drain step solved the queued row, which is a layout write too");
+
+        assert_eq!(doc.flush_pending_relayout_step(), 0);
+        doc.flush_pending_relayout();
+        assert_eq!(doc.layout_epoch(), drained, "draining an empty queue writes nothing, so idle frames never move the epoch");
+
+        doc.note_layout_written_outside_history();
+        assert_eq!(doc.layout_epoch(), drained + 1, "a writer that is not the solver reports itself with one call");
+    }
+
+    #[test]
     fn repro_33_nested_frames_under_page_counts_hops_from_changed_node() {
         let mut doc = Document::new("33-nested-frames");
         let page = doc.add_page("Page 1");
@@ -736,5 +798,71 @@ mod tests {
         assert_eq!(doc.get(f).unwrap().size, Vec2::new(156.0, 84.0));
         assert_eq!((doc.get(c0).unwrap().transform.tx, doc.get(c0).unwrap().transform.ty), (36.0, 30.0));
         assert_eq!((doc.get(c1).unwrap().transform.tx, doc.get(c1).unwrap().transform.ty), (94.0, 30.0));
+    }
+
+    /// A hugging column of [instance, sibling] on a page, plus the instance's main component. The
+    /// instance hugs and has no children, as a `.fig` instance on a page that has not been opened
+    /// yet has none; the file stores it at 375x1332 and the sibling right below it. The main has a
+    /// child only when `main_has_children`.
+    fn column_with_a_childless_instance(main_has_children: bool) -> (Document, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("P");
+        let hugging =
+            || AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() };
+        let main_id = doc.alloc_id();
+        let main = doc.insert(page, Node::new(main_id, NodeKind::Component(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }))).unwrap();
+        if main_has_children {
+            let child = doc.alloc_id();
+            doc.insert(main, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 1332.0))).unwrap();
+        }
+        let column_id = doc.alloc_id();
+        let mut column_node = Node::frame(column_id, Rect::new(0.0, 0.0, 375.0, 1432.0));
+        column_node.kind = NodeKind::Frame(FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() });
+        let column = doc.insert(page, column_node).unwrap();
+        let instance_id = doc.alloc_id();
+        let mut instance_node = Node::new(
+            instance_id,
+            NodeKind::Instance { frame: FrameProps { auto_layout: Some(hugging()), ..FrameProps::default() }, component: Some(main), component_key: None },
+        );
+        instance_node.size = Vec2::new(375.0, 1332.0);
+        let instance = doc.insert(column, instance_node).unwrap();
+        let sibling_id = doc.alloc_id();
+        let sibling = doc.insert(column, Node::frame(sibling_id, Rect::new(0.0, 1332.0, 375.0, 100.0))).unwrap();
+        (doc, column, instance, sibling)
+    }
+
+    #[test]
+    fn a_hugging_instance_whose_children_are_not_loaded_keeps_its_stored_size_on_every_solve_path() {
+        let (mut doc, column, instance, sibling) = column_with_a_childless_instance(true);
+        let stored = |d: &Document| (d.get(column).unwrap().size, d.get(instance).unwrap().size, d.get(sibling).unwrap().transform.ty);
+        let before = stored(&doc);
+        assert_eq!(before, (Vec2::new(375.0, 1432.0), Vec2::new(375.0, 1332.0), 1332.0));
+
+        doc.relayout_subtree(column);
+        assert_eq!(stored(&doc), before, "relayout_subtree");
+        doc.relayout_subtree(instance);
+        assert_eq!(stored(&doc), before, "relayout_subtree on the instance itself");
+        doc.relayout_seeds_upward(&[instance, column]);
+        assert_eq!(stored(&doc), before, "relayout_seeds_upward, the path of undo and redo");
+
+        // A queued instance leaves the queue instead of stalling the lazy pass, and keeps its size too.
+        doc.pending_relayout.push(instance);
+        doc.flush_pending_relayout();
+        assert!(doc.pending_relayout().is_empty());
+        assert_eq!(stored(&doc), before, "the lazy pass");
+    }
+
+    #[test]
+    fn an_instance_of_an_empty_main_or_with_children_is_solved_like_any_frame() {
+        let (mut doc, column, instance, sibling) = column_with_a_childless_instance(false);
+        doc.relayout_subtree(column);
+        assert_eq!(doc.get(instance).unwrap().size.y, 0.0, "an instance of an empty component is an empty frame");
+        assert_eq!((doc.get(sibling).unwrap().transform.ty, doc.get(column).unwrap().size.y), (0.0, 100.0));
+
+        let (mut doc, column, instance, _sibling) = column_with_a_childless_instance(true);
+        let child = doc.alloc_id();
+        doc.insert(instance, Node::rectangle(child, Rect::new(0.0, 0.0, 375.0, 200.0))).unwrap();
+        doc.relayout_subtree(column);
+        assert_eq!(doc.get(instance).unwrap().size.y, 200.0, "an expanded instance hugs its children");
     }
 }

@@ -209,9 +209,20 @@ impl App {
             return true;
         }
         let before_nodes = tx.ed.before_nodes().clone();
+        let opened_at = tx.ed.opened_at();
         match tx.commit(&mut self.doc, &mut self.hist) {
             Ok(changed) => {
                 if changed {
+                    // Every layout write of an editor edit goes through `tx.ed`, so the step holds the
+                    // finished layout and undo and redo replay it as stored. Agent edits, agent turn
+                    // reverts and image-job results commit their own `Tx` and never reach this line:
+                    // they lay out after the commit, or not at all, so their steps keep the re-solve.
+                    // An edit kept open across frames may also have seen layout written outside every
+                    // step (the drain of another step's deferred layout), which its "before" values
+                    // predate: the epoch it took when it began tells, and then the step is not marked.
+                    if let Some(opened_at) = opened_at {
+                        self.hist.mark_last_undo_as_layout_recorded(&self.doc, opened_at);
+                    }
                     for (id, before) in &before_nodes {
                         if let Some(after) = self.doc.get(*id) {
                             self.agent_busy_frames.record_user_node_update(before, after);
@@ -280,7 +291,7 @@ impl App {
         match (active, self.scrub.is_some()) {
             (true, false) => {
                 if self.doc.nodes.len() <= 5_000 {
-                    self.scrub = Some(self.doc.nodes.clone());
+                    self.begin_scrub(self.doc.nodes.clone());
                 } else {
                     let mut snap = std::collections::BTreeMap::new();
                     if let Some(pn) = self.doc.get(self.page) {
@@ -316,7 +327,7 @@ impl App {
                             stack.extend(n.children.iter().copied());
                         }
                     }
-                    self.scrub = Some(snap);
+                    self.begin_scrub(snap);
                 }
             }
             (false, true) => self.scrub_end(),
@@ -324,9 +335,20 @@ impl App {
         }
     }
 
+    /// Opens a scrub on `snapshot` of the document. The scrub's step is diffed against the snapshot
+    /// when it ends, so the document's layout epoch is taken here with it: layout written outside
+    /// every step while the scrub is open lands in that diff with "before" values that predate it.
+    pub(crate) fn begin_scrub(&mut self, snapshot: std::collections::BTreeMap<NodeId, Node>) {
+        self.scrub_opened_at = self.doc.layout_epoch();
+        self.scrub = Some(snapshot);
+    }
+
     /// Folds everything changed since the scrub began into one undo step.
     pub fn scrub_end(&mut self) {
         let Some(base) = self.scrub.take() else { return };
+        // A big document is only snapshotted around the selection, so layout it reflowed elsewhere is
+        // not in the step: only a step diffed against the whole document is layout-recorded.
+        let whole_doc = base.keys().eq(self.doc.nodes.keys());
         let changed: Vec<NodeId> = base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| cur != *old)).map(|(id, _)| *id).collect();
         for id in &changed {
             if let (Some(old), Some(cur)) = (base.get(id), self.doc.get(*id)) {
@@ -345,8 +367,12 @@ impl App {
         }
         let cmd = if updates.len() == 1 { updates.into_iter().next().unwrap() } else { Command::Batch(updates) };
         let cmd = crate::comp_ops::with_sync(&mut self.doc, cmd);
-        if let Err(e) = self.hist.exec(&mut self.doc, cmd) {
-            self.show_toast(format!("Edit failed: {e}"), true);
+        match self.hist.exec(&mut self.doc, cmd) {
+            Ok(()) if whole_doc => {
+                self.hist.mark_last_undo_as_layout_recorded(&self.doc, self.scrub_opened_at);
+            }
+            Ok(()) => {}
+            Err(e) => self.show_toast(format!("Edit failed: {e}"), true),
         }
         self.changed();
         self.sanitize();
@@ -2266,6 +2292,79 @@ mod tests {
             ids.push(r);
         }
         (App::new(d), ids)
+    }
+
+    /// A hugging column of two 30 px rectangles whose stored height (77) is not what the solver
+    /// writes (60), as in an imported file.
+    fn app_with_a_stored_column() -> (App, NodeId, NodeId) {
+        use designos_doc::{AutoLayout, FrameProps, LayoutDirection, Sizing};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let column_id = d.alloc_id();
+        let mut column = Node::frame(column_id, Rect::new(0.0, 0.0, 100.0, 77.0));
+        let layout = AutoLayout { direction: LayoutDirection::Vertical, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..AutoLayout::default() };
+        column.kind = NodeKind::Frame(FrameProps { auto_layout: Some(layout), ..FrameProps::default() });
+        let column = d.insert(page, column).unwrap();
+        let first_id = d.alloc_id();
+        let first = d.insert(column, Node::rectangle(first_id, Rect::new(0.0, 0.0, 100.0, 30.0))).unwrap();
+        let second_id = d.alloc_id();
+        d.insert(column, Node::rectangle(second_id, Rect::new(0.0, 30.0, 100.0, 30.0))).unwrap();
+        (App::new(d), column, first)
+    }
+
+    fn layout_snapshot(app: &App) -> Vec<(NodeId, Vec2, f32, f32)> {
+        app.doc.nodes.values().map(|n| (n.id, n.size, n.transform.tx, n.transform.ty)).collect()
+    }
+
+    #[test]
+    fn a_scrub_over_the_whole_document_is_one_recorded_step_that_undoes_and_redoes_exactly() {
+        let (mut app, column, first) = app_with_a_stored_column();
+        let before = layout_snapshot(&app);
+        app.begin_scrub(app.doc.nodes.clone());
+        app.edit_nodes(&[first], |n| n.size.y = 50.0);
+        let after = layout_snapshot(&app);
+        assert_eq!(app.doc.get(column).unwrap().size.y, 80.0, "precondition: the column hugged the taller rectangle while scrubbing");
+        assert!(!app.hist.can_undo(), "precondition: nothing is recorded until the scrub ends");
+        app.scrub_end();
+        assert_eq!(layout_snapshot(&app), after);
+        assert_eq!(app.hist.undo_depth(), 1);
+        assert!(app.hist.peek_undo_layout_recorded(), "the step holds every node the scrub changed");
+
+        app.undo();
+        assert_eq!(layout_snapshot(&app), before, "undo restores the stored 77 px column, not the 60 px the solver would write");
+        app.redo();
+        assert_eq!(layout_snapshot(&app), after);
+    }
+
+    #[test]
+    fn a_scrub_snapshot_of_part_of_the_document_is_not_recorded() {
+        let (mut app, column, first) = app_with_a_stored_column();
+        let partial: std::collections::BTreeMap<NodeId, Node> = [column, first].iter().map(|id| (*id, app.doc.get(*id).unwrap().clone())).collect();
+        app.begin_scrub(partial);
+        app.edit_nodes(&[first], |n| n.size.y = 50.0);
+        app.scrub_end();
+        assert_eq!(app.hist.undo_depth(), 1);
+        assert!(!app.hist.peek_undo_layout_recorded(), "layout reflowed outside the snapshot is not in the step, so undo keeps solving it");
+    }
+
+    #[test]
+    fn an_editor_edit_is_a_recorded_step_and_an_edit_that_changes_nothing_marks_no_step() {
+        let (mut app, _column, first) = app_with_a_stored_column();
+        let before = layout_snapshot(&app);
+        app.edit_nodes(&[first], |n| n.size.y = 50.0);
+        let after = layout_snapshot(&app);
+        assert!(app.hist.peek_undo_layout_recorded(), "an editor edit records its own layout writes");
+        app.undo();
+        assert_eq!(layout_snapshot(&app), before);
+        app.redo();
+        assert_eq!(layout_snapshot(&app), after);
+
+        let mut renamed = app.doc.get(first).unwrap().clone();
+        renamed.name = "Agent".into();
+        app.hist.exec_agent(&mut app.doc, Command::Update { node: Box::new(renamed) }).unwrap();
+        assert!(!app.hist.peek_undo_layout_recorded(), "precondition: an agent step is not recorded");
+        assert!(!app.run_tx(Tx::new()), "an empty transaction records nothing");
+        assert!(!app.hist.peek_undo_layout_recorded(), "a commit that pushed no step must not mark the step before it");
     }
 
     #[test]

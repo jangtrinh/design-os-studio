@@ -5,7 +5,7 @@ use super::*;
 use designos_doc::live_patch::{LiveOp, LivePatch};
 
 /// A window bound to a live agent session (the Agents panel stays closed, so no shell is spawned).
-fn live_sim() -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
+pub(super) fn live_sim() -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
     let s = Sim::new();
     let session_id = format!("{}-tab-1", s.app().tabs.instance_id);
     assert_eq!(s.app().terminal.session_id, session_id, "precondition: the window keeps its own session");
@@ -15,7 +15,7 @@ fn live_sim() -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
     (s, session, workspace)
 }
 
-fn finish(mut s: Sim, workspace: std::path::PathBuf) {
+pub(super) fn finish(mut s: Sim, workspace: std::path::PathBuf) {
     let dir = s.app().terminal.session_dir.clone();
     s.shell.app.terminal.shutdown();
     let _ = std::fs::remove_dir_all(dir);

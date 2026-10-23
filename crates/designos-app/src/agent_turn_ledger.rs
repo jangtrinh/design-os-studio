@@ -1288,6 +1288,7 @@ mod tests {
         assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero", "agent-touched layer must revert");
         assert_eq!(r.app.doc.get(card).unwrap().name, "User Card Edit", "untouched user-edited layer must stay unchanged");
         assert_eq!(r.app.doc.get(card).unwrap().transform.tx, 512.0);
+        assert!(!r.app.hist.peek_undo_layout_recorded(), "the revert lays out after its step, outside it, so undoing the revert keeps solving layout");
     }
 
     /// §10 Case 10: Keep: ten single undos still step back through the patches.
