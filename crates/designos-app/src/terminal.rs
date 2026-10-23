@@ -254,7 +254,7 @@ impl AgentCliPreset {
                 "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Claude, PermissionMode::Ask) => {
-                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+                "claude --mcp-config \"$DESIGNOS_CLAUDE_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
             (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
@@ -388,6 +388,8 @@ pub struct SessionEnv {
     pub doc_name: String,
     pub path_prepend: Vec<PathBuf>,
     pub tab_session_uuid: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_MCP_CONFIG`, which an Ask-mode Claude launch passes as `--mcp-config` (`None` in Skip mode).
+    pub claude_mcp_config: Option<String>,
     /// Value of `DESIGNOS_CLAUDE_SETTINGS`, which an Ask-mode Claude launch passes as `--settings` (`None` in Skip mode).
     pub claude_settings: Option<String>,
     /// Value of `DESIGNOS_CLAUDE_PLUGIN`, which an Ask-mode Claude launch passes as `--plugin-dir` (`None` in Skip mode).
@@ -419,6 +421,7 @@ impl SessionEnv {
             doc_name: "Untitled".to_string(),
             path_prepend: Vec::new(),
             tab_session_uuid: None,
+            claude_mcp_config: None,
             claude_settings: None,
             claude_plugin: None,
             #[cfg(test)]
@@ -2133,6 +2136,7 @@ impl TerminalState {
             #[cfg(test)]
             path_override: self.path_override.clone(),
             tab_session_uuid: None,
+            claude_mcp_config: crate::agent_permissions::claude_mcp_config_value(&self.session_dir, self.permission_mode),
             claude_settings: crate::agent_permissions::claude_settings_value(&self.session_dir, self.permission_mode),
             claude_plugin: crate::agent_permissions::claude_plugin_value(&self.session_dir, self.permission_mode),
         }
@@ -4573,12 +4577,48 @@ fn invalid_data(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
+/// Writes the MCP config an Ask-mode Claude starts its servers from into the private channel folder `private_dir`: the
+/// session's `mcp_config` with the `designos` server's `DESIGNOS_MCP_CONFIG` pointing at this copy (so the server reads
+/// its enabled tools from it, not from the session folder), owner-only, rewritten at every sync. A failure is reported
+/// and leaves no copy or the previous one: Claude then starts no server, or the one Studio wrote last, and never one
+/// from a file in the session folder.
+fn write_private_claude_mcp_config(private_dir: &Path, mcp_config: &serde_json::Value) {
+    let path = private_dir.join(crate::agent_approval_channel::MCP_CONFIG_FILE_NAME);
+    let mut private_config = mcp_config.clone();
+    if let Some(slot) = private_config.pointer_mut("/mcpServers/designos/env/DESIGNOS_MCP_CONFIG") {
+        *slot = serde_json::Value::String(path.display().to_string());
+    }
+    let written = serde_json::to_vec_pretty(&private_config)
+        .map_err(invalid_data)
+        .and_then(|bytes| crate::agent_approval_channel::write_owner_only_file(&path, &bytes, false));
+    if let Err(e) = written {
+        eprintln!("design:os studio: could not write Claude's MCP config to {}: {e}", path.display());
+    }
+}
+
 /// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
 /// files for `job` into `job.session_dir` (`#690` §6).
 pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<()> {
     let mcp_bin = designos_mcp_binary();
     let workspace_dir = session_workspace_dir(job.file_path.as_deref());
     let mcp_config_path = job.session_dir.join("mcp-config.json");
+
+    // Ask mode: Claude's MCP config, hooks and skill go to a folder only Studio writes (made first, as the MCP config below
+    // is copied into it). Claude starts the servers of its `--mcp-config` file as commands, and reads the hooks of its
+    // `--settings` file as commands too, so neither may be a file the agent can write. When the folder is not there (no
+    // private data folder, or it cannot be made private) nothing is installed: Claude starts with no MCP server and the
+    // inline settings `{}`.
+    let private_dir = if job.ask_mode {
+        match crate::agent_approval_channel::prepare_channel_dir(&job.session_dir) {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
@@ -4618,6 +4658,9 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     write_agy_session_plugin(&job.session_dir, &bytes)?;
     write_gemini_session_config(&job.session_dir, &mcp_config);
     write_grok_session_config(&job.session_dir, &mcp_config)?;
+    if let Some(dir) = &private_dir {
+        write_private_claude_mcp_config(dir, &mcp_config);
+    }
 
     let page_context = page_context_json(&job.session_id, &job.doc_name, job.file_path.as_deref(), job.current_page_id, &job.current_page_name);
     // Claude's reply to a prompt hook: the page as `additionalContext`, nothing that could block the prompt.
@@ -4638,17 +4681,6 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     // Claude reads that file (not one in the session folder, which the agent can write), so the agent cannot swap the
     // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
     // nothing is installed: Claude starts with the inline settings `{}` and asks in its own terminal prompt.
-    let private_dir = if job.ask_mode {
-        match crate::agent_approval_channel::prepare_channel_dir(&job.session_dir) {
-            Ok(dir) => Some(dir),
-            Err(e) => {
-                eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
     let approve_script_path = private_dir.as_deref().and_then(|dir| match crate::agent_permissions::install_hook_script(dir, &job.session_dir) {
         Ok(path) => Some(path),
         Err(e) => {
@@ -4895,15 +4927,23 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         // `~/.grok/trusted_folders.toml`.
         cmd.env("GROK_FOLDER_TRUST", "0");
     }
-    // The Ask launch names these two variables, and Claude reads an empty `--settings` as no settings and an empty
+    // The Ask launch names these three variables, and Claude reads an empty `--settings` as no settings and an empty
     // `--plugin-dir` as its own working folder. So an Ask tab always gets non-empty values (a private file or plugin, or
     // values that name nothing). A tab without a session takes the Ask command as its safety net, so it gets the values
-    // that name nothing. A Skip tab names neither variable, and a value Studio's own environment held must not reach it.
-    let (settings, plugin) = match session {
-        Some(sess) => (sess.claude_settings.as_deref(), sess.claude_plugin.as_deref()),
-        None => (Some(crate::agent_permissions::NO_CLAUDE_SETTINGS), Some(crate::agent_permissions::NO_CLAUDE_PLUGIN_DIR)),
+    // that name nothing. A Skip tab names none of the variables, and a value Studio's own environment held must not reach it.
+    let (mcp_config, settings, plugin) = match session {
+        Some(sess) => (sess.claude_mcp_config.as_deref(), sess.claude_settings.as_deref(), sess.claude_plugin.as_deref()),
+        None => (
+            Some(crate::agent_permissions::NO_CLAUDE_MCP_CONFIG),
+            Some(crate::agent_permissions::NO_CLAUDE_SETTINGS),
+            Some(crate::agent_permissions::NO_CLAUDE_PLUGIN_DIR),
+        ),
     };
-    for (name, value) in [(crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings), (crate::agent_permissions::CLAUDE_PLUGIN_ENV, plugin)] {
+    for (name, value) in [
+        (crate::agent_permissions::CLAUDE_MCP_CONFIG_ENV, mcp_config),
+        (crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings),
+        (crate::agent_permissions::CLAUDE_PLUGIN_ENV, plugin),
+    ] {
         match value {
             Some(value) => cmd.env(name, value),
             None => cmd.env_remove(name),

@@ -23,17 +23,19 @@ fn golden_launches(cli: &str, mode: PermissionMode) -> [String; 4] {
     match cli {
         "claude" => {
             let flag = if skip { " --dangerously-skip-permissions" } else { "" };
-            // Skip keeps the tail as pinned above. In Ask mode that one `--settings` argument becomes four: the hooks file is the
-            // private one Studio names in `DESIGNOS_CLAUDE_SETTINGS`, never `hooks.json` in the session folder; Claude may
-            // load only the user's own setting sources (so nothing from `<session>/.claude/settings*.json` or `.mcp.json`);
-            // and Studio's skill comes from the private plugin in `DESIGNOS_CLAUDE_PLUGIN`.
+            // Skip keeps the tail as pinned above. In Ask mode its `--mcp-config` and `--settings` arguments become four: the MCP
+            // config and the hooks file are the private ones Studio names in `DESIGNOS_CLAUDE_MCP_CONFIG` and
+            // `DESIGNOS_CLAUDE_SETTINGS`, never `mcp-config.json` or `hooks.json` in the session folder; Claude may load only
+            // the user's own setting sources (so nothing from `<session>/.claude/settings*.json` or `.mcp.json`); and Studio's
+            // skill comes from the private plugin in `DESIGNOS_CLAUDE_PLUGIN`.
             let tail = if skip {
                 CLAUDE_TAIL.to_string()
             } else {
-                assert_eq!(CLAUDE_TAIL.matches("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"").count(), 1, "the tail names the hooks file once");
+                let skip_args = "--mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\"";
+                assert_eq!(CLAUDE_TAIL.matches(skip_args).count(), 1, "the tail names the MCP config and the hooks file once");
                 CLAUDE_TAIL.replace(
-                    "--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"",
-                    "--settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"",
+                    skip_args,
+                    "--mcp-config \"$DESIGNOS_CLAUDE_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"",
                 )
             };
             [
@@ -229,6 +231,19 @@ fn claude_launch_and_config_match_the_golden() {
         let st = session_in(mode);
         let ask = mode == PermissionMode::Ask;
         assert_eq!(normalized_json(&st, "mcp-config.json"), golden_servers(), "Claude {mode:?}: mcp-config.json");
+        if ask {
+            // What Claude starts its servers from is the private copy: the session's file, but for the one setting that
+            // points the `designos` server at this copy instead of the session folder's.
+            let private_path = crate::agent_approval_channel::mcp_config_path(&st.session_dir).expect("a private channel folder");
+            assert!(!private_path.starts_with(&st.session_dir), "Claude's MCP config must not sit in the session folder: {}", private_path.display());
+            let mut private = read_json_at(&private_path);
+            let pointer = "/mcpServers/designos/env/DESIGNOS_MCP_CONFIG";
+            assert_eq!(private.pointer(pointer).and_then(Value::as_str), Some(private_path.display().to_string().as_str()), "the copy reads its own settings");
+            let session_copy = read_json(&st, "mcp-config.json");
+            *private.pointer_mut(pointer).expect("the copy names its settings file") =
+                session_copy.pointer(pointer).cloned().expect("the session copy names its settings file");
+            assert_eq!(private, session_copy, "Claude Ask: the private MCP config is the session's, bar its own path");
+        }
 
         let hooks = read_json(&st, "hooks.json");
         let mut expected = expected_shape("/hooks", CLAUDE_EVENTS, CLAUDE_LEAVES);

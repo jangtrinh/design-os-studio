@@ -79,6 +79,11 @@ fn read_json(st: &TerminalState, rel: &str) -> Value {
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel} is not JSON: {e}"))
 }
 
+fn read_json_at(path: &Path) -> Value {
+    let raw = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()))
+}
+
 /// Paths of every key in `value` whose name is one of [`AUTO_APPROVE_KEYS`] and whose value is not an empty, false or
 /// null placeholder.
 fn auto_approve_keys(value: &Value, path: &str, found: &mut Vec<String>) {

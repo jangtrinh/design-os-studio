@@ -80,16 +80,26 @@ pub fn strip_skip_permission_flags(cmd: &str) -> String {
         .replace(" --approval-mode yolo", " --approval-mode default")
 }
 
-/// How a Skip-mode Claude launch names its hooks: the file Studio writes into the session folder.
-pub const SKIP_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_SESSION_DIR/hooks.json\"";
+/// How a Skip-mode Claude launch names its MCP config and its hooks: the files Studio writes into the session folder.
+pub const SKIP_CLAUDE_CONFIG_ARGS: &str = "--mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\"";
 
-/// How an Ask-mode Claude launch names its hooks, its setting sources and its skill. Claude's working folder is the session
-/// folder, which an agent can write, and Claude loads (and live-reloads) `<cwd>/.claude/settings.json`,
+/// How an Ask-mode Claude launch names its MCP config, its hooks, its setting sources and its skill. Claude's working
+/// folder is the session folder, which an agent can write, and Claude loads (and live-reloads) `<cwd>/.claude/settings.json`,
 /// `<cwd>/.claude/settings.local.json` and `<cwd>/.mcp.json` from it: allow rules, hooks and MCP servers. `--setting-sources
-/// user` stops Claude loading any of the three, while `--settings`, `--mcp-config` and `--plugin-dir` still apply. It also
-/// drops the project skill folder, so Studio's skill comes as a plugin from the private folder. The values are
-/// [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_PLUGIN_ENV`], which Studio sets for the tab and never leaves empty.
-pub const ASK_SETTINGS_ARG: &str = "--settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"";
+/// user` stops Claude loading any of the three, while `--mcp-config`, `--settings` and `--plugin-dir` still apply. It also
+/// drops the project skill folder, so Studio's skill comes as a plugin from the private folder. Claude starts the servers of
+/// the `--mcp-config` file as commands, so that file is a private copy too, not `<session>/mcp-config.json`. The values are
+/// [`CLAUDE_MCP_CONFIG_ENV`], [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_PLUGIN_ENV`], which Studio sets for the tab and never
+/// leaves empty.
+pub const ASK_CLAUDE_CONFIG_ARGS: &str =
+    "--mcp-config \"$DESIGNOS_CLAUDE_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\"";
+
+/// Environment variable of an Ask-mode tab that holds the value of Claude's `--mcp-config` (see [`claude_mcp_config_value`]).
+pub const CLAUDE_MCP_CONFIG_ENV: &str = "DESIGNOS_CLAUDE_MCP_CONFIG";
+
+/// `--mcp-config` value that starts no server: inline JSON, so no file and nothing to rewrite. What an Ask tab gets when
+/// there is no private MCP config to give it (it then has no `designos` tools, which is the fail-closed side).
+pub const NO_CLAUDE_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
 
 /// Environment variable of an Ask-mode tab that holds the value of Claude's `--settings` (see [`claude_settings_value`]).
 pub const CLAUDE_SETTINGS_ENV: &str = "DESIGNOS_CLAUDE_SETTINGS";
@@ -108,13 +118,36 @@ pub const NO_CLAUDE_PLUGIN_DIR: &str = "/nonexistent/designos-claude-plugin-unav
 pub const NO_CLAUDE_SETTINGS: &str = "{}";
 
 /// The launch command of an agent started in `Ask` mode, from the `Skip` one: [`strip_skip_permission_flags`], and Claude's
-/// hooks, setting sources and skill are the ones of [`ASK_SETTINGS_ARG`] instead of the session folder's (see
-/// [`claude_settings_value`] and [`claude_plugin_value`]).
+/// MCP config, hooks, setting sources and skill are the ones of [`ASK_CLAUDE_CONFIG_ARGS`] instead of the session folder's
+/// (see [`claude_mcp_config_value`], [`claude_settings_value`] and [`claude_plugin_value`]).
 pub fn ask_mode_launch_command(skip_cmd: &str) -> String {
-    let ask_cmd = strip_skip_permission_flags(skip_cmd).replace(SKIP_SETTINGS_ARG, ASK_SETTINGS_ARG);
-    // The swap above is a text replace: a Skip launch that spelt `--settings` another way would pass through it unchanged.
+    let ask_cmd = strip_skip_permission_flags(skip_cmd).replace(SKIP_CLAUDE_CONFIG_ARGS, ASK_CLAUDE_CONFIG_ARGS);
+    // The swap above is a text replace: a Skip launch that spelt `--settings` or `--mcp-config` another way would pass through
+    // it unchanged.
     debug_assert!(!ask_cmd.contains("$DESIGNOS_SESSION_DIR/hooks.json"), "an Ask launch names a hooks file in the session folder: {ask_cmd}");
+    debug_assert!(
+        !ask_cmd.contains("--mcp-config \"$DESIGNOS_MCP_CONFIG\"") && !ask_cmd.contains("--mcp-config $DESIGNOS_MCP_CONFIG"),
+        "an Ask launch names the MCP config in the session folder: {ask_cmd}"
+    );
     ask_cmd
+}
+
+/// The value of Claude's `--mcp-config` for a tab started in `mode`, set as [`CLAUDE_MCP_CONFIG_ENV`]; `None` in Skip mode,
+/// whose launch names `<session>/mcp-config.json` itself.
+///
+/// Claude starts the servers of that file as commands, outside any sandbox, so in Ask mode it is the private copy Studio
+/// writes next to the hooks, once it exists. Without it (no private folder, or it could not be written) the value is
+/// [`NO_CLAUDE_MCP_CONFIG`]: Claude starts no server, so it has no `designos` tools, rather than start one from a file an
+/// agent can write.
+pub fn claude_mcp_config_value(session_dir: &Path, mode: AgentPermissionMode) -> Option<String> {
+    match mode {
+        AgentPermissionMode::Skip => None,
+        AgentPermissionMode::Ask => Some(
+            crate::agent_approval_channel::mcp_config_path(session_dir)
+                .filter(|path| path.is_file())
+                .map_or_else(|| NO_CLAUDE_MCP_CONFIG.to_string(), |path| path.display().to_string()),
+        ),
+    }
 }
 
 /// The value of Claude's `--settings` for a tab started in `mode`, set as [`CLAUDE_SETTINGS_ENV`]; `None` in Skip mode,
@@ -740,12 +773,13 @@ mod tests {
     }
 
     /// What this asserts, for every agent CLI: an Ask launch is the Skip launch with its skip flag removed
-    /// (`strip_skip_permission_flags`) and nothing else changed, with one exception. Claude's `--settings "$DESIGNOS_SESSION_DIR/
-    /// hooks.json"` (the hooks file in the session folder) becomes, in Ask mode, `--settings "$DESIGNOS_CLAUDE_SETTINGS"
-    /// --setting-sources user --plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"` (the private hooks file, only the user's own setting
-    /// sources, Studio's skill from the private plugin). Put that one run of arguments back and the Ask string equals the
-    /// stripped Skip string, byte for byte; the other CLIs have none of these flags and are identical to their stripped Skip
-    /// string as they are.
+    /// (`strip_skip_permission_flags`) and nothing else changed, with one exception. Claude's `--mcp-config
+    /// "$DESIGNOS_MCP_CONFIG" --settings "$DESIGNOS_SESSION_DIR/hooks.json"` (the MCP config and the hooks file in the
+    /// session folder) becomes, in Ask mode, `--mcp-config "$DESIGNOS_CLAUDE_MCP_CONFIG" --settings
+    /// "$DESIGNOS_CLAUDE_SETTINGS" --setting-sources user --plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"` (the private MCP config and
+    /// hooks file, only the user's own setting sources, Studio's skill from the private plugin). Put that one run of
+    /// arguments back and the Ask string equals the stripped Skip string, byte for byte; the other CLIs have none of these
+    /// flags and are identical to their stripped Skip string as they are.
     #[test]
     fn ask_mode_drops_each_skip_flag() {
         for preset in
@@ -756,16 +790,22 @@ mod tests {
             assert!(!cmd.contains("--dangerously-bypass-approvals-and-sandbox"), "{preset:?} ask command kept bypass flag: {cmd}");
             assert!(!cmd.contains("--always-approve"), "{preset:?} ask command kept always-approve flag: {cmd}");
             assert!(!cmd.contains("--dangerously-bypass-hook-trust"), "{preset:?} ask command must never bypass hook trust: {cmd}");
-            assert_eq!(cmd.replace(ASK_SETTINGS_ARG, SKIP_SETTINGS_ARG), strip_skip_permission_flags(preset.cli_launch_command()), "{preset:?}");
+            assert_eq!(cmd.replace(ASK_CLAUDE_CONFIG_ARGS, SKIP_CLAUDE_CONFIG_ARGS), strip_skip_permission_flags(preset.cli_launch_command()), "{preset:?}");
             assert_eq!(cmd, ask_mode_launch_command(preset.cli_launch_command()), "{preset:?}: the static Ask string is the derived one");
-            // No Ask launch reads hooks from the session folder.
+            // No Ask launch reads hooks, or starts MCP servers from a config, in the session folder.
             assert!(!cmd.contains("$DESIGNOS_SESSION_DIR/hooks.json"), "{preset:?} ask command reads hooks from the session folder: {cmd}");
+            assert!(!cmd.contains("--mcp-config \"$DESIGNOS_MCP_CONFIG\""), "{preset:?} ask command names the session folder's MCP config: {cmd}");
             let claude = preset == AgentCliPreset::Claude;
-            assert_eq!(cmd.contains(ASK_SETTINGS_ARG), claude, "{preset:?}");
-            assert_eq!(preset.cli_launch_command().contains(SKIP_SETTINGS_ARG), claude, "{preset:?}");
+            assert_eq!(cmd.contains(ASK_CLAUDE_CONFIG_ARGS), claude, "{preset:?}");
+            assert_eq!(preset.cli_launch_command().contains(SKIP_CLAUDE_CONFIG_ARGS), claude, "{preset:?}");
         }
         // The two spellings are the ones the launch strings carry.
-        assert_eq!(ASK_SETTINGS_ARG, format!("--settings \"${CLAUDE_SETTINGS_ENV}\" --setting-sources user --plugin-dir \"${CLAUDE_PLUGIN_ENV}\""));
+        assert_eq!(
+            ASK_CLAUDE_CONFIG_ARGS,
+            format!(
+                "--mcp-config \"${CLAUDE_MCP_CONFIG_ENV}\" --settings \"${CLAUDE_SETTINGS_ENV}\" --setting-sources user --plugin-dir \"${CLAUDE_PLUGIN_ENV}\""
+            )
+        );
         // Only Claude's Ask launch restricts the setting sources, and none carries a flag that adds one back.
         for preset in
             [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode]
@@ -801,6 +841,40 @@ mod tests {
         let without = crate::agent_approval_channel::without_private_root(|| claude_settings_value(&session, AgentPermissionMode::Ask));
         assert_eq!(without.as_deref(), Some("{}"));
         crate::agent_approval_channel::remove_channel(&session);
+    }
+
+    #[test]
+    fn claude_mcp_config_value_is_the_private_copy_or_inline_empty_servers() {
+        let session = std::env::temp_dir().join("designos-sessions").join(format!("mcp-config-value-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&session);
+        assert_eq!(claude_mcp_config_value(&session, AgentPermissionMode::Skip), None, "Skip mode names the session folder's file itself");
+
+        // Ask mode before Studio has written the copy: no file to start servers from, so Claude gets no servers.
+        assert_eq!(claude_mcp_config_value(&session, AgentPermissionMode::Ask).as_deref(), Some(NO_CLAUDE_MCP_CONFIG));
+
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).unwrap();
+        let copy = channel.join(crate::agent_approval_channel::MCP_CONFIG_FILE_NAME);
+        assert_eq!(
+            claude_mcp_config_value(&session, AgentPermissionMode::Ask).as_deref(),
+            Some(NO_CLAUDE_MCP_CONFIG),
+            "a folder without the file is not enough"
+        );
+        // The session folder's own file is never the answer, whatever it holds.
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("mcp-config.json"), b"{}").unwrap();
+        assert_eq!(claude_mcp_config_value(&session, AgentPermissionMode::Ask).as_deref(), Some(NO_CLAUDE_MCP_CONFIG));
+
+        crate::agent_approval_channel::write_owner_only_file(&copy, b"{}", false).unwrap();
+        let value = claude_mcp_config_value(&session, AgentPermissionMode::Ask).expect("Ask mode has a value");
+        assert_eq!(Path::new(&value), copy);
+        assert!(!Path::new(&value).starts_with(&session), "the file Claude starts servers from sits outside the session folder");
+
+        // No private folder at all: the copy is not Claude's to read, whatever an earlier run left.
+        let without = crate::agent_approval_channel::without_private_root(|| claude_mcp_config_value(&session, AgentPermissionMode::Ask));
+        assert_eq!(without.as_deref(), Some(NO_CLAUDE_MCP_CONFIG));
+        assert!(serde_json::from_str::<serde_json::Value>(NO_CLAUDE_MCP_CONFIG).unwrap()["mcpServers"].as_object().is_some_and(|servers| servers.is_empty()));
+        crate::agent_approval_channel::remove_channel(&session);
+        let _ = std::fs::remove_dir_all(&session);
     }
 
     #[test]
@@ -904,6 +978,15 @@ mod tests {
     #[should_panic(expected = "names a hooks file in the session folder")]
     fn an_ask_launch_that_still_names_the_session_hooks_file_is_caught_in_debug_builds() {
         ask_mode_launch_command("claude --always-approve --settings $DESIGNOS_SESSION_DIR/hooks.json --mcp-config x");
+    }
+
+    /// Same net for the MCP config: a Claude launch whose `--mcp-config` spelling the swap does not know would pass the
+    /// session folder's file through to an Ask tab.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "names the MCP config in the session folder")]
+    fn an_ask_launch_that_still_names_the_session_mcp_config_is_caught_in_debug_builds() {
+        ask_mode_launch_command("claude --always-approve --mcp-config $DESIGNOS_MCP_CONFIG --settings x");
     }
 
     #[test]

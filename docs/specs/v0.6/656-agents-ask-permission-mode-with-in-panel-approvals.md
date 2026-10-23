@@ -93,7 +93,16 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    Ask launch as a plugin: `--plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"`, a folder in the private folder that holds only the plugin manifest
    and `skills/designos-studio/SKILL.md` (the session copy under `.claude/skills` stays for Skip tabs). Both variables are never empty:
    Claude reads an empty `--plugin-dir` as its working folder, so with no private plugin the value is an absolute path nothing exists at.
-   Not covered: `--mcp-config` still names `<session>/mcp-config.json`, a file an agent can write. See
+   Claude starts the servers of its `--mcp-config` file as commands, outside any sandbox, and Codex's `workspace-write` sandbox can write
+   `<session>/mcp-config.json`, which Studio rewrites at every sync but which Claude may read before the next one (#1046). So in Ask
+   mode `--mcp-config` names `<private folder>/mcp-config.json` (the tab's `DESIGNOS_CLAUDE_MCP_CONFIG`, mode 0600, rewritten at every
+   sync): the session's own config, except that the `designos` server's `DESIGNOS_MCP_CONFIG` names this copy. With no private folder
+   Claude gets the inline config `{"mcpServers":{}}`: no server and so no `designos` tools, the fail-closed side. Skip mode keeps
+   `<session>/mcp-config.json`. No file in the session folder is named by anything Claude starts in Ask mode.
+   **Claude's own "don't ask again" does not persist in Ask mode** (owner ruling, 2026-10-24, #1044). Claude saves "Yes, and don't
+   ask again" for Bash and WebFetch to `.claude/settings.local.json` in its working folder, and `--setting-sources user` makes Ask
+   tabs ignore project and local settings, so that choice is not kept there: the next such request asks again (in the panel, through
+   the hook). Settings the user keeps in their own user settings still apply. Skip mode is unchanged. See
    `crates/designos-app/src/agent_approval_channel.rs`.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
@@ -155,7 +164,9 @@ Described in words. Checked against `design/principles.md` (P1 to P10) and `desi
 
 ## 9. Non-goals
 
-- A persistent allow-list ("always allow"); the CLIs keep their own.
+- A persistent allow-list ("always allow") of Studio's own. Codex, Grok, Antigravity and Gemini keep theirs. Claude in Ask mode does
+  not: it ignores project and local settings (owner ruling 2026-10-24, #1044, #1046), so its own "Yes, and don't ask again" is not
+  kept there. Claude in Skip mode keeps it.
 - Answering Codex, Grok or agy prompts by typing into their terminals.
 - Per-tool rules editing in Studio.
 - Changing the default.
@@ -204,6 +215,9 @@ is verified by the worker before adding; no dependency is added by this spec.
 - Codex tabs keep the OSC/PTY heuristic status in 0.5.0; hook-based Codex status is revisited here, together with the ask mode
   (comment of 2026-10-19).
 - Studio never forges or writes Codex's hook trust (`terminal.rs:164-169`). `GROK_FOLDER_TRUST=0` stays.
+- Owner ruling 2026-10-24 (`plans/reports/v062-evidence/owner-rulings-v062.md`, ruling 22): Ask tabs of Claude ignore project and local
+  settings (`--setting-sources user`), and Claude's own "don't ask again" no longer persists there. This supersedes §9's "the CLIs
+  keep their own" for Claude in Ask mode. Claude's MCP config is a private copy too (#1044, #1046).
 - Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
   1. Granularity: **Option A** — one switch for all agent tabs.
   2. Questions 2–6 take the recommended **Option A** (Claude gets Approve/Deny, other CLIs get "Open tab"; pre-allow `mcp__designos__*` subject to the live check; notification shows `<CLI> needs approval` and file name without command text, card shows tool name and 200-char summary; Preferences > "Agent permissions..." dialog; warning constant added to `theme.rs` and `design/design.tokens.json`).

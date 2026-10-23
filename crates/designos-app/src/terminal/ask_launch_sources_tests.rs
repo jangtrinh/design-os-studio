@@ -12,13 +12,13 @@ use super::*;
 use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
 use std::path::{Path, PathBuf};
 
-/// Stub `claude`: writes its arguments (NUL separated, so an empty one shows) and the two environment values to a folder
+/// Stub `claude`: writes its arguments (NUL separated, so an empty one shows) and the three environment values to a folder
 /// next to the session folder, then idles like a CLI would.
 const STUB_CLAUDE: &str = r#"#!/bin/sh
 rec="$DESIGNOS_SESSION_DIR/../../stub-records"
 mkdir -p "$rec"
 { for arg in "$@"; do printf '%s\0' "$arg"; done; } > "$rec/argv.bin"
-printf '%s\n%s\n' "${DESIGNOS_CLAUDE_SETTINGS-<unset>}" "${DESIGNOS_CLAUDE_PLUGIN-<unset>}" > "$rec/env.txt"
+printf '%s\n%s\n%s\n' "${DESIGNOS_CLAUDE_SETTINGS-<unset>}" "${DESIGNOS_CLAUDE_PLUGIN-<unset>}" "${DESIGNOS_CLAUDE_MCP_CONFIG-<unset>}" > "$rec/env.txt"
 sleep 30
 "#;
 
@@ -29,6 +29,7 @@ struct Launch {
     argv: Vec<String>,
     settings_env: String,
     plugin_env: String,
+    mcp_env: String,
 }
 
 impl Launch {
@@ -81,7 +82,8 @@ fn start_claude(tag: &str, mode: AgentPermissionMode, before_start: impl FnOnce(
     let mut lines = env.lines();
     let settings_env = lines.next().unwrap_or_default().to_string();
     let plugin_env = lines.next().unwrap_or_default().to_string();
-    Launch { dir, st, argv, settings_env, plugin_env }
+    let mcp_env = lines.next().unwrap_or_default().to_string();
+    Launch { dir, st, argv, settings_env, plugin_env, mcp_env }
 }
 
 #[test]
@@ -116,10 +118,24 @@ fn an_ask_launch_limits_claude_to_the_users_settings_and_loads_studios_skill_fro
     files.sort();
     assert_eq!(files, [".claude-plugin/plugin.json", "skills/designos-studio/SKILL.md"]);
 
-    // Studio's MCP server and hooks still reach Claude by flag.
-    assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(session.join("mcp-config.json").as_path()), "{:?}", launch.argv);
-    let mcp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(session.join("mcp-config.json")).unwrap()).unwrap();
-    assert!(mcp["mcpServers"]["designos"]["command"].is_string(), "{mcp}");
+    // Studio's MCP server and hooks still reach Claude by flag: the server from a private copy of the config (the same
+    // server, command and environment as the session copy the other CLIs read, except that its `DESIGNOS_MCP_CONFIG` names
+    // the private copy), the hooks from the private hooks file.
+    let private_mcp = crate::agent_approval_channel::mcp_config_path(session).unwrap();
+    assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(private_mcp.as_path()), "{:?}", launch.argv);
+    assert!(!private_mcp.starts_with(session), "{}", private_mcp.display());
+    let read = |path: &Path| -> serde_json::Value { serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap() };
+    let (mut private, mut shared) = (read(&private_mcp), read(&session.join("mcp-config.json")));
+    assert!(private["mcpServers"]["designos"]["command"].is_string(), "Studio's designos server is passed: {private}");
+    assert_eq!(private["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"], private_mcp.display().to_string());
+    assert_eq!(shared["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"], session.join("mcp-config.json").display().to_string());
+    private["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"] = serde_json::Value::Null;
+    shared["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"] = serde_json::Value::Null;
+    assert_eq!(private, shared, "the private copy is the session copy but for the path of its own config");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&private_mcp).unwrap().permissions().mode() & 0o777, 0o600, "the private MCP config is owner-only");
+    }
     let hooks = crate::agent_approval_channel::hooks_file_path(session).unwrap();
     assert_eq!(launch.value_of("--settings").map(Path::new), Some(hooks.as_path()), "{:?}", launch.argv);
     launch.finish();
@@ -148,6 +164,34 @@ fn forged_project_and_local_settings_are_not_named_by_an_ask_launch() {
     launch.finish();
 }
 
+/// `--mcp-config` names a file whose servers Claude starts as commands, outside any sandbox. A server put into the session
+/// folder's copy (by an agent, or by a Codex sandbox on the same file) must not be what an Ask launch starts, whether it is
+/// there before the start or added after Studio wrote it.
+#[test]
+fn a_server_forged_into_the_session_mcp_config_is_not_started_by_an_ask_launch() {
+    let forged = r#"{"mcpServers":{"evil-server":{"command":"sh","args":["-c","touch /tmp/designos-evil-server-ran"]}}}"#;
+    let mut launch = start_claude("forged-mcp", AgentPermissionMode::Ask, |session| {
+        std::fs::write(session.join("mcp-config.json"), forged).unwrap();
+    });
+    let session = launch.st.session_dir.clone();
+    // No file in the session folder is named by a flag whose file Claude starts something from.
+    for flag in ["--mcp-config", "--settings", "--plugin-dir"] {
+        let value = launch.value_of(flag).unwrap_or_default();
+        assert!(!Path::new(value).starts_with(&session), "{flag} names a file an agent can write: {value}");
+    }
+    let named = PathBuf::from(launch.value_of("--mcp-config").expect("an --mcp-config value"));
+    let read_by_claude = || std::fs::read_to_string(&named).unwrap_or_default();
+    assert!(read_by_claude().contains("\"designos\""), "Studio's own server is what Claude starts: {}", read_by_claude());
+    assert!(!read_by_claude().contains("evil-server"));
+
+    // The agent forges the session copy again after Studio wrote it, and a sync follows: Claude's file is untouched by both.
+    std::fs::write(session.join("mcp-config.json"), forged).unwrap();
+    assert!(!read_by_claude().contains("evil-server"), "a server forged after the start reached the file Claude reads");
+    launch.st.provision_session_agent_files(None);
+    assert!(!read_by_claude().contains("evil-server") && read_by_claude().contains("\"designos\""), "a sync carried the forged server over");
+    launch.finish();
+}
+
 #[test]
 fn an_ask_launch_never_passes_an_empty_value() {
     // An empty `--plugin-dir` makes Claude load its working folder itself as a plugin; an empty `--settings` is read as none.
@@ -156,7 +200,13 @@ fn an_ask_launch_never_passes_an_empty_value() {
         assert!(launch.value_of(flag).is_some_and(|value| !value.is_empty()), "{flag} has no value: {:?}", launch.argv);
     }
     assert!(launch.argv.iter().all(|arg| !arg.is_empty()), "an empty argument: {:?}", launch.argv);
-    assert!(!launch.settings_env.is_empty() && !launch.plugin_env.is_empty(), "{} / {}", launch.settings_env, launch.plugin_env);
+    assert!(
+        !launch.settings_env.is_empty() && !launch.plugin_env.is_empty() && !launch.mcp_env.is_empty(),
+        "{} / {} / {}",
+        launch.settings_env,
+        launch.plugin_env,
+        launch.mcp_env
+    );
     launch.finish();
 }
 
@@ -168,7 +218,13 @@ fn a_skip_launch_is_what_it_was() {
     for flag in ["--setting-sources", "--plugin-dir"] {
         assert!(!launch.argv.iter().any(|arg| arg == flag), "Skip mode must not carry {flag}: {:?}", launch.argv);
     }
-    assert_eq!((launch.settings_env.as_str(), launch.plugin_env.as_str()), ("<unset>", "<unset>"), "Skip mode sets neither variable");
+    assert_eq!(launch.value_of("--mcp-config").map(Path::new), Some(session.join("mcp-config.json").as_path()), "Skip mode keeps the session copy");
+    assert_eq!(
+        (launch.settings_env.as_str(), launch.plugin_env.as_str(), launch.mcp_env.as_str()),
+        ("<unset>", "<unset>", "<unset>"),
+        "Skip mode sets none of the three variables"
+    );
+    assert!(crate::agent_approval_channel::mcp_config_path(session).is_some_and(|path| !path.exists()), "Skip mode writes no private MCP config");
     launch.finish();
 }
 
@@ -180,6 +236,7 @@ fn without_a_private_folder_an_ask_launch_still_loads_nothing_from_the_session_f
     let session = &launch.st.session_dir;
     assert_eq!(launch.value_of("--setting-sources"), Some("user"), "{:?}", launch.argv);
     assert_eq!(launch.value_of("--settings"), Some("{}"), "{:?}", launch.argv);
+    assert_eq!(launch.value_of("--mcp-config"), Some(r#"{"mcpServers":{}}"#), "no server is started from a file an agent can write: {:?}", launch.argv);
     let plugin = launch.value_of("--plugin-dir").expect("a --plugin-dir value");
     assert!(!plugin.is_empty() && Path::new(plugin).is_absolute(), "{plugin:?}");
     assert!(!Path::new(plugin).exists(), "a folder that exists would be loaded as a plugin or as a folder of plugins: {plugin}");
@@ -195,6 +252,8 @@ fn a_tab_without_a_session_gets_safe_values_for_the_ask_command() {
     configure_pty_env_with_session(&mut cmd, AgentCliPreset::Claude, None, None);
     let settings = cmd.get_env(crate::agent_permissions::CLAUDE_SETTINGS_ENV).map(|v| v.to_string_lossy().into_owned());
     let plugin = cmd.get_env("DESIGNOS_CLAUDE_PLUGIN").map(|v| v.to_string_lossy().into_owned());
+    let mcp = cmd.get_env("DESIGNOS_CLAUDE_MCP_CONFIG").map(|v| v.to_string_lossy().into_owned());
+    assert_eq!(mcp.as_deref(), Some(r#"{"mcpServers":{}}"#), "the safety net starts no MCP server from the document's folder");
     assert_eq!(settings.as_deref(), Some("{}"), "`--settings \"\"` is read as no settings at all");
     let plugin = plugin.expect("an empty --plugin-dir is read as the working folder");
     assert!(Path::new(&plugin).is_absolute() && !Path::new(&plugin).exists(), "{plugin:?}");

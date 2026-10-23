@@ -13,6 +13,7 @@
 //!     approve-hook.sh            0700  the hook; everything it decides with is in this folder or in the script itself
 //!     hooks.json                 0600  Claude's hooks, the file its `--settings` names in Ask mode
 //!     claude-plugin/             0700  Studio's session skill as a plugin, what Ask mode's `--plugin-dir` names
+//!     mcp-config.json            0600  the MCP servers Claude starts, what Ask mode's `--mcp-config` names
 //!     tab-<id>/                  0700  `<request id>.request.json` and `<request id>.answer` of one tab
 //! ```
 //!
@@ -32,6 +33,9 @@ pub const HOOK_SCRIPT_NAME: &str = "approve-hook.sh";
 
 /// File name of Claude's hooks inside a session's channel folder (what `--settings` names in Ask mode).
 pub const HOOKS_FILE_NAME: &str = "hooks.json";
+
+/// File name of Claude's MCP config inside a session's channel folder (what `--mcp-config` names in Ask mode).
+pub const MCP_CONFIG_FILE_NAME: &str = "mcp-config.json";
 
 /// Folder name of the Claude plugin that carries Studio's session skill inside a session's channel folder.
 pub const CLAUDE_PLUGIN_DIR_NAME: &str = "claude-plugin";
@@ -133,6 +137,11 @@ pub fn hook_script_path(session_dir: &Path) -> Option<PathBuf> {
 /// `<channel>/hooks.json` of `session_dir`: the hooks Claude reads in Ask mode.
 pub fn hooks_file_path(session_dir: &Path) -> Option<PathBuf> {
     channel_dir(session_dir).map(|dir| dir.join(HOOKS_FILE_NAME))
+}
+
+/// `<channel>/mcp-config.json` of `session_dir`: the MCP servers an Ask-mode Claude starts.
+pub fn mcp_config_path(session_dir: &Path) -> Option<PathBuf> {
+    channel_dir(session_dir).map(|dir| dir.join(MCP_CONFIG_FILE_NAME))
 }
 
 /// `<channel>/claude-plugin` of `session_dir`: the plugin folder an Ask-mode Claude loads Studio's skill from.
