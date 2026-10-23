@@ -6,6 +6,7 @@
 use super::Language;
 use crate::theme;
 use egui::Color32;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tok {
@@ -60,9 +61,22 @@ fn is_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_' || c == '@'
 }
 
-/// Tokenizes `code` line by line.
+/// Columns a tab takes on screen. egui draws `\t` as four spaces, so the code view lays tabs out as four spaces too:
+/// every character is one column, tokens never overlap and a line's width is its true width.
+const TAB_COLUMNS: usize = 4;
+
+/// The text of `src` as shown: each tab becomes `TAB_COLUMNS` spaces. The code that is copied keeps its tabs.
+fn expand_tabs(src: &str) -> Cow<'_, str> {
+    if src.contains('\t') {
+        Cow::Owned(src.replace('\t', &" ".repeat(TAB_COLUMNS)))
+    } else {
+        Cow::Borrowed(src)
+    }
+}
+
+/// Tokenizes `code` line by line, with tabs expanded to spaces for display.
 pub fn highlight(lang: Language, code: &str) -> Vec<Vec<Span>> {
-    code.lines().map(|l| line(lang, l)).collect()
+    code.lines().map(|l| line(lang, &expand_tabs(l))).collect()
 }
 
 fn line(lang: Language, src: &str) -> Vec<Span> {
@@ -253,5 +267,14 @@ mod tests {
         assert_eq!(line_len(&lines[1]), 4 + "xmlns:android=\"http://schemas.android.com/apk/res/android\"".chars().count());
         assert_eq!(line_len(&lines[2]), 0);
         assert_eq!(lines[1][0].text, "    ");
+    }
+
+    #[test]
+    fn tabs_become_four_columns_wherever_they_are() {
+        let lines = highlight(Language::Css, "\tcontent: \"x\ty\"; /* a\tb */");
+        let shown: String = lines[0].iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(shown, "    content: \"x    y\"; /* a    b */");
+        assert!(!shown.contains('\t'));
+        assert_eq!(line_len(&lines[0]), shown.chars().count());
     }
 }

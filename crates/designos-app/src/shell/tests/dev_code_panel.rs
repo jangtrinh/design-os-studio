@@ -303,6 +303,39 @@ fn code_that_fits_does_not_scroll() {
     assert!((left_of(&texts, "width") - start).abs() < 0.5);
 }
 
+#[test]
+fn a_tab_in_the_code_takes_four_columns_and_never_overlaps_the_next_token() {
+    let mut b = Bench::new();
+    let (texts, _) = draw_code(&mut b, vec![], Language::Css, "content: \"x\ty\";");
+    let string = texts.iter().find(|p| p.text.starts_with("\"x")).expect("the string is painted");
+    let semicolon = texts.iter().find(|p| p.text == ";").expect("the semicolon is painted");
+    assert!(
+        semicolon.rect.left() >= string.rect.right() - 0.5,
+        "the string {:?} runs to {} but the semicolon starts at {}",
+        string.text,
+        string.rect.right(),
+        semicolon.rect.left()
+    );
+}
+
+#[test]
+fn a_line_with_tabs_scrolls_to_its_last_character() {
+    let mut b = Bench::new();
+    let code = "/* a comment wider than the box, with a\ttab and\tanother inside it */";
+    let inner = block_inner(1, true);
+    let draw = |b: &mut Bench, events| draw_code(b, events, Language::Css, code).0;
+    draw(&mut b, vec![Event::PointerMoved(inner.center())]);
+    for _ in 0..2 {
+        draw(&mut b, vec![wheel(Vec2::new(-5000.0, 0.0))]);
+    }
+    for _ in 0..30 {
+        draw(&mut b, vec![]);
+    }
+    let texts = draw(&mut b, vec![]);
+    let end = right_of(&texts, "inside it */");
+    assert!((end - inner.right()).abs() < 1.0, "scrolled to the end, the line ends at {end} and the text area at {}", inner.right());
+}
+
 // ---- the real Inspect panel
 
 fn dev_inspector(lang: &str) -> Sim {
