@@ -83,9 +83,9 @@ enum Pick {
 fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>, Vec<Option<Pick>>) {
     let current = linked_style(app, sel, prop);
     let (none, create) = match prop {
-        StyleProperty::Effect => ("No effect styles", "Create style from effects"),
-        StyleProperty::Text => ("No text styles", "Create style from text"),
-        _ => ("No grid styles", "Create style from guides"),
+        StyleProperty::Effect => ("No effect styles", "Create effect style"),
+        StyleProperty::Text => ("No text styles", "Create text style"),
+        _ => ("No grid styles", "Create grid style"),
     };
     let mut items = Vec::new();
     let mut picks = Vec::new();
@@ -231,4 +231,27 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         app.detach_style_of(sel, prop);
     }
     pane.y += theme::FIELD_HEIGHT + 8.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The create row names the kind of style it makes, with the noun its own empty-state row uses.
+    #[test]
+    fn the_create_row_uses_the_noun_of_the_empty_state_row() {
+        let mut doc = Document::new("t");
+        doc.add_page("p");
+        let app = App::new(doc);
+        for (prop, empty, create) in [
+            (StyleProperty::Effect, "No effect styles", "Create effect style"),
+            (StyleProperty::Text, "No text styles", "Create text style"),
+            (StyleProperty::Grid, "No grid styles", "Create grid style"),
+        ] {
+            let (items, picks) = menu_model(&app, &[], prop);
+            assert_eq!(items[0].label, empty);
+            let at = picks.iter().position(|p| matches!(p, Some(Pick::Create))).expect("every menu has a create row");
+            assert_eq!(items[at].label, create);
+        }
+    }
 }
