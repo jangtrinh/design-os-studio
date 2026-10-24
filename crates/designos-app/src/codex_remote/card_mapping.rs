@@ -7,6 +7,7 @@
 use super::exec_cards::{describe_command, describe_file_change};
 use super::item_index::ItemIndex;
 use super::protocol::{method, CardKind};
+use super::session_folder::SessionFolder;
 use crate::approval_text;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -40,8 +41,11 @@ pub enum OpenTabReason {
     /// A changed file's path that would not read on the card as it is (a control or invisible character, a space look-alike,
     /// a combining mark).
     PathNotShownExactly,
-    /// A file-change summary whose cut at the shared limit would hide part of a delete or a move.
+    /// A file-change summary that the shared limit would cut.
     ChangeCut,
+    /// A command that runs outside the tab's session folder (the model chose another `cwd`) or in an environment other
+    /// than the local one.
+    CommandOutsideSession,
 }
 
 /// What the Agents panel shows for one request, and what it needs to answer it.
@@ -73,6 +77,8 @@ pub struct MapContext<'a> {
     pub joined_roots: &'a HashSet<String>,
     pub seen: &'a HashSet<String>,
     pub items: &'a ItemIndex,
+    /// The tab's session folder: a command card needs the command to run there.
+    pub session: &'a SessionFolder,
 }
 
 /// The one MCP server whose tool approvals get buttons.
@@ -164,7 +170,7 @@ pub fn map_request(ctx: &MapContext, id: &Value, method_name: &str, params: &Val
         CardKind::McpTool => {
             describe_mcp(ctx, thread_id, turn_id, params).map(|(tool, summary)| (format!("{tab} wants to run {}", approval_text::clean(&tool)), summary))
         }
-        CardKind::Command => describe_command(params).map(|summary| (format!("{tab} wants to run a command"), summary)),
+        CardKind::Command => describe_command(ctx, params).map(|summary| (format!("{tab} wants to run a command"), summary)),
         CardKind::FileChange => describe_file_change(ctx, thread_id, params).map(|summary| (format!("{tab} wants to change files"), summary)),
     };
     match described {

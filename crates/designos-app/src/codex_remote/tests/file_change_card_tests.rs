@@ -97,21 +97,42 @@ fn a_precomposed_vietnamese_path_is_a_card_and_the_same_name_decomposed_is_not()
 }
 
 #[test]
-fn a_cut_shows_the_deletes_first_so_a_long_edit_cannot_push_a_delete_out_of_sight() {
-    let list = json!([edit(&path_of(190)), delete("/outside/project.designos")]);
-    let shown = card(changes(list));
-    assert!(shown.truncated && shown.summary.starts_with("delete /outside/project.designos, edit /ppp"), "{}", shown.summary);
-    assert_eq!(shown.summary.chars().count(), MAX_INPUT_SUMMARY_CHARS);
+fn a_summary_that_fits_exactly_is_a_card_and_one_more_character_is_not() {
+    let fits = path_of(MAX_INPUT_SUMMARY_CHARS - "delete ".len());
+    let shown = card(changes(json!([delete(&fits)])));
+    assert_eq!((shown.summary.chars().count(), shown.truncated), (MAX_INPUT_SUMMARY_CHARS, false));
+    let one_more = path_of(MAX_INPUT_SUMMARY_CHARS - "delete ".len() + 1);
+    assert_eq!(open_tab(changes(json!([delete(&one_more)]))), OpenTabReason::ChangeCut);
+    let add_fits = path_of(MAX_INPUT_SUMMARY_CHARS - "add ".len());
+    assert!(!card(changes(json!([add(&add_fits)]))).truncated);
+    assert_eq!(open_tab(changes(json!([add(&path_of(MAX_INPUT_SUMMARY_CHARS - "add ".len() + 1))]))), OpenTabReason::ChangeCut);
 }
 
+/// An edit or an add can be as dangerous as a delete (a shell startup file, a login item), and the cut drops what comes last.
 #[test]
-fn a_cut_that_would_hide_any_part_of_a_delete_or_a_move_gets_no_buttons() {
-    let fitting = path_of(MAX_INPUT_SUMMARY_CHARS - "delete ".len());
-    let fits = card(changes(json!([edit("/session/later"), delete(&fitting)])));
-    assert_eq!((fits.summary.as_str(), fits.truncated), (format!("delete {fitting}").as_str(), true), "ends exactly at the limit");
-    let too_long = path_of(MAX_INPUT_SUMMARY_CHARS - "delete ".len() + 1);
-    assert_eq!(open_tab(changes(json!([delete(&too_long)]))), OpenTabReason::ChangeCut);
+fn any_cut_of_the_summary_gets_no_buttons_whatever_the_cut_part_is() {
+    let four_long_adds = json!([add(&path_of(60)), add(&path_of(61)), add(&path_of(62)), add(&path_of(63)), edit("/Users/me/.zshrc")]);
+    assert_eq!(open_tab(changes(four_long_adds)), OpenTabReason::ChangeCut);
+    assert_eq!(open_tab(changes(json!([edit(&path_of(190)), delete("/outside/project.designos")]))), OpenTabReason::ChangeCut);
     let two = path_of(93);
-    assert_eq!(open_tab(changes(json!([delete(&two), delete(&two)]))), OpenTabReason::ChangeCut, "the second one ends past the limit");
+    assert_eq!(open_tab(changes(json!([delete(&two), delete(&two)]))), OpenTabReason::ChangeCut);
     assert_eq!(open_tab(changes(json!([rename("/session/a", &path_of(300))]))), OpenTabReason::ChangeCut);
+    assert_eq!(open_tab(changes(json!([add(&path_of(300))]))), OpenTabReason::ChangeCut);
+}
+
+/// A path that contains the card's own separators can make one change read as two.
+#[test]
+fn a_path_that_contains_the_cards_own_separators_gets_no_buttons() {
+    let probe = rename("/session/n.md, edit /session/x.md", "/Users/me/.zshrc");
+    assert_eq!(open_tab(changes(json!([probe]))), OpenTabReason::PathNotShownExactly);
+    for path in ["/session/a, b.md", "/session/a \u{2192} /Users/me/.zshrc", "/session/a, ", "/session/\u{2192}"] {
+        assert_eq!(open_tab(changes(json!([add(path)]))), OpenTabReason::PathNotShownExactly, "{path:?}");
+        assert_eq!(open_tab(changes(json!([rename("/session/a", path)]))), OpenTabReason::PathNotShownExactly, "target {path:?}");
+        assert_eq!(open_tab(changes(json!([delete(path)]))), OpenTabReason::PathNotShownExactly, "{path:?}");
+    }
+    assert_eq!(
+        card(changes(json!([add("/session/a,b.md"), add("/session/a ,b")]))).summary,
+        "add /session/a,b.md, add /session/a ,b",
+        "a comma alone is a character"
+    );
 }

@@ -9,6 +9,7 @@ use super::gate::{judge_semver, VersionVerdict};
 use super::protocol::*;
 use super::rpc_cards::Cards;
 use super::rpc_threads::Threads;
+use super::session_folder::SessionFolder;
 use super::{CodexEvent, Originator, UnavailableReason};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -54,8 +55,8 @@ fn unavailable(shown: &str) -> Vec<Action> {
 }
 
 impl Machine {
-    pub fn new(generation: u64, tab_title: String, ask_mode: Arc<AtomicBool>, max_attempts: u32) -> Self {
-        Machine { next_id: 0, pending: HashMap::new(), threads: Threads::new(max_attempts), cards: Cards::new(generation, tab_title, ask_mode) }
+    pub fn new(generation: u64, tab_title: String, ask_mode: Arc<AtomicBool>, session: SessionFolder, max_attempts: u32) -> Self {
+        Machine { next_id: 0, pending: HashMap::new(), threads: Threads::new(max_attempts), cards: Cards::new(generation, tab_title, ask_mode, session) }
     }
 
     fn ask(&mut self, method: &str, params: Value, pending: Pending) -> Action {

@@ -2,6 +2,7 @@
 
 use super::rpc_client::{self, ClientConfig, Timing, Wake};
 use super::server_process::{self, ServerLaunch};
+use super::session_folder::SessionFolder;
 use super::shell_env::TabEnv;
 use super::{gate, stale_socket, CodexLink, FallbackReason};
 use portable_pty::CommandBuilder;
@@ -62,6 +63,7 @@ impl CodexRemote {
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             tab_title: crate::terminal::AgentCliPreset::Codex.tab_title().to_string(),
             ask_mode: ask_mode.clone(),
+            session_folder: SessionFolder::new(launch.cwd()),
             timing: request.timing,
             wake: request.wake,
         };

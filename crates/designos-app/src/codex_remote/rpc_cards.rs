@@ -7,6 +7,7 @@ use super::card_mapping::{card_key, map_request, needs_item_lookup, MapContext, 
 use super::item_index::ItemIndex;
 use super::protocol::{answer_result, response_frame, CardKind, Decision};
 use super::rpc_state::Action;
+use super::session_folder::SessionFolder;
 use super::CodexEvent;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -25,6 +26,7 @@ pub struct Cards {
     generation: u64,
     tab_title: String,
     ask_mode: Arc<AtomicBool>,
+    session: SessionFolder,
     items: ItemIndex,
     /// Keys of requests already carded or left to the terminal.
     seen: HashSet<String>,
@@ -32,8 +34,8 @@ pub struct Cards {
 }
 
 impl Cards {
-    pub fn new(generation: u64, tab_title: String, ask_mode: Arc<AtomicBool>) -> Self {
-        Cards { generation, tab_title, ask_mode, items: ItemIndex::default(), seen: HashSet::new(), live: HashMap::new() }
+    pub fn new(generation: u64, tab_title: String, ask_mode: Arc<AtomicBool>, session: SessionFolder) -> Self {
+        Cards { generation, tab_title, ask_mode, session, items: ItemIndex::default(), seen: HashSet::new(), live: HashMap::new() }
     }
 
     pub fn record_item(&mut self, thread_id: &str, turn_id: &str, item: &Value) {
@@ -48,6 +50,7 @@ impl Cards {
             joined_roots: roots,
             seen: &self.seen,
             items: &self.items,
+            session: &self.session,
         }
     }
 

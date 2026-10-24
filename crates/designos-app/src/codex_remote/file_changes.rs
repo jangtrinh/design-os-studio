@@ -5,20 +5,14 @@ use serde_json::Value;
 
 /// What approving a file-change item would do.
 pub enum Changes {
-    /// One line per change.
-    Described(Described),
+    /// One line per change: `delete <path>` and `move <path> \u{2192} <target>` first, then `add <path>`, then `edit <path>`;
+    /// the order of the item within each group.
+    Described(Vec<String>),
     /// A change of a kind Studio does not describe (or without a path): such a card would not say what it does.
     UnknownKind,
-    /// A path that would not read on the card as it is (see [`reads_as_it_is`]).
+    /// A path that would not read on the card as it is: see [`reads_as_it_is`]; or one that contains the card's own
+    /// separators (`\u{2192}`, `, `), which can make one change read as two.
     PathNotShownExactly,
-}
-
-pub struct Described {
-    /// `delete <path>` and `move <path> \u{2192} <target>` first, then `add <path>`, then `edit <path>`; the order of the
-    /// item within each group. The card cuts the joined text, so a long edit can only push out another edit or an add.
-    pub lines: Vec<String>,
-    /// How many of the leading lines are deletes or moves.
-    pub destructive: usize,
 }
 
 const DESTRUCTIVE: u8 = 0;
@@ -36,8 +30,7 @@ impl Changes {
             }
         }
         lines.sort_by_key(|(rank, _)| *rank);
-        let destructive = lines.iter().take_while(|(rank, _)| *rank == DESTRUCTIVE).count();
-        Changes::Described(Described { lines: lines.into_iter().map(|(_, line)| line).collect(), destructive })
+        Changes::Described(lines.into_iter().map(|(_, line)| line).collect())
     }
 }
 
@@ -52,9 +45,15 @@ fn describe_change(change: &Value) -> Result<(u8, String), Changes> {
         ("delete", None) => (DESTRUCTIVE, format!("delete {path}")),
         _ => return Err(Changes::UnknownKind),
     };
-    if reads_as_it_is(path) && target.is_none_or(reads_as_it_is) {
+    if shown_as_it_is(path) && target.is_none_or(shown_as_it_is) {
         Ok((group, line))
     } else {
         Err(Changes::PathNotShownExactly)
     }
+}
+
+/// A path the card can show as it is: it reads as it is, and it does not contain what the card puts between changes or
+/// between a path and its move target.
+fn shown_as_it_is(path: &str) -> bool {
+    reads_as_it_is(path) && !path.contains('\u{2192}') && !path.contains(", ")
 }

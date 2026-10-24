@@ -7,7 +7,8 @@
 //!
 //! `shell_env` captures the tab's environment, `gate` decides the path with it, `remote` starts the tab, `server_process`
 //! and `stale_socket` own the child, `launch` builds the TUI command, `ws`, `rpc_client` and `rpc_session` are the
-//! connection, `rpc_state` is its state machine, `card_mapping` makes the cards (the text through `approval_text`).
+//! connection, `rpc_state` is its state machine, `card_mapping` makes the cards (the text through `approval_text`, the check
+//! that a command runs in the tab's folder through `session_folder`).
 // The integration that calls these items is a later change: remove this allow when it lands (#930).
 #![cfg_attr(not(test), allow(dead_code))]
 
@@ -25,6 +26,7 @@ pub mod rpc_session;
 pub mod rpc_state;
 pub mod rpc_threads;
 pub mod server_process;
+pub mod session_folder;
 pub mod shell_capture;
 pub mod shell_env;
 pub mod stale_socket;
@@ -138,6 +140,7 @@ impl Drop for CodexLink {
 mod tests {
     mod card_flow_tests;
     mod client_tests;
+    mod command_cwd_tests;
     mod exec_card_tests;
     mod fake_server;
     mod file_change_card_tests;
