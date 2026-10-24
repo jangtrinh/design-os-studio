@@ -3,6 +3,8 @@
 //! snapshot writer (`#690`). Where session folders live and how they are made: [`folder`].
 
 mod folder;
+#[cfg(unix)]
+mod folder_owner;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
 
 use std::path::{Path, PathBuf};

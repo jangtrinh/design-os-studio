@@ -160,3 +160,27 @@ fn a_tab_does_not_start_in_a_planted_link_and_says_why() {
     st.shutdown();
     assert!(target.join("keep.txt").is_file(), "closing the window removed what the link pointed at");
 }
+
+#[test]
+fn a_library_file_whose_folder_is_a_planted_link_runs_in_the_private_fallback_and_writes_nothing_through_the_link() {
+    let (target, _target_cleanup) = target_with_sentinel("bind-target");
+    let lib_root = scratch_dir("bind-root");
+    let window = format!("p{}-fold-{}", std::process::id(), unique_tab_id());
+    let _cleanup = Cleanup(vec![lib_root.clone(), ephemeral_session_dir(&window)]);
+    let stable = crate::agent_sessions::stable_session_dir(&lib_root, "file-1");
+    std::fs::create_dir_all(stable.parent().expect("agent-sessions")).expect("agent-sessions folder");
+    symlink(&target, &stable).expect("plant the link");
+
+    let mut st = ScopedTerminalState::new(TerminalState::for_tab(unique_tab_id()));
+    st.bind_library_file(&lib_root, "file-1", &window);
+
+    let message = st.status_msg.clone().expect("says why the file's folder is not used");
+    assert!(message.starts_with("Couldn't use this file's agent folder"), "{message}");
+    assert!(st.lock_owner.is_none(), "a lock was taken on the planted folder");
+    assert!(is_ephemeral_session_dir(&st.session_dir), "the tab runs in Studio's own folder: {}", st.session_dir.display());
+
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("a shell starts in the private fallback");
+    st.close_tab(0);
+    st.shutdown();
+    assert!(only_entry_is_the_sentinel(&target), "something went through the link into its target");
+}

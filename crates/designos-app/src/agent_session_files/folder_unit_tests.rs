@@ -1,7 +1,8 @@
 //! The pieces of [`super::folder`]: where the ephemeral root is, which paths count as ephemeral, and the checks that
 //! refuse a link, a file or a foreign folder.
 
-use super::folder::{check_owner, create_session_folder_in, current_uid, UNAVAILABLE_ROOT};
+use super::folder::{create_session_folder_in, UNAVAILABLE_ROOT};
+use super::folder_owner::{check_owner, own_uid};
 use super::folder_tests::{scratch_dir, Cleanup};
 use super::*;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
@@ -43,11 +44,13 @@ fn a_folder_of_another_user_is_refused() {
     let scratch = scratch_dir("owner");
     let _cleanup = Cleanup(vec![scratch.clone()]);
     let meta = std::fs::symlink_metadata(&scratch).expect("metadata");
-    assert_eq!(current_uid(&scratch).expect("own id"), meta.uid(), "a folder Studio made belongs to the user Studio runs as");
+    assert_eq!(own_uid(|| Ok(scratch.clone())).expect("own id"), meta.uid(), "a folder Studio made belongs to the user Studio runs as");
 
-    check_owner(&scratch, &meta, meta.uid()).expect("own folder");
-    let err = check_owner(&scratch, &meta, meta.uid().wrapping_add(1)).expect_err("a foreign owner is refused");
+    check_owner(&scratch, meta.uid(), meta.uid()).expect("own folder");
+    let err = check_owner(&scratch, 502, 501).expect_err("a foreign owner is refused");
     assert!(err.to_string().contains("belongs to another user"), "{err}");
+    // macOS shows id 99 on a drive that ignores ownership and means the current user by it; elsewhere 99 is just another user.
+    assert_eq!(check_owner(&scratch, 99, 501).is_ok(), cfg!(target_os = "macos"));
 
     // End to end: a real folder somebody else owns is not taken as a session folder (not applicable when run as that owner).
     let foreign = Path::new("/usr");
@@ -61,7 +64,7 @@ fn a_folder_of_another_user_is_refused() {
 fn a_folder_that_cannot_be_made_says_where_and_what_to_do() {
     let scratch = scratch_dir("read-only-parent");
     let _cleanup = Cleanup(vec![scratch.clone()]);
-    if current_uid(&scratch).expect("own id") == 0 {
+    if own_uid(|| Ok(scratch.clone())).expect("own id") == 0 {
         return; // root can write a read-only folder
     }
     let parent = scratch.join("agent-sessions");

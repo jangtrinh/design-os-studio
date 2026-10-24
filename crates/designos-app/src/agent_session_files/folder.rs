@@ -10,6 +10,8 @@
 //!    accepted only when it is a real folder (not a link) owned by the user. Anything else is an error, and nothing is
 //!    written there.
 
+#[cfg(unix)]
+use super::folder_owner::{check_owner, own_uid};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +25,7 @@ pub(super) const UNAVAILABLE_ROOT: &str = "/dev/null/designos-no-private-data-fo
 #[cfg(not(unix))]
 pub(super) const UNAVAILABLE_ROOT: &str = "designos-no-private-data-folder";
 
-fn refused(message: String) -> io::Error {
+pub(super) fn refused(message: String) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, message)
 }
 
@@ -80,7 +82,7 @@ pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path
     }
     let parent = dir.parent().ok_or_else(|| io::Error::other(format!("{} has no parent folder", dir.display())))?;
     match std::fs::symlink_metadata(dir) {
-        Ok(_) => return require_own_real_folder(dir, parent).map(|_| ()),
+        Ok(_) => return require_own_real_folder(ephemeral_root, dir, parent).map(|_| ()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(cannot_make(dir, e)),
     }
@@ -99,7 +101,7 @@ pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path
     match builder.create(dir) {
         Ok(()) => Ok(()),
         // Someone made it between the check and the `mkdir`: it must still be ours and a real folder.
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => require_own_real_folder(dir, parent).map(|_| ()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => require_own_real_folder(ephemeral_root, dir, parent).map(|_| ()),
         Err(e) => Err(cannot_make(dir, e)),
     }
 }
@@ -108,7 +110,7 @@ pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path
 /// no access for anyone else.
 fn make_private_root(root: &Path) -> io::Result<()> {
     crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot_make(root, e))?;
-    let meta = require_own_real_folder(root, root)?;
+    let meta = require_own_real_folder(Some(root), root, root)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -121,18 +123,26 @@ fn make_private_root(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Requires `dir` to be a real folder, not a link, that the user owns; `near` is a folder to find the user's id in.
-fn require_own_real_folder(dir: &Path, near: &Path) -> io::Result<std::fs::Metadata> {
+/// Requires `dir` to be a real folder, not a link, that the user owns. The user's id is read in the sessions folder
+/// (`ephemeral_root`), and only without one next to the folder checked (`near`).
+fn require_own_real_folder(ephemeral_root: Option<&Path>, dir: &Path, near: &Path) -> io::Result<std::fs::Metadata> {
     let meta = std::fs::symlink_metadata(dir)?;
     check_real_folder(dir, &meta)?;
     #[cfg(unix)]
-    check_owner(dir, &meta, current_uid(near)?)?;
+    {
+        use std::os::unix::fs::MetadataExt;
+        let probe_dir = || match ephemeral_root {
+            Some(root) => crate::agent_approval_channel::create_private_dir_all(root).map(|()| root.to_path_buf()).map_err(|e| cannot_make(root, e)),
+            None => Ok(near.to_path_buf()),
+        };
+        check_owner(dir, meta.uid(), own_uid(probe_dir)?)?;
+    }
     #[cfg(not(unix))]
-    let _ = near;
+    let _ = (ephemeral_root, near);
     Ok(meta)
 }
 
-pub(super) fn check_real_folder(dir: &Path, meta: &std::fs::Metadata) -> io::Result<()> {
+fn check_real_folder(dir: &Path, meta: &std::fs::Metadata) -> io::Result<()> {
     if meta.file_type().is_symlink() {
         return Err(refused(format!("{} is a link, not a folder. Delete it and try again", dir.display())));
     }
@@ -140,41 +150,6 @@ pub(super) fn check_real_folder(dir: &Path, meta: &std::fs::Metadata) -> io::Res
         return Err(refused(format!("{} is a file, not a folder. Delete it and try again", dir.display())));
     }
     Ok(())
-}
-
-#[cfg(unix)]
-pub(super) fn check_owner(dir: &Path, meta: &std::fs::Metadata, own_uid: u32) -> io::Result<()> {
-    use std::os::unix::fs::MetadataExt;
-    if meta.uid() == own_uid {
-        return Ok(());
-    }
-    Err(refused(format!("{} belongs to another user. Move or delete it and try again", dir.display())))
-}
-
-/// The id of the user Studio runs as, read once from a file Studio just created in `near` (a new file is owned by the
-/// creating user, and `create_new` never follows a link).
-#[cfg(unix)]
-pub(super) fn current_uid(near: &Path) -> io::Result<u32> {
-    use std::os::unix::fs::MetadataExt;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static UID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    if let Some(uid) = UID.get() {
-        return Ok(*uid);
-    }
-    for _ in 0..4 {
-        let probe = near.join(format!(".owner-probe-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
-            Ok(file) => {
-                let uid = file.metadata().map(|m| m.uid());
-                let _ = std::fs::remove_file(&probe);
-                return uid.map(|uid| *UID.get_or_init(|| uid));
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::Error::other("could not tell which user owns the session folders"))
 }
 
 /// Makes the folder a session file is written into (`parent`). When `parent` is a session folder, or lies inside one,
