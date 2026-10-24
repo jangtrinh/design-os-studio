@@ -34,9 +34,14 @@ pub enum OpenTabReason {
     OtherServer,
     /// The request's own copy of the tool arguments differs from the arguments of the running call.
     PayloadMismatch,
-    /// A command the sanitizer would change (a line break, a control or invisible character): shown, it would not read
-    /// the same as what runs.
+    /// A command with a character outside printable ASCII (a tab, a line break, a space look-alike, an invisible or
+    /// combining character, a look-alike letter): shown, it would not read the way the shell parses it.
     CommandNotShownExactly,
+    /// A changed file's path that would not read on the card as it is (a control or invisible character, a space look-alike,
+    /// a combining mark).
+    PathNotShownExactly,
+    /// A file-change summary whose cut at the shared limit would hide part of a delete or a move.
+    ChangeCut,
 }
 
 /// What the Agents panel shows for one request, and what it needs to answer it.

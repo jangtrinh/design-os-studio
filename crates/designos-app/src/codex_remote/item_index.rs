@@ -3,34 +3,13 @@
 //! An approval request carries no tool name or file path of its own: they come from the item that started just
 //! before the request. Items are kept by (thread, item id) until their turn ends.
 
+use super::file_changes::Changes;
 use serde_json::Value;
 use std::collections::HashMap;
 
 enum Tracked {
     Mcp { server: String, tool: String, arguments: Value, in_progress: bool },
-    FileChange { changes: Option<Vec<String>> },
-}
-
-/// What one change does, as `add <path>`, `edit <path>`, `delete <path>` or `move <path> → <target>`. `None` for a change
-/// of a kind Studio does not describe (or without a path): such a card would not say what it does.
-fn describe_change(change: &Value) -> Option<String> {
-    let path = change["path"].as_str()?;
-    let target = change["kind"]["move_path"].as_str().filter(|target| !target.is_empty());
-    match (change["kind"]["type"].as_str()?, target) {
-        ("add", None) => Some(format!("add {path}")),
-        ("update", None) => Some(format!("edit {path}")),
-        ("update", Some(target)) => Some(format!("move {path} → {target}")),
-        ("delete", None) => Some(format!("delete {path}")),
-        _ => None,
-    }
-}
-
-/// What a file-change item does.
-pub enum Changes<'a> {
-    /// One line per change.
-    Described(&'a [String]),
-    /// At least one change is of a kind Studio does not describe.
-    Unreadable,
+    FileChange(Changes),
 }
 
 #[derive(Default)]
@@ -47,7 +26,7 @@ impl ItemIndex {
             (Some("mcpToolCall"), Some(server), Some(tool)) => {
                 Tracked::Mcp { server: server.into(), tool: tool.into(), arguments: item["arguments"].clone(), in_progress: item["status"] == "inProgress" }
             }
-            (Some("fileChange"), ..) => Tracked::FileChange { changes: item["changes"].as_array().into_iter().flatten().map(describe_change).collect() },
+            (Some("fileChange"), ..) => Tracked::FileChange(Changes::describe(item["changes"].as_array().map_or(&[][..], Vec::as_slice))),
             _ => return,
         };
         self.items.insert((thread_id.into(), id.into()), (turn_id.into(), tracked));
@@ -84,10 +63,9 @@ impl ItemIndex {
     }
 
     /// What the file-change item `item_id` does, when the item is known.
-    pub fn file_changes(&self, thread_id: &str, item_id: &str) -> Option<Changes<'_>> {
+    pub fn file_changes(&self, thread_id: &str, item_id: &str) -> Option<&Changes> {
         match self.items.get(&(thread_id.to_string(), item_id.to_string())) {
-            Some((_, Tracked::FileChange { changes: Some(changes) })) => Some(Changes::Described(changes)),
-            Some((_, Tracked::FileChange { changes: None })) => Some(Changes::Unreadable),
+            Some((_, Tracked::FileChange(changes))) => Some(changes),
             _ => None,
         }
     }

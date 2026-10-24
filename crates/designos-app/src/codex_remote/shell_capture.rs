@@ -1,8 +1,11 @@
 //! Capturing the login shell's environment (#930): the one process Studio starts only to read variables.
 //!
 //! The shell is `$SHELL -l -i -c <script>`; the script prints a marker and then the environment (`env -0`). The marker is
-//! random for each capture, so nothing a startup file prints can pass for it, and only what follows the last marker line
-//! is read. The shell starts in the user's home folder, never in a folder an agent can write.
+//! random for each capture, so output a startup file wrote beforehand cannot pass for it, and the output must hold exactly
+//! one marker line: a startup file or background job that learns the marker (it is in the script) and prints it as well
+//! makes the capture fail, and the tab keeps the builder's environment. A startup file is the user's own code and can do
+//! whatever the user can; this keeps its noise and accidents out, it is not a defence against it. The shell starts in the
+//! user's home folder, never in a folder an agent can write.
 
 use super::server_process::MCP_ENV_VARS;
 use super::shell_env::TabEnv;
@@ -33,10 +36,15 @@ pub fn capture_script(marker: &str) -> String {
     format!("/bin/echo {marker}; /usr/bin/env -0")
 }
 
-/// The entries after the last marker line of `output`: NUL-separated `NAME=value`, anything else dropped.
+/// The entries after the marker line of `output`: NUL-separated `NAME=value`, anything else dropped. `None` unless the
+/// output holds the marker line exactly once (which of two is the real one cannot be told).
 pub fn parse_capture(output: &[u8], marker: &str) -> Option<Vec<(OsString, OsString)>> {
     let line = [marker.as_bytes(), b"\n"].concat();
-    let start = output.windows(line.len()).rposition(|window| window == line)? + line.len();
+    let mut found = output.windows(line.len()).enumerate().filter(|(_, window)| *window == line).map(|(at, _)| at);
+    let start = found.next()? + line.len();
+    if found.next().is_some() {
+        return None;
+    }
     let vars: Vec<_> = output[start..]
         .split(|byte| *byte == 0)
         .filter_map(|entry| {

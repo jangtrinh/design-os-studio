@@ -13,6 +13,7 @@
 
 pub mod card_mapping;
 pub mod exec_cards;
+pub mod file_changes;
 pub mod gate;
 pub mod item_index;
 pub mod launch;
@@ -139,6 +140,7 @@ mod tests {
     mod client_tests;
     mod exec_card_tests;
     mod fake_server;
+    mod file_change_card_tests;
     mod gate_tests;
     mod harness;
     mod launch_tests;

@@ -83,16 +83,34 @@ fn an_rc_file_that_prints_a_marker_and_variables_cannot_inject_them() {
 }
 
 #[test]
-fn only_name_equals_value_entries_after_the_last_marker_are_taken() {
-    let raw = format!("noise\x1b[?2004h{TEST_MARKER}\nOLD=1\0{TEST_MARKER}\nA=1\0BAD\0B=two words\nand a line\0C=\0=x\0D=a=b\0");
+fn only_name_equals_value_entries_after_the_marker_are_taken() {
+    let raw = format!("noise\x1b[?2004h{TEST_MARKER}\nA=1\0BAD\0B=two words\nand a line\0C=\0=x\0D=a=b\0");
     let pairs: Vec<(String, String)> =
         parse_capture(raw.as_bytes(), TEST_MARKER).expect("variables").iter().map(|(k, v)| (k.to_string_lossy().into(), v.to_string_lossy().into())).collect();
     let want = [("A", "1"), ("B", "two words\nand a line"), ("C", ""), ("D", "a=b")].map(|(k, v)| (k.to_string(), v.to_string()));
-    assert_eq!(pairs, want, "nothing from before the last marker, and only well-formed entries");
+    assert_eq!(pairs, want, "nothing from before the marker, and only well-formed entries");
     assert!(parse_capture(b"A=1\0", TEST_MARKER).is_none(), "without the marker nothing is trusted");
     assert!(parse_capture(format!("{TEST_MARKER}\n").as_bytes(), TEST_MARKER).is_none(), "a marker with no variables after it");
     let raw = [TEST_MARKER.as_bytes(), b"\n", b"K=", &[0xFF, 0xFE], b"\0"].concat();
     assert_eq!(parse_capture(&raw, TEST_MARKER).unwrap()[0].1, OsString::from_vec(vec![0xFF, 0xFE]), "values that are not UTF-8 are kept");
+}
+
+#[test]
+fn output_with_the_marker_line_twice_gives_no_variables() {
+    let twice = format!("{TEST_MARKER}\nOLD=1\0{TEST_MARKER}\nA=1\0");
+    assert!(parse_capture(twice.as_bytes(), TEST_MARKER).is_none(), "which marker is the real one cannot be told");
+}
+
+/// A startup file can learn the marker (it is in the script the shell was given) and print it too, early or from a
+/// background job that outlives the dump. Either way the output holds the marker line twice, and the capture fails.
+#[test]
+fn a_second_marker_line_anywhere_in_the_output_fails_the_capture() {
+    let learn = "m=${4#/bin/echo }; m=${m%%;*}";
+    let printed = "printf '%s\\nPATH=/fake/spoof\\0LATE_ONLY=1\\0' \"$m\"";
+    let (early, late, none) = (scratch_dir("q1"), scratch_dir("q2"), scratch_dir("q3"));
+    assert!(capture(&shell_builder(), &stub_shell(&early, &format!("{learn}; {printed}"), ""), LONG).is_none(), "printed before the dump");
+    assert!(capture(&shell_builder(), &stub_shell(&late, learn, printed), LONG).is_none(), "printed after the dump");
+    assert!(capture(&shell_builder(), &stub_shell(&none, learn, ""), LONG).is_some(), "the same shell without the extra line is captured");
 }
 
 #[test]
