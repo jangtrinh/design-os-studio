@@ -1099,6 +1099,7 @@ dependencies = [
  "designos-render",
  "designos-webcapture",
  "jsonschema",
+ "libc",
  "quick-xml",
  "rmcp",
  "schemars",
