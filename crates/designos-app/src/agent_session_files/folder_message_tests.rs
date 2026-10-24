@@ -155,6 +155,34 @@ fn sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_i
 }
 
 #[test]
+fn the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_either() {
+    let (target, _target) = target_with_sentinel("message-lock-target");
+    let fallback_id = format!("p{}-msg-{}", std::process::id(), unique_tab_id());
+    let fallback = ephemeral_session_dir(&fallback_id);
+    let mut cleanup = make_parent_of(&fallback);
+    cleanup.0.push(fallback.clone());
+    symlink(&target, &fallback).expect("plant the link in the fallback folder");
+    let lib_root = scratch_dir("message-lock-library");
+    cleanup.0.push(lib_root.clone());
+    let stable = crate::agent_sessions::stable_session_dir(&lib_root, "file-1");
+    ensure_session_dir(&stable).expect("the file's own folder");
+    let lock = crate::agent_sessions::SessionLock { pid: 1, window: "another-window".into(), started_at: 0 };
+    std::fs::write(stable.join("session.lock"), serde_json::to_vec_pretty(&lock).expect("lock json")).expect("another window's lock");
+
+    let outcome = crate::agent_sessions::acquire_stable_session_dir_with(&lib_root, "file-1", "win-b", &fallback_id, |_| true);
+
+    let crate::agent_sessions::LockOutcome::Fallback { message, .. } = outcome else { panic!("a lock another window holds must not be taken") };
+    assert_eq!(
+        message,
+        format!(
+            "{} The temporary session folder can't be used: {} is a link, not a folder. Delete the link and try again.",
+            crate::agent_sessions::ANOTHER_WINDOW_OWNS_SESSION_MSG,
+            fallback.display()
+        )
+    );
+}
+
+#[test]
 fn a_missing_data_folder_says_what_to_check() {
     let err = create_session_folder_in(None, &Path::new(UNAVAILABLE_ROOT).join("p1-tab-1")).expect_err("no data folder, no session folder");
     assert_eq!(

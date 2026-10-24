@@ -22,24 +22,32 @@ pub(super) fn check_owner(dir: &Path, owner_uid: u32, own_uid: u32) -> io::Resul
 /// owned by the creating user, and `create_new` never follows a link. The caller names Studio's own sessions folder, so the
 /// id comes from the volume that holds the user's data, not from a library on a drive that may not keep ownership.
 pub(super) fn own_uid(probe_dir: impl FnOnce() -> io::Result<PathBuf>) -> io::Result<u32> {
-    use std::os::unix::fs::MetadataExt;
     static UID: OnceLock<u32> = OnceLock::new();
-    static SEQ: AtomicU64 = AtomicU64::new(0);
     if let Some(uid) = UID.get() {
         return Ok(*uid);
     }
-    let dir = probe_dir()?;
+    let uid = probe_uid(&probe_dir()?)?;
+    Ok(*UID.get_or_init(|| uid))
+}
+
+/// The id of the user who owns a file just created in `dir`.
+pub(super) fn probe_uid(dir: &Path) -> io::Result<u32> {
+    use std::os::unix::fs::MetadataExt;
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     for _ in 0..4 {
         let probe = dir.join(format!(".owner-probe-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
             Ok(file) => {
                 let uid = file.metadata().map(|m| m.uid());
                 let _ = std::fs::remove_file(&probe);
-                return uid.map(|uid| *UID.get_or_init(|| uid));
+                return uid;
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
+            Err(e) => {
+                let message = format!("a file can't be created in {}: {e}. Check its permissions and free space, then try again", dir.display());
+                return Err(io::Error::new(e.kind(), message));
+            }
         }
     }
-    Err(io::Error::other("could not tell which user owns the session folders"))
+    Err(io::Error::other(format!("could not tell which user owns {}. Delete the .owner-probe files in it and try again", dir.display())))
 }

@@ -270,17 +270,20 @@ fn try_create_lock_exclusively(lock_path: &Path, bytes: &[u8]) -> std::io::Resul
 }
 
 fn fallback_lock_outcome(fallback_id: &str) -> LockOutcome {
-    fallback_outcome(fallback_id, |_| ANOTHER_WINDOW_OWNS_SESSION_MSG.to_string())
+    fallback_outcome(fallback_id, false, |_| ANOTHER_WINDOW_OWNS_SESSION_MSG.to_string())
 }
 
 /// The ephemeral folder Studio keeps for `fallback_id`, with the status line `message(works)` (`works`: the folder can be used).
-/// When it cannot be made the line says so too: the tabs that follow stop with the same reason instead of starting in a
-/// folder Studio did not make.
-fn fallback_outcome(fallback_id: &str, message: impl FnOnce(bool) -> String) -> LockOutcome {
+/// When it cannot be made the line says so too ("either" only when `message` already reports another failure): the tabs that
+/// follow stop with the same reason instead of starting in a folder Studio did not make.
+fn fallback_outcome(fallback_id: &str, after_a_failure: bool, message: impl FnOnce(bool) -> String) -> LockOutcome {
     let dir = crate::agent_session_files::ephemeral_session_dir(fallback_id);
     let message = match crate::agent_session_files::ensure_session_dir(&dir) {
         Ok(()) => message(true),
-        Err(e) => format!("{} The temporary session folder can't be used either: {}.", message(false), crate::agent_session_files::with_next_step(&e)),
+        Err(e) => {
+            let either = if after_a_failure { " either" } else { "" };
+            format!("{} The temporary session folder can't be used{either}: {}.", message(false), crate::agent_session_files::with_next_step(&e))
+        }
     };
     LockOutcome::Fallback { dir, message }
 }
@@ -296,7 +299,7 @@ where
     let dir = stable_session_dir(lib_root, file_id);
     // No lock or registry is written into a folder that is a link or belongs to someone else.
     if let Err(e) = crate::agent_session_files::ensure_session_dir(&dir) {
-        return fallback_outcome(fallback_id, |works| crate::agent_session_files::library_fallback_message(&e, works));
+        return fallback_outcome(fallback_id, true, |works| crate::agent_session_files::library_fallback_message(&e, works));
     }
     let lock_path = dir.join("session.lock");
     let my_pid = std::process::id();

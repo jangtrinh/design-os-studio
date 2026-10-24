@@ -2,7 +2,7 @@
 //! refuse a link, a file or a foreign folder.
 
 use super::folder::{create_session_folder_in, probe_dir_for, UNAVAILABLE_ROOT};
-use super::folder_owner::{check_owner, own_uid};
+use super::folder_owner::{check_owner, own_uid, probe_uid};
 use super::folder_tests::{scratch_dir, Cleanup};
 use super::*;
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
@@ -102,6 +102,25 @@ fn each_test_process_has_a_sessions_folder_of_its_own() {
     assert_eq!(root.file_name().and_then(|n| n.to_str()), Some("sessions"));
     let owner = root.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
     assert_eq!(owner, Some(std::process::id().to_string().as_str()), "{}", root.display());
+}
+
+#[test]
+fn a_probe_that_cannot_write_names_the_folder_and_what_to_do() {
+    let scratch = scratch_dir("probe-read-only");
+    let _cleanup = Cleanup(vec![scratch.clone()]);
+    let read_only = scratch.join("base");
+    std::fs::create_dir_all(&read_only).expect("folder");
+    std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o555)).expect("make it read-only");
+    if std::fs::File::create(read_only.join("writable-for-root")).is_ok() {
+        return; // root can write a read-only folder
+    }
+
+    let err = probe_uid(&read_only).expect_err("no file can be created in a read-only folder");
+
+    std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o700)).expect("restore");
+    let text = err.to_string();
+    assert!(text.contains(&read_only.display().to_string()), "names the folder: {text}");
+    assert!(text.ends_with("try again"), "names the next step: {text}");
 }
 
 #[test]
