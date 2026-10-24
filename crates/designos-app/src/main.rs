@@ -47,6 +47,7 @@ mod find;
 mod font_refit;
 mod fonts;
 mod gemini_dialog;
+mod gemini_screen;
 mod gemini_status_hooks;
 mod history;
 mod home;

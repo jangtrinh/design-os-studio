@@ -165,19 +165,36 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    file in the private folder, named by `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`. They are not written when Gemini already has system
    defaults of its own, or off Unix (Gemini runs a hook through PowerShell on Windows, which cannot parse the status command).
    Gemini fires no hook when the user answers No in its own dialog, and one answer in a queue ("1 of 2") leaves the next dialog
-   open, so the tab's own screen decides (`gemini_dialog.rs`). Every dialog with options ends with the option `No, suggest
-   changes (esc)` (`ToolConfirmationMessage.tsx` lines 270, 296, 321 and 352 of Gemini CLI 0.35.3: edit, exec, info and MCP, under
-   the `N of M` header of `ToolConfirmationQueue.tsx`). While that line is on the visible screen, the composer sends nothing into
-   the tab (not before the paste, and not before the delayed Enter), whatever the status says. A wait a hook started ends when
-   the line has been on screen and is gone for a quarter of a second, or when a tool, prompt or end-of-turn record arrives; if the
-   line comes back before such a record, the wait reopens. A key never ends a wait. A tab with no hooks file starts a wait only
-   when the line is on screen, so model text with "Allow " or "(y/n)" starts none. All of this applies only to Gemini 0.35.x;
-   outside it nothing reads the screen and the hooks alone drive the status, so for a newer Gemini (0.36 to 0.40 still contain the
-   line, but are not tested) a "No" answer leaves the wait standing until the next prompt. The `ask_user` and `exit_plan_mode`
-   dialogs draw no such line, and a panel so narrow that Gemini cuts the label inside a word hides it (a wrap between words is
-   found): both hold their wait until a hook record arrives, and the "Open tab" card still works. Whether real Gemini erases the
-   dialog's lines on an answer is inferred from its terminal library, not seen. An edit open in the external editor draws "Save and close external editor to continue"
-   instead: it keeps a wait open and never starts one.
+   open, so the tab's own screen decides (`gemini_dialog.rs`, `gemini_screen.rs`). Every dialog with options ends with the option
+   `No, suggest changes (esc)` (`ToolConfirmationMessage.tsx` of Gemini CLI 0.35.3, lines 270, 296, 321 and 352: edit, exec, info and
+   MCP; of 0.65.0, lines 321, 347, 378, 403 and 433: edit, sandbox expansion, exec, info and MCP; under the `N of M` header of
+   `ToolConfirmationQueue.tsx`). Gemini cuts an option label that does not fit, with an ellipsis, and never wraps it
+   (`RadioButtonSelect.tsx:103`; the label gets `columns - 9` cells, or one fewer with Gemini's alternate screen), so Studio looks for
+   the label's first three words, `No, suggest changes`, and counts the ellipsis as a break between words. At the narrowest panel,
+   260 px or 30 columns, the label shows as `No, suggest changes…`. The text is found down to 29 columns (30 with the alternate
+   screen); a narrower panel hides it.
+
+   The composer. While that text is on the visible screen of a Gemini Ask tab, the composer sends nothing into it, whatever the
+   status says and whatever version the tab runs, a version nobody could name included: a send is refused before the paste, and the
+   delayed Enter is not written. The delayed Enter follows the rule of the send for every agent tab: when the tab began to wait on
+   the user after the paste (its status says so, or a Gemini dialog opened), no Enter is written. The prompt stays pasted for the
+   user to send, with the permission notice.
+
+   The wait. A wait a hook started ends when the line has been on screen and is gone for a quarter of a second, or when a tool,
+   prompt or end-of-turn record arrives; if the line comes back before such a record, the wait reopens. A key never ends a wait.
+   A tab with no hooks file starts a wait only when the line is on screen, so model text with "Allow " or "(y/n)" starts none. This
+   applies to the Gemini versions whose screens and hook payloads were read from source: 0.35.x and 0.65.x. The current stable
+   is 0.65.0. The reading is from source only; no real Gemini dialog or model turn was run. For any other version the hooks alone
+   drive the status, so a "No" answer leaves the wait standing until a prompt is typed in the terminal.
+
+   What it does not cover. The `ask_user` and `exit_plan_mode` dialogs draw no such line (in either version), and a panel
+   narrower than 29 columns hides a cut label. A tab with hooks then keeps the wait its hook record started until another record
+   arrives, and its composer is still refused by the status. A tab with no hooks file starts no wait and its composer cannot see the
+   dialog, so a prompt can be pasted into it. The "Open tab" card works in both cases. An edit open in the external editor draws
+   "Save and close external editor to continue" instead: it keeps a wait open and never starts one. Known limits: an Enter Studio
+   writes in the few tens of milliseconds before its parser has the dialog Gemini has just drawn is not held; and model or file text
+   that quotes `No, suggest changes` refuses sends (and, for a tab with no hooks file, starts a wait) until it scrolls off the
+   screen. Whether real Gemini erases the dialog's lines on an answer is inferred from its terminal library, not seen.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no

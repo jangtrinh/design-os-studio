@@ -3,48 +3,37 @@
 //! Gemini fires a `Notification` hook when it shows a tool-confirmation dialog, but no hook when the user answers No, and
 //! one answer in a queue of dialogs ("1 of 2") leaves the next dialog open. So the hooks alone cannot say when the user is done.
 //! The screen can: every dialog that offers options ends with the option `No, suggest changes (esc)` (`ToolConfirmationMessage.tsx`
-//! lines 270, 296, 321 and 352 of Gemini CLI 0.35.3: edit, exec, info and MCP, under the `N of M` header of
-//! `ToolConfirmationQueue.tsx:96-100`). While that line is on the tab's visible screen a dialog is open, whatever the status says.
+//! of Gemini CLI 0.35.3, lines 270, 296, 321 and 352: edit, exec, info and MCP; of 0.65.0, lines 321, 347, 378, 403 and 433: edit,
+//! sandbox expansion, exec, info and MCP; under the `N of M` header of `ToolConfirmationQueue.tsx`). While that line is on the tab's
+//! visible screen a dialog is open, whatever the status says.
 //!
-//! * A wait that a hook record started ends when the line was on screen at least once and has been gone for [`GONE_DEBOUNCE`],
-//!   or when a tool, prompt or end-of-turn record arrives. If the line comes back before one of those records, the wait reopens:
-//!   the next dialog of the queue is the same wait. A key press never ends a wait; it only restarts the quiet window.
+//! * The composer sends nothing into a Gemini Ask tab while the line is on its screen, before the paste and before the delayed Enter,
+//!   whatever the status says and whatever version of Gemini the tab runs, a version nobody could name included.
+//! * A wait that a hook record started ends when the line was on screen at least once and has been gone for [`GONE_DEBOUNCE`], or when
+//!   a tool, prompt or end-of-turn record arrives. If the line comes back before one of those records, the wait reopens: the next
+//!   dialog of the queue is the same wait. A key press never ends a wait; it only restarts the quiet window.
 //! * A tab with no hooks file (off Unix, or admin-managed Gemini) starts a wait only when the line is on screen.
-//! * The composer sends nothing into a tab while the line is on its screen, and not just before its delayed Enter either.
-//! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the external editor draws
-//!   [`MODIFY_MARKER`] instead: that keeps a wait open and never starts one. A dialog that never draws the line holds its wait
-//!   until a hook record arrives.
+//! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the external editor draws `MODIFY_MARKER`
+//!   instead: that keeps a wait open and never starts one. A dialog that never draws the line holds a hook-started wait until a hook
+//!   record arrives.
 //!
-//! The text is Gemini's, so this is pinned to the tested range ([`TESTED_GEMINI`]); outside it nothing here is used and the hooks
-//! alone drive the status. Gemini 0.36 to 0.40 still contain the line, but are not tested.
+//! The wait logic reads Gemini's text and payloads, so it is pinned to the versions read from source ([`TESTED_GEMINI`]); outside
+//! them the hooks alone drive the status. The screen is read only when the tab printed something since the last read.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crate::agent_permissions::AgentPermissionMode;
+use crate::gemini_screen::{dialog_view, DialogView};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState, TerminalTab, NEEDS_APPROVAL_LABEL};
 
-/// The last option of every Gemini tool-confirmation dialog that has options.
-pub const DIALOG_MARKER: &str = "No, suggest changes (esc)";
-
-/// What Gemini draws in place of the options while an edit is open in the external editor (`ToolConfirmationMessage.tsx:708-710`).
-pub const MODIFY_MARKER: &str = "Save and close external editor to continue";
-
-/// The Gemini CLI `(major, minor)` whose dialog text was read and tested: 0.35.x.
-pub const TESTED_GEMINI: (u32, u32) = (0, 35);
+/// The Gemini CLI `(major, minor)` versions whose dialog text, hook events and payloads were read from source: 0.35.x and 0.65.x.
+/// The versions between them were not read, so the wait logic leaves them to the hooks. The composer's guard does not look at it.
+pub const TESTED_GEMINI: [(u32, u32); 2] = [(0, 35), (0, 65)];
 
 /// How long the marker must stay off the screen before a wait ends. Gemini redraws the dialog on every answer, so a single frame
 /// without it is not an answer.
 pub const GONE_DEBOUNCE: Duration = Duration::from_millis(250);
-
-/// What a Gemini tab's screen shows of a confirmation dialog.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DialogView {
-    None,
-    /// The options are on screen.
-    Options,
-    /// An edit is open in the external editor.
-    Modifying,
-}
 
 /// Per-tab state of the screen reading.
 #[derive(Debug, Default)]
@@ -56,12 +45,17 @@ pub struct GeminiTabState {
     /// The dialog has been on screen since the wait began.
     marker_seen: bool,
     gone_since: Option<Instant>,
+    /// The screen revision (`TerminalTab::screen_rev`) of the last read, and what it showed.
+    read: Option<(u64, DialogView)>,
+    /// How many times the sync read the screen, since the last time the tab was neither idle nor waiting (tests only).
+    #[cfg(test)]
+    pub reads: usize,
 }
 
 /// True when `version` (as `gemini --version` prints it) is in [`TESTED_GEMINI`].
 pub fn version_in_range(version: Option<&str>) -> bool {
     let mut parts = version.unwrap_or_default().trim().split('.').map(|part| part.parse::<u32>().ok());
-    (parts.next().flatten(), parts.next().flatten()) == (Some(TESTED_GEMINI.0), Some(TESTED_GEMINI.1))
+    matches!((parts.next().flatten(), parts.next().flatten()), (Some(major), Some(minor)) if TESTED_GEMINI.contains(&(major, minor)))
 }
 
 #[cfg(test)]
@@ -91,27 +85,10 @@ fn installed_version() -> Option<String> {
     crate::agent_session_failure::installed_cli_version(AgentCliPreset::Gemini)
 }
 
-/// What `parser`'s screen shows. Read at scrollback 0 whatever the user scrolled to, and put back under the same lock.
-pub fn dialog_view(parser: &mut vt100::Parser) -> DialogView {
-    let scrolled = parser.screen().scrollback();
-    parser.set_scrollback(0);
-    let text = parser.screen().contents();
-    parser.set_scrollback(scrolled);
-    // Words only: a narrow panel wraps the label across lines and draws border characters between the pieces.
-    let words: Vec<&str> = text.split(|c: char| c.is_whitespace() || ('\u{2500}'..='\u{257F}').contains(&c)).filter(|word| !word.is_empty()).collect();
-    let flat = words.join(" ");
-    if flat.contains(DIALOG_MARKER) {
-        DialogView::Options
-    } else if flat.contains(MODIFY_MARKER) {
-        DialogView::Modifying
-    } else {
-        DialogView::None
-    }
-}
-
 impl TerminalTab {
-    fn gemini_dialog_applies(&self) -> bool {
-        self.spawn_preset == AgentCliPreset::Gemini && self.permission_mode == AgentPermissionMode::Ask && version_in_range(installed_version().as_deref())
+    /// A Gemini tab in Ask mode: the one whose dialogs the composer guards.
+    fn is_gemini_ask_tab(&self) -> bool {
+        self.spawn_preset == AgentCliPreset::Gemini && self.permission_mode == AgentPermissionMode::Ask
     }
 
     fn gemini_dialog_view(&self) -> DialogView {
@@ -121,10 +98,10 @@ impl TerminalTab {
         }
     }
 
-    /// True while a Gemini tab in Ask mode shows a confirmation dialog on its screen, whatever its status says. The composer sends
-    /// nothing into such a tab: a pasted prompt could select one of the dialog's options.
+    /// True while a Gemini tab in Ask mode shows a confirmation dialog on its screen, whatever its status and version say. The
+    /// composer sends nothing into such a tab: a pasted prompt could select one of the dialog's options.
     pub fn gemini_dialog_open(&self) -> bool {
-        self.gemini_dialog_applies() && self.gemini_dialog_view() != DialogView::None
+        self.is_gemini_ask_tab() && self.gemini_dialog_view() != DialogView::None
     }
 
     /// A key reached this tab's terminal. It never ends a wait: Gemini may still show another dialog. It restarts the quiet
@@ -133,11 +110,30 @@ impl TerminalTab {
         self.gemini.gone_since = None;
     }
 
-    fn sync_gemini_dialog(&mut self, in_range: bool) {
-        if self.spawn_preset != AgentCliPreset::Gemini || self.permission_mode != AgentPermissionMode::Ask || !in_range || !self.is_alive() {
-            return;
+    /// The tab's dialog view, read again only when the tab printed or resized since the last read.
+    fn gemini_dialog_view_cached(&mut self) -> DialogView {
+        let revision = self.screen_rev.load(Ordering::Acquire);
+        if let Some((read_at, view)) = self.gemini.read {
+            if read_at == revision {
+                return view;
+            }
         }
         let view = self.gemini_dialog_view();
+        self.gemini.read = Some((revision, view));
+        #[cfg(test)]
+        {
+            self.gemini.reads += 1;
+        }
+        view
+    }
+
+    fn sync_gemini_dialog(&mut self, in_range: bool) {
+        if !self.is_gemini_ask_tab() || !in_range || !self.is_alive() {
+            return;
+        }
+        // Only a tab that is idle or waiting has a use for the view.
+        let reads = self.agent_status.lock().is_ok_and(|status| matches!(&*status, AgentTabStatus::Idle | AgentTabStatus::WaitingForInput(_)));
+        let view = if reads { self.gemini_dialog_view_cached() } else { DialogView::None };
         let Ok(mut status) = self.agent_status.lock() else { return };
         let gemini = &mut self.gemini;
         match &*status {
@@ -172,7 +168,7 @@ impl TerminalState {
     /// thread feeds a tab's screen whether or not it is painted.
     pub fn sync_gemini_dialogs(&mut self) {
         // The installed version is only looked up when a Gemini Ask tab is open: a window without one never probes the CLI.
-        if !self.tabs.iter().any(|tab| tab.spawn_preset == AgentCliPreset::Gemini && tab.permission_mode == AgentPermissionMode::Ask) {
+        if !self.tabs.iter().any(TerminalTab::is_gemini_ask_tab) {
             return;
         }
         let in_range = version_in_range(installed_version().as_deref());

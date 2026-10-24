@@ -15,14 +15,12 @@ cat "${GEMINI_CLI_SYSTEM_DEFAULTS_PATH:-/dev/null}" > "$DESIGNOS_SESSION_DIR/def
 sleep 30
 "#;
 
-/// Stub `gemini` for a tab with no hooks: prints the options of Gemini's confirmation dialog, then a Braille spinner.
-pub(super) const STUB_PROMPT_THEN_SPINNER: &str = r#"#!/bin/sh
+/// Stub `gemini` that prints the options of a confirmation dialog through its terminal, as the CLI would.
+pub(super) const STUB_DIALOG: &str = r#"#!/bin/sh
 trap '' INT
 printf '%s' "${GEMINI_CLI_SYSTEM_DEFAULTS_PATH-unset}" > "$DESIGNOS_SESSION_DIR/defaults-env.txt"
 sleep 0.4
-printf 'Allow execution of: rm? 1. Allow once 2. No, suggest changes (esc)\r\n'
-sleep 0.6
-printf '\342\240\213 Thinking...\r\n'
+printf '  1. Allow once\r\n  2. No, suggest changes (esc)\r\n'
 printf 'ready' > "$DESIGNOS_SESSION_DIR/printed.txt"
 sleep 30
 "#;
@@ -67,6 +65,8 @@ pub(super) fn dialog_screen(index: usize, total: usize) -> String {
 /// Draws `text` on tab `tab`'s screen, as if the CLI had printed it.
 pub(super) fn show(st: &mut TerminalState, tab: usize, text: &str) {
     st.tabs[tab].parser.lock().unwrap().process(text.as_bytes());
+    // What the reader thread does after it has fed a chunk to the screen.
+    st.tabs[tab].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
 }
 
 pub(super) const ASK: AgentPermissionMode = AgentPermissionMode::Ask;

@@ -539,6 +539,9 @@ pub struct TerminalTab {
     pub pty_waiting_heuristic: Arc<std::sync::atomic::AtomicBool>,
     /// What a Gemini CLI tab's confirmation dialog on screen says about its wait (`gemini_dialog`).
     pub gemini: crate::gemini_dialog::GeminiTabState,
+    /// Bumped each time the screen changes: after the reader thread has fed a chunk to `parser`, and on a resize. A reader of the
+    /// screen that saw the same number last time has nothing new to read (`gemini_dialog`).
+    pub screen_rev: Arc<std::sync::atomic::AtomicU64>,
     /// Timestamp when the child process was first observed dead while waiting for `reader_eof`.
     pub exited_at: Option<std::time::Instant>,
     /// Per-tab ledger of agent canvas turns (`#677`).
@@ -714,6 +717,7 @@ impl TerminalTab {
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
         let last_output_at = Arc::new(Mutex::new(None));
         let reader_eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let screen_rev = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let pty_waiting_heuristic = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -723,6 +727,7 @@ impl TerminalTab {
         let status_bg = Arc::clone(&agent_status);
         let output_at_bg = Arc::clone(&last_output_at);
         let eof_bg = Arc::clone(&reader_eof);
+        let screen_rev_bg = Arc::clone(&screen_rev);
         let waiting_heuristic_bg = Arc::clone(&pty_waiting_heuristic);
         let slave_bg = Arc::downgrade(&slave);
         let stop_bg = Arc::clone(&stop_in_flight);
@@ -773,6 +778,8 @@ impl TerminalTab {
                                     p.process(clean_chunk.as_bytes());
                                 }
                             }
+                            // After the screen has the chunk: a reader that sees the new number reads a screen that has it.
+                            screen_rev_bg.fetch_add(1, std::sync::atomic::Ordering::Release);
                             if let Ok(mut log) = log_bg.lock() {
                                 log.push_str(&clean_chunk);
                                 if log.len() > MAX_RAW_LOG_BYTES {
@@ -833,6 +840,7 @@ impl TerminalTab {
             reader_eof,
             pty_waiting_heuristic,
             gemini: Default::default(),
+            screen_rev,
             exited_at: None,
             turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),
             unread: false,
@@ -978,6 +986,7 @@ impl TerminalTab {
         if let Ok(mut p) = self.parser.lock() {
             p.set_size(rows, cols);
         }
+        self.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 
     /// Writes raw bytes directly to the PTY master stdin, returning any I/O error.
@@ -3591,6 +3600,7 @@ impl TerminalState {
                 if let Ok(mut parser) = tab.parser.lock() {
                     parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
                 }
+                tab.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
                 Self::withdraw_tab_approvals(tab);
                 if let Ok(mut st) = tab.agent_status.lock() {
                     if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
@@ -6418,6 +6428,9 @@ mod gemini_dialog_tests;
 
 #[cfg(all(test, unix))]
 mod gemini_composer_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_narrow_tests;
 
 #[cfg(all(test, unix))]
 mod gemini_range_tests;

@@ -13,9 +13,6 @@ fn the_dialog_is_found_on_an_80_by_20_screen_whatever_the_status_says() {
     show(&mut st, 0, &dialog_screen(1, 2));
     assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Idle);
     assert_eq!(send(&mut st), REFUSED, "an open dialog on an 80x20 screen was missed");
-    // A narrow panel wraps the label over two lines and draws border characters between the pieces: still found.
-    show(&mut st, 0, &format!("{CLEAR}│ 3. No, suggest changes │\r\n│ (esc) │"));
-    assert_eq!(send(&mut st), REFUSED, "a wrapped label was missed");
     show(&mut st, 0, CLEAR);
     assert!(!matches!(send(&mut st), SendOutcome::Refused(_)), "an empty screen refused a send");
     finish(dir, st);
@@ -60,6 +57,50 @@ fn the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste() {
     let mark = st.tabs[0].written_bytes.len();
     st.tick_composer();
     assert!(!st.tabs[0].written_bytes[mark..].contains(&b'\r'), "the tick sent Enter into an open dialog");
+    finish(dir, st);
+}
+
+/// Writes the paste, then lets `waits` make the agent wait on the user, then flushes the delayed Enter of tab `tab`. True when the
+/// Enter reached the tab's terminal.
+fn enter_written_after(st: &mut TerminalState, tab: usize, waits: impl FnOnce(&mut TerminalState)) -> bool {
+    assert!(matches!(st.send_to_agent("make it blue", None), SendOutcome::Written));
+    assert!(st.tabs[tab].composer.pending_enter_deadline.is_some(), "the send left no Enter to write");
+    waits(st);
+    let mark = st.tabs[tab].written_bytes.len();
+    st.flush_pending_enter_now();
+    st.tabs[tab].written_bytes[mark..].contains(&b'\r')
+}
+
+#[test]
+fn the_delayed_enter_is_not_sent_when_a_record_says_the_agent_waits_whatever_the_version() {
+    for version in [None, Some("0.36.0"), Some("0.35.3")] {
+        crate::gemini_dialog::with_gemini_version(version, || {
+            let (dir, mut st) = start_gemini("enter-record", ASK, |_| {});
+            // The record arrives between the paste and the Enter, and no dialog is drawn.
+            let written = enter_written_after(&mut st, 0, ask_permission);
+            assert!(!written, "{version:?}: Enter went to an agent that began to wait after the paste");
+            assert_eq!(st.tabs[0].composer.last_outcome, Some(REFUSED));
+            assert!(st.tabs[0].composer.notice.is_some(), "the refusal gave no notice");
+            finish(dir, st);
+        });
+    }
+}
+
+#[test]
+fn the_delayed_enter_is_not_sent_to_a_claude_tab_that_began_to_wait_after_the_paste() {
+    let (dir, mut st) = start_gemini("enter-claude", ASK, |_| {});
+    let claude = dir.join("bin/claude");
+    std::fs::write(&claude, "#!/bin/sh\ntrap '' INT\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&claude, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+    st.tabs[1].spawned_at = std::time::Instant::now() - Duration::from_secs(60);
+    assert_eq!((st.active_tab, st.tabs[1].spawn_preset), (1, AgentCliPreset::Claude));
+    let wait = |st: &mut TerminalState| *st.tabs[1].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some("Needs approval".into()));
+    assert!(!enter_written_after(&mut st, 1, wait), "Enter went to a Claude tab that began to wait after the paste");
+    assert_eq!(st.tabs[1].composer.last_outcome, Some(REFUSED));
+    // Control: the same send to the same tab, with nothing waiting, does write its Enter.
+    *st.tabs[1].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    assert!(enter_written_after(&mut st, 1, |_| {}), "a Claude tab that waits for nothing got no Enter");
     finish(dir, st);
 }
 

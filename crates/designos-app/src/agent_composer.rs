@@ -376,13 +376,20 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
     tab.spawned_at.elapsed() >= crate::agent_start_failure::START_FAILURE_WINDOW
 }
 
-/// Writes the delayed `\r` that submits a pasted prompt. A Gemini dialog that opened after the paste gets no Enter: it would pick
-/// the highlighted option ("Allow once") for a tool the user never answered. The prompt stays pasted for the user to send.
+/// True when nothing may be written into `tab` now because its agent waits on the user: its status says so, for any CLI, or a
+/// Gemini dialog is on its screen, whatever its status says. A pasted prompt or an Enter could answer the question.
+fn waits_on_the_user(tab: &TerminalTab) -> bool {
+    tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_))) || tab.gemini_dialog_open()
+}
+
+/// Writes the delayed `\r` that submits a pasted prompt. It applies the rule of the send, later: a tab that began to wait on the
+/// user after the paste (a record said so, or a Gemini dialog opened) gets no Enter, which would answer the question; for Gemini
+/// it would pick the highlighted "Allow once". The prompt stays pasted for the user to send.
 fn write_delayed_enter(tab: &mut TerminalTab) {
     if !tab.accepts_agent_input() {
         return;
     }
-    if tab.gemini_dialog_open() {
+    if waits_on_the_user(tab) {
         tab.composer.awaiting_confirm_since = None;
         tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
         tab.composer.notice = Some(RefuseReason::Permission.message().to_string());
@@ -689,9 +696,7 @@ impl TerminalState {
                 return SendOutcome::Refused(RefuseReason::NotReady);
             }
             // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
-            let waiting_permission =
-                tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_))) || tab.gemini_dialog_open();
-            if waiting_permission {
+            if waits_on_the_user(tab) {
                 let msg = RefuseReason::Permission.message().to_string();
                 tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
                 tab.composer.notice = Some(msg.clone());
