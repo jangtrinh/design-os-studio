@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -74,20 +75,28 @@ pub fn tab_shell(builder: &CommandBuilder) -> PathBuf {
 }
 
 enum Slot {
-    Capturing,
+    /// The capture with this id is running.
+    Capturing(u64),
     Ready(Arc<TabEnv>),
     /// The capture failed: the builder's environment is used until `retry_after` has passed since `since`, then a new
-    /// capture starts (`retrying`) while this one keeps serving.
+    /// capture starts (`retrying`, with its id) while this one keeps serving.
     Fallback {
         env: Arc<TabEnv>,
         since: Instant,
-        retrying: bool,
+        retrying: Option<u64>,
     },
 }
 
 fn slots() -> MutexGuard<'static, HashMap<String, Slot>> {
     static SLOTS: OnceLock<Mutex<HashMap<String, Slot>>> = OnceLock::new();
     SLOTS.get_or_init(Mutex::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// A new id for each capture. A capture stores its result only while its id is still the one in the session's slot, so a
+/// session that was forgotten (or forgotten and started again) while it ran keeps nothing from it.
+fn next_capture_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 pub enum EnvLookup {
@@ -108,12 +117,13 @@ pub fn lookup(session: &str, builder: &CommandBuilder, shell: &Path) -> EnvLooku
 /// [`lookup`] with the capture timeout and the retry delay given.
 pub fn lookup_with(session: &str, builder: &CommandBuilder, shell: &Path, timeout: Duration, retry_after: Duration) -> EnvLookup {
     let mut guard = slots();
+    let id = next_capture_id();
     let serving = match guard.get_mut(session) {
         Some(Slot::Ready(env)) => return EnvLookup::Ready(env.clone()),
-        Some(Slot::Capturing) => return EnvLookup::Pending,
-        Some(Slot::Fallback { env, since, retrying }) if *retrying || since.elapsed() < retry_after => return EnvLookup::Ready(env.clone()),
+        Some(Slot::Capturing(_)) => return EnvLookup::Pending,
+        Some(Slot::Fallback { env, since, retrying }) if retrying.is_some() || since.elapsed() < retry_after => return EnvLookup::Ready(env.clone()),
         Some(Slot::Fallback { env, retrying, .. }) => {
-            *retrying = true;
+            *retrying = Some(id);
             Some(env.clone())
         }
         None => None,
@@ -122,19 +132,27 @@ pub fn lookup_with(session: &str, builder: &CommandBuilder, shell: &Path, timeou
     let spawned = std::thread::Builder::new().name("codex-env-capture".into()).spawn(move || {
         let slot = match capture(&owned, &shell, timeout) {
             Some(env) => Slot::Ready(Arc::new(env)),
-            None => Slot::Fallback { env: Arc::new(TabEnv::from_builder(&owned)), since: Instant::now(), retrying: false },
+            None => Slot::Fallback { env: Arc::new(TabEnv::from_builder(&owned)), since: Instant::now(), retrying: None },
         };
-        slots().insert(key, slot);
+        let mut guard = slots();
+        let mine = match guard.get(&key) {
+            Some(Slot::Capturing(running)) => *running == id,
+            Some(Slot::Fallback { retrying, .. }) => *retrying == Some(id),
+            _ => false,
+        };
+        if mine {
+            guard.insert(key, slot);
+        }
     });
     match (spawned.is_ok(), serving) {
         (true, Some(env)) => EnvLookup::Ready(env),
         (true, None) => {
-            guard.insert(session.to_string(), Slot::Capturing);
+            guard.insert(session.to_string(), Slot::Capturing(id));
             EnvLookup::Pending
         }
         (false, serving) => {
             if let Some(Slot::Fallback { retrying, .. }) = guard.get_mut(session) {
-                *retrying = false;
+                *retrying = None;
             }
             EnvLookup::Ready(serving.unwrap_or_else(|| Arc::new(TabEnv::from_builder(builder))))
         }

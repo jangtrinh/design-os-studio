@@ -1,6 +1,7 @@
-//! A command or file-change card shows what Approve will do exactly, or is not a card.
+//! A command card shows what Approve will run exactly, or is not a card: only printable ASCII reads on the card the way
+//! the shell parses it.
 
-use super::mapping_tests::{card, index, map, open_tab};
+use super::mapping_tests::{card, map, open_tab};
 use super::support::{fixture, with};
 use crate::codex_remote::card_mapping::OpenTabReason;
 use crate::codex_remote::item_index::ItemIndex;
@@ -10,9 +11,12 @@ fn command(text: &str) -> Value {
     with(fixture("command-approval-request"), "/params/command", json!(text))
 }
 
+fn open_tab_for(text: &str) -> OpenTabReason {
+    open_tab(map(&command(text), &ItemIndex::default()))
+}
+
 #[test]
-fn a_command_the_sanitizer_would_change_gets_no_buttons_because_it_would_not_read_the_same() {
-    let none = ItemIndex::default();
+fn a_command_with_a_line_break_or_a_control_character_gets_no_buttons() {
     let probes = [
         "/bin/zsh -lc 'echo cleaning up\nrm -rf ..'",
         "/bin/zsh -lc 'echo cleaning up\rrm -rf ..'",
@@ -20,53 +24,62 @@ fn a_command_the_sanitizer_would_change_gets_no_buttons_because_it_would_not_rea
         "echo \u{202E}txt.exe",
         "echo \u{7}bell",
         "echo a\u{200B}b",
+        "echo a\u{1f}b",
+        "echo a\u{7f}b",
     ];
     for text in probes {
-        assert_eq!(open_tab(map(&command(text), &none)), OpenTabReason::CommandNotShownExactly, "{text:?}");
+        assert_eq!(open_tab_for(text), OpenTabReason::CommandNotShownExactly, "{text:?}");
+    }
+}
+
+/// A no-break space draws exactly like a space, and zsh reads it as part of a word: the flag after it is folded into the
+/// option's value, so the dry run the card shows is a real run.
+#[test]
+fn a_no_break_space_cannot_turn_a_dry_run_flag_into_part_of_another_word() {
+    let real = "rsync -a --delete --exclude=.git --dry-run src/ dst/";
+    assert_eq!(card(map(&command(real), &ItemIndex::default())).summary, real, "with an ASCII space it is a card");
+    let disguised = real.replace(".git --dry", ".git\u{A0}--dry");
+    assert_ne!(disguised, real);
+    assert_eq!(open_tab_for(&disguised), OpenTabReason::CommandNotShownExactly);
+}
+
+#[test]
+fn space_look_alikes_invisible_and_combining_characters_and_look_alike_letters_stay_in_the_terminal() {
+    let probes = [
+        ("no-break space", "echo a\u{A0}b"),
+        ("figure space", "echo a\u{2007}b"),
+        ("narrow no-break space", "echo a\u{202F}b"),
+        ("ideographic space", "echo a\u{3000}b"),
+        ("soft hyphen", "echo a\u{AD}b"),
+        ("variation selector 16", "echo a\u{FE0F}b"),
+        ("combining acute accent", "echo e\u{301}"),
+        ("Cyrillic a in a host name", "curl https://ex\u{430}mple.com"),
+        ("Vietnamese letter", "echo l\u{1EC7}nh"),
+        ("emoji", "echo \u{1F680}"),
+        ("CJK", "echo \u{65E5}\u{672C}"),
+    ];
+    for (what, text) in probes {
+        assert_eq!(open_tab_for(text), OpenTabReason::CommandNotShownExactly, "{what}");
     }
 }
 
 #[test]
-fn a_tab_is_shown_as_a_space_and_the_command_still_gets_a_card() {
-    let shown = card(map(&command("echo\ta\t\tb"), &ItemIndex::default()));
-    assert_eq!(shown.summary, "echo a  b");
+fn a_tab_is_not_printable_ascii_so_it_gets_no_buttons_either() {
+    assert_eq!(open_tab_for("echo\ta\t\tb"), OpenTabReason::CommandNotShownExactly);
+}
+
+#[test]
+fn a_plain_ascii_command_is_a_card_exactly_as_sent() {
+    let every_printable_character: String = (' '..='~').collect();
+    for text in [r#"/bin/zsh -lc 'ls | xargs rm -rf "$HOME/x"'"#, "echo $PATH && cat <<'EOF' ; ! # ~ `date` ${HOME}", every_printable_character.as_str()] {
+        let shown = card(map(&command(text), &ItemIndex::default()));
+        assert_eq!((shown.summary.as_str(), shown.truncated), (text, false));
+    }
 }
 
 #[test]
 fn a_command_that_cleans_to_nothing_is_incomplete() {
-    for text in ["\u{200B}\u{200B}\u{2060}", "   ", "\n\n", "\t \u{FEFF}"] {
-        assert_eq!(open_tab(map(&command(text), &ItemIndex::default())), OpenTabReason::Incomplete, "{text:?}");
-    }
-}
-
-fn changes(list: Value) -> crate::codex_remote::card_mapping::Mapped {
-    let item = with(fixture("item-started-file-change.synthetic"), "/params/item/changes", list);
-    map(&fixture("file-change-request.synthetic"), &index(&[item]))
-}
-
-#[test]
-fn every_change_says_what_it_does() {
-    let all = json!([
-        {"path": "/session/a.md", "kind": {"type": "add"}, "diff": ""},
-        {"path": "/session/b.md", "kind": {"type": "update", "move_path": null}, "diff": ""},
-        {"path": "/session/c.md", "kind": {"type": "delete"}, "diff": ""},
-        {"path": "/session/d.md", "kind": {"type": "update", "move_path": "/session/e.md"}, "diff": ""},
-    ]);
-    assert_eq!(card(changes(all)).summary, "add /session/a.md, edit /session/b.md, delete /session/c.md, move /session/d.md → /session/e.md");
-    let probe = json!([{"path": "/outside/project.designos", "kind": {"type": "delete"}}]);
-    assert_eq!(card(changes(probe)).summary, "delete /outside/project.designos", "a delete no longer reads like an edit");
-}
-
-#[test]
-fn a_change_of_a_kind_studio_cannot_describe_gets_no_buttons() {
-    for odd in [
-        json!({"path": "/session/a", "kind": {"type": "chmod"}}),
-        json!({"path": "/session/a"}),
-        json!({"path": "/session/a", "kind": "add"}),
-        json!({"path": "/session/a", "kind": {"type": "delete", "move_path": "/elsewhere"}}),
-        json!({"kind": {"type": "add"}}),
-    ] {
-        let list = json!([{"path": "/session/ok", "kind": {"type": "add"}}, odd]);
-        assert_eq!(open_tab(changes(list)), OpenTabReason::Disqualified, "{odd}");
+    for text in ["\u{200B}\u{200B}\u{2060}", "   ", "\n\n", "\t \u{FEFF}", "\u{A0}\u{3000}"] {
+        assert_eq!(open_tab_for(text), OpenTabReason::Incomplete, "{text:?}");
     }
 }

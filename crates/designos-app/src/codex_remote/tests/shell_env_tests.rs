@@ -101,3 +101,20 @@ fn the_lookup_a_tab_makes_waits_thirty_seconds_before_it_asks_a_failing_shell_ag
     assert_eq!(std::fs::read_to_string(&count).map_or(0, |text| text.lines().count()), 1, "not asked again within the delay");
     forget(&session);
 }
+
+#[test]
+fn a_session_forgotten_while_its_capture_runs_keeps_no_result() {
+    let dir = scratch_dir("q4");
+    let (go, done) = (dir.join("go"), dir.join("done"));
+    let wait = format!("while [ ! -f {} ]; do sleep 0.05; done", go.display());
+    let shell = stub_shell(&dir, &wait, &format!("echo done >> {}", done.display()));
+    let session = format!("sess-{}-forgotten", std::process::id());
+    assert!(matches!(lookup_with(&session, &shell_builder(), &shell, LONG, LONG), EnvLookup::Pending), "the capture starts and waits");
+    forget(&session);
+    std::fs::write(&go, "").unwrap();
+    assert!(wait_until(LONG, || done.exists()), "the capture ran to its end");
+    std::thread::sleep(Duration::from_millis(500));
+    let again = lookup_with(&session, &shell_builder(), &shell, LONG, LONG);
+    assert!(matches!(again, EnvLookup::Pending), "nothing was stored for the session that ended: a new capture starts");
+    forget(&session);
+}

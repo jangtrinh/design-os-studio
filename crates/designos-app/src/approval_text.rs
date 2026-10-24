@@ -3,6 +3,11 @@
 //! What a card shows must be what the user is approving. Control characters and invisible format characters (bidi
 //! controls, zero-width marks, line and paragraph separators) can reorder text or pad it toward the length limit while
 //! looking short, so they become spaces; then the text is cut at the shared limit and the cut is reported.
+//!
+//! Some text cannot be shown at all: a space look-alike draws as a space but is part of a word, an invisible character
+//! draws as nothing, a combining mark can vanish, a look-alike letter reads as another. [`reads_as_ascii_exactly`] (a
+//! command) and [`reads_as_it_is`] (a file path) say whether a card can show the text as it is; when it cannot, the
+//! request goes to the terminal, which shows it in full.
 // The Claude poll path (`agent_permissions.rs`) adopts this in the terminal integration; until then only the Codex
 // module (macOS) calls it. Remove this allow when the Claude path does.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -19,10 +24,50 @@ pub fn clean(raw: &str) -> String {
     raw.chars().map(|c| if is_hidden(c) { ' ' } else { c }).collect()
 }
 
-/// `raw` reads the same after [`clean`]: it changes nothing but tabs, which show as spaces. A command that does not may
-/// have a line break or an invisible character that decides what runs.
-pub fn is_shown_exactly(raw: &str) -> bool {
-    raw.chars().zip(clean(raw).chars()).all(|(before, after)| before == after || before == '\t')
+/// `raw` is printable ASCII only (U+0020 to U+007E). That is the one kind of text that reads on a card exactly as the
+/// shell parses it: a no-break space looks like a space and is part of a word, so `--exclude=.git<NBSP>--dry-run` is one
+/// argument that looks like two; soft hyphens and variation selectors draw as nothing; combining marks can vanish; Cyrillic
+/// or Vietnamese letters can pass for Latin ones; a tab or a line break is not one space. Empty text passes (blank text is
+/// the caller's own case).
+pub fn reads_as_ascii_exactly(raw: &str) -> bool {
+    raw.chars().all(|c| matches!(c, ' '..='~'))
+}
+
+/// An invisible character: default-ignorable (they draw as nothing or reorder text) or a blank-drawing symbol.
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{2800}' // Braille blank: draws as a space
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}'
+    )
+}
+
+/// A combining mark: some fonts draw it as nothing, so the letter it belongs to shows without it.
+fn is_combining_mark(c: char) -> bool {
+    matches!(c, '\u{0300}'..='\u{036F}' | '\u{1AB0}'..='\u{1AFF}' | '\u{1DC0}'..='\u{1DFF}' | '\u{20D0}'..='\u{20FF}' | '\u{FE20}'..='\u{FE2F}')
+}
+
+/// `raw` (a file path) reads on a card as it is: no control character, no whitespace but U+0020, no invisible character
+/// and no combining mark. Letters of any script pass when they are precomposed (NFC, as Vietnamese file names usually are);
+/// the same name decomposed (NFD) does not, because its accents can vanish.
+pub fn reads_as_it_is(raw: &str) -> bool {
+    raw.chars().all(|c| !(is_hidden(c) || is_invisible(c) || is_combining_mark(c) || (c.is_whitespace() && c != ' ')))
 }
 
 /// [`clean`], then cut at [`MAX_INPUT_SUMMARY_CHARS`] characters. The flag says the text was cut.
@@ -47,10 +92,55 @@ mod tests {
     }
 
     #[test]
-    fn only_tabs_may_change_for_the_text_to_count_as_shown_exactly() {
-        assert!(is_shown_exactly("echo a\tb  c") && is_shown_exactly("") && is_shown_exactly("日本語 é"));
-        for changed in ["a\nb", "a\rb", "a\u{7}b", "a\u{2028}b", "a\u{202E}b", "a\u{200B}b", "a\u{FEFF}"] {
-            assert!(!is_shown_exactly(changed), "{changed:?}");
+    fn only_printable_ascii_reads_as_ascii_exactly() {
+        assert!(reads_as_ascii_exactly("") && reads_as_ascii_exactly(&(' '..='~').collect::<String>()));
+        for other in ["a\tb", "a\nb", "a\rb", "a\u{1f}b", "a\u{7f}b", "a\u{a0}b", "\u{e9}", "\u{65e5}\u{672c}", "a\u{200b}b", "\u{1f680}"] {
+            assert!(!reads_as_ascii_exactly(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_path_reads_as_it_is_unless_a_character_hides_or_looks_like_a_space_or_stacks_on_another() {
+        for good in ["", "/a b/c-d_1.md", "/T\u{e0}i li\u{1ec7}u/\u{111}\u{1a1}n h\u{e0}ng.md", "/\u{65e5}\u{672c}\u{8a9e}/\u{e9}.txt"] {
+            assert!(reads_as_it_is(good), "{good:?}");
+        }
+        let bad = [
+            "a\nb",
+            "a\tb",
+            "a\u{7}b",
+            "a\u{85}b",
+            "a\u{a0}b",
+            "a\u{1680}b",
+            "a\u{2003}b",
+            "a\u{202f}b",
+            "a\u{3000}b",
+            "a\u{2028}b",
+            "a\u{2029}b",
+            "a\u{ad}b",
+            "a\u{34f}b",
+            "a\u{61c}b",
+            "a\u{115f}b",
+            "a\u{17b4}b",
+            "a\u{180e}b",
+            "a\u{200b}b",
+            "a\u{202e}b",
+            "a\u{2066}b",
+            "a\u{2800}b",
+            "a\u{3164}b",
+            "a\u{fe0f}b",
+            "a\u{feff}",
+            "a\u{ffa0}b",
+            "a\u{1d173}b",
+            "a\u{e0041}b",
+            "e\u{301}",
+            "e\u{323}\u{302}",
+            "a\u{1ab0}",
+            "a\u{1dc0}",
+            "a\u{20d0}",
+            "a\u{fe20}",
+        ];
+        for text in bad {
+            assert!(!reads_as_it_is(text), "{text:?}");
         }
     }
 
