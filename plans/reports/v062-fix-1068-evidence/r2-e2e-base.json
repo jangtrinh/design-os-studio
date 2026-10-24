@@ -1,0 +1,159 @@
+[
+ {
+  "case": "append via link at doc-patch.jsonl",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 770B/7d42347502",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "overwrite via canvas.tmp-<pid>",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 514B/a75637c94c",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "overwrite via doc-sync.tmp-<pid>",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 514B/a75637c94c",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "overwrite via session-options.tmp-<pid>",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 104B/0e793ab609",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "truncate+append via link at idempotency-ledger.jsonl",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 1055B/e6ac161b10",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "create via dangling link at doc-patch.jsonl",
+  "verdict": "FAIL",
+  "detail": "victim absent -> 748B/3bcb42d87f",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "append via hard link at doc-patch.jsonl",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 770B/7dbfd22fe4; the expected sentence (second-name-sentence) was not told",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "read through link at mcp-config.json",
+  "verdict": "FAIL",
+  "detail": "tools listed=1 (1 means the victim's JSON was read through the link)",
+  "replies": {
+   "new_document": "error: Tool 'designos_new_document' is disabled in this session.",
+   "get_document": "ok",
+   "create_node_1": "error: Tool 'designos_create_node' is disabled in this session.",
+   "create_node_2": "error: Tool 'designos_create_node' is disabled in this session."
+  }
+ },
+ {
+  "case": "FIFO at doc-patch.jsonl (write name)",
+  "verdict": "FAIL",
+  "detail": "HANG (killed after 4s)",
+  "replies": {
+   "initialize": "HANG"
+  }
+ },
+ {
+  "case": "FIFO at context.json (read name)",
+  "verdict": "FAIL",
+  "detail": "HANG (killed after 4s)",
+  "replies": {
+   "initialize": "HANG"
+  }
+ },
+ {
+  "case": "read through hard link at canvas.designos",
+  "verdict": "FAIL",
+  "detail": "document name shown: 'VictimDocName' (VictimDocName means it was read through the second name); the expected sentence (second-name-sentence) was not told",
+  "replies": {
+   "get_document": "ok"
+  }
+ },
+ {
+  "case": "0444 file at doc-patch.jsonl",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9; the expected sentence (cant-sentence) was not told",
+  "replies": {
+   "new_document": "error: Created the document, but the editor was not told, so it still shows t",
+   "get_document": "ok",
+   "create_node_1": "error: The open editor could not receive this edit, so it was undone: the edi",
+   "create_node_2": "error: The open editor could not receive this edit, so it was undone: the edi"
+  }
+ },
+ {
+  "case": "folder at canvas.designos",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9; the expected sentence (not-plain-sentence) was not told",
+  "replies": {
+   "new_document": "error: Created the document, but the editor was not told, so it still shows t",
+   "get_document": "ok",
+   "create_node_1": "error: The open editor could not receive this edit, so it was undone: the edi",
+   "create_node_2": "error: The open editor could not receive this edit, so it was undone: the edi"
+  }
+ },
+ {
+  "case": "socket at context.json",
+  "verdict": "FAIL",
+  "detail": "returned in 0.02s; the expected sentence (not-plain-sentence) was not told",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "warning in the model's text (link at session-options.json, get_metadata first)",
+  "verdict": "FAIL",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9; the expected sentence (link-sentence-in-text) was not told",
+  "replies": {
+   "get_metadata": "ok",
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ }
+]
