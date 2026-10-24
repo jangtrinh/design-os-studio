@@ -5040,13 +5040,13 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("PATH", overrides);
         return;
     }
-    // A test's agent tab finds no CLI but the stubs the test put in `path_prepend`: not the user's `~/.local/bin`, nor Homebrew's,
-    // nor whatever `PATH` the test process was started with. The system folders stay, for the stubs' own `sleep` and `cat`.
+    // A test's agent tab finds no real agent CLI: it gets the stubs the test put in `path_prepend`, then the test process's own `PATH`
+    // without any folder that holds an agent CLI (the user's `~/.local/bin`, Homebrew's, and so on). The runner's own tools, a stub's
+    // `python3` and `sh`, stay where the runner has them.
     #[cfg(test)]
     if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-        let mut dirs = session.map(|s| s.path_prepend.clone()).unwrap_or_default();
-        dirs.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
-        cmd.env("PATH", std::env::join_paths(dirs).unwrap_or_default());
+        let prepend = session.map(|s| s.path_prepend.as_slice()).unwrap_or_default();
+        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, std::env::var_os("PATH")));
         return;
     }
     if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {

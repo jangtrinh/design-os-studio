@@ -460,19 +460,23 @@ mod tests {
         App::new(doc)
     }
 
-    /// Spawns `script` in a PTY-backed tab that reports `READY`, then marks the tab as running a turn.
+    /// Spawns `script` in a PTY-backed tab that reports `READY`, then marks the tab as running a turn. It returns once `READY` is on
+    /// the tab's screen: the stub has put its terminal in raw mode by then, so a key sent next reaches it as a key. A runner whose
+    /// `python3` starts slowly (a first call of the macOS shim takes seconds) gets up to 10 s, and a stub that never reports fails here.
     fn spawn_script_stub_tab(id: usize, preset: AgentCliPreset, script: &str) -> TerminalTab {
         let mut cmd = CommandBuilder::new("sh");
         cmd.arg("-c");
         cmd.arg(script);
         let mut tab = TerminalTab::spawn_test_stub(id, preset, cmd).expect("spawn stub tab");
-        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while std::time::Instant::now() < ready_deadline {
-            if tab.raw_log.lock().ok().is_some_and(|l| l.contains("READY")) {
-                break;
+        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut ready = false;
+        while !ready && std::time::Instant::now() < ready_deadline {
+            ready = tab.raw_log.lock().ok().is_some_and(|l| l.contains("READY"));
+            if !ready {
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(ready, "the stub never printed READY: its python3 did not start within 10 s");
         if let Ok(mut st) = tab.agent_status.lock() {
             *st = AgentTabStatus::Working(Some("Editing layers…".into()));
         }

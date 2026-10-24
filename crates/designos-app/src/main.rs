@@ -92,6 +92,8 @@ mod tabs;
 mod terminal;
 mod terminal_undo_chord;
 #[cfg(test)]
+mod test_agent_path;
+#[cfg(test)]
 mod test_alloc_count;
 #[cfg(test)]
 mod test_timing;

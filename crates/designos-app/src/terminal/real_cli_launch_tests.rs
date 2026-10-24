@@ -5,8 +5,8 @@
 //!   in a child process of this binary, and wants the stand-ins' log empty. The `--version` probe and `grok usage` always log when
 //!   they run. A tab's launch logs only if it reaches the stand-in before its test ends and kills it (0 to 1 of the 3 with the
 //!   restriction below switched off), so a pass here is not proof about tabs.
-//! - `an_agent_tab_in_a_test_gets_only_its_stubs_and_the_system_folders_on_its_path` is the check that does not race: it reads the
-//!   `PATH` an agent tab really gets after its shell has started.
+//! - `an_agent_tab_in_a_test_gets_its_stubs_and_the_runners_tools_but_no_agent_cli` is the check that does not race: it reads the
+//!   `PATH` an agent tab really gets after its shell has started (the rule itself is in `test_agent_path`).
 
 use super::gemini_test_support::*;
 use super::*;
@@ -64,12 +64,19 @@ fn no_test_starts_a_real_agent_cli() {
 }
 
 #[test]
-fn an_agent_tab_in_a_test_gets_only_its_stubs_and_the_system_folders_on_its_path() {
+fn an_agent_tab_in_a_test_gets_its_stubs_and_the_runners_tools_but_no_agent_cli() {
     let (dir, st) = start_stub("path", AgentPermissionMode::Ask, STUB_PATH, |_| {});
     let seen = std::fs::read_to_string(st.session_dir.join("path-seen.txt")).unwrap();
-    let allowed = [dir.join("bin").display().to_string(), "/usr/bin".into(), "/bin".into(), "/usr/sbin".into(), "/sbin".into()];
-    let stray: Vec<&str> = seen.split(':').filter(|entry| !allowed.iter().any(|ok| ok == entry)).collect();
-    assert!(stray.is_empty(), "the tab's shell found a CLI outside the test's stubs: {stray:?}");
-    assert!(seen.starts_with(&allowed[0]), "the stubs are not first: {seen}");
+    let stubs = dir.join("bin");
+    // The stubs first, then the test process's own PATH without a folder that holds an agent CLI.
+    let expected = crate::test_agent_path::test_agent_path(std::slice::from_ref(&stubs), std::env::var_os("PATH"));
+    assert_eq!(seen, expected.to_string_lossy(), "the tab's PATH is not the rule's");
+    let rest: Vec<&str> = seen.split(':').skip(1).collect();
+    let holding: Vec<&&str> = rest.iter().filter(|entry| crate::test_agent_path::holds_agent_cli(Path::new(entry))).collect();
+    assert!(holding.is_empty(), "the tab's shell can find an agent CLI in: {holding:?}");
+    // The stubs' own tools are the runner's: the python3 the tab finds is the first one on the rest of that PATH.
+    let first_python = rest.iter().map(|entry| Path::new(entry).join("python3")).find(|candidate| candidate.is_file());
+    let found = std::fs::read_to_string(st.session_dir.join("python-seen.txt")).unwrap_or_default();
+    assert_eq!(first_python.map(|path| path.display().to_string()), Some(found.trim().to_string()).filter(|found| !found.is_empty()), "python3");
     finish(dir, st);
 }

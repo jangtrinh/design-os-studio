@@ -35,9 +35,10 @@ printf 'ready' > "$DESIGNOS_SESSION_DIR/printed.txt"
 sleep 30
 "#;
 
-/// Stub `gemini` that records the `PATH` it was started with.
+/// Stub `gemini` that records the `PATH` it was started with and the `python3` it finds.
 pub(super) const STUB_PATH: &str = r#"#!/bin/sh
 printf '%s' "$PATH" > "$DESIGNOS_SESSION_DIR/path-seen.txt"
+command -v python3 > "$DESIGNOS_SESSION_DIR/python-seen.txt"
 printf 'x' > "$DESIGNOS_SESSION_DIR/defaults-env.txt"
 sleep 30
 "#;
