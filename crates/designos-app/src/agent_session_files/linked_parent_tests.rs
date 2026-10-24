@@ -9,7 +9,7 @@ use crate::skills::hook_delivery::{remove_all_replies, remove_replies, reply_fil
 use std::collections::BTreeMap;
 
 /// Every file below `dir` by its path relative to `dir`, with its bytes.
-fn contents(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+pub(super) fn contents(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(folder) = pending.pop() {

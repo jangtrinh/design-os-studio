@@ -1429,7 +1429,7 @@ fn page_context_json(session_id: &str, doc_name: &str, file_path: Option<&Path>,
 /// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
 /// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
 fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
-    let raw = std::fs::read_to_string(mcp_config_path).ok();
+    let raw = crate::agent_session_files::read_session_file(mcp_config_path).ok().and_then(|bytes| String::from_utf8(bytes).ok());
     designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
 }
 
@@ -2321,7 +2321,7 @@ impl TerminalState {
         if let Some(md) = &self.bootstrap_markdown {
             return md.clone();
         }
-        if let Ok(md) = std::fs::read_to_string(&self.bootstrap_md_path) {
+        if let Some(md) = crate::agent_session_files::read_session_file(&self.bootstrap_md_path).ok().and_then(|bytes| String::from_utf8(bytes).ok()) {
             self.bootstrap_markdown = Some(md.clone());
             return md;
         }
@@ -4675,7 +4675,7 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
     // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
-    let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
+    let existing_config = crate::agent_session_files::read_session_file(&mcp_config_path).ok().and_then(|bytes| String::from_utf8(bytes).ok());
     let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
 
     // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,

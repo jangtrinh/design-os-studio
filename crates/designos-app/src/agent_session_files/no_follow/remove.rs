@@ -39,7 +39,8 @@ impl Dir {
 
     /// The names in this folder, without `.` and `..`.
     fn entries(&self) -> io::Result<Vec<OsString>> {
-        // `fdopendir` takes over the descriptor it is given, so it gets a duplicate that starts at the top of the folder.
+        // `fdopendir` takes over the descriptor it is given, so it gets a duplicate. A duplicate shares the read position of its
+        // original, which is at the top of the folder only because every `Dir` is opened fresh and nothing else lists it.
         // SAFETY: `F_DUPFD_CLOEXEC` takes the lowest free descriptor number at or above its argument.
         let dup = retry(|| unsafe { libc::fcntl(self.raw(), libc::F_DUPFD_CLOEXEC, 0) })?;
         // SAFETY: `dup` is a descriptor this function owns; on success the stream owns it.

@@ -58,7 +58,7 @@ fn an_ask_mode_gemini_tab_does_not_start_when_its_settings_do_not_read_back_as_w
     ensure_session_dir(&st.session_dir).expect("the session folder");
     let settings = st.session_dir.join(".gemini").join("settings.json");
     let replaced = settings.clone();
-    super::session_io::set_before_read_back_test_hook(
+    super::session_io::test_hooks::set_before_read_back(
         &settings,
         Box::new(move || std::fs::write(&replaced, br#"{"hooks":"the agent's"}"#).expect("another agent replaces the file")),
     );

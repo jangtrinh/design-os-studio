@@ -46,6 +46,8 @@ pub enum Fix {
     HomeFolder,
     /// A file Studio had just written was replaced by something else: another agent tab of the same folder did it.
     CloseOtherTabs,
+    /// A session path Studio does not recognise: opening the file again gives its tabs a session folder Studio made.
+    ReopenFile,
 }
 
 impl Fix {
@@ -56,6 +58,7 @@ impl Fix {
             Fix::MakeWritable => format!("Make it writable or delete it, then {then}"),
             Fix::HomeFolder => "Make sure your home folder exists, then restart Studio".to_string(),
             Fix::CloseOtherTabs => format!("Close this file's other agent tabs, then {then}"),
+            Fix::ReopenFile => "Reopen this design file".to_string(),
         }
     }
 }

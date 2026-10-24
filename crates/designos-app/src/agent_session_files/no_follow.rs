@@ -68,22 +68,27 @@ impl Dir {
     /// a folder of another user; a folder that does not exist is a `NotFound` error. Folders above `path` are Studio's own.
     pub(super) fn open_session_folder(path: &Path) -> io::Result<Dir> {
         let c = c_name(path.as_os_str())?;
-        #[cfg(test)]
-        test_hooks::run(path, test_hooks::Step::BeforeOpen);
-        // SAFETY: `c` is a NUL-terminated path that outlives the call.
-        match retry(|| unsafe { libc::open(c.as_ptr(), FOLDER_FLAGS) }) {
-            Ok(fd) => {
-                let dir = Dir::adopt(fd, path.to_path_buf());
-                dir.require_owner()?;
-                Ok(dir)
-            }
-            Err(e) => {
-                #[cfg(test)]
-                test_hooks::run(path, test_hooks::Step::AfterFailedOpen);
-                let entry = std::fs::symlink_metadata(path).ok().map(|meta| (meta.file_type().is_symlink(), meta.is_dir()));
-                Err(explain_open(path, e, entry))
+        for _ in 0..ATTEMPTS {
+            #[cfg(test)]
+            test_hooks::run(path, test_hooks::Step::BeforeOpen);
+            // SAFETY: `c` is a NUL-terminated path that outlives the call.
+            match retry(|| unsafe { libc::open(c.as_ptr(), FOLDER_FLAGS) }) {
+                Ok(fd) => {
+                    let dir = Dir::adopt(fd, path.to_path_buf());
+                    dir.require_owner()?;
+                    return Ok(dir);
+                }
+                Err(e) => {
+                    #[cfg(test)]
+                    test_hooks::run(path, test_hooks::Step::AfterFailedOpen);
+                    let entry = std::fs::symlink_metadata(path).ok().map(|meta| (meta.file_type().is_symlink(), meta.is_dir()));
+                    if let Some(error) = explain_open(path, e, entry) {
+                        return Err(error);
+                    }
+                }
             }
         }
+        Err(refused(Refusal::Link, path))
     }
 
     fn require_owner(&self) -> io::Result<()> {
@@ -103,9 +108,12 @@ impl Dir {
         Ok((kind == libc::S_IFLNK, kind == libc::S_IFDIR))
     }
 
-    /// Opens the subfolder `name`; with `create`, a missing one is made first (mode 0700). A link or a file is refused.
+    /// Opens the subfolder `name`; with `create`, a missing one is made first (mode 0700). A link or a file is refused. A link that
+    /// is a real folder again by the time it is looked at (its owner took it back) is tried again, up to `ATTEMPTS` times, and is
+    /// then refused as a link: that is what the open met each time.
     pub(super) fn open_child(&self, name: &OsStr, create: bool) -> io::Result<Dir> {
         let (c, path) = (c_name(name)?, self.path.join(name));
+        let mut met_a_link = false;
         for _ in 0..ATTEMPTS {
             #[cfg(test)]
             test_hooks::run(&path, test_hooks::Step::BeforeOpen);
@@ -124,21 +132,30 @@ impl Dir {
                 Err(e) => {
                     #[cfg(test)]
                     test_hooks::run(&path, test_hooks::Step::AfterFailedOpen);
-                    return Err(explain_open(&path, e, self.kind_of(&c).ok()));
+                    if let Some(error) = explain_open(&path, e, self.kind_of(&c).ok()) {
+                        return Err(error);
+                    }
+                    met_a_link = true;
                 }
             }
+        }
+        if met_a_link {
+            return Err(refused(Refusal::Link, &path));
         }
         Err(cannot("opened", &path, io::Error::other("it was removed again each time"), Fix::CheckPermissions))
     }
 }
 
-/// Why opening the folder `path` failed. `entry` is `(is a link, is a folder)` of what sits there now, when that is known.
-fn explain_open(path: &Path, e: io::Error, entry: Option<(bool, bool)>) -> io::Error {
+/// Why opening the folder `path` failed, as the error to return. `None` when what the open met, a link or a file, is a real
+/// folder now (`entry` is `(is a link, is a folder)` of what sits there now, when that is known): its owner took it back, and the
+/// open is worth another try.
+fn explain_open(path: &Path, e: io::Error, entry: Option<(bool, bool)>) -> Option<io::Error> {
     let not_a_folder = matches!(e.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR));
     match entry {
-        Some((true, _)) if not_a_folder => refused(Refusal::Link, path),
-        Some((false, false)) if not_a_folder => refused(Refusal::File, path),
-        _ if e.kind() == io::ErrorKind::NotFound => e,
-        _ => cannot("opened", path, e, Fix::CheckPermissions),
+        Some((true, _)) if not_a_folder => Some(refused(Refusal::Link, path)),
+        Some((false, false)) if not_a_folder => Some(refused(Refusal::File, path)),
+        Some((false, true)) if not_a_folder => None,
+        _ if e.kind() == io::ErrorKind::NotFound => Some(e),
+        _ => Some(cannot("opened", path, e, Fix::CheckPermissions)),
     }
 }

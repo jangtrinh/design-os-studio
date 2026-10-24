@@ -158,8 +158,8 @@ pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
 
 /// Reads `<session_dir>/owner.json` if present and valid.
 pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
-    let raw = std::fs::read_to_string(session_dir.join("owner.json")).ok()?;
-    serde_json::from_str::<OwnerMarker>(&raw).ok()
+    let raw = read_session_file(&session_dir.join("owner.json")).ok()?;
+    serde_json::from_slice::<OwnerMarker>(&raw).ok()
 }
 
 /// Creates `session_dir` and, when `session_dir` is an ephemeral session directory (a child of
@@ -594,6 +594,8 @@ fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
 }
 
 #[cfg(all(test, unix))]
+mod canonical_spelling_tests;
+#[cfg(all(test, unix))]
 mod codex_probe_tests;
 #[cfg(all(test, unix))]
 mod fifo_tests;
@@ -617,10 +619,14 @@ mod library_fallback_tests;
 mod linked_parent_tests;
 #[cfg(all(test, unix))]
 mod open_race_tests;
+#[cfg(all(test, unix))]
+mod placement_tests;
 #[cfg(test)]
 mod refusal_tests;
 #[cfg(all(test, unix))]
 mod session_io_tests;
+#[cfg(all(test, unix))]
+mod swap_after_open_tests;
 #[cfg(test)]
 mod test_root;
 #[cfg(all(test, unix))]

@@ -74,9 +74,15 @@ pub fn ephemeral_session_dir(session_id: &str) -> PathBuf {
 /// ephemeral sessions folder (or of the root no session can use), or of a library's `agent-sessions` folder.
 pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
     let root = ephemeral_sessions_root();
+    // The same folder spelled through the links above it (`/private/var` for `/var` on macOS) is Studio's own folder too.
+    let real_root = root.as_deref().and_then(|root| root.canonicalize().ok());
     let is_session_folder = |dir: &Path| {
-        dir.parent()
-            .is_some_and(|up| root.as_deref() == Some(up) || up == Path::new(UNAVAILABLE_ROOT) || up.file_name().is_some_and(|name| name == "agent-sessions"))
+        dir.parent().is_some_and(|up| {
+            root.as_deref() == Some(up)
+                || real_root.as_deref() == Some(up)
+                || up == Path::new(UNAVAILABLE_ROOT)
+                || up.file_name().is_some_and(|name| name == "agent-sessions")
+        })
     };
     path.ancestors().skip(1).find(|dir| is_session_folder(dir)).map(Path::to_path_buf)
 }
