@@ -618,7 +618,11 @@ mod library_fallback_tests;
 #[cfg(all(test, unix))]
 mod linked_parent_tests;
 #[cfg(all(test, unix))]
+mod live_spec_tests;
+#[cfg(all(test, unix))]
 mod open_race_tests;
+#[cfg(all(test, unix))]
+mod open_removed_link_tests;
 #[cfg(all(test, unix))]
 mod placement_tests;
 #[cfg(all(test, unix))]
@@ -631,6 +635,8 @@ mod refusal_tests;
 mod session_io_tests;
 #[cfg(all(test, unix))]
 mod swap_after_open_tests;
+#[cfg(all(test, unix))]
+mod tailer_link_tests;
 #[cfg(test)]
 mod test_root;
 #[cfg(all(test, unix))]
