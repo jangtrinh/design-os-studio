@@ -434,11 +434,22 @@ impl Shell {
                     let want = ((shot.size.0 as f32 * shot.scale).round() as u32, (shot.size.1 as f32 * shot.scale).round() as u32);
                     let buf = if (w, h) != want { image::imageops::resize(&buf, want.0, want.1, image::imageops::FilterType::Lanczos3) } else { buf };
                     if let Some(seq) = &mut shot.seq {
-                        let _ = std::fs::create_dir_all(&shot.path);
+                        if let Err(e) = std::fs::create_dir_all(&shot.path) {
+                            eprintln!("designos: cannot create {}: {e}", shot.path.display());
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            return;
+                        }
                         let frame_path = shot.path.join(format!("frame-{:04}.jpg", seq.cur));
                         let rgb = image::DynamicImage::ImageRgba8(buf).into_rgb8();
-                        if let Err(e) = rgb.save(&frame_path) {
+                        let mut encoded = Vec::new();
+                        let result = image::DynamicImage::ImageRgb8(rgb)
+                            .write_to(&mut std::io::Cursor::new(&mut encoded), image::ImageFormat::Jpeg)
+                            .map_err(std::io::Error::other)
+                            .and_then(|()| crate::cli_export_write::write_directory_file(&frame_path, &encoded, true).map_err(std::io::Error::other));
+                        if let Err(e) = result {
                             eprintln!("designos: cannot write {}: {e}", frame_path.display());
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            return;
                         }
                         seq.cur += 1;
                         if seq.cur < seq.total {
@@ -456,10 +467,12 @@ impl Shell {
                             return;
                         }
                     } else {
-                        if let Some(dir) = shot.path.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        match buf.save(&shot.path) {
+                        let mut encoded = Vec::new();
+                        let result = image::DynamicImage::ImageRgba8(buf)
+                            .write_to(&mut std::io::Cursor::new(&mut encoded), image::ImageFormat::Png)
+                            .map_err(std::io::Error::other)
+                            .and_then(|()| crate::cli_export_write::write_export(&shot.path, "png", &encoded, true).map_err(std::io::Error::other));
+                        match result {
                             Ok(()) => SHOT_OK.store(true, Ordering::SeqCst),
                             Err(e) => eprintln!("designos: cannot write {}: {e}", shot.path.display()),
                         }

@@ -58,6 +58,66 @@ pub fn check_target(path: &Path, ext: &str, overwrite: bool) -> Result<(), Strin
     inspect_target(path, overwrite).map(|_| ())
 }
 
+/// Checks a directory bundle target and every file that will be installed below it.
+/// Existing regular files require `overwrite`; links and non-regular entries are never followed.
+pub fn check_directory_target(path: &Path, files: &[String], overwrite: bool) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(format!("Refusing to write {}: it is a symbolic link. Export to a path that is not a link.", path.display()))
+        }
+        Ok(meta) if !meta.is_dir() => return Err(format!("Refusing to write {}: it is not a directory.", path.display())),
+        Ok(_) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("Cannot inspect {}: {e}", path.display())),
+    }
+    for name in files {
+        inspect_target(&path.join(name), overwrite)?;
+    }
+    Ok(())
+}
+
+/// Writes one file below a directory after the directory itself has been checked.
+pub fn write_directory_file(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        check_directory_target(parent, &[], true)?;
+    }
+    let existing = inspect_target(path, overwrite)?;
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
+    match existing {
+        None => create_new_file(path, bytes),
+        Some(old) => replace_file(path, bytes, &old).map_err(|e| write_error(path, &e)),
+    }
+}
+
+/// Screenshot captures intentionally allow replacing an existing regular image so repeated captures keep working.
+pub fn check_screenshot_target(path: &Path, sequence_frames: Option<usize>) -> Result<(), String> {
+    if let Some(total) = sequence_frames {
+        let files: Vec<String> = (0..total).map(|n| format!("frame-{n:04}.jpg")).collect();
+        check_directory_target(path, &files, true)
+    } else {
+        check_target(path, "png", true)
+    }
+}
+
+/// Rejects a final symlink for a document save while preserving the save path's extension inference.
+pub fn check_save_target(path: &Path) -> Result<(), String> {
+    let mut effective = path.to_path_buf();
+    if effective.extension().is_none() {
+        effective.set_extension("designos");
+    }
+    match fs::symlink_metadata(&effective) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Err(format!("Refusing to save {}: it is a symbolic link. Save to a path that is not a link.", effective.display()))
+        }
+        Ok(meta) if !meta.is_file() => Err(format!("Refusing to save {}: it is not a regular file.", effective.display())),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Cannot inspect {}: {e}", effective.display())),
+    }
+}
+
 /// Writes `bytes` to `path`, creating missing folders. See the module comment for what is refused. A failed write
 /// leaves no partial file behind.
 pub fn write_export(path: &Path, ext: &str, bytes: &[u8], overwrite: bool) -> Result<(), String> {

@@ -204,6 +204,20 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     write_via_tmp(&target, dir, prefix, bytes, existing.as_ref())
 }
 
+/// Writes atomically while refusing a symbolic link at the final path component.
+///
+/// This is for an agent supplied output path. The ordinary [`write_atomic`] contract follows
+/// links because library and editor saves intentionally preserve that behaviour.
+pub fn write_atomic_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let existing = inspect_no_follow_target(path)?;
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix = tmp_prefix(&name);
+    sweep_stale_temps(dir, &name, prefix);
+    write_via_tmp(path, dir, prefix, bytes, existing.as_ref())
+}
+
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
 /// the 255-byte / 255-char filesystem filename limit (`ENAMETOOLONG`).
 fn tmp_prefix(name: &str) -> &str {
@@ -317,6 +331,28 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs:
         }
     }
     Err(Error::new(ErrorKind::InvalidInput, format!("too many levels of symbolic links: {}", path.display())))
+}
+
+fn inspect_no_follow_target(path: &Path) -> std::io::Result<Option<std::fs::Metadata>> {
+    use std::io::{Error, ErrorKind};
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if meta.file_type().is_symlink() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a symbolic link", path.display())));
+    }
+    if !meta.is_file() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+    }
+    if meta.permissions().readonly() {
+        return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only", path.display())));
+    }
+    if let Err(e) = std::fs::OpenOptions::new().write(true).open(path) {
+        return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())));
+    }
+    Ok(Some(meta))
 }
 
 fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<&std::fs::Metadata>) -> std::io::Result<()> {

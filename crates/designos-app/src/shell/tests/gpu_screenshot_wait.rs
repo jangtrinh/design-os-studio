@@ -143,6 +143,20 @@ fn screenshot_of_a_canvas_not_on_the_gpu_is_taken_as_before() {
     cleanup(&shot);
 }
 
+#[cfg(unix)]
+#[test]
+fn screenshot_never_writes_through_a_final_symlink() {
+    let (mut s, shot) = shot_sim(false, "symlink");
+    std::fs::create_dir_all(shot.parent().unwrap()).unwrap();
+    let victim = shot.parent().unwrap().join("victim.png");
+    std::fs::write(&victim, b"keep this image").unwrap();
+    std::os::unix::fs::symlink(&victim, &shot).unwrap();
+    let _ = run_window(&mut s, &shot, 40, DELIVERY_LAG, |_, _| {});
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep this image");
+    assert!(std::fs::symlink_metadata(&shot).unwrap().file_type().is_symlink());
+    cleanup(&shot);
+}
+
 #[test]
 fn screenshot_gives_up_waiting_for_a_view_that_never_settles() {
     let (mut s, shot) = shot_sim(true, "never_settles");

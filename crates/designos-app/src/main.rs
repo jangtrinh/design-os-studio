@@ -4,6 +4,8 @@ mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
+#[cfg(test)]
+mod agent_cli_writers_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
 mod agent_mention;
@@ -129,6 +131,14 @@ fn main() {
         eprintln!("{message}");
         std::process::exit(2);
     }
+    if let Some(path) = &opts.screenshot {
+        let sequence_frames =
+            opts.panel.as_deref().and_then(|panel| panel.split_once(":seq:")).map(|(_, count)| count.trim().parse::<usize>().unwrap_or(60).max(2));
+        if let Err(e) = cli_export_write::check_screenshot_target(path, sequence_frames) {
+            eprintln!("designos: {e}");
+            std::process::exit(2);
+        }
+    }
     if let Some(dir) = &opts.seed_library {
         match showcase::seed_library(dir) {
             Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
@@ -199,7 +209,7 @@ impl SaveTarget {
     fn save(&self, doc: &designos_doc::Document) -> Result<(), String> {
         match self {
             Self::Library(lib, id) => lib.save_file(id, doc).map_err(|e| format!("Cannot save library file {id}: {e}")),
-            Self::Path(path) => io::save_path(doc, path).map(|_| ()),
+            Self::Path(path) => io::save_path_no_follow(doc, path).map(|_| ()),
         }
     }
 }
@@ -242,6 +252,24 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // An unusable --export-fig target stops the command before it loads, applies or saves anything.
     if let Some(out_path) = &opts.export_fig {
         cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
+    }
+    if let Some(out_path) = &opts.export_spec {
+        cli_export_write::check_target(out_path, "json", opts.overwrite)?;
+    }
+    let mutates_document = opts.import_capture.is_some()
+        || opts.apply_spec.is_some()
+        || opts.import_variables.is_some()
+        || opts.add_comment.is_some()
+        || opts.reply_comment.is_some()
+        || opts.resolve_comment.is_some();
+    if let Some(out_path) = &opts.out {
+        if mutates_document {
+            cli_export_write::check_save_target(out_path)?;
+        }
+    } else if let Some(path) = &opts.file {
+        if mutates_document {
+            cli_export_write::check_save_target(path)?;
+        }
     }
     let (mut doc, save_target) = if let Some(id) = &opts.open_id {
         let root = opts.library.clone().unwrap_or_else(designos_library::Library::default_root);
@@ -371,7 +399,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             .ok_or("No node found to export")?;
         let spec = doc.export_spec(target_id)?;
         let json = serde_json::to_string_pretty(&spec).map_err(|e| format!("Cannot serialize spec: {e}"))?;
-        std::fs::write(out_path, json).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
+        cli_export_write::write_export(out_path, "json", json.as_bytes(), opts.overwrite)?;
         let out = serde_json::json!({ "exported_node_id": target_id.0, "path": out_path });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
@@ -428,26 +456,27 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let bundle = designos_fig::export_variables(&doc, fmt).map_err(|e| format!("Cannot export variables: {e}"))?;
         let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext.eq_ignore_ascii_case("zip") {
-            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
-                let _ = std::fs::create_dir_all(parent);
-            }
             let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
-            std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            cli_export_write::write_export(out_target, "zip", &zip_bytes, opts.overwrite)?;
         } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
-            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            cli_export_write::write_export(out_target, "json", &bundle.files[0].1, opts.overwrite)?;
         } else {
+            let safe_names: Vec<String> = bundle
+                .files
+                .iter()
+                .map(|(name, _)| {
+                    std::path::Path::new(name)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))
+                })
+                .collect::<Result<_, _>>()?;
+            cli_export_write::check_directory_target(out_target, &safe_names, opts.overwrite)?;
             std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
-            for (name, bytes) in &bundle.files {
-                let safe_name = std::path::Path::new(name)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
-                    .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
-                let dest = out_target.join(safe_name);
-                std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+            for ((_, bytes), safe_name) in bundle.files.iter().zip(safe_names) {
+                cli_export_write::write_directory_file(&out_target.join(safe_name), bytes, opts.overwrite)?;
             }
         }
         let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();

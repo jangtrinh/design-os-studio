@@ -22,7 +22,7 @@ mod scripts;
 mod subst;
 
 pub use assets::{bundled, bundled_for, FontAsset};
-pub use cache::{write_atomic, Fetch, FontCache, Sidecar};
+pub use cache::{write_atomic, write_atomic_no_follow, Fetch, FontCache, Sidecar};
 pub use ensure::{ensure_font_requests_with, ensure_fonts, ensure_fonts_with, FontReport, LoadedFont};
 pub use error::FontError;
 pub use request::{new_faces, requests_for, text_faces, FontRequest};

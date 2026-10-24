@@ -76,8 +76,7 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
-    /// With `--export-fig`: replace the output file when it already exists. Without it an existing file is refused. Only a
-    /// regular file is ever replaced, never a symbolic link or a directory.
+    /// With file writers (`--export-fig`, `--export-spec`, `--export-variables`): replace an existing regular file. Without it an existing file is refused; symbolic links and directories are never followed.
     pub overwrite: bool,
     /// Headless agent CLI: generate code for `--select` (or first screen/page) in the given target language and print to stdout.
     pub codegen: Option<String>,
@@ -350,7 +349,7 @@ pub fn missing_file_message(opts: &Options) -> Option<String> {
     (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json [--overwrite]] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -366,7 +365,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
   --export-fig  headless Agent CLI: write the document to OUT.fig. The path must end in .fig and must not exist yet; --overwrite replaces an existing regular file. A symbolic link is never written through
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
-  --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
+  --export-variables  headless Agent CLI: write variables to PATH (a .json or .zip file, or a folder); --overwrite replaces regular files
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 

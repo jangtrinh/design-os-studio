@@ -298,6 +298,10 @@ pub fn backup_path(path: &Path) -> PathBuf {
 
 /// If `path` was structurally repaired when loaded, writes its pre-repair bytes to `<path>.bak`.
 pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
+    write_pending_repair_backup_with(path, designos_fonts::write_atomic)
+}
+
+fn write_pending_repair_backup_with(path: &Path, writer: fn(&Path, &[u8]) -> std::io::Result<()>) -> Result<bool, String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -306,7 +310,7 @@ pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
     let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
     if let Some(original_bytes) = &pending_backup {
         let bak = backup_path(&p);
-        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
+        writer(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
         return Ok(true);
     }
     Ok(false)
@@ -367,8 +371,9 @@ pub fn comment_threads_left_out(doc: &Document, path: &Path) -> usize {
 
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 /// This is the headless save (the Agent CLI), so what the file leaves out goes to stderr.
+#[allow(dead_code)]
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
-    let (p, replaced) = save_path_counted(doc, path)?;
+    let (p, replaced) = save_path_counted_with(doc, path, designos_fonts::write_atomic)?;
     if replaced > 0 {
         eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
     }
@@ -381,6 +386,22 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
 /// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
 /// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
 pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), String> {
+    save_path_counted_with(doc, path, designos_fonts::write_atomic)
+}
+
+/// Headless agent save with the final path component protected from symlink traversal.
+pub fn save_path_no_follow(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+    let (p, replaced) = save_path_counted_with(doc, path, designos_fonts::write_atomic_no_follow)?;
+    if replaced > 0 {
+        eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
+    }
+    if comment_threads_left_out(doc, &p) > 0 {
+        eprintln!("designos: {}: {COMMENTS_ONLY_IN_NATIVE_NOTICE}", p.display());
+    }
+    Ok(p)
+}
+
+fn save_path_counted_with(doc: &Document, path: &Path, writer: fn(&Path, &[u8]) -> std::io::Result<()>) -> Result<(PathBuf, usize), String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -399,8 +420,8 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
         }
     };
 
-    let wrote_backup = write_pending_repair_backup(&p)?;
-    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
+    let wrote_backup = write_pending_repair_backup_with(&p, writer)?;
+    writer(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
     if wrote_backup {
         clear_pending_repair_backup(&p);
     }
