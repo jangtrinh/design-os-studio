@@ -10,21 +10,35 @@ const MAX_DEPTH: usize = 128;
 
 impl Dir {
     /// Removes the entry `name` of this folder. A file or a link goes itself (a link is never followed); a folder is emptied
-    /// through its own descriptor, entry by entry, and then removed. A folder swapped for a link meanwhile is refused.
-    pub(in crate::agent_session_files) fn remove_all(&self, name: &OsStr) -> io::Result<()> {
+    /// through its own descriptor, entry by entry, and then removed. A folder swapped for a link meanwhile is refused. Whether
+    /// there was anything to remove comes back.
+    pub(in crate::agent_session_files) fn remove_all(&self, name: &OsStr) -> io::Result<bool> {
         self.remove_all_at(name, 0)
     }
 
-    fn remove_all_at(&self, name: &OsStr, depth: usize) -> io::Result<()> {
+    /// Removes every entry of this folder whose name is not in `keep`, each the way [`Self::remove_all`] does. The names removed
+    /// come back.
+    pub(in crate::agent_session_files) fn remove_entries_except(&self, keep: &[&str]) -> io::Result<Vec<OsString>> {
+        let mut removed = Vec::new();
+        for entry in self.entries().map_err(|e| cannot("listed", &self.path, e, Fix::CheckPermissions))? {
+            if !keep.iter().any(|name| OsStr::new(name) == entry) {
+                self.remove_all_at(&entry, 0)?;
+                removed.push(entry);
+            }
+        }
+        Ok(removed)
+    }
+
+    fn remove_all_at(&self, name: &OsStr, depth: usize) -> io::Result<bool> {
         let (c, path) = (c_name(name)?, self.path.join(name));
         let unremovable = |e: io::Error| cannot("removed", &path, e, Fix::CheckPermissions);
         let is_folder = match self.kind_of(&c) {
             Ok((_, is_folder)) => is_folder,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(unremovable(e)),
         };
         if !is_folder {
-            return self.unlink(&c, 0).map_err(unremovable);
+            return self.unlink(&c, 0).map(|()| true).map_err(unremovable);
         }
         if depth >= MAX_DEPTH {
             return Err(unremovable(io::Error::other("it is nested too deeply")));
@@ -34,7 +48,7 @@ impl Dir {
             folder.remove_all_at(&entry, depth + 1)?;
         }
         drop(folder);
-        self.unlink(&c, libc::AT_REMOVEDIR).map_err(unremovable)
+        self.unlink(&c, libc::AT_REMOVEDIR).map(|()| true).map_err(unremovable)
     }
 
     /// The names in this folder, without `.` and `..`.

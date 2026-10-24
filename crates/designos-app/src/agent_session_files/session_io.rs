@@ -103,9 +103,14 @@ pub fn write_session_file_verified(path: &Path, bytes: &[u8]) -> io::Result<()> 
     #[cfg(test)]
     test_hooks::run_before_read_back(path);
     if dir.read(&place.name)? != bytes {
-        return Err(failed(io::ErrorKind::InvalidData, format!("{} changed while Studio wrote it", path.display()), Fix::CloseOtherTabs));
+        return Err(changed_while_written(path));
     }
     Ok(())
+}
+
+/// The error for `path`, which another agent tab of the folder replaced or made while Studio wrote the files around it, with what to do.
+pub fn changed_while_written(path: &Path) -> io::Error {
+    failed(io::ErrorKind::InvalidData, format!("{} changed while Studio wrote it", path.display()), Fix::CloseOtherTabs)
 }
 
 /// Makes the new file `path` holding `bytes`; an existing entry, a link included, is an `AlreadyExists` error.
@@ -153,12 +158,32 @@ pub fn remove_session_file(path: &Path) -> io::Result<()> {
 /// Removes the folder, file or link `path`, and everything in a folder, without following a link below the session folder.
 /// What is not there is already removed.
 pub fn remove_session_dir_all(path: &Path) -> io::Result<()> {
+    remove_session_path(path).map(|_| ())
+}
+
+/// [`remove_session_dir_all`], saying whether there was anything at `path` to remove. A link at a folder above `path` is refused.
+pub fn remove_session_path(path: &Path) -> io::Result<bool> {
     match open_place(path, false) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
         opened => {
             let (place, dir) = opened?;
             dir.remove_all(&place.name)
         }
+    }
+}
+
+/// Removes every entry of the folder `path` whose name is not in `keep`: a file, a link (itself) or a folder with everything in it.
+/// The names removed come back. A folder that is not there has nothing to remove; a link or a file at `path`, or at a folder above it
+/// below the session folder, is refused.
+pub fn remove_session_entries_except(path: &Path, keep: &[&str]) -> io::Result<Vec<OsString>> {
+    let missing = |e: &io::Error| e.kind() == io::ErrorKind::NotFound;
+    let (place, holder) = match open_place(path, false) {
+        Err(e) if missing(&e) => return Ok(Vec::new()),
+        opened => opened?,
+    };
+    match holder.open_child(&place.name, false) {
+        Err(e) if missing(&e) => Ok(Vec::new()),
+        folder => folder?.remove_entries_except(keep),
     }
 }
 

@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 
 use crate::agent_session_failure::{self, BannerEvent, SessionFailure, SessionFailureClass};
+use crate::agent_session_files::ExactProjectConfig;
 use crate::agent_start_failure::{self, FixAction, StartFailure};
 use crate::icons::{self, Icon};
 use crate::panels::clipped;
@@ -2190,11 +2191,16 @@ impl TerminalState {
     /// Starts or restarts an agent run, advancing `run_id` so the next prompt / hook invocation
     /// delivers the 7-section `bootstrap.md` block once (`E15-16 §3.2`, `§10`).
     pub fn reset_agent_run(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
+        self.reset_agent_run_exact(file_path, None)
+    }
+
+    /// [`Self::reset_agent_run`] for a tab of a CLI whose project config must be made exactly Studio's (`exact`).
+    fn reset_agent_run_exact(&mut self, file_path: Option<&Path>, exact: Option<crate::agent_session_files::ExactProjectConfig>) -> Option<std::io::Error> {
         self.run_id = self.run_id.saturating_add(1);
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
         self.bootstrap_job = None;
-        self.provision_session_agent_files(file_path)
+        self.provision_session_agent_files_exact(file_path, exact)
     }
 
     /// Spawns a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`) with a lazy
@@ -2493,6 +2499,7 @@ impl TerminalState {
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
                 ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
                 unread_probe: Some(self.live_patch.unread_probe()),
+                exact_project_config: None,
             });
         }
 
@@ -2553,6 +2560,16 @@ impl TerminalState {
     /// is dropped (or waited for, when already writing) and `last_synced_key` is cleared: the next sync queues
     /// a fresh one instead of letting the stale one overwrite these files. The first write that failed comes back.
     fn provision_session_agent_files(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
+        self.provision_session_agent_files_exact(file_path, None)
+    }
+
+    /// [`Self::provision_session_agent_files`] that also makes the project config of `exact` exactly Studio's, and then returns
+    /// the first error of that CLI's files.
+    fn provision_session_agent_files_exact(
+        &mut self,
+        file_path: Option<&Path>,
+        exact: Option<crate::agent_session_files::ExactProjectConfig>,
+    ) -> Option<std::io::Error> {
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
         self.write_backoff.clear();
@@ -2577,6 +2594,7 @@ impl TerminalState {
             agent_runtime: self.active_mcp_runtime_name().to_string(),
             ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
             unread_probe: None,
+            exact_project_config: exact,
         };
         write_session_agent_files_for_job(&job).err()
     }
@@ -2991,14 +3009,21 @@ impl TerminalState {
         let run_seq = self.next_run_seq.max(1);
         self.next_run_seq = run_seq + 1;
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
+        // Grok and Antigravity load their project config, hooks and MCP servers included, from the session folder, as the user.
+        let exact = match (preset, mode) {
+            (AgentCliPreset::Grok, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
+            (AgentCliPreset::Antigravity, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
+            _ => None,
+        };
         let provisioned = if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-            self.reset_agent_run(file_path)
+            self.reset_agent_run_exact(file_path, exact)
         } else {
             self.provision_session_agent_files(file_path)
         };
-        // Gemini CLI loads the settings Studio just rewrote by itself. In Ask mode, files that could not be rewritten, or do not
-        // read back as written, may be a copy an agent kept (hooks and servers included): the tab does not start.
-        if let (AgentCliPreset::Gemini, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
+        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In Ask mode, files that could not be
+        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be removed, may be a copy an
+        // agent kept (hooks and servers included): the tab does not start.
+        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
             let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
             self.status_msg = Some(message.clone());
             return Err(message);
@@ -4482,10 +4507,12 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
 /// makes it discover this plugin for that session only, leaving the user's global agy config untouched.
 fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std::io::Result<()> {
     let plugin_dir = session_dir.join(".agents").join("plugins").join("designos");
-    let manifest = br#"{"name":"designos"}"#;
-    atomic_write_session_file(&plugin_dir.join("plugin.json"), manifest)?;
+    atomic_write_session_file(&plugin_dir.join("plugin.json"), AGY_PLUGIN_MANIFEST)?;
     atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes)
 }
+
+/// The manifest of the `designos` plugin of an Antigravity session (`plugin.json`).
+const AGY_PLUGIN_MANIFEST: &[u8] = br#"{"name":"designos"}"#;
 
 /// Publishes the session's MCP server config as Gemini CLI's project settings at
 /// `<session_dir>/.gemini/settings.json` plus `<session_dir>/.gemini/trustedFolders.json`
@@ -4575,7 +4602,14 @@ fn toml_key(k: &str) -> String {
 /// Grok 1.0.62 has no per-session MCP flag; it merges the project layer of its cwd, so the tab is
 /// started with `--cwd <session_dir>` and the user's `~/.grok/config.toml` is never written.
 fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value) -> std::io::Result<()> {
-    let Some(servers) = mcp_config.get("mcpServers").and_then(|v| v.as_object()) else { return Ok(()) };
+    let Some(toml) = grok_session_config_toml(mcp_config) else { return Ok(()) };
+    atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes())
+}
+
+/// The text of Grok's project config for `mcp_config`: its `mcpServers` and nothing else (no plugin, no permission rule). `None`
+/// when `mcp_config` has no `mcpServers`.
+fn grok_session_config_toml(mcp_config: &serde_json::Value) -> Option<String> {
+    let servers = mcp_config.get("mcpServers").and_then(|v| v.as_object())?;
     let mut toml = String::new();
     for (name, server) in servers {
         let key = toml_key(name);
@@ -4598,7 +4632,7 @@ fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value)
         }
         toml.push('\n');
     }
-    atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes())
+    Some(toml)
 }
 
 #[cfg(test)]
@@ -4713,10 +4747,30 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     }
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
     atomic_write_session_file(&mcp_config_path, &bytes)?;
-    write_agy_session_plugin(&job.session_dir, &bytes)?;
+    // The Ask-mode tab of Grok or Antigravity that is about to start gets its project config made exactly Studio's first, so that
+    // is the error the tab reports; the plain writes of that CLI's files below are then skipped.
+    let exact = if job.ask_mode { job.exact_project_config } else { None };
+    let status_path = job.session_dir.join("agent-status.json");
+    let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
+    let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
+    match exact {
+        Some(ExactProjectConfig::Grok) => {
+            let config = grok_session_config_toml(&mcp_config).unwrap_or_default();
+            crate::agent_project_config::make_grok_config_exact(&job.session_dir, config.as_bytes(), &grok_hooks_bytes)?
+        }
+        Some(ExactProjectConfig::Antigravity) => {
+            crate::agent_project_config::make_agy_config_exact(&job.session_dir, &agy_hooks_bytes, AGY_PLUGIN_MANIFEST, &bytes)?
+        }
+        None => {}
+    }
+    if exact != Some(ExactProjectConfig::Antigravity) {
+        write_agy_session_plugin(&job.session_dir, &bytes)?;
+    }
     // Every other file is written whatever this one's result is; it is reported last, and an Ask-mode Gemini tab refuses to start on it.
     let gemini_config = write_gemini_session_config(&job.session_dir, &mcp_config);
-    write_grok_session_config(&job.session_dir, &mcp_config)?;
+    if exact != Some(ExactProjectConfig::Grok) {
+        write_grok_session_config(&job.session_dir, &mcp_config)?;
+    }
     if let Some(dir) = &private_dir {
         write_private_claude_mcp_config(dir, &mcp_config);
     }
@@ -4735,7 +4789,6 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 
     let bootstrap_reply_path = job.session_dir.join("bootstrap-context-reply.json");
     let delivered_marker_path = job.session_dir.join(format!("bootstrap.delivered.{}", job.bootstrap_run_id));
-    let status_path = job.session_dir.join("agent-status.json");
     // Ask mode: the hook script and the hooks file that names it go to the Studio-private channel folder, the script first.
     // Claude reads that file (not one in the session folder, which the agent can write), so the agent cannot swap the
     // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
@@ -4768,11 +4821,12 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
         atomic_write_session_file(&job.session_dir.join("hooks.json"), &hooks_bytes)?;
     }
 
-    let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join(".grok").join("hooks").join("designos-status.json"), &grok_hooks_bytes)?;
-
-    let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join(".agents").join("hooks.json"), &agy_hooks_bytes)?;
+    if exact != Some(ExactProjectConfig::Grok) {
+        atomic_write_session_file(&job.session_dir.join(".grok").join("hooks").join("designos-status.json"), &grok_hooks_bytes)?;
+    }
+    if exact != Some(ExactProjectConfig::Antigravity) {
+        atomic_write_session_file(&job.session_dir.join(".agents").join("hooks.json"), &agy_hooks_bytes)?;
+    }
 
     // The session `SKILL.md` carries the rules pack for the tools this session enables.
     let rules_body = session_rules_pack(custom_tools.as_ref().map(|custom| &custom.enabled));
@@ -4804,6 +4858,10 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     // Codex, Grok, Antigravity, Gemini CLI, and OpenCode read `AGENTS.md` / `GEMINI.md` from their cwd (the session dir).
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
+    // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
+    if exact.is_some() {
+        return Ok(());
+    }
     gemini_config
 }
 

@@ -38,6 +38,8 @@ pub(super) const SESSION_NAMES: &[&str] = &[
     ".grok",
     ".agents",
     ".claude",
+    ".cursor",
+    ".mcp.json",
     "AGENTS.md",
     "GEMINI.md",
     "SKILL.md",

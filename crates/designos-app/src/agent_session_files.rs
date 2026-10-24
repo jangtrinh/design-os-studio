@@ -15,8 +15,9 @@ mod session_io;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step};
 pub use session_io::{
-    atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file, read_session_file, read_session_text,
-    remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, write_session_file_unless, write_session_file_verified,
+    atomic_write_session_file, changed_while_written, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
+    read_session_file, read_session_text, remove_session_dir_all, remove_session_entries_except, remove_session_file, remove_session_path, rename_session_file,
+    session_file_metadata, write_session_file_unless, write_session_file_verified,
 };
 
 use std::path::{Path, PathBuf};
@@ -302,6 +303,18 @@ pub struct SnapshotJob {
     /// Read position of the session's edit log when the job was queued; the writer asks it again just
     /// before the canvas replaces the old one and holds the publish when the agent appended since.
     pub unread_probe: Option<crate::live_patch_log::UnreadProbe>,
+    /// Set when an Ask-mode tab of Grok or Antigravity is about to start from this snapshot: its project config is then made
+    /// exactly Studio's (see [`crate::agent_project_config`]) and the result of that is the one the write returns. `None` for every
+    /// other write, a periodic sync included.
+    pub exact_project_config: Option<ExactProjectConfig>,
+}
+
+/// A CLI that loads hooks, MCP servers and plugins as commands from the project folder of its working directory, which is a session
+/// folder an agent writes, and that runs them as the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactProjectConfig {
+    Grok,
+    Antigravity,
 }
 
 /// How an executed [`SnapshotJob`] ended.
@@ -594,6 +607,8 @@ fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
 }
 
 #[cfg(all(test, unix))]
+mod agy_config_tests;
+#[cfg(all(test, unix))]
 mod canonical_spelling_tests;
 #[cfg(all(test, unix))]
 mod codex_probe_tests;
@@ -611,6 +626,8 @@ mod fs_scan;
 mod fs_sites_scan_tests;
 #[cfg(all(test, unix))]
 mod gemini_config_tests;
+#[cfg(all(test, unix))]
+mod grok_config_tests;
 #[cfg(all(test, unix))]
 mod hook_quoting_tests;
 #[cfg(all(test, unix))]
@@ -911,6 +928,7 @@ mod tests {
             agent_runtime: "claude".into(),
             ask_mode: false,
             unread_probe: None,
+            exact_project_config: None,
         }
     }
 

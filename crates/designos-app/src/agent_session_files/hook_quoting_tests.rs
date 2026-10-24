@@ -28,6 +28,7 @@ pub(super) fn job_in(session_dir: &Path) -> SnapshotJob {
         agent_runtime: "claude".into(),
         ask_mode: false,
         unread_probe: None,
+        exact_project_config: None,
     }
 }
 

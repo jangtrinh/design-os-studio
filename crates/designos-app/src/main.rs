@@ -14,6 +14,7 @@ pub mod agent_open_flow;
 pub mod agent_permissions;
 pub mod agent_picker;
 mod agent_presence;
+mod agent_project_config;
 mod agent_sample_prompts;
 mod agent_selection_chip;
 mod agent_session_failure;
