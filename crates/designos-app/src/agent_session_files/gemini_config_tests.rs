@@ -1,7 +1,7 @@
 //! Gemini CLI loads `<session>/.gemini/settings.json` by itself, MCP servers and hooks included. In Ask mode a copy an agent
 //! kept (`chmod 0555 .gemini` stops every rewrite) would keep running for good, so such a tab does not start.
 
-use super::inner_link_tests::{running_as_root, Writable};
+use super::test_support::{running_as_root, Writable};
 use super::*;
 use crate::live_sync_tests::unique_tab_id;
 use crate::terminal::{AgentCliPreset, PermissionMode, TerminalState};
@@ -35,8 +35,8 @@ fn an_ask_mode_gemini_tab_does_not_start_when_studio_cannot_rewrite_its_settings
     assert_eq!(st.status_msg.as_deref(), Some(message.as_str()), "the status line says why");
     let gemini = st.session_dir.join(".gemini").display().to_string();
     assert!(message.starts_with("Couldn't start Gemini CLI: "), "{message}");
-    assert!(message.contains(&gemini) && message.contains("can't be written"), "the line names the folder and says what failed: {message}");
-    assert!(message.ends_with(". Make the folder writable or delete it, then try again."), "and what to do: {message}");
+    assert!(message.contains(&format!("{gemini} can't be written to")), "the line names the folder and says what failed: {message}");
+    assert!(message.ends_with(". Make it writable or delete it, then try again."), "and what to do: {message}");
     assert_eq!(std::fs::read(st.session_dir.join(".gemini/settings.json")).expect("the agent's file"), br#"{"agent":"kept"}"#);
 }
 

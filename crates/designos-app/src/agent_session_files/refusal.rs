@@ -40,7 +40,7 @@ impl std::error::Error for Refused {}
 pub enum Fix {
     /// The folder cannot be made or read: its permissions, or a full disk.
     CheckPermissions,
-    /// The folder cannot be written into: an agent (or the user) made it read-only.
+    /// The folder the line names cannot be written into: an agent (or the user) made it read-only.
     MakeWritable,
     /// Studio has no private data folder: only a restart helps.
     HomeFolder,
@@ -53,7 +53,7 @@ impl Fix {
     fn sentence(self, then: &str) -> String {
         match self {
             Fix::CheckPermissions => format!("Check its permissions and free space, then {then}"),
-            Fix::MakeWritable => format!("Make the folder writable or delete it, then {then}"),
+            Fix::MakeWritable => format!("Make it writable or delete it, then {then}"),
             Fix::HomeFolder => "Make sure your home folder exists, then restart Studio".to_string(),
             Fix::CloseOtherTabs => format!("Close this file's other agent tabs, then {then}"),
         }
@@ -130,7 +130,7 @@ pub fn start_failure_message(tab: &str, e: &io::Error) -> String {
 /// The status line of the files Studio keeps in a session folder when they could not be updated because of `e`. The error
 /// names its own path, so the line does not.
 pub fn files_not_updated_message(e: &io::Error) -> String {
-    format!("Couldn't update this tab's agent files: {}.", with_next_step(e))
+    format!("Couldn't update the agent files: {}.", with_next_step(e))
 }
 
 /// The status line of a library file whose own session folder was refused for `e`: the cause, then what happens to its agents

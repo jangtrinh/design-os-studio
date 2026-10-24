@@ -611,12 +611,16 @@ mod inner_link_race_tests;
 mod inner_link_tests;
 #[cfg(all(test, unix))]
 mod library_fallback_tests;
+#[cfg(all(test, unix))]
+mod linked_parent_tests;
 #[cfg(test)]
 mod refusal_tests;
 #[cfg(all(test, unix))]
 mod session_io_tests;
 #[cfg(test)]
 mod test_root;
+#[cfg(all(test, unix))]
+mod test_support;
 #[cfg(test)]
 mod unavailable_root_tests;
 
@@ -947,7 +951,7 @@ mod tests {
             st.flush_live_sync();
         }
         assert_eq!(st.snapshot_jobs_executed(), 1, "ten frames with the same content must try the failing write once");
-        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update this tab's agent files")), "the failure is reported: {:?}", st.status_msg);
+        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")), "the failure is reported: {:?}", st.status_msg);
 
         st.status_msg = None;
         st.sync_live_file_context(&doc, page, &[page], None);
@@ -1213,7 +1217,7 @@ mod tests {
 
         assert!(st.last_synced_key.is_none(), "failed write must not mark last_synced_key as succeeded: {:?}", st.last_synced_key);
         assert!(
-            st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update this tab's agent files")),
+            st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")),
             "write failure must be surfaced in status_msg, got: {:?}",
             st.status_msg
         );

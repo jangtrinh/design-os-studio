@@ -27,10 +27,11 @@ fn a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery() {
 #[test]
 fn a_failure_with_a_known_fix_puts_the_consequence_before_the_recovery() {
     let dir = Path::new("/data/sessions/p1-tab-1");
-    let e = cannot("created", dir, io::Error::from_raw_os_error(13), Fix::CheckPermissions);
+    let denied = || io::Error::from(io::ErrorKind::PermissionDenied);
+    let e = cannot("created", dir, denied(), Fix::CheckPermissions);
     assert_eq!(refusal_of(&e), None);
     assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "the kind of the cause is kept");
-    let cause = format!("{} can't be created: {}", dir.display(), io::Error::from_raw_os_error(13));
+    let cause = format!("{} can't be created: {}", dir.display(), denied());
     assert_eq!(e.to_string(), cause, "the error says what failed and nothing else");
     assert_eq!(start_failure_message("Claude Code", &e), format!("Couldn't start Claude Code: {cause}. Check its permissions and free space, then try again."));
     assert_eq!(
@@ -49,8 +50,8 @@ fn a_failure_with_a_known_fix_puts_the_consequence_before_the_recovery() {
 #[test]
 fn every_fix_names_what_to_do_and_a_missing_home_folder_always_needs_a_restart() {
     let path = Path::new("/s/.gemini/settings.json");
-    let step = |fix| with_next_step(&cannot("written", path, io::Error::from_raw_os_error(13), fix));
-    assert!(step(Fix::MakeWritable).ends_with(". Make the folder writable or delete it, then try again"));
+    let step = |fix| with_next_step(&cannot("written to", path, io::Error::from(io::ErrorKind::PermissionDenied), fix));
+    assert!(step(Fix::MakeWritable).ends_with(". Make it writable or delete it, then try again"));
     assert!(step(Fix::CloseOtherTabs).ends_with(". Close this file's other agent tabs, then try again"));
     let home = failed(io::ErrorKind::Other, "Studio has no private data folder".to_string(), Fix::HomeFolder);
     assert_eq!(
@@ -72,6 +73,6 @@ fn another_error_carries_its_own_next_step_and_is_not_a_refusal() {
 fn the_line_of_files_not_updated_names_the_path_once() {
     let e = refused(Refusal::Link, Path::new("/data/sessions/p1-tab-1/.gemini"));
     let line = files_not_updated_message(&e);
-    assert_eq!(line, "Couldn't update this tab's agent files: /data/sessions/p1-tab-1/.gemini is a link, not a folder. Delete the link and try again.");
+    assert_eq!(line, "Couldn't update the agent files: /data/sessions/p1-tab-1/.gemini is a link, not a folder. Delete the link and try again.");
     assert_eq!(line.matches("/.gemini").count(), 1);
 }

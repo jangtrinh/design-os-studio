@@ -3,13 +3,23 @@ warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db
   * `bin` target `designos-studio`
    Compiling designos-mcp v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-mcp)
    Compiling designos-app v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.52s
+warning: unused import: `super::*`
+ --> crates/designos-app/src/agent_session_files/library_fallback_tests.rs:6:5
+  |
+6 | use super::*;
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning (run `cargo fix --bin "designos" -p designos-app --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.89s
      Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
 
 running 1 test
-PERF 22 files through atomic_write_session_file: 3.771627ms
-PERF 22 files through fs::write + rename (the old way): 2.784535ms
+PERF round 0: 22 files through atomic_write_session_file: 333.824439ms
+PERF round 1: 22 files through atomic_write_session_file: 380.24825ms
+PERF round 2: 22 files through atomic_write_session_file: 305.702066ms
 test agent_session_files::tmp_perf_probe_tests::tmp_perf_probe ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3123 filtered out; finished in 0.17s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3126 filtered out; finished in 21.11s
 

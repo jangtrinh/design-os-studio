@@ -2,8 +2,7 @@
 //! comes before what to do about the folder.
 
 use super::folder_tests::{scratch_dir, Cleanup};
-use super::inner_link_tests::{running_as_root, Writable};
-use super::*;
+use super::test_support::{running_as_root, Writable};
 use crate::agent_sessions::{acquire_stable_session_dir, stable_session_dir, LockOutcome};
 use crate::live_sync_tests::unique_tab_id;
 use std::os::unix::fs::PermissionsExt;

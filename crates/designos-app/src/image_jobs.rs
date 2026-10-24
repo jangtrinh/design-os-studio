@@ -2332,4 +2332,24 @@ mod tests {
         app.cleanup_image_jobs_on_file_close();
         assert_eq!(std::fs::read(victim.join("keep.txt")).unwrap(), b"mine", "closing the file removed what the link points at");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link() {
+        let tmp = TestDir::new("link-session-cleanup");
+        let (mut app, _orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let victim = tmp.path().join("victim");
+        let job = victim.join("image-jobs").join("job-0001");
+        std::fs::create_dir_all(&job).unwrap();
+        std::fs::write(job.join("request.json"), b"mine").unwrap();
+        let linked = tmp.path().join("agent-sessions").join("file-1");
+        std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&victim, &linked).unwrap();
+        app.terminal.session_dir = linked;
+
+        app.cleanup_image_jobs_on_file_close();
+
+        assert_eq!(std::fs::read(job.join("request.json")).ok().as_deref(), Some(&b"mine"[..]), "closing the file removed what the link points at");
+    }
 }

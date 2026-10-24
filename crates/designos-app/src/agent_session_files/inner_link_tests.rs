@@ -4,6 +4,7 @@
 use super::folder_tests::{only_entry_is_the_sentinel, target_with_sentinel, Cleanup};
 use super::hook_quoting_tests::job_in;
 use super::refusal::{refusal_of, Refusal};
+use super::test_support::{made_session_folder, plant_link};
 use super::*;
 use crate::live_sync_tests::unique_tab_id;
 use std::os::unix::fs::{symlink, PermissionsExt};
@@ -22,35 +23,6 @@ const WRITTEN_FOLDERS: &[&str] = &[
     ".claude/skills",
     ".claude/skills/designos-studio",
 ];
-
-/// A session folder Studio made, removed when the returned guard drops.
-pub(super) fn made_session_folder(tag: &str) -> (PathBuf, Cleanup) {
-    let dir = ephemeral_session_dir(&format!("p{}-{tag}-{}", std::process::id(), unique_tab_id()));
-    ensure_session_dir(&dir).expect("Studio makes the session folder");
-    (dir.clone(), Cleanup(vec![dir]))
-}
-
-/// Plants a link at `<session>/<rel>` (its parent folders are real folders) that points at `target`.
-pub(super) fn plant_link(session: &Path, rel: &str, target: &Path) {
-    let link = session.join(rel);
-    std::fs::create_dir_all(link.parent().expect("a parent")).expect("real parent folders");
-    symlink(target, &link).expect("plant the link");
-}
-
-/// Makes the folder writable again when it drops, so a test that made it read-only can remove it.
-pub(super) struct Writable(pub(super) PathBuf);
-
-impl Drop for Writable {
-    fn drop(&mut self) {
-        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
-    }
-}
-
-/// True for root, which writes into a read-only folder: a test of the refusal of such a write does not apply.
-pub(super) fn running_as_root() -> bool {
-    // SAFETY: `geteuid` takes no arguments and cannot fail.
-    unsafe { libc::geteuid() == 0 }
-}
 
 fn names_in(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir).expect("read the target").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();

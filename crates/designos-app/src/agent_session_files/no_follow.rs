@@ -40,10 +40,10 @@ fn retry(mut call: impl FnMut() -> libc::c_int) -> io::Result<libc::c_int> {
     }
 }
 
-/// `e` as "<path> can't be <what>: <e>", with the fix that fits it: a folder that refuses a write has been made read-only.
-fn cannot_io(what: &str, path: &Path, e: io::Error) -> io::Error {
+/// `e` for a file that could not be made in the folder `folder`, which the line names: a folder that refuses was made read-only.
+fn cannot_write_to(folder: &Path, e: io::Error) -> io::Error {
     let fix = if e.kind() == io::ErrorKind::PermissionDenied { Fix::MakeWritable } else { Fix::CheckPermissions };
-    cannot(what, path, e, fix)
+    cannot("written to", folder, e, fix)
 }
 
 /// A folder Studio holds open. Every call acts on the folder the descriptor names, whatever its path became since.
@@ -110,7 +110,7 @@ impl Dir {
                         // Somebody made it first: the next `openat` looks at what is there, which may be a link.
                         Ok(_) => {}
                         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-                        Err(e) => return Err(cannot_io("created", &path, e)),
+                        Err(e) => return Err(cannot("created", &path, e, Fix::CheckPermissions)),
                     }
                 }
                 Err(e) => return Err(explain_open(&path, e, self.kind_of(&c).ok())),

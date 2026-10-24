@@ -2,8 +2,8 @@
 //! while Studio rewrites the session files. Not one byte may land in the target of the link.
 
 use super::hook_quoting_tests::job_in;
-use super::inner_link_tests::made_session_folder;
 use super::refusal::{refusal_of, Refusal};
+use super::test_support::made_session_folder;
 use super::*;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;

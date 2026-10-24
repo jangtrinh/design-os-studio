@@ -19,7 +19,7 @@ sandboxed() { env HOME="$S/home" CODEX_HOME="$S/codex-home" TMPDIR="$S/tmp/" cod
 studio() { env HOME="$S/test-home" TMPDIR="$S/tmp/" GEMINI_CLI_HOME="$S/test-home" CODEX_HOME="$S/test-home/.codex" CLAUDE_CONFIG_DIR="$S/test-home/.claude" \
   DESIGNOS_PROBE_SESSION="$SESS" "$BIN" --ignored --exact "agent_session_files::codex_probe_tests::$1" --test-threads=1 --nocapture 2>&1 | grep -o 'PROBE.*'; }
 {
-echo "tree: ${PROBE_TREE:-$(git -C "$WT" rev-parse HEAD)}  binary: ${BIN##*/}  $(codex --version 2>&1 | head -1)"
+echo "tree: ${PROBE_TREE:-$(git -C "$WT" rev-parse HEAD)}  binary: ${BIN##*/}  $(env HOME="$S/home" CODEX_HOME="$S/codex-home" TMPDIR="$S/tmp/" codex --version 2>&1 | head -1)"
 before="$(victim_state)"; echo "victim before: $before"
 echo "== Studio makes the session folder (test build)"; studio probe_make_session_folder
 echo "-- control: the sandboxed agent cannot write the victim"

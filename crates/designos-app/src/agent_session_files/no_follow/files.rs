@@ -1,6 +1,6 @@
 //! The files of an open folder: made, written, read, renamed and removed relative to its descriptor.
 
-use super::{c_name, cannot, cannot_io, retry, Dir, Fix, ATTEMPTS};
+use super::{c_name, cannot, cannot_write_to, retry, Dir, Fix, ATTEMPTS};
 use std::ffi::{CStr, CString, OsStr};
 use std::io::{self, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -8,9 +8,9 @@ use std::os::unix::ffi::OsStrExt;
 
 const NEW_FILE_FLAGS: libc::c_int = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
 
-/// `fsync` of `file`. `File::sync_all` is `F_FULLFSYNC` on macOS, which also empties the drive's own cache and takes about ten
-/// milliseconds a file: the dozen files of a session sync would stall a tab's start. `fsync` is what the rename needs, a complete
-/// file under the new name after a crash of Studio or of the system.
+/// `fsync` of `file`. `File::sync_all` is `F_FULLFSYNC` on macOS, which also empties the drive's own cache: 22 small files took
+/// 305 to 380 ms through it and 4 to 7 ms through `fsync` (`evidence/perf-22-files-*.log` of the change that added this), and a tab's
+/// start writes that many on the UI thread. `fsync` is what the rename needs: a complete file under the new name.
 fn flush_to_disk(file: &std::fs::File) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     // SAFETY: the descriptor belongs to `file`, which outlives the call.
@@ -30,8 +30,8 @@ impl Dir {
     /// Writes `bytes` to a new file `name`, which must not exist yet, and makes them durable.
     pub(in crate::agent_session_files) fn create_new(&self, name: &OsStr, bytes: &[u8]) -> io::Result<()> {
         let path = self.path.join(name);
-        let mut file = self.create_file(name.as_bytes()).map_err(|e| cannot_io("created", &path, e))?;
-        file.write_all(bytes).and_then(|()| flush_to_disk(&file)).map_err(|e| cannot_io("written", &path, e))
+        let mut file = self.create_file(name.as_bytes()).map_err(|e| cannot_write_to(&self.path, e))?;
+        file.write_all(bytes).and_then(|()| flush_to_disk(&file)).map_err(|e| cannot("written", &path, e, Fix::CheckPermissions))
     }
 
     /// Writes `bytes` to `name` as a whole or not at all: to a temporary file of this folder, then `renameat` over `name`.
@@ -39,10 +39,10 @@ impl Dir {
     /// A link at `name` is replaced, never followed.
     pub(in crate::agent_session_files) fn write_atomic(&self, name: &OsStr, bytes: &[u8], hold: impl FnOnce() -> bool) -> io::Result<bool> {
         let path = self.path.join(name);
-        let (tmp, mut file) = self.create_temp(name).map_err(|e| cannot_io("written", &path, e))?;
+        let (tmp, mut file) = self.create_temp(name).map_err(|e| cannot_write_to(&self.path, e))?;
         let drop_tmp = |e: io::Error| {
             let _ = self.unlink(&tmp, 0);
-            cannot_io("written", &path, e)
+            cannot("written", &path, e, Fix::CheckPermissions)
         };
         file.write_all(bytes).and_then(|()| flush_to_disk(&file)).map_err(drop_tmp)?;
         drop(file);
@@ -76,7 +76,7 @@ impl Dir {
 
     /// Renames the entry `from` of this folder to `to`, another entry of the same folder.
     pub(in crate::agent_session_files) fn rename_entry(&self, from: &OsStr, to: &OsStr) -> io::Result<()> {
-        self.rename(&c_name(from)?, &c_name(to)?).map_err(|e| cannot_io("renamed", &self.path.join(from), e))
+        self.rename(&c_name(from)?, &c_name(to)?).map_err(|e| cannot("renamed", &self.path.join(from), e, Fix::CheckPermissions))
     }
 
     pub(super) fn unlink(&self, name: &CStr, flags: libc::c_int) -> io::Result<()> {

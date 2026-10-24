@@ -106,10 +106,7 @@ fn the_status_line_of_a_failed_snapshot_says_what_to_do() {
     st.sync_live_file_context(&doc, page, &[], None);
     st.flush_live_sync();
 
-    assert_eq!(
-        st.status_msg,
-        Some(format!("Couldn't update this tab's agent files: {} is a link, not a folder. Delete the link and try again.", dir.display()))
-    );
+    assert_eq!(st.status_msg, Some(format!("Couldn't update the agent files: {} is a link, not a folder. Delete the link and try again.", dir.display())));
 }
 
 #[test]

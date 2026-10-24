@@ -2,9 +2,9 @@
 //! leaves behind in the target of the link is nothing.
 
 use super::folder_tests::{only_entry_is_the_sentinel, target_with_sentinel};
-use super::inner_link_tests::{made_session_folder, plant_link};
 use super::no_follow::Dir;
 use super::refusal::{refusal_of, Refusal};
+use super::test_support::{made_session_folder, plant_link};
 use super::*;
 use std::os::unix::fs::{symlink, PermissionsExt};
 
