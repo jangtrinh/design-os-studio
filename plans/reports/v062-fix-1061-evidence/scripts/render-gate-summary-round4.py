@@ -33,7 +33,7 @@ sections = [
     ("race test x10 per bin while the other bin's full suite runs (runs 1, 5, 10 shown; all 20 are in the logs)", race),
     ("scan test, green on the allowlist", grab("round4-scan-green.log", [r"^test .*ok$", r"^test result"])),
     ("scan test, RED on four mutations (a routed read made std::fs; a fresh std::fs::read_to_string(session_dir.join(\"x\")); a hook redirect; stale and miscounted entries)", scan_reds),
-    ("4 fallback-id tests x60 in parallel: on 17bce1bb (before) and on the head (after)", grab("round4-fallback-loop-base-17bce1bb.log", [r"of 60 runs failed", r"exit=101"])[-3:] + grab("round4-fallback-loop-head-b16508ab.log", [r"of 60 runs failed"])),
+    ("4 fallback-id tests x60 in parallel: on 17bce1bb (before) and on the head (after)", grab("round4-fallback-loop-base-17bce1bb.log", [r"of 60 runs failed", r"exit=101"])[-3:] + grab("round4-fallback-loop-head-e720db3d.log", [r"of 60 runs failed"])),
     ("RED on 17bce1bb: live-spec.json through a link or FIFO, a link removed after the failed open, a tailer behind a link", grab("round4-red-on-17bce1bb.log", [r"^test .*(FAILED|ok)$", r"^test result"])),
     ("home mtimes after the round-4 gate run", grab("gate4-mtimes-after.txt", [r"\d"])),
 ]
@@ -53,7 +53,7 @@ page = f"""<!doctype html><meta charset="utf-8"><style>
 body{{background:#0d1117;color:#c9d1d9;font:13px/1.45 Menlo,monospace;margin:0;padding:18px 22px;width:1560px}}
 .cmd{{color:#79c0ff;margin-top:10px}} .good{{color:#7ee787}} .bad{{color:#ffa198}} .ok{{color:#c9d1d9}}
 h1{{font-size:14px;color:#e6edf3;margin:0 0 6px}}
-</style><h1>#1061 round 4: PR #{html.escape(pr)}, code head {html.escape(head)}, on release/v0.6.2 f8f2186f, 2026-10-24</h1>
+</style><h1>#1061 round 4: PR #{html.escape(pr)}, code head {html.escape(head)}, on release/v0.6.2 894c2286, 2026-10-24</h1>
 {''.join(rows)}"""
 out.write_text(page)
 print(out)
