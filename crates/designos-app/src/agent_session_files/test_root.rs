@@ -12,7 +12,9 @@ fn base_dir() -> PathBuf {
 /// This process's sessions folder. On first use it clears what earlier processes left behind (see [`prepare_base`]).
 pub(super) fn test_sessions_root() -> PathBuf {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
-    ROOT.get_or_init(|| prepare_base(&base_dir(), std::process::id(), crate::agent_sessions::is_pid_alive)).clone()
+    // Where a process cannot be looked up (`is_pid_alive` says no to every other id), no other process's folder is removed.
+    let is_alive = |pid: u32| cfg!(not(unix)) || crate::agent_sessions::is_pid_alive(pid);
+    ROOT.get_or_init(|| prepare_base(&base_dir(), std::process::id(), is_alive)).clone()
 }
 
 /// Returns `<base>/<own_pid>/sessions` after clearing `base`: the folder of an earlier process that had this id (nothing alive
