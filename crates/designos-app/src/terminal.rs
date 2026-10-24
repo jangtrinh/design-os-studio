@@ -3031,7 +3031,7 @@ impl TerminalState {
             self.provision_session_agent_files(file_path)
         };
         // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In Ask mode, files that could not be
-        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be removed, may be a copy an
+        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved aside, may be a copy an
         // agent kept (hooks and servers included): the tab does not start.
         if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
             let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
@@ -4711,8 +4711,19 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 
 /// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
 /// files for `job` into `job.session_dir` (`#690` §6). When a tab of Grok or Antigravity is starting in Ask mode (`exact_project_config`),
-/// what the CLI loads from the folder is made exactly Studio's first, and a sentence on what was moved aside comes back.
+/// what the CLI loads from the folder is made exactly Studio's first, and a sentence on what was moved aside comes back. A failure
+/// after entries were moved carries that sentence too, so the line about it names both.
 pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<Option<String>> {
+    let mut moved_aside = None;
+    write_session_agent_files_noting(job, &mut moved_aside).map_err(|e| match moved_aside {
+        Some(note) => crate::agent_session_files::with_set_aside_note(e, note),
+        None => e,
+    })
+}
+
+/// [`write_session_agent_files`], which leaves in `moved_aside` what it said about the entries it moved aside as soon as it knows,
+/// before a later write can fail.
+fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJob, moved_aside: &mut Option<String>) -> std::io::Result<Option<String>> {
     let mcp_bin = designos_mcp_binary();
     let workspace_dir = session_workspace_dir(job.file_path.as_deref());
     let mcp_config_path = job.session_dir.join("mcp-config.json");
@@ -4786,6 +4797,7 @@ pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::Snapsh
         }
         None => None,
     };
+    moved_aside.clone_from(&set_aside_note);
     if exact != Some(ExactProjectConfig::Antigravity) {
         write_agy_session_plugin(&job.session_dir, &bytes)?;
     }
@@ -5065,6 +5077,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
         // `~/.grok/trusted_folders.toml`.
         cmd.env("GROK_FOLDER_TRUST", "0");
+        // With the trust prompt off, Grok also sources `<cwd>/.envrc` with bash when a session starts. A zero turns every `.envrc`
+        // evaluation off, in Ask and Skip mode alike: a session folder never holds an `.envrc` the user wrote, and an agent may.
+        cmd.env("GROK_ENVRC_TIMEOUT_SECS", "0");
     }
     // The Ask launch names these three variables, and Claude reads an empty `--settings` as no settings and an empty
     // `--plugin-dir` as its own working folder. So an Ask tab always gets non-empty values (a private file or plugin, or
@@ -7820,6 +7835,29 @@ mod tests {
         assert_eq!(grok_env(AgentCliPreset::Grok).as_deref(), Some("0"));
         assert_eq!(grok_env(AgentCliPreset::Claude), None);
         assert_eq!(grok_env(AgentCliPreset::Antigravity), None);
+    }
+
+    /// Grok sources `<cwd>/.envrc` with bash when a session starts, unless `GROK_ENVRC_TIMEOUT_SECS` is `0`. A zero turns every load
+    /// off, so it also covers a file an agent writes after the start check; Skip mode has no use for `.envrc` either.
+    #[test]
+    fn grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli() {
+        let envrc = |preset, session: Option<&SessionEnv>| {
+            let mut cmd = CommandBuilder::new("true");
+            // A value Studio's own environment held must not reach a Grok tab.
+            cmd.env("GROK_ENVRC_TIMEOUT_SECS", "10");
+            configure_pty_env_with_session(&mut cmd, preset, None, session);
+            cmd.get_env("GROK_ENVRC_TIMEOUT_SECS").map(|v| v.to_string_lossy().into_owned())
+        };
+        let mut st = isolated_683_state(734);
+        for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+            st.permission_mode = mode;
+            let env = st.session_env();
+            assert_eq!(envrc(AgentCliPreset::Grok, Some(&env)).as_deref(), Some("0"), "{mode:?}");
+            for other in [AgentCliPreset::Claude, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::Codex] {
+                assert_eq!(envrc(other, Some(&env)).as_deref(), Some("10"), "{other:?} keeps what Studio's own environment held ({mode:?})");
+            }
+        }
+        assert_eq!(envrc(AgentCliPreset::Grok, None).as_deref(), Some("0"), "a tab without a session");
     }
 
     /// Quoted items of the TOML list that follows `key=[` in a Codex `-c` override.

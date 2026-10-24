@@ -113,6 +113,12 @@ pub fn changed_while_written(path: &Path) -> io::Error {
     failed(io::ErrorKind::InvalidData, format!("{} changed while Studio wrote it", path.display()), Fix::CloseOtherTabs)
 }
 
+/// The error for the entry `path`, which Studio never writes and which another agent tab of the folder put where `who` would run it
+/// while Studio was starting `who`, with what to do.
+pub fn added_while_starting(path: &Path, who: &str) -> io::Error {
+    failed(io::ErrorKind::InvalidData, format!("{} was added while Studio was starting {who}", path.display()), Fix::CloseOtherTabs)
+}
+
 /// Makes the new file `path` holding `bytes`; an existing entry, a link included, is an `AlreadyExists` error.
 pub fn create_session_file_exclusive(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (place, dir) = open_place(path, true)?;
@@ -207,11 +213,11 @@ impl SetAside {
     /// What to tell the user once the start has gone through: how many entries went, the first, and where, or `None` when none did.
     pub fn note(&self) -> Option<String> {
         let (first, (_, stamp)) = (self.moved.first()?, self.folder.as_ref()?);
-        let more = match self.moved.len() {
-            1 => String::new(),
-            n => format!(" and {} more", n - 1),
+        let (more, them) = match self.moved.len() {
+            1 => (String::new(), "it"),
+            n => (format!(" and {} more", n - 1), "them"),
         };
-        Some(format!("Moved {}{more} that {} would run into .designos-set-aside/{stamp}.", first.display(), self.who))
+        Some(format!("Moved {}{more} to .designos-set-aside/{stamp} in this file's agent folder, so {} won't run {them}.", first.display(), self.who))
     }
 
     /// Moves the entry at `path`, which is in the open folder `from`, aside. On a platform without `openat` it is refused instead.
@@ -239,7 +245,7 @@ impl SetAside {
         let Some((stamp, stamp_name)) = &self.folder else { return Ok(()) };
         if let Some(kept_as) = from.move_entry(name, stamp, &flat)? {
             eprintln!(
-                "design:os studio: moved {} to .designos-set-aside/{stamp_name}/{}: Studio does not write it, and {} would run it",
+                "design:os studio: moved {} to .designos-set-aside/{stamp_name}/{}, so {} won't run it",
                 path.display(),
                 kept_as.to_string_lossy(),
                 self.who

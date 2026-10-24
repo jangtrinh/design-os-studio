@@ -18,6 +18,7 @@ const PLANTED: &[(&str, &str)] = &[
     (".agents/plugins/designos/hooks.json", ".agents__plugins__designos__hooks.json"),
     (".agents/plugins/designos/.mcp.json", ".agents__plugins__designos__.mcp.json"),
     (".agents/agents/helper.md", ".agents__agents/helper.md"),
+    (".envrc", ".envrc"),
 ];
 
 #[test]
@@ -56,6 +57,17 @@ fn an_ask_mode_agy_tab_moves_aside_a_subagent_definition_that_declares_servers_a
     assert!(!is_there(&st.session_dir.join(".agents/agents")), ".agents/agents is still there");
     assert_eq!(std::fs::read_to_string(aside_path(&st.session_dir, ".agents__agents/helper.md")).expect("kept"), helper);
     assert!(is_there(&aside_path(&st.session_dir, ".agents__agents/other/agent.md")), "the folder is kept whole");
+}
+
+#[test]
+fn an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it() {
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".envrc", "touch /tmp/pwned\n");
+
+    st.spawn_tab(AGY, None).expect("an .envrc is moved aside");
+
+    assert!(!is_there(&st.session_dir.join(".envrc")));
+    assert_eq!(std::fs::read_to_string(aside_path(&st.session_dir, ".envrc")).expect("kept"), "touch /tmp/pwned\n");
 }
 
 #[test]

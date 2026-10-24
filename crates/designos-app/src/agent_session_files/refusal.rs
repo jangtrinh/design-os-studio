@@ -52,8 +52,8 @@ pub enum Fix {
     DeleteLink,
     /// A FIFO or a folder stands where a plain file should be.
     DeleteIt,
-    /// An entry that is not Studio's stands where a CLI would run it, on a platform where Studio does not move it aside.
-    #[cfg_attr(unix, allow(dead_code))]
+    /// An entry that is not Studio's stands where a CLI would run it and Studio cannot move it aside (a platform without `openat`, a
+    /// mount point, a file system that cannot move without replacing): the user moves or deletes it.
     MoveOrDeleteIt,
 }
 
@@ -92,6 +92,44 @@ pub(super) fn refused(kind: Refusal, dir: &Path) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, Refused { kind, dir: dir.to_path_buf() })
 }
 
+/// A start that moved entries aside before it failed: the error, and what to tell the user about the entries, since they were moved
+/// whether or not the tab started.
+#[derive(Debug)]
+struct AfterMoves {
+    cause: io::Error,
+    note: String,
+}
+
+impl fmt::Display for AfterMoves {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.cause, f)
+    }
+}
+
+impl std::error::Error for AfterMoves {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
+
+/// `e` together with `note`, which says what was moved aside before it happened. The cause, its kind and its fix are unchanged.
+pub fn with_set_aside_note(e: io::Error, note: String) -> io::Error {
+    io::Error::new(e.kind(), AfterMoves { cause: e, note })
+}
+
+/// The note of [`with_set_aside_note`] on `e`, if it has one.
+fn note_of(e: &io::Error) -> Option<&str> {
+    e.get_ref()?.downcast_ref::<AfterMoves>().map(|after| after.note.as_str())
+}
+
+/// `e` without the note of [`with_set_aside_note`]: the error whose refusal or fix a line is made of.
+fn cause_of(e: &io::Error) -> &io::Error {
+    match e.get_ref().and_then(|inner| inner.downcast_ref::<AfterMoves>()) {
+        Some(after) => &after.cause,
+        None => e,
+    }
+}
+
 /// An error of `kind` whose cause is `message`, with the `fix` a caller adds to its own next step.
 pub(super) fn failed(kind: io::ErrorKind, message: String, fix: Fix) -> io::Error {
     io::Error::new(kind, Failed { message, fix })
@@ -104,7 +142,7 @@ pub(super) fn cannot(what: &str, path: &Path, e: io::Error, fix: Fix) -> io::Err
 
 /// Why `e` refused a path, when it did (any other error, such as a full disk, is `None`).
 pub fn refusal_of(e: &io::Error) -> Option<Refusal> {
-    e.get_ref()?.downcast_ref::<Refused>().map(|refused| refused.kind)
+    cause_of(e).get_ref()?.downcast_ref::<Refused>().map(|refused| refused.kind)
 }
 
 impl Refusal {
@@ -134,7 +172,7 @@ fn recovery_of(e: &io::Error, then: &str, one_clause: bool) -> Option<String> {
     if let Some(kind) = refusal_of(e) {
         return Some(if one_clause { kind.recovery(then) } else { kind.recovery_then(then) });
     }
-    e.get_ref()?.downcast_ref::<Failed>().map(|failed| failed.fix.sentence(then))
+    cause_of(e).get_ref()?.downcast_ref::<Failed>().map(|failed| failed.fix.sentence(then))
 }
 
 /// `e` as a sentence without its last period, with what to do next when it is a refusal or a failure with a known fix.
@@ -145,9 +183,14 @@ pub fn with_next_step(e: &io::Error) -> String {
     }
 }
 
-/// The status line of a tab (`tab`) that could not start because of `e`, from [`super::ensure_session_dir`].
+/// The status line of a tab (`tab`) that could not start because of `e`, from [`super::ensure_session_dir`]. Entries moved aside before
+/// it failed are named after the cause, so the user learns about both.
 pub fn start_failure_message(tab: &str, e: &io::Error) -> String {
-    format!("Couldn't start {tab}: {}.", with_next_step(e))
+    let line = format!("Couldn't start {tab}: {}.", with_next_step(e));
+    match note_of(e) {
+        Some(note) => format!("{line} {note}"),
+        None => line,
+    }
 }
 
 /// The status line of the files Studio keeps in a session folder when they could not be updated because of `e`. The error

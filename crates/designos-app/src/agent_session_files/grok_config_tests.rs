@@ -26,6 +26,7 @@ const PLANTED: &[(&str, &str)] = &[
     (".claude/plugins/evil/hooks/hooks.json", ".claude__plugins/evil/hooks/hooks.json"),
     (".cursor/hooks.json", ".cursor__hooks.json"),
     (".cursor/mcp.json", ".cursor__mcp.json"),
+    (".envrc", ".envrc"),
 ];
 
 /// An agent definition that shadows a built-in subagent, with the three things that make it run a command with no prompt.
@@ -78,6 +79,8 @@ fn an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_an
     }
     plant(&st.session_dir, ".grok/skills/mine/SKILL.md", "a skill is read, never run");
     plant(&st.session_dir, ".grok/commands/mine.md", "a command is read, never run");
+    plant(&st.session_dir, ".grok/roles/mine.toml", "description = \"a role\"\ndefault_capability_mode = \"all\"\n");
+    plant(&st.session_dir, ".grok/personas/mine.toml", "instructions = \"a persona\"\n");
 
     st.spawn_tab(GROK, None).expect("they are moved aside");
 
@@ -88,6 +91,9 @@ fn an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_an
     assert!(is_there(&st.session_dir.join(".claude/skills/designos-studio/SKILL.md")), "Studio's skill is in a folder that was entered, and stays");
     assert!(is_there(&st.session_dir.join(".grok/skills/mine/SKILL.md")), "a skill is text, so it stays");
     assert!(is_there(&st.session_dir.join(".grok/commands/mine.md")), "a command is text, so it stays");
+    // A role's `default_capability_mode` only narrows the tool kinds a subagent gets and never lifts an approval; a persona is prompt text.
+    assert!(is_there(&st.session_dir.join(".grok/roles/mine.toml")), "a role file narrows tools and runs nothing, so it stays");
+    assert!(is_there(&st.session_dir.join(".grok/personas/mine.toml")), "a persona is text, so it stays");
     assert_eq!(names_in(&st.session_dir.join(".grok/hooks")), ["designos-status.json"]);
 }
 
@@ -196,6 +202,89 @@ fn an_ask_mode_grok_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_to
         assert!(kind.is_symlink(), "{aside} is a link, as the agent made it");
     }
     assert_eq!(std::fs::read_to_string(&victim).expect("the victim"), "the user's own file");
+}
+
+#[test]
+fn an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start() {
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".envrc", "touch /tmp/pwned\n");
+
+    st.spawn_tab(GROK, None).expect("an .envrc is moved aside");
+
+    assert!(!is_there(&st.session_dir.join(".envrc")), "Grok would still source it");
+    assert_eq!(std::fs::read_to_string(aside_path(&st.session_dir, ".envrc")).expect("the agent's file, moved, not deleted"), "touch /tmp/pwned\n");
+}
+
+#[test]
+fn an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent() {
+    if running_as_root() {
+        return;
+    }
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".grok/agents/explore.md", "---\nname: explore\n---\n");
+    let (grok, agents) = (st.session_dir.join(".grok"), st.session_dir.join(".grok/agents"));
+    std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o555)).expect("the agent makes the folder read-only");
+    let _writable = Writable(agents.clone());
+
+    let first = st.spawn_tab(GROK, None).expect_err("a folder that cannot change parent cannot be moved");
+    let second = st.spawn_tab(GROK, None).expect_err("the retry");
+
+    let expected = format!(
+        "Couldn't start Grok Build: {} can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again.",
+        agents.display()
+    );
+    assert_eq!(first, expected, "it is the entry that is read-only, so the line names it");
+    assert_eq!(second, expected);
+    assert!(std::fs::metadata(&grok).expect(".grok").permissions().mode() & 0o200 != 0, "the parent is writable, so naming it would not help");
+    assert!(is_there(&agents.join("explore.md")), "nothing was lost");
+}
+
+#[test]
+fn a_grok_refusal_after_entries_were_moved_says_so_too() {
+    if running_as_root() {
+        return;
+    }
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".mcp.json", "{}");
+    plant(&st.session_dir, ".grok/agents/explore.md", "---\nname: explore\n---\n");
+    let agents = st.session_dir.join(".grok/agents");
+    std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o555)).expect("the agent makes the folder read-only");
+    let _writable = Writable(agents.clone());
+
+    let message = st.spawn_tab(GROK, None).expect_err("the folder that cannot be moved stops the tab");
+
+    let stamp = super::test_support::stamp_folders(&st.session_dir)[0].file_name().expect("a name").to_string_lossy().into_owned();
+    assert_eq!(
+        message,
+        format!(
+            "Couldn't start Grok Build: {} can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again. Moved .mcp.json to .designos-set-aside/{stamp} in this file's agent folder, so Grok won't run it.",
+            agents.display()
+        )
+    );
+    assert_eq!(st.status_msg.as_deref(), Some(message.as_str()), "the status line says both");
+    assert!(is_there(&aside_path(&st.session_dir, ".mcp.json")), "what was moved is kept");
+}
+
+#[test]
+fn a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too() {
+    if running_as_root() {
+        return;
+    }
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".mcp.json", "{}");
+    let agents_folder = st.session_dir.join(".agents");
+    std::fs::create_dir_all(&agents_folder).expect("the folder");
+    std::fs::set_permissions(&agents_folder, std::fs::Permissions::from_mode(0o555)).expect("the agent makes .agents read-only");
+    let _writable = Writable(agents_folder);
+
+    let message = st.spawn_tab(GROK, None).expect_err("a file Studio cannot write stops the tab");
+
+    let stamp = super::test_support::stamp_folders(&st.session_dir)[0].file_name().expect("a name").to_string_lossy().into_owned();
+    assert!(message.starts_with("Couldn't start Grok Build: "), "{message}");
+    assert!(
+        message.ends_with(&format!("Moved .mcp.json to .designos-set-aside/{stamp} in this file's agent folder, so Grok won't run it.")),
+        "the entries moved before the refusal are named: {message}"
+    );
 }
 
 #[test]

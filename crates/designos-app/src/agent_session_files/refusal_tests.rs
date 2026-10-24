@@ -89,3 +89,25 @@ fn the_line_of_files_not_updated_names_the_path_once() {
     assert_eq!(line, "Couldn't update the agent files: /data/sessions/p1-tab-1/.gemini is a link, not a folder. Delete the link, then try again.");
     assert_eq!(line.matches("/.gemini").count(), 1);
 }
+
+#[test]
+fn a_note_on_what_was_moved_aside_comes_after_the_cause_and_its_fix_and_changes_neither() {
+    let dir = Path::new("/data/sessions/p1-tab-1");
+    let note = "Moved .mcp.json to .designos-set-aside/20261025-101500-a1b2c3 in this file's agent folder, so Grok won't run it.";
+    let refused_link = refused(Refusal::Link, dir);
+    let noted = with_set_aside_note(refused(Refusal::Link, dir), note.to_string());
+    assert_eq!(noted.kind(), refused_link.kind());
+    assert_eq!(refusal_of(&noted), Some(Refusal::Link), "the refusal is still the refusal");
+    assert_eq!(with_next_step(&noted), with_next_step(&refused_link), "the next step does not carry the note");
+    assert_eq!(
+        start_failure_message("Grok Build", &noted),
+        format!("Couldn't start Grok Build: /data/sessions/p1-tab-1 is a link, not a folder. Delete the link, then try again. {note}")
+    );
+
+    let unwritable = cannot("moved", dir, io::Error::from(io::ErrorKind::PermissionDenied), Fix::MakeWritable);
+    let noted = with_set_aside_note(cannot("moved", dir, io::Error::from(io::ErrorKind::PermissionDenied), Fix::MakeWritable), note.to_string());
+    assert_eq!(with_next_step(&noted), with_next_step(&unwritable), "a fix is still found under the note");
+    assert!(start_failure_message("Grok Build", &noted).ends_with(&format!("Make it writable or delete it, then try again. {note}")));
+
+    assert!(!start_failure_message("Grok Build", &refused_link).contains("Moved"), "an error with no note says nothing about a move");
+}

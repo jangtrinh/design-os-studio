@@ -113,7 +113,10 @@ fn the_spawned_line_says_what_was_moved_and_where() {
     plant(&st.session_dir, ".mcp.json", "{}");
     st.spawn_tab(GROK, None).expect("the start");
     let stamp = stamp_folders(&st.session_dir)[0].file_name().expect("a name").to_string_lossy().into_owned();
-    assert_eq!(st.status_msg, Some(format!("Spawned Grok Build {named}. Moved .mcp.json that Grok would run into .designos-set-aside/{stamp}.")));
+    assert_eq!(
+        st.status_msg,
+        Some(format!("Spawned Grok Build {named}. Moved .mcp.json to .designos-set-aside/{stamp} in this file's agent folder, so Grok won't run it."))
+    );
 
     let mut st = tab_state_in(PermissionMode::Ask);
     let named = format!("({} · {})", st.doc_name, st.current_page_name);
@@ -124,7 +127,7 @@ fn the_spawned_line_says_what_was_moved_and_where() {
     let stamp = stamp_folders(&st.session_dir)[0].file_name().expect("a name").to_string_lossy().into_owned();
     assert_eq!(
         st.status_msg,
-        Some(format!("Spawned Grok Build {named}. Moved .grok/hooks/evil.json and 2 more that Grok would run into .designos-set-aside/{stamp}."))
+        Some(format!("Spawned Grok Build {named}. Moved .grok/hooks/evil.json and 2 more to .designos-set-aside/{stamp} in this file's agent folder, so Grok won't run them."))
     );
 
     let mut st = tab_state_in(PermissionMode::Ask);
@@ -134,7 +137,7 @@ fn the_spawned_line_says_what_was_moved_and_where() {
     let stamp = stamp_folders(&st.session_dir)[0].file_name().expect("a name").to_string_lossy().into_owned();
     assert_eq!(
         st.status_msg,
-        Some(format!("Spawned Antigravity (agy) {named}. Moved .agents/mcp_config.json that Antigravity would run into .designos-set-aside/{stamp}."))
+        Some(format!("Spawned Antigravity (agy) {named}. Moved .agents/mcp_config.json to .designos-set-aside/{stamp} in this file's agent folder, so Antigravity won't run it."))
     );
 }
 
@@ -162,5 +165,77 @@ fn an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_fail
     let stamp = stamp_folders(&st.session_dir)[0].clone();
     assert_eq!(names_in(&stamp), [".cursor__mcp.json"], "only what was still there was moved");
     let name = stamp.file_name().expect("a name").to_string_lossy().into_owned();
-    assert_eq!(st.status_msg, Some(format!("Spawned Grok Build {named}. Moved .cursor/mcp.json that Grok would run into .designos-set-aside/{name}.")));
+    assert_eq!(
+        st.status_msg,
+        Some(format!("Spawned Grok Build {named}. Moved .cursor/mcp.json to .designos-set-aside/{name} in this file's agent folder, so Grok won't run it."))
+    );
+}
+
+#[test]
+fn a_fifo_where_the_set_aside_folder_goes_stops_the_tab_at_once_without_being_opened() {
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".mcp.json", "{}");
+    let fifo = st.session_dir.join(".designos-set-aside");
+    make_fifo(&fifo);
+
+    let (result, took) = timed_with_fifo_watchdog(&fifo, Duration::from_secs(30), || st.spawn_tab(GROK, None));
+
+    let message = result.expect_err("an entry cannot be moved aside into a FIFO");
+    assert!(took < Duration::from_secs(20), "the start waited {took:?} on the FIFO");
+    assert_eq!(message, format!("Couldn't start Grok Build: {} is a file, not a folder. Delete the file at that path, then try again.", fifo.display()));
+    assert!(st.tabs.is_empty(), "no tab was added");
+    assert!(is_there(&st.session_dir.join(".mcp.json")), "nothing was moved");
+}
+
+#[test]
+fn a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced() {
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".mcp.json", "the entry Studio moves");
+    let entry = st.session_dir.join(".mcp.json");
+    super::no_follow::test_hooks::set_before_rename_hook(
+        &entry,
+        Box::new(|taken: &std::path::Path| std::fs::write(taken, "the file the racing agent put there").expect("the racing agent takes the name")),
+    );
+
+    st.spawn_tab(GROK, None).expect("the next name is used");
+
+    let stamp = stamp_folders(&st.session_dir)[0].clone();
+    assert_eq!(names_in(&stamp), [".mcp.json", ".mcp.json.2"]);
+    assert_eq!(
+        std::fs::read_to_string(stamp.join(".mcp.json")).expect("the racer's file"),
+        "the file the racing agent put there",
+        "the racer's file is still there"
+    );
+    assert_eq!(std::fs::read_to_string(stamp.join(".mcp.json.2")).expect("the moved entry"), "the entry Studio moves", "the entry is kept under the next name");
+}
+
+#[test]
+fn a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in() {
+    if super::test_support::running_as_root() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let mut st = tab_state_in(PermissionMode::Ask);
+    plant(&st.session_dir, ".mcp.json", "{}");
+    let (entry, session) = (st.session_dir.join(".mcp.json"), st.session_dir.clone());
+    super::no_follow::test_hooks::set_before_move_hook(
+        &entry,
+        Box::new(move || {
+            let stamp = stamp_folders(&session)[0].clone();
+            std::fs::set_permissions(&stamp, std::fs::Permissions::from_mode(0o555)).expect("the agent makes the new folder read-only");
+        }),
+    );
+
+    let message = st.spawn_tab(GROK, None).expect_err("an entry cannot be moved into a read-only folder");
+
+    let stamp = stamp_folders(&st.session_dir)[0].clone();
+    let _writable = super::test_support::Writable(stamp.clone());
+    assert_eq!(
+        message,
+        format!(
+            "Couldn't start Grok Build: {} can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again.",
+            stamp.display()
+        )
+    );
+    assert!(is_there(&entry), "nothing was moved");
 }
