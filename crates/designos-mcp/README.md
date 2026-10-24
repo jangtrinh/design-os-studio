@@ -84,6 +84,8 @@ A link, a second name for a file (a hard link), or a FIFO, socket or folder at a
 - `<path> is not a plain file. Delete it, then try again.`
 - any other failure: `<path> can't be written|read: <cause>. Check its permissions and free space, then try again.`
 
+`tests/session_file_sites` keeps this complete: it scans the non-test source and fails on a filesystem call that is neither through `session_file_io` nor in its allowlist with a reason, on a raw call that names a session file or the session folder, on a session-file name that is not listed, and on a stale entry. When you add a way to reach a session file, route it through the helper and list its name there.
+
 Known limit: a platform without `O_NOFOLLOW` (Windows) checks the entry and then acts on its path, so a link swapped in between is not caught there. The tools that write in `--workspace` (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) are not session-folder writes and are not covered.
 
 ## Tools
