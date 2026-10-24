@@ -402,7 +402,7 @@ pub struct SessionEnv {
 }
 
 impl SessionEnv {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn for_session_id(session_id: &str) -> Self {
         let clean = if session_id.trim().is_empty() { "tab-1" } else { session_id.trim() };
         let session_dir = crate::agent_session_files::ephemeral_session_dir(clean);
@@ -1321,20 +1321,20 @@ pub struct TerminalState {
 
 impl Default for TerminalState {
     fn default() -> Self {
+        // A test state has a tab id and a live-spec path of its own, so tests never see each other's session folder or spec.
         #[cfg(test)]
-        let tab_id = {
+        {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT_TEST_TAB_ID: AtomicU64 = AtomicU64::new(100_000);
-            NEXT_TEST_TAB_ID.fetch_add(1, Ordering::Relaxed)
-        };
-        #[cfg(not(test))]
-        let tab_id = 1;
-        let mut st = Self::for_tab(tab_id);
-        if cfg!(test) {
+            let mut st = Self::for_tab(NEXT_TEST_TAB_ID.fetch_add(1, Ordering::Relaxed));
             st.live_spec_path = st.session_dir.join("live-agent-out-test-isolated.spec.json");
             st.last_watched_mtime = spec_mtime(&st.live_spec_path);
+            st
         }
-        st
+        #[cfg(not(test))]
+        {
+            Self::for_tab(1)
+        }
     }
 }
 
