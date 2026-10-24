@@ -131,6 +131,21 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    Known limits: Antigravity, Gemini CLI and Grok start MCP servers from their own copies of the session config in session
    subfolders, which an agent can write (#1048); and the user's `designos.enabled_tools` list lives in the agent-writable session
    file, so an agent can re-enable a tool the user switched off (#1049). See `crates/designos-app/src/agent_approval_channel.rs`.
+   Gemini CLI in Ask mode also loads `<session>/.gemini/settings.json`, which an agent can write, and some settings there skip
+   Gemini's own confirmation prompt (#1047): `tools.allowed`, `mcpServers.<name>.trust`, `mcp.allowed`, and `policyPaths` and
+   `adminPolicyPaths`, which name policy files that Gemini loads at user or admin priority without checking where they sit. An
+   agent with a write grant on the session folder, or a Codex tab with a workspace-write sandbox, can use this so that a Gemini tab
+   started afterwards in the same session asks nothing. Gemini 0.35 has no flag or variable that ignores workspace settings for one
+   run. A settings file in a layer above the workspace (`GEMINI_CLI_SYSTEM_SETTINGS_PATH`) replaces single values and lists such as
+   `tools.allowed`, but cannot clear the keys that merge by union or concatenation (`policyPaths`, `adminPolicyPaths`, `hooks`, and
+   MCP servers of another name), and it would replace an admin's own system settings, so Studio ships no partial fix. Two complete
+   fixes were found, and each changes what the user sees, so each needs an owner decision: mark the session folder untrusted for
+   Gemini, which drops every workspace setting but also stops Gemini loading `GEMINI.md`, Studio's session skill, from it; or start
+   an Ask-mode Gemini tab with a private working folder (Gemini reads workspace settings and `GEMINI.md` from its working folder,
+   so Studio would write both there and pass the session folder with `--include-directories`), which also covers #1048 for Gemini
+   but moves the folder Gemini keys its own session history by. The status hooks Studio adds for a Gemini tab (the "Needs
+   approval" state) do not sit in the session folder: they are a per-tab file in the private folder, named by
+   `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`, and are not written when Gemini already has system defaults of its own.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no

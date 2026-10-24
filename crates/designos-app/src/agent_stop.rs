@@ -1226,7 +1226,7 @@ mod tests {
     }
 
     fn hook_record(t: f64, event: &str) -> crate::agent_turn_status::AgentEventRecord {
-        crate::agent_turn_status::AgentEventRecord { t, e: event.to_string(), p: serde_json::json!({ "session_id": "sess-684" }) }
+        crate::agent_turn_status::AgentEventRecord { t, e: event.to_string(), tab: None, p: serde_json::json!({ "session_id": "sess-684" }) }
     }
 
     #[test]

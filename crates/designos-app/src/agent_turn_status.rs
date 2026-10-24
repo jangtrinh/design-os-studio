@@ -45,10 +45,19 @@ pub fn sh_single_quote(s: &str) -> String {
 /// a single `printf` writes the complete record in one atomic `O_APPEND` syscall so concurrent
 /// hooks never interleave bytes.
 pub fn event_append_command(events_path: &Path, event: &str) -> String {
+    event_append_command_for_tab(events_path, event, None)
+}
+
+/// [`event_append_command`] whose record also names the tab it was written for, as
+/// `{"t":…,"e":"<event>","tab":"<id>","p":…}`. Gemini CLI's hooks use it, because their payload carries nothing that says
+/// which tab a record belongs to. With `tab` `None` the command is exactly [`event_append_command`]'s.
+pub fn event_append_command_for_tab(events_path: &Path, event: &str, tab: Option<usize>) -> String {
     let quoted_path = sh_single_quote(&events_path.display().to_string());
     let quoted_lock = sh_single_quote(&format!("{}.lock", events_path.display()));
+    // Digits only, so it can sit inside the single-quoted `printf` format.
+    let tab_field = tab.map(|id| format!("\"tab\":\"{id}\",")).unwrap_or_default();
     format!(
-        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\\n' \"$line\" >> {quoted_path}; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
+        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",{tab_field}\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\\n' \"$line\" >> {quoted_path}; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
     )
 }
 
@@ -57,6 +66,10 @@ pub fn event_append_command(events_path: &Path, event: &str) -> String {
 pub struct AgentEventRecord {
     pub t: f64,
     pub e: String,
+    /// The tab the hook was written for. Only Gemini CLI's hooks set it (`gemini_status_hooks`); every other CLI's
+    /// records are matched to a tab by what their payload says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
     #[serde(default)]
     pub p: serde_json::Value,
 }
@@ -348,6 +361,8 @@ impl AgentEventStream {
 #[derive(Clone, Debug)]
 pub struct TabAttributionInfo {
     pub idx: usize,
+    /// The tab's own id (`TerminalTab::id`), which a tagged record names; `idx` is its place in the strip.
+    pub tab_id: usize,
     pub preset: AgentCliPreset,
     pub is_alive: bool,
     pub session_uuid: Option<String>,
@@ -379,11 +394,16 @@ fn infer_record_cli(record: &AgentEventRecord) -> Option<AgentCliPreset> {
 }
 
 /// Routes an [`AgentEventRecord`] to the owning tab index (`#683` §3.2, §8.1, §8.2):
+/// 0. A record that names a tab (Gemini CLI's hooks) goes to that tab when it is a live Gemini tab, else to none.
 /// 1. Matches the tab whose `session_uuid` equals the payload's session id.
 /// 2. If the record's id matches no tab (or has no session id), routes to the single live tab
 ///    of that CLI, else to none. Never routes to `active_tab` by default.
-/// 3. Codex and Shell tabs never consume `agent-events.jsonl` records.
+/// 3. Codex, Shell and Gemini tabs never consume an untagged record: a Gemini tab is left out of the tabs the rules above
+///    count, so it can neither take another CLI's record nor make that CLI's single candidate two.
 pub fn route_record_to_tab(record: &AgentEventRecord, tabs: &[TabAttributionInfo]) -> Option<usize> {
+    if let Some(tag) = record.tab.as_deref() {
+        return tabs.iter().find(|t| t.preset == AgentCliPreset::Gemini && t.is_alive && t.tab_id.to_string() == tag).map(|t| t.idx);
+    }
     let eligible: Vec<&TabAttributionInfo> = tabs.iter().filter(|t| is_hook_driven_preset(t.preset)).collect();
     if eligible.is_empty() {
         return None;
@@ -691,7 +711,8 @@ impl TabTurnTracker {
                 TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
             }
             "Notification" => {
-                if record.notification_type() == Some("permission_prompt") {
+                // `permission_prompt`: Claude and Grok. `ToolPermission`: Gemini CLI, when it shows a tool-confirmation prompt.
+                if matches!(record.notification_type(), Some("permission_prompt" | "ToolPermission")) {
                     self.ensure_turn_started(record.t);
                     let detail = record.tool_name().map(str::to_string);
                     TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
