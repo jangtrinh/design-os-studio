@@ -621,6 +621,8 @@ mod linked_parent_tests;
 mod open_race_tests;
 #[cfg(all(test, unix))]
 mod placement_tests;
+#[cfg(all(test, unix))]
+mod poll_readers_tests;
 #[cfg(test)]
 mod refusal_tests;
 #[cfg(all(test, unix))]
@@ -630,7 +632,7 @@ mod swap_after_open_tests;
 #[cfg(test)]
 mod test_root;
 #[cfg(all(test, unix))]
-mod test_support;
+pub(crate) mod test_support;
 #[cfg(test)]
 mod unavailable_root_tests;
 

@@ -2352,4 +2352,25 @@ mod tests {
 
         assert_eq!(std::fs::read(job.join("request.json")).ok().as_deref(), Some(&b"mine"[..]), "closing the file removed what the link points at");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_at_agent_status_json_does_not_freeze_the_start_of_an_image_job() {
+        use crate::agent_session_files::test_support::{make_fifo, timed_with_fifo_watchdog};
+        let tmp = TestDir::new("fifo-status");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        app.terminal.bind_session(&format!("test-fifo-status-{}", std::process::id()));
+        let session = app.terminal.session_dir.clone();
+        let _session = SessionFolder(session.clone());
+        crate::agent_session_files::ensure_session_dir(&session).expect("the session folder");
+        let fifo = session.join("agent-status.json");
+        make_fifo(&fifo);
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let (started, took) = timed_with_fifo_watchdog(&fifo, Duration::from_secs(30), || app.start_image_job(orig_id, 0, ImageOp::RemoveBackground));
+
+        assert!(took < Duration::from_secs(30), "starting a job was blocked on the FIFO for {took:?}");
+        assert!(started.is_some(), "a FIFO is no stale status: the job starts");
+    }
 }

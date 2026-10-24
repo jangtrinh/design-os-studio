@@ -2,15 +2,9 @@
 //! returns, so a read of a session file that blocks on one hangs whoever called it: at a tab start that is the UI thread.
 
 use super::hook_quoting_tests::job_in;
-use super::test_support::made_session_folder;
+use super::test_support::{made_session_folder, make_fifo};
 use super::*;
 use std::sync::mpsc;
-
-fn make_fifo(path: &Path) {
-    let c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())).expect("a path without NUL");
-    // SAFETY: `c` is a NUL-terminated path that outlives the call.
-    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "mkfifo {}", path.display());
-}
 
 /// Runs `work` on a thread and waits `budget` for it. On a timeout it opens the FIFO for writing, which frees a reader that
 /// is blocked in `open`, so the thread ends, and reports the hang.

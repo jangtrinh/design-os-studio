@@ -34,3 +34,37 @@ pub(super) fn running_as_root() -> bool {
     // SAFETY: `geteuid` takes no arguments and cannot fail.
     unsafe { libc::geteuid() == 0 }
 }
+
+/// Makes a FIFO at `path`, which a plain `open` for reading blocks on until something opens it for writing.
+pub(crate) fn make_fifo(path: &Path) {
+    let c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str())).expect("a path without NUL");
+    // SAFETY: `c` is a NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "mkfifo {}", path.display());
+}
+
+/// Runs `work` on the calling thread and says how long it took. A watchdog opens `fifo` for writing once `budget` has passed, which
+/// frees a reader blocked in `open`, so a hang ends as a measured delay and not as a test that never finishes.
+pub(crate) fn timed_with_fifo_watchdog<T>(fifo: &Path, budget: Duration, work: impl FnOnce() -> T) -> (T, Duration) {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let done = std::sync::Arc::new(AtomicBool::new(false));
+    let watchdog = {
+        let (done, fifo) = (done.clone(), fifo.to_path_buf());
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + budget;
+            while !done.load(Ordering::SeqCst) {
+                // Without a reader waiting, a non-blocking open for writing fails at once; it succeeds when one is blocked.
+                if Instant::now() >= deadline && std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&fifo).is_ok() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        })
+    };
+    let started = Instant::now();
+    let result = work();
+    let elapsed = started.elapsed();
+    done.store(true, Ordering::SeqCst);
+    watchdog.join().expect("the watchdog ends");
+    (result, elapsed)
+}
