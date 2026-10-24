@@ -1,0 +1,10 @@
+designos-studio run 1 exit=0 race: swaps=9029 rewrites=200 refused=184 clean=16 other=0 HIT=0 
+designos-studio run 2 exit=0 race: swaps=8470 rewrites=200 refused=189 clean=11 other=0 HIT=0 
+designos-studio run 3 exit=0 race: swaps=8919 rewrites=200 refused=184 clean=16 other=0 HIT=0 
+designos-studio run 4 exit=0 race: swaps=7888 rewrites=200 refused=180 clean=20 other=0 HIT=0 
+designos-studio run 5 exit=0 race: swaps=9457 rewrites=200 refused=184 clean=16 other=0 HIT=0 
+designos-studio run 6 exit=0 race: swaps=8157 rewrites=200 refused=183 clean=17 other=0 HIT=0 
+designos-studio run 7 exit=0 race: swaps=7695 rewrites=200 refused=193 clean=7 other=0 HIT=0 
+designos-studio run 8 exit=0 race: swaps=3318 rewrites=200 refused=192 clean=8 other=0 HIT=0 
+designos-studio run 9 exit=0 race: swaps=6305 rewrites=200 refused=194 clean=6 other=0 HIT=0 
+designos-studio run 10 exit=0 race: swaps=6853 rewrites=200 refused=188 clean=12 other=0 HIT=0 

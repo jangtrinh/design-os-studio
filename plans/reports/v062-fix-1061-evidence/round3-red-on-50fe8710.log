@@ -1,4 +1,4 @@
-warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
   * `bin` target `designos`
   * `bin` target `designos-studio`
    Compiling proc-macro2 v1.0.107
@@ -282,7 +282,7 @@ warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db
    Compiling schemars v1.2.3
    Compiling cosmic-text v0.19.0
    Compiling harfrust v0.7.0
-   Compiling designos-doc v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-doc)
+   Compiling designos-doc v0.6.1 (<worktree>/crates/designos-doc)
    Compiling skrifa v0.42.1
    Compiling wgpu-naga-bridge v29.0.4
    Compiling wgpu-core-deps-apple v29.0.4
@@ -316,22 +316,22 @@ warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db
    Compiling rfd v0.17.2
    Compiling pin-utils v0.1.1
    Compiling float_next_after v1.0.0
-   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-fonts)
-   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-mcp)
+   Compiling designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
    Compiling pastey v0.2.3
-   Compiling designos-app v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app)
-   Compiling designos-render v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-render)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+   Compiling designos-render v0.6.1 (<worktree>/crates/designos-render)
    Compiling lyon_tessellation v1.0.22
    Compiling nix v0.25.1
    Compiling vte v0.11.1
-   Compiling designos-diff v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-diff)
+   Compiling designos-diff v0.6.1 (<worktree>/crates/designos-diff)
    Compiling egui-wgpu v0.35.0
-   Compiling designos-svg v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-svg)
-   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-webcapture)
+   Compiling designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
    Compiling filedescriptor v0.8.3
-   Compiling designos-export v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-export)
+   Compiling designos-export v0.6.1 (<worktree>/crates/designos-export)
    Compiling egui-winit v0.35.0
-   Compiling designos-fig v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-fig)
+   Compiling designos-fig v0.6.1 (<worktree>/crates/designos-fig)
    Compiling serial v0.4.0
    Compiling rgb v0.8.53
    Compiling dispatch2 v0.3.1
@@ -343,8 +343,8 @@ warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db
    Compiling portable-pty v0.8.1
    Compiling resvg v0.45.1
    Compiling eframe v0.35.0
-   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-gpu)
-   Compiling designos-library v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-library)
+   Compiling designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+   Compiling designos-library v0.6.1 (<worktree>/crates/designos-library)
    Compiling open v5.4.4
     Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
      Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
