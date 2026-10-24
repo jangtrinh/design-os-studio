@@ -8,15 +8,37 @@ pub(super) struct Attribute {
     pub(super) text: String,
 }
 
-/// Whether an item with this attribute is only in a test build: `#[test]`, `#[cfg(test)]` and `#[cfg(all(test, ..))]`. Any other
-/// mention of `test` (`any(test, ..)`, `not(..)`, a feature named after it) can ship, so the item is scanned.
+/// Whether an item with this attribute is only in a test build: `#[test]`, `#[cfg(test)]` and `#[cfg(all(test, ..))]`, where `test` is
+/// one of the arguments of the `all` itself. Any other mention of `test` (`any(test, ..)`, `all(any(.., test, ..))`, `not(..)`, a
+/// feature named after it) can ship, so the item is scanned.
 pub(super) fn is_test_attribute(text: &str) -> bool {
     let text = text.trim();
     let Some(condition) = text.strip_prefix("cfg(").and_then(|rest| rest.strip_suffix(')')).map(str::trim) else {
         return text == "test";
     };
     condition == "test"
-        || condition.strip_prefix("all(").and_then(|args| args.strip_suffix(')')).is_some_and(|args| args.split(',').any(|arg| arg.trim() == "test"))
+        || condition
+            .strip_prefix("all(")
+            .and_then(|args| args.strip_suffix(')'))
+            .is_some_and(|args| top_level_args(args).iter().any(|arg| arg.trim() == "test"))
+}
+
+/// The arguments of a call at its own level: `all(any(unix, test), unix)` has two, `any(unix, test)` and `unix`.
+fn top_level_args(args: &str) -> Vec<&str> {
+    let (mut depth, mut start, mut parts) = (0i32, 0, Vec::new());
+    for (at, c) in args.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&args[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&args[start..]);
+    parts
 }
 
 pub(super) fn attributes(shape: &[char], code: &[char]) -> Vec<Attribute> {
@@ -46,21 +68,44 @@ pub(super) fn attributes(shape: &[char], code: &[char]) -> Vec<Attribute> {
     found
 }
 
-/// The index just after the item that starts at `from`: its closing `}`, or its `;`.
+/// The words an item starts with. An attribute before anything else stands on a field, a variant, a match arm or an argument, which
+/// ends at its `,`. (`pub` counts as an item word: a `pub` field then runs to the `}` of its struct, which holds no code.)
+const ITEM_WORDS: &[&str] =
+    &["fn", "mod", "impl", "use", "struct", "enum", "union", "const", "static", "type", "trait", "macro_rules", "pub", "unsafe", "async", "extern", "let"];
+
+/// Whether what follows an attribute at `from` is a field, a variant, a match arm or an argument, not an item.
+fn starts_like_field(shape: &[char], from: usize) -> bool {
+    let head: String = shape[from..].iter().take(32).collect();
+    let word: String = head.trim_start().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    !ITEM_WORDS.contains(&word.as_str())
+}
+
+/// The index just after the thing that starts at `from`: an item ends at its closing `}` or its `;`, a field, variant, arm or argument
+/// at its `,`. Nothing runs past the `}`, `)` or `]` that closes the block it sits in, which is not its own.
 pub(super) fn item_end(shape: &[char], from: usize) -> usize {
+    let field_like = starts_like_field(shape, from);
     let (mut braces, mut others, mut seen_brace) = (0i32, 0i32, false);
     for (j, c) in shape.iter().enumerate().skip(from) {
         match c {
             '{' => (braces, seen_brace) = (braces + 1, true),
             '}' => {
+                if braces == 0 {
+                    return j;
+                }
                 braces -= 1;
-                if braces <= 0 && seen_brace {
+                if braces == 0 && seen_brace {
                     return j + 1;
                 }
             }
             '(' | '[' => others += 1,
-            ')' | ']' => others -= 1,
+            ')' | ']' => {
+                if others == 0 && braces == 0 {
+                    return j;
+                }
+                others -= 1;
+            }
             ';' if braces == 0 && others <= 0 => return j + 1,
+            ',' if field_like && braces == 0 && others == 0 => return j + 1,
             _ => {}
         }
     }
