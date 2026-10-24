@@ -535,6 +535,12 @@ mod tests {
     use designos_doc::Document;
     use designos_library::Library;
 
+    /// A fallback id of its own for the second window of a test. The tests run in parallel, and a fixed id made the shutdown of one
+    /// remove the fallback folder another was still writing into.
+    fn second_window_id() -> String {
+        format!("p{}-w2-{}", std::process::id(), crate::live_sync_tests::unique_tab_id())
+    }
+
     fn temp_test_dir(tag: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1197,7 +1203,7 @@ mod tests {
         };
 
         let mut st2 = TerminalState::for_tab(1);
-        st2.bind_library_file(&dir, "file-restart-1", "p1-w2-tab-1");
+        st2.bind_library_file(&dir, "file-restart-1", &second_window_id());
         st2.path_prepend.push(bin_dir);
         assert_eq!(st2.resumable_sessions().len(), 1);
         assert_eq!(st2.resumable_sessions()[0].session_id.as_deref(), Some(first_uuid.as_str()));
@@ -1241,10 +1247,11 @@ mod tests {
 
         let mut st2 = TerminalState::for_tab(1);
         st2.path_prepend.push(bin_dir);
-        st2.bind_library_file(&dir, "shared-file", "p1-w2-tab-1");
+        let second_window = second_window_id();
+        st2.bind_library_file(&dir, "shared-file", &second_window);
         let st2_fallback_dir = st2.session_dir.clone();
         assert_ne!(st2.session_dir, st1.session_dir);
-        assert_eq!(st2.session_dir, crate::agent_session_files::ephemeral_session_dir("p1-w2-tab-1"));
+        assert_eq!(st2.session_dir, crate::agent_session_files::ephemeral_session_dir(&second_window));
         assert_eq!(st2.status_msg.as_deref(), Some(ANOTHER_WINDOW_OWNS_SESSION_MSG));
 
         // Spawn a tab in the fallback window and shut it down while st1 has not written sessions.json yet.
@@ -1743,7 +1750,7 @@ mod tests {
         app.terminal.shutdown();
 
         let mut reopened = TerminalState::for_tab(2);
-        reopened.bind_library_file(lib.root(), &lf.id, "p1-w2-tab-1");
+        reopened.bind_library_file(lib.root(), &lf.id, &second_window_id());
         let resumable = reopened.resumable_sessions();
         assert_eq!(resumable.len(), 1, "reopened library file must have 1 resumable session");
         assert_eq!(resumable[0].session_id.as_deref(), Some(spawned_uuid.as_str()));
@@ -1820,7 +1827,7 @@ mod tests {
         assert_eq!(saved.app.terminal.session_dir, saved.disk_dir, "the running tab keeps its folder");
 
         let mut other_window = TerminalState::for_tab(2);
-        other_window.bind_library_file(&saved.lib_root, &saved.key, "p1-w2-tab-1");
+        other_window.bind_library_file(&saved.lib_root, &saved.key, &second_window_id());
         assert_ne!(other_window.session_dir, saved.disk_dir, "a second window must not share the folder a tab still runs in");
         other_window.shutdown();
 

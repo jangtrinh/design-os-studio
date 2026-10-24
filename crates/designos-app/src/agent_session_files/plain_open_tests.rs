@@ -39,12 +39,11 @@ fn a_link_a_fifo_and_a_folder_are_refused_with_the_reason() {
 
     let reasons = |name: &str| open_session_file(&session.join(name)).expect_err(name);
 
-    let link = reasons("link.json");
-    assert!(link.to_string().contains("is a link"), "{link}");
-    assert!(with_next_step(&link).ends_with(". Delete it, then try again"), "{}", with_next_step(&link));
+    let line_of = |name: &str| with_next_step(&reasons(name));
+    let path = |name: &str| session.join(name).display().to_string();
+    assert_eq!(line_of("link.json"), format!("{} is a link, not a file. Delete the link, then try again", path("link.json")));
     for name in ["fifo.json", "folder.json"] {
-        let e = reasons(name);
-        assert!(e.to_string().contains("not a plain file"), "{name}: {e}");
+        assert_eq!(line_of(name), format!("{} is not a plain file. Delete it, then try again", path(name)));
     }
     let through_a_linked_folder = open_session_file(&session.join("linked").join("keep.txt")).expect_err("a link in the path");
     assert_eq!(super::refusal::refusal_of(&through_a_linked_folder), Some(super::refusal::Refusal::Link), "{through_a_linked_folder}");

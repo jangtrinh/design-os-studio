@@ -1,7 +1,7 @@
 //! The calls of `no_follow` for a platform without `openat`: every step checks the entry and then acts on its path, so a link
 //! swapped in between the check and the write is not caught here. A link that is already there is refused at any step.
 
-use super::refusal::{cannot, refused, Fix, Refusal};
+use super::refusal::{cannot, failed, refused, Fix, Refusal};
 use std::ffi::OsStr;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -91,7 +91,7 @@ impl Dir {
         let path = self.path.join(name);
         let meta = std::fs::symlink_metadata(&path).map_err(|e| cannot_io("read", &path, e))?;
         if !meta.is_file() {
-            return Err(cannot("read", &path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
+            return Err(failed(io::ErrorKind::InvalidInput, format!("{} is not a plain file", path.display()), Fix::DeleteIt));
         }
         std::fs::File::open(&path).map_err(|e| cannot_io("read", &path, e))
     }
@@ -123,7 +123,7 @@ impl Dir {
 pub(super) fn open_plain_path(path: &Path) -> io::Result<std::fs::File> {
     let meta = std::fs::metadata(path).map_err(|e| cannot_io("read", path, e))?;
     if !meta.is_file() {
-        return Err(cannot("read", path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
+        return Err(failed(io::ErrorKind::InvalidInput, format!("{} is not a plain file", path.display()), Fix::DeleteIt));
     }
     std::fs::File::open(path).map_err(|e| cannot_io("read", path, e))
 }

@@ -48,7 +48,9 @@ pub enum Fix {
     CloseOtherTabs,
     /// A session path Studio does not recognise: opening the file again gives its tabs a session folder Studio made.
     ReopenFile,
-    /// A link or a FIFO stands where a plain file should be: deleting it lets the agent or Studio write the file again.
+    /// A link stands where a plain file should be: deleting it lets the agent or Studio write the file again.
+    DeleteLink,
+    /// A FIFO or a folder stands where a plain file should be.
     DeleteIt,
 }
 
@@ -60,7 +62,8 @@ impl Fix {
             Fix::MakeWritable => format!("Make it writable or delete it, then {then}"),
             Fix::HomeFolder => "Make sure your home folder exists, then restart Studio".to_string(),
             Fix::CloseOtherTabs => format!("Close this file's other agent tabs, then {then}"),
-            Fix::ReopenFile => "Reopen this design file".to_string(),
+            Fix::ReopenFile => format!("Reopen this design file, then {then}"),
+            Fix::DeleteLink => format!("Delete the link, then {then}"),
             Fix::DeleteIt => format!("Delete it, then {then}"),
         }
     }
@@ -101,7 +104,8 @@ pub fn refusal_of(e: &io::Error) -> Option<Refusal> {
 }
 
 impl Refusal {
-    /// What to do about the refused path, then what to do next (`then`).
+    /// What to do about the refused path, then what to do next (`then`), in one clause: "Delete the link and reopen this design
+    /// file". The library's own lines keep this form.
     fn recovery(self, then: &str) -> String {
         match self {
             Refusal::Link => format!("Delete the link and {then}"),
@@ -109,20 +113,29 @@ impl Refusal {
             Refusal::OtherOwner => format!("Move or delete the folder and {then}"),
         }
     }
+
+    /// The same, in the form of every other line: "Delete the link, then try again".
+    fn recovery_then(self, then: &str) -> String {
+        match self {
+            Refusal::Link => format!("Delete the link, then {then}"),
+            Refusal::File => format!("Delete the file at that path, then {then}"),
+            Refusal::OtherOwner => format!("Move or delete the folder, then {then}"),
+        }
+    }
 }
 
 /// What to do about `e`, then what to do next (`then`), when it is a refusal or a failure with a known fix (any other error
-/// carries its own).
-fn recovery_of(e: &io::Error, then: &str) -> Option<String> {
+/// carries its own). `one_clause` is the form of the library's lines, "... and reopen this design file".
+fn recovery_of(e: &io::Error, then: &str, one_clause: bool) -> Option<String> {
     if let Some(kind) = refusal_of(e) {
-        return Some(kind.recovery(then));
+        return Some(if one_clause { kind.recovery(then) } else { kind.recovery_then(then) });
     }
     e.get_ref()?.downcast_ref::<Failed>().map(|failed| failed.fix.sentence(then))
 }
 
 /// `e` as a sentence without its last period, with what to do next when it is a refusal or a failure with a known fix.
 pub fn with_next_step(e: &io::Error) -> String {
-    match recovery_of(e, "try again") {
+    match recovery_of(e, "try again", false) {
         Some(recovery) => format!("{e}. {recovery}"),
         None => e.to_string(),
     }
@@ -146,6 +159,6 @@ pub fn library_fallback_message(e: &io::Error, fallback_works: bool) -> String {
     if fallback_works {
         parts.push("This file's agents start in a temporary folder that is not kept.".to_string());
     }
-    parts.extend(recovery_of(e, "reopen this design file").map(|recovery| format!("{recovery}.")));
+    parts.extend(recovery_of(e, "reopen this design file", true).map(|recovery| format!("{recovery}.")));
     parts.join(" ")
 }

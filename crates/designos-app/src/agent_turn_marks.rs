@@ -64,7 +64,7 @@ impl TurnMarkLog {
 
     /// Reads complete [`TurnMarkLine`] entries appended since the last poll, in log order.
     pub fn poll(&mut self) -> Vec<TurnMarkLine> {
-        let Ok(meta) = std::fs::metadata(&self.path) else { return Vec::new() };
+        let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Vec::new() };
         let (len, id) = (meta.len(), identity(&meta));
         if len == self.offset && self.identity == Some(id) {
             return Vec::new();

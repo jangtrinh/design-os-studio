@@ -14,8 +14,10 @@ fn a_path_in_no_session_folder_is_refused_by_name_unless_a_test_build_allows_it(
 
     let e = place_of_with(&path, false).err().expect("a real build refuses a path in no session folder");
 
-    assert!(e.to_string().contains(&path.display().to_string()), "the line names the path: {e}");
-    assert!(with_next_step(&e).ends_with(". Reopen this design file"), "{}", with_next_step(&e));
+    assert_eq!(
+        with_next_step(&e),
+        format!("{} is outside this file's agent folder, so Studio doesn't use it. Reopen this design file, then try again", path.display())
+    );
     assert_eq!(place_of_with(&path, true).expect("a test build anchors it at its own folder").anchor, scratch.join("hooks"));
 }
 

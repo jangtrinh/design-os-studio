@@ -1,6 +1,6 @@
 //! The files of an open folder: made, written, read, renamed and removed relative to its descriptor.
 
-use super::{c_name, cannot, cannot_write_to, retry, Dir, Fix, ATTEMPTS};
+use super::{c_name, cannot, cannot_write_to, failed, retry, Dir, Fix, ATTEMPTS};
 use std::ffi::{CStr, CString, OsStr};
 use std::io::{self, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -114,16 +114,21 @@ impl Dir {
 /// Why `path` could not be read: a link says so, anything else is the error of the open.
 fn unreadable(path: &Path, e: io::Error) -> io::Error {
     if e.raw_os_error() == Some(libc::ELOOP) {
-        return cannot("read", path, io::Error::other("it is a link"), Fix::DeleteIt);
+        return failed(io::ErrorKind::InvalidInput, format!("{} is a link, not a file", path.display()), Fix::DeleteLink);
     }
     cannot("read", path, e, Fix::CheckPermissions)
+}
+
+/// `path` is something else than a plain file: a FIFO, a folder, a device.
+fn not_a_plain_file(path: &Path) -> io::Error {
+    failed(io::ErrorKind::InvalidInput, format!("{} is not a plain file", path.display()), Fix::DeleteIt)
 }
 
 /// `file` (just opened with `O_NONBLOCK`) when it is a plain file, made blocking again; anything else is an error.
 fn into_plain_reader(file: std::fs::File, path: &Path) -> io::Result<std::fs::File> {
     use std::os::fd::AsRawFd;
     if !file.metadata().map_err(|e| unreadable(path, e))?.is_file() {
-        return Err(cannot("read", path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
+        return Err(not_a_plain_file(path));
     }
     // SAFETY: the descriptor belongs to `file`, which outlives both calls.
     let flags = retry(|| unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) }).map_err(|e| unreadable(path, e))?;

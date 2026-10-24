@@ -1647,8 +1647,9 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     app.show_toast(format!("Spec parse error: {}", designos_doc::format_spec_serde_error(&e)), true);
                 }
             },
-            crate::terminal::TerminalAction::ApplySpecFile(path) => match std::fs::read_to_string(&path) {
-                Ok(raw) => match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
+            // A spec that cannot be read (a link, a FIFO, a file that is gone) is no spec: nothing is applied and nothing is said.
+            crate::terminal::TerminalAction::ApplySpecFile(path) => match crate::agent_session_files::read_session_text(&path) {
+                Some(raw) => match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
                     Ok(spec) => {
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
                         let before = app.hist.undo_depth();
@@ -1660,7 +1661,7 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     }
                     Err(e) => app.show_toast(format!("Invalid spec JSON: {}", designos_doc::format_spec_serde_error(&e)), true),
                 },
-                Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
+                None => {}
             },
             crate::terminal::TerminalAction::ApplyLiveLog(lines) => {
                 for error in app.terminal.live_patch.ingest(lines) {

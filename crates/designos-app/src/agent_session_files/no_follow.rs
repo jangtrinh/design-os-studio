@@ -15,7 +15,7 @@ pub(super) mod test_hooks;
 pub(super) use files::open_plain_path;
 
 use super::folder_owner::check_owner;
-use super::refusal::{cannot, refused, Fix, Refusal};
+use super::refusal::{cannot, failed, refused, Fix, Refusal};
 use std::ffi::{CStr, CString, OsStr};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -83,7 +83,7 @@ impl Dir {
                 Err(e) => {
                     #[cfg(test)]
                     test_hooks::run(path, test_hooks::Step::AfterFailedOpen);
-                    let entry = std::fs::symlink_metadata(path).ok().map(|meta| (meta.file_type().is_symlink(), meta.is_dir()));
+                    let entry = std::fs::symlink_metadata(path).map(|meta| (meta.file_type().is_symlink(), meta.is_dir()));
                     if let Some(error) = explain_open(path, e, entry) {
                         return Err(error);
                     }
@@ -134,7 +134,7 @@ impl Dir {
                 Err(e) => {
                     #[cfg(test)]
                     test_hooks::run(&path, test_hooks::Step::AfterFailedOpen);
-                    if let Some(error) = explain_open(&path, e, self.kind_of(&c).ok()) {
+                    if let Some(error) = explain_open(&path, e, self.kind_of(&c)) {
                         return Err(error);
                     }
                     met_a_link = true;
@@ -148,15 +148,16 @@ impl Dir {
     }
 }
 
-/// Why opening the folder `path` failed, as the error to return. `None` when what the open met, a link or a file, is a real
-/// folder now (`entry` is `(is a link, is a folder)` of what sits there now, when that is known): its owner took it back, and the
-/// open is worth another try.
-fn explain_open(path: &Path, e: io::Error, entry: Option<(bool, bool)>) -> Option<io::Error> {
+/// Why opening the folder `path` failed, as the error to return. `None` when what the open met, a link or a file, has gone since
+/// or is a real folder now (`entry` is `(is a link, is a folder)` of what sits there now, when that can be told): its owner took it
+/// back or removed it, and the open is worth another try.
+fn explain_open(path: &Path, e: io::Error, entry: io::Result<(bool, bool)>) -> Option<io::Error> {
     let not_a_folder = matches!(e.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR));
     match entry {
-        Some((true, _)) if not_a_folder => Some(refused(Refusal::Link, path)),
-        Some((false, false)) if not_a_folder => Some(refused(Refusal::File, path)),
-        Some((false, true)) if not_a_folder => None,
+        Ok((true, _)) if not_a_folder => Some(refused(Refusal::Link, path)),
+        Ok((false, false)) if not_a_folder => Some(refused(Refusal::File, path)),
+        Ok((false, true)) if not_a_folder => None,
+        Err(gone) if not_a_folder && gone.kind() == io::ErrorKind::NotFound => None,
         _ if e.kind() == io::ErrorKind::NotFound => Some(e),
         _ => Some(cannot("opened", path, e, Fix::CheckPermissions)),
     }

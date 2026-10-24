@@ -1332,7 +1332,7 @@ impl Default for TerminalState {
         let mut st = Self::for_tab(tab_id);
         if cfg!(test) {
             st.live_spec_path = st.session_dir.join("live-agent-out-test-isolated.spec.json");
-            st.last_watched_mtime = std::fs::metadata(&st.live_spec_path).and_then(|m| m.modified()).ok();
+            st.last_watched_mtime = spec_mtime(&st.live_spec_path);
         }
         st
     }
@@ -1426,6 +1426,12 @@ fn page_context_json(session_id: &str, doc_name: &str, file_path: Option<&Path>,
     })
 }
 
+/// The modification time of the spec file `live-spec.json` of a session folder, taken from the file as it is opened (never from the
+/// target of a link). `None` for a missing file, a link and a FIFO.
+fn spec_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    crate::agent_session_files::session_file_metadata(path).ok()?.modified().ok()
+}
+
 /// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
 /// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
 fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
@@ -1466,7 +1472,7 @@ impl TerminalState {
         let selection_spec_path = session_dir.join("selection.spec.json");
         let bootstrap_md_path = session_dir.join("bootstrap.md");
         let bootstrap_json_path = session_dir.join("bootstrap.json");
-        let initial_spec_mtime = std::fs::metadata(&live_spec_path).and_then(|m| m.modified()).ok();
+        let initial_spec_mtime = spec_mtime(&live_spec_path);
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(session_dir.join("turn-marks.jsonl"));
         let event_stream = crate::agent_turn_status::AgentEventStream::bind(session_dir.join("agent-events.jsonl"));
@@ -1878,7 +1884,7 @@ impl TerminalState {
         self.session_dir = session_dir;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
-        self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
+        self.last_watched_mtime = spec_mtime(&self.live_spec_path);
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
         self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.session_dir.join("agent-events.jsonl"));
@@ -3264,17 +3270,16 @@ impl TerminalState {
 
         // Channel 1: Scoped live-spec.json
         let live_spec = self.live_spec_path.clone();
-        if let Ok(meta) = std::fs::metadata(&live_spec) {
-            if let Ok(mtime) = meta.modified() {
-                let is_newer = match self.last_watched_mtime {
-                    Some(prev) => mtime > prev,
-                    None => true,
-                };
-                if is_newer {
-                    self.last_watched_mtime = Some(mtime);
-                    self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
-                    actions.push(TerminalAction::ApplySpecFile(live_spec));
-                }
+        // The time comes from the file as it is opened: a link or a FIFO the agent planted has none, so it is no spec.
+        if let Some(mtime) = spec_mtime(&live_spec) {
+            let is_newer = match self.last_watched_mtime {
+                Some(prev) => mtime > prev,
+                None => true,
+            };
+            if is_newer {
+                self.last_watched_mtime = Some(mtime);
+                self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
+                actions.push(TerminalAction::ApplySpecFile(live_spec));
             }
         }
 

@@ -34,7 +34,7 @@ pub(super) fn place_of_with(path: &Path, allow_unanchored: bool) -> io::Result<P
         None => {
             return Err(failed(
                 io::ErrorKind::InvalidInput,
-                format!("{} is in no session folder of Studio, so Studio does not write it", path.display()),
+                format!("{} is outside this file's agent folder, so Studio doesn't use it", path.display()),
                 Fix::ReopenFile,
             ))
         }
@@ -130,6 +130,12 @@ pub fn read_session_text(path: &Path) -> Option<String> {
 pub fn open_session_file(path: &Path) -> io::Result<std::fs::File> {
     let (place, dir) = open_place(path, false)?;
     dir.open_plain(&place.name)
+}
+
+/// The metadata of the plain file `path`, taken from the file as it was opened, never from the target of a link. For the readers
+/// that decide from a file's length, identity or modification time what to read. A link, a FIFO and a missing file are an error.
+pub fn session_file_metadata(path: &Path) -> io::Result<std::fs::Metadata> {
+    open_session_file(path)?.metadata()
 }
 
 /// The plain file `path` outside every session folder (the transcript a CLI names), open for reading by offset. It has no folder

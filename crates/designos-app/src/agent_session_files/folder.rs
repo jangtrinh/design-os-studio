@@ -70,16 +70,26 @@ pub fn ephemeral_session_dir(session_id: &str) -> PathBuf {
     ephemeral_sessions_root().unwrap_or_else(|| PathBuf::from(UNAVAILABLE_ROOT)).join(name)
 }
 
+/// `root` spelled without the links above it. It is looked up once it exists and kept: the sessions root of a process never changes.
+fn real_sessions_root(root: Option<&Path>) -> Option<&'static Path> {
+    static REAL_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(real) = REAL_ROOT.get() {
+        return Some(real);
+    }
+    let real = root?.canonicalize().ok()?;
+    Some(REAL_ROOT.get_or_init(|| real))
+}
+
 /// The session folder `path` lies in, when it lies in one: the closest folder above `path` that is a direct child of the
 /// ephemeral sessions folder (or of the root no session can use), or of a library's `agent-sessions` folder.
 pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
     let root = ephemeral_sessions_root();
     // The same folder spelled through the links above it (`/private/var` for `/var` on macOS) is Studio's own folder too.
-    let real_root = root.as_deref().and_then(|root| root.canonicalize().ok());
+    let real_root = real_sessions_root(root.as_deref());
     let is_session_folder = |dir: &Path| {
         dir.parent().is_some_and(|up| {
             root.as_deref() == Some(up)
-                || real_root.as_deref() == Some(up)
+                || real_root == Some(up)
                 || up == Path::new(UNAVAILABLE_ROOT)
                 || up.file_name().is_some_and(|name| name == "agent-sessions")
         })

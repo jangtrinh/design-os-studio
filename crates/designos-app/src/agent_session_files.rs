@@ -16,7 +16,7 @@ pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_session
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step};
 pub use session_io::{
     atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file, read_session_file, read_session_text,
-    remove_session_dir_all, remove_session_file, rename_session_file, write_session_file_unless, write_session_file_verified,
+    remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, write_session_file_unless, write_session_file_verified,
 };
 
 use std::path::{Path, PathBuf};
