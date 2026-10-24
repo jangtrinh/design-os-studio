@@ -597,6 +597,24 @@ impl TerminalTab {
             && self.agent_status.lock().ok().is_some_and(|g| matches!(*g, AgentTabStatus::WaitingForInput(_)))
     }
 
+    /// The user pressed a key in this tab's terminal that answers Gemini CLI's confirmation dialog: Enter (the highlighted
+    /// option), an option number, Esc (No) or Ctrl+C (cancel). `ToolConfirmationMessage.tsx:185-196`, `useSelectionList.ts:411-461`
+    /// and `AppContainer.tsx:1695-1701` in Gemini CLI 0.35.3; the arrow keys, `j`, `k` and Tab only move within it.
+    ///
+    /// Gemini fires no hook when the answer is No (it submits nothing, so no tool hook and no end-of-turn hook follow), and a tab
+    /// whose wait came from the terminal output has no hooks at all. So the wait ends here. If the answer was Yes, the tool hook
+    /// moves the tab to Working a moment later; the composer guard (it refuses a send while a wait stands) is not loosened.
+    pub fn note_gemini_dialog_answered(&mut self) {
+        if self.spawn_preset != AgentCliPreset::Gemini || !self.pending_approvals.is_empty() {
+            return;
+        }
+        if let Ok(mut status) = self.agent_status.lock() {
+            if matches!(*status, AgentTabStatus::WaitingForInput(_)) {
+                *status = AgentTabStatus::Idle;
+            }
+        }
+    }
+
     /// The status label of a wait on the user: `Needs approval` for a pending approval, `Needs input` for any other wait.
     pub fn waiting_label(&self) -> &'static str {
         if self.needs_approval() {
@@ -3068,6 +3086,8 @@ impl TerminalState {
                 Ok(self.active_tab)
             }
             Err(e) => {
+                // The tab never started, so nothing will read the hooks file written for it.
+                crate::gemini_status_hooks::remove_tab_file(&self.session_dir, id);
                 self.status_msg = Some(format!("PTY error: {e}"));
                 Err(e)
             }
@@ -5897,6 +5917,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         {
             let bracketed_paste = tab.parser.lock().ok().map(|pg| pg.screen().bracketed_paste()).unwrap_or(false);
             let mut raw_bytes: Vec<u8> = Vec::new();
+            // Set when a key that answers Gemini CLI's confirmation dialog is among them (see `note_gemini_dialog_answered`).
+            let mut answers_gemini_dialog = false;
             let mut copy_selection = false;
             let mut select_all = false;
             let mut clear_scrollback = false;
@@ -5917,6 +5939,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                             if !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && text != "\n" && text != "\r" {
                                 tab.input_line_buffer.push_str(text);
                                 raw_bytes.extend_from_slice(text.as_bytes());
+                                answers_gemini_dialog |= matches!(text.as_bytes(), [b'1'..=b'5']);
                             }
                         }
                         Event::Key { key, pressed: true, modifiers, .. } => {
@@ -5959,6 +5982,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         } else {
                                             tab.input_line_buffer.clear();
                                             raw_bytes.push(0x03);
+                                            answers_gemini_dialog = true;
                                         }
                                     }
                                     Key::D => raw_bytes.push(0x04),
@@ -5987,6 +6011,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         tab.input_line_buffer.clear();
                                         tab.clear_session_failure();
                                         raw_bytes.push(b'\r');
+                                        answers_gemini_dialog = true;
                                     }
                                     Key::Backspace => {
                                         let _ = tab.input_line_buffer.pop();
@@ -5998,6 +6023,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                             close_search = true;
                                         } else {
                                             raw_bytes.push(0x1b);
+                                            answers_gemini_dialog = true;
                                         }
                                     }
                                     Key::ArrowUp => raw_bytes.extend_from_slice(b"\x1b[A"),
@@ -6039,6 +6065,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                     pg.set_scrollback(0);
                 }
                 tab.write_bytes(&raw_bytes);
+                if answers_gemini_dialog {
+                    tab.note_gemini_dialog_answered();
+                }
             }
         }
 
@@ -6376,7 +6405,13 @@ mod ask_launch_sources_tests;
 mod gemini_status_tests;
 
 #[cfg(all(test, unix))]
+mod gemini_test_support;
+
+#[cfg(all(test, unix))]
 mod gemini_launch_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_wait_tests;
 
 #[cfg(test)]
 mod tests {
@@ -8909,6 +8944,31 @@ mod tests {
         assert_eq!(home_before, home_after, "$HOME/.gemini/settings.json must never be modified by Studio");
     }
 
+    /// `gemini mcp list` in `session_dir`, as the live check runs it, against a scratch home so that it never writes to the
+    /// user's `~/.gemini` (Gemini's project registry and login live there). The placeholder key only satisfies the auth check
+    /// that comes before the listing: nothing logs in, and no model is called.
+    fn gemini_mcp_list_command(session_dir: &Path, trusted_path: &Path) -> std::process::Command {
+        let mut list_cmd = std::process::Command::new("gemini");
+        list_cmd.args(["mcp", "list"]).current_dir(session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", trusted_path);
+        crate::gemini_status_hooks::isolate_gemini_home(&mut list_cmd);
+        list_cmd.env("GEMINI_API_KEY", "placeholder-not-a-key");
+        list_cmd
+    }
+
+    #[test]
+    fn the_live_check_of_gemini_uses_a_scratch_home() {
+        let session = std::env::temp_dir().join("designos-live-check-session");
+        let cmd = gemini_mcp_list_command(&session, &session.join(".gemini").join("trustedFolders.json"));
+        let env = |name: &str| cmd.get_envs().find(|(key, _)| *key == name).and_then(|(_, value)| value).map(PathBuf::from);
+        let home = env("GEMINI_CLI_HOME").expect("Gemini's home folder is moved off the user's");
+        assert_eq!(env("HOME").as_deref(), Some(home.as_path()), "anything that asks the OS for the home gets the scratch one too");
+        assert!(home.starts_with(std::env::temp_dir()), "{}", home.display());
+        assert!(std::env::var_os("HOME").is_none_or(|real| !home.starts_with(real)), "the scratch home sits inside the real one");
+        assert!(home.join(".gemini").join("settings.json").is_file(), "the scratch home carries the auth type `gemini mcp list` checks");
+        assert!(env("GEMINI_API_KEY").is_some(), "a placeholder key satisfies that check; no login happens");
+        assert!(cmd.get_args().eq(["mcp", "list"]) && cmd.get_current_dir() == Some(session.as_path()));
+    }
+
     #[test]
     fn gemini_live_check() {
         let mut st = isolated_683_state(780);
@@ -8935,9 +8995,7 @@ mod tests {
         assert!(argv.windows(2).any(|w| w == ["--", "--workspace"]), "must separate --workspace with --: {argv:?}");
 
         if runtime_binary_available("gemini") {
-            let mut list_cmd = std::process::Command::new("gemini");
-            list_cmd.args(["mcp", "list"]).current_dir(&st.session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", &trusted_path);
-            if let Ok(out) = list_cmd.output() {
+            if let Ok(out) = gemini_mcp_list_command(&st.session_dir, &trusted_path).output() {
                 let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                 assert!(combined.contains("designos:"), "gemini mcp list must discover the session-scoped designos server: {combined}");
             }

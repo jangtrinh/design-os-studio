@@ -120,35 +120,3 @@ fn the_status_hooks_cover_five_events_name_the_tab_and_print_nothing() {
     assert_eq!((rec.e.as_str(), rec.tab.as_deref(), rec.notification_type()), ("Notification", Some("7"), Some("ToolPermission")));
     let _ = std::fs::remove_dir_all(&session);
 }
-
-#[test]
-fn gemini_ask_tab_waiting_needs_approval_and_shows_open_tab() {
-    use crate::agent_permissions::AgentPermissionMode;
-    let ctx = egui::Context::default();
-    crate::theme::install_fonts(&ctx);
-    crate::theme::apply(&ctx);
-    let mut st = crate::test_timing::ScopedTerminalState::default();
-    st.bind_session(&format!("930-gemini-card-{}", std::process::id()));
-    st.permission_mode = AgentPermissionMode::Ask;
-    st.ensure_default_tab(None);
-    st.side_panel_pty_open = false;
-    st.chat_mode = true;
-    let tab = st.active_tab_mut().unwrap();
-    tab.preset = AgentCliPreset::Gemini;
-    tab.permission_mode = AgentPermissionMode::Ask;
-    *tab.agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
-    assert!(st.needs_approval(), "an Ask-mode Gemini tab that waits needs approval");
-    let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(560.0, 800.0));
-    let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-        let _ = show_left(&mut st, ui, panel_rect, None);
-    });
-    let (texts, _) = crate::lint::scan_shapes(&out.shapes);
-    let painted: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
-    for expected in ["Gemini CLI needs approval in its terminal", "Open tab", "Needs approval"] {
-        assert!(painted.contains(&expected), "{expected:?} is not painted: {painted:?}");
-    }
-    assert!(!painted.contains(&"Approve") && !painted.contains(&"Deny"), "Gemini has no in-panel answer: {painted:?}");
-    st.permission_mode = AgentPermissionMode::Skip;
-    st.active_tab_mut().unwrap().permission_mode = AgentPermissionMode::Skip;
-    assert!(!st.needs_approval(), "Skip mode raises no approval state");
-}

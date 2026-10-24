@@ -134,9 +134,16 @@ pub fn is_tab_turn_running(tab: &TerminalTab) -> bool {
     }
 }
 
-/// Number of tabs in `state` whose turn is currently running (`§3.6`).
+/// True when the Stop control can stop `tab`: its turn is running and its CLI has an interrupt row. A CLI with no row gets no
+/// control, since pressing it would send nothing. Gemini CLI is one: a second Ctrl+C exits it, so the usual Esc then Ctrl+C is
+/// not safe to copy for it. [`is_tab_turn_running`] stays as it is, because it also marks where a turn starts in the undo stack.
+pub fn is_tab_stoppable(tab: &TerminalTab) -> bool {
+    interrupt_row_for(tab.spawn_preset).is_some() && is_tab_turn_running(tab)
+}
+
+/// Number of tabs in `state` whose turn is currently running and can be stopped (`§3.6`).
 pub fn running_tab_count(state: &TerminalState) -> usize {
-    state.tabs.iter().filter(|t| is_tab_turn_running(t)).count()
+    state.tabs.iter().filter(|t| is_tab_stoppable(t)).count()
 }
 
 /// Starts the stop sequence on `tab` at `now_ms` (`§3.3`).
@@ -384,7 +391,7 @@ pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth:
 pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut TerminalState, bar_r: Rect, right_anchor_x: f32) -> f32 {
     let now = designos_doc::now_ms();
     let running_count = running_tab_count(state);
-    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_turn_running);
+    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_stoppable);
     let active_stopping = state.tabs.get(state.active_tab).is_some_and(|t| t.stop_state.is_some());
 
     if !active_running && running_count < 2 {

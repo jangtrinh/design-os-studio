@@ -559,7 +559,7 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     }
     std::thread::spawn(move || {
         let Some(resolved_bin) = resolve_cli_executable(bin) else { return };
-        let Ok(out) = std::process::Command::new(resolved_bin).arg("--version").output() else { return };
+        let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
         if let Ok(mut guard) = version_cache().lock() {
@@ -567,6 +567,21 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         }
     });
     None
+}
+
+/// The `--version` command for the installed CLI at `bin`.
+pub(crate) fn version_probe_command(bin: &Path, preset: AgentCliPreset) -> std::process::Command {
+    let mut cmd = std::process::Command::new(bin);
+    cmd.arg("--version");
+    // Every start of the real Gemini writes its project registry under the home folder, `--version` included. Opening a Gemini
+    // tab in a test must not do that to the user's `~/.gemini`.
+    #[cfg(test)]
+    if preset == AgentCliPreset::Gemini {
+        crate::gemini_status_hooks::isolate_gemini_home(&mut cmd);
+    }
+    #[cfg(not(test))]
+    let _ = preset;
+    cmd
 }
 
 fn resolve_cli_executable(bin: &str) -> Option<PathBuf> {

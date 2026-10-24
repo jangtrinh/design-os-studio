@@ -10,8 +10,12 @@
 //! nothing is added to the session folder, which an agent can write, and the user's own settings and hooks stay as they are.
 //!
 //! The variable replaces whatever system defaults the machine has, so nothing is written when Gemini already has some of its
-//! own: Studio's environment names that file, or a `system-defaults.json` sits where Gemini looks for it. The tab then
-//! falls back to the terminal-output heuristic.
+//! own: Studio's environment names that file, or a `system-defaults.json` sits where Gemini looks for it. Nothing is written
+//! off Unix either: Gemini runs a hook through PowerShell on Windows, which cannot parse the POSIX command the handlers use.
+//! The tab then falls back to the terminal-output heuristic.
+//!
+//! Gemini fires none of these hooks when the user answers No in its own confirmation dialog, so a wait also ends when a key
+//! that answers the dialog reaches the tab's terminal (`TerminalTab::note_gemini_dialog_answered`).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -109,6 +113,29 @@ pub fn with_system_config<R>(env: &[(&str, &str)], platform_dir: &Path, body: im
     body()
 }
 
+/// A folder to stand in for the user's home when a test runs the real `gemini`: Gemini writes its project registry under
+/// `<home>/.gemini` on every start, even for `--version`, and refreshes its login there. It holds only the auth type that
+/// `gemini mcp list` checks before it lists servers; no key or login is stored.
+#[cfg(test)]
+pub fn scratch_gemini_home() -> PathBuf {
+    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| {
+        let home = std::env::temp_dir().join(format!("designos-scratch-gemini-home-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(home.join(".gemini"));
+        let _ = std::fs::write(home.join(".gemini").join("settings.json"), r#"{"security":{"auth":{"selectedType":"gemini-api-key"}}}"#);
+        home
+    })
+    .clone()
+}
+
+/// Points `cmd` (a real `gemini` run by a test) at [`scratch_gemini_home`]: `GEMINI_CLI_HOME` moves Gemini's home folder
+/// and `HOME` moves anything that asks the OS for it.
+#[cfg(test)]
+pub fn isolate_gemini_home(cmd: &mut std::process::Command) {
+    let home = scratch_gemini_home();
+    cmd.env("GEMINI_CLI_HOME", &home).env("HOME", &home);
+}
+
 fn defaults_in_force_here() -> bool {
     #[cfg(test)]
     {
@@ -133,11 +160,17 @@ pub fn remove_tab_file(session_dir: &Path, tab_id: usize) {
 /// or when the file cannot be written; the caller then leaves the tab's environment alone and relies on the output
 /// heuristic. Written before the tab starts, so the variable never names a file that is not there.
 pub fn prepare_for_tab(session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
+    prepare_for_tab_on(cfg!(unix), session_dir, tab_id, mode, preset)
+}
+
+/// [`prepare_for_tab`] with the platform's shell named: `posix_shell` is false where Gemini runs a hook through PowerShell,
+/// which cannot parse the POSIX command the handlers use.
+pub fn prepare_for_tab_on(posix_shell: bool, session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
     if preset != AgentCliPreset::Gemini {
         return None;
     }
     remove_tab_file(session_dir, tab_id);
-    if mode != AgentPermissionMode::Ask {
+    if mode != AgentPermissionMode::Ask || !posix_shell {
         return None;
     }
     if defaults_in_force_here() {

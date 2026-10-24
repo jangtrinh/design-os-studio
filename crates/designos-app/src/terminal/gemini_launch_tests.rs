@@ -1,68 +1,11 @@
-//! Gemini CLI tabs: the private status-hooks file a tab starts with, the environment it gets, and the approval state and
-//! card that follow. The tab is a stub `gemini` that records what it was started with.
+//! Gemini CLI tabs: the private status-hooks file a tab starts with, the environment it gets, and the hook records that drive
+//! the tab. The tab is a stub `gemini` that records what it was started with.
 
+use super::gemini_test_support::*;
 use super::*;
-use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+use crate::agent_permissions::AgentPermissionMode;
 use crate::gemini_status_hooks::{self as hooks, SYSTEM_DEFAULTS_ENV};
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-
-/// Stub `gemini`: records the system-defaults variable and the file it names, then idles like a CLI would.
-const STUB_GEMINI: &str = r#"#!/bin/sh
-printf '%s' "${GEMINI_CLI_SYSTEM_DEFAULTS_PATH-unset}" > "$DESIGNOS_SESSION_DIR/defaults-env.txt"
-cat "${GEMINI_CLI_SYSTEM_DEFAULTS_PATH:-/dev/null}" > "$DESIGNOS_SESSION_DIR/defaults-seen.txt" 2>/dev/null || true
-sleep 30
-"#;
-
-/// What Studio's own environment holds for the variable: the stub reports this when the tab's environment is left alone.
-fn inherited() -> String {
-    std::env::var(SYSTEM_DEFAULTS_ENV).unwrap_or_else(|_| "unset".to_string())
-}
-
-/// A library window in `mode` that has started a Gemini tab on the stub; `before_start` runs on the session folder first.
-fn start_gemini(tag: &str, mode: AgentPermissionMode, before_start: impl FnOnce(&Path)) -> (PathBuf, TerminalState) {
-    let dir = std::env::temp_dir().join(format!("designos-gemini-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("bin")).unwrap();
-    std::fs::write(dir.join("bin/gemini"), STUB_GEMINI).unwrap();
-    std::fs::set_permissions(dir.join("bin/gemini"), std::fs::Permissions::from_mode(0o755)).unwrap();
-    save_permission_mode(&dir, mode).expect("the library holds the mode");
-    let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
-    st.bind_library_file(&dir, "file-gemini", &format!("p{}-w1-tab-1", std::process::id()));
-    st.path_prepend.push(dir.join("bin"));
-    std::fs::create_dir_all(&st.session_dir).unwrap();
-    before_start(&st.session_dir);
-    st.spawn_tab(AgentCliPreset::Gemini, None).expect("spawn gemini");
-    let seen = st.session_dir.join("defaults-env.txt");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !seen.is_file() {
-        assert!(std::time::Instant::now() < deadline, "the stub gemini never started");
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    (dir, st)
-}
-
-fn finish(dir: PathBuf, mut st: TerminalState) {
-    crate::agent_approval_channel::remove_channel(&st.session_dir);
-    st.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-fn recorded(st: &TerminalState, file: &str) -> String {
-    std::fs::read_to_string(st.session_dir.join(file)).unwrap_or_default()
-}
-
-fn hook_files(st: &TerminalState) -> Vec<PathBuf> {
-    let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).unwrap();
-    std::fs::read_dir(channel)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("gemini-tab-")))
-        .collect()
-}
 
 #[test]
 fn in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file() {
@@ -169,21 +112,62 @@ fn the_hooks_file_goes_with_its_tab_and_a_stale_one_goes_when_a_tab_starts() {
 fn gemini_hook_records_drive_the_tab_through_waiting_working_and_done() {
     let (dir, mut st) = start_gemini("bridge", AgentPermissionMode::Ask, |_| {});
     let id = st.tabs[0].id;
-    let events = st.session_dir.join("agent-events.jsonl");
-    let send = |st: &mut TerminalState, tab: usize, event: &str, payload: &str| {
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&events).unwrap();
-        writeln!(file, r#"{{"t":10,"e":"{event}","tab":"{tab}","p":{payload}}}"#).unwrap();
-        let _ = st.poll_live_agent_bridge();
-    };
-    send(&mut st, id, "Notification", r#"{"session_id":"g","notification_type":"ToolPermission"}"#);
+    ask_permission(&mut st);
     assert!(matches!(st.tabs[0].effective_status(), AgentTabStatus::WaitingForInput(_)));
     assert!(st.needs_approval(), "the Open tab card shows");
-    send(&mut st, id + 1, "PreToolUse", r#"{"session_id":"g"}"#);
+    send_record(&mut st, id + 1, "PreToolUse", r#"{"session_id":"g"}"#);
     assert!(st.needs_approval(), "a record for another tab does not clear the wait");
-    send(&mut st, id, "PreToolUse", r#"{"session_id":"g"}"#);
+    send_record(&mut st, id, "PreToolUse", r#"{"session_id":"g"}"#);
     assert!(matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)) && !st.needs_approval());
-    send(&mut st, id, "Stop", r#"{"session_id":"g"}"#);
+    send_record(&mut st, id, "Stop", r#"{"session_id":"g"}"#);
     assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Done);
     finish(dir, st);
+}
+
+#[test]
+fn off_unix_a_gemini_tab_gets_no_hooks_file() {
+    // Gemini runs a hook through PowerShell on Windows, where the POSIX status command cannot parse.
+    let session = std::env::temp_dir().join(format!("designos-gemini-off-unix-{}", std::process::id()));
+    let ask = AgentPermissionMode::Ask;
+    assert!(hooks::prepare_for_tab_on(false, &session, 1, ask, AgentCliPreset::Gemini).is_none());
+    assert!(hooks::tab_file_path(&session, 1).is_some_and(|file| !file.exists()), "a file was written for a shell that cannot run it");
+    let file = hooks::prepare_for_tab_on(true, &session, 1, ask, AgentCliPreset::Gemini).expect("a POSIX shell gets the file");
+    assert!(file.is_file());
+    crate::agent_approval_channel::remove_channel(&session);
+}
+
+#[test]
+fn a_failed_spawn_leaves_no_hooks_file_behind() {
+    // A session folder nobody can enter makes the PTY child fail to start, after the hooks file was written.
+    let dir = std::env::temp_dir().join(format!("designos-gemini-failed-spawn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    crate::agent_permissions::save_permission_mode(&dir, AgentPermissionMode::Ask).unwrap();
+    let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    st.bind_library_file(&dir, "file-gemini-failed", &format!("p{}-w1-tab-1", std::process::id()));
+    std::fs::create_dir_all(&st.session_dir).unwrap();
+    struct Reopen(PathBuf);
+    impl Drop for Reopen {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+    let reopen = Reopen(st.session_dir.clone());
+    std::fs::set_permissions(&st.session_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(st.spawn_tab(AgentCliPreset::Gemini, None).is_err(), "the spawn was meant to fail");
+    assert!(st.tabs.is_empty());
+    assert!(hook_files(&st).is_empty(), "the failed tab's hooks file stays in the private folder");
+    drop(reopen);
+    finish(dir, st);
+}
+
+#[test]
+fn a_test_never_runs_the_real_gemini_version_probe_against_the_users_home() {
+    let probe = |preset| crate::agent_session_failure::version_probe_command(Path::new("/opt/gemini"), preset);
+    let gemini = probe(AgentCliPreset::Gemini);
+    let env = |name: &str| gemini.get_envs().find(|(key, _)| *key == name).and_then(|(_, value)| value).map(PathBuf::from);
+    let home = env("GEMINI_CLI_HOME").expect("Gemini's home folder is moved off the user's");
+    assert_eq!(env("HOME").as_deref(), Some(home.as_path()));
+    assert!(home.starts_with(std::env::temp_dir()) && gemini.get_args().eq(["--version"]));
+    assert!(probe(AgentCliPreset::Claude).get_envs().next().is_none(), "another CLI's probe is left as it was");
 }
