@@ -13,6 +13,12 @@ fn blank(c: char) -> char {
     }
 }
 
+/// Appends one character to `code` and one to `shape`, so the two texts keep the same length.
+fn emit(code: &mut Vec<char>, shape: &mut Vec<char>, in_code: char, in_shape: char) {
+    code.push(in_code);
+    shape.push(in_shape);
+}
+
 /// Where a raw string (`r"…"`, `r#"…"#`, `br"…"`) that starts at `i` begins its contents: `(length of the opening, number of #)`.
 fn raw_string_start(c: &[char], i: usize) -> Option<(usize, usize)> {
     if i > 0 && is_ident(c[i - 1]) {
@@ -43,7 +49,7 @@ pub(super) fn lex(src: &str) -> (Vec<char>, Vec<char>) {
         let next = c.get(i + 1).copied();
         if c[i] == '/' && next == Some('/') {
             while i < c.len() && c[i] != '\n' {
-                (code.push(' '), shape.push(' '));
+                emit(&mut code, &mut shape, ' ', ' ');
                 i += 1;
             }
         } else if c[i] == '/' && next == Some('*') {
@@ -53,7 +59,7 @@ pub(super) fn lex(src: &str) -> (Vec<char>, Vec<char>) {
                 let width = if open || close { 2 } else { 1 };
                 depth += i32::from(open) - i32::from(close);
                 for ch in &c[i..i + width] {
-                    (code.push(blank(*ch)), shape.push(blank(*ch)));
+                    emit(&mut code, &mut shape, blank(*ch), blank(*ch));
                 }
                 i += width;
                 if depth == 0 {
@@ -62,39 +68,39 @@ pub(super) fn lex(src: &str) -> (Vec<char>, Vec<char>) {
             }
         } else if let Some((opening, hashes)) = raw_string_start(&c, i) {
             for ch in &c[i..i + opening] {
-                (code.push(*ch), shape.push(*ch));
+                emit(&mut code, &mut shape, *ch, *ch);
             }
             i += opening;
             while i < c.len() && !(c[i] == '"' && c[i + 1..].iter().take_while(|h| **h == '#').count() >= hashes) {
-                (code.push(c[i]), shape.push(blank(c[i])));
+                emit(&mut code, &mut shape, c[i], blank(c[i]));
                 i += 1;
             }
             let closing = (1 + hashes).min(c.len() - i);
             for ch in &c[i..i + closing] {
-                (code.push(*ch), shape.push(*ch));
+                emit(&mut code, &mut shape, *ch, *ch);
             }
             i += closing;
         } else if c[i] == '"' {
-            (code.push('"'), shape.push('"'));
+            emit(&mut code, &mut shape, '"', '"');
             i += 1;
             while i < c.len() && c[i] != '"' {
                 let width = if c[i] == '\\' { 2.min(c.len() - i) } else { 1 };
                 for ch in &c[i..i + width] {
-                    (code.push(*ch), shape.push(blank(*ch)));
+                    emit(&mut code, &mut shape, *ch, blank(*ch));
                 }
                 i += width;
             }
             if i < c.len() {
-                (code.push('"'), shape.push('"'));
+                emit(&mut code, &mut shape, '"', '"');
                 i += 1;
             }
         } else if let Some(end) = (c[i] == '\'').then(|| char_literal_end(&c, i)).flatten() {
             for ch in &c[i..=end] {
-                (code.push(*ch), shape.push(if *ch == '\'' { '\'' } else { ' ' }));
+                emit(&mut code, &mut shape, *ch, if *ch == '\'' { '\'' } else { ' ' });
             }
             i = end + 1;
         } else {
-            (code.push(c[i]), shape.push(c[i]));
+            emit(&mut code, &mut shape, c[i], c[i]);
             i += 1;
         }
     }

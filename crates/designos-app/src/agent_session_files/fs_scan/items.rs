@@ -8,13 +8,15 @@ pub(super) struct Attribute {
     pub(super) text: String,
 }
 
+/// Whether an item with this attribute is only in a test build: `#[test]`, `#[cfg(test)]` and `#[cfg(all(test, ..))]`. Any other
+/// mention of `test` (`any(test, ..)`, `not(..)`, a feature named after it) can ship, so the item is scanned.
 pub(super) fn is_test_attribute(text: &str) -> bool {
     let text = text.trim();
-    let gated = text
-        .strip_prefix("cfg(")
-        .map(|rest| rest.replace("not(test)", ""))
-        .is_some_and(|rest| rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|word| word == "test"));
-    text == "test" || gated
+    let Some(condition) = text.strip_prefix("cfg(").and_then(|rest| rest.strip_suffix(')')).map(str::trim) else {
+        return text == "test";
+    };
+    condition == "test"
+        || condition.strip_prefix("all(").and_then(|args| args.strip_suffix(')')).is_some_and(|args| args.split(',').any(|arg| arg.trim() == "test"))
 }
 
 pub(super) fn attributes(shape: &[char], code: &[char]) -> Vec<Attribute> {
@@ -72,4 +74,22 @@ pub(super) fn file_module_name(item: &str) -> Option<String> {
     let rest = if rest.starts_with('(') { rest.split_once(')')?.1.trim_start() } else { rest };
     let name = rest.strip_prefix("mod ")?.strip_suffix(';')?.trim();
     (!name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')).then(|| name.to_string())
+}
+
+#[test]
+fn only_an_item_that_needs_a_test_build_is_taken_for_test_only() {
+    for text in ["test", "cfg(test)", " cfg(test) ", "cfg(all(test, unix))", "cfg(all(unix, test))"] {
+        assert!(is_test_attribute(text), "{text}");
+    }
+    for text in [
+        "cfg(not(test))",
+        "cfg(any(test, unix))",
+        "cfg(not(any(test, windows)))",
+        "cfg(feature = \"test-support\")",
+        "cfg(all(not(test), unix))",
+        "cfg_attr(test, allow(dead_code))",
+        "derive(Debug)",
+    ] {
+        assert!(!is_test_attribute(text), "{text}");
+    }
 }
