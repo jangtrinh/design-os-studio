@@ -58,6 +58,27 @@ pub(crate) fn names_in(dir: &Path) -> Vec<String> {
     names
 }
 
+/// The folders an Ask-mode start made below `<session>/.designos-set-aside`, one for each start that moved something aside.
+pub(crate) fn stamp_folders(session: &Path) -> Vec<PathBuf> {
+    names_in(&session.join(".designos-set-aside")).into_iter().map(|name| session.join(".designos-set-aside").join(name)).collect()
+}
+
+/// `rel` below the one folder a single start moved its entries into.
+pub(crate) fn aside_path(session: &Path, rel: &str) -> PathBuf {
+    let folders = stamp_folders(session);
+    assert_eq!(folders.len(), 1, "one start, one folder: {folders:?}");
+    folders[0].join(rel)
+}
+
+/// Whether `name` is the name of a set-aside folder: `<UTC date>-<UTC time>-<six hex digits>`, like `20261025-023045-a1b2c3`.
+pub(crate) fn is_stamp(name: &str) -> bool {
+    let parts: Vec<&str> = name.split('-').collect();
+    matches!(parts.as_slice(), [date, time, id]
+        if date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit())
+        && time.len() == 6 && time.bytes().all(|b| b.is_ascii_digit())
+        && id.len() == 6 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
 /// Whether anything, a link included, is at `path`.
 pub(crate) fn is_there(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()

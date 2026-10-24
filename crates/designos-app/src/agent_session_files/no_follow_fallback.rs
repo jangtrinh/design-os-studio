@@ -103,8 +103,8 @@ impl Dir {
         Ok(bytes)
     }
 
-    /// Removes the entry `name`: a file or link itself, a folder with everything in it. Whether there was anything to remove comes back.
-    pub(in crate::agent_session_files) fn remove_all(&self, name: &OsStr) -> io::Result<bool> {
+    /// Removes the entry `name`: a file or link itself, a folder with everything in it.
+    pub(in crate::agent_session_files) fn remove_all(&self, name: &OsStr) -> io::Result<()> {
         let path = self.path.join(name);
         let removed = match std::fs::symlink_metadata(&path) {
             Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => std::fs::remove_dir_all(&path),
@@ -112,23 +112,32 @@ impl Dir {
             Err(e) => Err(e),
         };
         match removed {
-            Ok(()) => Ok(true),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-            Err(e) => Err(cannot_io("removed", &path, e)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other.map_err(|e| cannot_io("removed", &path, e)),
         }
     }
 
-    /// Removes every entry of this folder whose name is not in `keep`. The names removed come back.
-    pub(in crate::agent_session_files) fn remove_entries_except(&self, keep: &[&str]) -> io::Result<Vec<std::ffi::OsString>> {
-        let mut removed = Vec::new();
+    /// The names in this folder that are not in `keep`, sorted. This only reads: a platform without `openat` moves and removes nothing
+    /// that is not Studio's, because a folder swapped for a link between the check and the act would carry that out of the session folder.
+    pub(in crate::agent_session_files) fn entries_not_in(&self, keep: &[&str]) -> io::Result<Vec<std::ffi::OsString>> {
+        let mut names = Vec::new();
         for entry in std::fs::read_dir(&self.path).map_err(|e| cannot_io("listed", &self.path, e))? {
             let name = entry.map_err(|e| cannot_io("listed", &self.path, e))?.file_name();
             if !keep.iter().any(|kept| OsStr::new(kept) == name) {
-                self.remove_all(&name)?;
-                removed.push(name);
+                names.push(name);
             }
         }
-        Ok(removed)
+        names.sort();
+        Ok(names)
+    }
+
+    /// Whether this folder has an entry `name`, a link included.
+    pub(in crate::agent_session_files) fn has_entry(&self, name: &OsStr) -> io::Result<bool> {
+        match std::fs::symlink_metadata(self.path.join(name)) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(cannot_io("checked", &self.path.join(name), e)),
+        }
     }
 }
 

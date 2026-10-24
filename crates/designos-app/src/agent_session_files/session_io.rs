@@ -158,13 +158,8 @@ pub fn remove_session_file(path: &Path) -> io::Result<()> {
 /// Removes the folder, file or link `path`, and everything in a folder, without following a link below the session folder.
 /// What is not there is already removed.
 pub fn remove_session_dir_all(path: &Path) -> io::Result<()> {
-    remove_session_path(path).map(|_| ())
-}
-
-/// [`remove_session_dir_all`], saying whether there was anything at `path` to remove. A link at a folder above `path` is refused.
-pub fn remove_session_path(path: &Path) -> io::Result<bool> {
     match open_place(path, false) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         opened => {
             let (place, dir) = opened?;
             dir.remove_all(&place.name)
@@ -172,19 +167,117 @@ pub fn remove_session_path(path: &Path) -> io::Result<bool> {
     }
 }
 
-/// Removes every entry of the folder `path` whose name is not in `keep`: a file, a link (itself) or a folder with everything in it.
-/// The names removed come back. A folder that is not there has nothing to remove; a link or a file at `path`, or at a folder above it
-/// below the session folder, is refused.
-pub fn remove_session_entries_except(path: &Path, keep: &[&str]) -> io::Result<Vec<OsString>> {
+/// The entries one Ask-mode start moved out of the way of the CLI that would run them, and the folder they went into. Nothing that is
+/// not Studio's is deleted: an entry is moved, whole, to `<session>/.designos-set-aside/<stamp>/<its path with "/" written "__">`, so
+/// that no moved entry keeps a name a CLI loads. The folder is made when the first entry needs it, and is new for each start.
+/// `who` is the CLI that would run the entries.
+pub struct SetAside {
+    #[cfg_attr(not(unix), allow(dead_code))]
+    session: PathBuf,
+    who: &'static str,
+    folder: Option<(Dir, String)>,
+    moved: Vec<PathBuf>,
+    /// Set where Studio moves nothing (a platform without `openat`, or a test of that): an entry that is not Studio's is refused.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    refuse_moves: bool,
+}
+
+/// The line for an entry that is not Studio's, where Studio does not move it aside (a platform without `openat`).
+pub(super) fn not_studios(path: &Path, who: &str) -> io::Error {
+    failed(io::ErrorKind::InvalidInput, format!("{} is not Studio's, and {who} would run it", path.display()), Fix::MoveOrDeleteIt)
+}
+
+impl SetAside {
+    pub fn new(session: &Path, who: &'static str) -> Self {
+        SetAside { session: session.to_path_buf(), who, folder: None, moved: Vec::new(), refuse_moves: false }
+    }
+
+    /// A set-aside that moves nothing, as on a platform without `openat`.
+    #[cfg(test)]
+    pub fn refusing_moves(mut self) -> Self {
+        self.refuse_moves = true;
+        self
+    }
+
+    /// The paths moved so far, below the session folder, in the order they were moved.
+    pub fn moved(&self) -> &[PathBuf] {
+        &self.moved
+    }
+
+    /// What to tell the user once the start has gone through: how many entries went, the first, and where, or `None` when none did.
+    pub fn note(&self) -> Option<String> {
+        let (first, (_, stamp)) = (self.moved.first()?, self.folder.as_ref()?);
+        let more = match self.moved.len() {
+            1 => String::new(),
+            n => format!(" and {} more", n - 1),
+        };
+        Some(format!("Moved {}{more} that {} would run into .designos-set-aside/{stamp}.", first.display(), self.who))
+    }
+
+    /// Moves the entry at `path`, which is in the open folder `from`, aside. On a platform without `openat` it is refused instead.
+    fn take(&mut self, from: &Dir, path: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            if !self.refuse_moves {
+                return self.move_aside(from, path);
+            }
+        }
+        let _ = from;
+        Err(not_studios(path, self.who))
+    }
+
+    #[cfg(unix)]
+    fn move_aside(&mut self, from: &Dir, path: &Path) -> io::Result<()> {
+        let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("{} has no name", path.display())))?;
+        let rel =
+            path.strip_prefix(&self.session).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("{} is not below its folder", path.display())))?;
+        let flat: OsString = rel.components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("__").into();
+        if self.folder.is_none() {
+            let aside = Dir::open_session_folder(&self.session)?.open_child(std::ffi::OsStr::new(".designos-set-aside"), true)?;
+            self.folder = Some(aside.make_stamp_folder()?);
+        }
+        let Some((stamp, stamp_name)) = &self.folder else { return Ok(()) };
+        if let Some(kept_as) = from.move_entry(name, stamp, &flat)? {
+            eprintln!(
+                "design:os studio: moved {} to .designos-set-aside/{stamp_name}/{}: Studio does not write it, and {} would run it",
+                path.display(),
+                kept_as.to_string_lossy(),
+                self.who
+            );
+            self.moved.push(rel.to_path_buf());
+        }
+        Ok(())
+    }
+}
+
+/// Moves every entry of the folder `path` whose name is not in `keep` aside. A folder that is not there has nothing to move; a link or
+/// a file at `path`, or at a folder above it below the session folder, is refused.
+pub fn set_aside_entries_except(path: &Path, keep: &[&str], aside: &mut SetAside) -> io::Result<()> {
     let missing = |e: &io::Error| e.kind() == io::ErrorKind::NotFound;
     let (place, holder) = match open_place(path, false) {
-        Err(e) if missing(&e) => return Ok(Vec::new()),
+        Err(e) if missing(&e) => return Ok(()),
         opened => opened?,
     };
-    match holder.open_child(&place.name, false) {
-        Err(e) if missing(&e) => Ok(Vec::new()),
-        folder => folder?.remove_entries_except(keep),
+    let folder = match holder.open_child(&place.name, false) {
+        Err(e) if missing(&e) => return Ok(()),
+        folder => folder?,
+    };
+    for name in folder.entries_not_in(keep)? {
+        aside.take(&folder, &path.join(name))?;
     }
+    Ok(())
+}
+
+/// Moves the entry at `path`, whatever it is, aside when it is there. A link at a folder above `path` is refused.
+pub fn set_aside_path(path: &Path, aside: &mut SetAside) -> io::Result<()> {
+    let (place, holder) = match open_place(path, false) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        opened => opened?,
+    };
+    if holder.has_entry(&place.name)? {
+        aside.take(&holder, path)?;
+    }
+    Ok(())
 }
 
 /// Renames the entry `from` to `to`, which must lie in the same folder.

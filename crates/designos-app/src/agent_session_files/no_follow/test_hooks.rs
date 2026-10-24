@@ -32,3 +32,22 @@ pub(super) fn run(path: &Path, step: Step) {
         hook(step);
     }
 }
+
+type MoveHook = Box<dyn FnOnce() + Send>;
+
+static BEFORE_MOVE: Mutex<Vec<(PathBuf, MoveHook)>> = Mutex::new(Vec::new());
+
+/// Runs `hook` once, just before the entry at `path` is moved aside, so a test can take the entry away at that exact point.
+pub(in crate::agent_session_files) fn set_before_move_hook(path: &Path, hook: MoveHook) {
+    BEFORE_MOVE.lock().unwrap_or_else(|e| e.into_inner()).push((path.to_path_buf(), hook));
+}
+
+pub(super) fn run_before_move(path: &Path) {
+    let hook = {
+        let mut hooks = BEFORE_MOVE.lock().unwrap_or_else(|e| e.into_inner());
+        hooks.iter().position(|(p, _)| p == path).map(|i| hooks.remove(i).1)
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
+}

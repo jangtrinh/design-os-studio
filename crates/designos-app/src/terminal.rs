@@ -1318,6 +1318,8 @@ pub struct TerminalState {
     session_closed: bool,
     /// Pauses the retry of a snapshot write that failed (`#690` edge case 5).
     write_backoff: crate::agent_session_files::WriteBackoff,
+    /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
+    set_aside_note: Option<String>,
 }
 
 impl Default for TerminalState {
@@ -1578,6 +1580,7 @@ impl TerminalState {
             snapshot_worker: crate::agent_session_files::SnapshotWorker::new(),
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
+            set_aside_note: None,
         }
     }
 
@@ -2571,6 +2574,7 @@ impl TerminalState {
         exact: Option<crate::agent_session_files::ExactProjectConfig>,
     ) -> Option<std::io::Error> {
         self.snapshot_worker.cancel_and_wait();
+        self.set_aside_note = None;
         self.session_closed = false;
         self.write_backoff.clear();
         self.last_synced_key = None;
@@ -2596,7 +2600,13 @@ impl TerminalState {
             unread_probe: None,
             exact_project_config: exact,
         };
-        write_session_agent_files_for_job(&job).err()
+        match write_session_agent_files(&job) {
+            Ok(note) => {
+                self.set_aside_note = note;
+                None
+            }
+            Err(e) => Some(e),
+        }
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
@@ -3025,6 +3035,7 @@ impl TerminalState {
         // agent kept (hooks and servers included): the tab does not start.
         if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
             let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
+            self.set_aside_note = None;
             self.status_msg = Some(message.clone());
             return Err(message);
         }
@@ -3110,7 +3121,12 @@ impl TerminalState {
                     self.refresh_tab_usage(self.active_tab);
                 }
                 self.viewport_focused = true;
-                self.status_msg = Some(format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name));
+                let spawned = format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name);
+                // What was moved out of the CLI's way is said in the same line: a plain status line set earlier would be overwritten here.
+                self.status_msg = Some(match self.set_aside_note.take() {
+                    Some(note) => format!("{spawned}. {note}"),
+                    None => spawned,
+                });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
                     if !has_queued {
                         self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
@@ -3119,6 +3135,7 @@ impl TerminalState {
                 Ok(self.active_tab)
             }
             Err(e) => {
+                self.set_aside_note = None;
                 // The tab never started, so nothing will read the hooks file written for it.
                 crate::gemini_status_hooks::remove_tab_file(&self.session_dir, id);
                 self.status_msg = Some(format!("PTY error: {e}"));
@@ -4687,9 +4704,15 @@ fn write_private_claude_mcp_config(private_dir: &Path, mcp_config: &serde_json::
     }
 }
 
-/// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
-/// files for `job` into `job.session_dir` (`#690` §6).
+/// [`write_session_agent_files`] without what it says about the entries it moved aside.
 pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<()> {
+    write_session_agent_files(job).map(|_| ())
+}
+
+/// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
+/// files for `job` into `job.session_dir` (`#690` §6). When a tab of Grok or Antigravity is starting in Ask mode (`exact_project_config`),
+/// what the CLI loads from the folder is made exactly Studio's first, and a sentence on what was moved aside comes back.
+pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<Option<String>> {
     let mcp_bin = designos_mcp_binary();
     let workspace_dir = session_workspace_dir(job.file_path.as_deref());
     let mcp_config_path = job.session_dir.join("mcp-config.json");
@@ -4753,7 +4776,7 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let status_path = job.session_dir.join("agent-status.json");
     let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
     let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
-    match exact {
+    let set_aside_note = match exact {
         Some(ExactProjectConfig::Grok) => {
             let config = grok_session_config_toml(&mcp_config).unwrap_or_default();
             crate::agent_project_config::make_grok_config_exact(&job.session_dir, config.as_bytes(), &grok_hooks_bytes)?
@@ -4761,8 +4784,8 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
         Some(ExactProjectConfig::Antigravity) => {
             crate::agent_project_config::make_agy_config_exact(&job.session_dir, &agy_hooks_bytes, AGY_PLUGIN_MANIFEST, &bytes)?
         }
-        None => {}
-    }
+        None => None,
+    };
     if exact != Some(ExactProjectConfig::Antigravity) {
         write_agy_session_plugin(&job.session_dir, &bytes)?;
     }
@@ -4860,9 +4883,9 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
     // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
     if exact.is_some() {
-        return Ok(());
+        return Ok(set_aside_note);
     }
-    gemini_config
+    gemini_config.map(|()| None)
 }
 
 /// Shell command that appends one wrapped hook record to `<session_dir>/agent-events.jsonl` (`#683` §3.1)

@@ -52,6 +52,9 @@ pub enum Fix {
     DeleteLink,
     /// A FIFO or a folder stands where a plain file should be.
     DeleteIt,
+    /// An entry that is not Studio's stands where a CLI would run it, on a platform where Studio does not move it aside.
+    #[cfg_attr(unix, allow(dead_code))]
+    MoveOrDeleteIt,
 }
 
 impl Fix {
@@ -65,6 +68,7 @@ impl Fix {
             Fix::ReopenFile => format!("Reopen this design file, then {then}"),
             Fix::DeleteLink => format!("Delete the link, then {then}"),
             Fix::DeleteIt => format!("Delete it, then {then}"),
+            Fix::MoveOrDeleteIt => format!("Move or delete it, then {then}"),
         }
     }
 }

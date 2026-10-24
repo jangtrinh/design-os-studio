@@ -9,6 +9,7 @@
 
 mod files;
 mod remove;
+mod set_aside;
 #[cfg(test)]
 pub(super) mod test_hooks;
 

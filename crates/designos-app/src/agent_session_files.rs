@@ -16,8 +16,8 @@ pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_session
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step};
 pub use session_io::{
     atomic_write_session_file, changed_while_written, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
-    read_session_file, read_session_text, remove_session_dir_all, remove_session_entries_except, remove_session_file, remove_session_path, rename_session_file,
-    session_file_metadata, write_session_file_unless, write_session_file_verified,
+    read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, set_aside_entries_except,
+    set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
 };
 
 use std::path::{Path, PathBuf};
@@ -613,6 +613,14 @@ mod canonical_spelling_tests;
 #[cfg(all(test, unix))]
 mod codex_probe_tests;
 #[cfg(all(test, unix))]
+mod exact_config_race_tests;
+#[cfg(all(test, unix))]
+mod fallback_set_aside_tests;
+#[cfg(all(test, unix))]
+#[allow(dead_code, unused_imports)]
+#[path = "agent_session_files/no_follow_fallback.rs"]
+mod fallback_under_test;
+#[cfg(all(test, unix))]
 mod fifo_tests;
 #[cfg(all(test, unix))]
 mod folder_message_tests;
@@ -654,6 +662,8 @@ mod poll_readers_tests;
 mod refusal_tests;
 #[cfg(all(test, unix))]
 mod session_io_tests;
+#[cfg(all(test, unix))]
+mod set_aside_tests;
 #[cfg(all(test, unix))]
 mod swap_after_open_tests;
 #[cfg(all(test, unix))]
