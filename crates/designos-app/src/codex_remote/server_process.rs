@@ -5,7 +5,9 @@
 //! when Studio drops the handle (tab closed, quit) or dies (the kernel closes the pipe), the watchdog sends TERM to the
 //! group (Codex removes its socket files on TERM) and KILL two seconds later. A thread reaps the watchdog afterwards.
 
+use super::shell_env::TabEnv;
 use portable_pty::CommandBuilder;
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -37,6 +39,9 @@ pub const MCP_ENV_VARS: [&str; 14] = [
 /// waits for the pipe from Studio to close.
 const WATCHDOG_SCRIPT: &str = r#""$@" </dev/null & trap "" TERM; read _; kill -TERM 0; sleep 2; kill -KILL 0"#;
 
+/// `O_NOFOLLOW` on macOS (`<fcntl.h>`; this module is built there only): opening a link fails instead of following it.
+const O_NOFOLLOW: i32 = 0x0100;
+
 /// A TOML basic string. JSON string escapes are a valid subset of TOML's (the same rendering `terminal.rs` uses).
 fn toml_string(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
@@ -48,24 +53,24 @@ pub struct ServerLaunch {
     rendezvous: PathBuf,
     mcp_bin: String,
     workspace: String,
-    env: Vec<(String, String)>,
+    env: Vec<(OsString, OsString)>,
     cwd: PathBuf,
     log_path: PathBuf,
 }
 
 impl ServerLaunch {
-    /// Takes the environment and working folder from the builder the tab's PTY is made from, so the server and the
-    /// TUI see the same `DESIGNOS_*` set from one source.
-    pub fn from_command_builder(cmd: &CommandBuilder, codex_bin: &Path, rendezvous: &Path, log_path: &Path) -> io::Result<Self> {
+    /// The working folder comes from the builder the tab's PTY is made from; the environment is the tab's (`env`), the
+    /// same one the version probe ran with, so the server finds the same `node` and sees the same exports.
+    pub fn from_command_builder(cmd: &CommandBuilder, env: &TabEnv, codex_bin: &Path, rendezvous: &Path, log_path: &Path) -> io::Result<Self> {
         let var = |name: &str| {
-            cmd.get_env(name).and_then(|value| value.to_str()).map(str::to_string).ok_or_else(|| io::Error::other(format!("{name} is not set for the tab")))
+            env.get(name).and_then(|value| value.to_str()).map(str::to_string).ok_or_else(|| io::Error::other(format!("{name} is not set for the tab")))
         };
         Ok(Self {
             codex_bin: codex_bin.to_path_buf(),
             rendezvous: rendezvous.to_path_buf(),
             mcp_bin: var("DESIGNOS_MCP_BIN")?,
             workspace: var("DESIGNOS_WORKSPACE")?,
-            env: cmd.iter_full_env_as_str().map(|(key, value)| (key.to_string(), value.to_string())).collect(),
+            env: env.vars().map(|(key, value)| (key.to_os_string(), value.to_os_string())).collect(),
             cwd: cmd.get_cwd().map(PathBuf::from).ok_or_else(|| io::Error::other("the tab has no working folder"))?,
             log_path: log_path.to_path_buf(),
         })
@@ -121,7 +126,7 @@ impl Drop for ServerHandle {
 /// Starts the server behind its watchdog. Output goes to the owner-only log file named in the launch.
 pub fn start(launch: &ServerLaunch) -> io::Result<ServerHandle> {
     let args = launch.server_args()?;
-    let log = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&launch.log_path)?;
+    let log = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).custom_flags(O_NOFOLLOW).open(&launch.log_path)?;
     std::fs::set_permissions(&launch.log_path, std::fs::Permissions::from_mode(0o600))?;
     let mut child = Command::new("/bin/sh")
         .arg("-c")

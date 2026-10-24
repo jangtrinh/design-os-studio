@@ -49,7 +49,7 @@ pub(super) fn connect(config: &ClientConfig, queue: &Receiver<Input>) -> Result<
 
 /// Reads the socket until it ends, handing every complete message to the client thread.
 fn read_frames(mut stream: UnixStream, early: Vec<u8>, inbox: Sender<Input>) {
-    let mut decoder = Decoder::new();
+    let mut decoder = Decoder::client();
     decoder.push(&early);
     let mut buf = [0u8; 16 * 1024];
     loop {

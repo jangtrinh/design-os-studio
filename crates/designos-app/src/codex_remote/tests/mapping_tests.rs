@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 
 /// An index that has seen these `item/started` frames.
-fn index(frames: &[Value]) -> ItemIndex {
+pub(super) fn index(frames: &[Value]) -> ItemIndex {
     let mut items = ItemIndex::default();
     for frame in frames {
         let params = &frame["params"];
@@ -18,32 +18,32 @@ fn index(frames: &[Value]) -> ItemIndex {
     items
 }
 
-fn run(request: &Value, items: &ItemIndex, ask: bool, joined: bool, seen: bool) -> Mapped {
+pub(super) fn run(request: &Value, items: &ItemIndex, ask: bool, joined: bool, seen: bool) -> Mapped {
     let roots: HashSet<String> = joined.then(|| THREAD.to_string()).into_iter().collect();
     let already: HashSet<String> = seen.then(|| card_key(7, &request["id"])).into_iter().collect();
     let ctx = MapContext { generation: 7, tab_title: "Codex CLI", ask_mode: ask, joined_roots: &roots, seen: &already, items };
     map_request(&ctx, &request["id"], request["method"].as_str().unwrap(), &request["params"])
 }
 
-fn map(request: &Value, items: &ItemIndex) -> Mapped {
+pub(super) fn map(request: &Value, items: &ItemIndex) -> Mapped {
     run(request, items, true, true, false)
 }
 
-fn card(mapped: Mapped) -> CodexCard {
+pub(super) fn card(mapped: Mapped) -> CodexCard {
     match mapped {
         Mapped::Card(card) => card,
         Mapped::OpenTab(why) => panic!("expected a card, got Open tab ({why:?})"),
     }
 }
 
-fn open_tab(mapped: Mapped) -> OpenTabReason {
+pub(super) fn open_tab(mapped: Mapped) -> OpenTabReason {
     match mapped {
         Mapped::OpenTab(why) => why,
         Mapped::Card(card) => panic!("expected Open tab, got a card: {card:?}"),
     }
 }
 
-fn mcp_items() -> ItemIndex {
+pub(super) fn mcp_items() -> ItemIndex {
     index(&[fixture("item-started-mcp")])
 }
 
@@ -52,21 +52,10 @@ fn an_mcp_tool_approval_is_titled_by_the_tool_of_the_matching_item() {
     let card = card(map(&fixture("mcp-elicitation-request"), &mcp_items()));
     assert_eq!((card.kind, card.key.as_str(), card.raw_id.clone()), (CardKind::McpTool, "cx-7-2", json!(2)));
     assert_eq!(card.title, "Codex CLI wants to run designos_new_document");
-    assert_eq!(card.summary, "designos · name: spike930b");
+    assert_eq!(card.summary, "designos · name: \"spike930b\"");
     assert!(!card.truncated);
     assert_eq!((card.thread_id.as_str(), card.turn_id.as_str()), (THREAD, TURN2));
     assert_eq!(card_key(3, &json!("abc")), "cx-3-\"abc\"", "a string id keeps its quotes, so 1 and \"1\" are different keys");
-}
-
-#[test]
-fn the_mcp_summary_lists_display_pairs_and_falls_back_to_the_item_arguments() {
-    let pairs = json!([{"name": "node_id", "value": 42, "display_name": "Node"}, {"name": "tags", "value": ["a"]}, {"value": "no label"}]);
-    let request = with(fixture("mcp-elicitation-request"), "/params/_meta/tool_params_display", pairs);
-    assert_eq!(card(map(&request, &mcp_items())).summary, "designos · Node: 42, tags: [\"a\"]");
-    let request = without(fixture("mcp-elicitation-request"), "/params/_meta/tool_params_display");
-    assert_eq!(card(map(&request, &mcp_items())).summary, "designos · {\"name\":\"spike930b\"}");
-    let request = with(fixture("mcp-elicitation-request"), "/params/_meta/tool_params_display", json!([]));
-    assert_eq!(card(map(&request, &mcp_items())).summary, "designos");
 }
 
 #[test]
@@ -127,14 +116,13 @@ fn only_a_plain_tool_approval_with_no_known_call_asks_for_a_lookup() {
 }
 
 #[test]
-fn a_command_approval_shows_the_single_action_or_else_the_whole_command() {
+fn a_command_approval_shows_the_command_exactly_as_sent() {
     let none = ItemIndex::default();
     let card = card(map(&fixture("command-approval-request"), &none));
-    assert_eq!((card.kind, card.title.as_str(), card.summary.as_str()), (CardKind::Command, "Codex CLI wants to run a command", "echo hi"));
+    assert_eq!((card.kind, card.title.as_str(), card.summary.as_str()), (CardKind::Command, "Codex CLI wants to run a command", "/bin/zsh -lc 'echo hi'"));
     assert_eq!(card.key, "cx-7-1");
-    let two = json!([{"type": "unknown", "command": "cd x"}, {"type": "unknown", "command": "ls"}]);
-    assert_eq!(card_summary(with(fixture("command-approval-request"), "/params/commandActions", two)), "/bin/zsh -lc 'echo hi'");
-    assert_eq!(card_summary(without(fixture("command-approval-request"), "/params/commandActions")), "/bin/zsh -lc 'echo hi'");
+    let other = json!([{"type": "unknown", "command": "cd x"}, {"type": "unknown", "command": "ls"}]);
+    assert_eq!(card_summary(with(fixture("command-approval-request"), "/params/commandActions", other)), "/bin/zsh -lc 'echo hi'");
     for ok in [json!([]), json!(null)] {
         assert!(
             matches!(map(&with(fixture("command-approval-request"), "/params/networkApprovalContext", ok), &none), Mapped::Card(_)),
@@ -194,6 +182,15 @@ fn summaries_have_no_control_characters_and_are_cut_at_the_shared_limit() {
     assert_eq!((clean.summary.as_str(), clean.truncated), ("echo a b c d", false));
     let exact = at(&"x".repeat(MAX_INPUT_SUMMARY_CHARS));
     assert_eq!((exact.summary.chars().count(), exact.truncated), (MAX_INPUT_SUMMARY_CHARS, false));
-    let long = at(&"é".repeat(MAX_INPUT_SUMMARY_CHARS + 60));
-    assert_eq!((long.summary.chars().count(), long.truncated), (MAX_INPUT_SUMMARY_CHARS, true), "characters are counted, not bytes");
+    let cut = card(map(&with(fixture("file-change-request.synthetic"), "/id", json!(9)), &index(&[long_path_item("é")])));
+    assert_eq!((cut.summary.chars().count(), cut.truncated), (MAX_INPUT_SUMMARY_CHARS, true), "characters are counted, not bytes");
+}
+
+/// A file-change item (of the synthetic request) whose one path is `MAX + 60` copies of `letter` long.
+fn long_path_item(letter: &str) -> Value {
+    with(
+        fixture("item-started-file-change.synthetic"),
+        "/params/item/changes",
+        json!([{"path": letter.repeat(MAX_INPUT_SUMMARY_CHARS + 60), "kind": {"type": "add"}, "diff": ""}]),
+    )
 }

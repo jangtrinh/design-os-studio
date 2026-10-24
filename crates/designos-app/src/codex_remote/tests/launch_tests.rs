@@ -36,6 +36,8 @@ fn the_remote_branch_names_no_directory_mode_or_override_and_the_fallback_is_tod
         assert!(!["--cd", "-a", "-s", "-c", "--sandbox", "--ask-for-approval", "--add-dir"].contains(&token), "{token} must not be in the remote branch");
     }
     assert!(inner.contains("--remote") && inner.contains("exec \"$@\""));
+    // fish parses the wrapper too: nothing in the quoted script may need an escape, and none of it can end the quote.
+    assert!(!inner.contains('\\') && !inner.contains('\''), "the quoted script has no backslash and no single quote: {inner}");
 }
 
 #[test]

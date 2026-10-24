@@ -56,10 +56,10 @@ impl Cards {
         needs_item_lookup(&self.context(roots), id, method, params)
     }
 
-    /// Takes in the items a `thread/items/list` answered with.
+    /// Takes in the items a `thread/items/list` answered with, keeping any item already seen live.
     pub fn seed(&mut self, thread_id: &str, turn_id: &str, items: &Value) {
         for item in items.as_array().into_iter().flatten() {
-            self.items.record(thread_id, turn_id, item);
+            self.items.record_if_absent(thread_id, turn_id, item);
         }
     }
 

@@ -4,11 +4,17 @@
 //! was tested against, and the rendezvous socket path fits. Every other case starts the tab as today. The version
 //! probe runs off the calling thread: the first question about a binary answers "not known yet" and starts the probe,
 //! so the UI thread never waits on `codex --version`.
+//!
+//! The probe runs with the tab's environment, not Studio's: an npm `codex` is `#!/usr/bin/env node`, and a Studio started
+//! from Finder or the Dock has launchd's `PATH`, which cannot find `node`. That `PATH` is part of the cache key. A probe
+//! that failed is asked again after [`RETRY_FAILED_AFTER`], so one transient failure does not end the card path for
+//! the rest of the session.
 
+use super::shell_env::{spawn_retrying, TabEnv};
 use super::FallbackReason;
 use crate::agent_session_failure::extract_semver_token;
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
@@ -23,6 +29,8 @@ pub const TESTED_CODEX: (u32, u32) = (0, 164);
 /// The longest unix socket path macOS accepts (`sun_path` is 104 bytes, one of them the NUL).
 pub const MAX_RENDEZVOUS_BYTES: usize = 103;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a failed or timed-out probe is remembered before the next lookup tries again.
+pub const RETRY_FAILED_AFTER: Duration = Duration::from_secs(30);
 const BINARY_NAME: &str = "codex";
 
 #[derive(Debug, PartialEq)]
@@ -61,9 +69,12 @@ pub fn resolve_in_path(path: &OsStr) -> Option<PathBuf> {
         .find(|candidate| std::fs::metadata(candidate).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0))
 }
 
-/// Raw `--version` output of `bin` when it exits 0 within `timeout`; a process that outlasts it is killed.
-pub fn probe_version(bin: &Path, timeout: Duration) -> Option<String> {
-    let mut child = Command::new(bin).arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+/// Raw `--version` output of `bin` run with `env` when it exits 0 within `timeout`; a process that outlasts it is killed.
+/// A spawn that fails is tried once more after 50 ms (a script written a moment ago can still be busy).
+pub fn probe_version(bin: &Path, env: &TabEnv, timeout: Duration) -> Option<String> {
+    let mut command = Command::new(bin);
+    command.arg("--version").env_clear().envs(env.vars()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = spawn_retrying(&mut command).ok()?;
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -90,32 +101,39 @@ pub enum VersionLookup {
 
 enum Slot {
     Probing,
-    Done(Option<String>),
+    /// The raw output (`None`: the probe failed) and when it finished.
+    Done(Option<String>, Instant),
 }
 
-/// (path, modified time, length): a binary that is replaced (an upgrade) is probed again.
-type CacheKey = (PathBuf, SystemTime, u64);
+/// (path, modified time, length, `PATH` of the environment): a binary that is replaced (an upgrade) is probed again, and
+/// so is the same binary under a `PATH` that finds different interpreters.
+type CacheKey = (PathBuf, SystemTime, u64, OsString);
 
 fn lock_slots() -> std::sync::MutexGuard<'static, HashMap<CacheKey, Slot>> {
     static SLOTS: OnceLock<Mutex<HashMap<CacheKey, Slot>>> = OnceLock::new();
     SLOTS.get_or_init(Mutex::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// What is known about `bin`'s version, without blocking. The first call for a binary state starts the probe.
-pub fn lookup_version(bin: &Path) -> VersionLookup {
+/// What is known about `bin`'s version under `env`, without blocking. The first call for a binary state starts the probe.
+pub fn lookup_version(bin: &Path, env: &TabEnv) -> VersionLookup {
+    lookup_version_with(bin, env, RETRY_FAILED_AFTER)
+}
+
+/// [`lookup_version`] with a chosen delay before a failed probe is asked again.
+pub fn lookup_version_with(bin: &Path, env: &TabEnv, retry_after: Duration) -> VersionLookup {
     let Ok(meta) = std::fs::metadata(bin) else { return VersionLookup::Known(None) };
     let Ok(modified) = meta.modified() else { return VersionLookup::Known(None) };
-    let key: CacheKey = (bin.to_path_buf(), modified, meta.len());
+    let key: CacheKey = (bin.to_path_buf(), modified, meta.len(), env.path().unwrap_or_default().to_os_string());
     let mut guard = lock_slots();
     match guard.get(&key) {
-        Some(Slot::Done(raw)) => return VersionLookup::Known(raw.clone()),
+        Some(Slot::Done(raw, at)) if raw.is_some() || at.elapsed() < retry_after => return VersionLookup::Known(raw.clone()),
         Some(Slot::Probing) => return VersionLookup::Pending,
-        None => {}
+        _ => {}
     }
-    let (probe_key, probe_bin) = (key.clone(), bin.to_path_buf());
+    let (probe_key, probe_bin, probe_env) = (key.clone(), bin.to_path_buf(), env.clone());
     let spawned = std::thread::Builder::new().name("codex-version-probe".into()).spawn(move || {
-        let raw = probe_version(&probe_bin, PROBE_TIMEOUT);
-        lock_slots().insert(probe_key, Slot::Done(raw));
+        let raw = probe_version(&probe_bin, &probe_env, PROBE_TIMEOUT);
+        lock_slots().insert(probe_key, Slot::Done(raw, Instant::now()));
     });
     if spawned.is_err() {
         return VersionLookup::Known(None);
@@ -124,14 +142,14 @@ pub fn lookup_version(bin: &Path) -> VersionLookup {
     VersionLookup::Pending
 }
 
-/// Starts the version probe for `bin` so a tab opened later finds the answer ready.
-pub fn warm(bin: &Path) {
-    let _ = lookup_version(bin);
+/// Starts the version probe for `bin` under `env` so a tab opened later finds the answer ready.
+pub fn warm(bin: &Path, env: &TabEnv) {
+    let _ = lookup_version(bin, env);
 }
 
 /// Gate row: the version of the binary the tab will run. `VersionUnknown` while the probe is running or when it failed.
-pub fn check_binary(bin: &Path) -> Result<(), FallbackReason> {
-    match lookup_version(bin) {
+pub fn check_binary(bin: &Path, env: &TabEnv) -> Result<(), FallbackReason> {
+    match lookup_version(bin, env) {
         VersionLookup::Pending | VersionLookup::Known(None) => Err(FallbackReason::VersionUnknown),
         VersionLookup::Known(Some(raw)) => match judge_version(Some(&raw)) {
             VersionVerdict::Supported => Ok(()),

@@ -1,6 +1,6 @@
 //! Clearing what a killed app-server leaves behind: the rendezvous symlink, Codex's socket and its lock.
 
-use super::support::{short_scratch_dir, wait_until};
+use super::support::{short_scratch_dir, wait_until, Scratch};
 use crate::codex_remote::stale_socket::clear_stale_rendezvous_in;
 use crate::codex_remote::FallbackReason;
 use std::os::unix::fs::symlink;
@@ -10,13 +10,13 @@ use std::time::Duration;
 
 const HASH: &str = "a61a5688baf810f9c9456a16648bf5e31a3a357419289b6f9c5672f62f115efe";
 
-/// A Codex daemon folder (canonical, as macOS resolves `/tmp`) and a channel folder beside it.
-fn folders() -> (PathBuf, PathBuf) {
+/// A Codex daemon folder (canonical, as macOS resolves `/tmp`) and a channel folder beside it, with the guard that owns both.
+fn folders() -> (Scratch, PathBuf, PathBuf) {
     let base = short_scratch_dir("st");
     let (daemon, channel) = (base.join("d"), base.join("c"));
     std::fs::create_dir_all(&daemon).unwrap();
     std::fs::create_dir_all(&channel).unwrap();
-    (daemon, channel)
+    (base, daemon, channel)
 }
 
 /// What SIGKILL leaves: a socket file nobody listens on, its lock, and the rendezvous symlink to it.
@@ -37,7 +37,7 @@ fn gone(path: &Path) -> bool {
 
 #[test]
 fn nothing_there_is_fine_and_a_plain_leftover_is_removed() {
-    let (daemon, channel) = folders();
+    let (_folder, daemon, channel) = folders();
     assert_eq!(clear_stale_rendezvous_in(&channel.join("cx-1.sock"), Some(&daemon)), Ok(()));
     let plain = channel.join("cx-2.sock");
     std::fs::write(&plain, "stale").unwrap();
@@ -47,7 +47,7 @@ fn nothing_there_is_fine_and_a_plain_leftover_is_removed() {
 
 #[test]
 fn the_symlink_socket_and_lock_of_a_killed_server_are_all_removed() {
-    let (daemon, channel) = folders();
+    let (_folder, daemon, channel) = folders();
     let (socket, lock, rendezvous) = leftovers(&daemon, &channel);
     assert_eq!(clear_stale_rendezvous_in(&rendezvous, Some(&daemon)), Ok(()));
     assert!(gone(&socket) && gone(&lock) && gone(&rendezvous));
@@ -55,7 +55,7 @@ fn the_symlink_socket_and_lock_of_a_killed_server_are_all_removed() {
 
 #[test]
 fn a_dangling_link_into_the_daemon_folder_is_cleared_with_its_lock() {
-    let (daemon, channel) = folders();
+    let (_folder, daemon, channel) = folders();
     let (socket, lock, rendezvous) = leftovers(&daemon, &channel);
     std::fs::remove_file(&socket).unwrap();
     assert_eq!(clear_stale_rendezvous_in(&rendezvous, Some(&daemon)), Ok(()));
@@ -64,7 +64,7 @@ fn a_dangling_link_into_the_daemon_folder_is_cleared_with_its_lock() {
 
 #[test]
 fn a_server_that_still_answers_is_left_alone() {
-    let (daemon, channel) = folders();
+    let (_folder, daemon, channel) = folders();
     let rendezvous = channel.join("cx-1.sock");
     let socket = daemon.join(HASH);
     let _live = UnixListener::bind(&socket).unwrap();
@@ -78,7 +78,7 @@ fn a_server_that_still_answers_is_left_alone() {
 
 #[test]
 fn a_link_that_does_not_lead_to_a_codex_socket_only_loses_the_link() {
-    let (daemon, channel) = folders();
+    let (_folder, daemon, channel) = folders();
     let elsewhere = channel.join("precious.txt");
     std::fs::write(&elsewhere, "keep").unwrap();
     let wrong_name = daemon.join("not-a-hash");

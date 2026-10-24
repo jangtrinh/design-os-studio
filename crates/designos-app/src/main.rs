@@ -29,6 +29,7 @@ pub mod agent_usage;
 mod app;
 #[cfg(test)]
 mod apply_node_spec_variable_tests;
+mod approval_text;
 mod board;
 mod canvas;
 mod check_designs;
