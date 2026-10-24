@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::branch_diff::{diff3, flow_key, Conflict, ConflictKind, Diff3, EntityChange, EntityKey, Group, NodeChange, SideChanges};
 use crate::{
-    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
-    LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
+    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History,
+    LibraryAssetKind, LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
 };
 
 /// Which side wins a conflict during a 3-way merge (`R5.18`).
