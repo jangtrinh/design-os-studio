@@ -932,7 +932,7 @@ fn pump_next_queued_image_job_for(
 
         let status_file_path = terminal.session_dir.join("agent-status.json");
         // Clear any stale `done` status file before starting a new job.
-        if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
+        if let Some(raw) = crate::agent_session_files::read_session_text(&status_file_path) {
             if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
                 let _ = crate::agent_session_files::remove_session_file(&status_file_path);
             }
@@ -1036,7 +1036,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
 }
 
 fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_file_path: &std::path::Path) -> bool {
-    if let Ok(raw) = std::fs::read_to_string(status_file_path) {
+    if let Some(raw) = crate::agent_session_files::read_session_text(status_file_path) {
         if let Some(parsed) = parse_agent_status_payload(raw.trim()) {
             if let Some(ts) = tab_status {
                 if let Ok(mut guard) = ts.lock() {
@@ -1166,10 +1166,13 @@ fn run_watcher_thread(
 }
 
 fn validate_output_file(job: &ImageJob) -> WatcherOutcome {
-    let raw = match std::fs::read(&job.output_path) {
+    let raw = match crate::agent_session_files::read_session_file(&job.output_path) {
         Ok(b) => b,
         Err(e) => {
-            return WatcherOutcome::Failed { job_id: job.id.clone(), reason: format!("Cannot read output.png: {e}") };
+            return WatcherOutcome::Failed {
+                job_id: job.id.clone(),
+                reason: format!("Cannot read output.png: {}", crate::agent_session_files::with_next_step(&e)),
+            };
         }
     };
     // Decode by content sniffing so a JPEG saved with a .png extension still decodes (§8.3).

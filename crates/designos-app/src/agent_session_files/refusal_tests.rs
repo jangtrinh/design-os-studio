@@ -53,6 +53,8 @@ fn every_fix_names_what_to_do_and_a_missing_home_folder_always_needs_a_restart()
     let step = |fix| with_next_step(&cannot("written to", path, io::Error::from(io::ErrorKind::PermissionDenied), fix));
     assert!(step(Fix::MakeWritable).ends_with(". Make it writable or delete it, then try again"));
     assert!(step(Fix::CloseOtherTabs).ends_with(". Close this file's other agent tabs, then try again"));
+    assert!(step(Fix::DeleteIt).ends_with(". Delete it, then try again"));
+    assert!(step(Fix::ReopenFile).ends_with(". Reopen this design file"));
     let home = failed(io::ErrorKind::Other, "Studio has no private data folder".to_string(), Fix::HomeFolder);
     assert_eq!(
         library_fallback_message(&home, false),

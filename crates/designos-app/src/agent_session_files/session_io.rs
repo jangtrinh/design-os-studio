@@ -120,6 +120,24 @@ pub fn read_session_file(path: &Path) -> io::Result<Vec<u8>> {
     dir.read(&place.name)
 }
 
+/// The content of the plain file `path` as text. A file that cannot be read, or is not text, is `None`: a poll with no data.
+pub fn read_session_text(path: &Path) -> Option<String> {
+    String::from_utf8(read_session_file(path).ok()?).ok()
+}
+
+/// The plain file `path`, open for reading by offset: relative to its session folder's handle, so never through a link, and
+/// refused at once when it is a FIFO. For the readers that tail a file the agent writes.
+pub fn open_session_file(path: &Path) -> io::Result<std::fs::File> {
+    let (place, dir) = open_place(path, false)?;
+    dir.open_plain(&place.name)
+}
+
+/// The plain file `path` outside every session folder (the transcript a CLI names), open for reading by offset. It has no folder
+/// to be held to, so a link is followed, but a FIFO is refused at once.
+pub fn open_plain_file(path: &Path) -> io::Result<std::fs::File> {
+    super::no_follow::open_plain_path(path)
+}
+
 /// Removes the file or link `path` (a link is removed itself).
 pub fn remove_session_file(path: &Path) -> io::Result<()> {
     let (place, dir) = open_place(path, false)?;

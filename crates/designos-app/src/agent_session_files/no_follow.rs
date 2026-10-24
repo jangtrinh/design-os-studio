@@ -12,6 +12,8 @@ mod remove;
 #[cfg(test)]
 pub(super) mod test_hooks;
 
+pub(super) use files::open_plain_path;
+
 use super::folder_owner::check_owner;
 use super::refusal::{cannot, refused, Fix, Refusal};
 use std::ffi::{CStr, CString, OsStr};

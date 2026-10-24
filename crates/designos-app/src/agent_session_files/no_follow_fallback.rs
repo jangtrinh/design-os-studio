@@ -86,14 +86,21 @@ impl Dir {
         std::fs::remove_file(self.path.join(name)).map_err(|e| cannot_io("removed", &self.path.join(name), e))
     }
 
-    /// The whole content of the file `name`. A link, or anything but a plain file, is refused.
-    pub(in crate::agent_session_files) fn read(&self, name: &OsStr) -> io::Result<Vec<u8>> {
+    /// Opens the plain file `name` for reading. A link, or anything but a plain file, is refused.
+    pub(in crate::agent_session_files) fn open_plain(&self, name: &OsStr) -> io::Result<std::fs::File> {
         let path = self.path.join(name);
         let meta = std::fs::symlink_metadata(&path).map_err(|e| cannot_io("read", &path, e))?;
         if !meta.is_file() {
-            return Err(cannot_io("read", &path, io::Error::other("it is not a plain file")));
+            return Err(cannot("read", &path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
         }
-        std::fs::read(&path).map_err(|e| cannot_io("read", &path, e))
+        std::fs::File::open(&path).map_err(|e| cannot_io("read", &path, e))
+    }
+
+    /// The whole content of the file `name`. A link, or anything but a plain file, is refused.
+    pub(in crate::agent_session_files) fn read(&self, name: &OsStr) -> io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        io::Read::read_to_end(&mut self.open_plain(name)?, &mut bytes).map_err(|e| cannot_io("read", &self.path.join(name), e))?;
+        Ok(bytes)
     }
 
     /// Removes the entry `name`: a file or link itself, a folder with everything in it.
@@ -109,4 +116,14 @@ impl Dir {
             other => other.map_err(|e| cannot_io("removed", &path, e)),
         }
     }
+}
+
+/// Opens `path`, which lies outside every session folder (the transcript a CLI names), for reading by offset: a plain file, or an
+/// error.
+pub(super) fn open_plain_path(path: &Path) -> io::Result<std::fs::File> {
+    let meta = std::fs::metadata(path).map_err(|e| cannot_io("read", path, e))?;
+    if !meta.is_file() {
+        return Err(cannot("read", path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
+    }
+    std::fs::File::open(path).map_err(|e| cannot_io("read", path, e))
 }

@@ -279,7 +279,7 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
 
 /// Reads `<session_dir>/claude-transcript.json` if present and valid.
 pub fn read_claude_transcript_meta(capture_path: &Path) -> Option<ClaudeTranscriptMeta> {
-    let raw = std::fs::read_to_string(capture_path).ok()?;
+    let raw = crate::agent_session_files::read_session_text(capture_path)?;
     let meta: ClaudeTranscriptMeta = serde_json::from_str(raw.trim()).ok()?;
     if meta.session_id.trim().is_empty() || meta.transcript_path.as_os_str().is_empty() {
         return None;
@@ -466,7 +466,8 @@ impl ClaudeTranscriptReader {
         if len == 0 {
             return Some(Vec::new());
         }
-        let mut file = std::fs::File::open(&self.path).ok()?;
+        // The transcript is the file the CLI names, outside the session folder: only a FIFO is refused.
+        let mut file = crate::agent_session_files::open_plain_file(&self.path).ok()?;
         file.seek(SeekFrom::Start(start)).ok()?;
         let mut buf = Vec::with_capacity(len.min(64 << 10) as usize);
         file.take(len).read_to_end(&mut buf).ok()?;

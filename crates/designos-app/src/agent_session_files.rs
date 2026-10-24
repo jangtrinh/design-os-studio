@@ -15,8 +15,8 @@ mod session_io;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step};
 pub use session_io::{
-    atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, read_session_file, remove_session_dir_all, remove_session_file,
-    rename_session_file, write_session_file_unless, write_session_file_verified,
+    atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file, read_session_file, read_session_text,
+    remove_session_dir_all, remove_session_file, rename_session_file, write_session_file_unless, write_session_file_verified,
 };
 
 use std::path::{Path, PathBuf};
@@ -621,6 +621,8 @@ mod linked_parent_tests;
 mod open_race_tests;
 #[cfg(all(test, unix))]
 mod placement_tests;
+#[cfg(all(test, unix))]
+mod plain_open_tests;
 #[cfg(all(test, unix))]
 mod poll_readers_tests;
 #[cfg(test)]

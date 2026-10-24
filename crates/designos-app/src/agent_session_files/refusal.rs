@@ -48,6 +48,8 @@ pub enum Fix {
     CloseOtherTabs,
     /// A session path Studio does not recognise: opening the file again gives its tabs a session folder Studio made.
     ReopenFile,
+    /// A link or a FIFO stands where a plain file should be: deleting it lets the agent or Studio write the file again.
+    DeleteIt,
 }
 
 impl Fix {
@@ -59,6 +61,7 @@ impl Fix {
             Fix::HomeFolder => "Make sure your home folder exists, then restart Studio".to_string(),
             Fix::CloseOtherTabs => format!("Close this file's other agent tabs, then {then}"),
             Fix::ReopenFile => "Reopen this design file".to_string(),
+            Fix::DeleteIt => format!("Delete it, then {then}"),
         }
     }
 }

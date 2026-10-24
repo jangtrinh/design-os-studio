@@ -266,7 +266,7 @@ impl EventFileCursor {
             return Vec::new();
         }
         if len > self.offset {
-            if let Ok(mut file) = std::fs::File::open(&self.path) {
+            if let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) {
                 if file.seek(SeekFrom::Start(self.offset)).is_ok() {
                     let to_read = (len - self.offset).min(16 << 20) as usize;
                     let mut buf = vec![0u8; to_read];

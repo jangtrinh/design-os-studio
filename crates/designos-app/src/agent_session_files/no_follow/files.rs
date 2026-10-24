@@ -5,6 +5,7 @@ use std::ffi::{CStr, CString, OsStr};
 use std::io::{self, Read, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 const NEW_FILE_FLAGS: libc::c_int = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
 
@@ -89,20 +90,51 @@ impl Dir {
         self.unlink(&c_name(name)?, 0).map_err(|e| cannot("removed", &self.path.join(name), e, Fix::CheckPermissions))
     }
 
-    /// The whole content of the file `name`. A link, or anything but a plain file, is refused.
-    pub(in crate::agent_session_files) fn read(&self, name: &OsStr) -> io::Result<Vec<u8>> {
+    /// Opens the plain file `name` for reading, to read it by offset: relative to this folder, so a link at `name` is refused
+    /// (`O_NOFOLLOW`), and without blocking, so a FIFO is refused at once. Anything but a plain file is an error. The file comes
+    /// back blocking again, which for a plain file only matters to what the caller does with it next.
+    pub(in crate::agent_session_files) fn open_plain(&self, name: &OsStr) -> io::Result<std::fs::File> {
         let (c, path) = (c_name(name)?, self.path.join(name));
         let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK;
-        let unreadable = |e: io::Error| cannot("read", &path, e, Fix::CheckPermissions);
         // SAFETY: `c` is NUL-terminated and outlives the call; the descriptor is this folder's.
-        let fd = retry(|| unsafe { libc::openat(self.raw(), c.as_ptr(), flags) }).map_err(unreadable)?;
+        let fd = retry(|| unsafe { libc::openat(self.raw(), c.as_ptr(), flags) }).map_err(|e| unreadable(&path, e))?;
         // SAFETY: `fd` was just returned by a successful `openat` and nothing else owns it.
-        let mut file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-        if !file.metadata().map_err(unreadable)?.is_file() {
-            return Err(unreadable(io::Error::other("it is not a plain file")));
-        }
+        into_plain_reader(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }), &path)
+    }
+
+    /// The whole content of the file `name`. A link, or anything but a plain file, is refused.
+    pub(in crate::agent_session_files) fn read(&self, name: &OsStr) -> io::Result<Vec<u8>> {
+        let mut file = self.open_plain(name)?;
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(unreadable)?;
+        file.read_to_end(&mut bytes).map_err(|e| unreadable(&self.path.join(name), e))?;
         Ok(bytes)
     }
+}
+
+/// Why `path` could not be read: a link says so, anything else is the error of the open.
+fn unreadable(path: &Path, e: io::Error) -> io::Error {
+    if e.raw_os_error() == Some(libc::ELOOP) {
+        return cannot("read", path, io::Error::other("it is a link"), Fix::DeleteIt);
+    }
+    cannot("read", path, e, Fix::CheckPermissions)
+}
+
+/// `file` (just opened with `O_NONBLOCK`) when it is a plain file, made blocking again; anything else is an error.
+fn into_plain_reader(file: std::fs::File, path: &Path) -> io::Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    if !file.metadata().map_err(|e| unreadable(path, e))?.is_file() {
+        return Err(cannot("read", path, io::Error::other("it is not a plain file"), Fix::DeleteIt));
+    }
+    // SAFETY: the descriptor belongs to `file`, which outlives both calls.
+    let flags = retry(|| unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) }).map_err(|e| unreadable(path, e))?;
+    retry(|| unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) }).map_err(|e| unreadable(path, e))?;
+    Ok(file)
+}
+
+/// Opens `path`, which lies outside every session folder (the transcript a CLI names), for reading by offset. Links are followed,
+/// there is no folder to hold them to, but a FIFO is refused at once: only a plain file comes back.
+pub(in crate::agent_session_files) fn open_plain_path(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).map_err(|e| unreadable(path, e))?;
+    into_plain_reader(file, path)
 }

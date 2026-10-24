@@ -31,7 +31,7 @@ fn identity(meta: &std::fs::Metadata) -> FileIdentity {
 
 fn read_range(path: &Path, start: u64, len: u64) -> Option<Vec<u8>> {
     let mut buf = Vec::new();
-    let mut f = std::fs::File::open(path).ok()?;
+    let mut f = crate::agent_session_files::open_session_file(path).ok()?;
     f.seek(SeekFrom::Start(start)).ok()?;
     f.take(len).read_to_end(&mut buf).ok()?;
     Some(buf)
@@ -120,7 +120,7 @@ impl UnreadProbe {
         }
         // The end of the discarded tail is not a line; the newline after it ends the next one.
         let mut newlines_needed = if skipping { 2 } else { 1 };
-        let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+        let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) else { return false };
         if file.seek(SeekFrom::Start(start)).is_err() {
             return false;
         }
@@ -400,8 +400,8 @@ impl LivePatchLog {
         if log_version_refusal(epoch.v).is_some() {
             return Err(format!("Agent document not opened. {}", refusal_next_step(epoch.v)));
         }
-        let bytes =
-            std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
+        let bytes = crate::agent_session_files::read_session_file(&self.doc_sync_path)
+            .map_err(|e| format!("Cannot read the document the agent opened: {}", crate::agent_session_files::with_next_step(&e)))?;
         if !epoch.matches(&bytes) {
             return Ok(None);
         }
