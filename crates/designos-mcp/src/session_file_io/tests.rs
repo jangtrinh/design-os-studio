@@ -162,8 +162,8 @@ fn a_file_is_handed_back_in_blocking_mode() {
         // SAFETY: `file` owns a valid open descriptor for the whole call, and F_GETFL reads its status flags only.
         (unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) }) & libc::O_NONBLOCK != 0
     };
-    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().read(true), false).unwrap();
+    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().read(true)).unwrap();
     assert!(!non_blocking(&file), "a read stays in O_NONBLOCK mode");
-    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().append(true), true).unwrap();
+    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().append(true)).unwrap();
     assert!(!non_blocking(&file), "an append stays in O_NONBLOCK mode");
 }

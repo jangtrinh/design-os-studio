@@ -193,6 +193,14 @@ fn transcript_path_from_env() -> Option<PathBuf> {
     std::env::var_os("DESIGNOS_MCP_TRANSCRIPT").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
 }
 
+/// The `session_file_warnings` of a tool reply as one text block, for a result whose text is not the reply's JSON (the metadata
+/// XML, the images of a screenshot): a client shows the model that text, so a warning only in the structured reply would be
+/// told once and never seen.
+fn session_file_warnings_block(reply: &Value) -> Option<ContentBlock> {
+    let sentences: Vec<&str> = reply.get("session_file_warnings")?.as_array()?.iter().filter_map(Value::as_str).collect();
+    (!sentences.is_empty()).then(|| ContentBlock::text(format!("session_file_warnings:\n{}", sentences.join("\n"))))
+}
+
 /// The session's `designos.enabled_tools`, read through `session_file_io`. A file that is not there or is refused leaves every tool enabled.
 fn load_enabled_tools(problems: &mut SessionFileProblems, session_dir: Option<&Path>) -> crate::rules::EnabledToolsConfig {
     crate::rules::EnabledToolsConfig::config_path(session_dir)
@@ -851,6 +859,7 @@ impl Session {
                     }
                 }
                 let xml_text = if is_metadata { value.get("xml").and_then(Value::as_str).map(str::to_owned) } else { None };
+                let warnings_block = session_file_warnings_block(&value);
                 let mut res = CallToolResult::structured(value).with_meta(self.last_call_meta.clone().map(MetaObject));
                 if !image_blocks.is_empty() {
                     if is_design_context {
@@ -858,10 +867,13 @@ impl Session {
                         blocks.extend(res.content);
                         res.content = blocks;
                     } else {
+                        // The images replace the reply's text, which is where the model would read the warnings.
                         res.content = image_blocks;
+                        res.content.extend(warnings_block);
                     }
                 } else if let Some(xml) = xml_text {
                     res.content = vec![ContentBlock::text(xml)];
+                    res.content.extend(warnings_block);
                 }
                 res
             }

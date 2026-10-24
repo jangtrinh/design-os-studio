@@ -4,7 +4,7 @@
 //! for a FIFO for ever.
 //!
 //! On unix an open here follows no link at the last component (`O_NOFOLLOW`), waits for nobody (`O_NONBLOCK`), and then checks
-//! the file it opened: only a plain file is read, and only a plain file with one name is written through. A file that is
+//! the file it opened: only a plain file with one name is read or written through. A file that is
 //! replaced as a whole is written to a temporary file with a random name first (`O_CREAT|O_EXCL|O_NOFOLLOW`, owner only) and
 //! renamed over the target: a rename replaces whatever sits at the target, a link included, and follows nothing. Nothing here
 //! makes the session folder. It is Studio's, and a folder that is missing is an error the caller reports.
@@ -43,10 +43,12 @@ pub use platform::{append, read, truncate, write_atomic};
 /// Why a path was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
-    /// A symbolic link, or a second name for a file (a hard link): either one reaches a file that is not the session's.
+    /// A symbolic link: it reaches a file that is not the session's.
     Link,
     /// A FIFO, a folder, a device or a socket.
     NotPlainFile,
+    /// A plain file with a second name (a hard link): the other name reaches a file that is not the session's.
+    SecondName,
 }
 
 /// The error a refused path carries inside its [`io::Error`].
@@ -62,6 +64,7 @@ impl fmt::Display for Refused {
         match self.kind {
             Refusal::Link => write!(f, "{path} is a link, not a file"),
             Refusal::NotPlainFile => write!(f, "{path} is not a plain file"),
+            Refusal::SecondName => write!(f, "{path} has a second name (a hard link)"),
         }
     }
 }
@@ -77,18 +80,33 @@ pub fn refusal_of(e: &io::Error) -> Option<Refusal> {
     e.get_ref()?.downcast_ref::<Refused>().map(|refused| refused.kind)
 }
 
-/// What went wrong with `path` as a sentence for the agent, with what to do next when the path was refused. `verb` is `read` or
-/// `write`; any other error names the path itself.
+/// What went wrong with `path` as a sentence for the agent: the cause, then what to do next (the cause first, then ", then try
+/// again", as Studio words its own). `verb` is `read` or `write`; a failure that is not a refusal names the path and the cause.
 pub fn explain(verb: &str, path: &Path, e: &io::Error) -> String {
     match refusal_of(e) {
-        Some(Refusal::Link) => format!("{e}. Delete the link and try again."),
-        Some(Refusal::NotPlainFile) => format!("{e}. Delete it and try again."),
-        None => format!("Cannot {verb} {}: {e}", path.display()),
+        Some(Refusal::Link) => format!("{e}. Delete the link, then try again."),
+        Some(Refusal::NotPlainFile | Refusal::SecondName) => format!("{e}. Delete it, then try again."),
+        None => {
+            let done = if verb == "write" { "written" } else { "read" };
+            format!("{} can't be {done}: {e}. Check its permissions and free space, then try again.", path.display())
+        }
     }
 }
 
-/// The metadata of the plain file at `path`, without following a link. Used to learn a size or a modification time; reading
-/// or writing the file opens it again and checks it again.
+/// Whether `meta` is a file that has another name besides this one (a hard link).
+#[cfg(unix)]
+fn has_second_name(meta: &Metadata) -> bool {
+    std::os::unix::fs::MetadataExt::nlink(meta) > 1
+}
+
+/// Whether `meta` is a file that has another name besides this one: not asked on a platform without link counts.
+#[cfg(not(unix))]
+fn has_second_name(_: &Metadata) -> bool {
+    false
+}
+
+/// The metadata of the plain file with one name at `path`, without following a link. Used to learn a size or a modification
+/// time; reading or writing the file opens it again and checks it again.
 pub fn stat(path: &Path) -> io::Result<Metadata> {
     let meta = std::fs::symlink_metadata(path)?;
     if meta.file_type().is_symlink() {
@@ -96,6 +114,9 @@ pub fn stat(path: &Path) -> io::Result<Metadata> {
     }
     if !meta.file_type().is_file() {
         return Err(refused(Refusal::NotPlainFile, path));
+    }
+    if has_second_name(&meta) {
+        return Err(refused(Refusal::SecondName, path));
     }
     Ok(meta)
 }
