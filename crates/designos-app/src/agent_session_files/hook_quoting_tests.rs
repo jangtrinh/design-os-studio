@@ -95,6 +95,21 @@ fn every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder()
     let meta = std::fs::read_to_string(session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME)).expect("the capture wrote its file");
     assert!(meta.contains("\"session_id\":\"s1\""), "{meta}");
 
+    // The prompt hook: the first turn prints the bootstrap reply and marks it delivered, a later turn prints the page reply.
+    let mut prompt = Vec::new();
+    commands_of(&claude["hooks"]["UserPromptSubmit"], &mut prompt);
+    std::fs::write(session_dir.join("bootstrap-context-reply.json"), "BOOTSTRAP-REPLY").expect("a bootstrap reply");
+    let first = run_sh(&prompt[0], &session_dir, "{}");
+    let first_out = String::from_utf8_lossy(&first.stdout);
+    assert!(first.status.success() && first_out.contains("BOOTSTRAP-REPLY"), "the first prompt printed {first_out:?}");
+    assert!(session_dir.join("bootstrap.delivered.1").exists(), "the first prompt did not mark the bootstrap as delivered");
+    let later = run_sh(&prompt[0], &session_dir, "{}");
+    let later_out = String::from_utf8_lossy(&later.stdout);
+    assert!(
+        later.status.success() && later_out.contains("additionalContext") && !later_out.contains("BOOTSTRAP-REPLY"),
+        "a later prompt printed {later_out:?}"
+    );
+
     assert!(crate::skills::hook_delivery::write_replies(&session_dir, 1, &["skill reply".to_string()], 0));
     let handler = &crate::skills::hook_delivery::handler_commands(&session_dir)[0];
     let printed = run_sh(handler, &session_dir, "");

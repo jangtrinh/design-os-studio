@@ -122,7 +122,7 @@ fn make_private_root(root: &Path) -> io::Result<()> {
 
 /// Requires `dir` to be a real folder, not a link, that the user owns. The user's id is read in the sessions folder
 /// (`ephemeral_root`), and only without one next to the folder checked (`near`).
-fn require_own_real_folder(ephemeral_root: Option<&Path>, dir: &Path, near: &Path) -> io::Result<std::fs::Metadata> {
+pub(super) fn require_own_real_folder(ephemeral_root: Option<&Path>, dir: &Path, near: &Path) -> io::Result<std::fs::Metadata> {
     let meta = std::fs::symlink_metadata(dir)?;
     check_real_folder(dir, &meta)?;
     #[cfg(unix)]

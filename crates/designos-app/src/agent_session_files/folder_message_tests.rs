@@ -2,7 +2,7 @@
 
 use super::folder::{create_session_folder_in, UNAVAILABLE_ROOT};
 use super::folder_owner::own_uid;
-use super::folder_tests::{make_parent_of, scratch_dir, target_with_sentinel, Cleanup};
+use super::folder_tests::{make_parent_of, only_entry_is_the_sentinel, scratch_dir, target_with_sentinel, Cleanup};
 use super::*;
 use crate::live_sync_tests::unique_tab_id;
 use crate::terminal::{AgentCliPreset, TerminalState};
@@ -48,7 +48,7 @@ fn a_tab_refused_a_link_says_to_delete_the_link() {
 fn a_tab_refused_a_file_says_to_delete_the_file() {
     let (mut st, dir, _cleanup) = tab_whose_session_path_holds(|dir| std::fs::write(dir, b"a file").expect("plant the file"));
     let err = st.spawn_tab(AgentCliPreset::Shell, None).expect_err("a file at the session path stops the tab");
-    assert_eq!(err, format!("Couldn't start {}: {} is a file, not a folder. Delete the file and try again.", shell_title(), dir.display()));
+    assert_eq!(err, format!("Couldn't start {}: {} is a file, not a folder. Delete the file at that path and try again.", shell_title(), dir.display()));
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn a_library_file_says_what_happens_to_its_agents_and_what_to_delete() {
     assert_eq!(
         message,
         format!(
-            "Couldn't use this file's agent folder: {} is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen the file.",
+            "Couldn't use this file's agent folder: {} is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen this design file.",
             stable.display()
         )
     );
@@ -90,7 +90,7 @@ fn a_library_file_says_what_happens_to_its_agents_and_what_to_delete() {
     assert_eq!(
         message,
         format!(
-            "Couldn't use this file's agent folder: {} is a file, not a folder. This file's agents start in a temporary folder that is not kept. Delete the file and reopen the file.",
+            "Couldn't use this file's agent folder: {} is a file, not a folder. This file's agents start in a temporary folder that is not kept. Delete the file at that path and reopen this design file.",
             stable.display()
         )
     );
@@ -130,12 +130,28 @@ fn a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step
     assert_eq!(
         message,
         format!(
-            "Couldn't use this file's agent folder: {} is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen the file. \
+            "Couldn't use this file's agent folder: {} is a link, not a folder. Delete the link and reopen this design file. \
              The temporary session folder can't be used either: {} is a link, not a folder. Delete the link and try again.",
             stable.display(),
             fallback.display()
         )
     );
+}
+
+#[test]
+fn sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_is_refused() {
+    let (target, _target) = target_with_sentinel("message-selection-target");
+    let (mut st, dir, _cleanup) = tab_whose_session_path_holds(|dir| symlink(&target, dir).expect("plant the link"));
+    let mut doc = designos_doc::Document::new("Planted");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, designos_doc::Node::frame(frame, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0))).expect("frame");
+
+    let err = crate::terminal::export_selection_and_comments_to_pty(&mut st, &doc, page, &[frame], None).expect_err("a planted link is refused");
+
+    let spec = st.selection_spec_path.display().to_string();
+    assert_eq!(err, format!("write {spec}: {} is a link, not a folder. Delete the link and try again", dir.display()));
+    assert!(only_entry_is_the_sentinel(&target), "the selection went through the link");
 }
 
 #[test]

@@ -5068,7 +5068,8 @@ pub fn export_selection_and_comments_to_pty(
         );
     }
     let json = serde_json::to_string_pretty(&json_value).map_err(|e| e.to_string())?;
-    atomic_write_session_file(&state.selection_spec_path, json.as_bytes()).map_err(|e| format!("write {}: {e}", state.selection_spec_path.display()))?;
+    atomic_write_session_file(&state.selection_spec_path, json.as_bytes())
+        .map_err(|e| format!("write {}: {}", state.selection_spec_path.display(), crate::agent_session_files::with_next_step(&e)))?;
 
     let cmd_snippet =
         format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", state.selection_spec_path.display());

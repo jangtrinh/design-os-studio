@@ -48,7 +48,7 @@ impl Refusal {
     fn recovery(self, then: &str) -> String {
         match self {
             Refusal::Link => format!("Delete the link and {then}"),
-            Refusal::File => format!("Delete the file and {then}"),
+            Refusal::File => format!("Delete the file at that path and {then}"),
             Refusal::OtherOwner => format!("Move or delete the folder and {then}"),
         }
     }
@@ -67,11 +67,13 @@ pub fn start_failure_message(tab: &str, e: &io::Error) -> String {
     format!("Couldn't start {tab}: {}.", with_next_step(e))
 }
 
-/// The status line of a library file whose own session folder was refused for `e`: its agents start in a temporary folder.
-pub fn library_fallback_message(e: &io::Error) -> String {
-    let lead = format!("Couldn't use this file's agent folder: {e}. This file's agents start in a temporary folder that is not kept.");
+/// The status line of a library file whose own session folder was refused for `e`. Its agents start in a temporary folder,
+/// which the line says only when that folder works (`fallback_works`).
+pub fn library_fallback_message(e: &io::Error, fallback_works: bool) -> String {
+    let lead = format!("Couldn't use this file's agent folder: {e}.");
+    let lead = if fallback_works { format!("{lead} This file's agents start in a temporary folder that is not kept.") } else { lead };
     match refusal_of(e) {
-        Some(kind) => format!("{lead} {}.", kind.recovery("reopen the file")),
+        Some(kind) => format!("{lead} {}.", kind.recovery("reopen this design file")),
         None => lead,
     }
 }
@@ -84,9 +86,19 @@ mod tests {
     fn a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery() {
         let dir = Path::new("/data/sessions/p1-tab-1");
         for (kind, cause, start, reopen) in [
-            (Refusal::Link, "is a link, not a folder", "Delete the link and try again.", "Delete the link and reopen the file."),
-            (Refusal::File, "is a file, not a folder", "Delete the file and try again.", "Delete the file and reopen the file."),
-            (Refusal::OtherOwner, "belongs to another user", "Move or delete the folder and try again.", "Move or delete the folder and reopen the file."),
+            (Refusal::Link, "is a link, not a folder", "Delete the link and try again.", "Delete the link and reopen this design file."),
+            (
+                Refusal::File,
+                "is a file, not a folder",
+                "Delete the file at that path and try again.",
+                "Delete the file at that path and reopen this design file.",
+            ),
+            (
+                Refusal::OtherOwner,
+                "belongs to another user",
+                "Move or delete the folder and try again.",
+                "Move or delete the folder and reopen this design file.",
+            ),
         ] {
             let e = refused(kind, dir);
             assert_eq!(refusal_of(&e), Some(kind));
@@ -94,7 +106,9 @@ mod tests {
             assert_eq!(start_failure_message("Claude Code", &e), format!("Couldn't start Claude Code: {} {cause}. {start}", dir.display()));
             let lead =
                 format!("Couldn't use this file's agent folder: {} {cause}. This file's agents start in a temporary folder that is not kept.", dir.display());
-            assert_eq!(library_fallback_message(&e), format!("{lead} {reopen}"));
+            assert_eq!(library_fallback_message(&e, true), format!("{lead} {reopen}"));
+            let no_fallback = format!("Couldn't use this file's agent folder: {} {cause}. {reopen}", dir.display());
+            assert_eq!(library_fallback_message(&e, false), no_fallback, "no word on a temporary folder that cannot be used");
         }
     }
 
@@ -103,6 +117,7 @@ mod tests {
         let e = io::Error::other("disk full. Free some space and try again");
         assert_eq!(refusal_of(&e), None);
         assert_eq!(start_failure_message("Claude Code", &e), "Couldn't start Claude Code: disk full. Free some space and try again.");
-        assert!(library_fallback_message(&e).ends_with("This file's agents start in a temporary folder that is not kept."));
+        assert!(library_fallback_message(&e, true).ends_with("This file's agents start in a temporary folder that is not kept."));
+        assert!(!library_fallback_message(&e, false).contains("temporary folder"));
     }
 }

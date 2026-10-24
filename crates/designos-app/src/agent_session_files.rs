@@ -593,18 +593,20 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
     ensure_session_dir(&job.session_dir).map_err(|e| format!("Failed to create session dir {}: {}", job.session_dir.display(), with_next_step(&e)))?;
-    atomic_write_session_file(&job.context_json_path, &job.context_bytes).map_err(|e| format!("Failed to write {}: {e}", job.context_json_path.display()))?;
+    atomic_write_session_file(&job.context_json_path, &job.context_bytes)
+        .map_err(|e| format!("Failed to write {}: {}", job.context_json_path.display(), with_next_step(&e)))?;
     let canvas_json = job.canvas_doc.to_json().map_err(|e| format!("Failed to serialize canvas document: {e}"))?;
     let held = write_session_file_unless(&job.live_canvas_path, canvas_json.as_bytes(), || {
         #[cfg(test)]
         crate::terminal::run_before_rename_test_hook(&job.live_canvas_path);
         job.unread_probe.as_ref().is_some_and(|probe| probe.has_unread_complete_line())
     })
-    .map_err(|e| format!("Failed to write {}: {e}", job.live_canvas_path.display()))?;
+    .map_err(|e| format!("Failed to write {}: {}", job.live_canvas_path.display(), with_next_step(&e)))?;
     if held {
         return Ok(SnapshotOutcome::Held);
     }
-    crate::terminal::write_session_agent_files_for_job(job).map_err(|e| format!("Failed to provision session files in {}: {e}", job.session_dir.display()))?;
+    crate::terminal::write_session_agent_files_for_job(job)
+        .map_err(|e| format!("Failed to provision session files in {}: {}", job.session_dir.display(), with_next_step(&e)))?;
     Ok(SnapshotOutcome::Written)
 }
 
