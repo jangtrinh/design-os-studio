@@ -1848,8 +1848,9 @@ fn check_expression_references(doc: &Document, owner: &str, expr: &Expression, d
 mod tests {
     use super::*;
     use crate::{
-        Color, ComponentPropDef, ConnectorCap, ConnectorEnd, ConnectorLine, ConnectorProps, FrameProps, Guide, GuideAxis, Magnet, Paint, Reaction, Rect,
-        SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode, VariableValue, Vec2,
+        create_component, create_instance, Color, ComponentPropDef, ConnectorCap, ConnectorEnd, ConnectorLine, ConnectorProps, FrameProps, Guide, GuideAxis,
+        Magnet, Paint, Reaction, Rect, SlotPropConfig, Style, StyleMeta, StyleProperty, Trigger, Variable, VariableCollection, VariableKind, VariableMode,
+        VariableValue, Vec2,
     };
 
     fn new_doc_with_page() -> (Document, NodeId) {
@@ -1864,6 +1865,34 @@ mod tests {
         n.name = name.into();
         doc.insert(page, n).unwrap();
         id
+    }
+
+    #[test]
+    fn merge_rejects_move_that_makes_a_main_hold_itself() {
+        let (mut base, page) = new_doc_with_page();
+        let make = |doc: &mut Document, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.name = name.into();
+            doc.insert(page, n).unwrap();
+            create_component(doc, id).apply(doc).unwrap();
+            id
+        };
+        let b = make(&mut base, "B");
+        let a = make(&mut base, "A");
+        create_instance(&mut base, b, a, Vec2::ZERO).apply(&mut base).unwrap();
+        let moving = create_instance(&mut base, a, page, Vec2::ZERO);
+        let moving_id = match &moving {
+            Command::Insert { nodes, .. } => nodes[0].id,
+            _ => panic!("expected instance"),
+        };
+        moving.apply(&mut base).unwrap();
+        let main = base.clone();
+        let mut branch = base.clone();
+        Command::Reparent { id: moving_id, parent: b, index: 0 }.apply(&mut branch).unwrap();
+        let diff = crate::diff3(&base, &main, &branch);
+        let err = merge(&base, &main, &branch, &diff, &Resolution::default()).unwrap_err();
+        assert!(matches!(err, MergeError::MoveCycle { id, parent } if id == moving_id && parent == b), "{err}");
     }
 
     #[test]
