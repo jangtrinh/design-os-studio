@@ -4654,7 +4654,11 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
     let events_path = status_path.parent().map(|p| p.join("agent-events.jsonl")).unwrap_or_else(|| status_path.with_file_name("agent-events.jsonl"));
     let append_cmd = crate::agent_turn_status::event_append_command(&events_path, event);
-    format!("{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > '{}'", status_path.display())
+    let status_write = crate::agent_turn_status::atomic_replace_command(
+        status_path,
+        &format!("printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > \"$new\""),
+    );
+    format!("{append_cmd}; {status_write}")
 }
 
 fn command_handler_group(command: String, capture_command: Option<&str>) -> serde_json::Value {
@@ -8859,6 +8863,58 @@ mod tests {
         assert_eq!(records[0].e, "PreToolUse");
         assert_eq!(records[0].session_id(), Some("s-hook-1"));
         assert_eq!(records[0].tool_name(), Some("Read"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_command_does_not_follow_planted_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = std::env::temp_dir().join(format!("designos-1050-hook-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let status_path = tmp.join("agent-status.json");
+        let events_path = tmp.join("agent-events.jsonl");
+        let status_victim = tmp.join("status-victim.txt");
+        let events_victim = tmp.join("events-victim.txt");
+        std::fs::write(&status_victim, b"keep status\n").unwrap();
+        std::fs::write(&events_victim, b"keep events\n").unwrap();
+        symlink(&status_victim, &status_path).unwrap();
+        symlink(&events_victim, &events_path).unwrap();
+
+        let cmd = status_hook_command(&status_path, "Stop", "done");
+        let status = std::process::Command::new("sh").arg("-c").arg(&cmd).output().expect("spawn hook command");
+
+        assert!(!status.status.success(), "a planted link must make the hook refuse the write: {cmd}");
+        assert!(std::fs::symlink_metadata(&status_path).unwrap().file_type().is_symlink());
+        assert!(std::fs::symlink_metadata(&events_path).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&status_victim).unwrap(), "keep status\n");
+        assert_eq!(std::fs::read_to_string(&events_victim).unwrap(), "keep events\n");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_command_rejects_dangling_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = std::env::temp_dir().join(format!("designos-1050-hook-dangling-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let status_path = tmp.join("agent-status.json");
+        let events_path = tmp.join("agent-events.jsonl");
+        symlink(tmp.join("missing-status"), &status_path).unwrap();
+        symlink(tmp.join("missing-events"), &events_path).unwrap();
+
+        let cmd = status_hook_command(&status_path, "Stop", "done");
+        let status = std::process::Command::new("sh").arg("-c").arg(&cmd).output().expect("spawn hook command");
+
+        assert!(!status.status.success(), "a dangling link must make the hook refuse the write: {cmd}");
+        assert!(std::fs::symlink_metadata(&status_path).unwrap().file_type().is_symlink());
+        assert!(std::fs::symlink_metadata(&events_path).unwrap().file_type().is_symlink());
+        assert!(!tmp.join("missing-status").exists());
+        assert!(!tmp.join("missing-events").exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

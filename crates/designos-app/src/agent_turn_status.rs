@@ -38,17 +38,33 @@ pub fn sh_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Builds the safe replacement shell used by hook files in the writable session directory.
+///
+/// The target entry is moved into a private temporary directory before it is read. A symlink is
+/// therefore moved as a link and rejected; it is never opened by a shell redirection. The new
+/// file is installed with a platform-specific no-follow `mv` (`-T` on GNU, `-h` on BSD), which
+/// replaces a link itself if one is planted after the initial check. `prepare` must write the
+/// complete replacement to `$new`.
+pub fn atomic_replace_command(path: &Path, prepare: &str) -> String {
+    let quoted_path = sh_single_quote(&path.display().to_string());
+    format!(
+        "{{ target={quoted_path}; replace_no_follow() {{ case \"$(uname -s 2>/dev/null)\" in Darwin|FreeBSD|NetBSD|OpenBSD) mv -h \"$1\" \"$2\";; *) mv -T \"$1\" \"$2\";; esac; }}; base=\"$target.tmp.$$\"; i=0; while [ $i -lt 500 ]; do tmp=\"$base.$i\"; (umask 077; mkdir \"$tmp\" 2>/dev/null) && break; i=$((i+1)); done; rc=1; if [ $i -lt 500 ]; then old=\"$tmp/old\"; new=\"$tmp/new\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if replace_no_follow \"$target\" \"$old\" 2>/dev/null; then if [ -L \"$old\" ] || [ ! -f \"$old\" ]; then replace_no_follow \"$old\" \"$target\" 2>/dev/null || true; else {prepare}; rc=$?; if [ $rc -eq 0 ]; then replace_no_follow \"$new\" \"$target\"; rc=$?; fi; if [ $rc -ne 0 ] && [ -e \"$old\" ]; then replace_no_follow \"$old\" \"$target\" 2>/dev/null || true; fi; fi; fi; else {prepare}; rc=$?; if [ $rc -eq 0 ]; then replace_no_follow \"$new\" \"$target\"; rc=$?; fi; fi; rm -f \"$old\" \"$new\" 2>/dev/null || true; rmdir \"$tmp\" 2>/dev/null || true; fi; [ $rc -eq 0 ]; }}"
+    )
+}
+
 /// Builds the shell command that appends one wrapped hook record
 /// `{"t":<unix seconds>,"e":"<event>","p":<stdin payload>}` to `events_path` (`#683` §3.1).
 ///
 /// The hook never parses JSON: `p=$(cat)` captures the raw payload from stdin in memory first, and
-/// a single `printf` writes the complete record in one atomic `O_APPEND` syscall so concurrent
-/// hooks never interleave bytes.
+/// the complete record is written to a private temporary file before an atomic replacement. A
+/// lock serializes read-copy-append-replace operations so concurrent hooks never lose records.
 pub fn event_append_command(events_path: &Path, event: &str) -> String {
-    let quoted_path = sh_single_quote(&events_path.display().to_string());
     let quoted_lock = sh_single_quote(&format!("{}.lock", events_path.display()));
+    let append =
+        "if [ -f \"$old\" ]; then cat \"$old\" > \"$new\" || exit 1; else : > \"$new\" || exit 1; fi; printf '%s\\n' \"$line\" >> \"$new\"".to_string();
+    let replace = atomic_replace_command(events_path, &append);
     format!(
-        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\\n' \"$line\" >> {quoted_path}; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
+        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; hook_rc=1; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; if [ \"$got_lock\" = 1 ]; then {replace}; hook_rc=$?; fi; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; [ \"$hook_rc\" -eq 0 ]; }}"
     )
 }
 
@@ -830,6 +846,29 @@ impl TabTurnTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_replace_does_not_follow_symlink_planted_before_final_move() {
+        let tmp = std::env::temp_dir().join(format!("designos-1050-atomic-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let target = tmp.join("status.json");
+        let victim = tmp.join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(&target, b"old\n").unwrap();
+
+        let quoted_victim = sh_single_quote(&victim.display().to_string());
+        let command = atomic_replace_command(&target, &format!("ln -s {quoted_victim} \"$target\"; printf 'new\\n' > \"$new\""));
+        let status = std::process::Command::new("sh").arg("-c").arg(&command).status().expect("spawn replacement command");
+
+        assert!(status.success(), "replacement command failed: {command}");
+        assert!(target.is_file(), "final target must be a regular file");
+        assert!(!std::fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new\n");
+        assert!(std::fs::read_dir(&victim).unwrap().next().is_none(), "victim directory must remain untouched");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug() {
