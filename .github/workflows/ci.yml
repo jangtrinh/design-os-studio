@@ -1,8 +1,9 @@
 name: CI
 
+# Diagnostic only (#1066): print the Windows failure messages that the leave_prompt
+# stack overflow hides. Never merge this branch.
+
 on:
-  push:
-    branches: [main]
   pull_request:
 
 concurrency:
@@ -12,26 +13,15 @@ concurrency:
 env:
   RUST_VERSION: "1.93.1"
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+  windows-diag:
+    name: Windows diagnostic (#1066)
+    runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux system libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libfontconfig1-dev
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -39,128 +29,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Validate packaging scripts syntax
-        shell: bash
-        run: |
-          bash -n scripts/package-macos.sh scripts/package.sh scripts/build-release.sh
-          sh -n packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/AppRun
+      - name: Build app test binaries
+        run: cargo test -p designos-app --bins --locked --no-run
 
-      - name: Validate eval and third-party licence register
-        run: |
-          python3 -B scripts/check_eval_licences.py
-          python3 -B -m unittest scripts/test_check_eval_licences.py
+      - name: agent_stop tests, designos bin
+        continue-on-error: true
+        run: cargo test -p designos-app --bin designos --locked -- agent_stop --skip leave_prompt --test-threads=1
 
-      - name: Validate vendored skills (licence, pin, rules.lock, rule map)
-        run: |
-          python3 -B scripts/check_vendor_skills.py verify
-          python3 -B scripts/check_vendor_skills.py extract
-          python3 -B scripts/check_vendor_skills.py map-coverage
-          python3 -B -m unittest scripts/test_check_vendor_skills.py
+      - name: check_designs clicking_a_row, designos bin
+        continue-on-error: true
+        run: cargo test -p designos-app --bin designos --locked -- check_designs::clicking_a_row --skip leave_prompt --test-threads=1
 
-      - name: Build workspace (designos-studio, designos, designos-mcp, designos-diff)
-        run: cargo build --workspace --all-targets --locked
+      - name: Whole designos bin without leave_prompt
+        continue-on-error: true
+        run: cargo test -p designos-app --bin designos --locked -- --skip leave_prompt
 
-      # The designos-webcapture tests drive crates/designos-webcapture/js/capture.js in headless
-      # Chromium through Playwright and fail when Node or Playwright is missing.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Playwright and Chromium for the web capture harness
-        shell: bash
-        run: |
-          harness_dir="$RUNNER_TEMP/capture-harness"
-          npm install --no-audit --no-fund --prefix "$harness_dir" playwright@1.64.1
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            node "$harness_dir/node_modules/playwright/cli.js" install --with-deps chromium
-          else
-            node "$harness_dir/node_modules/playwright/cli.js" install chromium
-          fi
-          echo "NODE_PATH=$harness_dir/node_modules" >> "$GITHUB_ENV"
-
-      - name: Test workspace
-        run: cargo test --workspace --locked
-
-      # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
-      - name: Lint budget on a release build (large fixture)
-        if: runner.os == 'macOS'
-        run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
-
-  lint:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Linux system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libfontconfig1-dev
-
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked
-
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          components: rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Rustfmt
-        run: cargo fmt --all --check
-
-  release-sync-tests:
-    name: Release sync script tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Test scripts/release-sync-pages.py
-        run: python3 -m unittest discover -s scripts/tests -v
-
-  codegen-validators:
-    name: Codegen Validators
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Linux system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            libfontconfig1-dev
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install html-validate
-        run: npm install -g html-validate
-
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Validate HTML codegen with html-validate
-        run: cargo test -p designos-export --lib html::tests::card_passes_html_validate --locked -- --ignored --exact
+      - name: Whole designos-studio bin without leave_prompt
+        continue-on-error: true
+        run: cargo test -p designos-app --bin designos-studio --locked -- --skip leave_prompt
