@@ -3,7 +3,6 @@
 
 use super::folder_tests::target_with_sentinel;
 use super::test_support::made_session_folder;
-use super::*;
 use std::os::unix::fs::symlink;
 
 #[test]

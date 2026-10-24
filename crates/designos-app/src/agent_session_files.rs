@@ -605,6 +605,10 @@ mod folder_message_tests;
 mod folder_tests;
 #[cfg(all(test, unix))]
 mod folder_unit_tests;
+#[cfg(test)]
+mod fs_scan;
+#[cfg(test)]
+mod fs_sites_scan_tests;
 #[cfg(all(test, unix))]
 mod gemini_config_tests;
 #[cfg(all(test, unix))]
