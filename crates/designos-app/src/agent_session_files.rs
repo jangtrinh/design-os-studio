@@ -594,6 +594,8 @@ fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
 }
 
 #[cfg(all(test, unix))]
+mod codex_probe_tests;
+#[cfg(all(test, unix))]
 mod folder_message_tests;
 #[cfg(all(test, unix))]
 mod folder_tests;
@@ -607,6 +609,8 @@ mod hook_quoting_tests;
 mod inner_link_race_tests;
 #[cfg(all(test, unix))]
 mod inner_link_tests;
+#[cfg(all(test, unix))]
+mod library_fallback_tests;
 #[cfg(test)]
 mod refusal_tests;
 #[cfg(all(test, unix))]

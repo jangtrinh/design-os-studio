@@ -1,20 +1,12 @@
 //! Gemini CLI loads `<session>/.gemini/settings.json` by itself, MCP servers and hooks included. In Ask mode a copy an agent
 //! kept (`chmod 0555 .gemini` stops every rewrite) would keep running for good, so such a tab does not start.
 
+use super::inner_link_tests::{running_as_root, Writable};
 use super::*;
 use crate::live_sync_tests::unique_tab_id;
 use crate::terminal::{AgentCliPreset, PermissionMode, TerminalState};
 use crate::test_timing::ScopedTerminalState;
 use std::os::unix::fs::PermissionsExt;
-
-/// Makes the folder writable again, so the session folder can be removed.
-struct Writable(PathBuf);
-
-impl Drop for Writable {
-    fn drop(&mut self) {
-        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
-    }
-}
 
 /// A tab state in `mode` whose `.gemini` folder an agent made read-only, and no agent CLI that can start from its PATH.
 fn state_with_read_only_gemini_folder(mode: PermissionMode) -> (ScopedTerminalState, Writable) {
@@ -27,11 +19,6 @@ fn state_with_read_only_gemini_folder(mode: PermissionMode) -> (ScopedTerminalSt
     std::fs::write(gemini.join("settings.json"), br#"{"agent":"kept"}"#).expect("the agent's settings");
     std::fs::set_permissions(&gemini, std::fs::Permissions::from_mode(0o555)).expect("chmod 0555 .gemini");
     (st, Writable(gemini))
-}
-
-fn running_as_root() -> bool {
-    // SAFETY: `geteuid` takes no arguments and cannot fail.
-    unsafe { libc::geteuid() == 0 }
 }
 
 #[test]

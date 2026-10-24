@@ -37,6 +37,21 @@ pub(super) fn plant_link(session: &Path, rel: &str, target: &Path) {
     symlink(target, &link).expect("plant the link");
 }
 
+/// Makes the folder writable again when it drops, so a test that made it read-only can remove it.
+pub(super) struct Writable(pub(super) PathBuf);
+
+impl Drop for Writable {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// True for root, which writes into a read-only folder: a test of the refusal of such a write does not apply.
+pub(super) fn running_as_root() -> bool {
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    unsafe { libc::geteuid() == 0 }
+}
+
 fn names_in(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir).expect("read the target").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
     names.sort();
