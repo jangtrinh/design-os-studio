@@ -173,7 +173,7 @@ pub fn write_replies(session_dir: &Path, tab_id: usize, chunks: &[String], previ
         let reply = serde_json::json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "additionalContext": chunk } });
         let written = serde_json::to_vec_pretty(&reply).map_err(|e| e.to_string()).and_then(|bytes| {
             let path = reply_file(session_dir, tab_id, slot);
-            designos_library::write_atomic(&path, &bytes).map_err(|e| e.to_string())
+            crate::agent_session_files::atomic_write_session_file(&path, &bytes).map_err(|e| crate::agent_session_files::with_next_step(&e))
         });
         all_written &= written.is_ok();
     }
@@ -184,7 +184,7 @@ pub fn write_replies(session_dir: &Path, tab_id: usize, chunks: &[String], previ
 /// Deletes the reply files of `tab_id` for the given `slots`.
 pub fn remove_replies(session_dir: &Path, tab_id: usize, slots: std::ops::Range<usize>) {
     for slot in slots {
-        let _ = std::fs::remove_file(reply_file(session_dir, tab_id, slot));
+        let _ = crate::agent_session_files::remove_session_file(&reply_file(session_dir, tab_id, slot));
     }
 }
 
@@ -193,7 +193,7 @@ pub fn remove_replies(session_dir: &Path, tab_id: usize, slots: std::ops::Range<
 pub fn remove_all_replies(session_dir: &Path) {
     for entry in std::fs::read_dir(session_dir).into_iter().flatten().flatten() {
         if entry.file_name().to_string_lossy().starts_with(REPLY_FILE_PREFIX) {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = crate::agent_session_files::remove_session_file(&entry.path());
         }
     }
 }

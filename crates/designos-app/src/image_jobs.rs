@@ -252,9 +252,7 @@ impl ImageJobsState {
         }
         let root = self.last_session_root.take().or_else(|| self.custom_jobs_root.clone()).or(fallback_root);
         if let Some(root) = root {
-            if root.exists() {
-                let _ = std::fs::remove_dir_all(&root);
-            }
+            let _ = crate::agent_session_files::remove_session_dir_all(&root);
         }
         self.open_fill_menu = None;
         self.expand_popover = None;
@@ -656,15 +654,15 @@ impl App {
         let root = self.image_jobs_root();
         self.image_jobs.last_session_root = Some(root.clone());
         let job_dir = root.join(&job_id);
-        if let Err(e) = std::fs::create_dir_all(&job_dir) {
-            self.show_toast(format!("Cannot create image job folder: {e}"), true);
+        if let Err(e) = crate::agent_session_files::create_session_dir_all(&job_dir) {
+            self.show_toast(format!("Cannot create image job folder: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
         let input_path = job_dir.join("input.png");
         let output_path = job_dir.join("output.png");
         let request_path = job_dir.join("request.json");
-        let _ = std::fs::remove_file(&output_path);
+        let _ = crate::agent_session_files::remove_session_file(&output_path);
 
         let input_png = match encode_png(&cropped) {
             Ok(b) => b,
@@ -673,8 +671,8 @@ impl App {
                 return None;
             }
         };
-        if let Err(e) = std::fs::write(&input_path, &input_png) {
-            self.show_toast(format!("Cannot write {}: {e}", input_path.display()), true);
+        if let Err(e) = crate::agent_session_files::atomic_write_session_file(&input_path, &input_png) {
+            self.show_toast(format!("Cannot write the input image: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
@@ -683,8 +681,8 @@ impl App {
             let mp = job_dir.join("mask.png");
             match build_erase_mask_png(orig_w, orig_h, *region_rect) {
                 Ok(mask_bytes) => {
-                    if let Err(e) = std::fs::write(&mp, mask_bytes) {
-                        self.show_toast(format!("Cannot write {}: {e}", mp.display()), true);
+                    if let Err(e) = crate::agent_session_files::atomic_write_session_file(&mp, &mask_bytes) {
+                        self.show_toast(format!("Cannot write the erase mask: {}", crate::agent_session_files::with_next_step(&e)), true);
                         return None;
                     }
                     Some(mp)
@@ -719,8 +717,8 @@ impl App {
                 return None;
             }
         };
-        if let Err(e) = std::fs::write(&request_path, req_json) {
-            self.show_toast(format!("Cannot write {}: {e}", request_path.display()), true);
+        if let Err(e) = crate::agent_session_files::atomic_write_session_file(&request_path, req_json.as_bytes()) {
+            self.show_toast(format!("Cannot write the job request: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
@@ -936,7 +934,7 @@ fn pump_next_queued_image_job_for(
         // Clear any stale `done` status file before starting a new job.
         if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
             if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
-                let _ = std::fs::remove_file(&status_file_path);
+                let _ = crate::agent_session_files::remove_session_file(&status_file_path);
             }
         }
 

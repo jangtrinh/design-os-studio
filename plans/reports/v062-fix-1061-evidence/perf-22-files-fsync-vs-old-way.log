@@ -1,0 +1,15 @@
+warning: /Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1db67d4742d92bb1/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.52s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 1 test
+PERF 22 files through atomic_write_session_file: 3.771627ms
+PERF 22 files through fs::write + rename (the old way): 2.784535ms
+test agent_session_files::tmp_perf_probe_tests::tmp_perf_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3123 filtered out; finished in 0.17s
+

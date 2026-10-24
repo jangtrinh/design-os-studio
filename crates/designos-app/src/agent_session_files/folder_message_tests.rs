@@ -106,8 +106,10 @@ fn the_status_line_of_a_failed_snapshot_says_what_to_do() {
     st.sync_live_file_context(&doc, page, &[], None);
     st.flush_live_sync();
 
-    let d = dir.display();
-    assert_eq!(st.status_msg, Some(format!("Failed to create session dir {d}: {d} is a link, not a folder. Delete the link and try again")));
+    assert_eq!(
+        st.status_msg,
+        Some(format!("Couldn't update this tab's agent files: {} is a link, not a folder. Delete the link and try again.", dir.display()))
+    );
 }
 
 #[test]
@@ -186,7 +188,7 @@ fn the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_eit
 fn a_missing_data_folder_says_what_to_check() {
     let err = create_session_folder_in(None, &Path::new(UNAVAILABLE_ROOT).join("p1-tab-1")).expect_err("no data folder, no session folder");
     assert_eq!(
-        err.to_string(),
+        with_next_step(&err),
         "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Make sure your home folder exists, then restart Studio"
     );
 }

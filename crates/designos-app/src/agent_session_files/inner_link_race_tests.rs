@@ -7,7 +7,7 @@ use super::refusal::{refusal_of, Refusal};
 use super::*;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Folders that stand for the ones Studio writes into, with the depth at which they sit.
 const SWAPPED_FOLDERS: &[&str] = &[".gemini", ".grok/hooks", ".agents/plugins/designos"];

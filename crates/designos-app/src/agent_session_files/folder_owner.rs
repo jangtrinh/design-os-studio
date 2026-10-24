@@ -1,6 +1,6 @@
 //! Whose a session folder is: the id of the user Studio runs as, and the check of a folder's owner against it.
 
-use super::refusal::{refused, Refusal};
+use super::refusal::{cannot, refused, Fix, Refusal};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,13 +40,10 @@ pub(super) fn probe_uid(dir: &Path) -> io::Result<u32> {
             Ok(file) => {
                 let uid = file.metadata().map(|m| m.uid());
                 let _ = std::fs::remove_file(&probe);
-                return uid;
+                return uid.map_err(|e| cannot("checked", dir, e, Fix::CheckPermissions));
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => {
-                let message = format!("a file can't be created in {}: {e}. Check its permissions and free space, then try again", dir.display());
-                return Err(io::Error::new(e.kind(), message));
-            }
+            Err(e) => return Err(cannot("written to", dir, e, Fix::CheckPermissions)),
         }
     }
     Err(io::Error::other(format!("could not tell which user owns {}. Delete the .owner-probe files in it and try again", dir.display())))

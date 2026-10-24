@@ -225,9 +225,10 @@ pub fn claude_hooks_path(st: &crate::terminal::TerminalState) -> PathBuf {
 /// one (written in Skip mode, grants nothing) is left alone: a Skip-mode tab still running may be reading it.
 pub fn remove_stale_session_hooks(session_dir: &Path) {
     let path = session_dir.join("hooks.json");
-    let names_approval_hook = std::fs::read_to_string(&path).is_ok_and(|text| text.contains(crate::agent_approval_channel::HOOK_SCRIPT_NAME));
+    let names_approval_hook = crate::agent_session_files::read_session_file(&path)
+        .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(crate::agent_approval_channel::HOOK_SCRIPT_NAME));
     if names_approval_hook {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::agent_session_files::remove_session_file(&path);
     }
 }
 

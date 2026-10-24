@@ -635,27 +635,26 @@ struct UsageCacheFile {
     entries: BTreeMap<String, UsageReading>,
 }
 
-/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4).
+/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4). The file is written through the session folder's
+/// handle, so a link the agent planted at `usage.json` or in the path to it is never followed.
 pub fn save_cached_usage(session_dir: &Path, key: &str, reading: &UsageReading) {
-    static WRITE_LOCK: Mutex<u64> = Mutex::new(0);
+    static WRITE_LOCK: Mutex<()> = Mutex::new(());
     if key.trim().is_empty() || !reading.has_documented_source() {
         return;
     }
-    let Ok(mut seq_guard) = WRITE_LOCK.lock() else {
+    let Ok(_guard) = WRITE_LOCK.lock() else {
         return;
     };
-    *seq_guard = seq_guard.wrapping_add(1);
-    let seq = *seq_guard;
     let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let mut cache = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<UsageCacheFile>(&s).ok()).unwrap_or_default();
+    let mut cache = read_usage_cache(&path).unwrap_or_default();
     cache.entries.insert(key.trim().to_string(), reading.clone());
     if let Ok(bytes) = serde_json::to_vec_pretty(&cache) {
-        let _ = std::fs::create_dir_all(session_dir);
-        let tmp = path.with_extension(format!("tmp.{}.{seq}", std::process::id()));
-        if std::fs::write(&tmp, &bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        let _ = crate::agent_session_files::atomic_write_session_file(&path, &bytes);
     }
+}
+
+fn read_usage_cache(path: &Path) -> Option<UsageCacheFile> {
+    serde_json::from_slice(&crate::agent_session_files::read_session_file(path).ok()?).ok()
 }
 
 /// Loads a previously cached [`UsageReading`] for `key` from `<session_dir>/usage.json`.
@@ -664,10 +663,7 @@ pub fn load_cached_usage(session_dir: &Path, key: &str) -> Option<UsageReading> 
     if clean.is_empty() {
         return None;
     }
-    let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let cache: UsageCacheFile = serde_json::from_str(&raw).ok()?;
-    cache.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
+    read_usage_cache(&session_dir.join(USAGE_CACHE_FILENAME))?.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
 }
 
 #[derive(Debug, Default)]

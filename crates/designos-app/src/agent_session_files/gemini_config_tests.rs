@@ -62,3 +62,37 @@ fn a_gemini_tab_in_skip_mode_starts_whatever_the_state_of_its_settings_folder() 
 
     st.spawn_tab(AgentCliPreset::Gemini, None).expect("a tab in Skip mode runs with every tool allowed anyway");
 }
+
+#[test]
+fn an_ask_mode_gemini_tab_does_not_start_when_its_settings_do_not_read_back_as_written() {
+    let mut st = ScopedTerminalState::new(TerminalState::for_tab(unique_tab_id()));
+    st.permission_mode = PermissionMode::Ask;
+    st.path_override = Some(std::ffi::OsString::new());
+    ensure_session_dir(&st.session_dir).expect("the session folder");
+    let settings = st.session_dir.join(".gemini").join("settings.json");
+    let replaced = settings.clone();
+    super::session_io::set_before_read_back_test_hook(
+        &settings,
+        Box::new(move || std::fs::write(&replaced, br#"{"hooks":"the agent's"}"#).expect("another agent replaces the file")),
+    );
+
+    let message = st.spawn_tab(AgentCliPreset::Gemini, None).expect_err("a file that is not what Studio wrote must not start a tab");
+
+    assert!(st.tabs.is_empty(), "no tab was added");
+    assert_eq!(
+        message,
+        format!("Couldn't start Gemini CLI: {} changed while Studio wrote it. Close this file's other agent tabs, then try again.", settings.display())
+    );
+}
+
+#[test]
+fn an_ask_mode_gemini_tab_starts_when_its_settings_were_written_and_read_back() {
+    let mut st = ScopedTerminalState::new(TerminalState::for_tab(unique_tab_id()));
+    st.permission_mode = PermissionMode::Ask;
+    st.path_override = Some(std::ffi::OsString::new());
+
+    st.spawn_tab(AgentCliPreset::Gemini, None).expect("the settings were written and read back");
+
+    let written = std::fs::read_to_string(st.session_dir.join(".gemini").join("settings.json")).expect("the settings");
+    assert!(written.contains("mcpServers") && !written.contains("\"trust\""), "{written}");
+}
