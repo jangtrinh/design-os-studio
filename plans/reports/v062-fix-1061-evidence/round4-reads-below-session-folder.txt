@@ -1,0 +1,27 @@
+Reads below a session folder, round 4 of #1067 (adds to round3-reads-below-session-folder.txt, whose table still holds for everything it lists).
+
+The hand-made grep scans of rounds 2 and 3 are replaced by a test: `agent_session_files::fs_sites_scan_tests` reads every shipped line of designos-app and fails on a
+file-system call, a session file name in a string, or a string with a writing shell command that is neither routed nor listed with its reason in
+`fs_sites_allowlist.txt` (11 whole-file rows, 193 line rows). That list is the complete table now; the rows below are what changed in round 4.
+
+ROUTED in round 4, each with what a refused read does (nothing panics, spins or shows a new line):
+  shell.rs  TerminalAction::ApplySpecFile (live-spec.json)     read_session_text. Refused (a link, a FIFO, a file that is gone) = nothing applied this poll
+                                                               and no toast. "Invalid spec JSON" only for a plain file that fails to parse.
+  terminal.rs spec_mtime (the poll that asks for ApplySpecFile)   session_file_metadata: the modification time comes from the file as it is opened.
+                                                               A missing file, a link and a FIFO have none, so the poll asks for nothing.
+  live_patch_log.rs, agent_turn_status.rs, agent_turn_marks.rs   the length and the identity a tailer decides on come from `session_file_metadata` (a no-follow open
+                                                               through the folder handle, then fstat of that descriptor), no longer from `std::fs::metadata` of
+                                                               the path: a link swapped in for the log gives no data this poll instead of a "rewrite" of the log.
+  no_follow.rs explain_open                                    a link the agent deletes between the failed open and the look at the entry is tried
+                                                               again (it was reported as "Not a directory (os error 20)" before).
+  folder.rs session_folder_of                                  the canonical spelling of the sessions root is computed once.
+
+STAT-ONLY calls on a session path that the scan found and that stay as they are (a stat follows a link, but it neither blocks on a FIFO nor writes):
+  image_jobs.rs       std::fs::metadata(&job.output_path)  sees the output settle; the read of it is `validate_output_file` (routed).
+  live_log_wake.rs    std::fs::metadata(&path)             one stat per watched file, on a background thread, to wake an idle window.
+  agent_usage.rs      std::fs::metadata(&self.path)        the transcript path, which a hook records: the read of it is `open_plain_file`.
+  terminal.rs         `.exists()` of sessions.json and the bootstrap marker (not in the scan's call list, listed because the name is in the line).
+LISTING a session folder: skills/hook_delivery.rs read_dir(session_dir) lists names, and each delete goes through remove_session_file (a link as the folder is refused there).
+
+NOT in this PR, found by the same scan: the hook commands (`>`, `>>`, `mkdir`, `mv`, `rmdir` in status_hook_command_for_tab, event_append_command_for_tab, the turn marks,
+the transcript capture, the bootstrap marker and the approval hook's status line) write below the session folder from the agent's CLI process: #1072.
