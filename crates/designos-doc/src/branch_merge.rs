@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::branch_diff::{diff3, flow_key, Conflict, ConflictKind, Diff3, EntityChange, EntityKey, Group, NodeChange, SideChanges};
 use crate::{
-    Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
+    reparent_would_hold_itself, Action, Command, Comment, CommentAnchor, CommentThread, ComponentLink, Document, ExprValue, Expression, Flow, Guide, History, LibraryAssetKind,
     LibraryState, Node, NodeId, NodeKind, PropKind, PropValue, Style, StyleMeta, Variable, VariableCollection, VariableValue,
 };
 
@@ -88,6 +88,8 @@ pub enum MergeError {
     Apply { step: usize, reason: String },
     /// Attempted to merge an archived or already-merged branch (`T10.3 §8.6`).
     BranchArchived(String),
+    /// A branch move would make a component hold an instance of itself.
+    MoveCycle { id: NodeId, parent: NodeId },
 }
 
 impl std::fmt::Display for MergeError {
@@ -106,6 +108,9 @@ impl std::fmt::Display for MergeError {
             }
             Self::BranchArchived(name) => {
                 write!(f, "branch '{name}' is archived or already merged")
+            }
+            Self::MoveCycle { id, parent } => {
+                write!(f, "MOVE_CYCLE: move of node {id:?} into {parent:?} would make a component hold itself")
             }
         }
     }
@@ -222,7 +227,7 @@ pub fn merge(base: &Document, main: &Document, branch: &Document, diff: &Diff3, 
     };
 
     let commands =
-        build_merge_commands(base, main, branch, &remapped_branch, diff, resolution, &id_remap, &style_remap, &collection_remap, &variable_remap, &mut report);
+        build_merge_commands(base, main, branch, &remapped_branch, diff, resolution, &id_remap, &style_remap, &collection_remap, &variable_remap, &mut report)?;
 
     // 5. Execute each command step-by-step against a working clone of `main` so
     // any invalid intermediate operation is caught with its step index (`T10.3 §4`).
@@ -607,7 +612,7 @@ fn build_merge_commands(
     collection_remap: &BTreeMap<String, String>,
     variable_remap: &BTreeMap<String, String>,
     report: &mut MergeReport,
-) -> Vec<Command> {
+) -> Result<Vec<Command>, MergeError> {
     let mut entity_cmds = Vec::new();
     let mut remove_cmds = Vec::new();
     let mut add_cmds = Vec::new();
@@ -803,6 +808,9 @@ fn build_merge_commands(
             if let Some(new_parent) = branch_node.parent {
                 let parent_valid = (main.nodes.contains_key(&new_parent) && !all_removed_in_main.contains(&new_parent)) || nodes_to_add.contains(&new_parent);
                 if parent_valid {
+                    if reparent_would_hold_itself(main, &[id], new_parent) {
+                        return Err(MergeError::MoveCycle { id, parent: new_parent });
+                    }
                     let new_index = remapped_branch.nodes.get(&new_parent).and_then(|p| p.children.iter().position(|&c| c == id)).unwrap_or(0);
                     move_cmds.push(Command::Reparent { id, parent: new_parent, index: new_index });
                 }
@@ -895,7 +903,7 @@ fn build_merge_commands(
     all_cmds.extend(move_cmds);
     all_cmds.extend(update_cmds);
     all_cmds.extend(flow_guide_comment_cmds);
-    all_cmds
+    Ok(all_cmds)
 }
 
 fn collect_main_subtree(id: NodeId, main: &Document, out: &mut BTreeSet<NodeId>) {
