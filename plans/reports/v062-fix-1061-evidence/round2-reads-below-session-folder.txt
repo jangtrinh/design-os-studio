@@ -1,0 +1,48 @@
+Reads below a session folder, round 2 of #1067.
+Command: a scan of every non-test line of designos-app/src for `read_to_string`, `fs::read(`, `File::open`, `.append(true)` and `read_session_file(`
+(test modules skipped), then the files that can touch a session folder. `read_session_file` opens the file relative to the session folder's
+handle with O_NOFOLLOW|O_NONBLOCK and refuses anything but a plain file, so a FIFO is refused at once and a link is never followed.
+
+ROUTED in this round (they run when a tab starts, when its first prompt is built, or in the startup sweep):
+  terminal.rs  session_enabled_tools(mcp-config.json)            was std::fs::read_to_string
+  terminal.rs  write_session_agent_files_for_job(mcp-config.json) was std::fs::read_to_string   <- the reviewer's FIFO hang
+  terminal.rs  bootstrap block read (bootstrap.md)               was std::fs::read_to_string
+  agent_session_files.rs  read_owner_marker(owner.json)          was std::fs::read_to_string   (the sweep thread)
+ROUTED in round 1 (already read_session_file): agent_permissions.rs:228 hooks.json, agent_sessions.rs lock and registry, agent_usage.rs usage.json,
+  skills/run_record.rs run.json.
+
+NOT ROUTED, not provisioning: readers that poll a file the agent writes by design. They are unchanged and are the same class (a FIFO there
+blocks the caller), so they are listed for the controller to rule on:
+  terminal.rs:3434 agent-status.json (every frame)    image_jobs.rs:935,1039 agent-status.json    image_jobs.rs:1169 image-jobs/<job>/output.png
+  live_patch_log.rs:34,123 doc-patch.jsonl (tail, offset)   live_patch_log.rs:404 doc-sync.designos
+  agent_turn_status.rs:256 agent-events.jsonl (tail, offset)  agent_turn_marks.rs:124 turn-marks.jsonl (tail, offset)
+  agent_usage.rs:282 claude-transcript.json (capture file)    agent_usage.rs:469 the transcript Claude names (outside the session folder)
+NOT a session folder: agent_permissions.rs:504 (approval requests in the private channel), agent_sessions.rs:138 (/dev/urandom), the specs,
+  updater, plugin, variable and library readers.
+
+Raw scan output (files that can touch a session folder):
+agent_permissions.rs:228: let names_approval_hook = crate::agent_session_files::read_session_file(&path)
+agent_permissions.rs:504: let Ok(bytes) = std::fs::read(&path) else {
+agent_session_files.rs:161: let raw = read_session_file(&session_dir.join("owner.json")).ok()?;
+agent_sessions.rs:138: if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+agent_sessions.rs:311: if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+agent_sessions.rs:338: if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+agent_sessions.rs:352: let Ok(raw) = crate::agent_session_files::read_session_file(&path) else {
+agent_turn_marks.rs:124: let mut f = std::fs::File::open(&self.path).ok()?;
+agent_turn_status.rs:256: if let Ok(mut file) = std::fs::File::open(&self.path) {
+agent_usage.rs:282: let raw = std::fs::read_to_string(capture_path).ok()?;
+agent_usage.rs:469: let mut file = std::fs::File::open(&self.path).ok()?;
+agent_usage.rs:570: let _ = limited.read_to_string(&mut out);
+agent_usage.rs:652: serde_json::from_slice(&crate::agent_session_files::read_session_file(path).ok()?).ok()
+image_jobs.rs:935: if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
+image_jobs.rs:1039: if let Ok(raw) = std::fs::read_to_string(status_file_path) {
+image_jobs.rs:1169: let raw = match std::fs::read(&job.output_path) {
+live_patch_log.rs:34: let mut f = std::fs::File::open(path).ok()?;
+live_patch_log.rs:123: let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+live_patch_log.rs:404: std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
+terminal.rs:1416: let raw = crate::agent_session_files::read_session_file(mcp_config_path).ok().and_then(|bytes| String::from_utf8(bytes).ok());
+terminal.rs:2307: if let Some(md) = crate::agent_session_files::read_session_file(&self.bootstrap_md_path).ok().and_then(|bytes| String::from_utf8(bytes).ok()) {
+terminal.rs:3434: if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
+terminal.rs:4643: let existing_config = crate::agent_session_files::read_session_file(&mcp_config_path).ok().and_then(|bytes| String::from_utf8(bytes).ok());
+skills/run_record.rs:42: serde_json::from_str(&std::fs::read_to_string(run_path(session_dir)).ok()?).ok()
+skills/run_record.rs:55: let mut manifest = match read_session_file(&path) {
