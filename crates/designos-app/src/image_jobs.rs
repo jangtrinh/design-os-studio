@@ -2298,4 +2298,40 @@ mod tests {
         assert!(app.close_tab(1));
         assert!(app.close_tab(0));
     }
+
+    /// Removes the session folder of a test, links first, whatever the test does.
+    #[cfg(unix)]
+    struct SessionFolder(PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for SessionFolder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing() {
+        let tmp = TestDir::new("link-image-jobs");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        app.terminal.bind_session(&format!("test-link-jobs-{}", std::process::id()));
+        let session = app.terminal.session_dir.clone();
+        let _session = SessionFolder(session.clone());
+        crate::agent_session_files::ensure_session_dir(&session).expect("the session folder");
+        let victim = tmp.path().join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("keep.txt"), b"mine").unwrap();
+        std::os::unix::fs::symlink(&victim, session.join("image-jobs")).expect("plant the link");
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let started = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground);
+
+        let names = |dir: &Path| -> Vec<String> { std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect() };
+        assert_eq!(names(&victim), ["keep.txt"], "a job file went through the link");
+        assert!(started.is_none(), "a job must not start in a folder behind a link");
+        app.cleanup_image_jobs_on_file_close();
+        assert_eq!(std::fs::read(victim.join("keep.txt")).unwrap(), b"mine", "closing the file removed what the link points at");
+    }
 }

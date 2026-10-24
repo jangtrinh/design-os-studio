@@ -617,7 +617,13 @@ mod folder_tests;
 #[cfg(all(test, unix))]
 mod folder_unit_tests;
 #[cfg(all(test, unix))]
+mod gemini_config_tests;
+#[cfg(all(test, unix))]
 mod hook_quoting_tests;
+#[cfg(all(test, unix))]
+mod inner_link_race_tests;
+#[cfg(all(test, unix))]
+mod inner_link_tests;
 #[cfg(test)]
 mod test_root;
 
