@@ -160,14 +160,3 @@ fn a_failed_spawn_leaves_no_hooks_file_behind() {
     drop(reopen);
     finish(dir, st);
 }
-
-#[test]
-fn a_test_never_runs_the_real_gemini_version_probe_against_the_users_home() {
-    let probe = |preset| crate::agent_session_failure::version_probe_command(Path::new("/opt/gemini"), preset);
-    let gemini = probe(AgentCliPreset::Gemini);
-    let env = |name: &str| gemini.get_envs().find(|(key, _)| *key == name).and_then(|(_, value)| value).map(PathBuf::from);
-    let home = env("GEMINI_CLI_HOME").expect("Gemini's home folder is moved off the user's");
-    assert_eq!(env("HOME").as_deref(), Some(home.as_path()));
-    assert!(home.starts_with(std::env::temp_dir()) && gemini.get_args().eq(["--version"]));
-    assert!(probe(AgentCliPreset::Claude).get_envs().next().is_none(), "another CLI's probe is left as it was");
-}

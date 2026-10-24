@@ -8950,7 +8950,7 @@ mod tests {
     fn gemini_mcp_list_command(session_dir: &Path, trusted_path: &Path) -> std::process::Command {
         let mut list_cmd = std::process::Command::new("gemini");
         list_cmd.args(["mcp", "list"]).current_dir(session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", trusted_path);
-        crate::gemini_status_hooks::isolate_gemini_home(&mut list_cmd);
+        crate::scratch_cli_home::isolate_cli_homes(&mut list_cmd);
         list_cmd.env("GEMINI_API_KEY", "placeholder-not-a-key");
         list_cmd
     }

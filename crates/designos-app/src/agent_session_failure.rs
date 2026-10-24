@@ -569,18 +569,14 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     None
 }
 
-/// The `--version` command for the installed CLI at `bin`.
-pub(crate) fn version_probe_command(bin: &Path, preset: AgentCliPreset) -> std::process::Command {
+/// The `--version` command for the installed CLI of `_preset` at `bin`. It is the same for every CLI.
+pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std::process::Command {
     let mut cmd = std::process::Command::new(bin);
     cmd.arg("--version");
-    // Every start of the real Gemini writes its project registry under the home folder, `--version` included. Opening a Gemini
-    // tab in a test must not do that to the user's `~/.gemini`.
+    // Opening an agent tab runs this probe, and a CLI writes under the user's home even for `--version` (Gemini registers the
+    // project, for one). A test must not do that to the real home, so the probe gets a scratch one.
     #[cfg(test)]
-    if preset == AgentCliPreset::Gemini {
-        crate::gemini_status_hooks::isolate_gemini_home(&mut cmd);
-    }
-    #[cfg(not(test))]
-    let _ = preset;
+    crate::scratch_cli_home::isolate_cli_homes(&mut cmd);
     cmd
 }
 

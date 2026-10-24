@@ -113,29 +113,6 @@ pub fn with_system_config<R>(env: &[(&str, &str)], platform_dir: &Path, body: im
     body()
 }
 
-/// A folder to stand in for the user's home when a test runs the real `gemini`: Gemini writes its project registry under
-/// `<home>/.gemini` on every start, even for `--version`, and refreshes its login there. It holds only the auth type that
-/// `gemini mcp list` checks before it lists servers; no key or login is stored.
-#[cfg(test)]
-pub fn scratch_gemini_home() -> PathBuf {
-    static HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    HOME.get_or_init(|| {
-        let home = std::env::temp_dir().join(format!("designos-scratch-gemini-home-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(home.join(".gemini"));
-        let _ = std::fs::write(home.join(".gemini").join("settings.json"), r#"{"security":{"auth":{"selectedType":"gemini-api-key"}}}"#);
-        home
-    })
-    .clone()
-}
-
-/// Points `cmd` (a real `gemini` run by a test) at [`scratch_gemini_home`]: `GEMINI_CLI_HOME` moves Gemini's home folder
-/// and `HOME` moves anything that asks the OS for it.
-#[cfg(test)]
-pub fn isolate_gemini_home(cmd: &mut std::process::Command) {
-    let home = scratch_gemini_home();
-    cmd.env("GEMINI_CLI_HOME", &home).env("HOME", &home);
-}
-
 fn defaults_in_force_here() -> bool {
     #[cfg(test)]
     {

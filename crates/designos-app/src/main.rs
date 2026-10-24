@@ -78,6 +78,8 @@ mod present;
 mod proto;
 mod protovars;
 mod richtext;
+#[cfg(test)]
+mod scratch_cli_home;
 mod shell;
 mod showcase;
 mod skills;
