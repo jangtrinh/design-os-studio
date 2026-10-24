@@ -921,19 +921,24 @@ mod tests {
         );
         let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(plugin.join(CLAUDE_PLUGIN_MANIFEST_PATH)).unwrap()).unwrap();
         assert_eq!(manifest["name"], "designos-studio-session");
-        let mut found = Vec::new();
+        // Paths are compared as paths, not as text: the constants spell their separators with `/`, a Windows path with `\`.
+        let mut found: Vec<PathBuf> = Vec::new();
         let mut stack = vec![plugin.clone()];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).unwrap().flatten() {
                 if entry.path().is_dir() {
                     stack.push(entry.path());
                 } else {
-                    found.push(entry.path().strip_prefix(&plugin).unwrap().display().to_string());
+                    found.push(entry.path().strip_prefix(&plugin).unwrap().to_path_buf());
                 }
             }
         }
         found.sort();
-        assert_eq!(found, [CLAUDE_PLUGIN_MANIFEST_PATH, CLAUDE_PLUGIN_SKILL_PATH], "no .mcp.json, hooks/ or other file a plugin root is read for");
+        assert_eq!(
+            found,
+            [PathBuf::from(CLAUDE_PLUGIN_MANIFEST_PATH), PathBuf::from(CLAUDE_PLUGIN_SKILL_PATH)],
+            "no .mcp.json, hooks/ or other file a plugin root is read for"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

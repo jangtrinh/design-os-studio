@@ -109,6 +109,48 @@ fn assert_no_auto_approve_key(st: &TerminalState, rel: &str, who: &str) {
     assert!(found.is_empty(), "{who}: {rel} carries auto-approve settings in Ask mode: {found:?}");
 }
 
+/// The skill Studio wrote into the private plugin of an Ask-mode session after the window showed a document and a page named
+/// as given. The plugin is what Ask-mode Claude loads Studio's skill from, so its frontmatter decides which tools the skill
+/// may run without asking and which hooks it registers.
+fn private_plugin_skill_after_showing(doc_name: &str, page_name: &str) -> String {
+    let mut st = session_in(PermissionMode::Ask);
+    let mut doc = designos_doc::Document::new(doc_name);
+    crate::io::ensure_page(&mut doc);
+    let page = doc.pages[0];
+    doc.get_mut(page).expect("the page").name = page_name.to_string();
+    st.sync_live_file_context(&doc, page, &[], None);
+    st.flush_live_sync();
+    let plugin = crate::agent_approval_channel::claude_plugin_dir_path(&st.session_dir).expect("a private channel folder");
+    let skill_path = plugin.join(crate::agent_permissions::CLAUDE_PLUGIN_SKILL_PATH);
+    let skill = std::fs::read_to_string(&skill_path).unwrap_or_else(|e| panic!("{}: {e}", skill_path.display()));
+    finish(st);
+    skill
+}
+
+#[test]
+fn a_document_name_cannot_add_a_key_to_the_private_plugin_skill() {
+    for name in crate::live_sync_tests::HOSTILE_NAMES {
+        let skill = private_plugin_skill_after_showing(name, "Page 1");
+        crate::live_sync_tests::assert_skill_frontmatter_is_name_and_description(&skill, name, "Page 1");
+    }
+}
+
+#[test]
+fn a_page_name_cannot_add_a_key_to_the_private_plugin_skill() {
+    for name in crate::live_sync_tests::HOSTILE_NAMES {
+        let skill = private_plugin_skill_after_showing("Kit", name);
+        crate::live_sync_tests::assert_skill_frontmatter_is_name_and_description(&skill, "Kit", name);
+    }
+}
+
+#[test]
+fn a_plain_document_name_with_a_colon_reaches_the_private_plugin_skill_as_it_was() {
+    // `Checkout: v2` is not a hostile name, but unquoted it is not a valid YAML scalar either.
+    let skill = private_plugin_skill_after_showing("Checkout: v2", "Page 1");
+    crate::live_sync_tests::assert_skill_frontmatter_is_name_and_description(&skill, "Checkout: v2", "Page 1");
+    assert!(skill.contains("file **`Checkout: v2`**"), "the body names the document: {skill}");
+}
+
 #[test]
 fn the_scanner_flags_every_auto_approve_shape_and_ignores_inert_ones() {
     let bad = serde_json::json!({

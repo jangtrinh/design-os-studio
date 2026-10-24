@@ -225,3 +225,32 @@ fn an_unloadable_document_is_reported_and_the_edits_made_on_it_are_dropped_not_m
     assert!(toast(&l).contains("agent edit"), "the dropped edit is reported: {:?}", toast(&l));
     l.finish();
 }
+
+/// Two raw file writes in the session folder (what a sandboxed command can do without any MCP call) replace the document the
+/// window shows. Its name then reaches the skill Ask-mode Claude loads from the private plugin, which must stay a skill
+/// whose frontmatter is `name` and `description` only, whatever the name says.
+#[test]
+fn a_document_switched_in_by_raw_session_file_writes_cannot_add_a_key_to_the_private_plugin_skill() {
+    for &name in crate::live_sync_tests::HOSTILE_NAMES {
+        let mut l = live();
+        l.app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+        let mut forged = Document::new(name);
+        let _ = forged.add_page("Page 1");
+        let bytes = forged.to_json().unwrap();
+        std::fs::write(l.dir.join("doc-sync.designos"), &bytes).unwrap();
+        {
+            use std::io::Write;
+            let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&l.app.terminal.live_patch.path).unwrap();
+            writeln!(log, "{}", serde_json::to_string(&DocEpoch::of(1, bytes.as_bytes())).unwrap()).unwrap();
+        }
+        l.deliver();
+        crate::live_patch_apply::apply_pending_live_patches(&mut l.app);
+        assert_eq!(&l.app.doc.name, name, "the forged switch did not replace the document");
+        crate::live_patch_apply::publish_live_context(&mut l.app);
+        l.app.terminal.flush_live_sync();
+        let plugin = crate::agent_approval_channel::claude_plugin_dir_path(&l.dir).expect("a private channel folder");
+        let skill = std::fs::read_to_string(plugin.join(crate::agent_permissions::CLAUDE_PLUGIN_SKILL_PATH)).expect("plugin skill written by the sync");
+        crate::live_sync_tests::assert_skill_frontmatter_is_name_and_description(&skill, name, "Page 1");
+        l.finish();
+    }
+}
