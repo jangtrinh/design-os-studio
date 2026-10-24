@@ -1,0 +1,65 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.19s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 3103 tests
+test check_designs::tests::instances::measure_mirror_and_large_page_audit_perf ... ignored, release perf
+test check_designs::tests::scale::a_large_detached_frame_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::a_text_after_a_large_group_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::each_slice_respects_budget_on_112k_page ... ignored, release perf
+test decks::export::tests::write_demo_pdf_preview ... ignored, writes review artifacts only when explicitly requested
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+test live_sync_tests::mcp_apply_spec_on_a_real_file_keeps_every_screen ... ignored, needs a real design file in DESIGNOS_LIVE_SYNC_FIG
+test plugins::store::tests::real_registry_install ... ignored, Requires explicit DESIGNOS_PLUGINS_TOKEN and access to the private registry
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... FAILED
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast has been running for over 60 seconds
+test live_doc_epoch_tests::a_document_switched_in_by_raw_session_file_writes_leaves_the_private_plugin_skill_as_it_was has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_gesture_ends_at_the_release_position_however_the_frames_are_cut has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_middle_press_ends_the_open_gesture_in_one_undo_step has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_modifier_that_goes_up_with_the_button_still_shapes_the_end_of_the_gesture has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_after_a_lost_release_ends_the_gesture_as_it_was_last_drawn has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_at_the_spot_of_the_release_does_not_move_the_end_of_the_open_gesture has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_off_the_canvas_after_a_release_still_ends_the_open_gesture has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_release_then_a_press_in_one_frame_commits_the_open_gesture_where_it_was_released has been running for over 60 seconds
+test shell::tests::gpu_screenshot_wait::no_frame_of_the_settle_is_one_a_disturbance_can_turn_into_a_capped_capture has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::every_operation_names_what_it_did_in_its_toast has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::on_a_page_the_solver_would_move_one_cmd_z_restores_it_exactly_and_redo_replays_the_fix has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_design_gate_fix_is_one_undo_step_and_undo_puts_everything_back has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_fix_lights_the_unsaved_dot_and_autosave_writes_it has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_outcome_tells_a_committed_fix_from_a_no_op_and_from_a_refusal has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_palette_button_fix_closes_the_palette_so_cmd_z_undoes_it has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_palette_button_that_changes_nothing_leaves_the_palette_open has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_toast_follows_the_ux_writing_rules_and_promises_only_what_works has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::wiring_two_selected_frames_links_only_those_and_one_cmd_z_restores_the_page has been running for over 60 seconds
+test terminal::ask_mode_tests::what_each_cli_loads_by_itself_is_the_same_whatever_the_document_and_page_are_named has been running for over 60 seconds
+
+failures:
+
+---- shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one stdout ----
+
+thread 'shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one' (31272504) panicked at crates/designos-app/src/shell/tests/agents_tab_strip.rs:237:5:
+assertion `left == right` failed: the exited tab shows a hollow ring: [CircleShape { center: [34.0 1058.0], radius: 2.5, fill: #0D_99_FF_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [70.5 18.0], radius: 2.7, fill: #FE_59_38_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [78.0 18.0], radius: 2.3, fill: #D9_77_57_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [156.5 18.0], radius: 2.7, fill: #AA_AA_AB_B2, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [423.0 1056.0], radius: 14.0, fill: #27_27_2A_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1380.0 20.0], radius: 10.0, fill: #F5_9E_0B_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1395.0 430.0], radius: 8.0, fill: #FF_B7_03_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1395.0 430.0], radius: 7.5, fill: #00_00_00_00, stroke: Stroke { width: 1.0, color: #16_16_16_16 } }, CircleShape { center: [1395.0 486.0], radius: 8.0, fill: #0C_8C_E9_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1395.0 486.0], radius: 7.5, fill: #00_00_00_00, stroke: Stroke { width: 1.0, color: #16_16_16_16 } }, CircleShape { center: [1395.0 542.0], radius: 8.0, fill: #1E_1E_1E_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1395.0 542.0], radius: 7.5, fill: #00_00_00_00, stroke: Stroke { width: 1.0, color: #16_16_16_16 } }, CircleShape { center: [1580.0 1070.0], radius: 14.0, fill: #2C_2C_2C_FF, stroke: Stroke { width: 0.0, color: #00_00_00_00 } }, CircleShape { center: [1580.0 1070.0], radius: 14.0, fill: #00_00_00_00, stroke: Stroke { width: 1.0, color: #38_38_38_FF } }]
+  left: 0
+ right: 1
+
+
+failures:
+    shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+
+test result: FAILED. 3094 passed; 1 failed; 8 ignored; 0 measured; 0 filtered out; finished in 559.98s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
