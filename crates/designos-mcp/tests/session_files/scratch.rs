@@ -3,7 +3,10 @@ use designos_mcp::server::Session;
 use serde_json::Value;
 use std::{
     fs,
-    os::unix::fs::{symlink, OpenOptionsExt},
+    os::unix::{
+        fs::{symlink, OpenOptionsExt, PermissionsExt},
+        net::UnixListener,
+    },
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -69,6 +72,24 @@ impl Scratch {
         path
     }
 
+    /// A Unix socket at `name` in the session folder. It is bound under a short path and renamed, because a socket path is
+    /// limited to about 100 bytes and a scratch folder's is longer.
+    pub fn socket(&self, name: &str) -> PathBuf {
+        let short = std::env::temp_dir().join(format!("ds{}-{}.sock", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        drop(UnixListener::bind(&short).unwrap());
+        let path = self.session.join(name);
+        fs::rename(&short, &path).unwrap();
+        path
+    }
+
+    /// A file of mode 0444 at `name` in the session folder holding `bytes`; `None` when this user can write it anyway (root).
+    pub fn read_only_file(&self, name: &str, bytes: &[u8]) -> Option<PathBuf> {
+        let path = self.session.join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        fs::OpenOptions::new().append(true).open(&path).is_err().then_some(path)
+    }
+
     pub fn session(&self) -> Session {
         Session::with_session_dir(&self.workspace, &self.session).unwrap()
     }
@@ -86,11 +107,23 @@ pub fn old_temp_name(stem: &str) -> String {
 }
 
 pub fn link_sentence(path: &Path) -> String {
-    format!("{} is a link, not a file. Delete the link and try again.", path.display())
+    format!("{} is a link, not a file. Delete the link, then try again.", path.display())
 }
 
 pub fn not_plain_sentence(path: &Path) -> String {
-    format!("{} is not a plain file. Delete it and try again.", path.display())
+    format!("{} is not a plain file. Delete it, then try again.", path.display())
+}
+
+pub fn second_name_sentence(path: &Path) -> String {
+    format!("{} has a second name (a hard link). Delete it, then try again.", path.display())
+}
+
+/// Whether `sentence` is the sentence for any other failure of `path`: `<p> can't be <verb>: <cause>. Check its permissions and free
+/// space, then try again.` `verb` is `written` or `read`.
+pub fn is_cant_sentence(sentence: &str, verb: &str, path: &Path) -> bool {
+    let head = format!("{} can't be {verb}: ", path.display());
+    let tail = ". Check its permissions and free space, then try again.";
+    sentence.starts_with(&head) && sentence.ends_with(tail) && sentence.len() > head.len() + tail.len()
 }
 
 /// The warnings a tool reply carries about the session folder.

@@ -1,5 +1,5 @@
 //! The idempotency ledger file, with a link or a FIFO planted at its name or at the name its rewrite used to start from.
-use super::scratch::{assert_untouched, link_sentence, old_temp_name, within_one_second, Scratch, VICTIM};
+use super::scratch::{assert_untouched, is_cant_sentence, link_sentence, old_temp_name, within_one_second, Scratch, VICTIM};
 use designos_doc::Document;
 use designos_mcp::tools::ledger::{Ledger, LedgerEntry, LedgerNode};
 use serde_json::json;
@@ -84,7 +84,7 @@ fn a_ledger_in_a_folder_that_is_gone_says_so() {
     ledger.store(entry("k1"));
     let problems = ledger.take_problems();
     assert_eq!(problems.len(), 1, "{problems:?}");
-    assert!(problems[0].starts_with(&format!("Cannot write {}: ", path.display())), "{problems:?}");
+    assert!(is_cant_sentence(&problems[0], "written", &path), "{problems:?}");
     assert!(!scratch.session.exists());
 }
 

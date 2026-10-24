@@ -11,7 +11,7 @@ const TEMP_TRIES: usize = 8;
 const OWNER_ONLY: u32 = 0o600;
 
 /// What the failed open of `path` says about it: a refusal when `e` means a link, a FIFO nobody reads, or a folder.
-fn open_failure(path: &Path, e: io::Error) -> io::Error {
+pub(super) fn open_failure(path: &Path, e: io::Error) -> io::Error {
     match e.raw_os_error() {
         Some(libc::ELOOP | libc::EMLINK) if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) => refused(Refusal::Link, path),
         Some(libc::ENXIO | libc::EISDIR) => refused(Refusal::NotPlainFile, path),
@@ -21,7 +21,7 @@ fn open_failure(path: &Path, e: io::Error) -> io::Error {
 
 /// Opens `path` and refuses what is not a plain file. A file that is written through must also have no other name: a hard link
 /// planted in the folder is the same attack as a symbolic one.
-fn open_plain(path: &Path, options: &mut OpenOptions, writes: bool) -> io::Result<(File, Metadata)> {
+pub(super) fn open_plain(path: &Path, options: &mut OpenOptions, writes: bool) -> io::Result<(File, Metadata)> {
     let file = options.custom_flags(NO_LINK_NO_WAIT).open(path).map_err(|e| open_failure(path, e))?;
     let meta = file.metadata()?;
     if !meta.file_type().is_file() {

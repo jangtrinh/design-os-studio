@@ -3,6 +3,7 @@
 #![cfg(unix)]
 
 mod fifos;
+mod hazards;
 mod ledger;
 mod links;
 mod options;

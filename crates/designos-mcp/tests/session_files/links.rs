@@ -1,5 +1,5 @@
 //! A link planted at a session-file name: nothing is read through it, nothing is written through it, and the agent is told.
-use super::scratch::{assert_told, assert_untouched, link_sentence, old_temp_name, warnings, Scratch, VICTIM};
+use super::scratch::{assert_told, assert_untouched, link_sentence, old_temp_name, second_name_sentence, warnings, Scratch, VICTIM};
 use designos_doc::Document;
 use designos_mcp::{server::Session, tools::session_options::SessionOptions};
 use serde_json::{json, Value};
@@ -100,8 +100,21 @@ fn a_hard_link_at_the_edit_log_gets_no_append() {
     let link = scratch.hard_link("doc-patch.jsonl", &victim);
     let mut session = scratch.session();
     let err = new_document(&mut session).unwrap_err();
-    assert!(err.contains(&link_sentence(&link)), "{err}");
+    assert!(err.contains(&second_name_sentence(&link)), "{err}");
     assert_untouched(&victim, VICTIM, "the edit log");
+}
+
+#[test]
+fn a_hard_link_at_the_canvas_is_not_loaded() {
+    let scratch = Scratch::new();
+    let canvas = Document::new("Victim canvas").to_json().unwrap();
+    let victim = scratch.victim(canvas.as_bytes());
+    let link = scratch.hard_link("canvas.designos", &victim);
+    let mut session = scratch.session();
+    let reply = session.call("designos_get_document", json!({})).unwrap();
+    assert_ne!(reply["name"], "Victim canvas", "the document behind a second name was loaded");
+    assert_told(&reply, &second_name_sentence(&link));
+    assert_untouched(&victim, canvas.as_bytes(), "the canvas");
 }
 
 #[test]

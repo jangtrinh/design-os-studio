@@ -36,12 +36,17 @@ fn the_refusal_reads_as_the_sentence_an_agent_is_told() {
     let link = dir.path("doc-patch.jsonl");
     symlink(&victim, &link).unwrap();
     let err = append(&link, b"x", false).unwrap_err();
-    assert_eq!(explain("write", &link, &err), format!("{} is a link, not a file. Delete the link and try again.", link.display()));
+    assert_eq!(explain("write", &link, &err), format!("{} is a link, not a file. Delete the link, then try again.", link.display()));
     let fifo = dir.fifo("context.json");
     let err = read(&fifo).unwrap_err();
-    assert_eq!(explain("read", &fifo, &err), format!("{} is not a plain file. Delete it and try again.", fifo.display()));
+    assert_eq!(explain("read", &fifo, &err), format!("{} is not a plain file. Delete it, then try again.", fifo.display()));
+    let second_name = dir.path("doc-sync.designos");
+    fs::hard_link(&victim, &second_name).unwrap();
+    let err = append(&second_name, b"x", false).unwrap_err();
+    assert_eq!(explain("write", &second_name, &err), format!("{} has a second name (a hard link). Delete it, then try again.", second_name.display()));
     let err = io::Error::from_raw_os_error(libc::EACCES);
-    assert!(explain("write", &link, &err).starts_with(&format!("Cannot write {}: ", link.display())));
+    assert_eq!(explain("write", &link, &err), format!("{} can't be written: {err}. Check its permissions and free space, then try again.", link.display()));
+    assert_eq!(explain("read", &link, &err), format!("{} can't be read: {err}. Check its permissions and free space, then try again.", link.display()));
 }
 
 #[test]
@@ -55,14 +60,22 @@ fn a_dangling_link_is_refused_and_its_missing_target_is_not_created() {
     assert!(!missing.exists());
 }
 
+/// What an agent is told when `result` fails for `path`.
+fn told(verb: &str, path: &Path, result: io::Result<impl std::fmt::Debug>) -> String {
+    explain(verb, path, &result.expect_err("the path must be refused"))
+}
+
 #[test]
-fn a_hard_link_is_refused_for_a_write_but_a_plain_file_with_one_name_is_not() {
+fn a_hard_link_is_refused_by_every_call_but_a_plain_file_with_one_name_is_not() {
     let dir = Scratch::new("hard");
     let victim = dir.victim();
     let second_name = dir.path("doc-patch.jsonl");
     fs::hard_link(&victim, &second_name).unwrap();
-    assert_eq!(refusal(append(&second_name, b"line\n", false)), Refusal::Link);
-    assert_eq!(refusal(truncate(&second_name, false)), Refusal::Link);
+    let sentence = format!("{} has a second name (a hard link). Delete it, then try again.", second_name.display());
+    assert_eq!(told("write", &second_name, append(&second_name, b"line\n", false)), sentence);
+    assert_eq!(told("write", &second_name, truncate(&second_name, false)), sentence);
+    assert_eq!(told("read", &second_name, read(&second_name)), sentence, "a read through a second name is refused too");
+    assert_eq!(told("read", &second_name, stat(&second_name)), sentence);
     victim_is_intact(&victim);
     let own = dir.path("own.jsonl");
     append(&own, b"a\n", false).unwrap();
@@ -109,5 +122,48 @@ fn an_unreadable_file_is_an_error_that_names_the_path_not_a_refusal() {
     }
     let err = read(&path).unwrap_err();
     assert_eq!(refusal_of(&err), None);
-    assert!(explain("read", &path, &err).contains(&path.display().to_string()));
+    let sentence = explain("read", &path, &err);
+    assert!(sentence.starts_with(&format!("{} can't be read: ", path.display())), "{sentence}");
+    assert!(sentence.ends_with("Check its permissions and free space, then try again."), "{sentence}");
+}
+
+#[test]
+fn a_folder_at_a_rename_target_and_a_socket_are_refused_as_not_plain_files() {
+    let dir = Scratch::new("folder-socket");
+    let target = dir.path("canvas.designos");
+    fs::create_dir(&target).unwrap();
+    let sentence = told("write", &target, write_atomic(&target, b"x", false));
+    assert_eq!(sentence, format!("{} is not a plain file. Delete it, then try again.", target.display()));
+    // A socket path is limited to about 100 bytes: bind under a short path, then move it in.
+    let short = std::env::temp_dir().join(format!("ds{}.sock", std::process::id()));
+    drop(std::os::unix::net::UnixListener::bind(&short).unwrap());
+    let socket = dir.path("context.json");
+    fs::rename(&short, &socket).unwrap();
+    assert_eq!(refusal(read(&socket)), Refusal::NotPlainFile);
+    assert_eq!(refusal(append(&socket, b"x", false)), Refusal::NotPlainFile);
+}
+
+#[test]
+fn eloop_under_no_follow_is_a_link_even_when_the_entry_is_a_plain_file_again() {
+    let dir = Scratch::new("eloop");
+    let path = dir.path("doc-patch.jsonl");
+    fs::write(&path, b"x").unwrap();
+    let err = super::platform::open_failure(&path, io::Error::from_raw_os_error(libc::ELOOP));
+    assert_eq!(explain("write", &path, &err), format!("{} is a link, not a file. Delete the link, then try again.", path.display()));
+}
+
+#[test]
+fn a_file_is_handed_back_in_blocking_mode() {
+    let dir = Scratch::new("blocking");
+    let path = dir.path("doc-patch.jsonl");
+    fs::write(&path, b"x").unwrap();
+    let non_blocking = |file: &fs::File| {
+        use std::os::fd::AsRawFd;
+        // SAFETY: `file` owns a valid open descriptor for the whole call, and F_GETFL reads its status flags only.
+        (unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) }) & libc::O_NONBLOCK != 0
+    };
+    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().read(true), false).unwrap();
+    assert!(!non_blocking(&file), "a read stays in O_NONBLOCK mode");
+    let (file, _) = super::platform::open_plain(&path, fs::OpenOptions::new().append(true), true).unwrap();
+    assert!(!non_blocking(&file), "an append stays in O_NONBLOCK mode");
 }
