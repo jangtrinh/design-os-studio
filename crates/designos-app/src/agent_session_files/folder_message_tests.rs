@@ -39,7 +39,7 @@ fn a_tab_refused_a_link_says_to_delete_the_link() {
     let (target, _target) = target_with_sentinel("message-link-target");
     let (mut st, dir, _cleanup) = tab_whose_session_path_holds(|dir| symlink(&target, dir).expect("plant the link"));
     let err = st.spawn_tab(AgentCliPreset::Shell, None).expect_err("a link at the session path stops the tab");
-    let expected = format!("Couldn't start {}: {} is a link, not a folder. Delete the link and try again.", shell_title(), dir.display());
+    let expected = format!("Couldn't start {}: {} is a link, not a folder. Delete the link, then try again.", shell_title(), dir.display());
     assert_eq!(err, expected);
     assert_eq!(st.status_msg.as_deref(), Some(expected.as_str()));
 }
@@ -48,7 +48,7 @@ fn a_tab_refused_a_link_says_to_delete_the_link() {
 fn a_tab_refused_a_file_says_to_delete_the_file() {
     let (mut st, dir, _cleanup) = tab_whose_session_path_holds(|dir| std::fs::write(dir, b"a file").expect("plant the file"));
     let err = st.spawn_tab(AgentCliPreset::Shell, None).expect_err("a file at the session path stops the tab");
-    assert_eq!(err, format!("Couldn't start {}: {} is a file, not a folder. Delete the file at that path and try again.", shell_title(), dir.display()));
+    assert_eq!(err, format!("Couldn't start {}: {} is a file, not a folder. Delete the file at that path, then try again.", shell_title(), dir.display()));
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it() {
     let mut st = TerminalState::for_tab(unique_tab_id());
     st.session_dir = foreign.to_path_buf();
     let err = st.spawn_tab(AgentCliPreset::Shell, None).expect_err("a folder of another user stops the tab");
-    assert_eq!(err, format!("Couldn't start {}: /usr belongs to another user. Move or delete the folder and try again.", shell_title()));
+    assert_eq!(err, format!("Couldn't start {}: /usr belongs to another user. Move or delete the folder, then try again.", shell_title()));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn a_custom_cli_tab_refused_a_link_says_the_same() {
     let (target, _target) = target_with_sentinel("message-custom-target");
     let (mut st, dir, _cleanup) = tab_whose_session_path_holds(|dir| symlink(&target, dir).expect("plant the link"));
     let err = st.spawn_custom_cli_tab("My CLI", "true", None).expect_err("a link at the session path stops the tab");
-    assert_eq!(err, format!("Couldn't start My CLI: {} is a link, not a folder. Delete the link and try again.", dir.display()));
+    assert_eq!(err, format!("Couldn't start My CLI: {} is a link, not a folder. Delete the link, then try again.", dir.display()));
     assert_eq!(st.status_msg.as_deref(), Some(err.as_str()));
 }
 
@@ -106,8 +106,7 @@ fn the_status_line_of_a_failed_snapshot_says_what_to_do() {
     st.sync_live_file_context(&doc, page, &[], None);
     st.flush_live_sync();
 
-    let d = dir.display();
-    assert_eq!(st.status_msg, Some(format!("Failed to create session dir {d}: {d} is a link, not a folder. Delete the link and try again")));
+    assert_eq!(st.status_msg, Some(format!("Couldn't update the agent files: {} is a link, not a folder. Delete the link, then try again.", dir.display())));
 }
 
 #[test]
@@ -131,7 +130,7 @@ fn a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step
         message,
         format!(
             "Couldn't use this file's agent folder: {} is a link, not a folder. Delete the link and reopen this design file. \
-             The temporary session folder can't be used either: {} is a link, not a folder. Delete the link and try again.",
+             The temporary session folder can't be used either: {} is a link, not a folder. Delete the link, then try again.",
             stable.display(),
             fallback.display()
         )
@@ -150,7 +149,7 @@ fn sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_i
     let err = crate::terminal::export_selection_and_comments_to_pty(&mut st, &doc, page, &[frame], None).expect_err("a planted link is refused");
 
     let spec = st.selection_spec_path.display().to_string();
-    assert_eq!(err, format!("write {spec}: {} is a link, not a folder. Delete the link and try again", dir.display()));
+    assert_eq!(err, format!("write {spec}: {} is a link, not a folder. Delete the link, then try again", dir.display()));
     assert!(only_entry_is_the_sentinel(&target), "the selection went through the link");
 }
 
@@ -175,7 +174,7 @@ fn the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_eit
     assert_eq!(
         message,
         format!(
-            "{} The temporary session folder can't be used: {} is a link, not a folder. Delete the link and try again.",
+            "{} The temporary session folder can't be used: {} is a link, not a folder. Delete the link, then try again.",
             crate::agent_sessions::ANOTHER_WINDOW_OWNS_SESSION_MSG,
             fallback.display()
         )
@@ -186,7 +185,7 @@ fn the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_eit
 fn a_missing_data_folder_says_what_to_check() {
     let err = create_session_folder_in(None, &Path::new(UNAVAILABLE_ROOT).join("p1-tab-1")).expect_err("no data folder, no session folder");
     assert_eq!(
-        err.to_string(),
+        with_next_step(&err),
         "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Make sure your home folder exists, then restart Studio"
     );
 }

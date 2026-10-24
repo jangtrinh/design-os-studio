@@ -5,12 +5,21 @@
 mod folder;
 #[cfg(unix)]
 mod folder_owner;
+#[cfg(unix)]
+mod no_follow;
+#[cfg(not(unix))]
+#[path = "agent_session_files/no_follow_fallback.rs"]
+mod no_follow;
 mod refusal;
+mod session_io;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
-pub use refusal::{library_fallback_message, start_failure_message, with_next_step};
+pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step};
+pub use session_io::{
+    atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file, read_session_file, read_session_text,
+    remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, write_session_file_unless, write_session_file_verified,
+};
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -140,31 +149,6 @@ pub fn is_ephemeral_session_dir(dir: &Path) -> bool {
     ephemeral_sessions_root().is_some_and(|root| dir.parent() == Some(root.as_path()))
 }
 
-/// Atomically writes `bytes` to `path` via a unique sibling temp file (`.<name>.tmp.<pid>.<seq>`)
-/// followed by `std::fs::rename`, so concurrent MCP readers never observe a half-written file.
-pub fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    write_session_file_unless(path, bytes, || false).map(|_| ())
-}
-
-/// Like [`atomic_write_session_file`], but `hold` is asked after the temporary file is complete
-/// and just before it replaces `path`. When it says yes the temporary file is removed, `path`
-/// is left as it was and `Ok(true)` comes back.
-pub fn write_session_file_unless(path: &Path, bytes: &[u8], hold: impl FnOnce() -> bool) -> std::io::Result<bool> {
-    if let Some(parent) = path.parent() {
-        folder::prepare_write_parent(parent)?;
-    }
-    static NEXT_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
-    let seq = NEXT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("session-file");
-    let tmp = path.with_file_name(format!(".{file_name}.tmp.{}.{seq}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    if hold() {
-        let _ = std::fs::remove_file(&tmp);
-        return Ok(true);
-    }
-    std::fs::rename(&tmp, path).map(|()| false)
-}
-
 /// Writes `<session_dir>/owner.json` with `{ "pid": <current pid>, "started_ms": <started_ms> }`.
 pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
     let marker = OwnerMarker { pid: std::process::id(), started_ms: current_process_started_ms() };
@@ -174,8 +158,8 @@ pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
 
 /// Reads `<session_dir>/owner.json` if present and valid.
 pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
-    let raw = std::fs::read_to_string(session_dir.join("owner.json")).ok()?;
-    serde_json::from_str::<OwnerMarker>(&raw).ok()
+    let raw = read_session_file(&session_dir.join("owner.json")).ok()?;
+    serde_json::from_slice::<OwnerMarker>(&raw).ok()
 }
 
 /// Creates `session_dir` and, when `session_dir` is an ephemeral session directory (a child of
@@ -592,40 +576,84 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 }
 
 fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
-    ensure_session_dir(&job.session_dir).map_err(|e| format!("Failed to create session dir {}: {}", job.session_dir.display(), with_next_step(&e)))?;
-    atomic_write_session_file(&job.context_json_path, &job.context_bytes)
-        .map_err(|e| format!("Failed to write {}: {}", job.context_json_path.display(), with_next_step(&e)))?;
+    // Every error of the writes below names the path it happened at, so the line names it once.
+    ensure_session_dir(&job.session_dir).map_err(|e| files_not_updated_message(&e))?;
+    atomic_write_session_file(&job.context_json_path, &job.context_bytes).map_err(|e| files_not_updated_message(&e))?;
     let canvas_json = job.canvas_doc.to_json().map_err(|e| format!("Failed to serialize canvas document: {e}"))?;
     let held = write_session_file_unless(&job.live_canvas_path, canvas_json.as_bytes(), || {
         #[cfg(test)]
         crate::terminal::run_before_rename_test_hook(&job.live_canvas_path);
         job.unread_probe.as_ref().is_some_and(|probe| probe.has_unread_complete_line())
     })
-    .map_err(|e| format!("Failed to write {}: {}", job.live_canvas_path.display(), with_next_step(&e)))?;
+    .map_err(|e| files_not_updated_message(&e))?;
     if held {
         return Ok(SnapshotOutcome::Held);
     }
-    crate::terminal::write_session_agent_files_for_job(job)
-        .map_err(|e| format!("Failed to provision session files in {}: {}", job.session_dir.display(), with_next_step(&e)))?;
+    crate::terminal::write_session_agent_files_for_job(job).map_err(|e| files_not_updated_message(&e))?;
     Ok(SnapshotOutcome::Written)
 }
 
+#[cfg(all(test, unix))]
+mod canonical_spelling_tests;
+#[cfg(all(test, unix))]
+mod codex_probe_tests;
+#[cfg(all(test, unix))]
+mod fifo_tests;
 #[cfg(all(test, unix))]
 mod folder_message_tests;
 #[cfg(all(test, unix))]
 mod folder_tests;
 #[cfg(all(test, unix))]
 mod folder_unit_tests;
+#[cfg(test)]
+mod fs_scan;
+#[cfg(test)]
+mod fs_sites_scan_tests;
+#[cfg(all(test, unix))]
+mod gemini_config_tests;
 #[cfg(all(test, unix))]
 mod hook_quoting_tests;
+#[cfg(all(test, unix))]
+mod inner_link_race_tests;
+#[cfg(all(test, unix))]
+mod inner_link_tests;
+#[cfg(all(test, unix))]
+mod library_fallback_tests;
+#[cfg(all(test, unix))]
+mod linked_parent_tests;
+#[cfg(all(test, unix))]
+mod live_spec_tests;
+#[cfg(all(test, unix))]
+mod open_race_tests;
+#[cfg(all(test, unix))]
+mod open_removed_link_tests;
+#[cfg(all(test, unix))]
+mod placement_tests;
+#[cfg(all(test, unix))]
+mod plain_open_tests;
+#[cfg(all(test, unix))]
+mod poll_readers_tests;
+#[cfg(test)]
+mod refusal_tests;
+#[cfg(all(test, unix))]
+mod session_io_tests;
+#[cfg(all(test, unix))]
+mod swap_after_open_tests;
+#[cfg(all(test, unix))]
+mod tailer_link_tests;
 #[cfg(test)]
 mod test_root;
+#[cfg(all(test, unix))]
+pub(crate) mod test_support;
+#[cfg(test)]
+mod unavailable_root_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::terminal::{export_selection_and_comments_to_pty, TerminalAction, TerminalState};
     use designos_doc::{Document, Node, Rect};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
 
     fn unique_test_id(tag: &str) -> String {
@@ -947,7 +975,7 @@ mod tests {
             st.flush_live_sync();
         }
         assert_eq!(st.snapshot_jobs_executed(), 1, "ten frames with the same content must try the failing write once");
-        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Failed to create session dir")), "the failure is reported: {:?}", st.status_msg);
+        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")), "the failure is reported: {:?}", st.status_msg);
 
         st.status_msg = None;
         st.sync_live_file_context(&doc, page, &[page], None);
@@ -1212,7 +1240,11 @@ mod tests {
         st.flush_live_sync();
 
         assert!(st.last_synced_key.is_none(), "failed write must not mark last_synced_key as succeeded: {:?}", st.last_synced_key);
-        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Failed to")), "write failure must be surfaced in status_msg, got: {:?}", st.status_msg);
+        assert!(
+            st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")),
+            "write failure must be surfaced in status_msg, got: {:?}",
+            st.status_msg
+        );
 
         let _ = std::fs::remove_file(&bad_path);
     }

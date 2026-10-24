@@ -7,7 +7,7 @@ use designos_doc::Document;
 use serde_json::Value;
 use std::process::{Command, Stdio};
 
-fn job_in(session_dir: &Path) -> SnapshotJob {
+pub(super) fn job_in(session_dir: &Path) -> SnapshotJob {
     SnapshotJob {
         session_dir: session_dir.to_path_buf(),
         session_id: "hook-quoting".into(),

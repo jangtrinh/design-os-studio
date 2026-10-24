@@ -691,7 +691,7 @@ impl TerminalTab {
 
         if let Some(sess) = session {
             for lock_name in ["agent-events.jsonl.lock", "agent-status.jsonl.lock", "agent-status.json.lock"] {
-                let _ = std::fs::remove_dir_all(sess.session_dir.join(lock_name));
+                let _ = crate::agent_session_files::remove_session_dir_all(&sess.session_dir.join(lock_name));
             }
         }
         // A new tab starts with an empty approvals folder: requests of an earlier run with the same id are not its own.
@@ -1332,7 +1332,7 @@ impl Default for TerminalState {
         let mut st = Self::for_tab(tab_id);
         if cfg!(test) {
             st.live_spec_path = st.session_dir.join("live-agent-out-test-isolated.spec.json");
-            st.last_watched_mtime = std::fs::metadata(&st.live_spec_path).and_then(|m| m.modified()).ok();
+            st.last_watched_mtime = spec_mtime(&st.live_spec_path);
         }
         st
     }
@@ -1426,10 +1426,16 @@ fn page_context_json(session_id: &str, doc_name: &str, file_path: Option<&Path>,
     })
 }
 
+/// The modification time of the spec file `live-spec.json` of a session folder, taken from the file as it is opened (never from the
+/// target of a link). `None` for a missing file, a link and a FIFO.
+fn spec_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    crate::agent_session_files::session_file_metadata(path).ok()?.modified().ok()
+}
+
 /// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
 /// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
 fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
-    let raw = std::fs::read_to_string(mcp_config_path).ok();
+    let raw = crate::agent_session_files::read_session_text(mcp_config_path);
     designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
 }
 
@@ -1466,7 +1472,7 @@ impl TerminalState {
         let selection_spec_path = session_dir.join("selection.spec.json");
         let bootstrap_md_path = session_dir.join("bootstrap.md");
         let bootstrap_json_path = session_dir.join("bootstrap.json");
-        let initial_spec_mtime = std::fs::metadata(&live_spec_path).and_then(|m| m.modified()).ok();
+        let initial_spec_mtime = spec_mtime(&live_spec_path);
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(session_dir.join("turn-marks.jsonl"));
         let event_stream = crate::agent_turn_status::AgentEventStream::bind(session_dir.join("agent-events.jsonl"));
@@ -1878,7 +1884,7 @@ impl TerminalState {
         self.session_dir = session_dir;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
-        self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
+        self.last_watched_mtime = spec_mtime(&self.live_spec_path);
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
         self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.session_dir.join("agent-events.jsonl"));
@@ -2183,12 +2189,12 @@ impl TerminalState {
 
     /// Starts or restarts an agent run, advancing `run_id` so the next prompt / hook invocation
     /// delivers the 7-section `bootstrap.md` block once (`E15-16 §3.2`, `§10`).
-    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) {
+    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
         self.run_id = self.run_id.saturating_add(1);
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
         self.bootstrap_job = None;
-        self.provision_session_agent_files(file_path);
+        self.provision_session_agent_files(file_path)
     }
 
     /// Spawns a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`) with a lazy
@@ -2230,7 +2236,7 @@ impl TerminalState {
         let job_gen = self.bootstrap_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let gen_bg = Arc::clone(&self.bootstrap_generation);
         let write_lock_bg = Arc::clone(&self.bootstrap_write_lock);
-        let _ = std::fs::remove_file(session_dir.join("bootstrap-context-reply.json"));
+        let _ = crate::agent_session_files::remove_session_file(&session_dir.join("bootstrap-context-reply.json"));
         std::thread::spawn(move || {
             let rules = session_rules_pack(enabled_bg.as_ref());
             if let Ok(_guard) = write_lock_bg.lock() {
@@ -2321,7 +2327,7 @@ impl TerminalState {
         if let Some(md) = &self.bootstrap_markdown {
             return md.clone();
         }
-        if let Ok(md) = std::fs::read_to_string(&self.bootstrap_md_path) {
+        if let Some(md) = crate::agent_session_files::read_session_text(&self.bootstrap_md_path) {
             self.bootstrap_markdown = Some(md.clone());
             return md;
         }
@@ -2545,8 +2551,8 @@ impl TerminalState {
     /// Writes the session's agent files now, on the calling thread (an agent is about to start and reads them
     /// at once). A snapshot queued earlier carries the run id and permission mode of before this start, so it
     /// is dropped (or waited for, when already writing) and `last_synced_key` is cleared: the next sync queues
-    /// a fresh one instead of letting the stale one overwrite these files.
-    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
+    /// a fresh one instead of letting the stale one overwrite these files. The first write that failed comes back.
+    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
         self.write_backoff.clear();
@@ -2572,7 +2578,7 @@ impl TerminalState {
             ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
             unread_probe: None,
         };
-        let _ = write_session_agent_files_for_job(&job);
+        write_session_agent_files_for_job(&job).err()
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
@@ -2985,10 +2991,17 @@ impl TerminalState {
         let run_seq = self.next_run_seq.max(1);
         self.next_run_seq = run_seq + 1;
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
-        if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-            self.reset_agent_run(file_path);
+        let provisioned = if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+            self.reset_agent_run(file_path)
         } else {
-            self.provision_session_agent_files(file_path);
+            self.provision_session_agent_files(file_path)
+        };
+        // Gemini CLI loads the settings Studio just rewrote by itself. In Ask mode, files that could not be rewritten, or do not
+        // read back as written, may be a copy an agent kept (hooks and servers included): the tab does not start.
+        if let (AgentCliPreset::Gemini, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
+            let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
+            self.status_msg = Some(message.clone());
+            return Err(message);
         }
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
@@ -3257,17 +3270,16 @@ impl TerminalState {
 
         // Channel 1: Scoped live-spec.json
         let live_spec = self.live_spec_path.clone();
-        if let Ok(meta) = std::fs::metadata(&live_spec) {
-            if let Ok(mtime) = meta.modified() {
-                let is_newer = match self.last_watched_mtime {
-                    Some(prev) => mtime > prev,
-                    None => true,
-                };
-                if is_newer {
-                    self.last_watched_mtime = Some(mtime);
-                    self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
-                    actions.push(TerminalAction::ApplySpecFile(live_spec));
-                }
+        // The time comes from the file as it is opened: a link or a FIFO the agent planted has none, so it is no spec.
+        if let Some(mtime) = spec_mtime(&live_spec) {
+            let is_newer = match self.last_watched_mtime {
+                Some(prev) => mtime > prev,
+                None => true,
+            };
+            if is_newer {
+                self.last_watched_mtime = Some(mtime);
+                self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
+                actions.push(TerminalAction::ApplySpecFile(live_spec));
             }
         }
 
@@ -3458,7 +3470,7 @@ impl TerminalState {
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
         // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
         let status_file = self.session_dir.join("agent-status.json");
-        if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
+        if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
             if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {
                 let is_done = matches!(parsed, AgentTabStatus::Done);
                 if is_done && !self.last_agent_status_done {
@@ -4488,27 +4500,28 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std:
 /// launched in `Ask` when the mode changes later: the file is shared by the window's tabs and rewritten on every sync.
 /// The folder itself stays trusted in both modes: without it Gemini ignores the project settings and never starts the
 /// server, and `TRUST_FOLDER` adds no allow rule.
-pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
+///
+/// Gemini loads both files by itself, the server and its hooks included, so each one is read back through the folder's handle
+/// after it is written. A write that fails (an agent made `.gemini` read-only), or a file that does not read back as written,
+/// is an error: a copy an agent kept would run for good.
+pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) -> std::io::Result<()> {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
     // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
     if let Some(obj) = gemini_cfg.as_object_mut() {
         obj.remove("designos");
     }
-    if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
-        let settings_path = session_dir.join(".gemini").join("settings.json");
-        let _ = atomic_write_session_file(&settings_path, &bytes);
-    }
+    let settings = serde_json::to_vec_pretty(&gemini_cfg).map_err(invalid_data)?;
 
     let mut trusted = serde_json::Map::new();
     trusted.insert(session_dir.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
     if let Ok(canon) = session_dir.canonicalize() {
         trusted.insert(canon.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
     }
-    if let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(trusted)) {
-        let trusted_path = session_dir.join(".gemini").join("trustedFolders.json");
-        let _ = atomic_write_session_file(&trusted_path, &bytes);
-    }
+    let trusted = serde_json::to_vec_pretty(&serde_json::Value::Object(trusted)).map_err(invalid_data)?;
+
+    crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("settings.json"), &settings)?;
+    crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("trustedFolders.json"), &trusted)
 }
 
 /// Builds the project-scoped `gemini mcp add` argv (`#679` §3 rule 4) using only flags
@@ -4667,7 +4680,7 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
     // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
-    let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
+    let existing_config = crate::agent_session_files::read_session_text(&mcp_config_path);
     let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
 
     // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
@@ -4701,7 +4714,8 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
     atomic_write_session_file(&mcp_config_path, &bytes)?;
     write_agy_session_plugin(&job.session_dir, &bytes)?;
-    write_gemini_session_config(&job.session_dir, &mcp_config);
+    // Every other file is written whatever this one's result is; it is reported last, and an Ask-mode Gemini tab refuses to start on it.
+    let gemini_config = write_gemini_session_config(&job.session_dir, &mcp_config);
     write_grok_session_config(&job.session_dir, &mcp_config)?;
     if let Some(dir) = &private_dir {
         write_private_claude_mcp_config(dir, &mcp_config);
@@ -4789,7 +4803,8 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     atomic_write_session_file(&job.session_dir.join(".agents/skills/designos-studio/SKILL.md"), skill_md.as_bytes())?;
     // Codex, Grok, Antigravity, Gemini CLI, and OpenCode read `AGENTS.md` / `GEMINI.md` from their cwd (the session dir).
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
-    atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())
+    atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
+    gemini_config
 }
 
 /// Shell command that appends one wrapped hook record to `<session_dir>/agent-events.jsonl` (`#683` §3.1)

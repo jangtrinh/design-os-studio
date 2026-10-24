@@ -9,10 +9,12 @@
 //! 2. Studio makes each session folder itself, with an exclusive `mkdir` (mode 0700). A path that exists already is
 //!    accepted only when it is a real folder (not a link) owned by the user. Anything else is an error, and nothing is
 //!    written there.
+//!
+//! What Studio writes below a session folder is a third rule, kept by [`super::no_follow`].
 
 #[cfg(unix)]
 use super::folder_owner::{check_owner, own_uid};
-use super::refusal::{refused, Refusal};
+use super::refusal::{cannot, failed, refused, Fix, Refusal};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -20,15 +22,18 @@ use std::path::{Path, PathBuf};
 const SESSIONS_DIR_NAME: &str = "sessions";
 
 /// Parent of a session path when Studio has no private data folder: [`create_session_folder`] refuses everything below
-/// it, never falling back to a folder an agent can write. On Unix nothing can be made below it (`/dev/null` is a file).
+/// it, never falling back to a folder an agent can write. It is absolute on every platform, so no call on it ever resolves
+/// against Studio's working folder: on Unix nothing can be made below it (`/dev/null` is a file), and on Windows no path
+/// below the `NUL` device exists.
 #[cfg(unix)]
 pub(super) const UNAVAILABLE_ROOT: &str = "/dev/null/designos-no-private-data-folder";
 #[cfg(not(unix))]
-pub(super) const UNAVAILABLE_ROOT: &str = "designos-no-private-data-folder";
+pub(super) const UNAVAILABLE_ROOT: &str = r"\\.\NUL\designos-no-private-data-folder";
 
-/// `e` with the folder it happened at and the next step, for the line a tab shows when it cannot start.
-fn cannot_make(dir: &Path, e: io::Error) -> io::Error {
-    io::Error::new(e.kind(), format!("{} can't be created: {e}. Check its permissions and free space, then try again", dir.display()))
+/// The error for a session path below [`UNAVAILABLE_ROOT`].
+pub(super) fn no_private_data_folder() -> io::Error {
+    let message = "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder)";
+    failed(io::ErrorKind::Other, message.to_string(), Fix::HomeFolder)
 }
 
 /// `<data dir>/designos/sessions` of this machine, or `None` when the approval channel has no private root either (no
@@ -65,6 +70,33 @@ pub fn ephemeral_session_dir(session_id: &str) -> PathBuf {
     ephemeral_sessions_root().unwrap_or_else(|| PathBuf::from(UNAVAILABLE_ROOT)).join(name)
 }
 
+/// `root` spelled without the links above it. It is looked up once it exists and kept: the sessions root of a process never changes.
+fn real_sessions_root(root: Option<&Path>) -> Option<&'static Path> {
+    static REAL_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(real) = REAL_ROOT.get() {
+        return Some(real);
+    }
+    let real = root?.canonicalize().ok()?;
+    Some(REAL_ROOT.get_or_init(|| real))
+}
+
+/// The session folder `path` lies in, when it lies in one: the closest folder above `path` that is a direct child of the
+/// ephemeral sessions folder (or of the root no session can use), or of a library's `agent-sessions` folder.
+pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
+    let root = ephemeral_sessions_root();
+    // The same folder spelled through the links above it (`/private/var` for `/var` on macOS) is Studio's own folder too.
+    let real_root = real_sessions_root(root.as_deref());
+    let is_session_folder = |dir: &Path| {
+        dir.parent().is_some_and(|up| {
+            root.as_deref() == Some(up)
+                || real_root == Some(up)
+                || up == Path::new(UNAVAILABLE_ROOT)
+                || up.file_name().is_some_and(|name| name == "agent-sessions")
+        })
+    };
+    path.ancestors().skip(1).find(|dir| is_session_folder(dir)).map(Path::to_path_buf)
+}
+
 /// Makes the session folder `dir` the way rule 2 says; a re-sync of a folder Studio made earlier succeeds. Parent folders
 /// are made owner-only, and the sessions folder of an ephemeral session must be a real folder of the user.
 pub(super) fn create_session_folder(dir: &Path) -> io::Result<()> {
@@ -73,20 +105,18 @@ pub(super) fn create_session_folder(dir: &Path) -> io::Result<()> {
 
 pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path) -> io::Result<()> {
     if dir.starts_with(UNAVAILABLE_ROOT) {
-        return Err(io::Error::other(
-            "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Make sure your home folder exists, then restart Studio",
-        ));
+        return Err(no_private_data_folder());
     }
     let parent = dir.parent().ok_or_else(|| io::Error::other(format!("{} has no parent folder", dir.display())))?;
     match std::fs::symlink_metadata(dir) {
         Ok(_) => return require_own_real_folder(ephemeral_root, dir, parent).map(|_| ()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(cannot_make(dir, e)),
+        Err(e) => return Err(cannot("created", dir, e, Fix::CheckPermissions)),
     }
     if ephemeral_root == Some(parent) {
         make_private_root(parent)?;
     } else {
-        crate::agent_approval_channel::create_private_dir_all(parent).map_err(|e| cannot_make(parent, e))?;
+        crate::agent_approval_channel::create_private_dir_all(parent).map_err(|e| cannot("created", parent, e, Fix::CheckPermissions))?;
     }
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
@@ -99,20 +129,20 @@ pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path
         Ok(()) => Ok(()),
         // Someone made it between the check and the `mkdir`: it must still be ours and a real folder.
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => require_own_real_folder(ephemeral_root, dir, parent).map(|_| ()),
-        Err(e) => Err(cannot_make(dir, e)),
+        Err(e) => Err(cannot("created", dir, e, Fix::CheckPermissions)),
     }
 }
 
 /// Creates the sessions folder (and what is above it) owner-only and requires it to be a real folder of the user, with
 /// no access for anyone else.
 fn make_private_root(root: &Path) -> io::Result<()> {
-    crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot_make(root, e))?;
+    crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot("created", root, e, Fix::CheckPermissions))?;
     let meta = require_own_real_folder(Some(root), root, root)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if meta.permissions().mode() & 0o077 != 0 {
-            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))?;
+            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).map_err(|e| cannot("made private", root, e, Fix::CheckPermissions))?;
         }
     }
     #[cfg(not(unix))]
@@ -123,7 +153,7 @@ fn make_private_root(root: &Path) -> io::Result<()> {
 /// Requires `dir` to be a real folder, not a link, that the user owns. The user's id is read in the sessions folder
 /// (`ephemeral_root`), and only without one next to the folder checked (`near`).
 pub(super) fn require_own_real_folder(ephemeral_root: Option<&Path>, dir: &Path, near: &Path) -> io::Result<std::fs::Metadata> {
-    let meta = std::fs::symlink_metadata(dir)?;
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| cannot("checked", dir, e, Fix::CheckPermissions))?;
     check_real_folder(dir, &meta)?;
     #[cfg(unix)]
     {
@@ -141,8 +171,8 @@ pub(super) fn probe_dir_for(ephemeral_root: Option<&Path>, near: &Path) -> io::R
     let Some(root) = ephemeral_root else {
         return Ok(near.to_path_buf());
     };
-    crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot_make(root, e))?;
-    check_real_folder(root, &std::fs::symlink_metadata(root)?)?;
+    crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot("created", root, e, Fix::CheckPermissions))?;
+    check_real_folder(root, &std::fs::symlink_metadata(root).map_err(|e| cannot("checked", root, e, Fix::CheckPermissions))?)?;
     Ok(root.to_path_buf())
 }
 
@@ -154,25 +184,4 @@ fn check_real_folder(dir: &Path, meta: &std::fs::Metadata) -> io::Result<()> {
         return Err(refused(Refusal::File, dir));
     }
     Ok(())
-}
-
-/// Makes the folder a session file is written into (`parent`). When `parent` is a session folder, or lies inside one,
-/// that folder gets the checks of [`create_session_folder`], so a write never follows a link planted at the folder.
-pub(super) fn prepare_write_parent(parent: &Path) -> io::Result<()> {
-    let root = ephemeral_sessions_root();
-    let is_session_folder = |dir: &Path| {
-        dir.parent()
-            .is_some_and(|up| root.as_deref() == Some(up) || up == Path::new(UNAVAILABLE_ROOT) || up.file_name().is_some_and(|name| name == "agent-sessions"))
-    };
-    match parent.ancestors().find(|dir| is_session_folder(dir)) {
-        Some(folder) => {
-            create_session_folder_in(root.as_deref(), folder)?;
-            if folder == parent {
-                Ok(())
-            } else {
-                std::fs::create_dir_all(parent)
-            }
-        }
-        None => std::fs::create_dir_all(parent),
-    }
 }

@@ -54,6 +54,11 @@ portable-pty = "0.8"
 toml = "1"
 vt100 = "0.15"
 
+# Unix only: `openat`, `mkdirat`, `renameat` and `unlinkat` for the writes below an agent's session folder
+# (`src/agent_session_files/no_follow.rs`). `libc` is already in the lockfile, pulled in by several of the crates above.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # macOS only: the app menu's Quit item (`src/macos_menu.rs`). The versions and the feature set are the ones eframe
 # already builds for the app icon, so no package is added to the build.
 [target.'cfg(target_os = "macos")'.dependencies]

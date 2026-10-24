@@ -247,12 +247,12 @@ struct EventFileCursor {
 
 impl EventFileCursor {
     fn bind(path: PathBuf) -> Self {
-        let meta = std::fs::metadata(&path).ok();
+        let meta = crate::agent_session_files::session_file_metadata(&path).ok();
         Self { offset: meta.as_ref().map_or(0, |m| m.len()), identity: meta.as_ref().map(file_identity), partial: String::new(), path }
     }
 
     fn read_available(&mut self) -> Vec<AgentEventRecord> {
-        let Ok(meta) = std::fs::metadata(&self.path) else {
+        let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else {
             return Vec::new();
         };
         let len = meta.len();
@@ -266,7 +266,7 @@ impl EventFileCursor {
             return Vec::new();
         }
         if len > self.offset {
-            if let Ok(mut file) = std::fs::File::open(&self.path) {
+            if let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) {
                 if file.seek(SeekFrom::Start(self.offset)).is_ok() {
                     let to_read = (len - self.offset).min(16 << 20) as usize;
                     let mut buf = vec![0u8; to_read];

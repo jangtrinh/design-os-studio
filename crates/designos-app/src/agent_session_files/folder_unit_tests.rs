@@ -73,7 +73,7 @@ fn a_folder_that_cannot_be_made_says_where_and_what_to_do() {
 
     let err = ensure_session_dir(&parent.join("file-1")).expect_err("no folder in a read-only parent");
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).expect("restore");
-    let text = err.to_string();
+    let text = with_next_step(&err);
     assert!(text.contains(&parent.join("file-1").display().to_string()) && text.contains("can't be created"), "names the folder: {text}");
     assert!(text.ends_with("try again"), "names the next step: {text}");
 }
@@ -118,7 +118,7 @@ fn a_probe_that_cannot_write_names_the_folder_and_what_to_do() {
     let err = probe_uid(&read_only).expect_err("no file can be created in a read-only folder");
 
     std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o700)).expect("restore");
-    let text = err.to_string();
+    let text = with_next_step(&err);
     assert!(text.contains(&read_only.display().to_string()), "names the folder: {text}");
     assert!(text.ends_with("try again"), "names the next step: {text}");
 }

@@ -263,10 +263,7 @@ pub fn is_pid_alive(pid: u32) -> bool {
 }
 
 fn try_create_lock_exclusively(lock_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(lock_path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    crate::agent_session_files::create_session_file_exclusive(lock_path, bytes)
 }
 
 fn fallback_lock_outcome(fallback_id: &str) -> LockOutcome {
@@ -311,8 +308,8 @@ where
         return LockOutcome::Acquired(dir);
     }
 
-    if let Ok(raw) = std::fs::read_to_string(&lock_path) {
-        if let Ok(existing) = serde_json::from_str::<SessionLock>(&raw) {
+    if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+        if let Ok(existing) = serde_json::from_slice::<SessionLock>(&raw) {
             if existing.pid == my_pid && existing.window == window {
                 return LockOutcome::Acquired(dir);
             }
@@ -322,7 +319,7 @@ where
         }
     }
 
-    let _ = std::fs::remove_file(&lock_path);
+    let _ = crate::agent_session_files::remove_session_file(&lock_path);
     if try_create_lock_exclusively(&lock_path, &bytes).is_ok() {
         LockOutcome::Acquired(dir)
     } else {
@@ -338,10 +335,10 @@ pub fn acquire_stable_session_dir(lib_root: &Path, file_id: &str, window: &str, 
 /// Releases `<session_dir>/session.lock` if it is owned by `( std::process::id(), window )`.
 pub fn release_session_lock(session_dir: &Path, window: &str) {
     let lock_path = session_dir.join("session.lock");
-    if let Ok(raw) = std::fs::read_to_string(&lock_path) {
-        if let Ok(existing) = serde_json::from_str::<SessionLock>(&raw) {
+    if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+        if let Ok(existing) = serde_json::from_slice::<SessionLock>(&raw) {
             if existing.pid == std::process::id() && existing.window == window {
-                let _ = std::fs::remove_file(&lock_path);
+                let _ = crate::agent_session_files::remove_session_file(&lock_path);
             }
         }
     }
@@ -352,14 +349,14 @@ pub fn release_session_lock(session_dir: &Path, window: &str) {
 /// writes a fresh empty `sessions.json`.
 pub fn load_or_init_registry(session_dir: &Path) -> SessionRegistry {
     let path = session_dir.join("sessions.json");
-    let Ok(raw) = std::fs::read_to_string(&path) else {
+    let Ok(raw) = crate::agent_session_files::read_session_file(&path) else {
         return SessionRegistry::default();
     };
-    match serde_json::from_str::<SessionRegistry>(&raw) {
+    match serde_json::from_slice::<SessionRegistry>(&raw) {
         Ok(reg) => reg,
         Err(_) => {
             let bad_path = session_dir.join("sessions.json.bad");
-            let _ = std::fs::rename(&path, &bad_path);
+            let _ = crate::agent_session_files::rename_session_file(&path, &bad_path);
             let fresh = SessionRegistry::default();
             let _ = save_registry(session_dir, &fresh);
             fresh
@@ -371,16 +368,7 @@ pub fn load_or_init_registry(session_dir: &Path) -> SessionRegistry {
 pub fn save_registry(session_dir: &Path, registry: &SessionRegistry) -> std::io::Result<()> {
     let path = session_dir.join("sessions.json");
     let bytes = serde_json::to_vec_pretty(registry).map_err(std::io::Error::other)?;
-    atomic_write(&path, &bytes)
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    crate::agent_session_files::atomic_write_session_file(&path, &bytes)
 }
 
 /// True for the built-in agent CLIs (`claude`, `codex`, `grok`, `agy`, `gemini`, `opencode`) that can be remembered
@@ -546,6 +534,12 @@ mod tests {
     use crate::terminal::TerminalState;
     use designos_doc::Document;
     use designos_library::Library;
+
+    /// A fallback id of its own for the second window of a test. The tests run in parallel, and a fixed id made the shutdown of one
+    /// remove the fallback folder another was still writing into.
+    fn second_window_id() -> String {
+        format!("p{}-w2-{}", std::process::id(), crate::live_sync_tests::unique_tab_id())
+    }
 
     fn temp_test_dir(tag: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -1209,7 +1203,7 @@ mod tests {
         };
 
         let mut st2 = TerminalState::for_tab(1);
-        st2.bind_library_file(&dir, "file-restart-1", "p1-w2-tab-1");
+        st2.bind_library_file(&dir, "file-restart-1", &second_window_id());
         st2.path_prepend.push(bin_dir);
         assert_eq!(st2.resumable_sessions().len(), 1);
         assert_eq!(st2.resumable_sessions()[0].session_id.as_deref(), Some(first_uuid.as_str()));
@@ -1253,10 +1247,11 @@ mod tests {
 
         let mut st2 = TerminalState::for_tab(1);
         st2.path_prepend.push(bin_dir);
-        st2.bind_library_file(&dir, "shared-file", "p1-w2-tab-1");
+        let second_window = second_window_id();
+        st2.bind_library_file(&dir, "shared-file", &second_window);
         let st2_fallback_dir = st2.session_dir.clone();
         assert_ne!(st2.session_dir, st1.session_dir);
-        assert_eq!(st2.session_dir, crate::agent_session_files::ephemeral_session_dir("p1-w2-tab-1"));
+        assert_eq!(st2.session_dir, crate::agent_session_files::ephemeral_session_dir(&second_window));
         assert_eq!(st2.status_msg.as_deref(), Some(ANOTHER_WINDOW_OWNS_SESSION_MSG));
 
         // Spawn a tab in the fallback window and shut it down while st1 has not written sessions.json yet.
@@ -1755,7 +1750,7 @@ mod tests {
         app.terminal.shutdown();
 
         let mut reopened = TerminalState::for_tab(2);
-        reopened.bind_library_file(lib.root(), &lf.id, "p1-w2-tab-1");
+        reopened.bind_library_file(lib.root(), &lf.id, &second_window_id());
         let resumable = reopened.resumable_sessions();
         assert_eq!(resumable.len(), 1, "reopened library file must have 1 resumable session");
         assert_eq!(resumable[0].session_id.as_deref(), Some(spawned_uuid.as_str()));
@@ -1832,7 +1827,7 @@ mod tests {
         assert_eq!(saved.app.terminal.session_dir, saved.disk_dir, "the running tab keeps its folder");
 
         let mut other_window = TerminalState::for_tab(2);
-        other_window.bind_library_file(&saved.lib_root, &saved.key, "p1-w2-tab-1");
+        other_window.bind_library_file(&saved.lib_root, &saved.key, &second_window_id());
         assert_ne!(other_window.session_dir, saved.disk_dir, "a second window must not share the folder a tab still runs in");
         other_window.shutdown();
 
