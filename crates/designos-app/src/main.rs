@@ -29,6 +29,7 @@ pub mod agent_usage;
 mod app;
 #[cfg(test)]
 mod apply_node_spec_variable_tests;
+mod approval_text;
 mod board;
 mod canvas;
 mod check_designs;
@@ -36,6 +37,8 @@ mod cli;
 mod cli_export_write;
 mod clipboard;
 mod cmdk;
+#[cfg(target_os = "macos")]
+mod codex_remote;
 mod comments;
 mod comp_ops;
 mod decks;
