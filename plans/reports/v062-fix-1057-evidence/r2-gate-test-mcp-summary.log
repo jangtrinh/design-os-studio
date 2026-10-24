@@ -1,0 +1,107 @@
+== gemini mtimes before: cargo test -p designos-mcp --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.57s
+     Running unittests src/lib.rs (out/cargo-1057/debug/deps/designos_mcp-bccb00bdb05568d2)
+
+running 228 tests
+
+test result: ok. 228 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.34s
+
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos_mcp-1e8f1c55c5a925a4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gen-tool-docs.rs (out/cargo-1057/debug/deps/gen_tool_docs-ea8ae3246ac98baa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/colour_detach.rs (out/cargo-1057/debug/deps/colour_detach-b2991cf6df768793)
+
+running 11 tests
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/colour_var_library.rs (out/cargo-1057/debug/deps/colour_var_library-38d4c6fa04e68313)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/colour_var_refs.rs (out/cargo-1057/debug/deps/colour_var_refs-0cb229ebc6a72994)
+
+running 16 tests
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/list_lint_rules.rs (out/cargo-1057/debug/deps/list_lint_rules-c7f3e773b00eed89)
+
+running 4 tests
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+     Running tests/live_doc_epoch.rs (out/cargo-1057/debug/deps/live_doc_epoch-3edd95ca95398ce2)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/live_session_guards.rs (out/cargo-1057/debug/deps/live_session_guards-db92954c1e55c6f7)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/session.rs (out/cargo-1057/debug/deps/session-94984970815e30ab)
+
+running 10 tests
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/spec_text_colour.rs (out/cargo-1057/debug/deps/spec_text_colour-5c1f9526e20a2113)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/stdio.rs (out/cargo-1057/debug/deps/stdio-2981640d0099e395)
+
+running 1 test
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/text_fill.rs (out/cargo-1057/debug/deps/text_fill-69ecba9b20de0fe7)
+
+running 7 tests
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/tools_snapshot.rs (out/cargo-1057/debug/deps/tools_snapshot-eece5487fd8b309c)
+
+running 5 tests
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/version.rs (out/cargo-1057/debug/deps/version-7b1665a385458f91)
+
+running 3 tests
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests designos_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+== gemini mtimes after: cargo test -p designos-mcp --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
