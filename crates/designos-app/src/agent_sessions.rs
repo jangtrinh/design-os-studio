@@ -614,6 +614,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The session skill's body prints the session folder's paths. None of them may carry text a document or a file can set,
+    /// because a backtick, a `!` or a line break in a path would put a shell placeholder into the skill. A library file's
+    /// folder keeps only `[A-Za-z0-9_-]` of its id, a disk file's is named by a hash of its path, and a window without a
+    /// library file works in a folder named by the process and tab numbers.
+    #[test]
+    fn a_session_folder_is_never_named_by_a_document_or_file_name() {
+        let lib_root = Path::new("/designos-lib");
+        let hostile_id = "x` !`touch m` `y\n!`id`\u{2028}../../etc";
+        let dir = stable_session_dir(lib_root, hostile_id);
+        assert_eq!(dir.parent(), Some(lib_root.join("agent-sessions").as_path()), "the id cannot leave its folder: {}", dir.display());
+        let name = dir.file_name().and_then(|n| n.to_str()).expect("a folder name");
+        assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "the folder name holds {name:?}");
+
+        let key = disk_file_session_key(Path::new("/tmp/a` !`touch m` b\n!`id`.fig"));
+        assert!(key.starts_with("path-") && key["path-".len()..].chars().all(|c| c.is_ascii_hexdigit()), "{key}");
+
+        assert_eq!(crate::terminal::tab_session_id("p123", 4), "p123-tab-4");
+    }
+
     // 1b. `disk_file_session_key_is_a_stable_hash_of_the_canonical_path`
     #[test]
     fn disk_file_session_key_is_a_stable_hash_of_the_canonical_path() {

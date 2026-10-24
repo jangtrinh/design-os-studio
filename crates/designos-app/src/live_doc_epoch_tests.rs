@@ -228,9 +228,9 @@ fn an_unloadable_document_is_reported_and_the_edits_made_on_it_are_dropped_not_m
 
 /// Two raw file writes in the session folder (what a sandboxed command can do without any MCP call) replace the document the
 /// window shows. Its name then reaches the skill Ask-mode Claude loads from the private plugin, which must stay a skill
-/// whose frontmatter is `name` and `description` only, whatever the name says.
+/// whose frontmatter is `name` and `description` only and whose body runs nothing, whatever the name says.
 #[test]
-fn a_document_switched_in_by_raw_session_file_writes_cannot_add_a_key_to_the_private_plugin_skill() {
+fn a_document_switched_in_by_raw_session_file_writes_cannot_add_a_key_or_a_command_to_the_private_plugin_skill() {
     for &name in crate::live_sync_tests::HOSTILE_NAMES {
         let mut l = live();
         l.app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
@@ -251,6 +251,7 @@ fn a_document_switched_in_by_raw_session_file_writes_cannot_add_a_key_to_the_pri
         let plugin = crate::agent_approval_channel::claude_plugin_dir_path(&l.dir).expect("a private channel folder");
         let skill = std::fs::read_to_string(plugin.join(crate::agent_permissions::CLAUDE_PLUGIN_SKILL_PATH)).expect("plugin skill written by the sync");
         crate::live_sync_tests::assert_skill_frontmatter_is_name_and_description(&skill, name, "Page 1");
+        crate::live_sync_tests::assert_skill_body_runs_nothing_and_names_add_no_line_break(&skill, name, "Page 1");
         l.finish();
     }
 }
