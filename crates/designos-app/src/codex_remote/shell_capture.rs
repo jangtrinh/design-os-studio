@@ -18,10 +18,14 @@ use std::time::{Duration, Instant};
 
 pub const MARKER_PREFIX: &str = "__DESIGNOS_ENV_";
 
-/// `__DESIGNOS_ENV_<32 random hex digits>__`: new for each capture. The digits come from `/dev/urandom` (as the approval
-/// channel's ids do), and the marker has no character that needs quoting in any shell.
-pub fn new_marker() -> String {
-    format!("{MARKER_PREFIX}{}__", crate::agent_sessions::generate_session_uuid().replace('-', ""))
+/// `__DESIGNOS_ENV_<32 random hex digits>__`: new for each capture, from 16 bytes of `/dev/urandom` (all 128 bits random,
+/// no fixed digits, no clock-based fallback: a marker that can be guessed is one a startup file could print). `None` when
+/// the system cannot give them, and the capture is then skipped. The marker has no character a shell would quote.
+pub fn new_marker() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    std::fs::File::open("/dev/urandom").and_then(|mut random| random.read_exact(&mut bytes)).ok()?;
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    Some(format!("{MARKER_PREFIX}{hex}__"))
 }
 
 /// The one argument given to the shell: prints the marker line, then the environment, NUL-separated.
@@ -67,7 +71,7 @@ fn home_folder(builder: &CommandBuilder) -> PathBuf {
 /// group, killed at `timeout`) and returns the environment it printed, with the builder's `DESIGNOS_*` values and the MCP
 /// names laid over it. `None` on any failure: no such shell, non-zero exit, timeout, no marker.
 pub fn capture(builder: &CommandBuilder, shell: &Path, timeout: Duration) -> Option<TabEnv> {
-    let (marker, base) = (new_marker(), TabEnv::from_builder(builder));
+    let (marker, base) = (new_marker()?, TabEnv::from_builder(builder));
     let mut command = Command::new(shell);
     command
         .args(["-l", "-i", "-c", &capture_script(&marker)])
