@@ -42,6 +42,26 @@ fn local_identity() -> Vec<String> {
     names.into_iter().flatten().filter(|name| name.len() >= 4).collect()
 }
 
+/// The shape of a secret: an `sk-` key, a JWT header, a bearer header.
+fn secret_shape(text: &str) -> Option<&'static str> {
+    let key_at = |at: usize| text[at..].chars().skip(3).take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).count() >= 12;
+    let sk_key = text.match_indices("sk-").any(|(at, _)| text[..at].chars().next_back().is_none_or(|before| !before.is_alphanumeric()) && key_at(at));
+    [(sk_key, "an sk- key"), (text.contains("eyJ"), "a JWT"), (text.contains("Bearer "), "a bearer header")]
+        .into_iter()
+        .find(|(found, _)| *found)
+        .map(|(_, what)| what)
+}
+
+#[test]
+fn the_secret_shape_check_sees_what_it_is_for_and_leaves_ordinary_words_alone() {
+    assert_eq!(secret_shape("key sk-proj-abcdefghijklmnop1234"), Some("an sk- key"));
+    assert_eq!(secret_shape("{\"token\":\"eyJhbGciOiJIUzI1NiJ9.e30.x\"}"), Some("a JWT"));
+    assert_eq!(secret_shape("Authorization: Bearer abc"), Some("a bearer header"));
+    for fine in ["a task-list", "risk-assessment-for-everything", "sk-short", "designos_new_document", ""] {
+        assert_eq!(secret_shape(fine), None, "{fine}");
+    }
+}
+
 #[test]
 fn fixtures_carry_no_personal_or_machine_data() {
     let files = fixture_files(Path::new(FIXTURE_DIR));
@@ -53,6 +73,7 @@ fn fixtures_carry_no_personal_or_machine_data() {
         for forbidden in ["/Users/", "/home/", ".local", "Mac", "/private/", "/var/folders", "/tmp/"] {
             assert!(!text.contains(forbidden), "{name} contains {forbidden:?}");
         }
+        assert_eq!(secret_shape(&text), None, "{name} holds the shape of a secret");
         for who in &identity {
             assert!(!text.contains(who.as_str()), "{name} contains this machine's user or host name");
         }

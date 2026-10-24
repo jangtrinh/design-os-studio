@@ -8,7 +8,16 @@ use std::collections::HashMap;
 
 enum Tracked {
     Mcp { server: String, tool: String, arguments: Value, in_progress: bool },
-    FileChange { paths: Vec<String> },
+    FileChange { changes: Vec<String> },
+}
+
+/// `path`, or `path → move_path` for a rename: what the change does to the file system.
+fn describe_change(change: &Value) -> Option<String> {
+    let path = change["path"].as_str()?;
+    Some(match change["kind"]["move_path"].as_str().filter(|target| !target.is_empty()) {
+        Some(target) => format!("{path} → {target}"),
+        None => path.to_string(),
+    })
 }
 
 #[derive(Default)]
@@ -25,12 +34,19 @@ impl ItemIndex {
             (Some("mcpToolCall"), Some(server), Some(tool)) => {
                 Tracked::Mcp { server: server.into(), tool: tool.into(), arguments: item["arguments"].clone(), in_progress: item["status"] == "inProgress" }
             }
-            (Some("fileChange"), ..) => Tracked::FileChange {
-                paths: item["changes"].as_array().into_iter().flatten().filter_map(|change| change["path"].as_str().map(String::from)).collect(),
-            },
+            (Some("fileChange"), ..) => Tracked::FileChange { changes: item["changes"].as_array().into_iter().flatten().filter_map(describe_change).collect() },
             _ => return,
         };
         self.items.insert((thread_id.into(), id.into()), (turn_id.into(), tracked));
+    }
+
+    /// Like [`ItemIndex::record`], but an item already known is kept: a `thread/items/list` answer is older than what
+    /// arrived live, and must not bring a completed call back to life.
+    pub fn record_if_absent(&mut self, thread_id: &str, turn_id: &str, item: &Value) {
+        let known = item["id"].as_str().is_some_and(|id| self.items.contains_key(&(thread_id.to_string(), id.to_string())));
+        if !known {
+            self.record(thread_id, turn_id, item);
+        }
     }
 
     /// Drops every item of a finished turn.
@@ -54,10 +70,10 @@ impl ItemIndex {
         self.in_progress_mcp(thread_id, turn_id, server).len()
     }
 
-    /// The paths of the file change `item_id`, when it is known.
-    pub fn file_paths(&self, thread_id: &str, item_id: &str) -> Option<&[String]> {
+    /// What each change of the file-change item `item_id` does, when the item is known.
+    pub fn file_changes(&self, thread_id: &str, item_id: &str) -> Option<&[String]> {
         match self.items.get(&(thread_id.to_string(), item_id.to_string())) {
-            Some((_, Tracked::FileChange { paths })) => Some(paths),
+            Some((_, Tracked::FileChange { changes })) => Some(changes),
             _ => None,
         }
     }

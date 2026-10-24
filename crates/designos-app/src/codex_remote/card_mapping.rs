@@ -6,7 +6,7 @@
 
 use super::item_index::ItemIndex;
 use super::protocol::{method, CardKind};
-use crate::agent_permissions::MAX_INPUT_SUMMARY_CHARS;
+use crate::approval_text;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -27,6 +27,12 @@ pub enum OpenTabReason {
     Disqualified,
     /// The item the request is about (the MCP tool call, the changed files) is not known.
     ItemUnknown,
+    /// A command whose text is cut at the shared limit: the tail is hidden, so it gets no Approve.
+    CommandCut,
+    /// A tool approval from an MCP server other than `designos`.
+    OtherServer,
+    /// The request's own copy of the tool arguments differs from the arguments of the running call.
+    PayloadMismatch,
 }
 
 /// What the Agents panel shows for one request, and what it needs to answer it.
@@ -60,26 +66,16 @@ pub struct MapContext<'a> {
     pub items: &'a ItemIndex,
 }
 
+/// The one MCP server whose tool approvals get buttons.
+const DESIGNOS_SERVER: &str = "designos";
+
 pub fn card_key(generation: u64, id: &Value) -> String {
     format!("cx-{generation}-{id}")
 }
 
-/// Control characters become spaces; text over the shared summary limit is cut, and the flag says so.
-fn finish_summary(raw: &str) -> (String, bool) {
-    let text: String = raw.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    let truncated = text.chars().count() > MAX_INPUT_SUMMARY_CHARS;
-    (if truncated { text.chars().take(MAX_INPUT_SUMMARY_CHARS).collect() } else { text }, truncated)
-}
-
 /// A value that says something: not null, not an empty list, object or string.
 fn is_set(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Array(items) => !items.is_empty(),
-        Value::Object(fields) => !fields.is_empty(),
-        Value::String(text) => !text.is_empty(),
-        _ => true,
-    }
+    !(value.is_null() || value.as_array().is_some_and(Vec::is_empty) || value.as_object().is_some_and(|f| f.is_empty()) || value.as_str() == Some(""))
 }
 
 /// A form that asks nothing, raised for an MCP tool call: the shape of a plain tool approval.
@@ -89,40 +85,55 @@ fn is_plain_tool_form(params: &Value) -> bool {
         && params["requestedSchema"]["properties"].as_object().is_some_and(|fields| fields.is_empty())
 }
 
-/// `(thread, turn)` when `method` is a plain MCP tool approval that would get a card but for one thing: no call of that
-/// server is known to be running in the turn (the item started before Studio joined). One look at the turn's items
-/// can name the tool.
+/// `(thread, turn)` when `method` is a plain `designos` tool approval that would get a card but for one thing: no call is
+/// known to be running in the turn (it started before Studio joined). One look at the turn's items can name the tool.
 pub fn needs_item_lookup(ctx: &MapContext, id: &Value, method_name: &str, params: &Value) -> Option<(String, String)> {
     let (thread_id, turn_id) = (params["threadId"].as_str()?, params["turnId"].as_str()?);
-    let server = params["serverName"].as_str().filter(|name| !name.is_empty())?;
+    let server = params["serverName"].as_str().filter(|name| *name == DESIGNOS_SERVER)?;
     let wanted = method_name == method::MCP_ELICITATION && ctx.ask_mode && is_plain_tool_form(params) && ctx.joined_roots.contains(thread_id);
     (wanted && !ctx.seen.contains(&card_key(ctx.generation, id)) && ctx.items.mcp_calls(thread_id, turn_id, server) == 0)
         .then(|| (thread_id.to_string(), turn_id.to_string()))
 }
 
-/// `(tool, summary)` of an MCP tool approval.
+/// The same payload: equal values, with "no arguments" written as null or as `{}` counting as one.
+fn same_payload(copy: &Value, arguments: &Value) -> bool {
+    copy == arguments || (!is_set(copy) && !is_set(arguments))
+}
+
+/// `server · key: value, ...` from the call's own arguments (values as compact JSON): the payload that will be sent.
+fn describe_arguments(server: &str, arguments: &Value) -> String {
+    let pairs: Vec<String> = match arguments {
+        Value::Object(fields) => fields.iter().map(|(key, value)| format!("{key}: {value}")).collect(),
+        Value::Null => Vec::new(),
+        other => vec![other.to_string()],
+    };
+    if pairs.is_empty() {
+        server.to_string()
+    } else {
+        format!("{server} · {}", pairs.join(", "))
+    }
+}
+
+/// `(tool, summary)` of an MCP tool approval. The summary comes from the running call's `arguments`, never from the
+/// request's display hints, and the request's own copy of the arguments (when it has one) must agree with them.
 fn describe_mcp(ctx: &MapContext, thread_id: &str, turn_id: &str, params: &Value) -> Result<(String, String), OpenTabReason> {
     if !is_plain_tool_form(params) {
         return Err(OpenTabReason::Disqualified);
     }
     let server = params["serverName"].as_str().filter(|name| !name.is_empty()).ok_or(OpenTabReason::Incomplete)?;
+    if server != DESIGNOS_SERVER {
+        return Err(OpenTabReason::OtherServer);
+    }
     let mut calls = ctx.items.in_progress_mcp(thread_id, turn_id, server);
     let (tool, arguments) = if calls.len() == 1 { calls.remove(0) } else { return Err(OpenTabReason::ItemUnknown) };
-    let pairs: Vec<String> = match params["_meta"]["tool_params_display"].as_array() {
-        Some(entries) => entries
-            .iter()
-            .filter_map(|entry| {
-                let label = entry["display_name"].as_str().or(entry["name"].as_str())?;
-                let value = entry.get("value")?;
-                Some(format!("{label}: {}", value.as_str().map_or_else(|| value.to_string(), str::to_string)))
-            })
-            .collect(),
-        None => Some(arguments).filter(|arguments| is_set(arguments)).map(Value::to_string).into_iter().collect(),
-    };
-    Ok((tool.to_string(), if pairs.is_empty() { server.to_string() } else { format!("{server} · {}", pairs.join(", ")) }))
+    if params["_meta"].get("tool_params").is_some_and(|copy| !same_payload(copy, arguments)) {
+        return Err(OpenTabReason::PayloadMismatch);
+    }
+    Ok((tool.to_string(), describe_arguments(server, arguments)))
 }
 
-/// The text of a plain command approval: the one action's command, or else the whole command line.
+/// The text of a plain command approval: the command line exactly as sent. Never `commandActions`, which is a lossy
+/// display summary (`ls | xargs rm -rf` comes out as `ls`).
 fn describe_command(params: &Value) -> Result<String, OpenTabReason> {
     let plain = matches!(params["kind"].as_str(), None | Some("command"))
         && !is_set(&params["networkApprovalContext"])
@@ -136,17 +147,16 @@ fn describe_command(params: &Value) -> Result<String, OpenTabReason> {
     if !plain || !accepts {
         return Err(OpenTabReason::Disqualified);
     }
-    let single_action = params["commandActions"].as_array().filter(|actions| actions.len() == 1).and_then(|actions| actions[0]["command"].as_str());
-    single_action.or(params["command"].as_str()).filter(|text| !text.trim().is_empty()).map(str::to_string).ok_or(OpenTabReason::Incomplete)
+    params["command"].as_str().filter(|text| !text.trim().is_empty()).map(str::to_string).ok_or(OpenTabReason::Incomplete)
 }
 
-/// The changed paths of a file-change approval that asks for nothing beyond those files.
+/// The changed paths of a file-change approval that asks for nothing beyond those files (a rename shows `path → target`).
 fn describe_file_change(ctx: &MapContext, thread_id: &str, params: &Value) -> Result<String, OpenTabReason> {
     if is_set(&params["grantRoot"]) {
         return Err(OpenTabReason::Disqualified);
     }
     let item_id = params["itemId"].as_str().ok_or(OpenTabReason::Incomplete)?;
-    ctx.items.file_paths(thread_id, item_id).filter(|paths| !paths.is_empty()).map(|paths| paths.join(", ")).ok_or(OpenTabReason::ItemUnknown)
+    ctx.items.file_changes(thread_id, item_id).filter(|changes| !changes.is_empty()).map(|changes| changes.join(", ")).ok_or(OpenTabReason::ItemUnknown)
 }
 
 /// Decides whether a server request gets a card.
@@ -170,14 +180,18 @@ pub fn map_request(ctx: &MapContext, id: &Value, method_name: &str, params: &Val
     let tab = ctx.tab_title;
     let described = match kind {
         CardKind::McpTool => {
-            describe_mcp(ctx, thread_id, turn_id, params).map(|(tool, summary)| (format!("{tab} wants to run {}", finish_summary(&tool).0), summary))
+            describe_mcp(ctx, thread_id, turn_id, params).map(|(tool, summary)| (format!("{tab} wants to run {}", approval_text::clean(&tool)), summary))
         }
         CardKind::Command => describe_command(params).map(|summary| (format!("{tab} wants to run a command"), summary)),
         CardKind::FileChange => describe_file_change(ctx, thread_id, params).map(|summary| (format!("{tab} wants to change files"), summary)),
     };
     match described {
         Ok((title, raw_summary)) => {
-            let (summary, truncated) = finish_summary(&raw_summary);
+            let (summary, truncated) = approval_text::finish(&raw_summary);
+            if truncated && kind == CardKind::Command {
+                // The tail of a cut command is hidden, and an approved command may run outside the sandbox.
+                return reason(OpenTabReason::CommandCut);
+            }
             Mapped::Card(CodexCard { key, raw_id: id.clone(), kind, title, summary, truncated, thread_id: thread_id.into(), turn_id: turn_id.into() })
         }
         Err(why) => reason(why),

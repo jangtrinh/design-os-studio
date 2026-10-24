@@ -1,8 +1,8 @@
 //! The WebSocket (RFC 6455) subset Codex's app-server speaks on its unix socket (`GET /rpc`).
 //!
-//! Out: the handshake, masked text, pong and close frames. In: unmasked text, ping, pong, close and continuation
-//! frames. Binary frames are refused. `Sec-WebSocket-Accept` is not checked: it would need SHA-1, which is not in the
-//! dependency tree, and the peer is a Codex process on a private path, so the digest proves nothing here.
+//! Out: the handshake, masked text, pong and close frames. In: unmasked text, ping, pong, close and continuation frames
+//! (binary is refused). `Sec-WebSocket-Accept` is not checked: it needs SHA-1, which is not in the dependency tree, and
+//! the peer is a Codex process on a private path, so the digest proves nothing.
 
 use std::io::Read;
 
@@ -48,8 +48,8 @@ pub fn random_key() -> String {
 }
 
 pub fn random_mask() -> [u8; 4] {
-    let bytes = uuid::Uuid::new_v4().into_bytes();
-    [bytes[0], bytes[1], bytes[2], bytes[3]]
+    let [a, b, c, d, ..] = uuid::Uuid::new_v4().into_bytes();
+    [a, b, c, d]
 }
 
 /// One final frame. A client passes `Some(mask)` (RFC 6455 requires masking client frames); a server side passes `None`.
@@ -58,22 +58,15 @@ pub fn encode_frame(opcode: u8, payload: &[u8], mask: Option<[u8; 4]>) -> Vec<u8
     let mut out = vec![0x80 | opcode];
     match payload.len() {
         n if n < 126 => out.push(mask_bit | n as u8),
-        n if n <= u16::MAX as usize => {
-            out.push(mask_bit | 126);
-            out.extend_from_slice(&(n as u16).to_be_bytes());
-        }
+        n if n <= u16::MAX as usize => out.extend([mask_bit | 126, (n >> 8) as u8, n as u8]),
         n => {
             out.push(mask_bit | 127);
-            out.extend_from_slice(&(n as u64).to_be_bytes());
+            out.extend((n as u64).to_be_bytes());
         }
     }
-    match mask {
-        Some(key) => {
-            out.extend_from_slice(&key);
-            out.extend(payload.iter().enumerate().map(|(i, b)| b ^ key[i % 4]));
-        }
-        None => out.extend_from_slice(payload),
-    }
+    let key = mask.unwrap_or_default();
+    out.extend(mask.iter().flatten());
+    out.extend(payload.iter().enumerate().map(|(i, b)| b ^ key[i % 4]));
     out
 }
 
@@ -107,7 +100,6 @@ struct Header {
     opcode: u8,
     mask: Option<[u8; 4]>,
     len: usize,
-    /// Bytes before the payload: the length form and the mask key.
     size: usize,
 }
 
@@ -118,11 +110,18 @@ pub struct Decoder {
     buf: Vec<u8>,
     /// Opcode and data of a fragmented message still waiting for its final frame.
     partial: Option<(u8, Vec<u8>)>,
+    /// A server never masks its frames (RFC 6455, 5.1): a masked one ends the link.
+    reject_masked: bool,
 }
 
 impl Decoder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A decoder for what a client reads from its server.
+    pub fn client() -> Self {
+        Decoder { reject_masked: true, ..Self::default() }
     }
 
     pub fn push(&mut self, bytes: &[u8]) {
@@ -138,9 +137,12 @@ impl Decoder {
             return Err(WsError::Protocol("reserved bits set"));
         }
         let (fin, opcode, masked) = (b[0] & 0x80 != 0, b[0] & 0x0F, b[1] & 0x80 != 0);
+        if masked && self.reject_masked {
+            return Err(WsError::Protocol("masked server frame"));
+        }
         let (len, mut size) = match b[1] & 0x7F {
             126 if b.len() >= 4 => (u16::from_be_bytes([b[2], b[3]]) as u64, 4),
-            127 if b.len() >= 10 => (u64::from_be_bytes(b[2..10].try_into().expect("8 bytes")), 10),
+            127 if b.len() >= 10 => (u64::from_be_bytes([b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9]]), 10),
             126 | 127 => return Ok(None),
             n => (n as u64, 2),
         };

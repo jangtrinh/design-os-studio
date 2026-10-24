@@ -159,3 +159,17 @@ fn keys_and_masks_are_random() {
     assert_eq!(base64::engine::general_purpose::STANDARD.decode(&a).expect("base64").len(), 16);
     assert_ne!(random_mask(), random_mask());
 }
+
+#[test]
+fn a_client_refuses_a_masked_frame_from_its_server_and_a_server_accepts_one_from_its_client() {
+    let masked = encode_frame(OP_TEXT, b"{}", Some(random_mask()));
+    let mut client = Decoder::client();
+    client.push(&masked);
+    assert_eq!(client.next_message(), Err(WsError::Protocol("masked server frame")));
+    let mut server = Decoder::new();
+    server.push(&masked);
+    assert_eq!(server.next_message(), Ok(Some(Message::Text("{}".into()))));
+    client = Decoder::client();
+    client.push(&encode_frame(OP_TEXT, b"{}", None));
+    assert_eq!(client.next_message(), Ok(Some(Message::Text("{}".into()))), "unmasked frames are what a server sends");
+}

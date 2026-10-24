@@ -2,10 +2,12 @@
 
 use super::fake_server::{FakeServer, WAIT};
 use super::harness::FAST;
-use super::support::{fixture, scratch_dir, short_scratch_dir, wait_until, with, write_script};
+use super::support::{fixture, scratch_dir, short_scratch_dir, tab_env, wait_until, with, write_script};
 use crate::codex_remote::gate::{lookup_version, warm, VersionLookup};
 use crate::codex_remote::protocol::Decision;
-use crate::codex_remote::{CodexEvent, CodexRemote, FallbackReason, Originator, StartRequest, UnavailableReason};
+use crate::codex_remote::remote::{CodexRemote, StartRequest};
+use crate::codex_remote::shell_env::TabEnv;
+use crate::codex_remote::{CodexEvent, FallbackReason, Originator, UnavailableReason};
 use portable_pty::CommandBuilder;
 use serde_json::json;
 use std::os::unix::fs::PermissionsExt;
@@ -17,9 +19,18 @@ use std::time::Duration;
 /// A `codex` that reports `version` and otherwise acts as a server that never listens.
 fn stub_codex(dir: &Path, version: &str) -> PathBuf {
     let bin = write_script(dir, "codex", &format!("[ \"$1\" = --version ] && {{ echo 'codex-cli {version}'; exit 0; }}; exec sleep 30"));
-    warm(&bin);
-    assert!(wait_until(Duration::from_secs(10), || matches!(lookup_version(&bin), VersionLookup::Known(_))), "the version probe finished");
-    bin
+    let env = tab_env();
+    warm(&bin, &env);
+    let mut last = VersionLookup::Pending;
+    wait_until(Duration::from_secs(10), || {
+        last = lookup_version(&bin, &env);
+        matches!(last, VersionLookup::Known(Some(_)))
+    });
+    match last {
+        VersionLookup::Known(Some(_)) => bin,
+        VersionLookup::Known(None) => panic!("the stub's version probe failed"),
+        VersionLookup::Pending => panic!("the stub's version probe did not finish in 10 s"),
+    }
 }
 
 fn tab(dir: &Path) -> CommandBuilder {
@@ -31,7 +42,15 @@ fn tab(dir: &Path) -> CommandBuilder {
 }
 
 fn start(bin: &Path, channel: Option<&Path>, pty: &CommandBuilder) -> Result<CodexRemote, FallbackReason> {
-    CodexRemote::start(StartRequest { codex_bin: bin, channel_dir: channel, tab_id: 7, pty, wake: Arc::new(|| {}), timing: FAST })
+    CodexRemote::start(StartRequest {
+        codex_bin: bin,
+        channel_dir: channel,
+        tab_id: 7,
+        pty,
+        env: &TabEnv::from_builder(pty),
+        wake: Arc::new(|| {}),
+        timing: FAST,
+    })
 }
 
 /// Processes whose command line names `marker` (the watchdog, which carries the stub's path).

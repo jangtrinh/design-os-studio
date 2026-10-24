@@ -1,19 +1,49 @@
 //! Helpers the codex_remote tests share: scratch folders, stub executables and bounded waiting.
 
+use crate::codex_remote::shell_env::TabEnv;
+use portable_pty::CommandBuilder;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+/// A scratch folder, removed with everything in it when the test drops it.
+pub struct Scratch(PathBuf);
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for Scratch {
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.0.as_os_str()
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A fresh, empty folder with a short name. A unix socket path may not exceed 103 bytes and macOS puts the temp
 /// folder at about 49 of them, so the tag stays short.
-pub fn scratch_dir(tag: &str) -> PathBuf {
-    fresh_dir(&std::env::temp_dir(), tag)
+pub fn scratch_dir(tag: &str) -> Scratch {
+    Scratch(fresh_dir(&std::env::temp_dir(), tag))
 }
 
 /// Like [`scratch_dir`], but under `/tmp` (12 bytes once macOS resolves it): for the tests that bind a socket whose
 /// file name is Codex's 64-character hash.
-pub fn short_scratch_dir(tag: &str) -> PathBuf {
-    fresh_dir(Path::new("/tmp"), tag).canonicalize().expect("canonical /tmp folder")
+pub fn short_scratch_dir(tag: &str) -> Scratch {
+    Scratch(fresh_dir(Path::new("/tmp"), tag).canonicalize().expect("canonical /tmp folder"))
 }
 
 fn fresh_dir(parent: &Path, tag: &str) -> PathBuf {
@@ -24,13 +54,38 @@ fn fresh_dir(parent: &Path, tag: &str) -> PathBuf {
     dir
 }
 
-/// An executable `#!/bin/sh` script `dir/name` with `body`.
-pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+/// An executable file `dir/name` with exactly `contents`.
+pub fn write_executable(dir: &Path, name: &str, contents: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("script");
+    std::fs::write(&path, contents).expect("executable");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    // A process another test forks while the file is open for writing keeps that descriptor until it has exec'd, and
+    // running the file in that window fails with "text file busy". Let any such child get past its exec first.
+    std::thread::sleep(Duration::from_millis(40));
     path
+}
+
+/// An executable `#!/bin/sh` script `dir/name` with `body`. It has been run once (with `CXTEST_WARM` set, when it exits
+/// at once) before this returns: the first run of a file that was just written is slow (macOS checks it), seconds on a
+/// loaded machine, and no test should be timed across it.
+pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+    let path = write_executable(dir, name, &format!("#!/bin/sh\n[ -z \"$CXTEST_WARM\" ] || exit 0\n{body}\n"));
+    let quiet = || std::process::Stdio::null();
+    let _ = std::process::Command::new(&path).env_clear().env("CXTEST_WARM", "1").stdin(quiet()).stdout(quiet()).stderr(quiet()).status();
+    path
+}
+
+/// A tab environment: a copy of this process's, in memory only (never printed).
+pub fn tab_env() -> TabEnv {
+    TabEnv::from_builder(&CommandBuilder::new("true"))
+}
+
+/// [`tab_env`] with `name` set to `value`.
+pub fn tab_env_with(name: &str, value: &str) -> TabEnv {
+    let mut builder = CommandBuilder::new("true");
+    builder.env(name, value);
+    TabEnv::from_builder(&builder)
 }
 
 /// Ids the recorded fixtures use for their one thread and its two turns.
@@ -75,4 +130,14 @@ pub fn wait_until(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
         std::thread::sleep(Duration::from_millis(10));
     }
     done()
+}
+
+#[test]
+fn a_scratch_folder_is_removed_when_it_is_dropped() {
+    let dir = scratch_dir("zz");
+    let path = dir.to_path_buf();
+    std::fs::write(path.join("file"), "x").unwrap();
+    assert!(path.exists());
+    drop(dir);
+    assert!(!path.exists(), "the test's folder must not outlive the test");
 }
