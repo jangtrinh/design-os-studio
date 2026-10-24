@@ -10,7 +10,8 @@
 //! that failed is asked again after [`RETRY_FAILED_AFTER`], so one transient failure does not end the card path for
 //! the rest of the session.
 
-use super::shell_env::{spawn_retrying, TabEnv};
+use super::shell_capture::{kill_group, spawn_retrying};
+use super::shell_env::TabEnv;
 use super::FallbackReason;
 use crate::agent_session_failure::extract_semver_token;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -73,15 +75,17 @@ pub fn resolve_in_path(path: &OsStr) -> Option<PathBuf> {
 /// A spawn that fails is tried once more after 50 ms (a script written a moment ago can still be busy).
 pub fn probe_version(bin: &Path, env: &TabEnv, timeout: Duration) -> Option<String> {
     let mut command = Command::new(bin);
-    command.arg("--version").env_clear().envs(env.vars()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    command.arg("--version").env_clear().envs(env.vars()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).process_group(0);
     let mut child = spawn_retrying(&mut command).ok()?;
+    let pgid = child.id();
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(20)),
             _ => {
-                let _ = child.kill();
+                // The npm shim starts the native binary as a child: take the whole group down, not just the shim.
+                kill_group(pgid);
                 let _ = child.wait();
                 return None;
             }

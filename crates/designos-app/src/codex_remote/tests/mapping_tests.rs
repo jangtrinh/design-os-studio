@@ -1,7 +1,6 @@
 //! Which server requests become Approve/Deny cards, and what the card says. Everything else stays in the terminal.
 
 use super::support::{fixture, with, without, THREAD, TURN2};
-use crate::agent_permissions::MAX_INPUT_SUMMARY_CHARS;
 use crate::codex_remote::card_mapping::{card_key, map_request, needs_item_lookup, CodexCard, MapContext, Mapped, OpenTabReason};
 use crate::codex_remote::item_index::ItemIndex;
 use crate::codex_remote::protocol::CardKind;
@@ -155,7 +154,7 @@ fn a_file_change_needs_no_extra_root_and_a_known_item_with_its_paths() {
     let items = index(&[fixture("item-started-file-change.synthetic")]);
     let card = card(map(&fixture("file-change-request.synthetic"), &items));
     assert_eq!((card.kind, card.title.as_str()), (CardKind::FileChange, "Codex CLI wants to change files"));
-    assert_eq!(card.summary, "/session/notes/todo.md, /session/README.md");
+    assert_eq!(card.summary, "add /session/notes/todo.md, edit /session/README.md");
     let grant = with(fixture("file-change-request.synthetic"), "/params/grantRoot", json!("/session"));
     assert_eq!(open_tab(map(&grant, &items)), OpenTabReason::Disqualified);
     assert_eq!(open_tab(map(&fixture("file-change-request.synthetic"), &ItemIndex::default())), OpenTabReason::ItemUnknown);
@@ -171,26 +170,4 @@ fn a_request_from_an_unjoined_thread_a_tab_out_of_ask_mode_a_replay_or_another_m
     for method in ["item/permissions/requestApproval", "item/tool/requestUserInput", "account/chatgptAuthTokens/refresh", "something/new"] {
         assert_eq!(open_tab(map(&with(request.clone(), "/method", json!(method)), &none)), OpenTabReason::Unsupported, "{method}");
     }
-}
-
-#[test]
-fn summaries_have_no_control_characters_and_are_cut_at_the_shared_limit() {
-    let at = |text: &str| {
-        card(map(&with(without(fixture("command-approval-request"), "/params/commandActions"), "/params/command", json!(text)), &ItemIndex::default()))
-    };
-    let clean = at("echo a\nb\tc\u{7}d");
-    assert_eq!((clean.summary.as_str(), clean.truncated), ("echo a b c d", false));
-    let exact = at(&"x".repeat(MAX_INPUT_SUMMARY_CHARS));
-    assert_eq!((exact.summary.chars().count(), exact.truncated), (MAX_INPUT_SUMMARY_CHARS, false));
-    let cut = card(map(&with(fixture("file-change-request.synthetic"), "/id", json!(9)), &index(&[long_path_item("é")])));
-    assert_eq!((cut.summary.chars().count(), cut.truncated), (MAX_INPUT_SUMMARY_CHARS, true), "characters are counted, not bytes");
-}
-
-/// A file-change item (of the synthetic request) whose one path is `MAX + 60` copies of `letter` long.
-fn long_path_item(letter: &str) -> Value {
-    with(
-        fixture("item-started-file-change.synthetic"),
-        "/params/item/changes",
-        json!([{"path": letter.repeat(MAX_INPUT_SUMMARY_CHARS + 60), "kind": {"type": "add"}, "diff": ""}]),
-    )
 }

@@ -130,3 +130,16 @@ fn a_failed_probe_is_asked_again_after_the_delay_and_a_good_answer_is_kept() {
     std::thread::sleep(retry + Duration::from_millis(100));
     assert!(matches!(answer(&env), VersionLookup::Known(Some(_))), "a good answer is never asked again");
 }
+
+#[test]
+fn a_probe_that_runs_out_of_time_takes_what_it_started_down_with_it() {
+    let dir = scratch_dir("hk");
+    let pid_file = dir.join("child.txt");
+    let bin = write_script(&dir, "codex", &format!("sleep 30 & echo $! > {}; wait", pid_file.display()));
+    assert_eq!(probe_version(&bin, &tab_env(), Duration::from_millis(600)), None);
+    let child = std::fs::read_to_string(&pid_file).expect("the stub ran and started a child").trim().to_string();
+    let alive = || std::process::Command::new("kill").args(["-0", &child]).stderr(std::process::Stdio::null()).status().is_ok_and(|status| status.success());
+    let gone = wait_until(Duration::from_secs(3), || !alive());
+    let _ = std::process::Command::new("kill").args(["-KILL", &child]).stderr(std::process::Stdio::null()).status();
+    assert!(gone, "the child the version command started must not outlive the probe");
+}

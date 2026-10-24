@@ -19,6 +19,12 @@ pub fn clean(raw: &str) -> String {
     raw.chars().map(|c| if is_hidden(c) { ' ' } else { c }).collect()
 }
 
+/// `raw` reads the same after [`clean`]: it changes nothing but tabs, which show as spaces. A command that does not may
+/// have a line break or an invisible character that decides what runs.
+pub fn is_shown_exactly(raw: &str) -> bool {
+    raw.chars().zip(clean(raw).chars()).all(|(before, after)| before == after || before == '\t')
+}
+
 /// [`clean`], then cut at [`MAX_INPUT_SUMMARY_CHARS`] characters. The flag says the text was cut.
 pub fn finish(raw: &str) -> (String, bool) {
     let text = clean(raw);
@@ -38,6 +44,14 @@ mod tests {
         assert_eq!(out.chars().count(), tricky.chars().count(), "one space for each, nothing dropped");
         assert_eq!(out.split_whitespace().collect::<Vec<_>>(), ["echo", "txt.exe", "x", "end"]);
         assert_eq!(clean("plain text, é and 日本語"), "plain text, é and 日本語", "ordinary text is untouched");
+    }
+
+    #[test]
+    fn only_tabs_may_change_for_the_text_to_count_as_shown_exactly() {
+        assert!(is_shown_exactly("echo a\tb  c") && is_shown_exactly("") && is_shown_exactly("日本語 é"));
+        for changed in ["a\nb", "a\rb", "a\u{7}b", "a\u{2028}b", "a\u{202E}b", "a\u{200B}b", "a\u{FEFF}"] {
+            assert!(!is_shown_exactly(changed), "{changed:?}");
+        }
     }
 
     #[test]

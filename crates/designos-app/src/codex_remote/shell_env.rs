@@ -2,30 +2,21 @@
 //!
 //! Today's embedded Codex runs under `$SHELL -l -i -c`, so what the user's startup files export (nvm's `PATH`, `CODEX_HOME`,
 //! proxies, API keys) reaches the process that runs the model. On the card path that process is the app-server, and the
-//! version probe has to find the same `node`, so all of them get the same environment: the login shell's, captured once
-//! per session, with Studio's own `DESIGNOS_*` values laid over it. If the capture fails for any reason the PTY
-//! builder's environment is used and the tab works as before.
+//! version probe has to find the same `node`, so all of them get the same environment: the login shell's (read by
+//! `shell_capture`), captured once per session, with Studio's own `DESIGNOS_*` values laid over it. If the capture fails
+//! for any reason the PTY builder's environment is used and the tab works as before.
 //!
 //! The values are kept in memory only. They are never logged or written to disk, and `Debug` prints names only.
 
-use super::server_process::MCP_ENV_VARS;
+use super::shell_capture::capture;
 use portable_pty::CommandBuilder;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::Read;
-use std::os::unix::ffi::OsStringExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Printed before the environment, so whatever the startup files print first (output, prompt escapes) is ignored.
-pub const MARKER: &str = "__DESIGNOS_ENV_BEGIN__";
-/// One argument, with no quote, backslash or `$`: fish, zsh and bash parse it the same way.
-pub const CAPTURE_SCRIPT: &str = "/bin/echo __DESIGNOS_ENV_BEGIN__; /usr/bin/env -0";
 pub const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
@@ -43,7 +34,20 @@ impl fmt::Debug for TabEnv {
 impl TabEnv {
     /// The builder's environment (the entries that are valid UTF-8).
     pub fn from_builder(builder: &CommandBuilder) -> Self {
-        TabEnv { vars: builder.iter_full_env_as_str().map(|(name, value)| (name.into(), value.into())).collect() }
+        Self::from_vars(builder.iter_full_env_as_str().map(|(name, value)| (name.into(), value.into())).collect())
+    }
+
+    /// These entries as an environment. A name that repeats keeps its last value, which is what a process started with
+    /// all of them in order (`Command::envs`) would see.
+    pub(super) fn from_vars(vars: Vec<(OsString, OsString)>) -> Self {
+        let mut unique: Vec<(OsString, OsString)> = Vec::with_capacity(vars.len());
+        for (name, value) in vars {
+            match unique.iter_mut().find(|(key, _)| *key == name) {
+                Some(entry) => entry.1 = value,
+                None => unique.push((name, value)),
+            }
+        }
+        TabEnv { vars: unique }
     }
 
     pub fn get(&self, name: &str) -> Option<&OsStr> {
@@ -68,89 +72,16 @@ pub fn tab_shell(builder: &CommandBuilder) -> PathBuf {
     }
 }
 
-/// The variables after the marker line of `output`: NUL-separated `NAME=value` entries, anything else dropped.
-pub fn parse_capture(output: &[u8]) -> Option<Vec<(OsString, OsString)>> {
-    let marker = [MARKER.as_bytes(), b"\n"].concat();
-    let start = output.windows(marker.len()).position(|window| window == marker)? + marker.len();
-    let vars: Vec<_> = output[start..]
-        .split(|byte| *byte == 0)
-        .filter_map(|entry| {
-            let at = entry.iter().position(|byte| *byte == b'=').filter(|at| *at > 0)?;
-            Some((OsString::from_vec(entry[..at].to_vec()), OsString::from_vec(entry[at + 1..].to_vec())))
-        })
-        .collect();
-    (!vars.is_empty()).then_some(vars)
-}
-
-/// Spawns `command`; a spawn that fails is tried once more after 50 ms, because a script written a moment ago can still
-/// be busy while another thread forks.
-pub fn spawn_retrying(command: &mut Command) -> std::io::Result<Child> {
-    command.spawn().or_else(|_| {
-        std::thread::sleep(Duration::from_millis(50));
-        command.spawn()
-    })
-}
-
-/// Kills a process group: the shell and everything its startup files started.
-fn kill_group(pgid: u32) {
-    let _ = Command::new("/bin/kill").args(["-KILL", "--", &format!("-{pgid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
-}
-
-/// Runs `shell -l -i -c <script>` starting from the builder's environment (stdin closed, own process group, killed at
-/// `timeout`) and returns the environment it printed, with the builder's `DESIGNOS_*` values and the MCP names laid
-/// over it. `None` on any failure: no such shell, non-zero exit, timeout, no marker.
-pub fn capture(builder: &CommandBuilder, shell: &Path, timeout: Duration) -> Option<TabEnv> {
-    let base = TabEnv::from_builder(builder);
-    let mut command = Command::new(shell);
-    command
-        .args(["-l", "-i", "-c", CAPTURE_SCRIPT])
-        .env_clear()
-        .envs(base.vars())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .process_group(0);
-    let mut child = spawn_retrying(&mut command).ok()?;
-    let (pgid, mut stdout) = (child.id(), child.stdout.take()?);
-    let (sender, output) = channel();
-    std::thread::Builder::new()
-        .name("codex-env-reader".into())
-        .spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = stdout.read_to_end(&mut bytes);
-            let _ = sender.send(bytes);
-        })
-        .ok()?;
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                kill_group(pgid);
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-    // A startup file may leave a background process holding the pipe: wait for the end of the output only so long.
-    let Ok(bytes) = output.recv_timeout(timeout.saturating_sub(started.elapsed()).max(Duration::from_millis(200))) else {
-        kill_group(pgid);
-        return None;
-    };
-    let mut vars = parse_capture(&bytes).filter(|_| status.success())?;
-    for (name, value) in builder.iter_full_env_as_str().filter(|(name, _)| name.starts_with("DESIGNOS_") || MCP_ENV_VARS.contains(name)) {
-        match vars.iter_mut().find(|(key, _)| key == name) {
-            Some(entry) => entry.1 = value.into(),
-            None => vars.push((name.into(), value.into())),
-        }
-    }
-    Some(TabEnv { vars })
-}
-
 enum Slot {
     Capturing,
     Ready(Arc<TabEnv>),
+    /// The capture failed: the builder's environment is used until `retry_after` has passed since `since`, then a new
+    /// capture starts (`retrying`) while this one keeps serving.
+    Fallback {
+        env: Arc<TabEnv>,
+        since: Instant,
+        retrying: bool,
+    },
 }
 
 fn slots() -> MutexGuard<'static, HashMap<String, Slot>> {
@@ -161,29 +92,47 @@ fn slots() -> MutexGuard<'static, HashMap<String, Slot>> {
 pub enum EnvLookup {
     /// The capture is still running (or has just started).
     Pending,
-    /// The session's environment: captured, or the builder's when the capture failed.
+    /// The session's environment: captured, or the builder's while a capture keeps failing.
     Ready(Arc<TabEnv>),
 }
 
-/// The environment of `session`, without blocking. The first call starts the capture on its own thread; the answer is
-/// kept for the session, so later calls (and later tabs) get the same environment.
-pub fn lookup(session: &str, builder: &CommandBuilder, shell: &Path, timeout: Duration) -> EnvLookup {
+/// The environment of `session`, without blocking. The first call starts the capture on its own thread. A captured
+/// environment is kept for the session (later tabs get the same one). A failed capture serves the builder's environment
+/// and is tried again after `retry_after` (see `gate::RETRY_FAILED_AFTER`), so a slow or loaded first start does not
+/// settle the whole session.
+pub fn lookup(session: &str, builder: &CommandBuilder, shell: &Path, timeout: Duration, retry_after: Duration) -> EnvLookup {
     let mut guard = slots();
-    match guard.get(session) {
+    let serving = match guard.get_mut(session) {
         Some(Slot::Ready(env)) => return EnvLookup::Ready(env.clone()),
         Some(Slot::Capturing) => return EnvLookup::Pending,
-        None => {}
-    }
+        Some(Slot::Fallback { env, since, retrying }) if *retrying || since.elapsed() < retry_after => return EnvLookup::Ready(env.clone()),
+        Some(Slot::Fallback { env, retrying, .. }) => {
+            *retrying = true;
+            Some(env.clone())
+        }
+        None => None,
+    };
     let (key, owned, shell) = (session.to_string(), builder.clone(), shell.to_path_buf());
     let spawned = std::thread::Builder::new().name("codex-env-capture".into()).spawn(move || {
-        let env = capture(&owned, &shell, timeout).unwrap_or_else(|| TabEnv::from_builder(&owned));
-        slots().insert(key, Slot::Ready(Arc::new(env)));
+        let slot = match capture(&owned, &shell, timeout) {
+            Some(env) => Slot::Ready(Arc::new(env)),
+            None => Slot::Fallback { env: Arc::new(TabEnv::from_builder(&owned)), since: Instant::now(), retrying: false },
+        };
+        slots().insert(key, slot);
     });
-    if spawned.is_err() {
-        return EnvLookup::Ready(Arc::new(TabEnv::from_builder(builder)));
+    match (spawned.is_ok(), serving) {
+        (true, Some(env)) => EnvLookup::Ready(env),
+        (true, None) => {
+            guard.insert(session.to_string(), Slot::Capturing);
+            EnvLookup::Pending
+        }
+        (false, serving) => {
+            if let Some(Slot::Fallback { retrying, .. }) = guard.get_mut(session) {
+                *retrying = false;
+            }
+            EnvLookup::Ready(serving.unwrap_or_else(|| Arc::new(TabEnv::from_builder(builder))))
+        }
     }
-    guard.insert(session.to_string(), Slot::Capturing);
-    EnvLookup::Pending
 }
 
 /// Drops the session's environment (the session ended).

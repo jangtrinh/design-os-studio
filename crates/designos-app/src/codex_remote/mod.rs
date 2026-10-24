@@ -12,6 +12,7 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 pub mod card_mapping;
+pub mod exec_cards;
 pub mod gate;
 pub mod item_index;
 pub mod launch;
@@ -23,6 +24,7 @@ pub mod rpc_session;
 pub mod rpc_state;
 pub mod rpc_threads;
 pub mod server_process;
+pub mod shell_capture;
 pub mod shell_env;
 pub mod stale_socket;
 pub mod ws;
@@ -135,6 +137,7 @@ impl Drop for CodexLink {
 mod tests {
     mod card_flow_tests;
     mod client_tests;
+    mod exec_card_tests;
     mod fake_server;
     mod gate_tests;
     mod harness;
@@ -144,6 +147,7 @@ mod tests {
     mod mapping_tests;
     mod remote_tests;
     mod schema_tests;
+    mod shell_capture_tests;
     mod shell_env_tests;
     mod snapshot_tests;
     mod stale_socket_tests;

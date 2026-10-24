@@ -40,9 +40,12 @@ fn a_command_cut_at_the_limit_gets_no_buttons_whatever_hides_the_tail() {
     let none = ItemIndex::default();
     let at = |command: &str| map(&command_request(command, "echo short"), &none);
     assert!(matches!(at(&"a".repeat(MAX_INPUT_SUMMARY_CHARS)), Mapped::Card(_)), "exactly the limit still fits");
-    for command in ["a".repeat(MAX_INPUT_SUMMARY_CHARS + 1), format!("echo {}", "a".repeat(255)), format!("{}{}", "a".repeat(150), "\u{200B}".repeat(60))] {
+    for command in ["a".repeat(MAX_INPUT_SUMMARY_CHARS + 1), format!("echo {}", "a".repeat(255))] {
         assert_eq!(open_tab(at(&command)), OpenTabReason::CommandCut, "{} chars", command.chars().count());
     }
+    // Invisible characters make the command not shown exactly before its length is looked at.
+    let hidden_tail = format!("{}{}", "a".repeat(150), "\u{200B}".repeat(60));
+    assert_eq!(open_tab(at(&hidden_tail)), OpenTabReason::CommandNotShownExactly);
 }
 
 #[test]
@@ -117,7 +120,7 @@ fn a_rename_shows_where_the_file_goes() {
     ]);
     let item = with(fixture("item-started-file-change.synthetic"), "/params/item/changes", changes);
     let card = card(map(&fixture("file-change-request.synthetic"), &index(&[item])));
-    assert_eq!(card.summary, "/session/notes.md → /outside/.zshrc, /session/a.md, /session/b.md");
+    assert_eq!(card.summary, "move /session/notes.md → /outside/.zshrc, edit /session/a.md, add /session/b.md");
 }
 
 fn hidden(c: char) -> bool {
@@ -127,10 +130,43 @@ fn hidden(c: char) -> bool {
 #[test]
 fn titles_and_summaries_carry_no_invisible_or_bidi_characters() {
     let tricky = "echo \u{202E}txt.exe\u{202C} \u{2066}x\u{2069} \u{200B}\u{200F}\u{2028}\u{FEFF}end";
-    let command = card(map(&command_request(tricky, "echo"), &ItemIndex::default()));
-    assert!(!command.summary.chars().any(hidden), "{:?}", command.summary);
-    assert_eq!(command.summary.split_whitespace().collect::<Vec<_>>(), ["echo", "txt.exe", "x", "end"]);
+    assert_eq!(open_tab(map(&command_request(tricky, "echo"), &ItemIndex::default())), OpenTabReason::CommandNotShownExactly);
+    let path = format!("/session/{}", tricky.trim_start_matches("echo "));
+    let changes = json!([{"path": path, "kind": {"type": "add"}, "diff": ""}]);
+    let item = with(fixture("item-started-file-change.synthetic"), "/params/item/changes", changes);
+    let files = card(map(&fixture("file-change-request.synthetic"), &index(&[item])));
+    assert!(!files.summary.chars().any(hidden), "{:?}", files.summary);
+    assert_eq!(files.summary.split_whitespace().collect::<Vec<_>>(), ["add", "/session/", "txt.exe", "x", "end"]);
     let item = with(fixture("item-started-mcp"), "/params/item/tool", json!("t\u{202E}x"));
     let tool = card(map(&fixture("mcp-elicitation-request"), &index(&[item])));
     assert_eq!(tool.title, "Codex CLI wants to run t x");
+}
+
+#[test]
+fn summaries_have_no_control_characters_and_are_cut_at_the_shared_limit() {
+    let at = |text: &str| {
+        card(map(&with(without(fixture("command-approval-request"), "/params/commandActions"), "/params/command", json!(text)), &ItemIndex::default()))
+    };
+    let tabbed = at("echo a\tb");
+    assert_eq!((tabbed.summary.as_str(), tabbed.truncated), ("echo a b", false), "a tab is the one change a command may show");
+    let item = with(
+        fixture("item-started-file-change.synthetic"),
+        "/params/item/changes",
+        json!([{"path": "/session/a\nb\u{7}c", "kind": {"type": "add"}, "diff": ""}]),
+    );
+    let file = card(map(&with(fixture("file-change-request.synthetic"), "/id", json!(8)), &index(&[item])));
+    assert_eq!(file.summary, "add /session/a b c");
+    let exact = at(&"x".repeat(MAX_INPUT_SUMMARY_CHARS));
+    assert_eq!((exact.summary.chars().count(), exact.truncated), (MAX_INPUT_SUMMARY_CHARS, false));
+    let cut = card(map(&with(fixture("file-change-request.synthetic"), "/id", json!(9)), &index(&[long_path_item("é")])));
+    assert_eq!((cut.summary.chars().count(), cut.truncated), (MAX_INPUT_SUMMARY_CHARS, true), "characters are counted, not bytes");
+}
+
+/// A file-change item (of the synthetic request) whose one path is `MAX + 60` copies of `letter` long.
+fn long_path_item(letter: &str) -> Value {
+    with(
+        fixture("item-started-file-change.synthetic"),
+        "/params/item/changes",
+        json!([{"path": letter.repeat(MAX_INPUT_SUMMARY_CHARS + 60), "kind": {"type": "add"}, "diff": ""}]),
+    )
 }

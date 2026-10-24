@@ -88,6 +88,28 @@ pub fn tab_env_with(name: &str, value: &str) -> TabEnv {
     TabEnv::from_builder(&builder)
 }
 
+/// A tab builder with made-up values; no HOME, so a leak of Studio's own environment shows.
+pub fn shell_builder() -> CommandBuilder {
+    let mut builder = CommandBuilder::new("true");
+    builder.env_remove("HOME");
+    for (name, value) in
+        [("PATH", "/usr/bin:/bin"), ("CXTEST_PLAIN", "plain-fake-1"), ("DESIGNOS_FILE", "/x/file.designos"), ("DESIGNOS_AGENT_RUNTIME", "codex")]
+    {
+        builder.env(name, value);
+    }
+    builder
+}
+
+/// A login shell that does `pre` (what an rc file might) and then runs the script it was given, like `$SHELL -l -i -c`.
+pub fn stub_shell(dir: &Path, pre: &str, after: &str) -> PathBuf {
+    write_script(dir, "shell", &format!("{pre}\n/bin/sh -c \"$4\"\nstatus=$?\n{after}\nexit $status"))
+}
+
+/// The value of `name` as text, for assertions that never print it.
+pub fn env_value(env: &TabEnv, name: &str) -> Option<String> {
+    env.get(name).map(|value| value.to_string_lossy().into_owned())
+}
+
 /// Ids the recorded fixtures use for their one thread and its two turns.
 pub const THREAD: &str = "11111111-1111-4111-8111-111111111111";
 pub const TURN1: &str = "22222222-2222-4222-8222-222222222222";

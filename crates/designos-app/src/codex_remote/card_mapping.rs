@@ -4,6 +4,7 @@
 //! card needs is there. Anything else (a form, a network approval, a request from a sub-agent) is left to the
 //! terminal's own menu: the tab shows the "Open tab" card for it.
 
+use super::exec_cards::{describe_command, describe_file_change};
 use super::item_index::ItemIndex;
 use super::protocol::{method, CardKind};
 use crate::approval_text;
@@ -33,6 +34,9 @@ pub enum OpenTabReason {
     OtherServer,
     /// The request's own copy of the tool arguments differs from the arguments of the running call.
     PayloadMismatch,
+    /// A command the sanitizer would change (a line break, a control or invisible character): shown, it would not read
+    /// the same as what runs.
+    CommandNotShownExactly,
 }
 
 /// What the Agents panel shows for one request, and what it needs to answer it.
@@ -74,7 +78,7 @@ pub fn card_key(generation: u64, id: &Value) -> String {
 }
 
 /// A value that says something: not null, not an empty list, object or string.
-fn is_set(value: &Value) -> bool {
+pub(super) fn is_set(value: &Value) -> bool {
     !(value.is_null() || value.as_array().is_some_and(Vec::is_empty) || value.as_object().is_some_and(|f| f.is_empty()) || value.as_str() == Some(""))
 }
 
@@ -130,33 +134,6 @@ fn describe_mcp(ctx: &MapContext, thread_id: &str, turn_id: &str, params: &Value
         return Err(OpenTabReason::PayloadMismatch);
     }
     Ok((tool.to_string(), describe_arguments(server, arguments)))
-}
-
-/// The text of a plain command approval: the command line exactly as sent. Never `commandActions`, which is a lossy
-/// display summary (`ls | xargs rm -rf` comes out as `ls`).
-fn describe_command(params: &Value) -> Result<String, OpenTabReason> {
-    let plain = matches!(params["kind"].as_str(), None | Some("command"))
-        && !is_set(&params["networkApprovalContext"])
-        && !is_set(&params["proposedNetworkPolicyAmendments"]);
-    // The decisions Codex offers ride on the wire (not in the stable schema); when they are listed, accept must be one.
-    let accepts = match params.get("availableDecisions") {
-        None | Some(Value::Null) => true,
-        Some(Value::Array(list)) => list.iter().any(|decision| decision == "accept"),
-        Some(_) => false,
-    };
-    if !plain || !accepts {
-        return Err(OpenTabReason::Disqualified);
-    }
-    params["command"].as_str().filter(|text| !text.trim().is_empty()).map(str::to_string).ok_or(OpenTabReason::Incomplete)
-}
-
-/// The changed paths of a file-change approval that asks for nothing beyond those files (a rename shows `path → target`).
-fn describe_file_change(ctx: &MapContext, thread_id: &str, params: &Value) -> Result<String, OpenTabReason> {
-    if is_set(&params["grantRoot"]) {
-        return Err(OpenTabReason::Disqualified);
-    }
-    let item_id = params["itemId"].as_str().ok_or(OpenTabReason::Incomplete)?;
-    ctx.items.file_changes(thread_id, item_id).filter(|changes| !changes.is_empty()).map(|changes| changes.join(", ")).ok_or(OpenTabReason::ItemUnknown)
 }
 
 /// Decides whether a server request gets a card.
