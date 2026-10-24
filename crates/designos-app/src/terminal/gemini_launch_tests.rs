@@ -20,6 +20,7 @@ fn in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file() {
     assert!(seen.to_string().contains(&format!("\\\"tab\\\":\\\"{tab_id}\\\"")), "the tab id is in the records the handlers write");
     // No hook reaches the session folder, where an agent can write.
     assert!(!recorded(&st, ".gemini/settings.json").contains("hooks"), "the session's Gemini settings carry hooks");
+    assert!(st.tabs[0].gemini.hooks, "hook records start this tab's waits");
     assert!(!st.tabs[0].pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire), "hook events drive the status, not the output");
     finish(dir, st);
 }
@@ -34,7 +35,7 @@ fn skip_mode_gemini_gets_no_hooks_file_and_keeps_its_environment() {
 }
 
 #[test]
-fn gemini_with_system_defaults_of_its_own_gets_no_hooks_and_the_output_heuristic() {
+fn gemini_with_system_defaults_of_its_own_gets_no_hooks_file_and_waits_from_its_screen() {
     let admin = std::env::temp_dir().join(format!("designos-gemini-admin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&admin);
     std::fs::create_dir_all(&admin).unwrap();
@@ -44,12 +45,13 @@ fn gemini_with_system_defaults_of_its_own_gets_no_hooks_and_the_output_heuristic
         hooks::with_system_config(&[(SYSTEM_DEFAULTS_ENV, "/admin/defaults.json")], &no_such_folder, || start_gemini("env", AgentPermissionMode::Ask, |_| {}));
     assert_eq!(recorded(&st, "defaults-env.txt"), inherited(), "an inherited value is left alone");
     assert!(hook_files(&st).is_empty());
-    assert!(st.tabs[0].pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire));
+    assert!(!st.tabs[0].gemini.hooks, "no hooks file: only the dialog on screen starts a wait");
+    assert!(!st.tabs[0].pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire), "words in the output start no wait");
     finish(dir, st);
     // A system-defaults.json sits where Gemini looks for it.
     std::fs::write(admin.join("system-defaults.json"), "{}").unwrap();
     let (dir, st) = hooks::with_system_config(&[], &admin, || start_gemini("file", AgentPermissionMode::Ask, |_| {}));
-    assert!(hook_files(&st).is_empty() && st.tabs[0].pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire));
+    assert!(hook_files(&st).is_empty() && !st.tabs[0].gemini.hooks);
     finish(dir, st);
     // Positive control: a system settings variable that names a folder without defaults does not block the hooks.
     let elsewhere = admin.join("elsewhere/settings.json");

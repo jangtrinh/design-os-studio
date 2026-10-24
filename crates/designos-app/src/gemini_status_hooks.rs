@@ -12,10 +12,10 @@
 //! The variable replaces whatever system defaults the machine has, so nothing is written when Gemini already has some of its
 //! own: Studio's environment names that file, or a `system-defaults.json` sits where Gemini looks for it. Nothing is written
 //! off Unix either: Gemini runs a hook through PowerShell on Windows, which cannot parse the POSIX command the handlers use.
-//! The tab then falls back to the terminal-output heuristic.
+//! The tab then starts its waits from the confirmation dialog on its screen instead (`gemini_dialog`).
 //!
-//! Gemini fires none of these hooks when the user answers No in its own confirmation dialog, so a wait also ends when a key
-//! that answers the dialog reaches the tab's terminal (`TerminalTab::note_gemini_dialog_answered`).
+//! Gemini fires none of these hooks when the user answers No in its own confirmation dialog, so the dialog on the tab's screen
+//! also decides when a wait ends (`gemini_dialog`).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -134,8 +134,8 @@ pub fn remove_tab_file(session_dir: &Path, tab_id: usize) {
 
 /// Writes the status-hooks file of a Gemini tab started in `mode` and returns its path, the value for
 /// [`SYSTEM_DEFAULTS_ENV`]. `None` when the tab is not a Gemini tab in Ask mode, when Gemini has system defaults of its own,
-/// or when the file cannot be written; the caller then leaves the tab's environment alone and relies on the output
-/// heuristic. Written before the tab starts, so the variable never names a file that is not there.
+/// or when the file cannot be written; the caller then leaves the tab's environment alone and the tab reads its waits from its
+/// screen. Written before the tab starts, so the variable never names a file that is not there.
 pub fn prepare_for_tab(session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
     prepare_for_tab_on(cfg!(unix), session_dir, tab_id, mode, preset)
 }
@@ -152,7 +152,7 @@ pub fn prepare_for_tab_on(posix_shell: bool, session_dir: &Path, tab_id: usize, 
     }
     if defaults_in_force_here() {
         eprintln!(
-            "design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the terminal output"
+            "design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen"
         );
         return None;
     }

@@ -139,10 +139,13 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    only a tab that asks nothing. An agent with a write grant on the session folder, or a Codex tab with a workspace-write sandbox, can
    make that write.
    Studio rewrites that file in full each time it provisions the session's agent files (`write_gemini_session_config`), and a new
-   Gemini tab does so synchronously just before its PTY starts, so an edit made before that point is gone when the tab starts. The
-   exposure is a write that lands after that rewrite and before Gemini reads its settings (the login shell's start plus Gemini's
-   own, typically a second or more; not measured). An agent that rewrites the file in a loop, or one in another tab of the same
-   session, can still win that race.
+   Gemini tab does so synchronously just before its PTY starts. That rewrite does not close the exposure, and the exposure can be
+   permanent: `write_gemini_session_config` ignores write errors, so an agent that makes `<session>/.gemini` read-only (`chmod
+   0555`) keeps its own settings through every rewrite (reproduced in review). Without that, the exposure is a write that lands after
+   a rewrite and before Gemini reads its settings (the login shell's start plus Gemini's own, typically a second or more; not
+   measured), which an agent that rewrites the file in a loop, or one in another tab of the same session, can win. The code fix,
+   a write that returns its error and a tab that refuses to start when the file is not Studio's, is tracked in #1061 and is not in
+   this change.
    Gemini 0.35 has no environment variable that ignores workspace settings for one run. Two flags, `--policy` and `--admin-policy`,
    replace the two policy lists from settings (`config.ts:653-654`; with both naming an empty folder a workspace policy file is no
    longer loaded), but they also drop the user's own and an admin's lists, so Studio does not use them. A settings file in a layer
@@ -160,9 +163,21 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
 
    The status hooks Studio adds for a Gemini tab (the "Needs approval" state) do not sit in the session folder: they are a per-tab
    file in the private folder, named by `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`. They are not written when Gemini already has system
-   defaults of its own, or off Unix (Gemini runs a hook through PowerShell on Windows, which cannot parse the status command); the
-   tab then reads its approvals from the terminal output. Gemini fires no hook when the user answers No in its own dialog, so
-   a wait ends when the user presses a key that answers that dialog in the tab's terminal (Enter, Esc, Ctrl+C or an option number).
+   defaults of its own, or off Unix (Gemini runs a hook through PowerShell on Windows, which cannot parse the status command).
+   Gemini fires no hook when the user answers No in its own dialog, and one answer in a queue ("1 of 2") leaves the next dialog
+   open, so the tab's own screen decides (`gemini_dialog.rs`). Every dialog with options ends with the option `No, suggest
+   changes (esc)` (`ToolConfirmationMessage.tsx` lines 270, 296, 321 and 352 of Gemini CLI 0.35.3: edit, exec, info and MCP, under
+   the `N of M` header of `ToolConfirmationQueue.tsx`). While that line is on the visible screen, the composer sends nothing into
+   the tab (not before the paste, and not before the delayed Enter), whatever the status says. A wait a hook started ends when
+   the line has been on screen and is gone for a quarter of a second, or when a tool, prompt or end-of-turn record arrives; if the
+   line comes back before such a record, the wait reopens. A key never ends a wait. A tab with no hooks file starts a wait only
+   when the line is on screen, so model text with "Allow " or "(y/n)" starts none. All of this applies only to Gemini 0.35.x;
+   outside it nothing reads the screen and the hooks alone drive the status, so for a newer Gemini (0.36 to 0.40 still contain the
+   line, but are not tested) a "No" answer leaves the wait standing until the next prompt. The `ask_user` and `exit_plan_mode`
+   dialogs draw no such line, and a panel so narrow that Gemini cuts the label inside a word hides it (a wrap between words is
+   found): both hold their wait until a hook record arrives, and the "Open tab" card still works. Whether real Gemini erases the
+   dialog's lines on an answer is inferred from its terminal library, not seen. An edit open in the external editor draws "Save and close external editor to continue"
+   instead: it keeps a wait open and never starts one.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no

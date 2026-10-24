@@ -362,7 +362,7 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
         return false;
     }
     let explicit_status = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) {
+    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open() {
         return false;
     }
     let bracketed = tab.parser.lock().ok().map(|p| p.screen().bracketed_paste()).unwrap_or(false);
@@ -374,6 +374,21 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
         return true;
     }
     tab.spawned_at.elapsed() >= crate::agent_start_failure::START_FAILURE_WINDOW
+}
+
+/// Writes the delayed `\r` that submits a pasted prompt. A Gemini dialog that opened after the paste gets no Enter: it would pick
+/// the highlighted option ("Allow once") for a tool the user never answered. The prompt stays pasted for the user to send.
+fn write_delayed_enter(tab: &mut TerminalTab) {
+    if !tab.accepts_agent_input() {
+        return;
+    }
+    if tab.gemini_dialog_open() {
+        tab.composer.awaiting_confirm_since = None;
+        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+        tab.composer.notice = Some(RefuseReason::Permission.message().to_string());
+        return;
+    }
+    let _ = tab.try_write_bytes(b"\r");
 }
 
 /// Writes `prompt` into the live agent tab with the fenced `skills_block` in front of it (`#573`). The block is empty when this send
@@ -467,9 +482,7 @@ impl TerminalState {
             if tab.composer.pending_enter_deadline.take().is_some() {
                 tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
-                if tab.accepts_agent_input() {
-                    let _ = tab.try_write_bytes(b"\r");
-                }
+                write_delayed_enter(tab);
             }
         }
     }
@@ -543,9 +556,7 @@ impl TerminalState {
                     tab.composer.pending_enter_deadline = None;
                     tab.composer.pending_enter_delay = None;
                     tab.composer.pending_enter_sim_time = None;
-                    if tab.accepts_agent_input() {
-                        let _ = tab.try_write_bytes(b"\r");
-                    }
+                    write_delayed_enter(tab);
                 }
             }
 
@@ -677,7 +688,9 @@ impl TerminalState {
                 self.status_msg = Some(msg);
                 return SendOutcome::Refused(RefuseReason::NotReady);
             }
-            let waiting_permission = tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_)));
+            // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
+            let waiting_permission =
+                tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_))) || tab.gemini_dialog_open();
             if waiting_permission {
                 let msg = RefuseReason::Permission.message().to_string();
                 tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
@@ -828,9 +841,7 @@ pub fn show_composer(
                 tab.composer.pending_enter_deadline = None;
                 tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
-                if tab.accepts_agent_input() {
-                    let _ = tab.try_write_bytes(b"\r");
-                }
+                write_delayed_enter(tab);
             }
         }
     }

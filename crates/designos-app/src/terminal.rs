@@ -537,6 +537,8 @@ pub struct TerminalTab {
     /// When set, the PTY reader also reports an approval prompt in the output as `WaitingForInput` for a tab whose
     /// status otherwise comes from hook events: Antigravity in `Ask` mode has no permission hook (`#656`).
     pub pty_waiting_heuristic: Arc<std::sync::atomic::AtomicBool>,
+    /// What a Gemini CLI tab's confirmation dialog on screen says about its wait (`gemini_dialog`).
+    pub gemini: crate::gemini_dialog::GeminiTabState,
     /// Timestamp when the child process was first observed dead while waiting for `reader_eof`.
     pub exited_at: Option<std::time::Instant>,
     /// Per-tab ledger of agent canvas turns (`#677`).
@@ -595,24 +597,6 @@ impl TerminalTab {
         self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
             && matches!(self.preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity | AgentCliPreset::Gemini)
             && self.agent_status.lock().ok().is_some_and(|g| matches!(*g, AgentTabStatus::WaitingForInput(_)))
-    }
-
-    /// The user pressed a key in this tab's terminal that answers Gemini CLI's confirmation dialog: Enter (the highlighted
-    /// option), an option number, Esc (No) or Ctrl+C (cancel). `ToolConfirmationMessage.tsx:185-196`, `useSelectionList.ts:411-461`
-    /// and `AppContainer.tsx:1695-1701` in Gemini CLI 0.35.3; the arrow keys, `j`, `k` and Tab only move within it.
-    ///
-    /// Gemini fires no hook when the answer is No (it submits nothing, so no tool hook and no end-of-turn hook follow), and a tab
-    /// whose wait came from the terminal output has no hooks at all. So the wait ends here. If the answer was Yes, the tool hook
-    /// moves the tab to Working a moment later; the composer guard (it refuses a send while a wait stands) is not loosened.
-    pub fn note_gemini_dialog_answered(&mut self) {
-        if self.spawn_preset != AgentCliPreset::Gemini || !self.pending_approvals.is_empty() {
-            return;
-        }
-        if let Ok(mut status) = self.agent_status.lock() {
-            if matches!(*status, AgentTabStatus::WaitingForInput(_)) {
-                *status = AgentTabStatus::Idle;
-            }
-        }
     }
 
     /// The status label of a wait on the user: `Needs approval` for a pending approval, `Needs input` for any other wait.
@@ -848,6 +832,7 @@ impl TerminalTab {
             last_usage_status: None,
             reader_eof,
             pty_waiting_heuristic,
+            gemini: Default::default(),
             exited_at: None,
             turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),
             unread: false,
@@ -3026,12 +3011,13 @@ impl TerminalState {
                 tab.is_resumed = is_resumed;
                 tab.spawned_command = command.map(str::to_string);
                 tab.permission_mode = self.permission_mode;
-                // Antigravity has no permission hook; a Gemini tab has none either when no hooks file could be written for it.
+                // Antigravity has no permission hook. A Gemini tab with no hooks file is not on this list: its waits start from the
+                // dialog on its screen (`gemini_dialog`), never from words in its output.
                 tab.pty_waiting_heuristic.store(
-                    self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
-                        && (preset == AgentCliPreset::Antigravity || (preset == AgentCliPreset::Gemini && env.gemini_system_defaults.is_none())),
+                    self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask && preset == AgentCliPreset::Antigravity,
                     std::sync::atomic::Ordering::Release,
                 );
+                tab.gemini.hooks = env.gemini_system_defaults.is_some();
                 if let Some(title) = custom_title {
                     tab.title = title;
                 }
@@ -3397,6 +3383,9 @@ impl TerminalState {
                 }
             }
         }
+
+        // A Gemini tab's wait follows the confirmation dialog on its screen, after the hook records above have had their say.
+        self.sync_gemini_dialogs();
 
         // Channel 4: each tab's folder in the Studio-private approval channel, written by Claude's PermissionRequest hook (#656).
         // No folder an agent can write is polled: a request file there is the agent's own doing, not the hook's.
@@ -5041,6 +5030,15 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("PATH", overrides);
         return;
     }
+    // A test's agent tab finds no CLI but the stubs the test put in `path_prepend`: not the user's `~/.local/bin`, nor Homebrew's,
+    // nor whatever `PATH` the test process was started with. The system folders stay, for the stubs' own `sleep` and `cat`.
+    #[cfg(test)]
+    if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+        let mut dirs = session.map(|s| s.path_prepend.clone()).unwrap_or_default();
+        dirs.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
+        cmd.env("PATH", std::env::join_paths(dirs).unwrap_or_default());
+        return;
+    }
     if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {
         cmd.env("PATH", "");
         return;
@@ -5917,7 +5915,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         {
             let bracketed_paste = tab.parser.lock().ok().map(|pg| pg.screen().bracketed_paste()).unwrap_or(false);
             let mut raw_bytes: Vec<u8> = Vec::new();
-            // Set when a key that answers Gemini CLI's confirmation dialog is among them (see `note_gemini_dialog_answered`).
+            // Set when a key that can answer Gemini CLI's confirmation dialog is among them: Enter, Esc, Ctrl+C or an option number
+            // (`ToolConfirmationMessage.tsx:185-196`, `useSelectionList.ts:411-461`, `AppContainer.tsx:1695-1701` in 0.35.3). It never
+            // ends a wait; the dialog on screen does (`gemini_dialog`).
             let mut answers_gemini_dialog = false;
             let mut copy_selection = false;
             let mut select_all = false;
@@ -6066,7 +6066,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 }
                 tab.write_bytes(&raw_bytes);
                 if answers_gemini_dialog {
-                    tab.note_gemini_dialog_answered();
+                    tab.note_gemini_key();
                 }
             }
         }
@@ -6412,6 +6412,18 @@ mod gemini_launch_tests;
 
 #[cfg(all(test, unix))]
 mod gemini_wait_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_dialog_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_composer_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_range_tests;
+
+#[cfg(all(test, unix))]
+mod real_cli_launch_tests;
 
 #[cfg(test)]
 mod tests {
@@ -11211,6 +11223,14 @@ mod tests {
             assert!(texts_nosel.iter().any(|t| t.text == expected.label), "NoSelection prompt label {:?} must be painted: {:?}", expected.label, texts_nosel);
         }
         kill_tabs(&mut st);
+    }
+
+    /// Runs last among the tests `real_cli_launch_tests` starts in a child process (the name sorts after theirs), so that a CLI
+    /// the earlier tests started in the background has run before the child exits. Skipped in a normal run.
+    #[test]
+    #[ignore = "only the real-CLI launch check runs this, last, in a child process"]
+    fn zz_let_background_launches_finish() {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 
     #[test]

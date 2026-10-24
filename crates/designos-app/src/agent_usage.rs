@@ -607,6 +607,11 @@ pub fn resolve_grok_binary(extra_dirs: &[PathBuf]) -> PathBuf {
             return p;
         }
     }
+    // A test finds a `grok` only in the folders it names, never on the user's lookup path. The path returned names nothing, so
+    // starting it fails at once.
+    if cfg!(test) {
+        return PathBuf::from("/designos-test-no-such-folder").join(candidate_name);
+    }
     if let Some(path_os) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path_os) {
             let p = dir.join(candidate_name);

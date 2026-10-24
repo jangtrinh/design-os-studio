@@ -544,8 +544,21 @@ pub fn warm_cli_version_cache(preset: AgentCliPreset) {
     let _ = probe_installed_cli_version(preset);
 }
 
+/// The installed CLI's `--version` as the probe of [`warm_cli_version_cache`] found it: `None` until that probe has finished, and
+/// when the CLI is not found or prints no version.
+#[cfg_attr(test, allow(dead_code))] // tests name the version themselves (`gemini_dialog::with_gemini_version`)
+pub(crate) fn installed_cli_version(preset: AgentCliPreset) -> Option<String> {
+    probe_installed_cli_version(preset)
+}
+
 fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     if matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+        return None;
+    }
+    // A test never starts a real CLI, not even for `--version`: nothing in a test depends on the installed version, and a CLI
+    // found on the developer's machine would run against whatever home it finds. (`version_probe_command` still gives the
+    // probe a scratch home, as defense in depth.)
+    if cfg!(test) {
         return None;
     }
     let bin = preset.binary_name();

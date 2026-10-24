@@ -27,6 +27,78 @@ printf 'ready' > "$DESIGNOS_SESSION_DIR/printed.txt"
 sleep 30
 "#;
 
+/// Stub `gemini` that prints model prose containing the words an output check might take for a prompt, and no dialog.
+pub(super) const STUB_PROSE: &str = r#"#!/bin/sh
+trap '' INT
+printf '%s' "${GEMINI_CLI_SYSTEM_DEFAULTS_PATH-unset}" > "$DESIGNOS_SESSION_DIR/defaults-env.txt"
+sleep 0.4
+printf 'Allow me to explain: the (y/n) prompt in your script asks about files.\r\n'
+printf 'ready' > "$DESIGNOS_SESSION_DIR/printed.txt"
+sleep 30
+"#;
+
+/// Stub `gemini` that records the `PATH` it was started with.
+pub(super) const STUB_PATH: &str = r#"#!/bin/sh
+printf '%s' "$PATH" > "$DESIGNOS_SESSION_DIR/path-seen.txt"
+printf 'x' > "$DESIGNOS_SESSION_DIR/defaults-env.txt"
+sleep 30
+"#;
+
+/// Clears a screen and homes the cursor.
+pub(super) const CLEAR: &str = "\x1b[2J\x1b[H";
+
+/// What Gemini 0.35.3 draws for an exec confirmation (`ToolConfirmationQueue.tsx`, `ToolConfirmationMessage.tsx`): a boxed header
+/// with `index of total` when several are queued, the command, the question and the options. Under 80 columns wide.
+pub(super) fn dialog_screen(index: usize, total: usize) -> String {
+    let queue = if total > 1 { format!("{index} of {total}") } else { String::new() };
+    let lines = [
+        format!("Action Required{queue:>41}"),
+        "? Shell rm -rf build".to_string(),
+        String::new(),
+        "Allow execution of: 'rm'?".to_string(),
+        "● 1. Allow once".to_string(),
+        "  2. Allow for this session".to_string(),
+        "  3. No, suggest changes (esc)".to_string(),
+    ];
+    let rows: Vec<String> = lines.iter().map(|line| format!("│ {line:<56} │")).collect();
+    format!("{CLEAR}╭{}╮\r\n{}\r\n╰{}╯", "─".repeat(58), rows.join("\r\n"), "─".repeat(58))
+}
+
+/// Draws `text` on tab `tab`'s screen, as if the CLI had printed it.
+pub(super) fn show(st: &mut TerminalState, tab: usize, text: &str) {
+    st.tabs[tab].parser.lock().unwrap().process(text.as_bytes());
+}
+
+pub(super) const ASK: AgentPermissionMode = AgentPermissionMode::Ask;
+
+/// Longer than the time a dialog must stay off the screen before a wait ends.
+pub(super) const QUIET: std::time::Duration = std::time::Duration::from_millis(320);
+
+pub(super) const REFUSED: crate::agent_composer::SendOutcome = crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::Permission);
+
+/// True when tab `tab` shows a wait on the user.
+pub(super) fn waiting(st: &TerminalState, tab: usize) -> bool {
+    matches!(st.tabs[tab].effective_status(), AgentTabStatus::WaitingForInput(_))
+}
+
+/// One poll of the bridge: hook records, then every Gemini tab's wait against its screen.
+pub(super) fn poll(st: &mut TerminalState) {
+    let _ = st.poll_live_agent_bridge();
+}
+
+/// What the composer does with a prompt now.
+pub(super) fn send(st: &mut TerminalState) -> crate::agent_composer::SendOutcome {
+    st.send_to_agent("make it blue", None)
+}
+
+/// The dialog goes off tab `tab`'s screen and stays off for longer than the debounce, with a poll on each side.
+pub(super) fn dialog_goes(st: &mut TerminalState, tab: usize) {
+    show(st, tab, CLEAR);
+    poll(st);
+    std::thread::sleep(QUIET);
+    poll(st);
+}
+
 /// What Studio's own environment holds for the defaults variable: the stub reports this when a tab's environment is left alone.
 pub(super) fn inherited() -> String {
     std::env::var(SYSTEM_DEFAULTS_ENV).unwrap_or_else(|_| "unset".to_string())
