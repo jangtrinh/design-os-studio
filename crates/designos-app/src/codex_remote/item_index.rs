@@ -8,16 +8,29 @@ use std::collections::HashMap;
 
 enum Tracked {
     Mcp { server: String, tool: String, arguments: Value, in_progress: bool },
-    FileChange { changes: Vec<String> },
+    FileChange { changes: Option<Vec<String>> },
 }
 
-/// `path`, or `path → move_path` for a rename: what the change does to the file system.
+/// What one change does, as `add <path>`, `edit <path>`, `delete <path>` or `move <path> → <target>`. `None` for a change
+/// of a kind Studio does not describe (or without a path): such a card would not say what it does.
 fn describe_change(change: &Value) -> Option<String> {
     let path = change["path"].as_str()?;
-    Some(match change["kind"]["move_path"].as_str().filter(|target| !target.is_empty()) {
-        Some(target) => format!("{path} → {target}"),
-        None => path.to_string(),
-    })
+    let target = change["kind"]["move_path"].as_str().filter(|target| !target.is_empty());
+    match (change["kind"]["type"].as_str()?, target) {
+        ("add", None) => Some(format!("add {path}")),
+        ("update", None) => Some(format!("edit {path}")),
+        ("update", Some(target)) => Some(format!("move {path} → {target}")),
+        ("delete", None) => Some(format!("delete {path}")),
+        _ => None,
+    }
+}
+
+/// What a file-change item does.
+pub enum Changes<'a> {
+    /// One line per change.
+    Described(&'a [String]),
+    /// At least one change is of a kind Studio does not describe.
+    Unreadable,
 }
 
 #[derive(Default)]
@@ -34,7 +47,7 @@ impl ItemIndex {
             (Some("mcpToolCall"), Some(server), Some(tool)) => {
                 Tracked::Mcp { server: server.into(), tool: tool.into(), arguments: item["arguments"].clone(), in_progress: item["status"] == "inProgress" }
             }
-            (Some("fileChange"), ..) => Tracked::FileChange { changes: item["changes"].as_array().into_iter().flatten().filter_map(describe_change).collect() },
+            (Some("fileChange"), ..) => Tracked::FileChange { changes: item["changes"].as_array().into_iter().flatten().map(describe_change).collect() },
             _ => return,
         };
         self.items.insert((thread_id.into(), id.into()), (turn_id.into(), tracked));
@@ -70,10 +83,11 @@ impl ItemIndex {
         self.in_progress_mcp(thread_id, turn_id, server).len()
     }
 
-    /// What each change of the file-change item `item_id` does, when the item is known.
-    pub fn file_changes(&self, thread_id: &str, item_id: &str) -> Option<&[String]> {
+    /// What the file-change item `item_id` does, when the item is known.
+    pub fn file_changes(&self, thread_id: &str, item_id: &str) -> Option<Changes<'_>> {
         match self.items.get(&(thread_id.to_string(), item_id.to_string())) {
-            Some((_, Tracked::FileChange { changes })) => Some(changes),
+            Some((_, Tracked::FileChange { changes: Some(changes) })) => Some(Changes::Described(changes)),
+            Some((_, Tracked::FileChange { changes: None })) => Some(Changes::Unreadable),
             _ => None,
         }
     }

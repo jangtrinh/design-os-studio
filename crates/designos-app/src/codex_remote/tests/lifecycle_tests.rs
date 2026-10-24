@@ -2,7 +2,8 @@
 
 use super::support::{scratch_dir, wait_until, write_script};
 use crate::codex_remote::server_process::{start, ServerLaunch, MCP_ENV_VARS};
-use crate::codex_remote::shell_env::{capture, TabEnv};
+use crate::codex_remote::shell_capture::capture;
+use crate::codex_remote::shell_env::TabEnv;
 use crate::terminal::AgentCliPreset;
 use portable_pty::CommandBuilder;
 use std::os::unix::fs::PermissionsExt;
