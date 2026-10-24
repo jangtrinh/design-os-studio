@@ -58,6 +58,25 @@ fn is_invisible(c: char) -> bool {
     )
 }
 
+/// The other format characters (category Cf), the ones that are not default-ignorable: Arabic and Syriac number and
+/// verse signs, interlinear annotation marks, Kaithi number signs, Egyptian hieroglyph format controls. Some draw as
+/// nothing and some draw a sign over the next characters, so a path that has one does not read as it is. (A sweep of
+/// every Cc, Cf, Zs, Zl and Zp code point of Unicode 16.0 against this file's sets leaves only U+0020.)
+fn is_other_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0600}'..='\u{0605}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+    )
+}
+
 /// A combining mark: some fonts draw it as nothing, so the letter it belongs to shows without it.
 fn is_combining_mark(c: char) -> bool {
     matches!(c, '\u{0300}'..='\u{036F}' | '\u{1AB0}'..='\u{1AFF}' | '\u{1DC0}'..='\u{1DFF}' | '\u{20D0}'..='\u{20FF}' | '\u{FE20}'..='\u{FE2F}')
@@ -67,7 +86,7 @@ fn is_combining_mark(c: char) -> bool {
 /// and no combining mark. Letters of any script pass when they are precomposed (NFC, as Vietnamese file names usually are);
 /// the same name decomposed (NFD) does not, because its accents can vanish.
 pub fn reads_as_it_is(raw: &str) -> bool {
-    raw.chars().all(|c| !(is_hidden(c) || is_invisible(c) || is_combining_mark(c) || (c.is_whitespace() && c != ' ')))
+    raw.chars().all(|c| !(is_hidden(c) || is_invisible(c) || is_other_format(c) || is_combining_mark(c) || (c.is_whitespace() && c != ' ')))
 }
 
 /// [`clean`], then cut at [`MAX_INPUT_SUMMARY_CHARS`] characters. The flag says the text was cut.
@@ -138,6 +157,21 @@ mod tests {
             "a\u{1dc0}",
             "a\u{20d0}",
             "a\u{fe20}",
+            // format characters (category Cf) that are not default-ignorable: Arabic and Syriac marks, interlinear
+            // annotation, Kaithi number signs, Egyptian hieroglyph format controls
+            "a\u{600}b",
+            "a\u{605}b",
+            "a\u{6dd}b",
+            "a\u{70f}b",
+            "a\u{890}b",
+            "a\u{891}b",
+            "a\u{8e2}b",
+            "a\u{fff9}b",
+            "a\u{fffb}b",
+            "a\u{110bd}b",
+            "a\u{110cd}b",
+            "a\u{13430}b",
+            "a\u{1343f}b",
         ];
         for text in bad {
             assert!(!reads_as_it_is(text), "{text:?}");

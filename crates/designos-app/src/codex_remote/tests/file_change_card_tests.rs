@@ -74,6 +74,9 @@ fn a_path_that_would_not_read_as_it_is_gets_no_buttons_wherever_it_stands() {
         "/session/a\u{200B}b",
         "/session/a\u{202E}b",
         "/session/a\u{FE0F}b",
+        "/session/a\u{600}b",
+        "/session/a\u{FFF9}b",
+        "/session/a\u{13430}b",
         "/session/e\u{323}\u{302}",
         "/session/a\u{301}",
     ];

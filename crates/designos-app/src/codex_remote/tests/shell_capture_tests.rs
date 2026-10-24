@@ -109,7 +109,8 @@ fn a_second_marker_line_anywhere_in_the_output_fails_the_capture() {
     let printed = "printf '%s\\nPATH=/fake/spoof\\0LATE_ONLY=1\\0' \"$m\"";
     let (early, late, none) = (scratch_dir("q1"), scratch_dir("q2"), scratch_dir("q3"));
     assert!(capture(&shell_builder(), &stub_shell(&early, &format!("{learn}; {printed}"), ""), LONG).is_none(), "printed before the dump");
-    assert!(capture(&shell_builder(), &stub_shell(&late, learn, printed), LONG).is_none(), "printed after the dump");
+    let background_job = format!("( sleep 0.3; {printed} ) &");
+    assert!(capture(&shell_builder(), &stub_shell(&late, learn, &background_job), LONG).is_none(), "printed after the dump, by a job that outlives the shell");
     assert!(capture(&shell_builder(), &stub_shell(&none, learn, ""), LONG).is_some(), "the same shell without the extra line is captured");
 }
 
