@@ -9,9 +9,9 @@ rm: <scratch>/home/.gemini/settings.json: Operation not permitted
 rm victim file exit=1 (must not be 0)
 == A. the agent plants .gemini -> victim in its session folder
 ln -s exit=0 (0 = the sandbox allows it)
-drwx------@ 3 jangtrinh  staff   96 Oct 24 17:48 .
-drwxr-xr-x@ 3 jangtrinh  staff   96 Oct 24 17:48 ..
-lrwxr-xr-x@ 1 jangtrinh  staff  112 Oct 24 17:48 .gemini -> <scratch>/home/.gemini
+drwx------@ 3 user  staff   96 Oct 24 17:48 .
+drwxr-xr-x@ 3 user  staff   96 Oct 24 17:48 ..
+lrwxr-xr-x@ 1 user  staff  112 Oct 24 17:48 .gemini -> <scratch>/home/.gemini
 == A. Studio rewrites the session files
 PROBE write: ok
 victim after A: oauth_creds.json settings.json trustedFolders.json 7474df290417 faac3c8c44c5 

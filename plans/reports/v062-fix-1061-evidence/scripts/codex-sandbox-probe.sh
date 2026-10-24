@@ -13,7 +13,7 @@ V="$S/home/.gemini"                              # the victim: stands for the us
 SESS="$S/lib/agent-sessions/file-1"              # the session folder Studio makes (a library file's, so the test build knows it)
 mkdir -p "$V" "$S/codex-home" "$S/test-home" "$S/tmp" "$S/lib/agent-sessions"
 printf 'USER-SETTINGS\n' > "$V/settings.json"; printf 'USER-CREDENTIALS\n' > "$V/oauth_creds.json"
-red() { sed "s#$S#<scratch>#g"; }
+red() { sed "s#$S#<scratch>#g; s#$WT#<worktree>#g; s#$HOME#~#g; s#$(id -un)#user#g"; }
 victim_state() { (cd "$V" && ls -A | sort | tr '\n' ' '; shasum -a 256 settings.json oauth_creds.json | awk '{print substr($1,1,12)}' | tr '\n' ' '); echo; }
 sandboxed() { env HOME="$S/home" CODEX_HOME="$S/codex-home" TMPDIR="$S/tmp/" codex sandbox -P :workspace -C "$SESS" -- "$@"; }
 studio() { env HOME="$S/test-home" TMPDIR="$S/tmp/" GEMINI_CLI_HOME="$S/test-home" CODEX_HOME="$S/test-home/.codex" CLAUDE_CONFIG_DIR="$S/test-home/.claude" \

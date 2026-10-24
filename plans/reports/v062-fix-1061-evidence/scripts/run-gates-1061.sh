@@ -13,7 +13,7 @@ T0="${TMPDIR:-/tmp}"; T0="${T0%/}"
 S="$(mktemp -d "$T0/b1061.XXXXXX")"; S="${S%/}"
 case "$S" in *//*) echo "scratch path has a double slash"; exit 1;; esac
 mkdir -p "$S/home"
-red() { sed "s#$S#<scratch>#g"; }
+red() { sed "s#$S#<scratch>#g; s#$WT#<worktree>#g; s#$HOME#~#g; s#$(id -un)#user#g"; }
 iso() { env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" \
           CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" "$@"; }
 mtimes() { date '+%Y-%m-%d %H:%M:%S %Z'; for f in "$REAL_HOME/.gemini/projects.json" "$REAL_HOME/.gemini/oauth_creds.json"; do echo "$(stat -f '%m' "$f" 2>/dev/null || echo missing) ~/.gemini/${f##*/}"; done; }
