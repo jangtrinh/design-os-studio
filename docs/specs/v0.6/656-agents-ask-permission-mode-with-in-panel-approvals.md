@@ -167,8 +167,8 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    Gemini fires no hook when the user answers No in its own dialog, and one answer in a queue ("1 of 2") leaves the next dialog
    open, so the tab's own screen decides (`gemini_dialog.rs`, `gemini_screen.rs`). Every dialog with options ends with the option
    `No, suggest changes (esc)` (`ToolConfirmationMessage.tsx` of Gemini CLI 0.35.3, lines 270, 296, 321 and 352: edit, exec, info and
-   MCP; of 0.65.0, lines 321, 347, 378, 403 and 433: edit, sandbox expansion, exec, info and MCP; under the `N of M` header of
-   `ToolConfirmationQueue.tsx`). Gemini cuts an option label that does not fit, with an ellipsis, and never wraps it
+   MCP; of 0.65.0, lines 321, 347, 378, 403 and 433: edit, sandbox expansion, exec, info and MCP, 5 of its 7 dialog types, the other
+   two being `ask_user` and `exit_plan_mode` as at 0.35.3; under the `N of M` header of `ToolConfirmationQueue.tsx`). Gemini cuts an option label that does not fit, with an ellipsis, and never wraps it
    (`RadioButtonSelect.tsx:103`; the label gets `columns - 9` cells, or one fewer with Gemini's alternate screen), so Studio looks for
    the label's first three words, `No, suggest changes`, and counts the ellipsis as a break between words. At the narrowest panel,
    260 px or 30 columns, the label shows as `No, suggest changes…`. The text is found down to 29 columns (30 with the alternate
@@ -176,9 +176,11 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
 
    The composer. While that text is on the visible screen of a Gemini Ask tab, the composer sends nothing into it, whatever the
    status says and whatever version the tab runs, a version nobody could name included: a send is refused before the paste, and the
-   delayed Enter is not written. The delayed Enter follows the rule of the send for every agent tab: when the tab began to wait on
-   the user after the paste (its status says so, or a Gemini dialog opened), no Enter is written. The prompt stays pasted for the
-   user to send, with the permission notice.
+   delayed Enter is not written. The delayed Enter of any agent tab is also held when the tab began to wait on the user after the
+   paste, if a hook record set that status or a Gemini dialog opened: no Enter is written, and the prompt stays pasted for the user
+   to send, with the permission notice. A waiting status read from the CLI's output (Codex, and an Ask-mode Antigravity tab) does not
+   hold the Enter, because the echo of the pasted prompt itself ("Allow users to export (y/n)") can set it and that is no question. A
+   send to a tab that already waits is refused whatever the status came from.
 
    The wait. A wait a hook started ends when the line has been on screen and is gone for a quarter of a second, or when a tool,
    prompt or end-of-turn record arrives; if the line comes back before such a record, the wait reopens. A key never ends a wait.

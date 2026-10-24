@@ -376,20 +376,38 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
     tab.spawned_at.elapsed() >= crate::agent_start_failure::START_FAILURE_WINDOW
 }
 
-/// True when nothing may be written into `tab` now because its agent waits on the user: its status says so, for any CLI, or a
-/// Gemini dialog is on its screen, whatever its status says. A pasted prompt or an Enter could answer the question.
-fn waits_on_the_user(tab: &TerminalTab) -> bool {
-    tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_))) || tab.gemini_dialog_open()
+/// True when `tab`'s status says its agent waits on the user.
+fn status_waits(tab: &TerminalTab) -> bool {
+    tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_)))
 }
 
-/// Writes the delayed `\r` that submits a pasted prompt. It applies the rule of the send, later: a tab that began to wait on the
-/// user after the paste (a record said so, or a Gemini dialog opened) gets no Enter, which would answer the question; for Gemini
-/// it would pick the highlighted "Allow once". The prompt stays pasted for the user to send.
+/// True when `tab` takes its waiting state from what the CLI prints, not from hook records: Codex, and a tab whose
+/// `pty_waiting_heuristic` is on (Antigravity in Ask mode). The words "Allow " or "(y/n)" set it wherever they appear on screen.
+fn status_comes_from_output(tab: &TerminalTab) -> bool {
+    tab.spawn_preset == AgentCliPreset::Codex || tab.pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// True when nothing may be pasted into `tab` now because its agent waits on the user: its status says so, for any CLI, or a Gemini
+/// dialog is on its screen, whatever its status says. A pasted prompt could answer the question.
+fn waits_on_the_user(tab: &TerminalTab) -> bool {
+    status_waits(tab) || tab.gemini_dialog_open()
+}
+
+/// True when the Enter that submits a pasted prompt must be held back. The rule of the send, applied later, with one narrowing: a
+/// status read from the CLI's output does not count here. The echo of the pasted prompt itself ("Allow users to export (y/n)") can
+/// set it, and that is no question, so the user's own Enter must go. A status set by hook records counts, and so does a Gemini dialog.
+fn holds_the_enter(tab: &TerminalTab) -> bool {
+    tab.gemini_dialog_open() || (status_waits(tab) && !status_comes_from_output(tab))
+}
+
+/// Writes the delayed `\r` that submits a pasted prompt. A tab that began to wait on the user after the paste (a hook record said
+/// so, or a Gemini dialog opened) gets no Enter, which would answer the question; for Gemini it would pick the highlighted "Allow
+/// once". The prompt stays pasted for the user to send.
 fn write_delayed_enter(tab: &mut TerminalTab) {
     if !tab.accepts_agent_input() {
         return;
     }
-    if waits_on_the_user(tab) {
+    if holds_the_enter(tab) {
         tab.composer.awaiting_confirm_since = None;
         tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
         tab.composer.notice = Some(RefuseReason::Permission.message().to_string());

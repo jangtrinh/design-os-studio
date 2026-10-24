@@ -6430,6 +6430,9 @@ mod gemini_dialog_tests;
 mod gemini_composer_tests;
 
 #[cfg(all(test, unix))]
+mod delayed_enter_tests;
+
+#[cfg(all(test, unix))]
 mod gemini_narrow_tests;
 
 #[cfg(all(test, unix))]
