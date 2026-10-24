@@ -1,1 +1,7 @@
 skills/vendor/** -text
+
+# The rules pack is built into the session skill and compared with the skill copy in skills/, so these files are LF on every
+# checkout, Windows included. They are LF in the index already.
+crates/designos-mcp/generated/*.md text eol=lf
+crates/designos-mcp/rules/*.md text eol=lf
+skills/design-os-studio/rules.md text eol=lf

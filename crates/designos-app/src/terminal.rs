@@ -4626,6 +4626,9 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
     let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
 
+    // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
+    // and `designos-mcp` reads neither name (the tab's shell still has `DESIGNOS_DOC_NAME` and `DESIGNOS_TARGET_PAGE_NAME`).
+    // `DESIGNOS_FILE` is the document's path on disk, which `designos-mcp` needs.
     let mut mcp_config = serde_json::json!({
         "mcpServers": {
             "designos": {
@@ -4643,8 +4646,6 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
                     "DESIGNOS_LIVE_SPEC": job.live_spec_path.display().to_string(),
                     "DESIGNOS_CONTEXT_JSON": job.context_json_path.display().to_string(),
                     "DESIGNOS_TARGET_PAGE_ID": job.current_page_id.to_string(),
-                    "DESIGNOS_TARGET_PAGE_NAME": job.current_page_name,
-                    "DESIGNOS_DOC_NAME": job.doc_name,
                     "DESIGNOS_FILE": job.file_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
                 }
             }
@@ -4718,9 +4719,8 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     // The session `SKILL.md` carries the rules pack for the tools this session enables.
     let rules_body = session_rules_pack(custom_tools.as_ref().map(|custom| &custom.enabled));
     let selection_spec_path = job.session_dir.join("selection.spec.json");
+    // The skill is loaded by the CLIs by themselves and holds no document or page name (see `format_session_skill_md`).
     let skill_md = designos_mcp::rules::format_session_skill_md(
-        &job.doc_name,
-        &job.current_page_name,
         &job.session_id,
         job.current_page_id,
         &job.live_canvas_path,
@@ -7724,7 +7724,9 @@ mod tests {
         st.flush_live_sync();
         for rel in ["SKILL.md", ".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md", "AGENTS.md"] {
             let text = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
-            assert!(text.contains("designos-studio") && text.contains("Skill Layout File"), "{rel}: {text}");
+            // Each CLI loads this file by itself, so it names the open file through `$DESIGNOS_DOC_NAME` and not by its name.
+            assert!(text.contains("designos-studio") && text.contains("`$DESIGNOS_DOC_NAME`"), "{rel}: {text}");
+            assert!(!text.contains("Skill Layout File"), "{rel} carries the document name: {text}");
             assert!(text.ends_with(designos_mcp::rules::GENERATED_RULES_MD.trim_start()), "{rel} must include the generated rules pack");
         }
     }
