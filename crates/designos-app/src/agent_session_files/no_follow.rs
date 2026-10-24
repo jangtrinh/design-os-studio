@@ -9,6 +9,8 @@
 
 mod files;
 mod remove;
+#[cfg(test)]
+pub(super) mod test_hooks;
 
 use super::folder_owner::check_owner;
 use super::refusal::{cannot, refused, Fix, Refusal};
@@ -66,6 +68,8 @@ impl Dir {
     /// a folder of another user; a folder that does not exist is a `NotFound` error. Folders above `path` are Studio's own.
     pub(super) fn open_session_folder(path: &Path) -> io::Result<Dir> {
         let c = c_name(path.as_os_str())?;
+        #[cfg(test)]
+        test_hooks::run(path, test_hooks::Step::BeforeOpen);
         // SAFETY: `c` is a NUL-terminated path that outlives the call.
         match retry(|| unsafe { libc::open(c.as_ptr(), FOLDER_FLAGS) }) {
             Ok(fd) => {
@@ -74,6 +78,8 @@ impl Dir {
                 Ok(dir)
             }
             Err(e) => {
+                #[cfg(test)]
+                test_hooks::run(path, test_hooks::Step::AfterFailedOpen);
                 let entry = std::fs::symlink_metadata(path).ok().map(|meta| (meta.file_type().is_symlink(), meta.is_dir()));
                 Err(explain_open(path, e, entry))
             }
@@ -101,6 +107,8 @@ impl Dir {
     pub(super) fn open_child(&self, name: &OsStr, create: bool) -> io::Result<Dir> {
         let (c, path) = (c_name(name)?, self.path.join(name));
         for _ in 0..ATTEMPTS {
+            #[cfg(test)]
+            test_hooks::run(&path, test_hooks::Step::BeforeOpen);
             // SAFETY: `c` is a NUL-terminated name that outlives the call; the descriptor is this folder's.
             match retry(|| unsafe { libc::openat(self.raw(), c.as_ptr(), FOLDER_FLAGS) }) {
                 Ok(fd) => return Ok(Dir::adopt(fd, path)),
@@ -113,7 +121,11 @@ impl Dir {
                         Err(e) => return Err(cannot("created", &path, e, Fix::CheckPermissions)),
                     }
                 }
-                Err(e) => return Err(explain_open(&path, e, self.kind_of(&c).ok())),
+                Err(e) => {
+                    #[cfg(test)]
+                    test_hooks::run(&path, test_hooks::Step::AfterFailedOpen);
+                    return Err(explain_open(&path, e, self.kind_of(&c).ok()));
+                }
             }
         }
         Err(cannot("opened", &path, io::Error::other("it was removed again each time"), Fix::CheckPermissions))
