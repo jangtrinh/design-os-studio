@@ -1,6 +1,6 @@
 //! The sessions folder unit tests use: one per test process, and the removal of what dead processes left behind.
 
-use super::folder::require_own_real_folder;
+use super::folder::{create_session_folder_in, require_own_real_folder};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -15,8 +15,9 @@ fn base_dir() -> PathBuf {
 pub(super) fn test_sessions_root() -> PathBuf {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
-        prepare_base(&base_dir(), std::process::id(), may_be_alive)
-            .unwrap_or_else(|e| panic!("the folder for the unit tests' session folders cannot be used, so no test can run: {e}"))
+        prepare_base(&base_dir(), std::process::id(), may_be_alive).unwrap_or_else(|e| {
+            panic!("the folder for the unit tests' session folders cannot be used, so no test can run: {}", crate::agent_session_files::with_next_step(&e))
+        })
     })
     .clone()
 }
@@ -40,7 +41,8 @@ fn may_be_alive_with(pid: u32, run_kill: impl FnOnce() -> io::Result<std::proces
 /// Returns `<base>/<own_pid>/sessions`. `base` must first be a real folder of the user (made if it is missing); a link, a file
 /// or a folder of another user is refused, and then nothing is swept or made. Then `base` is cleared: the folder of an earlier
 /// process that had this id (nothing alive holds it but this process) and the folder of every other process `is_alive` says
-/// is gone. A folder of a live process is never removed, and neither is a link or anything not named by a process id.
+/// is gone. A folder of a live process is never removed, and neither is a link or anything not named by a process id. Last,
+/// this process's own folder is made, refusing whatever sits in its place.
 pub(super) fn prepare_base(base: &Path, own_pid: u32, is_alive: impl Fn(u32) -> bool) -> io::Result<PathBuf> {
     if matches!(std::fs::symlink_metadata(base), Err(e) if e.kind() == io::ErrorKind::NotFound) {
         crate::agent_approval_channel::create_private_dir_all(base)?;
@@ -57,7 +59,10 @@ pub(super) fn prepare_base(base: &Path, own_pid: u32, is_alive: impl Fn(u32) -> 
             }
         }
     }
-    Ok(base.join(own_pid.to_string()).join("sessions"))
+    // Our own folder is made here, exclusively: a link, a file or a folder of another user planted in its place is refused.
+    let own_dir = base.join(own_pid.to_string());
+    create_session_folder_in(None, &own_dir)?;
+    Ok(own_dir.join("sessions"))
 }
 
 #[cfg(test)]
@@ -88,7 +93,7 @@ mod tests {
         assert_eq!(root, own.join("sessions"));
         assert!(!dead.exists(), "the root of a process that is gone stays behind");
         assert!(live.join("sessions/p1-tab-1/owner.json").is_file(), "the root of a live process was removed");
-        assert!(!own.exists(), "an earlier process with our id left folders that a test could trip over");
+        assert_eq!(std::fs::read_dir(&own).expect("our folder is made").count(), 0, "an earlier process with our id left folders that a test could trip over");
         assert!(legacy.join("sessions/p1-tab-1/owner.json").is_file(), "a folder that is not named by a process id is not ours to remove");
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -108,6 +113,23 @@ mod tests {
         assert!(dead.join("sessions/p1-tab-1/owner.json").is_file(), "the sweep went through the link and removed a folder");
         assert!(other.join("sessions/p1-tab-1/owner.json").is_file());
         assert!(!target.join("999993").exists(), "a folder was made through the link");
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it() {
+        let scratch = scratch_base("pid-link");
+        let target = scratch.join("target");
+        let base = scratch.join("designos test data");
+        std::fs::create_dir_all(&target).expect("target");
+        std::fs::create_dir_all(&base).expect("base");
+        std::os::unix::fs::symlink(&target, base.join("999997")).expect("plant the link");
+
+        let err = prepare_base(&base, 999_997, |_| false).expect_err("a link in place of our folder is refused");
+
+        assert!(err.to_string().contains("is a link, not a folder"), "{err}");
+        assert_eq!(std::fs::read_dir(&target).expect("target").count(), 0, "something was made through the link");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
