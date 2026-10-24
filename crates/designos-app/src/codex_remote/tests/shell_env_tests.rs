@@ -2,8 +2,9 @@
 //! Every value here is made up for the test. Nothing prints a real one.
 
 use super::support::{env_value, scratch_dir, shell_builder, stub_shell, wait_until, write_script};
+use crate::codex_remote::gate::RETRY_FAILED_AFTER;
 use crate::codex_remote::shell_capture::capture;
-use crate::codex_remote::shell_env::{forget, lookup, tab_shell, EnvLookup, TabEnv};
+use crate::codex_remote::shell_env::{forget, lookup, lookup_with, tab_shell, EnvLookup, TabEnv};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +14,7 @@ const LONG: Duration = Duration::from_secs(10);
 /// The session's environment once it is `Ready` (the lookup is asked again until then).
 fn ready(session: &str, shell: &Path, retry_after: Duration) -> Arc<TabEnv> {
     let mut found = None;
-    assert!(wait_until(LONG, || match lookup(session, &shell_builder(), shell, LONG, retry_after) {
+    assert!(wait_until(LONG, || match lookup_with(session, &shell_builder(), shell, LONG, retry_after) {
         EnvLookup::Ready(env) => {
             found = Some(env);
             true
@@ -63,7 +64,7 @@ fn a_failed_capture_is_tried_again_after_the_delay_and_a_good_one_is_kept() {
     assert!(
         wait_until(
             LONG,
-            || matches!(lookup(&session, &shell_builder(), &shell, LONG, retry), EnvLookup::Ready(env) if env_value(&env, "CXTEST_FROM_RC").is_some())
+            || matches!(lookup_with(&session, &shell_builder(), &shell, LONG, retry), EnvLookup::Ready(env) if env_value(&env, "CXTEST_FROM_RC").is_some())
         ),
         "tried again once the delay has passed"
     );
@@ -82,4 +83,21 @@ fn the_shell_is_the_builders_or_the_one_the_terminal_falls_back_to() {
     let mut without = shell_builder();
     without.env_remove("SHELL");
     assert!(["/bin/zsh", "/bin/sh"].contains(&tab_shell(&without).to_str().unwrap()));
+}
+
+#[test]
+fn the_lookup_a_tab_makes_waits_thirty_seconds_before_it_asks_a_failing_shell_again() {
+    assert_eq!(RETRY_FAILED_AFTER, Duration::from_secs(30));
+    let dir = scratch_dir("el");
+    let count = dir.join("count.txt");
+    let shell = stub_shell(&dir, &format!("echo run >> {}; exit 5", count.display()), "");
+    let session = format!("sess-{}-default", std::process::id());
+    let ask = || lookup(&session, &shell_builder(), &shell);
+    assert!(wait_until(LONG, || matches!(ask(), EnvLookup::Ready(_))), "the builder's environment once the capture has failed");
+    for _ in 0..3 {
+        assert!(matches!(ask(), EnvLookup::Ready(_)));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(std::fs::read_to_string(&count).map_or(0, |text| text.lines().count()), 1, "not asked again within the delay");
+    forget(&session);
 }

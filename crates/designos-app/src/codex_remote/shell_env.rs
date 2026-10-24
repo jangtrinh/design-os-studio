@@ -8,6 +8,7 @@
 //!
 //! The values are kept in memory only. They are never logged or written to disk, and `Debug` prints names only.
 
+use super::gate::RETRY_FAILED_AFTER;
 use super::shell_capture::capture;
 use portable_pty::CommandBuilder;
 use std::collections::HashMap;
@@ -98,9 +99,14 @@ pub enum EnvLookup {
 
 /// The environment of `session`, without blocking. The first call starts the capture on its own thread. A captured
 /// environment is kept for the session (later tabs get the same one). A failed capture serves the builder's environment
-/// and is tried again after `retry_after` (see `gate::RETRY_FAILED_AFTER`), so a slow or loaded first start does not
+/// and is tried again after `retry_after` ([`lookup`] uses `RETRY_FAILED_AFTER`, 30 s), so a slow or loaded first start does not
 /// settle the whole session.
-pub fn lookup(session: &str, builder: &CommandBuilder, shell: &Path, timeout: Duration, retry_after: Duration) -> EnvLookup {
+pub fn lookup(session: &str, builder: &CommandBuilder, shell: &Path) -> EnvLookup {
+    lookup_with(session, builder, shell, CAPTURE_TIMEOUT, RETRY_FAILED_AFTER)
+}
+
+/// [`lookup`] with the capture timeout and the retry delay given.
+pub fn lookup_with(session: &str, builder: &CommandBuilder, shell: &Path, timeout: Duration, retry_after: Duration) -> EnvLookup {
     let mut guard = slots();
     let serving = match guard.get_mut(session) {
         Some(Slot::Ready(env)) => return EnvLookup::Ready(env.clone()),

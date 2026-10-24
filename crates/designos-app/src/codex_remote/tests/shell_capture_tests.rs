@@ -60,7 +60,7 @@ fn the_shell_gets_one_script_with_no_quotes_in_its_own_group_and_no_input() {
 
 #[test]
 fn the_marker_is_random_and_new_for_every_capture() {
-    let (first, second) = (new_marker(), new_marker());
+    let (first, second) = (new_marker().unwrap(), new_marker().unwrap());
     assert!(is_marker(&first) && is_marker(&second), "{first} {second}");
     assert_ne!(first, second);
     let dir = scratch_dir("eg");
@@ -147,4 +147,13 @@ fn a_shell_that_fails_or_prints_no_marker_gives_no_environment() {
     assert!(capture(&b, &stub_shell(&dir, "", "exit 3"), LONG).is_none(), "non-zero exit, although the output looks right");
     assert!(capture(&b, &write_script(&dir, "nomarker", "echo garbage"), LONG).is_none());
     assert!(capture(&b, &dir.join("absent"), LONG).is_none(), "no such shell");
+}
+
+/// A UUID would fix six of the 128 bits (version and variant), and a clock-based fallback would make it guessable.
+#[test]
+fn every_digit_of_the_marker_is_random_and_it_is_not_shaped_like_a_uuid() {
+    let digits: Vec<Vec<u8>> = (0..64).map(|_| new_marker().unwrap().strip_prefix(MARKER_PREFIX).unwrap().bytes().take(32).collect()).collect();
+    for at in 0..32 {
+        assert!(digits.iter().any(|marker| marker[at] != digits[0][at]), "digit {at} is the same in 64 markers");
+    }
 }
