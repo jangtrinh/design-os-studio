@@ -4,6 +4,7 @@ use super::fake_server::{Conn, FakeServer, QUIET, WAIT};
 use super::support::{fixture, with};
 use crate::codex_remote::protocol::{initialize_params, CLIENT_NAME};
 use crate::codex_remote::rpc_client::{spawn, ClientConfig, ClientHandle, Timing, Wake};
+use crate::codex_remote::session_folder::SessionFolder;
 use crate::codex_remote::CodexEvent;
 use serde_json::json;
 use std::path::Path;
@@ -21,7 +22,15 @@ pub const FAST: Timing = Timing {
     max_resume_attempts: 20,
 };
 pub fn test_config(socket: &Path, ask_mode: Arc<AtomicBool>, wake: Wake) -> ClientConfig {
-    ClientConfig { socket: socket.to_path_buf(), generation: 7, tab_title: "Codex CLI".into(), ask_mode, timing: FAST, wake }
+    ClientConfig {
+        socket: socket.to_path_buf(),
+        generation: 7,
+        tab_title: "Codex CLI".into(),
+        ask_mode,
+        session_folder: SessionFolder::new(Path::new("/session")),
+        timing: FAST,
+        wake,
+    }
 }
 
 /// A client thread connected to a fake server.

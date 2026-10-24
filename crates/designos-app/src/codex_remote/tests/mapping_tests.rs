@@ -4,8 +4,10 @@ use super::support::{fixture, with, without, THREAD, TURN2};
 use crate::codex_remote::card_mapping::{card_key, map_request, needs_item_lookup, CodexCard, MapContext, Mapped, OpenTabReason};
 use crate::codex_remote::item_index::ItemIndex;
 use crate::codex_remote::protocol::CardKind;
+use crate::codex_remote::session_folder::SessionFolder;
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::path::Path;
 
 /// An index that has seen these `item/started` frames.
 pub(super) fn index(frames: &[Value]) -> ItemIndex {
@@ -17,11 +19,26 @@ pub(super) fn index(frames: &[Value]) -> ItemIndex {
     items
 }
 
-pub(super) fn run(request: &Value, items: &ItemIndex, ask: bool, joined: bool, seen: bool) -> Mapped {
+/// The session folder the recorded requests were made in.
+pub(super) fn session_folder() -> SessionFolder {
+    SessionFolder::new(Path::new("/session"))
+}
+
+fn map_in(request: &Value, items: &ItemIndex, flags: (bool, bool, bool), session: &SessionFolder) -> Mapped {
+    let (ask, joined, seen) = flags;
     let roots: HashSet<String> = joined.then(|| THREAD.to_string()).into_iter().collect();
     let already: HashSet<String> = seen.then(|| card_key(7, &request["id"])).into_iter().collect();
-    let ctx = MapContext { generation: 7, tab_title: "Codex CLI", ask_mode: ask, joined_roots: &roots, seen: &already, items };
+    let ctx = MapContext { generation: 7, tab_title: "Codex CLI", ask_mode: ask, joined_roots: &roots, seen: &already, items, session };
     map_request(&ctx, &request["id"], request["method"].as_str().unwrap(), &request["params"])
+}
+
+pub(super) fn run(request: &Value, items: &ItemIndex, ask: bool, joined: bool, seen: bool) -> Mapped {
+    map_in(request, items, (ask, joined, seen), &session_folder())
+}
+
+/// In Ask mode, from a joined thread, for a tab whose session folder is `session`.
+pub(super) fn run_in(request: &Value, session: &SessionFolder) -> Mapped {
+    map_in(request, &ItemIndex::default(), (true, true, false), session)
 }
 
 pub(super) fn map(request: &Value, items: &ItemIndex) -> Mapped {
@@ -102,7 +119,8 @@ fn only_a_plain_tool_approval_with_no_known_call_asks_for_a_lookup() {
     let roots: HashSet<String> = [THREAD.to_string()].into();
     let seen = HashSet::new();
     let lookup = |request: &Value, items: &ItemIndex, ask_mode: bool| {
-        let ctx = MapContext { generation: 7, tab_title: "Codex CLI", ask_mode, joined_roots: &roots, seen: &seen, items };
+        let session = session_folder();
+        let ctx = MapContext { generation: 7, tab_title: "Codex CLI", ask_mode, joined_roots: &roots, seen: &seen, items, session: &session };
         needs_item_lookup(&ctx, &request["id"], request["method"].as_str().unwrap(), &request["params"])
     };
     let (request, none) = (fixture("mcp-elicitation-request"), ItemIndex::default());

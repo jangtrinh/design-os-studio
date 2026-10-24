@@ -7,6 +7,7 @@
 use super::protocol::Decision;
 use super::rpc_session::{connect, session};
 use super::rpc_state::Machine;
+use super::session_folder::SessionFolder;
 use super::ws::Message;
 use super::{CodexEvent, UnavailableReason};
 use std::path::PathBuf;
@@ -46,6 +47,8 @@ pub struct ClientConfig {
     pub generation: u64,
     pub tab_title: String,
     pub ask_mode: Arc<AtomicBool>,
+    /// The tab's session folder, fixed when the server started.
+    pub session_folder: SessionFolder,
     pub timing: Timing,
     pub wake: Wake,
 }
@@ -117,7 +120,8 @@ fn run(config: ClientConfig, inbox: Sender<Input>, queue: Receiver<Input>, event
         }
         Err(End::Quiet) => return,
     };
-    let mut machine = Machine::new(config.generation, config.tab_title.clone(), config.ask_mode.clone(), config.timing.max_resume_attempts);
+    let mut machine =
+        Machine::new(config.generation, config.tab_title.clone(), config.ask_mode.clone(), config.session_folder.clone(), config.timing.max_resume_attempts);
     if session(&config, &out, stream, inbox, &queue, &mut machine) == End::Lost {
         out.emit(CodexEvent::Disconnected);
     }

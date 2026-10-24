@@ -76,6 +76,11 @@ impl ServerLaunch {
         })
     }
 
+    /// The folder the server (and the tab) runs in: the session folder.
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
     /// The server command: the Codex binary, `app-server --listen unix://<rendezvous>`, and the three overrides that
     /// register `designos-mcp`. Nothing else is passed: no approval, sandbox, trust or analytics setting.
     pub fn server_args(&self) -> io::Result<Vec<String>> {

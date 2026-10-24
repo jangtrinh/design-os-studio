@@ -125,7 +125,8 @@ fn each_failing_gate_row_leaves_the_tab_on_todays_path_and_starts_nothing() {
     assert_eq!((running(&work), running(&old)), (0, 0), "a tab that falls back starts no server");
 }
 
-/// Starts a remote, plays the join and one command request through a fake server, and returns the card's key.
+/// Starts a remote, plays the join and one command request (run in the tab's folder) through a fake server, and returns the
+/// card's key.
 fn first_card_key(work: &Path, bin: &Path) -> String {
     let channel = short_scratch_dir("rk");
     let remote = start(bin, Some(&channel), &tab(work)).expect("the card path starts");
@@ -139,7 +140,8 @@ fn first_card_key(work: &Path, bin: &Path) -> String {
     conn.send(&fixture("thread-status-active"));
     let resume = conn.expect("thread/resume");
     conn.reply(&resume, json!({"thread": fixture("thread-read-response")["result"]["thread"].clone()}));
-    conn.send(&fixture("command-approval-request"));
+    // The request names the folder the tab runs in, which is the one Studio started the server in.
+    conn.send(&with(fixture("command-approval-request"), "/params/cwd", json!(work.to_str().unwrap())));
     loop {
         if let CodexEvent::Card(card) = wait_event(&remote) {
             return card.key;
