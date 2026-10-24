@@ -5,7 +5,9 @@
 mod folder;
 #[cfg(unix)]
 mod folder_owner;
+mod refusal;
 pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
+pub use refusal::{library_fallback_message, start_failure_message, with_next_step};
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -590,7 +592,7 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 }
 
 fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
-    ensure_session_dir(&job.session_dir).map_err(|e| format!("Failed to create session dir {}: {e}", job.session_dir.display()))?;
+    ensure_session_dir(&job.session_dir).map_err(|e| format!("Failed to create session dir {}: {}", job.session_dir.display(), with_next_step(&e)))?;
     atomic_write_session_file(&job.context_json_path, &job.context_bytes).map_err(|e| format!("Failed to write {}: {e}", job.context_json_path.display()))?;
     let canvas_json = job.canvas_doc.to_json().map_err(|e| format!("Failed to serialize canvas document: {e}"))?;
     let held = write_session_file_unless(&job.live_canvas_path, canvas_json.as_bytes(), || {
@@ -607,9 +609,15 @@ fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
 }
 
 #[cfg(all(test, unix))]
+mod folder_message_tests;
+#[cfg(all(test, unix))]
 mod folder_tests;
 #[cfg(all(test, unix))]
 mod folder_unit_tests;
+#[cfg(all(test, unix))]
+mod hook_quoting_tests;
+#[cfg(test)]
+mod test_root;
 
 #[cfg(test)]
 mod tests {

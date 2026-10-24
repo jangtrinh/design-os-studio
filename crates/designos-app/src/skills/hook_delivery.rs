@@ -161,11 +161,8 @@ pub fn reply_file(session_dir: &Path, tab_id: usize, slot: usize) -> PathBuf {
 /// The shell commands of the prompt hook's skills handlers, one per slot. Each prints its slot's file for the tab named by the
 /// environment (`DESIGNOS_TAB_ID`), and nothing, with exit 0, while that file does not exist.
 pub fn handler_commands(session_dir: &Path) -> Vec<String> {
-    (0..HOOK_SKILL_SLOTS)
-        .map(|slot| {
-            format!("f='{}/{REPLY_FILE_PREFIX}-'\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi", session_dir.display())
-        })
-        .collect()
+    let prefix = crate::agent_turn_status::sh_single_quote(&format!("{}/{REPLY_FILE_PREFIX}-", session_dir.display()));
+    (0..HOOK_SKILL_SLOTS).map(|slot| format!("f={prefix}\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi")).collect()
 }
 
 /// Writes `chunks` as the reply files of `tab_id`, one `additionalContext` each, and deletes the slots from `chunks.len()` up to

@@ -28,7 +28,7 @@ pub(super) fn scratch_dir(tag: &str) -> PathBuf {
 
 /// Makes the folder that holds `dir` the way Studio does (by making a folder of its own next to `dir`), so a link can be
 /// planted at `dir`.
-fn make_parent_of(dir: &Path) -> Cleanup {
+pub(super) fn make_parent_of(dir: &Path) -> Cleanup {
     let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("p0");
     let neighbour = dir.with_file_name(format!("{name}-neighbour"));
     ensure_session_dir(&neighbour).expect("the neighbour folder is made");
@@ -43,12 +43,12 @@ fn next_ephemeral_session_dir() -> (PathBuf, Cleanup) {
     (dir, cleanup)
 }
 
-fn only_entry_is_the_sentinel(target: &Path) -> bool {
+pub(super) fn only_entry_is_the_sentinel(target: &Path) -> bool {
     let names: Vec<_> = std::fs::read_dir(target).expect("read the target").flatten().map(|e| e.file_name()).collect();
     names == [std::ffi::OsString::from("keep.txt")]
 }
 
-fn target_with_sentinel(tag: &str) -> (PathBuf, Cleanup) {
+pub(super) fn target_with_sentinel(tag: &str) -> (PathBuf, Cleanup) {
     let target = scratch_dir(tag);
     std::fs::write(target.join("keep.txt"), b"mine").expect("sentinel");
     (target.clone(), Cleanup(vec![target]))

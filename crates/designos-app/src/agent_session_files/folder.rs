@@ -12,6 +12,7 @@
 
 #[cfg(unix)]
 use super::folder_owner::{check_owner, own_uid};
+use super::refusal::{refused, Refusal};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -25,13 +26,9 @@ pub(super) const UNAVAILABLE_ROOT: &str = "/dev/null/designos-no-private-data-fo
 #[cfg(not(unix))]
 pub(super) const UNAVAILABLE_ROOT: &str = "designos-no-private-data-folder";
 
-pub(super) fn refused(message: String) -> io::Error {
-    io::Error::new(io::ErrorKind::PermissionDenied, message)
-}
-
 /// `e` with the folder it happened at and the next step, for the line a tab shows when it cannot start.
 fn cannot_make(dir: &Path, e: io::Error) -> io::Error {
-    io::Error::new(e.kind(), format!("{} can't be made: {e}. Check its permissions and free space, then try again", dir.display()))
+    io::Error::new(e.kind(), format!("{} can't be created: {e}. Check its permissions and free space, then try again", dir.display()))
 }
 
 /// `<data dir>/designos/sessions` of this machine, or `None` when the approval channel has no private root either (no
@@ -45,13 +42,13 @@ pub fn sessions_root_beside(private_root: &Path) -> Option<PathBuf> {
     Some(private_root.parent()?.join(SESSIONS_DIR_NAME))
 }
 
-/// The folder every ephemeral session folder is a direct child of. Unit tests get a root of their own under the temp
-/// folder (with a space in its path, as macOS has in `Application Support`), so they never write into the real data
-/// folder; [`default_sessions_root`] is what the tests of the production location check.
+/// The folder every ephemeral session folder is a direct child of. Each unit-test process gets a root of its own under the
+/// temp folder (see `test_root`), so tests never write into the real data folder; [`default_sessions_root`] is what the
+/// tests of the production location check.
 pub fn ephemeral_sessions_root() -> Option<PathBuf> {
     #[cfg(test)]
     {
-        Some(std::env::temp_dir().join("designos test data").join(SESSIONS_DIR_NAME))
+        Some(super::test_root::test_sessions_root())
     }
     #[cfg(not(test))]
     {
@@ -77,7 +74,7 @@ pub(super) fn create_session_folder(dir: &Path) -> io::Result<()> {
 pub(super) fn create_session_folder_in(ephemeral_root: Option<&Path>, dir: &Path) -> io::Result<()> {
     if dir.starts_with(UNAVAILABLE_ROOT) {
         return Err(io::Error::other(
-            "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Check your home folder setting and restart Studio",
+            "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Make sure your home folder exists, then restart Studio",
         ));
     }
     let parent = dir.parent().ok_or_else(|| io::Error::other(format!("{} has no parent folder", dir.display())))?;
@@ -131,23 +128,30 @@ fn require_own_real_folder(ephemeral_root: Option<&Path>, dir: &Path, near: &Pat
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        let probe_dir = || match ephemeral_root {
-            Some(root) => crate::agent_approval_channel::create_private_dir_all(root).map(|()| root.to_path_buf()).map_err(|e| cannot_make(root, e)),
-            None => Ok(near.to_path_buf()),
-        };
-        check_owner(dir, meta.uid(), own_uid(probe_dir)?)?;
+        check_owner(dir, meta.uid(), own_uid(|| probe_dir_for(ephemeral_root, near))?)?;
     }
     #[cfg(not(unix))]
     let _ = (ephemeral_root, near);
     Ok(meta)
 }
 
+/// The folder the user's id is read in: Studio's sessions folder, and only without one the folder next to the one checked.
+#[cfg(unix)]
+pub(super) fn probe_dir_for(ephemeral_root: Option<&Path>, near: &Path) -> io::Result<PathBuf> {
+    let Some(root) = ephemeral_root else {
+        return Ok(near.to_path_buf());
+    };
+    crate::agent_approval_channel::create_private_dir_all(root).map_err(|e| cannot_make(root, e))?;
+    check_real_folder(root, &std::fs::symlink_metadata(root)?)?;
+    Ok(root.to_path_buf())
+}
+
 fn check_real_folder(dir: &Path, meta: &std::fs::Metadata) -> io::Result<()> {
     if meta.file_type().is_symlink() {
-        return Err(refused(format!("{} is a link, not a folder. Delete it and try again", dir.display())));
+        return Err(refused(Refusal::Link, dir));
     }
     if !meta.is_dir() {
-        return Err(refused(format!("{} is a file, not a folder. Delete it and try again", dir.display())));
+        return Err(refused(Refusal::File, dir));
     }
     Ok(())
 }

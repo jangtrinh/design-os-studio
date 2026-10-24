@@ -279,7 +279,7 @@ fn fallback_outcome(fallback_id: &str, message: String) -> LockOutcome {
     let dir = crate::agent_session_files::ephemeral_session_dir(fallback_id);
     let message = match crate::agent_session_files::ensure_session_dir(&dir) {
         Ok(()) => message,
-        Err(e) => format!("{message} The temporary session folder can't be used either: {e}."),
+        Err(e) => format!("{message} The temporary session folder can't be used either: {}.", crate::agent_session_files::with_next_step(&e)),
     };
     LockOutcome::Fallback { dir, message }
 }
@@ -295,7 +295,7 @@ where
     let dir = stable_session_dir(lib_root, file_id);
     // No lock or registry is written into a folder that is a link or belongs to someone else.
     if let Err(e) = crate::agent_session_files::ensure_session_dir(&dir) {
-        return fallback_outcome(fallback_id, format!("Couldn't use this file's agent folder: {e}."));
+        return fallback_outcome(fallback_id, crate::agent_session_files::library_fallback_message(&e));
     }
     let lock_path = dir.join("session.lock");
     let my_pid = std::process::id();

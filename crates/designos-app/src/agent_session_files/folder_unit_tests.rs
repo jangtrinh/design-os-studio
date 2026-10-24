@@ -1,7 +1,7 @@
 //! The pieces of [`super::folder`]: where the ephemeral root is, which paths count as ephemeral, and the checks that
 //! refuse a link, a file or a foreign folder.
 
-use super::folder::{create_session_folder_in, UNAVAILABLE_ROOT};
+use super::folder::{create_session_folder_in, probe_dir_for, UNAVAILABLE_ROOT};
 use super::folder_owner::{check_owner, own_uid};
 use super::folder_tests::{scratch_dir, Cleanup};
 use super::*;
@@ -74,8 +74,34 @@ fn a_folder_that_cannot_be_made_says_where_and_what_to_do() {
     let err = ensure_session_dir(&parent.join("file-1")).expect_err("no folder in a read-only parent");
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).expect("restore");
     let text = err.to_string();
-    assert!(text.contains(&parent.join("file-1").display().to_string()) && text.contains("can't be made"), "names the folder: {text}");
+    assert!(text.contains(&parent.join("file-1").display().to_string()) && text.contains("can't be created"), "names the folder: {text}");
     assert!(text.ends_with("try again"), "names the next step: {text}");
+}
+
+#[test]
+fn the_user_id_is_not_read_through_a_link_at_the_sessions_folder() {
+    let target = scratch_dir("probe-target");
+    let scratch = scratch_dir("probe-link");
+    let _cleanup = Cleanup(vec![target.clone(), scratch.clone()]);
+    let linked_root = scratch.join("sessions");
+    symlink(&target, &linked_root).expect("plant the link");
+
+    let err = probe_dir_for(Some(&linked_root), &scratch).expect_err("a link as the sessions folder is not used");
+    assert!(err.to_string().contains("is a link"), "{err}");
+    assert_eq!(std::fs::read_dir(&target).expect("target").count(), 0, "something was made through the link");
+
+    let real_root = scratch.join("real").join("sessions");
+    assert_eq!(probe_dir_for(Some(&real_root), &scratch).expect("a missing sessions folder is made"), real_root);
+    assert!(real_root.is_dir());
+    assert_eq!(probe_dir_for(None, &scratch).expect("without a sessions folder the one next to it is used"), scratch);
+}
+
+#[test]
+fn each_test_process_has_a_sessions_folder_of_its_own() {
+    let root = ephemeral_sessions_root().expect("the test root");
+    assert_eq!(root.file_name().and_then(|n| n.to_str()), Some("sessions"));
+    let owner = root.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str());
+    assert_eq!(owner, Some(std::process::id().to_string().as_str()), "{}", root.display());
 }
 
 #[test]

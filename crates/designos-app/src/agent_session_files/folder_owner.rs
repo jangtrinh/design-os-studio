@@ -1,6 +1,6 @@
 //! Whose a session folder is: the id of the user Studio runs as, and the check of a folder's owner against it.
 
-use super::folder::refused;
+use super::refusal::{refused, Refusal};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,7 +15,7 @@ pub(super) fn check_owner(dir: &Path, owner_uid: u32, own_uid: u32) -> io::Resul
     if owner_uid == own_uid || (cfg!(target_os = "macos") && owner_uid == OWNERSHIP_IGNORED_UID) {
         return Ok(());
     }
-    Err(refused(format!("{} belongs to another user. Move or delete it and try again", dir.display())))
+    Err(refused(Refusal::OtherOwner, dir))
 }
 
 /// The id of the user Studio runs as, read once from a file Studio creates in the folder `probe_dir` names: a new file is

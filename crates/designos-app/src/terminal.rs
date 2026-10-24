@@ -2871,7 +2871,7 @@ impl TerminalState {
     pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
         let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
         if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
-            let message = format!("Couldn't start {clean_title}: {e}.");
+            let message = crate::agent_session_files::start_failure_message(clean_title, &e);
             self.status_msg = Some(message.clone());
             return Err(message);
         }
@@ -2958,7 +2958,7 @@ impl TerminalState {
     ) -> Result<usize, String> {
         // The agent's working folder must be one Studio made: a link or foreign folder there stops the tab, with the reason.
         if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
-            let message = format!("Couldn't start {}: {e}.", preset.tab_title());
+            let message = crate::agent_session_files::start_failure_message(preset.tab_title(), &e);
             self.status_msg = Some(message.clone());
             return Err(message);
         }
@@ -4762,7 +4762,10 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
     let events_path = status_path.parent().map(|p| p.join("agent-events.jsonl")).unwrap_or_else(|| status_path.with_file_name("agent-events.jsonl"));
     let append_cmd = crate::agent_turn_status::event_append_command(&events_path, event);
-    format!("{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > '{}'", status_path.display())
+    format!(
+        "{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}",
+        crate::agent_turn_status::sh_single_quote(&status_path.display().to_string())
+    )
 }
 
 fn command_handler_group(command: String, capture_command: Option<&str>) -> serde_json::Value {
@@ -4802,21 +4805,12 @@ fn session_hooks_settings_with_approval(
     let prompt = match context_replies {
         Some((page_reply, boot_reply, marker)) => {
             let compact_reply = boot_reply.with_file_name("bootstrap-compact-reply.json");
+            let quoted = |path: &Path| crate::agent_turn_status::sh_single_quote(&path.display().to_string());
+            let (marker, boot, compact, page) = (quoted(marker), quoted(boot_reply), quoted(&compact_reply), quoted(page_reply));
             format!(
-                "{}; {}; if [ ! -e '{}' ]; then i=0; while [ ! -f '{}' ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e '{}' ] && [ -f '{}' ]; then : > '{}'; cat '{}'; elif [ ! -e '{}' ] && [ -f '{}' ]; then : > '{}'; cat '{}'; else cat '{}'; fi",
+                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then : > {marker}; cat {boot}; elif [ ! -e {marker} ] && [ -f {compact} ]; then : > {marker}; cat {compact}; else cat {page}; fi",
                 status_hook_command(status_path, "UserPromptSubmit", "working"),
                 start_mark,
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                compact_reply.display(),
-                marker.display(),
-                compact_reply.display(),
-                page_reply.display()
             )
         }
         None => format!("{}; {}", status_hook_command(status_path, "UserPromptSubmit", "working"), start_mark),

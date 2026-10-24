@@ -246,7 +246,8 @@ pub struct ClaudeTranscriptMeta {
 /// transcript file, and writes via an atomic temporary file under a lock directory so concurrent tabs cannot
 /// clobber each other.
 pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
-    let dest = capture_path.display();
+    let quoted = |suffix: &str| crate::agent_turn_status::sh_single_quote(&format!("{}{suffix}", capture_path.display()));
+    let (dest, lock, tmp) = (quoted(""), quoted(".lock"), quoted(".tmp."));
     format!(
         "in=$(tr -d '\\r\\n'); \
          sid=$(printf '%s' \"$in\" | sed -n 's/.*\"session_id\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p'); \
@@ -254,11 +255,11 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
          if [ -n \"$sid\" ] && [ -n \"$tp\" ]; then \
            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
-           if [ ! -f '{dest}' ] || ! grep -Fq \"$pair\" '{dest}' 2>/dev/null; then \
-             i=0; while ! mkdir '{dest}.lock' 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
+           if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
+             i=0; while ! mkdir {lock} 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
              prev=\"\"; \
-             if [ -f '{dest}' ]; then \
-               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' '{dest}' 2>/dev/null); \
+             if [ -f {dest} ]; then \
+               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
                prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
              fi; \
              if [ -n \"$prev\" ]; then \
@@ -266,11 +267,11 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
              else \
                entries=\"$pair\"; \
              fi; \
-             tmp='{dest}.tmp.'$$; \
+             tmp={tmp}$$; \
              if printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\" 2>/dev/null; then \
-               mv -f \"$tmp\" '{dest}' 2>/dev/null || rm -f \"$tmp\"; \
+               mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
              fi; \
-             rmdir '{dest}.lock' 2>/dev/null || true; \
+             rmdir {lock} 2>/dev/null || true; \
            fi; \
          fi"
     )

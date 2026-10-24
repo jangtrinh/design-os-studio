@@ -88,7 +88,7 @@ impl LiveSessionBridge {
         }
     }
 
-    /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
+    /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`<data dir>/designos/sessions/<session_id>`).
     pub fn for_session_dir(session_dir: &Path) -> Self {
         let dir = session_dir.to_path_buf();
         Self {
@@ -233,7 +233,7 @@ impl Session {
         Ok(s)
     }
 
-    /// Creates a `Session` explicitly bound to a per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
+    /// Creates a `Session` explicitly bound to a per-file `session_dir` (`<data dir>/designos/sessions/<session_id>`).
     pub fn with_session_dir(root: &Path, session_dir: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
         if !root.is_dir() {
