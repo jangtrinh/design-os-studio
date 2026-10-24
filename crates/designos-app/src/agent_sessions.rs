@@ -18,7 +18,7 @@ pub enum SessionKey {
     /// Bound to `<lib_root>/agent-sessions/<file_id>/`: `file_id` is the library file id, or
     /// `path-<hex>` ([`disk_file_session_key`]) for a file opened from disk.
     LibraryFile { lib_root: PathBuf, file_id: String },
-    /// Ephemeral fallback at `/tmp/designos-sessions/<session_id>`.
+    /// Ephemeral fallback at `<data dir>/designos/sessions/<session_id>`.
     Fallback(String),
 }
 
@@ -118,7 +118,7 @@ pub struct SessionLock {
 pub enum LockOutcome {
     /// This window acquired (or already owned / took over a stale) `session.lock`.
     Acquired(PathBuf),
-    /// Another live window owns `session.lock`; caller must use the fallback `/tmp/designos-sessions/...` dir.
+    /// Another live window owns `session.lock`; caller must use the fallback `<data dir>/designos/sessions/...` dir.
     Fallback { dir: PathBuf, message: String },
 }
 
@@ -270,21 +270,33 @@ fn try_create_lock_exclusively(lock_path: &Path, bytes: &[u8]) -> std::io::Resul
 }
 
 fn fallback_lock_outcome(fallback_id: &str) -> LockOutcome {
-    let fallback_dir = std::env::temp_dir().join("designos-sessions").join(fallback_id);
-    let _ = crate::agent_session_files::ensure_session_dir(&fallback_dir);
-    LockOutcome::Fallback { dir: fallback_dir, message: ANOTHER_WINDOW_OWNS_SESSION_MSG.to_string() }
+    fallback_outcome(fallback_id, ANOTHER_WINDOW_OWNS_SESSION_MSG.to_string())
+}
+
+/// The ephemeral folder Studio keeps for `fallback_id`, with `message` for the status line. When that folder cannot be made
+/// the message says so too: the tabs that follow stop with the same reason instead of starting in a folder Studio did not make.
+fn fallback_outcome(fallback_id: &str, message: String) -> LockOutcome {
+    let dir = crate::agent_session_files::ephemeral_session_dir(fallback_id);
+    let message = match crate::agent_session_files::ensure_session_dir(&dir) {
+        Ok(()) => message,
+        Err(e) => format!("{message} The temporary session folder can't be used either: {e}."),
+    };
+    LockOutcome::Fallback { dir, message }
 }
 
 /// Acquires `<lib_root>/agent-sessions/<file_id>/session.lock` for `window`, taking over stale locks
 /// whose `pid` is no longer alive (tested via `pid_alive`) or whose `started_at` does not match the
-/// running process, or returns a fallback `/tmp/designos-sessions/<fallback_id>` directory if another
+/// running process, or returns a fallback `<data dir>/designos/sessions/<fallback_id>` directory if another
 /// live window already owns the folder.
 pub fn acquire_stable_session_dir_with<F>(lib_root: &Path, file_id: &str, window: &str, fallback_id: &str, pid_alive: F) -> LockOutcome
 where
     F: Fn(u32) -> bool,
 {
     let dir = stable_session_dir(lib_root, file_id);
-    let _ = std::fs::create_dir_all(&dir);
+    // No lock or registry is written into a folder that is a link or belongs to someone else.
+    if let Err(e) = crate::agent_session_files::ensure_session_dir(&dir) {
+        return fallback_outcome(fallback_id, format!("Couldn't use this file's agent folder: {e}."));
+    }
     let lock_path = dir.join("session.lock");
     let my_pid = std::process::id();
     let started_at = (crate::agent_session_files::current_process_started_ms() / 1000).max(1);
@@ -597,7 +609,7 @@ mod tests {
         let mut app = App::new(Document::new("Unsaved"));
         let unsaved_sid = app.tabs.active_session_id();
         app.terminal.bind_session(&unsaved_sid);
-        assert_eq!(app.terminal.session_dir, std::env::temp_dir().join("designos-sessions").join(&unsaved_sid));
+        assert_eq!(app.terminal.session_dir, crate::agent_session_files::ephemeral_session_dir(&unsaved_sid));
 
         app.attach_library(root.clone());
         app.open_library_file(&created.id);
@@ -1240,7 +1252,7 @@ mod tests {
         st2.bind_library_file(&dir, "shared-file", "p1-w2-tab-1");
         let st2_fallback_dir = st2.session_dir.clone();
         assert_ne!(st2.session_dir, st1.session_dir);
-        assert_eq!(st2.session_dir, std::env::temp_dir().join("designos-sessions").join("p1-w2-tab-1"));
+        assert_eq!(st2.session_dir, crate::agent_session_files::ephemeral_session_dir("p1-w2-tab-1"));
         assert_eq!(st2.status_msg.as_deref(), Some(ANOTHER_WINDOW_OWNS_SESSION_MSG));
 
         // Spawn a tab in the fallback window and shut it down while st1 has not written sessions.json yet.

@@ -1,6 +1,9 @@
 //! Per-window / per-session agent file management, ephemeral session directory cleanup,
 //! 7-day startup sweep with PID + start-time ownership markers, and off-UI-thread canvas
-//! snapshot writer (`#690`).
+//! snapshot writer (`#690`). Where session folders live and how they are made: [`folder`].
+
+mod folder;
+pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use designos_doc::Document;
 use serde::{Deserialize, Serialize};
 
-/// Ephemeral session directories in `temp_dir()/designos-sessions` older than 7 days whose owning
+/// Ephemeral session directories in [`ephemeral_sessions_root`] older than 7 days whose owning
 /// Studio process is no longer alive are removed by the startup sweep (`#690` §5).
 pub const STALE_SESSION_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -120,8 +123,9 @@ pub fn is_owner_alive(pid: u32, expected_started_ms: Option<u64>) -> bool {
     is_pid_start_time_matching(pid, expected)
 }
 
-/// Returns `true` iff `dir` is an ephemeral session directory directly under a `designos-sessions`
-/// parent folder and has no `"agent-sessions"` path component (`#690` §5).
+/// Returns `true` iff `dir` is a direct child of [`ephemeral_sessions_root`] and has no `"agent-sessions"` path
+/// component (`#690` §5). The folder is recognised by its exact location, not by a folder name: callers delete what
+/// this accepts, and a folder in the temp folder (where earlier versions kept sessions) is never one of them.
 ///
 /// Kept per-file session directories under `<lib_root>/agent-sessions/<file_id>` (`#653`) always
 /// return `false`.
@@ -129,7 +133,7 @@ pub fn is_ephemeral_session_dir(dir: &Path) -> bool {
     if dir.components().any(|c| c.as_os_str() == "agent-sessions") {
         return false;
     }
-    dir.file_name().is_some() && dir.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) == Some("designos-sessions")
+    ephemeral_sessions_root().is_some_and(|root| dir.parent() == Some(root.as_path()))
 }
 
 /// Atomically writes `bytes` to `path` via a unique sibling temp file (`.<name>.tmp.<pid>.<seq>`)
@@ -143,7 +147,7 @@ pub fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<(
 /// is left as it was and `Ok(true)` comes back.
 pub fn write_session_file_unless(path: &Path, bytes: &[u8], hold: impl FnOnce() -> bool) -> std::io::Result<bool> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        folder::prepare_write_parent(parent)?;
     }
     static NEXT_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
     let seq = NEXT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -170,10 +174,13 @@ pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
     serde_json::from_str::<OwnerMarker>(&raw).ok()
 }
 
-/// Creates `session_dir` and, when `session_dir` is an ephemeral `designos-sessions/<id>` directory
-/// without an `owner.json` marker yet, writes `<session_dir>/owner.json`.
+/// Creates `session_dir` and, when `session_dir` is an ephemeral session directory (a child of
+/// [`ephemeral_sessions_root`]) without an `owner.json` marker yet, writes `<session_dir>/owner.json`.
+///
+/// The folder is made with an exclusive `mkdir` (0700). A path that exists already is accepted only when it is a real
+/// folder owned by the user, so an existing link, file or foreign folder is an error and nothing is written there.
 pub fn ensure_session_dir(session_dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(session_dir)?;
+    folder::create_session_folder(session_dir)?;
     if is_ephemeral_session_dir(session_dir) && !session_dir.join("owner.json").exists() {
         write_owner_marker(session_dir)?;
     }
@@ -209,11 +216,12 @@ fn entry_mtime(dir: &Path) -> Option<SystemTime> {
     }
 }
 
-/// Sweeps stale ephemeral session folders under `root` (`temp_dir()/designos-sessions`) and returns
-/// the number of directories removed (`#690` §5).
+/// Sweeps stale ephemeral session folders under `root` ([`ephemeral_sessions_root`]) and returns
+/// the number of directories removed (`#690` §5). Folders that earlier versions left in the temp folder are not
+/// swept: nothing is deleted through a path an agent could have redirected.
 ///
 /// Safety invariants:
-/// 1. Returns `0` immediately unless `root` ends with `"designos-sessions"` and has no
+/// 1. Returns `0` immediately unless `root` is named `"sessions"` and has no
 ///    `"agent-sessions"` path component — `<lib_root>/agent-sessions/<file_id>` (`#653`) is never
 ///    touched.
 /// 2. Removes an entry `<dir>` only when **both** hold:
@@ -222,7 +230,7 @@ fn entry_mtime(dir: &Path) -> Option<SystemTime> {
 ///      dead by `is_alive(pid, started_ms)`.
 /// 3. Foreign directories (neither `owner.json` nor `p<pid>-...` name) are never removed.
 pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32, Option<u64>) -> bool) -> usize {
-    if root.file_name().and_then(|n| n.to_str()) != Some("designos-sessions") {
+    if root.file_name().and_then(|n| n.to_str()) != Some("sessions") {
         return 0;
     }
     if root.components().any(|c| c.as_os_str() == "agent-sessions") {
@@ -270,9 +278,11 @@ pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32,
     removed
 }
 
-/// Spawns the one-shot background startup sweep of `std::env::temp_dir().join("designos-sessions")`.
+/// Spawns the one-shot background startup sweep of [`ephemeral_sessions_root`].
 pub fn spawn_startup_sweep() {
-    let root = std::env::temp_dir().join("designos-sessions");
+    let Some(root) = ephemeral_sessions_root() else {
+        return;
+    };
     let _ = std::thread::Builder::new().name("designos-session-sweep".into()).spawn(move || {
         let _ = sweep_stale_sessions(&root, SystemTime::now(), is_owner_alive);
     });
@@ -594,6 +604,11 @@ fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
     Ok(SnapshotOutcome::Written)
 }
 
+#[cfg(all(test, unix))]
+mod folder_tests;
+#[cfg(all(test, unix))]
+mod folder_unit_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -675,7 +690,7 @@ mod tests {
 
     #[test]
     fn mcp_without_a_session_dir_has_no_live_paths() {
-        let dir = std::env::temp_dir().join("designos-sessions").join(unique_test_id("mcp-env"));
+        let dir = ephemeral_session_dir(&unique_test_id("mcp-env"));
         let bridge_with_dir = designos_mcp::server::LiveSessionBridge::for_session_dir(&dir);
         assert_eq!(bridge_with_dir.session_dir.as_deref(), Some(dir.as_path()));
         assert_eq!(bridge_with_dir.live_canvas_path, Some(dir.join("canvas.designos")));
@@ -863,7 +878,7 @@ mod tests {
     /// close, a rebind) would block the UI thread for good.
     #[test]
     fn a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots() {
-        let dir = std::env::temp_dir().join("designos-sessions").join(unique_test_id("writer-panic"));
+        let dir = ephemeral_session_dir(&unique_test_id("writer-panic"));
         let mut worker = SnapshotWorker::new();
         let job = writer_test_job(&dir, (1, 0, 0));
         crate::terminal::set_before_rename_test_hook(&job.live_canvas_path, Box::new(|| panic!("writer test panic")));
@@ -970,7 +985,7 @@ mod tests {
     #[test]
     fn startup_sweep_removes_only_dead_sessions_older_than_7_days() {
         let temp_parent = std::env::temp_dir().join(unique_test_id("sweep-sandbox"));
-        let root = temp_parent.join("designos-sessions");
+        let root = temp_parent.join("sessions");
         std::fs::create_dir_all(&root).unwrap();
 
         let now = SystemTime::now();
@@ -1037,8 +1052,8 @@ mod tests {
         let eight_days_ago = now - Duration::from_secs(8 * 24 * 60 * 60);
         set_dir_mtime(&old_file_session, eight_days_ago);
 
-        // Also test a nested `designos-sessions` inside `agent-sessions`
-        let nested = agent_sessions.join("designos-sessions");
+        // Also test a nested `sessions` folder inside `agent-sessions`
+        let nested = agent_sessions.join("sessions");
         let nested_old = nested.join("p999992-tab-1");
         std::fs::create_dir_all(&nested_old).unwrap();
         set_dir_mtime(&nested_old, eight_days_ago);
@@ -1212,8 +1227,10 @@ mod tests {
 
         for path in files {
             let src = std::fs::read_to_string(&path).expect("read rs file");
-            // Skip test-only modules.
-            if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("_tests.rs")) || path.components().any(|c| c.as_os_str() == "tests") {
+            // Skip test-only modules: `*_tests.rs` files and everything in a `tests` or `*_tests` folder.
+            let test_only =
+                path.components().any(|c| c.as_os_str().to_str().is_some_and(|n| n == "tests" || n.ends_with("_tests") || n.ends_with("_tests.rs")));
+            if test_only {
                 continue;
             }
             let shipped = src.split("#[cfg(test)]\nmod tests").next().unwrap_or(&src);
@@ -1222,6 +1239,11 @@ mod tests {
                 assert!(
                     !code_line.contains("/tmp/designos-live-"),
                     "{} still contains global /tmp/designos-live- path in shipped code: {line}",
+                    path.display()
+                );
+                assert!(
+                    !code_line.contains("designos-sessions"),
+                    "{} builds a session path in the temp folder, which any sandboxed agent can write: {line}",
                     path.display()
                 );
             }
