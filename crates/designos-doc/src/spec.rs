@@ -1886,7 +1886,13 @@ impl Document {
     }
 }
 
-pub(crate) fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
+/// Estimates the intrinsic box for an auto-width text node.
+///
+/// This is the same deterministic estimator used when `apply_spec` creates or updates text.
+/// Callers that mutate text content outside the spec builder must refresh a
+/// `TextAutoResize::WidthAndHeight` node with this value before relayout so Hug ancestors see
+/// the new intrinsic size.
+pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
     let lines: Vec<&str> = tp.content.split('\n').collect();
     let fs = tp.style.font_size.max(8.0);
     let weight_boost = if tp.style.font_weight >= 600 { 1.05 } else { 1.0 };

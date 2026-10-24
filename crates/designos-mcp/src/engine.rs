@@ -2162,6 +2162,60 @@ mod tests {
         e.call("designos_undo", json!({})).unwrap();
         assert!(e.doc.get(NodeId(id)).is_some());
     }
+
+    #[test]
+    fn update_node_remeasures_auto_width_text_before_hug_layout() {
+        let mut e = Engine::default();
+        let applied = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": 1,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "Button",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": {"direction": "row", "padding": [8, 16, 8, 16]},
+                        "children": [{
+                            "kind": "text",
+                            "name": "Label",
+                            "text": "Open",
+                            "font_size": 14,
+                            "font_weight": 600,
+                            "text_color": "#FFFFFF"
+                        }]
+                    }
+                }),
+            )
+            .unwrap();
+        let button = NodeId(applied["root_node_id"].as_u64().unwrap());
+        let label = NodeId(applied["name_to_id"]["Button/Label"].as_u64().unwrap());
+        let before_label = e.doc.get(label).unwrap().size;
+        let before_button = e.doc.get(button).unwrap().size;
+
+        e.call("designos_update_node", json!({"node_id": label.0, "text": "Open report"})).unwrap();
+
+        let after_label = e.doc.get(label).unwrap().size;
+        let after_button = e.doc.get(button).unwrap().size;
+        assert_eq!(before_label, designos_doc::Vec2::new(39.0, 20.0));
+        assert_eq!(before_button, designos_doc::Vec2::new(71.0, 36.0));
+        assert_eq!(after_label, designos_doc::Vec2::new(93.0, 20.0), "text box must match its new intrinsic content");
+        assert_eq!(after_button, designos_doc::Vec2::new(125.0, 36.0), "Hug parent must solve around the remeasured text");
+        assert_eq!(e.doc.relayout_skipped_count(), 0, "MCP update must return a settled layout");
+
+        e.call("designos_apply_batch", json!({"ops": [{"op": "update", "node": label.0, "text": "Open"}]})).unwrap();
+        assert_eq!(e.doc.get(label).unwrap().size, before_label, "batch update must shrink the text box too");
+        assert_eq!(e.doc.get(button).unwrap().size, before_button, "batch update must re-solve the Hug parent too");
+        e.call("designos_apply_batch", json!({"ops": [{"op": "update", "node": label.0, "text": "Open report"}]})).unwrap();
+        assert_eq!(e.doc.get(label).unwrap().size, after_label);
+        assert_eq!(e.doc.get(button).unwrap().size, after_button);
+
+        let saved = e.doc.to_json().unwrap();
+        let reopened = designos_doc::Document::from_json(&saved).unwrap();
+        assert_eq!(reopened.get(label).unwrap().size, after_label);
+        assert_eq!(reopened.get(button).unwrap().size, after_button);
+    }
     #[test]
     fn invalid_mutations_leave_document_and_history_unchanged() {
         let mut e = Engine::default();
