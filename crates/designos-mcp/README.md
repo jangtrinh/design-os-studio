@@ -73,6 +73,14 @@ Edits remain in memory until saved. Restarting the server loses unsaved work. Op
 
 Imports are limited to 64 MiB per file, 100,000 layers, and 256 levels of nesting. The server validates the imported document graph before using it, rejecting malformed parent/child relationships and cycles.
 
+## Studio session folder
+
+When Studio starts the server for an agent tab, `DESIGNOS_SESSION_DIR` is that tab's folder. The files the server keeps there (`canvas.designos`, `doc-sync.designos`, `doc-patch.jsonl`, `context.json`, `bootstrap.json`, `mcp-config.json`, `session-options.json`, `idempotency-ledger.jsonl`) carry the edits and settings between the agent and Studio. The agent can write in that folder, so every read and write goes through `src/session_file_io.rs`: a link at a file's name is never followed, only a plain file with one name is read or written through, and a FIFO is refused instead of waited for. A file written as a whole goes to a temporary file with a random name and is renamed over its name, so a link there is replaced, never written through. The server never makes the folder: Studio does.
+
+A link or FIFO at a name the server reads, appends to or truncates is refused. A refused edit fails with an error naming the path. A refusal that does not fail a tool (a setting, the ledger, a file read at start) adds `session_file_warnings` to the next tool reply, once while it lasts: `<path> is a link, not a file. Delete the link and try again.` or `<path> is not a plain file. Delete it and try again.`
+
+Known limit: a platform without `O_NOFOLLOW` (Windows) checks the entry and then acts on its path, so a link swapped in between is not caught there. The tools that write in `--workspace` (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) are not session-folder writes and are not covered.
+
 ## Tools
 
 | Tool | Purpose |

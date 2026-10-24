@@ -13,7 +13,6 @@ use rmcp::model::Tool;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -97,17 +96,11 @@ fn cached_spec_schemas() -> &'static SpecSchemas {
 }
 
 impl EnabledToolsConfig {
-    /// Loads `designos.enabled_tools` from `DESIGNOS_MCP_CONFIG` (if set) or `<session_dir>/mcp-config.json`.
-    pub fn load(session_dir: Option<&Path>) -> Self {
+    /// The file `designos.enabled_tools` is read from: `DESIGNOS_MCP_CONFIG` (if set) or `<session_dir>/mcp-config.json`.
+    /// The caller reads it through `session_file_io` and passes the text to [`Self::from_mcp_config_json`].
+    pub fn config_path(session_dir: Option<&Path>) -> Option<PathBuf> {
         let env_path = std::env::var_os("DESIGNOS_MCP_CONFIG").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
-        let candidate = env_path.or_else(|| session_dir.map(|d| d.join("mcp-config.json")));
-        let Some(path) = candidate else {
-            return Self::default();
-        };
-        let Ok(raw) = fs::read_to_string(&path) else {
-            return Self::default();
-        };
-        Self::from_mcp_config_json(&raw)
+        env_path.or_else(|| session_dir.map(|d| d.join("mcp-config.json")))
     }
 
     /// Parses `designos.enabled_tools` from a `mcp-config.json` string, logging and recording

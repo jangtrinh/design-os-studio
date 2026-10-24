@@ -6,4 +6,6 @@ mod fifos;
 mod ledger;
 mod links;
 mod options;
+mod reports;
 mod scratch;
+mod stdio;

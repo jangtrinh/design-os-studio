@@ -5,13 +5,13 @@
 //! `<session_dir>/idempotency-ledger.jsonl`, and verifies both undo-stack state and live node
 //! presence before replaying a stored response.
 
+use crate::session_file_io;
+use crate::session_file_problems::SessionFileProblems;
 use crate::tools::errors::{ErrorCode, ToolError};
 use designos_doc::{Document, Node, NodeId};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Number, Value};
 use std::collections::{BTreeSet, HashMap, VecDeque};
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -320,6 +320,8 @@ pub struct Ledger {
     dropped_count: u64,
     corrupt_lines: u64,
     path: Option<PathBuf>,
+    /// What went wrong reading or writing the ledger file, until a tool reply tells the agent ([`Self::take_problems`]).
+    problems: SessionFileProblems,
 }
 
 impl Default for Ledger {
@@ -340,6 +342,7 @@ impl Ledger {
             dropped_count: 0,
             corrupt_lines: 0,
             path: None,
+            problems: SessionFileProblems::default(),
         }
     }
 
@@ -347,7 +350,7 @@ impl Ledger {
     pub fn load_from_path(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let mut ledger = Self::new();
-        if let Ok(raw) = fs::read_to_string(&path) {
+        if let Some(raw) = ledger.problems.read_to_string(&path) {
             for line in raw.lines() {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
@@ -427,6 +430,11 @@ impl Ledger {
 
     pub fn corrupt_lines(&self) -> u64 {
         self.corrupt_lines
+    }
+
+    /// The sentences about the ledger file kept since the last call: a read or write it refused (a link or a FIFO at its name).
+    pub fn take_problems(&mut self) -> Vec<String> {
+        self.problems.take()
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -665,8 +673,9 @@ impl Ledger {
     }
 
     /// Rewrites `<session_dir>/idempotency-ledger.jsonl` from the entries held in memory (state
-    /// transitions are folded into each entry's `dead` flag). Like every append, best effort.
-    fn rewrite_file(&self) {
+    /// transitions are folded into each entry's `dead` flag). Like every append, best effort: a failure
+    /// is kept for the agent ([`Self::take_problems`]).
+    fn rewrite_file(&mut self) {
         let Some(path) = &self.path else {
             return;
         };
@@ -677,11 +686,8 @@ impl Ledger {
                 body.push('\n');
             }
         }
-        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-        let written = fs::File::create(&tmp).and_then(|mut f| f.write_all(body.as_bytes()).and_then(|_| f.sync_all()));
-        if written.is_err() || fs::rename(&tmp, path).is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
+        let written = session_file_io::write_atomic(path, body.as_bytes(), true);
+        self.problems.wrote(path, written);
     }
 
     /// Clears all in-memory entries and truncates `<session_dir>/idempotency-ledger.jsonl` if present (§3.4, §4).
@@ -690,20 +696,17 @@ impl Ledger {
         self.order.clear();
         self.total_reply_bytes = 0;
         if let Some(path) = &self.path {
-            if path.exists() {
-                if let Ok(file) = fs::OpenOptions::new().write(true).truncate(true).open(path) {
-                    let _ = file.sync_all();
-                }
-            }
+            let truncated = session_file_io::truncate(path, true);
+            self.problems.wrote(path, truncated);
         }
     }
 
-    fn append_transition(&self, key: &str, state: &str) {
+    fn append_transition(&mut self, key: &str, state: &str) {
         let tr = LedgerStateTransition { key: key.to_string(), state: state.to_string() };
         self.append_json_line(&tr);
     }
 
-    fn append_json_line<T: Serialize>(&self, record: &T) {
+    fn append_json_line<T: Serialize>(&mut self, record: &T) {
         let Some(path) = &self.path else {
             return;
         };
@@ -711,14 +714,8 @@ impl Ledger {
             return;
         };
         line.push('\n');
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
-            if file.write_all(line.as_bytes()).is_ok() {
-                let _ = file.sync_all();
-            }
-        }
+        let appended = session_file_io::append(path, line.as_bytes(), true);
+        self.problems.wrote(path, appended);
     }
 }
 

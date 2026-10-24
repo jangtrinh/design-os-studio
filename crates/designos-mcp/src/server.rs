@@ -1,11 +1,14 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::{parse, Engine};
+use crate::session_file_io;
+use crate::session_file_problems::SessionFileProblems;
 use crate::tools::errors::{tool_output_schema, ErrorCode, ToolError};
 use crate::tools::ledger::{
     corrected_example_with_new_key, extract_and_strip_idempotency_key, extract_live_and_gone, is_idempotent_write_tool, now_ms, payload_hash,
     CallLedgerDecision, Ledger, LedgerEntry, LEDGER_FILE_NAME,
 };
 use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
+use crate::tools::session_options::SessionOptions;
 use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
@@ -105,23 +108,16 @@ impl LiveSessionBridge {
     }
 }
 
+/// Replaces the session file `path` as a whole (the editor never reads a half-written file). The folder is Studio's and is not
+/// made here; a link at `path` is replaced, never written through. The error is a sentence naming the path.
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let tmp_path = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&tmp_path, bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+    session_file_io::write_atomic(path, bytes, false).map_err(|e| session_file_io::explain("write", path, &e))
 }
 
 /// Appends one line to the edit log in a single write, so the editor never reads a line that
-/// mixes two entries.
+/// mixes two entries. A link or a FIFO at `path` is refused, and the error says so.
 fn append_log_line(path: &Path, line: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-    file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+    session_file_io::append(path, line.as_bytes(), false).map_err(|e| session_file_io::explain("write", path, &e))
 }
 
 pub struct Session {
@@ -148,6 +144,8 @@ pub struct Session {
     pub last_call_meta: Option<serde_json::Map<String, Value>>,
     /// Per-session `designos.enabled_tools` configuration (`E15-15` §8.5).
     pub enabled_tools_config: crate::rules::EnabledToolsConfig,
+    /// What went wrong reading or writing a session file, until a tool reply tells the agent (`session_file_warnings`).
+    file_problems: SessionFileProblems,
 }
 
 #[derive(Deserialize)]
@@ -195,6 +193,13 @@ fn transcript_path_from_env() -> Option<PathBuf> {
     std::env::var_os("DESIGNOS_MCP_TRANSCRIPT").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
 }
 
+/// The session's `designos.enabled_tools`, read through `session_file_io`. A file that is not there or is refused leaves every tool enabled.
+fn load_enabled_tools(problems: &mut SessionFileProblems, session_dir: Option<&Path>) -> crate::rules::EnabledToolsConfig {
+    crate::rules::EnabledToolsConfig::config_path(session_dir)
+        .and_then(|path| problems.read_to_string(&path))
+        .map_or_else(Default::default, |raw| crate::rules::EnabledToolsConfig::from_mcp_config_json(&raw))
+}
+
 impl Session {
     pub fn new(root: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
@@ -202,7 +207,8 @@ impl Session {
             return Err("Workspace must be a directory".into());
         }
         let bridge = LiveSessionBridge::from_env();
-        let enabled_tools_config = crate::rules::EnabledToolsConfig::load(bridge.session_dir.as_deref());
+        let mut file_problems = SessionFileProblems::default();
+        let enabled_tools_config = load_enabled_tools(&mut file_problems, bridge.session_dir.as_deref());
         let mut s = Self {
             engine: Engine::default(),
             root,
@@ -219,11 +225,10 @@ impl Session {
             ledger: Ledger::new(),
             last_call_meta: None,
             enabled_tools_config,
+            file_problems,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
-        if let Some(dir) = &s.bridge.session_dir {
-            s.engine.session_options = crate::tools::session_options::SessionOptions::load_from_dir(dir);
-        }
+        s.load_session_options();
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         s.replay_unabsorbed_live_patches();
@@ -240,7 +245,8 @@ impl Session {
             return Err("Workspace must be a directory".into());
         }
         let bridge = LiveSessionBridge::for_session_dir(session_dir);
-        let enabled_tools_config = crate::rules::EnabledToolsConfig::load(Some(session_dir));
+        let mut file_problems = SessionFileProblems::default();
+        let enabled_tools_config = load_enabled_tools(&mut file_problems, Some(session_dir));
         let mut s = Self {
             engine: Engine::default(),
             root,
@@ -257,16 +263,39 @@ impl Session {
             ledger: Ledger::new(),
             last_call_meta: None,
             enabled_tools_config,
+            file_problems,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
-        if let Some(dir) = &s.bridge.session_dir {
-            s.engine.session_options = crate::tools::session_options::SessionOptions::load_from_dir(dir);
-        }
+        s.load_session_options();
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         s.replay_unabsorbed_live_patches();
         s.ledger = Ledger::load_from_path(session_dir.join(LEDGER_FILE_NAME));
         Ok(s)
+    }
+
+    /// Loads `session-options.json` of the session folder. A file that is not there, is refused or is not valid leaves the
+    /// defaults; a refusal is told to the agent.
+    fn load_session_options(&mut self) {
+        let Some(dir) = self.bridge.session_dir.as_deref() else {
+            return;
+        };
+        if let Some(raw) = self.file_problems.read_to_string(&SessionOptions::file_path(dir)) {
+            self.engine.session_options = SessionOptions::from_json(&raw);
+        }
+    }
+
+    /// Saves the session's options in the session folder. The options stay in force for this session whatever happens; a
+    /// failed save is told to the agent, because they would not survive a reconnect.
+    fn save_session_options(&mut self) {
+        let Some(dir) = self.bridge.session_dir.as_deref() else {
+            return;
+        };
+        let path = SessionOptions::file_path(dir);
+        match self.engine.session_options.save_to_dir(dir) {
+            Ok(()) => self.file_problems.wrote(&path, Ok(())),
+            Err(sentence) => self.file_problems.keep(&path, sentence),
+        }
     }
 
     /// Adds unknown `designos.enabled_tools` warnings to `summary` so the agent sees them once per document.
@@ -276,6 +305,20 @@ impl Session {
         }
         if let Some(fields) = summary.as_object_mut() {
             fields.insert("warnings".into(), json!(self.enabled_tools_config.unknown_warnings));
+        }
+    }
+
+    /// Adds what went wrong with a session file since the last reply (`session_file_warnings`, one sentence per path, each naming the
+    /// path and what to do) to `reply`, so a file Studio no longer sees edits through is not a silent failure. Sentences wait for
+    /// the next reply that can carry them.
+    fn attach_session_file_warnings(&mut self, reply: &mut Value) {
+        let Some(fields) = reply.as_object_mut() else {
+            return;
+        };
+        let mut sentences = self.file_problems.take();
+        sentences.extend(self.ledger.take_problems());
+        if !sentences.is_empty() {
+            fields.insert("session_file_warnings".into(), json!(sentences));
         }
     }
 
@@ -296,7 +339,7 @@ impl Session {
         let Some(path) = self.bridge.live_doc_patch_path.as_ref() else {
             return;
         };
-        let Ok(log) = fs::read(path) else {
+        let Some(log) = self.file_problems.read(path) else {
             return;
         };
         let canvas_base = self.canvas_base_nanos();
@@ -330,7 +373,7 @@ impl Session {
     }
 
     fn edit_log_len(&self) -> u64 {
-        self.bridge.live_doc_patch_path.as_ref().and_then(|p| fs::metadata(p).ok()).filter(|m| m.is_file()).map(|m| m.len()).unwrap_or(0)
+        self.bridge.live_doc_patch_path.as_ref().and_then(|p| session_file_io::stat(p).ok()).map(|m| m.len()).unwrap_or(0)
     }
 
     /// Tuple `(doc.revision, history.undo_depth(), edit_log.len(), files_created.len())` used to
@@ -350,7 +393,7 @@ impl Session {
         let mut loaded_run_id: Option<String> = None;
         let mut loaded_agent: Option<String> = None;
         if let Some(ctx_path) = &self.bridge.context_json_path {
-            if let Ok(raw) = fs::read_to_string(ctx_path) {
+            if let Some(raw) = self.file_problems.read_to_string(ctx_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     loaded_page_id = val.get("current_page_id").and_then(Value::as_u64);
                     loaded_scoped = val.get("scoped").and_then(Value::as_bool);
@@ -374,7 +417,7 @@ impl Session {
         }
         if loaded_run_id.is_none() || loaded_agent.is_none() {
             if let Some(dir) = &self.bridge.session_dir {
-                if let Ok(raw) = fs::read_to_string(dir.join("mcp-config.json")) {
+                if let Some(raw) = self.file_problems.read_to_string(&dir.join("mcp-config.json")) {
                     if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                         if loaded_run_id.is_none() {
                             loaded_run_id = val
@@ -403,32 +446,30 @@ impl Session {
             self.engine.default_agent = Some(ag);
         }
         if let Some(canvas_path) = self.bridge.live_canvas_path.clone() {
-            if let Ok(meta) = fs::metadata(&canvas_path) {
-                if let Ok(mtime) = meta.modified() {
-                    let is_newer = match self.bridge.last_canvas_mtime {
-                        Some(prev) => mtime > prev,
-                        None => true,
-                    };
-                    if is_newer {
-                        if let Ok(raw) = fs::read_to_string(&canvas_path) {
-                            if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
-                                let prev_undo_depth = self.engine.history.undo_depth();
-                                self.engine.doc = doc;
-                                self.engine.clear_lint_cache();
-                                // Ops recorded against the replaced copy no longer apply, and neither
-                                // does its undo history: it names the agent's old ids, which the
-                                // editor may have given to the user's layers.
-                                self.engine.take_live_ops();
-                                self.engine.live_patch_label = None;
-                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
-                                    self.engine.history = designos_doc::History::default();
-                                    self.history_dropped = true;
-                                }
-                                let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
-                                self.bridge.last_canvas_mtime = Some(mtime);
-                                reloaded_live_canvas = true;
+            if let Some(mtime) = self.file_problems.modified(&canvas_path) {
+                let is_newer = match self.bridge.last_canvas_mtime {
+                    Some(prev) => mtime > prev,
+                    None => true,
+                };
+                if is_newer {
+                    if let Some(raw) = self.file_problems.read_to_string(&canvas_path) {
+                        if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
+                            let prev_undo_depth = self.engine.history.undo_depth();
+                            self.engine.doc = doc;
+                            self.engine.clear_lint_cache();
+                            // Ops recorded against the replaced copy no longer apply, and neither
+                            // does its undo history: it names the agent's old ids, which the
+                            // editor may have given to the user's layers.
+                            self.engine.take_live_ops();
+                            self.engine.live_patch_label = None;
+                            if self.engine.history.can_undo() || self.engine.history.can_redo() {
+                                self.engine.history = designos_doc::History::default();
+                                self.history_dropped = true;
                             }
+                            let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                            self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
+                            self.bridge.last_canvas_mtime = Some(mtime);
+                            reloaded_live_canvas = true;
                         }
                     }
                 }
@@ -444,7 +485,7 @@ impl Session {
         }
         if let Some(sess_dir) = &self.bridge.session_dir {
             let boot_json_path = sess_dir.join("bootstrap.json");
-            if let Ok(raw) = fs::read_to_string(&boot_json_path) {
+            if let Some(raw) = self.file_problems.read_to_string(&boot_json_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     if let Some(gen_at) = val.get("generated_at").and_then(Value::as_str) {
                         self.engine.bootstrap_generated_at = Some(gen_at.to_string());
@@ -555,7 +596,7 @@ impl Session {
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
             atomic_write_file(canvas_path, bytes)?;
-            self.bridge.last_canvas_mtime = fs::metadata(canvas_path).and_then(|m| m.modified()).ok();
+            self.bridge.last_canvas_mtime = session_file_io::stat(canvas_path).and_then(|m| m.modified()).ok();
         }
         if let Some(sync_path) = &self.bridge.live_doc_sync_path {
             atomic_write_file(sync_path, bytes)?;
@@ -687,7 +728,10 @@ impl Session {
     pub fn call(&mut self, name: &str, args: Value) -> Result<Value, ToolError> {
         let t0 = std::time::Instant::now();
         let args_copy = args.clone();
-        let res = self.call_with_safety(name, args);
+        let res = self.call_with_safety(name, args).map(|mut reply| {
+            self.attach_session_file_warnings(&mut reply);
+            reply
+        });
         let t_ms = t0.elapsed().as_millis() as u64;
         if let Some(t_path) = self.transcript_path.clone() {
             self.transcript_seq += 1;
@@ -875,9 +919,7 @@ impl Session {
                     enabled_tools: self.enabled_tools_config.enabled.clone(),
                     ..Engine::default()
                 };
-                if let Some(dir) = &self.bridge.session_dir {
-                    let _ = self.engine.session_options.save_to_dir(dir);
-                }
+                self.save_session_options();
                 self.record_live_ops();
                 self.dirty = false;
                 self.ledger.clear();
@@ -920,9 +962,7 @@ impl Session {
                 let next_rev = self.engine.revision.wrapping_add(1);
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
-                if let Some(dir) = &self.bridge.session_dir {
-                    let _ = self.engine.session_options.save_to_dir(dir);
-                }
+                self.save_session_options();
                 self.record_live_ops();
                 self.dirty = true;
                 self.ledger.clear();
@@ -1155,9 +1195,7 @@ impl Session {
                     self.attach_enabled_tools_warnings(&mut result);
                 }
                 if name == "designos_configure_session" {
-                    if let Some(dir) = &self.bridge.session_dir {
-                        let _ = self.engine.session_options.save_to_dir(dir);
-                    }
+                    self.save_session_options();
                 }
                 let is_dry_run = result.get("dry_run").and_then(Value::as_bool) == Some(true);
                 let changed = !is_dry_run

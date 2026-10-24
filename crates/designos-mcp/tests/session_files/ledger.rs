@@ -1,5 +1,5 @@
 //! The idempotency ledger file, with a link or a FIFO planted at its name or at the name its rewrite used to start from.
-use super::scratch::{assert_untouched, old_temp_name, within_one_second, Scratch, VICTIM};
+use super::scratch::{assert_untouched, link_sentence, old_temp_name, within_one_second, Scratch, VICTIM};
 use designos_doc::Document;
 use designos_mcp::tools::ledger::{Ledger, LedgerEntry, LedgerNode};
 use serde_json::json;
@@ -58,6 +58,34 @@ fn the_rewrite_never_writes_through_a_link_at_the_old_temp_name() {
     assert_eq!(ledger.len(), 0);
     assert_untouched(&victim, VICTIM, "rewrite");
     assert_eq!(fs::read(&path).unwrap(), b"", "the rewritten ledger holds no entries");
+}
+
+#[test]
+fn a_refused_ledger_file_is_reported_once_and_the_entries_stay_in_memory() {
+    let scratch = Scratch::new();
+    let victim = scratch.victim(VICTIM);
+    let link = scratch.link(LEDGER, &victim);
+    let mut ledger = Ledger::load_from_path(&link);
+    ledger.store(entry("k1"));
+    ledger.clear();
+    ledger.store(entry("k2"));
+    assert_eq!(ledger.take_problems(), [link_sentence(&link)], "read, append and truncate all refused, one sentence");
+    assert!(ledger.take_problems().is_empty());
+    assert_eq!(ledger.len(), 1);
+    assert_untouched(&victim, VICTIM, "ledger");
+}
+
+#[test]
+fn a_ledger_in_a_folder_that_is_gone_says_so() {
+    let scratch = Scratch::new();
+    let path = scratch.session.join(LEDGER);
+    let mut ledger = Ledger::load_from_path(&path);
+    fs::remove_dir_all(&scratch.session).unwrap();
+    ledger.store(entry("k1"));
+    let problems = ledger.take_problems();
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].starts_with(&format!("Cannot write {}: ", path.display())), "{problems:?}");
+    assert!(!scratch.session.exists());
 }
 
 #[test]

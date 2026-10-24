@@ -218,7 +218,8 @@ fn read_session_json_field(env_file_var: &str, session_rel: &str, pointer: &str)
     let path = std::env::var_os(env_file_var).map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).or_else(|| {
         std::env::var_os("DESIGNOS_SESSION_DIR").map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).map(|d| d.join(session_rel))
     })?;
-    let raw = std::fs::read_to_string(path).ok()?;
+    // The session reads these files itself through `session_file_io` and tells the agent when one is refused (a link, a FIFO), so here a refusal is only `None`.
+    let raw = crate::session_file_io::read_to_string(&path).ok()?;
     let val: Value = serde_json::from_str(&raw).ok()?;
     non_empty_trimmed(val.pointer(pointer).and_then(Value::as_str))
 }
