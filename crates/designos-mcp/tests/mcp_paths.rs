@@ -568,11 +568,13 @@ fn render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint() {
             let err = &errs[0];
             assert_eq!(err.code, ErrorCode::FileExists, "round {i}: {err}");
             assert!(!err.message.contains("overwrite"), "render_png has no overwrite option and must never tell the caller to pass overwrite: {}", err.message);
-            assert!(
-                err.message.starts_with("Cannot create PNG file (choose an unused .png filename):"),
-                "render_png FILE_EXISTS message must use base wording asking for a new .png name, got: {}",
+            assert_eq!(
+                err.message,
+                format!("{name} already exists. Choose a new path, then try again."),
+                "render_png FILE_EXISTS message must use ruling-1 wording, got: {}",
                 err.message
             );
+            assert_eq!(err.received, Some(json!(name)), "render_png FILE_EXISTS must include received path");
             assert!(err.corrected_example.is_none(), "render_png FILE_EXISTS must not emit an overwrite corrected_example: {:?}", err.corrected_example);
             one_exists += 1;
         } else {
@@ -596,6 +598,42 @@ fn render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint() {
     assert_eq!(fig_err.code, ErrorCode::FileExists);
     assert_eq!(fig_err.message, "taken.fig already exists. Pass overwrite: true to replace it.");
     assert_eq!(fig_err.corrected_example, Some(json!({"output_path": "taken.fig", "overwrite": true})));
+}
+
+#[test]
+fn render_png_refuses_existing_file_early_and_preserves_bytes() {
+    let ws = TempDir::new("ws-r4-existing-png");
+    let existing = ws.0.join("existing.png");
+    let initial = b"existing-png-bytes-do-not-overwrite\n";
+    fs::write(&existing, initial).unwrap();
+    let digest_before = sha256_file(&existing);
+
+    let mut s = Session::new(&ws.0).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    let rect_id =
+        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap()["node"]["id"].as_u64().unwrap();
+
+    let err = s
+        .call("designos_render_png", json!({"path": "existing.png", "node_id": rect_id}))
+        .expect_err("render_png to an existing .png must fail with FILE_EXISTS");
+    assert_eq!(err.code, ErrorCode::FileExists, "{err}");
+    assert_eq!(err.path, "/path");
+    assert_eq!(err.message, "existing.png already exists. Choose a new path, then try again.");
+    assert_eq!(err.received, Some(json!("existing.png")));
+    assert!(err.corrected_example.is_none(), "render_png FILE_EXISTS must not set corrected_example: {:?}", err.corrected_example);
+    assert_eq!(sha256_file(&existing), digest_before, "existing.png hash must be unchanged");
+    assert_eq!(fs::read(&existing).unwrap().as_slice(), initial, "existing.png bytes must be unchanged");
+
+    // Early refusal in validate_existing_output_target happens before node lookup / rendering.
+    let early_err = s
+        .call("designos_render_png", json!({"path": "existing.png", "node_id": 999_999}))
+        .expect_err("render_png to an existing .png must refuse early in validate_existing_output_target before node lookup/render");
+    assert_eq!(early_err.code, ErrorCode::FileExists, "{early_err}");
+    assert_eq!(early_err.message, "existing.png already exists. Choose a new path, then try again.");
+    assert_eq!(early_err.received, Some(json!("existing.png")));
+    assert!(early_err.corrected_example.is_none());
+    assert_eq!(sha256_file(&existing), digest_before);
+    assert_eq!(fs::read(&existing).unwrap().as_slice(), initial);
 }
 
 #[test]

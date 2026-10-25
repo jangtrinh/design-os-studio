@@ -1034,7 +1034,7 @@ impl Session {
                 let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
                 self.engine.settle_layout();
                 let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite)?;
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite, true)?;
                 *files_created += 1;
                 self.dirty = false;
                 Ok(json!({"path": path, "saved": true}))
@@ -1066,7 +1066,7 @@ impl Session {
                     return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_id", format!("Node {} produced an empty image", a.node_id))
                         .with_received(json!(a.node_id)));
                 }
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png, false)?;
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png, false, false)?;
                 *files_created += 1;
                 Ok(json!({"path": path, "node_id": a.node_id, "scale": a.scale, "bytes": png.len(), "rendered": true}))
             }
@@ -1076,7 +1076,7 @@ impl Session {
                 self.engine.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.engine.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "", format!("Failed to export .fig: {e}")))?;
-                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes, a.overwrite)?;
+                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 *files_created += 1;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({

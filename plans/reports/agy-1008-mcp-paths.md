@@ -1062,4 +1062,335 @@ OUT_REMOVED=0
 - `plans/reports/agy-1008-mcp-paths-evidence/r3-red.log`, `plans/reports/agy-1008-mcp-paths-evidence/r3-green.log`, `plans/reports/agy-1008-mcp-paths-evidence/r3-loop.log`:
   - Saved verbatim Red, Green, and 40x/20x loop outputs.
 
+---
+
+## Round 4
+
+### 1. What Could NOT Be Verified
+
+- **Windows cross-target check (`x86_64-pc-windows-gnu`):** Running `cargo check -p designos-mcp --tests --target x86_64-pc-windows-gnu --locked` on this macOS worker cannot compile `core` because the `x86_64-pc-windows-gnu` target standard library is not installed locally (`#![cfg(unix)]` remains at line 1 of `crates/designos-mcp/tests/mcp_paths.rs` and `crates/designos-mcp/tests/mcp_paths_full_disk.rs`).
+
+---
+
+### 2. Acceptance Table & Command Outputs (Round 4)
+
+- **Epistemic Ledger:**
+  - **FACT:** On `20913aef`, `validate_existing_output_target` (`crates/designos-mcp/src/engine.rs:1605`) returned `Ok(())` when `target_meta` existed and `!overwrite && !supports_overwrite`, causing `designos_render_png` to render the full PNG before failing at `write_checked_output_file`, and `write_checked_output_file` (`crates/designos-mcp/src/engine.rs:1657-1666`) sniffed the `.png` extension and returned `Cannot create PNG file (choose an unused .png filename): {e}` on `AlreadyExists`.
+  - **FACT:** Restoring the early refusal in `validate_existing_output_target` for `!supports_overwrite` and passing `supports_overwrite: bool` explicitly to `write_checked_output_file` from its four call sites (`engine.rs:911`, `server.rs:1037`, `server.rs:1069`, `server.rs:1079`) makes both early validation and race-loser `AlreadyExists` return the exact cause-first wording `"{display_path} already exists. Choose a new path, then try again."` with `received: Some(json!(display_path))` and `corrected_example: None`, while tools with `supports_overwrite = true` keep `"{display_path} already exists. Pass overwrite: true to replace it."` and `corrected_example: Some(json!({ field_name: display_path, "overwrite": true }))`.
+  - **FACT:** Both the updated race test (`render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint`) and the new non-race existing-PNG test (`render_png_refuses_existing_file_early_and_preserves_bytes`) fail on `20913aef` (`r4-red.log`) and pass on `HEAD` (`r4-green.log`), and 20 back-to-back runs of the `mcp_paths` test binary at default thread count pass with 0 hangs (`r4-loop.log`).
+  - **Weakest link:** Windows target stdlib is not installed on this macOS worker, so Windows compilation of `designos-mcp` relies on CI (`#![cfg(unix)]` gates unix-only integration tests).
+
+| # | Gate | Command | Status |
+|---|---|---|---|
+| 1 | Red / Green (`r4-red.log` -> `r4-green.log`) | `cargo test -p designos-mcp --test mcp_paths --locked` against `20913aef` `src/` (`19 passed; 2 failed`) and on `HEAD` (`21 passed; 0 failed`) | PASS |
+| 2 | Rustfmt & Clippy | `cargo fmt --all -- --check` (`exit 0`) & `cargo clippy --workspace --all-targets --locked -- -D warnings` (`exit 0`) | PASS |
+| 3 | Test suites (`designos-mcp` & `designos-eval`) | `cargo test -p designos-mcp --locked` & `cargo test -p designos-eval --locked` under short-`$TMPDIR` harness | PASS |
+| 4 | 20x back-to-back `mcp_paths` binary loop (`r4-loop.log`) | 20 runs of built `mcp_paths` binary at default thread count, 60 s timeout each (`runs=20 ok=20 hang=0 fail=0`) | PASS |
+| 5 | Clean workspace (`out/` removed) | `rm -rf out && test ! -e out` | PASS |
+
+#### Acceptance 1 — Red (`20913aef`) and Green (`HEAD`) (`r4-red.log` and `r4-green.log`)
+
+Command (`r4-red.log` against `20913aef` `src/`):
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --test mcp_paths --locked > plans/reports/agy-1008-mcp-paths-evidence/r4-red.log 2>&1 || true
+rm -rf "$S"
+```
+
+Output (`plans/reports/agy-1008-mcp-paths-evidence/r4-red.log`):
+```text
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.28s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+
+running 21 tests
+test export_fig_rules_list_both_file_exists_and_internal_error ... ok
+test export_fig_refuses_folder ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test export_fig_refuses_symlink_inside_workspace ... ok
+test argument_errors_never_echo_outside_paths_in_corrected_example_or_received ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test render_png_refuses_existing_file_early_and_preserves_bytes ... FAILED
+test trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first ... ok
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint ... FAILED
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted ... ok
+test new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes ... ok
+test concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json ... ok
+test file_planted_during_no_overwrite_export_is_never_overwritten ... ok
+
+failures:
+
+---- render_png_refuses_existing_file_early_and_preserves_bytes stdout ----
+
+thread 'render_png_refuses_existing_file_early_and_preserves_bytes' (48471518) panicked at crates/designos-mcp/tests/mcp_paths.rs:621:5:
+assertion `left == right` failed
+  left: "Cannot create PNG file (choose an unused .png filename): File exists (os error 17)"
+ right: "existing.png already exists. Choose a new path, then try again."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint stdout ----
+
+thread 'render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint' (48471517) panicked at crates/designos-mcp/tests/mcp_paths.rs:571:13:
+assertion `left == right` failed: render_png FILE_EXISTS message must use ruling-1 wording, got: Cannot create PNG file (choose an unused .png filename): File exists (os error 17)
+  left: "Cannot create PNG file (choose an unused .png filename): File exists (os error 17)"
+ right: "png-race-0.png already exists. Choose a new path, then try again."
+
+
+failures:
+    render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint
+    render_png_refuses_existing_file_early_and_preserves_bytes
+
+test result: FAILED. 19 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.93s
+
+error: test failed, to rerun pass `-p designos-mcp --test mcp_paths`
+```
+
+Command (`r4-green.log` on `HEAD`):
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --test mcp_paths --locked > plans/reports/agy-1008-mcp-paths-evidence/r4-green.log 2>&1
+rm -rf "$S"
+```
+
+Output (`plans/reports/agy-1008-mcp-paths-evidence/r4-green.log`):
+```text
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.43s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+
+running 21 tests
+test export_fig_rules_list_both_file_exists_and_internal_error ... ok
+test export_fig_refuses_folder ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test export_fig_refuses_symlink_inside_workspace ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test argument_errors_never_echo_outside_paths_in_corrected_example_or_received ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first ... ok
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test render_png_refuses_existing_file_early_and_preserves_bytes ... ok
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+test in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted ... ok
+test new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes ... ok
+test render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint ... ok
+test concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json ... ok
+test file_planted_during_no_overwrite_export_is_never_overwritten ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.05s
+```
+
+#### Acceptance 2 — `cargo fmt --all -- --check` & `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+cargo fmt --all -- --check && echo "FMT_EXIT=$?"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings && echo "CLIPPY_EXIT=$?"
+rm -rf "$S"
+```
+
+Output:
+```text
+FMT_EXIT=0
+    Checking designos-eval v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-eval)
+    Checking designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-gpu)
+    Checking egui-wgpu v0.35.0
+    Checking eframe v0.35.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 33.95s
+CLIPPY_EXIT=0
+```
+
+#### Acceptance 3 — `cargo test -p designos-mcp --locked` & `cargo test -p designos-eval --locked`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --locked && echo "MCP_TEST_EXIT=$?"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-eval --locked && echo "EVAL_TEST_EXIT=$?"
+rm -rf "$S"
+```
+
+Output:
+```text
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-96fd55246d4a3a66)
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos_mcp-616b53869353a607)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/gen-tool-docs.rs (out/cargo/debug/deps/gen_tool_docs-f413a393b4d55d8f)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/colour_detach.rs (out/cargo/debug/deps/colour_detach-1aa6ab2233591601)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/colour_var_library.rs (out/cargo/debug/deps/colour_var_library-01318f1c86eb2572)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/colour_var_refs.rs (out/cargo/debug/deps/colour_var_refs-f067c8c79555baaa)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/list_lint_rules.rs (out/cargo/debug/deps/list_lint_rules-378a191ea16cbc7f)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+     Running tests/live_doc_epoch.rs (out/cargo/debug/deps/live_doc_epoch-23ae83d21f949530)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/live_session_guards.rs (out/cargo/debug/deps/live_session_guards-ab113f1c25ffacf0)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+     Running tests/mcp_paths_full_disk.rs (out/cargo/debug/deps/mcp_paths_full_disk-a818e059bf9cad4b)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/session.rs (out/cargo/debug/deps/session-70f6c9de7d7f9973)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running tests/session_file_sites/main.rs (out/cargo/debug/deps/session_file_sites-1a885e87e98ff7af)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+     Running tests/session_files/main.rs (out/cargo/debug/deps/session_files-657090e65be613f1)
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/spec_text_colour.rs (out/cargo/debug/deps/spec_text_colour-75b28c66cba35b01)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/stdio.rs (out/cargo/debug/deps/stdio-9963b9496c82d7e4)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/text_fill.rs (out/cargo/debug/deps/text_fill-b3d88a68a195ca3e)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/tools_snapshot.rs (out/cargo/debug/deps/tools_snapshot-e6488781337fbb09)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/version.rs (out/cargo/debug/deps/version-7878cb959d478560)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+   Doc-tests designos_mcp
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MCP_TEST_EXIT=0
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-9a9f1f166d66684f)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos_eval-30aca93b7d8d8c4a)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/harness.rs (out/cargo/debug/deps/harness-28beba16668beb59)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+     Running tests/real_engine.rs (out/cargo/debug/deps/real_engine-4a6cab08ce582fe8)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+   Doc-tests designos_eval
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EVAL_TEST_EXIT=0
+```
+
+#### Acceptance 4 — 20 back-to-back runs of `mcp_paths` test binary (`r4-loop.log`)
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+{
+  BIN="$(env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --test mcp_paths --no-run --locked 2>&1 | tee /dev/stderr | sed -n 's/.*Executable tests\/mcp_paths\.rs (\(.*\))/\1/p' | tail -n 1)"
+  echo "BIN=$BIN"
+  ok=0; hang=0; fail=0
+  for i in $(seq 1 20); do
+    out="$(python3 -c '
+import os, subprocess, sys
+bin_path, idx = sys.argv[1], sys.argv[2]
+try:
+    p = subprocess.run([bin_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
+    last = [l for l in p.stdout.splitlines() if "test result:" in l]
+    summary = last[-1] if last else p.stdout[-200:]
+    print(f"mcp_paths run {idx}/20: rc={p.returncode} {summary}")
+    sys.exit(p.returncode)
+except subprocess.TimeoutExpired:
+    print(f"mcp_paths run {idx}/20: TIMEOUT (>60s)")
+    sys.exit(124)
+' "$BIN" "$i")"
+    rc=$?
+    echo "$out"
+    if [ "$rc" -eq 0 ]; then ok=$((ok+1)); elif [ "$rc" -eq 124 ]; then hang=$((hang+1)); else fail=$((fail+1)); fi
+  done
+  echo "mcp_paths summary: runs=20 ok=$ok hang=$hang fail=$fail"
+  test "$ok" -eq 20 -a "$hang" -eq 0 -a "$fail" -eq 0
+} > plans/reports/agy-1008-mcp-paths-evidence/r4-loop.log 2>&1
+rm -rf "$S"
+```
+
+Output (`plans/reports/agy-1008-mcp-paths-evidence/r4-loop.log`):
+```text
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.55s
+  Executable tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+BIN=out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c
+mcp_paths run 1/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+mcp_paths run 2/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.19s
+mcp_paths run 3/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+mcp_paths run 4/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.98s
+mcp_paths run 5/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.92s
+mcp_paths run 6/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+mcp_paths run 7/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.94s
+mcp_paths run 8/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.05s
+mcp_paths run 9/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+mcp_paths run 10/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+mcp_paths run 11/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.05s
+mcp_paths run 12/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+mcp_paths run 13/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+mcp_paths run 14/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+mcp_paths run 15/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+mcp_paths run 16/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.12s
+mcp_paths run 17/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+mcp_paths run 18/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.06s
+mcp_paths run 19/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+mcp_paths run 20/20: rc=0 test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+mcp_paths summary: runs=20 ok=20 hang=0 fail=0
+```
+
+#### Acceptance 5 — Delete `out/`
+
+Command:
+```sh
+rm -rf out && test ! -e out && echo "OUT_REMOVED=0"
+```
+
+Output:
+```text
+OUT_REMOVED=0
+```
+
+---
+
+### 3. Changes per File (Round 4)
+
+- `crates/designos-mcp/src/engine.rs`:
+  - Restored the early refusal in `validate_existing_output_target` when `!overwrite && !supports_overwrite`, returning `ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again.")).with_received(json!(display_path))` (with no `corrected_example`).
+  - Added `supports_overwrite: bool` parameter to `write_checked_output_file`, removed `.png` extension sniffing, and updated the `AlreadyExists` branch for `!supports_overwrite` to return `ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again.")).with_received(json!(display_path))` (no OS error text, no `corrected_example`), while `supports_overwrite = true` keeps `format!("{display_path} already exists. Pass overwrite: true to replace it.")` and `with_corrected_example(json!({ field_name: display_path, "overwrite": true }))`.
+  - Updated the `write_checked_output_file` call site in `Engine::call` (`"designos_export_fig_file" | "export_fig_file"`) to pass `supports_overwrite = true`.
+- `crates/designos-mcp/src/server.rs`:
+  - Updated the three `write_checked_output_file` call sites in `Session::call_inner`:
+    - `"designos_save_file"` (`:1037`): `supports_overwrite = true`
+    - `"designos_render_png"` (`:1069`): `supports_overwrite = false`
+    - `"designos_export_fig_file" | "export_fig_file"` (`:1079`): `supports_overwrite = true`
+- `crates/designos-mcp/tests/mcp_paths.rs`:
+  - Updated `render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint` to assert the exact ruling-1 message `format!("{name} already exists. Choose a new path, then try again.")`, `err.received == Some(json!(name))`, and `err.corrected_example.is_none()`, while keeping the `designos_save_file` and `designos_export_fig_file` assertions.
+  - Added `render_png_refuses_existing_file_early_and_preserves_bytes` testing `designos_render_png` on an already-existing PNG outside any race (both with a valid `node_id` and with a nonexistent `node_id` to verify early refusal in `validate_existing_output_target` before node lookup/rendering) and verifying `FILE_EXISTS`, exact ruling-1 message, `received`, `corrected_example == None`, and unchanged file bytes/SHA-256.
+- `plans/reports/agy-1008-mcp-paths-evidence/r4-red.log`, `plans/reports/agy-1008-mcp-paths-evidence/r4-green.log`, `plans/reports/agy-1008-mcp-paths-evidence/r4-loop.log`:
+  - Saved verbatim Red (`20913aef`), Green (`HEAD`), and 20x loop outputs.
+
+---
+
+### 4. Every User-Facing String, Verbatim (Round 4)
+
+1. `"{display_path} already exists. Choose a new path, then try again."` (`ErrorCode::FileExists`, `received: Some(json!(display_path))`, `corrected_example: None`, returned by both `validate_existing_output_target` and `write_checked_output_file` when `!overwrite && !supports_overwrite`)
+2. `"{display_path} already exists. Pass overwrite: true to replace it."` (`ErrorCode::FileExists`, `received: Some(json!(display_path))`, `corrected_example: Some(json!({ field_name: display_path, "overwrite": true }))`, returned by both `validate_existing_output_target` and `write_checked_output_file` when `!overwrite && supports_overwrite`)
+
 Status: DONE

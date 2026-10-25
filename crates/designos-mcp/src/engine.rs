@@ -908,7 +908,7 @@ impl Engine {
                 self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
-                write_checked_output_file(path, &a.output_path, "/output_path", &bytes, a.overwrite)?;
+                write_checked_output_file(path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
                     "output_path": a.output_path,
@@ -1602,7 +1602,8 @@ pub(crate) fn validate_existing_output_target(
                     .with_received(json!(display_path))
                     .with_corrected_example(json!({ field_name: display_path, "overwrite": true })));
             }
-            return Ok(());
+            return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                .with_received(json!(display_path)));
         }
         if second_name {
             return Err(ToolError::new(
@@ -1624,7 +1625,14 @@ pub(crate) fn validate_existing_output_target(
     Ok(())
 }
 
-pub(crate) fn write_checked_output_file(resolved: &std::path::Path, display_path: &str, ptr: &str, bytes: &[u8], overwrite: bool) -> Result<(), ToolError> {
+pub(crate) fn write_checked_output_file(
+    resolved: &std::path::Path,
+    display_path: &str,
+    ptr: &str,
+    bytes: &[u8],
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
     use std::io::Write;
     let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
         Some(crate::session_file_io::Refusal::Link) => {
@@ -1654,7 +1662,6 @@ pub(crate) fn write_checked_output_file(resolved: &std::path::Path, display_path
             opts.custom_flags(libc::O_NOFOLLOW);
         }
         let field_name = ptr.trim_start_matches('/');
-        let supports_overwrite = !std::path::Path::new(display_path).extension().and_then(|x| x.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
         let mut file = opts.open(resolved).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 if supports_overwrite {
@@ -1662,7 +1669,7 @@ pub(crate) fn write_checked_output_file(resolved: &std::path::Path, display_path
                         .with_received(json!(display_path))
                         .with_corrected_example(json!({ field_name: display_path, "overwrite": true }))
                 } else {
-                    ToolError::new(ErrorCode::FileExists, ptr, format!("Cannot create PNG file (choose an unused .png filename): {e}"))
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
                         .with_received(json!(display_path))
                 }
             } else {
