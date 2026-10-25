@@ -1036,3 +1036,6 @@
 - [P0-UI-V06] New queue comment: https://github.com/jangtrinh/design-os-studio/pull/1166#issuecomment-6399952528
 - [P0-UI-V06] Project 9 fields: #1126 Status Ready; #1126 #1142 #1143 Waiting on Claude; #1158 Waiting on Jang (Windows decision).
 - [P0-UI-V06] CORRECTION: v063 runbook no longer says Jang accepted Windows red. It is now an OPEN DECISION for Jang (A: accept / B: land #1158 first), and the gate is all green until he decides. train-2026-10-26.png ("Known issue: Windows") is out of date; see ui-revamp-v06x-2026-10-25.png instead.
+- [SPEC-READY] Batch 2 (23:35 UTC+7): UI Revamp slice 2 → US-04..18 on PR #1166 (7447bd5), `detail/` copied from docs/specs-untitled-ui-dark so the pack is self-contained; lint 48 docs / 89 AC / 0 errors. Nothing merged.
+- [SPEC-READY] New pack plans/specs/hardening-2026-10 on pm/spec-v0.6 (7e2d7be): #1165 (US-01, root-cause hypotheses from code, Step 0 dump needs kit copy on Mac), #1158 (US-02), #1159 (US-03, rules.lock already -text), #1072 (US-04, remainder = PR #1085). 21 AC, 0 errors.
+- [SPEC-READY] Comment + `spec:ready` on 19 issues (1119 1120 1124 1128 1138 1139 1144 1146 1155 1121 1125 1127 1140 1141 1154 1165 1158 1159 1072). #1122 comment only (owner decision). Readiness: 22 ready / 17 partial / 5 missing. Windows-red ship remains Jang's OPEN DECISION.
