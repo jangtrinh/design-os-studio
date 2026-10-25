@@ -34,6 +34,8 @@ As a surface implementer (C–K), I want one constant per Untitled step (`text-x
 | Display xs … 2xl | 24/32, 30/38, 36/44, 48/60, 60/72, 72/90 | Styles panel; letter spacing −2% (`_Type scale base` label) |
 | Weights | Regular 400, Medium 500, Semibold 600, Bold 700 | `designos "$KIT" --select "_Type scale base" --export-spec type-scale-base.json` ("Font weight: 400" … "700"); typeface Inter |
 
+**Verified from variables (FACT).** The DTCG export loses the kit's local `6. Typography` collection (32 variables) behind a one-variable library copy of the same name (spec P, #1140); that is why the plan saw only `text-sm`. The REST export keeps both by id: `designos "$KIT" --export-variables all.json --format figma-rest` gives Font size text-xs 12, sm 14, md 16, lg 18, xl 20, display-xs … 2xl 24, 30, 36, 48, 60, 72; Line height 18, 20, 24, 28, 30 and 32, 38, 44, 60, 72, 90; Font weight Regular, Medium, Semibold, Bold; family Inter. Every value matches the Styles panel reading above. `2_ Radius` and `3_ Spacing` exist once each and are unaffected.
+
 `--codegen css --select Typography` emits only the root node and `--export-spec` omits instance text overrides, so the sizes were read from the rendered Styles panel (UNKNOWN beyond what that panel shows: tracking for Text styles, assumed 0).
 
 **Kit sizes (FACT, `--select "<set>" --export-spec`).** `Buttons/Button` heights xs 32, sm 36, md 40, lg 44, xl 48, all `radius-md`; `Input field` sm 36, md 40, lg 44, `radius-md`; `Badge` sm 22, md 24, lg 28 (pill style `radius-full`, colour/modern `radius-sm`, lg `radius-md`); `_Tab button base` sm 36 `radius-sm`; `_Nav item base` 38; dropdown list item 38 with content `radius-sm`; toggle md 24, slim 20, `radius-full`; checkbox sm 16 `radius-xs`.

@@ -24,12 +24,26 @@ Other specs refer to Untitled names only; this file is the single place that map
 
 `$KIT` = `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`.
 
+**Verification of the dark values (FACT, 2026-10-25).** `--export-variables --format dtcg` writes one file per collection
+name and overwrites same-named collections (spec P, #1140): the kit has 10 variable collections, three names twice
+(`_Primitives`, `1. Color modes`, `6. Typography`, each a local copy and a library copy). Check run:
+`cargo run -q --release -p designos-app --bin designos -- "$KIT" --export-variables all.json --format figma-rest`
+(one file, collections keyed by id, nothing overwritten), then `verify_dark_values_rest.py` (resolve every variable of
+both copies in Dark mode / Style through the alias chain and diff against the DTCG-resolved values used here):
+"compared 575 identical 575 diffs 0". The library copies hold only 6 variables (`_Primitives`: Neutral/400 `#A3A3A3`,
+Neutral/600, Base/transparent; `1. Color modes`: text-tertiary, shadow-xs; `6. Typography`: text-sm 14), each with
+an identical local twin; the local copies (343 and 273 variables) are the ones the DTCG files kept. So every colour
+in this contract is verified. The DTCG overwrite did lose the local `6. Typography` (32 variables) to its one-variable
+library copy; the REST export reads it: Font size text-xs 12, sm 14, md 16, lg 18, xl 20 (display 24 … 72); Line
+height 18, 20, 24, 28, 30 (display 32 … 90); Font weight Regular, Medium, Semibold, Bold; family Inter. That makes
+spec B's type scale a variable FACT, matching the Styles panel reading.
+
 ### Coverage (acceptance 4)
 
 | Family | Grep (on `theme.rs` at `ec47da26`) | In file | Covered here |
 |---|---|---|---|
 | All constants | `grep -cE '^pub const ' theme.rs` → 451 lines, of which 2 are `pub const fn` | 449 | 449 |
-| Colour, `Color32` and `[Color32; N]` | `grep -cE '^pub const [A-Z0-9_]+: (Color32\|\[Color32; ?[0-9]+\]) =' theme.rs` | 116 | 116 in (a): 116 constants covered; alias 4, delete 5, keep 52, revalue 55; new 13 |
+| Colour, `Color32` and `[Color32; N]` | `grep -cE '^pub const [A-Z0-9_]+: (Color32\|\[Color32; ?[0-9]+\]) =' theme.rs` | 116 | 116 in (a): 116 constants covered; alias 4, delete 5, keep 52, revalue 55; new 23 (N1–N13 from spec A, N14–N23 for spec C) |
 | Colour, `u32` / `[u32; 8]` (document defaults, board) | `grep -nE '^pub const [A-Z0-9_]+: (u32\|\[u32; ?[0-9]+\]) =' theme.rs` | 7 | 7 in (e), unchanged |
 | Numeric (`f32` 306, `f64` 1, `u8` 6, `usize` 4, `(f32, f32)` 2, `[f32; N]` 2) | `grep -cE '^pub const [A-Z0-9_]+: (f32\|f64\|u8\|usize\|\(f32, ?f32\)\|\[f32; ?[0-9]\]) =' theme.rs` | 321 | 321: 21 changed or re-pointed + 2 renamed + 2 legacy in (c), 296 unchanged in the appendix |
 | Strings (`&str`: font families, `APP_TITLE`) | `grep -cE '^pub const [A-Z0-9_]+: &str =' theme.rs` | 5 | 5 in (e), unchanged |
@@ -177,6 +191,16 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | N11 | `FOCUS_RING` | `rgb(0xF97316)` | focus-ring (R4: Orange-500) | focus ring for every focusable control (spec C draws it) |
 | N12 | `BG_ERROR_SOLID` | `rgb(0xDC2626)` | bg-error-solid | destructive button fill; label TEXT_WHITE at 4.83:1 |
 | N13 | `TEXT_WHITE` | `rgb(0xFFFFFF)` | text-white | label on bg-error-solid (kit destructive button) |
+| N14 | `ICON_BRAND_PRIMARY` | `rgb(0xF97316)` | fg-brand-primary (R4 remap: kit `#9E77ED` Brand-500 → Orange-500) | spec C: menu check, toast dot, slider and progress fill, spinner arc; non-text 7.06:1 on bg-primary |
+| N15 | `ICON_SECONDARY_HOVER` | `rgb(0xE5E5E5)` | fg-secondary_hover | spec C: selected icon |
+| N16 | `ICON_QUATERNARY_HOVER` | `rgb(0xA3A3A3)` | fg-quaternary_hover | spec C: icon hover and pressed |
+| N17 | `ICON_WHITE` | `rgb(0xFFFFFF)` | fg-white | spec C: toggle knob |
+| N18 | `BG_PRIMARY_ALT` | `rgb(0x171717)` | bg-primary_alt (dark: alias of bg-secondary) | spec C: selected segment, toast fill |
+| N19 | `BG_PRIMARY_SOLID` | `rgb(0x262626)` | bg-primary-solid (dark: alias of bg-tertiary) | spec C: tooltip fill; `TEXT` on it 14.50:1 |
+| N20 | `BG_ERROR_SOLID_HOVER` | `rgb(0xEF4444)` | bg-error-solid_hover (Red-500) | spec C: destructive hover. Kit FACT, but `TEXT_WHITE` on it is 3.76:1 (below AA for 14 px text); spec C owns the call |
+| N21 | `UTILITY_NEUTRAL_50` | `rgb(0x171717)` | utility-neutral-50 (dark: Neutral-900) | spec C: count badge fill |
+| N22 | `UTILITY_NEUTRAL_200` | `rgb(0x404040)` | utility-neutral-200 (dark: Neutral-700) | spec C: count badge border |
+| N23 | `UTILITY_NEUTRAL_700` | `rgb(0xD4D4D4)` | utility-neutral-700 (dark: Neutral-300) | spec C: count badge text, 12.09:1 on `UTILITY_NEUTRAL_50` |
 
 Rules that follow from the AA run in spec A section 3:
 
@@ -388,7 +412,7 @@ references in 15 files; `grep -rnow <NAME> crates/designos-app/src --exclude=the
 as legacy names with their values; each surface spec (D–K) re-points the sites it owns, and spec B adds a
 reference-count ratchet (spec B section 10) so the count only falls. When it reaches 0, the constant is deleted.
 
-No colour constant is renamed; 5 dead colour constants are deleted and 13 are added (table (a)).
+No colour constant is renamed; 5 dead colour constants are deleted and 23 are added (table (a)).
 
 ### `scripts/design_os_self_evolve.py` (G01, colour parity)
 
