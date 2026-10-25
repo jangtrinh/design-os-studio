@@ -1512,4 +1512,269 @@ APP_STYLE_EXIT=0
 
 - None.
 
+---
+
+## Round 5
+
+### 1. What could NOT be verified
+
+- **Windows/Linux runtime branch of `UNDO_SHORTCUT` (`"Ctrl+Z"`) in `style_deleted_toast` (`crates/designos-app/src/panels/style_picker.rs:20-29`):** `[INFERENCE]` Verified on macOS (`"Style deleted · 1 layer matches it in this mode only · Cmd+Z to undo"`, `"Style deleted · 3 layers match it in this mode only · Cmd+Z to undo"`, and `"Style deleted · Cmd+Z to undo"`). The non-macOS `"Ctrl+Z"` branch uses the same `cfg!(target_os = "macos")` compile-time constant (`UNDO_SHORTCUT`) as `STYLE_DELETED_TOAST` (`crates/designos-app/src/panels/style_picker.rs:20-21`) and was not executed on a Windows or Linux runner locally.
+- **Alias cycle cap beyond 32 hops in `collections_and_modes` (`crates/designos-doc/src/styles_ops.rs:352`):** `[INFERENCE]` `collections_and_modes` caps alias traversal at 32 visited variables (`visited_vars.len() >= 32`), matching `Document::resolve_variable_with_modes` (`crates/designos-doc/src/variables.rs:209`, `for _ in 0..32`). Chains deeper than 32 hops are treated as unresolved in both the resolver and classifier.
+- **Conclusion:** `[FACT]` All four Round 5 classifier fixes (every involved collection via `collections_and_modes`, missing mode values in `classify_own_binding_override`, delegating to `Document::resolve_variable_with_modes` for aliases and multi-axis `+` keys while removing the private resolver, and keeping mixed stop bindings `fills/N/stops/M` and `strokes/N/stops/M`), the fallback bake rule and `(NodeId, String)` reporting via `delete_style_with_fallbacks`, the fallback toast in `style_picker.rs`, and all 8 acceptance table rows plus the full `designos-doc`, `designos-fig`, and `designos` binary (`2939 passed; 0 failed`) test suites are implemented and verified.
+- **Weakest link:** `[FACT]` When a layer's own binding wins in some mode combinations and the style-won mode combinations resolve to more than one distinct value, the flat `BTreeMap<String, String>` binding model on `NodeVariables` has no per-mode precedence after style detachment; `delete_style_with_fallbacks` bakes a single fallback value (preserving the delete-time mode when the style wins there, or the default mode / first style-won mode when the own binding wins at delete time), drops the style binding, and reports `(NodeId, node_key)` so the UI surfaces the non-silent toast (`Style deleted · {n} layers match it in this mode only · Cmd+Z to undo`).
+- **Skills loaded & what changed because of them:**
+  - `es-astra-work`, `es:fable-thinking`, `es:dev`, `es:feature-dev`: Enforced red-before-green evidence capture (`r5-red.log` against unmodified `fa7410985` before production edits, then `r5-green.log`) and root-caused the `TMPDIR` trailing-slash normalization needed for `fig_export` tests in the full `designos` binary suite.
+  - `es:rust`, `es:rust-gpu-canvas`: Kept `Document::resolve_variable_with_modes` allocation-minimal (`mode_overrides: &[(&str, &str)]`, delegating `resolve_variable(node, variable)` to `self.resolve_variable_with_modes(node, variable, &[])`) with zero behaviour change to existing callers.
+  - `es:designer` + `design/principles.md` + `design/soul.md` + `design/ux-writing.md`: Verified the exact fallback toast strings in `crates/designos-app/src/panels/style_picker.rs:20-29` and passed `python3 scripts/zero_fake_ui_gate.py` (`17/17 PASS`).
+
+---
+
+### 2. Acceptance table (rows 1–8 + gate checks), with commands and pasted output
+
+| # | Shape / Check | Expect | Verdict | Evidence |
+|---|---|---|---|---|
+| 1 | 3 modes in one collection (`light`, `dim`, `dark`); own colour translucent only in `dark`; style opacity `80`/`20`/`5` | Fallback: delete-time mode is exact; `(rid, "fills/0/opacity")` is reported; `dim` gets `0.8` when deleted in `light`, `0.2` when deleted in `dim`, `0.8` when deleted in `dark` (default `light`), and `0.8` when deleted in `dark` (default `dark`, first style-won mode `light`) | PASS (`[FACT]`) | `r5_row1_three_modes_mixed_override_uses_fallback_preserves_delete_time_mode_and_reports_pair` (`styles_ops.rs:2374-2512`) |
+| 2 | 3 modes (`light`, `dim`, `dark`); style opacity is the same (`80`) in every style-won mode (`light`, `dim`) | Exact in every mode (`light`, `dim`, `dark`), nothing reported (`fallbacks.is_empty()`) | PASS (`[FACT]`) | `r5_row2_three_modes_same_style_opacity_in_every_style_won_mode_is_exact_and_reports_nothing` (`styles_ops.rs:2515-2614`) |
+| 3 | Style variable in a second collection (`Brand` `a`/`b`), own in `Theme` (`light`/`dark`) | **Why & which:** Classifier enumerates the Cartesian product of `(Theme, Brand)` (`4` combinations). When `Theme` own overrides in `dark` and `Brand` differs (`a=50`, `b=10`), style wins in `(light, a)=50` and `(light, b)=10` (different values) → **fallback with `(rid, "fills/0/opacity")` reported** (delete-time and default `(light, a)` exact when deleted in `(dark, b)`; delete-time `(light, b)` and `dark` combinations exact when deleted in `(light, b)`). When `Theme` own is opaque in both modes or `Brand` agrees (`a=50, b=50`) → **exact over all 4 combinations, nothing reported** | PASS (`[FACT]`) | `r5_row3_style_variable_in_second_collection_brand_and_own_in_theme` (`styles_ops.rs:2617-2759`) |
+| 4 | Style `fontWeight` has no value in `light` (only `dark: 800`); own `fontStyle` `Italic`/`Bold Italic` | `dark` stays `700` after delete; `light` stays `400` as before; nothing reported. (**Classifier Fix 2 rule:** when at least one style-won mode resolves, bake the resolving mode's value; when no style-won mode resolves, return `StyleBindingOverride::AllModes` to drop the binding and leave the node's field as it is.) | PASS (`[FACT]`) | `r5_row4_style_font_weight_missing_in_light_with_own_font_style_italic_and_bold_italic` (`styles_ops.rs:2762-2830`) |
+| 5 | A value stored only under a `light+compact` multi-axis key | Classified with `Document::resolve_variable_with_modes` (same alias and `+` multi-axis path as `Document::resolve_variable`); exact across all 4 `(theme, density)` combinations, nothing reported | PASS (`[FACT]`) | `r5_row5_value_stored_only_under_light_plus_compact_key_classified_with_resolve_variable` (`styles_ops.rs:2833-2947`) |
+| 6 | Mixed stop keys (`fills/0/stops/0` and `strokes/0/stops/0` against an own `fills/0` and `strokes/0` that resolves only in `dark`) | Stop binding is kept (`StyleBindingOverride::None`); exact across `light`, `dim`, `dark`, nothing reported | PASS (`[FACT]`) | `r5_row6_mixed_stop_keys_keep_binding_and_match_every_mode` (`styles_ops.rs:2950-3068`) |
+| 7 | All Round 4 cases | Still pass (`deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark`, `deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node`, `table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types`) | PASS (`[FACT]`) | `styles_ops` (`32 passed; 0 failed`) |
+| 8 | Toast when 1 layer and when 3 layers use the fallback, and when none does | 1 layer: `"Style deleted · 1 layer matches it in this mode only · Cmd+Z to undo"`; 3 layers: `"Style deleted · 3 layers match it in this mode only · Cmd+Z to undo"`; 0 layers: `"Style deleted · Cmd+Z to undo"` | PASS (`[FACT]`) | `deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none` (`effect_grid_styles.rs:309-408`) |
+| G1 | `r5-red.log` (against unmodified `fa7410985`) and `r5-green.log` (on Round 5 head) | Red fails on rows 1, 3, 4, 5, 6, 8 (`5 failed` in `styles_ops`, `1 failed` in `effect_grid_styles`); Green passes all (`32 passed; 0 failed` and `10 passed; 0 failed`) | PASS (`[FACT]`) | `plans/reports/agy-127-delete-style-evidence/r5-red.log`, `plans/reports/agy-127-delete-style-evidence/r5-green.log` |
+| G2 | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` | Both exit `0` | PASS (`[FACT]`) | `FMT_EXIT=0`, `CLIPPY_EXIT=0` |
+| G3 | `cargo test -p designos-doc --locked`, `cargo test -p designos-fig --locked`, and full `cargo test -p designos-app --bin designos --locked` | All pass under the isolated harness (`designos-doc`: `649 + 3 + 5 passed; 0 failed`; `designos-fig`: `121 unit + 450 integration passed; 0 failed`; `designos` bin: `2939 passed; 0 failed`) | PASS (`[FACT]`) | Full harness run logs below |
+| G4 | `python3 scripts/zero_fake_ui_gate.py` and `rm -rf out` | `Gate Verdict: PASS (17/17 invariants satisfied)` and `out/` removed | PASS (`[FACT]`) | Gate output below |
+
+#### Check G1a — `r5-red.log` against `fa7410985` before Round 5 production edits
+
+Command:
+```sh
+(
+  set -euo pipefail
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"
+  H="$(mktemp -d "${TMPDIR:-/tmp}/dos-home.XXXXXX")"
+  T="$(mktemp -d "${TMPDIR:-/tmp}/dos-tmp.XXXXXX")"
+  trap 'rm -rf "$H" "$T"' EXIT
+  export HOME="$H" TMPDIR="$T" CARGO_TARGET_DIR="$PWD/out/cargo"
+  export NEXTEST_TEST_THREADS=2 CARGO_BUILD_JOBS=2 RAYON_NUM_THREADS=2 RUST_TEST_THREADS=2
+  cargo test -p designos-doc --locked styles_ops || true
+  cargo test -p designos-app --bin designos --locked effect_grid_styles || true
+) 2>&1 | tee plans/reports/agy-127-delete-style-evidence/r5-red.log
+```
+
+Output (`plans/reports/agy-127-delete-style-evidence/r5-red.log`):
+```text
+=== [RED] cargo test -p designos-doc --locked styles_ops ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 32 tests
+...
+test styles_ops::tests::r5_row2_three_modes_same_style_opacity_in_every_style_won_mode_is_exact_and_reports_nothing ... ok
+test styles_ops::tests::r5_row6_mixed_stop_keys_keep_binding_and_match_every_mode ... FAILED
+test styles_ops::tests::r5_row3_style_variable_in_second_collection_brand_and_own_in_theme ... FAILED
+test styles_ops::tests::r5_row4_style_font_weight_missing_in_light_with_own_font_style_italic_and_bold_italic ... FAILED
+test styles_ops::tests::r5_row1_three_modes_mixed_override_uses_fallback_preserves_delete_time_mode_and_reports_pair ... FAILED
+test styles_ops::tests::r5_row5_value_stored_only_under_light_plus_compact_key_classified_with_resolve_variable ... FAILED
+...
+failures:
+    styles_ops::tests::r5_row1_three_modes_mixed_override_uses_fallback_preserves_delete_time_mode_and_reports_pair
+    styles_ops::tests::r5_row3_style_variable_in_second_collection_brand_and_own_in_theme
+    styles_ops::tests::r5_row4_style_font_weight_missing_in_light_with_own_font_style_italic_and_bold_italic
+    styles_ops::tests::r5_row5_value_stored_only_under_light_plus_compact_key_classified_with_resolve_variable
+    styles_ops::tests::r5_row6_mixed_stop_keys_keep_binding_and_match_every_mode
+
+test result: FAILED. 27 passed; 5 failed; 0 ignored; 0 measured; 617 filtered out; finished in 12.33s
+
+=== [RED] cargo test -p designos-app --bin designos --locked effect_grid_styles ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 10 tests
+...
+test shell::tests::effect_grid_styles::deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none ... FAILED
+
+failures:
+
+---- shell::tests::effect_grid_styles::deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none stdout ----
+
+thread 'shell::tests::effect_grid_styles::deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none' (53198979) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:413:5:
+assertion `left == right` failed
+  left: "Style deleted · Cmd+Z to undo"
+ right: "Style deleted · 1 layer matches it in this mode only · Cmd+Z to undo"
+
+failures:
+    shell::tests::effect_grid_styles::deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none
+
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 2937 filtered out; finished in 4.28s
+```
+
+#### Check G1b — `r5-green.log` on Round 5 head
+
+Command:
+```sh
+(
+  set -euo pipefail
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"
+  H="$(mktemp -d "${TMPDIR:-/tmp}/dos-home.XXXXXX")"
+  T="$(mktemp -d "${TMPDIR:-/tmp}/dos-tmp.XXXXXX")"
+  trap 'rm -rf "$H" "$T"' EXIT
+  export HOME="$H" TMPDIR="$T" CARGO_TARGET_DIR="$PWD/out/cargo"
+  export NEXTEST_TEST_THREADS=2 CARGO_BUILD_JOBS=2 RAYON_NUM_THREADS=2 RUST_TEST_THREADS=2
+  cargo test -p designos-doc --locked styles_ops
+  cargo test -p designos-app --bin designos --locked effect_grid_styles
+) 2>&1 | tee plans/reports/agy-127-delete-style-evidence/r5-green.log
+```
+
+Output (`plans/reports/agy-127-delete-style-evidence/r5-green.log`):
+```text
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 32 tests
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... ok
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run ... ok
+test styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches ... ok
+test styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node ... ok
+test styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them ... ok
+test styles_ops::tests::deleting_a_text_style_keeps_a_bold_run ... ok
+test styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes ... ok
+test styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... ok
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+test styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark ... ok
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... ok
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::r5_row1_three_modes_mixed_override_uses_fallback_preserves_delete_time_mode_and_reports_pair ... ok
+test styles_ops::tests::r5_row2_three_modes_same_style_opacity_in_every_style_won_mode_is_exact_and_reports_nothing ... ok
+test styles_ops::tests::r5_row3_style_variable_in_second_collection_brand_and_own_in_theme ... ok
+test styles_ops::tests::r5_row4_style_font_weight_missing_in_light_with_own_font_style_italic_and_bold_italic ... ok
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+test styles_ops::tests::r5_row6_mixed_stop_keys_keep_binding_and_match_every_mode ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::r5_row5_value_stored_only_under_light_plus_compact_key_classified_with_resolve_variable ... ok
+test styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref ... ok
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 12.06s
+
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 10 tests
+test shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu ... ok
+test shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu ... ok
+test shell::tests::effect_grid_styles::creating_an_effect_style_links_the_layer_in_one_undo_step ... ok
+test shell::tests::effect_grid_styles::creating_detaching_and_applying_a_grid_style ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step ... ok
+test shell::tests::effect_grid_styles::detaching_and_applying_an_effect_style_from_the_menu ... ok
+test shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none ... ok
+test shell::tests::effect_grid_styles::local_styles_list_effect_and_grid_groups ... ok
+test shell::tests::effect_grid_styles::renaming_an_effect_style_from_the_menu ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2937 filtered out; finished in 1.08s
+```
+
+#### Checks G2 & G3 — `fmt`, `clippy`, `designos-doc`, `designos-fig`, and full `designos` binary (`2939 passed; 0 failed`)
+
+Command:
+```sh
+(
+  set -euo pipefail
+  export PATH="$HOME/.cargo/bin:$PATH"
+  export RUSTUP_HOME="$HOME/.rustup" CARGO_HOME="$HOME/.cargo"
+  export TMPDIR="${TMPDIR:-/tmp}"
+  export TMPDIR="${TMPDIR%/}"
+  H="$(mktemp -d "${TMPDIR:-/tmp}/dos-home.XXXXXX")"
+  T="$(mktemp -d "${TMPDIR:-/tmp}/dos-tmp.XXXXXX")"
+  trap 'rm -rf "$H" "$T"' EXIT
+  export HOME="$H" TMPDIR="$T" CARGO_TARGET_DIR="$PWD/out/cargo"
+  export NEXTEST_TEST_THREADS=2 CARGO_BUILD_JOBS=2 RAYON_NUM_THREADS=2 RUST_TEST_THREADS=2
+
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --locked -- -D warnings
+  cargo test -p designos-doc --locked
+  cargo test -p designos-fig --locked
+  cargo test -p designos-app --bin designos --locked
+)
+```
+
+Output:
+```text
+=== GATE: cargo fmt --all -- --check ===
+=== GATE: cargo clippy --workspace --all-targets --locked -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 29s
+=== GATE: cargo test -p designos-doc --locked ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+test result: ok. 649 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.66s
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-d19362047bc102bf)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-c7fad459a80a2bad)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== GATE: cargo test -p designos-fig --locked ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-540f1f9206f56183)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.50s
+(all 34 integration test binaries in designos-fig: 450 passed; 0 failed; 6 ignored)
+=== GATE: cargo test -p designos-app --bin designos --locked ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+test result: ok. 2939 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 249.87s
+```
+
+#### Check G4 — `python3 scripts/zero_fake_ui_gate.py` and `rm -rf out`
+
+Command:
+```sh
+python3 scripts/zero_fake_ui_gate.py
+rm -rf out scripts/__pycache__ && test ! -e out && echo "OUT_REMOVED=yes"
+```
+
+Output:
+```text
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+OUT_REMOVED=yes
+```
+
+---
+
+### 3. Changes per file
+
+- `crates/designos-doc/src/variables.rs:198-232, 271-285`:
+  - Exposed read-only helper `pub(crate) fn resolve_variable_with_modes(&self, node: NodeId, variable: &str, mode_overrides: &[(&str, &str)]) -> Option<VariableValue>` (`206-222`) along with `variable_mode_with_overrides` (`224-230`) and `resolve_multi_axis_value_with_modes` (`271-285`), and made `Document::resolve_variable` (`198-202`) delegate to `self.resolve_variable_with_modes(node, variable, &[])` with zero behaviour change.
+- `crates/designos-doc/src/styles_ops.rs:335-481, 610-671, 2353-3068`:
+  - Deleted the private `resolve_variable_with_mode` and single-collection `governing_collection_and_modes` helpers.
+  - Added `collections_and_modes` (`341-390`) which collects every variable collection used by the layer's own variable or the style variable, including following `VariableValue::Alias` links (up to 32 visited variables) and multi-axis `+` mode keys across collections.
+  - Updated `classify_own_binding_override` (`395-481`) to evaluate `doc.resolve_variable_with_modes` across the Cartesian product of all involved collections' modes (`422-448`), keep mixed gradient stop bindings (`if is_stop { return StyleBindingOverride::None; }`, `456-458`), drop the binding and leave the field as it is when no style-won mode resolves (`let Some(first_val) = style_won_vals.first() else { return StyleBindingOverride::AllModes; }`, `459-461`), bake the agreed value without fallback when all resolving style-won modes agree (`462-464`), and apply the 3-step fallback bake with `fallback: true` when style-won modes resolve to different values (`466-480`).
+  - Added `pub fn delete_style_with_fallbacks(doc: &Document, key: &str) -> Result<(Command, Vec<(NodeId, String)>), StyleOpError>` (`616-671`) next to `delete_style` (`610-612`), recording `(id, node_key)` whenever `StyleBindingOverride::SomeModesBake { val, fallback: true }` is applied.
+  - Added `assert_resolved_matches_across_mode_combos` (`2353-2372`) and tests `r5_row1` through `r5_row6` (`2374-3068`).
+- `crates/designos-app/src/panels/style_picker.rs:20-51`:
+  - Added `UNDO_SHORTCUT` (`20`) and `style_deleted_toast(fallback_layers: usize) -> String` (`23-29`), and updated `delete_linked_style` (`39-51`) to call `delete_style_with_fallbacks`, deduplicate affected `NodeId`s, and pass the affected layer count to `style_deleted_toast`.
+- `crates/designos-app/src/shell/tests/effect_grid_styles.rs:309-408`:
+  - Added sim test `deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none` verifying the toast text for `1` fallback layer, `3` fallback layers, and `0` fallback layers.
+
+---
+
+### 4. The fallback rule
+
+When a layer's own binding (`fontStyle`, `fills/{idx}`, `strokes/{idx}`, or `effects/{idx}/color`) overrides a non-stop style binding (`fontWeight`, `fills/{idx}/opacity`, `strokes/{idx}/opacity`, or `effects/{idx}/opacity`) in at least one mode combination of the involved collections (`any_overridden && !all_overridden` in `crates/designos-doc/src/styles_ops.rs:450-458`), `classify_own_binding_override` collects the resolved `VariableValue` of the style variable in every style-won mode combination (`style_won_vals`). If no style-won mode combination resolves to a value (`style_won_vals.is_empty()`), it returns `StyleBindingOverride::AllModes`, dropping the style binding and leaving the node's field as it is; if every resolving style-won mode combination produces the same value, it bakes that value with `fallback: false` and drops the binding. Otherwise, when resolving style-won mode combinations disagree (`crates/designos-doc/src/styles_ops.rs:466-480`), it drops the style binding, records `(node_id, node_key)` in the fallback list returned by `delete_style_with_fallbacks`, and bakes a single style value chosen in order: (1) `doc.resolve_variable(id, style_var)` in the mode the node uses at delete time when the style wins at delete time (`!own_wins_at_delete`), else (2) `doc.resolve_variable_with_modes(id, style_var, &default_combo)` in the involved collections' default modes when the style wins there (`!own_wins_in_default`), else (3) `first_val.clone()`, the value from the first style-won mode combination that resolved.
+
+#### Every user-facing string, verbatim
+
+- `"Style deleted · 1 layer matches it in this mode only · Cmd+Z to undo"`
+- `"Style deleted · 1 layer matches it in this mode only · Ctrl+Z to undo"`
+- `"Style deleted · {n} layers match it in this mode only · Cmd+Z to undo"`
+- `"Style deleted · {n} layers match it in this mode only · Ctrl+Z to undo"`
+- `"Style deleted · Cmd+Z to undo"`
+- `"Style deleted · Ctrl+Z to undo"`
+
 Status: DONE

@@ -198,18 +198,35 @@ impl Document {
     /// Resolves a variable to a concrete value as seen from `node`, following
     /// aliases (each alias resolves in its own collection's mode at `node`).
     pub fn resolve_variable(&self, node: NodeId, variable: &str) -> Option<VariableValue> {
+        self.resolve_variable_with_modes(node, variable, &[])
+    }
+
+    /// Resolves a variable to a concrete value as seen from `node`, with `mode_overrides`
+    /// (`(collection_id, mode_id)`) taking precedence over `node`'s own mode choices.
+    pub(crate) fn resolve_variable_with_modes(&self, node: NodeId, variable: &str, mode_overrides: &[(&str, &str)]) -> Option<VariableValue> {
         let mut id = variable.to_string();
         for _ in 0..MAX_ALIAS_DEPTH {
             let v = self.variables.get(&id)?;
-            let mode = self.variable_mode(node, &v.collection)?;
+            let mode = self.variable_mode_with_overrides(node, &v.collection, mode_overrides)?;
             let coll = self.variable_collections.get(&v.collection)?;
-            let value = self.resolve_multi_axis_value(node, v, &mode).or_else(|| v.values.get(&mode)).or_else(|| v.values.get(&coll.default_mode))?;
+            let value = self
+                .resolve_multi_axis_value_with_modes(node, v, &mode, mode_overrides)
+                .or_else(|| v.values.get(&mode))
+                .or_else(|| v.values.get(&coll.default_mode))?;
             match value {
                 VariableValue::Alias(next) => id = next.clone(),
                 other => return Some(other.clone()),
             }
         }
         None
+    }
+
+    fn variable_mode_with_overrides(&self, node: NodeId, collection: &str, mode_overrides: &[(&str, &str)]) -> Option<String> {
+        let _coll = self.variable_collections.get(collection)?;
+        if let Some(&(_, m)) = mode_overrides.iter().find(|(c, _)| *c == collection) {
+            return Some(m.to_string());
+        }
+        self.variable_mode(node, collection)
     }
 
     /// Resolves a variable in its collection's default mode (following aliases in their
@@ -251,11 +268,18 @@ impl Document {
         self.style_meta.get(sk)?.bindings.get(property).map(String::as_str)
     }
 
-    fn resolve_multi_axis_value<'a>(&self, node: NodeId, v: &'a Variable, primary_mode: &str) -> Option<&'a VariableValue> {
+    fn resolve_multi_axis_value_with_modes<'a>(
+        &self,
+        node: NodeId,
+        v: &'a Variable,
+        primary_mode: &str,
+        mode_overrides: &[(&str, &str)],
+    ) -> Option<&'a VariableValue> {
         if !v.values.keys().any(|k| k.contains('+')) {
             return None;
         }
-        let active_modes: Vec<String> = self.variable_collections.keys().filter_map(|cid| self.variable_mode(node, cid)).collect();
+        let active_modes: Vec<String> =
+            self.variable_collections.keys().filter_map(|cid| self.variable_mode_with_overrides(node, cid, mode_overrides)).collect();
         let default_modes: Vec<String> = self.variable_collections.values().map(|c| c.default_mode.clone()).collect();
 
         let mut best: Option<(usize, bool, &'a VariableValue)> = None;

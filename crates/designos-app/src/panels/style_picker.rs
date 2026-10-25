@@ -17,7 +17,16 @@ use egui::{Align2, Id, Pos2, Sense, TextEdit, Ui};
 
 const MENU_W: f32 = 184.0;
 
+const UNDO_SHORTCUT: &str = if cfg!(target_os = "macos") { "Cmd+Z" } else { "Ctrl+Z" };
 const STYLE_DELETED_TOAST: &str = if cfg!(target_os = "macos") { "Style deleted · Cmd+Z to undo" } else { "Style deleted · Ctrl+Z to undo" };
+
+fn style_deleted_toast(fallback_layers: usize) -> String {
+    match fallback_layers {
+        0 => STYLE_DELETED_TOAST.to_string(),
+        1 => format!("Style deleted · 1 layer matches it in this mode only · {UNDO_SHORTCUT} to undo"),
+        n => format!("Style deleted · {n} layers match it in this mode only · {UNDO_SHORTCUT} to undo"),
+    }
+}
 
 fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     let Some(key) = linked_style(app, sel, prop) else { return };
@@ -28,9 +37,16 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     if app.props.style_rename == Some(prop) {
         app.props.style_rename = None;
     }
-    let op = delete_style(&app.doc, &key);
+    let (op, fallback_layers) = match delete_style_with_fallbacks(&app.doc, &key) {
+        Ok((cmd, fallbacks)) => {
+            let mut ids: Vec<NodeId> = fallbacks.into_iter().map(|(id, _)| id).collect();
+            ids.dedup();
+            (Ok(cmd), ids.len())
+        }
+        Err(e) => (Err(e), 0),
+    };
     if app.run_style_op(op) {
-        app.show_toast(STYLE_DELETED_TOAST, false);
+        app.show_toast(style_deleted_toast(fallback_layers), false);
     }
 }
 

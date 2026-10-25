@@ -304,3 +304,105 @@ fn library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open() 
     let open_scans = designos_doc::take_library_page_scans();
     assert!(open_scans <= 1, "expected at most 1 library-page scan per frame with the style menu open, got {open_scans}");
 }
+
+#[test]
+fn deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toast_when_none() {
+    use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let run_case = |fallback_layer_count: usize| -> String {
+        let (mut s, welcome) = welcome_sim();
+        let card = s.by_name("Card");
+        let page = s.app().page;
+        let third_id = s.shell.app.doc.alloc_id();
+        let mut third_node = designos_doc::Node::rectangle(third_id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+        third_node.effects = vec![shadow()];
+        let third = s.shell.app.doc.insert(page, third_node).unwrap();
+        s.shell.app.edit_nodes(&[card], |n| {
+            n.effects = vec![shadow()];
+        });
+        pick(&mut s, "effect-style-button", 1, 1);
+
+        s.shell.app.doc.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Theme".into(),
+                modes: vec![
+                    VariableMode { id: "light".into(), name: "Light".into() },
+                    VariableMode { id: "dim".into(), name: "Dim".into() },
+                    VariableMode { id: "dark".into(), name: "Dark".into() },
+                ],
+                default_mode: "light".into(),
+                variables: vec!["v_fx_col".into(), "v_fx_op".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        s.shell.app.doc.variables.insert(
+            "v_fx_col".into(),
+            Variable {
+                id: "v_fx_col".into(),
+                name: "v_fx_col".into(),
+                collection: "c".into(),
+                kind: VariableKind::Color,
+                values: [("dark".to_string(), VariableValue::Color(Color::rgba(0, 0, 0, 128)))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let dim_op = if fallback_layer_count == 0 { 80.0 } else { 20.0 };
+        s.shell.app.doc.variables.insert(
+            "v_fx_op".into(),
+            Variable {
+                id: "v_fx_op".into(),
+                name: "v_fx_op".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [
+                    ("light".to_string(), VariableValue::Number(80.0)),
+                    ("dim".to_string(), VariableValue::Number(dim_op)),
+                    ("dark".to_string(), VariableValue::Number(5.0)),
+                ]
+                .into_iter()
+                .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        s.shell.app.doc.style_meta.get_mut("Effect style 1").unwrap().bindings.insert("effects/0/opacity".into(), "v_fx_op".into());
+
+        let targets = match fallback_layer_count {
+            0 | 1 => vec![welcome],
+            3 => vec![welcome, card, third],
+            _ => unreachable!(),
+        };
+        for &id in &targets {
+            if id != welcome {
+                s.shell.app.apply_style(&[id], "Effect style 1");
+            }
+            s.shell.app.doc.get_mut(id).unwrap().variables.bindings.insert("effects/0/color".into(), "v_fx_col".into());
+        }
+        s.scroll_inspector_down();
+        s.frame(vec![]);
+        pick(&mut s, "effect-style-button", 4, 1);
+        let toast = s.app().toast.as_ref().expect("deleting a style shows a toast");
+        assert!(!toast.error);
+        toast.text.clone()
+    };
+
+    let undo = if cfg!(target_os = "macos") { "Cmd+Z" } else { "Ctrl+Z" };
+    assert_eq!(run_case(0), format!("Style deleted · {undo} to undo"));
+    assert_eq!(run_case(1), format!("Style deleted · 1 layer matches it in this mode only · {undo} to undo"));
+    assert_eq!(run_case(3), format!("Style deleted · 3 layers match it in this mode only · {undo} to undo"));
+}
