@@ -765,3 +765,64 @@ fn branch_merge_applies_and_undoes_in_one_step() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn selection_styles_section_shows_library_styles_when_file_has_no_local_styles() {
+    use designos_doc::{Node, Rect, Style, StyleMeta, StyleProperty, TextStyle};
+    let root = tmp("sel-lib-styles");
+    let (mut a, lib_id) = publish_red(&root);
+    a.shell.app.doc.styles.insert("Brand/Heading".into(), Style::Text(TextStyle { font_size: 28.0, ..TextStyle::default() }));
+    a.shell.app.doc.style_meta.insert(
+        "Brand/Heading".into(),
+        StyleMeta { name: "Brand/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+    );
+    assert!(a.shell.app.publish_file());
+
+    let (mut b, rect_id) = consumer_with_rect(&root, &lib_id);
+    assert!(b.app().doc.styles.is_empty(), "consumer file has no local styles");
+    b.scroll_inspector_down();
+
+    let recorded = |s: &Sim, name: &str| s.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("test-rect", name.to_string()))));
+    assert!(recorded(&b, "libstyle:Brand/Heading").is_none(), "text library styles are not listed when only a rectangle is selected");
+    let red_row = b.rect_of("libstyle:Brand/Red");
+    b.click(red_row.center());
+    b.frame(vec![]);
+    assert_eq!(box_pixel(&b, rect_id), [255, 0, 0], "clicking the library style row in Styles applies it to the selection");
+    b.cmd_key(Key::Z);
+    assert!(b.app().doc.styles.is_empty(), "undo removes the imported library style");
+    assert_eq!(box_pixel(&b, rect_id), [255, 255, 255]);
+
+    // When an enabled library only has a text style, a rectangle selection has no applicable styles,
+    // while a text selection shows the Styles section and its library text style row.
+    let root_text_only = tmp("sel-lib-text-only");
+    let mut a_text = sim(&root_text_only);
+    a_text.shell.app.new_document();
+    a_text.shell.app.doc.styles.insert("Brand/Heading".into(), Style::Text(TextStyle { font_size: 28.0, ..TextStyle::default() }));
+    a_text.shell.app.doc.style_meta.insert(
+        "Brand/Heading".into(),
+        StyleMeta { name: "Brand/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+    );
+    assert!(a_text.shell.app.publish_file());
+    let text_lib_id = a_text.app().doc.library.published.clone().unwrap().library_id;
+
+    let (mut b_text, rect_only_id) = consumer_with_rect(&root_text_only, &text_lib_id);
+    b_text.scroll_inspector_down();
+    assert!(recorded(&b_text, "libstyle:Brand/Heading").is_none(), "a rectangle selection does not show text-only library styles");
+
+    let page = b_text.app().page;
+    let txt_id = b_text.shell.app.doc.alloc_id();
+    let txt = Node::text(txt_id, Rect::new(0.0, 60.0, 120.0, 32.0), "Hello", TextStyle::default());
+    b_text.shell.app.doc.insert(page, txt).unwrap();
+    b_text.shell.app.selection = vec![txt_id];
+    b_text.shell.app.changed();
+    frames(&mut b_text, 2);
+    b_text.scroll_inspector_down();
+    assert_ne!(rect_only_id, txt_id);
+    let heading_row = b_text.rect_of("libstyle:Brand/Heading");
+    b_text.click(heading_row.center());
+    b_text.frame(vec![]);
+    assert_eq!(text_of(&b_text, txt_id).style.font_size, 28.0);
+
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(root_text_only);
+}

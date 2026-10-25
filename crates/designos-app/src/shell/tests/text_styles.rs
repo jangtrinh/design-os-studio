@@ -802,3 +802,34 @@ fn the_page_panel_has_no_styles_plus_that_does_nothing() {
     assert!(recorded("title-action:Export").is_some(), "the page panel was drawn and its header actions are recorded");
     assert!(recorded("title-action:Styles").is_none(), "creation lives in each section's style button");
 }
+
+#[test]
+fn page_panel_export_plus_adds_a_page_export_row_and_exports_the_page() {
+    let mut s = Sim::with(Options { select: Some("Welcome".into()), ..Default::default() });
+    s.shell.app.selection.clear();
+    s.shell.app.props.scroll = 1.0e6;
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let page = s.app().page;
+    assert!(s.app().doc.get(page).unwrap().export_settings.is_empty());
+
+    let plus = s.rect_of("title-action:Export");
+    s.click(plus.center());
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    assert_eq!(s.app().doc.get(page).unwrap().export_settings.len(), 1, "clicking page Export + adds a page export preset");
+    s.rect_of("export-btn");
+
+    let dir = std::env::temp_dir().join(format!("designos-page-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("Page 1.png");
+    crate::panels::export::run_export_with(&mut s.shell.app, &[page], &crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Picked(target.clone())));
+    assert!(target.is_file(), "page export writes Page 1.png");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.get(page).unwrap().export_settings.is_empty(), "undo removes the page export preset");
+}

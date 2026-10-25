@@ -139,3 +139,17 @@ fn tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus() {
     s.shell.raw_input_hook(&s.ctx.clone(), &mut raw);
     assert_eq!(raw.events.len(), 1);
 }
+
+#[test]
+fn clicking_typo_var_pill_opens_variables_without_toggling_more() {
+    let mut s = Sim::with(Options { select: Some("Continue".into()), ..Options::default() });
+    assert!(!s.app().vars.open);
+    let pill = s.rect_of("typo-var-pill");
+    click_rect(&mut s, pill);
+    assert!(s.app().vars.open, "clicking typo-var-pill opens the Variables modal instead of being swallowed by typo-more-btn");
+    assert!(
+        pill.width() >= crate::theme::TARGET_MIN && pill.height() >= crate::theme::TARGET_MIN,
+        "typo-var-pill meets the 24px target floor: {:?}",
+        pill.size()
+    );
+}
