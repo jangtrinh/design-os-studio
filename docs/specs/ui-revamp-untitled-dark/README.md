@@ -46,7 +46,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 
 | Key | Phase | Issue | Spec | Size |
 |---|---|---|---|---|
-| L | 0, first | — | Layout-unchanged gate and baseline capture (spec in progress) | — |
+| L | 0, first | #1126 | [1126-layout-unchanged-gate-baseline-capture.md](1126-layout-unchanged-gate-baseline-capture.md) | M |
 | A | 0 | — | Onboard Untitled UI dark with the design:os CLI: colour roles, `design/`, `theme.rs` colours, soul, principles, design agents (spec in progress) | — |
 | B | 0 | — | Untitled type, spacing, radius and control-size scale (spec in progress) | — |
 | C | 0 | — | Widget kit: Untitled component anatomy and states (spec in progress) | — |
