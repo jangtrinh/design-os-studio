@@ -31,7 +31,7 @@ PRD và stories viết ở stage prd/us tối 25/10, migrate AC từ `docs/specs
 
 | Patch | Done khi |
 |---|---|
-| v0.7.0 | Hook không ghi theo link; Codex tool call duyệt/từ chối được trong panel; export bounds của 10 kit frame khớp Figma ±0 px. |
+| v0.7.0 | Hook không ghi theo link; Codex tool call duyệt/từ chối được trong panel; export bounds của 10 kit frame khớp Figma ±0 px; shadow trên device mockup khớp Figma (#520). |
 | v0.7.1 | Mọi writer headless từ chối symlink và kiểm đuôi file; agent không gỡ được tool restriction; status hook không theo link; MCP không xoá hết con của instance. |
 | v0.7.2 | Ghi qua MCP/CLI đi qua Ask gate; document không có path không cấp cả ổ đĩa. |
 | v0.7.3 | agy/Gemini/Grok không chạy MCP từ config agent ghi được; Gemini Ask mode không đọc tools.allowed từ session. |

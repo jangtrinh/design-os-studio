@@ -28,3 +28,4 @@ updated: 2026-10-25
 | #1047 | Gemini in Ask mode reads tools.allowed from the session folder's .gemini/settings.json | v0.7.3 |
 | #161 | Add blend modes to drop and inner shadows | v0.7.4 |
 | #162 | Cap effect counts in the + control without trimming imported effects | v0.7.4 |
+| #520 | Drop shadows and layer effects differ from Figma on shadowed device mockups | v0.7.0 |
