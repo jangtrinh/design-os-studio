@@ -279,6 +279,9 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
+    // Resolve --select before any mutating import or save operation. A miss must be side-effect free.
+    let selected_node = resolve_select_node(&mut doc, opts.select.as_deref())?;
+
     if let Some(cap_path) = &opts.import_capture {
         let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
         let page = doc.pages.first().copied().ok_or("Document has no pages")?;
@@ -302,8 +305,6 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
-
-    let selected_node = resolve_select_node(&mut doc, opts.select.as_deref())?;
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
