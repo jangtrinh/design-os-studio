@@ -44,10 +44,10 @@ Applies from 2026-10-25. Cadence: 4–5 patches per day, one minor per day (deci
 
 ## Release branch strategy (PM proposal, 25/10/2026 22:50 UTC+7)
 
-**Fact (git, 25/10):** `release/v0.6.2` was cut from `main` at `2a20e55`. Since then `main` has 140 more commits (features such as #1153, #1131, #1137), and the release branch has 3 commits of its own (head `184e145`, "release: 0.6.2 (#1135)").
+**Fact (GitHub compare API, 25/10 23:00 UTC+7; corrects an earlier line that came from a shallow clone):** `release/v0.6.2` was cut from the **`v0.6.1` tag** (`821cb05`, "release: 0.6.1 (#1017)"). It is 17 commits ahead of that tag and 0 behind. `main` has 9 commits that are not on the release branch. So the repo already cuts each patch from the previous tag, and the proposal below keeps that practice.
 
 **Proposal:**
-1. **Patch lines (v0.6.3, v0.6.4, v0.6.5)** are cut from the **`v0.6.2` tag**, not from `main`. The patch carries only the slice's fixes and does not pull in 140 unreviewed feature commits from `main`. This is an empty branch, so it needs no code merge.
+1. **Patch lines (v0.6.3, v0.6.4, v0.6.5)** are cut from the **`v0.6.2` tag**, not from `main`. The patch carries only the slice's fixes and does not pull in feature commits from `main`. This is an empty branch, so it needs no code merge.
    - `git push origin v0.6.2:refs/heads/release/v0.6.3` once the tag exists.
    - v0.6.4 is cut from the `v0.6.3` tag, and so on.
 2. **The minor line (v0.7)** is cut from **`main`** as `release/v0.7` after `release/v0.6.x` has merged back into `main`. That way main holds every patch fix before the minor is cut.
