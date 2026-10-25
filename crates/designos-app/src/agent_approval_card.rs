@@ -35,9 +35,18 @@ pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
         + theme::TARGET_MIN
         + theme::SPACE_INLINE
         + if claude { theme::CONTROL_XS + theme::SPACE_INLINE } else { 0.0 }
+        + native_cli_hint_height(claude)
         + theme::CONTROL_XS
         + theme::INSET_BUTTON;
     inner + theme::SPACE_ROW * 2.0
+}
+
+/// How a native CLI card tells the person to answer in the terminal; Claude's card has its own buttons and no hint.
+const NATIVE_CLI_HINT: &str = "Use ↑/↓ and Enter in terminal to choose";
+
+/// Room the [`NATIVE_CLI_HINT`] line takes under the title row (the line and the gap that follows it); none on Claude's card.
+fn native_cli_hint_height(claude: bool) -> f32 {
+    if claude { 0.0 } else { theme::LINE_CAPTION + theme::SPACE_INLINE }
 }
 
 /// Narrow panels stack the three Claude actions so no button is clipped.
@@ -143,6 +152,11 @@ pub fn paint_approval_card_for_tab(
     p.text(Pos2::new(header_r.left(), header_r.center().y), Align2::LEFT_CENTER, title_elided, title_font, theme::TEXT);
 
     let mut y = header_r.bottom() + theme::SPACE_INLINE;
+    if !is_claude {
+        let hint = widgets::elide(&p, NATIVE_CLI_HINT, &theme::font_caption(), inner.width());
+        p.text(Pos2::new(inner.left(), y), Align2::LEFT_TOP, hint, theme::font_caption(), theme::TEXT_SECONDARY);
+        y += native_cli_hint_height(false);
+    }
 
     if let Some(req) = first_req.filter(|_| is_claude) {
         let sum_r = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), theme::CONTROL_XS));
@@ -564,6 +578,25 @@ mod tests {
         }
         let output = output.expect("autosave modal did not produce a frame");
         (crate::lint::scan_shapes(&output.shapes).0, painted_rects(&output.shapes), root)
+    }
+
+    #[test]
+    fn native_cli_approval_card_explains_terminal_keyboard_menu() {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0))), ..Default::default() }, |ui| {
+            let _ = paint_approval_card(
+                ui,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0)),
+                AgentCliPreset::Codex,
+                &[],
+                "test-approval",
+                AgentPermissionMode::Ask,
+            );
+        });
+        let texts = crate::lint::scan_shapes(&out.shapes).0;
+        assert!(texts.iter().any(|t| t.text.contains("Use ↑/↓ and Enter in terminal to choose")), "native CLI card hint missing: {texts:?}");
     }
 
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
