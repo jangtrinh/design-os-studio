@@ -1358,10 +1358,13 @@ fn describe_spec_value_error_at(val: &Value, prefix: &str) -> Option<String> {
 /// Inspects raw `designos_apply_spec`, batch `apply_spec`, or batch `set_slot` arguments for spec field type errors.
 pub fn describe_spec_args_error(raw_args: &Value) -> Option<String> {
     if let Some(obj) = raw_args.as_object() {
-        if obj.get("op").and_then(Value::as_str) == Some("set_slot") {
-            if let Some(node) = obj.get("node").or_else(|| obj.get("node_id")).or_else(|| obj.get("instance")) {
-                if node.as_u64().is_none() && !node.is_string() {
-                    return Some("node must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference.".into());
+        let op = obj.get("op").and_then(Value::as_str);
+        if op == Some("set_slot") {
+            for key in ["node", "node_id", "instance"] {
+                if let Some(node) = obj.get(key) {
+                    if node.as_u64().is_none() && !node.is_string() {
+                        return Some(format!("{key} must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference."));
+                    }
                 }
             }
             if let Some(slot) = obj.get("slot") {
@@ -1382,7 +1385,11 @@ pub fn describe_spec_args_error(raw_args: &Value) -> Option<String> {
             return None;
         }
         if let Some(pid) = obj.get("parent_id") {
-            if !pid.is_null() && pid.as_u64().is_none() {
+            if op == Some("apply_spec") {
+                if !pid.is_null() && pid.as_u64().is_none() && !pid.is_string() {
+                    return Some("parent_id must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference.".into());
+                }
+            } else if !pid.is_null() && pid.as_u64().is_none() {
                 return Some("parent_id must be a non-negative integer. Pass a numeric node ID.".into());
             }
         }

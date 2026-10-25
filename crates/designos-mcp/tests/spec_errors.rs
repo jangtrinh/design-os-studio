@@ -343,3 +343,98 @@ fn round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec() {
         err_batch_layout.message
     );
 }
+
+#[test]
+fn round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string() {
+    let mut e = Engine::default();
+
+    // 1. Direct designos_apply_spec with string parent_id: "root" is still refused.
+    let direct_err = e
+        .call("designos_apply_spec", json!({"parent_id": "root", "spec": {"kind": "frame", "name": "Card"}}))
+        .expect_err("direct designos_apply_spec with string parent_id must be refused");
+    assert_eq!(direct_err.code, ErrorCode::InvalidArguments);
+    assert!(
+        direct_err.message.contains("parent_id must be a non-negative integer"),
+        "expected 'parent_id must be a non-negative integer' in {:?}",
+        direct_err.message
+    );
+
+    // 2. Exact failing input from Round 4 finding: batch apply_spec with parent_id: "@card" succeeds and Title lands under Card.
+    let batch_res = e
+        .call(
+            "designos_apply_batch",
+            json!({
+                "ops": [
+                    {"op": "create", "kind": "frame", "name": "Card", "as": "card"},
+                    {"op": "apply_spec", "parent_id": "@card", "spec": {"kind": "text", "name": "Title", "text": "Hi"}}
+                ]
+            }),
+        )
+        .expect("batch apply_spec with parent_id: \"@card\" must succeed");
+    let card_id = batch_res["name_to_id"]["card"].as_u64().expect("card id");
+    let title_id = batch_res["created"][1].as_u64().expect("title id");
+    let card_node = e.doc.get(designos_doc::NodeId(card_id)).expect("Card node exists");
+    let title_node = e.doc.get(designos_doc::NodeId(title_id)).expect("Title node exists");
+    assert!(card_node.children.contains(&designos_doc::NodeId(title_id)), "Title must be a child of Card");
+    assert_eq!(title_node.parent, Some(designos_doc::NodeId(card_id)), "Title parent must be Card");
+    assert_eq!(title_node.kind.any_text().map(|t| t.content.as_str()), Some("Hi"));
+
+    // 3. parent: "@card", parent_id: "$prev", and numeric parent_id: 7 all work in batch apply_spec.
+    while e.doc.nodes.len() < 6 {
+        let idx = e.doc.nodes.len();
+        e.call("designos_create_node", json!({"parent_id": 1, "kind": "frame", "name": format!("Spacer{idx}")})).expect("create spacer");
+    }
+    let frame7_id =
+        e.call("designos_create_node", json!({"parent_id": 1, "kind": "frame", "name": "Frame7"})).expect("create Frame7")["node"]["id"].as_u64().unwrap();
+    assert_eq!(frame7_id, 7, "Frame7 must have numeric node ID 7");
+
+    let forms_res = e
+        .call(
+            "designos_apply_batch",
+            json!({
+                "ops": [
+                    {"op": "apply_spec", "parent_id": 7, "as": "sub", "spec": {"kind": "frame", "name": "SubFrame"}},
+                    {"op": "apply_spec", "parent": "@sub", "spec": {"kind": "text", "name": "ViaParent", "text": "A"}},
+                    {"op": "create", "parent_id": 7, "kind": "frame", "name": "PrevFrame"},
+                    {"op": "apply_spec", "parent_id": "$prev", "spec": {"kind": "text", "name": "ViaPrev", "text": "B"}}
+                ]
+            }),
+        )
+        .expect("parent_id: 7, parent: \"@sub\", and parent_id: \"$prev\" must succeed");
+    let sub_id = forms_res["name_to_id"]["sub"].as_u64().expect("sub id");
+    let via_parent_id = forms_res["created"][1].as_u64().expect("ViaParent id");
+    let prev_frame_id = forms_res["created"][2].as_u64().expect("PrevFrame id");
+    let via_prev_id = forms_res["created"][3].as_u64().expect("ViaPrev id");
+    assert_eq!(e.doc.get(designos_doc::NodeId(sub_id)).unwrap().parent, Some(designos_doc::NodeId(7)));
+    assert_eq!(e.doc.get(designos_doc::NodeId(via_parent_id)).unwrap().parent, Some(designos_doc::NodeId(sub_id)));
+    assert_eq!(e.doc.get(designos_doc::NodeId(via_prev_id)).unwrap().parent, Some(designos_doc::NodeId(prev_frame_id)));
+
+    // 4. Batch apply_spec with non-NodeRef parent_id (e.g. boolean) is still refused.
+    let bad_batch_pid = e
+        .call(
+            "designos_apply_batch",
+            json!({
+                "ops": [
+                    {"op": "apply_spec", "parent_id": true, "spec": {"kind": "frame", "name": "Bad"}}
+                ]
+            }),
+        )
+        .expect_err("boolean parent_id in batch apply_spec must be refused");
+    assert!(
+        bad_batch_pid.message.contains("parent_id must be a node ID or $ref string"),
+        "expected 'parent_id must be a node ID or $ref string' in {:?}",
+        bad_batch_pid.message
+    );
+
+    // 5. set_slot accepts NodeRef on node, node_id, and instance aliases.
+    for (field, bad_slot_val) in [("node", json!(99)), ("node_id", json!(99)), ("instance", json!(99))] {
+        let mut slot_op = json!({"op": "set_slot", "slot": bad_slot_val, "fill": [{"kind": "text", "text": "Body"}]});
+        slot_op[field] = json!("@card");
+        let err = e.call("designos_apply_batch", json!({"ops": [slot_op.clone()]})).expect_err("bad slot must fail on slot, not node ref alias");
+        assert!(
+            err.message.contains("slot must be a string"),
+            "for {field}=\"@card\", expected 'slot must be a string' (not a node ref reject) in {:?}",
+            err.message
+        );
+    }
+}

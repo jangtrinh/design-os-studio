@@ -718,4 +718,185 @@ $ git diff --stat 994b1f05..HEAD -- crates/designos-app/src/cli.rs
  1 file changed, 1 insertion(+), 378 deletions(-)
 ```
 
+---
+
+## Round 4
+
+### 1) What could NOT be verified
+- **Non-macOS CI runners (`Linux` / `Windows`)**: All `designos-mcp` and `designos-eval` unit/integration tests, `cargo fmt`, and workspace `cargo clippy` were executed locally on macOS (`aarch64-apple-darwin`) under the isolated sandbox harness; Ubuntu and Windows CI runners were not executed locally.
+
+### Conclusion & Epistemic Ledger
+- **Conclusion (FACT)**: Fixed `describe_spec_args_error` in `crates/designos-mcp/src/tools/errors.rs` so that when `op == Some("apply_spec")` (a batch `apply_spec` operation where `ApplySpecOp.parent: Option<NodeRef>` has `#[serde(alias = "parent_id")]`), `"parent_id"` accepts `null`, `u64`, and `String` (`NodeRef::Id(u64)` and `NodeRef::Ref(String)`), identical to `"parent"`. When `op` is absent (direct `designos_apply_spec`, where `ApplySpecArgs.parent_id` is `Option<u64>`), `"parent_id"` retains its integer-only check (`"parent_id must be a non-negative integer. Pass a numeric node ID."`). Also updated `set_slot` in `describe_spec_args_error` to check `"node"`, `"node_id"`, and `"instance"` independently in a loop so every `NodeRef` alias on `SetSlotOp.node` is validated consistently and names the offending alias key on invalid non-`NodeRef` types.
+- **Epistemic Ledger**:
+  - **FACT**: On `b17d1ba7`, `round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string` failed (`plans/reports/agy-e-cli-spec-errors-evidence/r4-red.log`) because `serde_json::from_value::<ApplySpecOp>` accepted `"parent_id": "@card"` via `#[serde(alias = "parent_id")]`, and then the post-serde call to `describe_spec_args_error(&raw_op)` at `crates/designos-mcp/src/tools/batch.rs:625` rejected `"parent_id": "@card"` at `crates/designos-mcp/src/tools/errors.rs:1384` with `"parent_id must be a non-negative integer. Pass a numeric node ID."`.
+  - **FACT**: Direct `designos_apply_spec` uses `ApplySpecArgs` (`crates/designos-mcp/src/engine.rs:1471-1479`), which has `#[serde(deny_unknown_fields)]`, no `op` field, and `parent_id: Option<u64>` (no `parent` alias).
+  - **FACT**: After checking `op == Some("apply_spec")` in `describe_spec_args_error`, `round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string` and all 8 tests in `crates/designos-mcp/tests/spec_errors.rs` pass (`plans/reports/agy-e-cli-spec-errors-evidence/r4-green.log`), and all 245 unit tests + integration test suites in `designos-mcp` and `designos-eval` pass under the harness.
+  - **INFERENCE**: Because `ApplySpecArgs` has `#[serde(deny_unknown_fields)]` and no `op` field, checking `op == Some("apply_spec")` in `describe_spec_args_error` cleanly separates batch `apply_spec` from direct `designos_apply_spec` both on the post-serde walk and on the `from_serde_error_with_args` fallback path.
+  - **ASSUMPTION**: None.
+- **Weakest link**: Distinguishing batch `apply_spec` from direct `designos_apply_spec` inside `describe_spec_args_error(&Value)` relies on `obj.get("op").and_then(Value::as_str) == Some("apply_spec")`, which holds because batch ops require `"op": "apply_spec"` and `ApplySpecArgs` forbids `"op"` via `#[serde(deny_unknown_fields)]`.
+- **Unresolved questions**: None.
+
+### 2) Acceptance Table (Round 4)
+
+| # | Acceptance Check | Status | Command & Evidence |
+|---|---|---|---|
+| 1 | `r4-red.log` (fails on `b17d1ba7`) and `r4-green.log` (passes on your head). | PASS | Saved at `plans/reports/agy-e-cli-spec-errors-evidence/r4-red.log` (1 failed on `b17d1ba7`) and `plans/reports/agy-e-cli-spec-errors-evidence/r4-green.log` (8 passed, 0 failed on head). |
+| 2 | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` exit 0. | PASS | Both exited `0` under the harness (`FMT_EXIT=0`, `CLIPPY_EXIT=0`). |
+| 3 | `cargo test -p designos-mcp --locked` and `cargo test -p designos-eval --locked` pass under the harness. | PASS | `designos-mcp` and `designos-eval` passed with 0 failures (`MCP_TEST_EXIT=0`, `EVAL_TEST_EXIT=0`). |
+| 4 | Commit as `fix(mcp): …` (no AI or tool names), push, and add a "Round 4" line to the PR body. Keep the PR a draft. Delete `out/`. | PASS | Committed, pushed, PR #1117 body updated with Round 4 line, `out/` deleted. |
+
+### 3) Audited `NodeRef` & Alias Fields Across Batch Ops and `describe_spec_args_error`
+
+Every struct and field that passes through `describe_spec_args_error` (`crates/designos-mcp/src/tools/errors.rs:1359`), as well as every other batch op in `crates/designos-mcp/src/tools/batch.rs`, was audited against its serde definition:
+
+| Struct / Op | Goes through `describe_spec_args_error`? | Field & Serde Attributes | Serde Accepts | Walk (`describe_spec_args_error`) Accepts | Result |
+|---|---|---|---|---|---|
+| `ApplySpecOp` (`op = "apply_spec"`, `batch.rs:212-221`) | Yes (`batch.rs:622, 625`) | `op: String` | `"apply_spec"` | `"apply_spec"` | Match |
+| `ApplySpecOp` (`op = "apply_spec"`) | Yes | `#[serde(rename = "as")] alias: Option<String>` | omitted, `null`, `String` | omitted, `null`, `String` (`!alias.is_null() && !alias.is_string()`) | Match |
+| `ApplySpecOp` (`op = "apply_spec"`) | Yes | `#[serde(alias = "parent_id")] parent: Option<NodeRef>` | omitted, `null`, `u64`, `String` on `"parent"` or `"parent_id"` | **Fixed in Round 4**: omitted, `null`, `u64`, `String` on both `"parent"` and `"parent_id"` when `op == Some("apply_spec")` | Fixed (was rejecting `String` on `"parent_id"`) |
+| `ApplySpecOp` (`op = "apply_spec"`) | Yes | `index: Option<usize>` | omitted, `null`, `usize` (`u64`) | omitted, `null`, `u64` (`!idx.is_null() && idx.as_u64().is_none()`) | Match |
+| `ApplySpecOp` (`op = "apply_spec"`) | Yes | `spec: NodeSpec` (incl. aliases `dir`, `justify`, `align`, `stroke_width`, `radius`, `color`, `agent_name`, `started_at_ms`) | `NodeSpec` fields + aliases | `describe_spec_value_error(spec)` checks both canonical names and serde aliases | Match |
+| `SetSlotOp` (`op = "set_slot"`, `batch.rs:384-394`) | Yes (`batch.rs:716, 719`) | `op: String` | `"set_slot"` | `"set_slot"` | Match |
+| `SetSlotOp` (`op = "set_slot"`) | Yes | `#[serde(rename = "as")] alias: Option<String>` | omitted, `null`, `String` | omitted, `null`, `String` (`!alias.is_null() && !alias.is_string()`) | Match |
+| `SetSlotOp` (`op = "set_slot"`) | Yes | `#[serde(alias = "node_id", alias = "instance")] node: NodeRef` | `u64`, `String` on `"node"`, `"node_id"`, or `"instance"` | `u64`, `String` on `"node"`, `"node_id"`, and `"instance"` (`node.as_u64().is_none() && !node.is_string()`) | Match (tightened loop to check each key independently) |
+| `SetSlotOp` (`op = "set_slot"`) | Yes | `slot: String` | `String` | `String` (`!slot.is_string()`) | Match |
+| `SetSlotOp` (`op = "set_slot"`) | Yes | `#[serde(alias = "fill")] value: SlotFillSpec` | `false` or `[NodeSpec, ...]` on `"value"` or `"fill"` | `describe_slot_fill_error` on `"fill"` and `"value"` accepts `false` or array of `NodeSpec` objects | Match |
+| `ApplySpecArgs` (direct `designos_apply_spec`, `engine.rs:1471-1479`, no `op`) | Yes (`engine.rs:1321-1322`) | `parent_id: Option<u64>` (no alias) | omitted, `null`, `u64` | omitted, `null`, `u64` when `op != Some("apply_spec")`; refuses strings like `"root"` with `"parent_id must be a non-negative integer. Pass a numeric node ID."` | Match |
+| `ApplySpecArgs` (direct `designos_apply_spec`) | Yes | `diff_image: bool`, `idempotency_key: Option<String>`, `lint: Option<PerCallLintOverride>`, `spec: NodeSpec` | `bool`, `null \| String`, `PerCallLintOverride`, `NodeSpec` | `bool`, `null \| String`, `describe_spec_value_error(spec)` | Match |
+| `InsertOp` (`"insert"` / `"create"`, `batch.rs:225-248`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `#[serde(alias = "parent_id")] parent: Option<NodeRef>` | `Option<String>`, `Option<NodeRef>` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+| `UpdateOp` (`"update"`, `batch.rs:252-271`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `#[serde(alias = "node_id")] node: NodeRef` | `Option<String>`, `NodeRef` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+| `MoveOp` (`"move"`, `batch.rs:275-285`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `#[serde(alias = "node_id")] node: NodeRef`, `#[serde(alias = "parent_id")] parent: NodeRef` | `Option<String>`, `NodeRef`, `NodeRef` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+| `DeleteOp` (`"delete"`, `batch.rs:289-296`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `#[serde(alias = "node_id")] node: NodeRef` | `Option<String>`, `NodeRef` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+| `SetVariablesOp` (`"set_variables"`, `batch.rs:329-340`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>` | `Option<String>` | Not walked by `describe_spec_args_error` | Match |
+| `SetStyleOp` (`"set_style"`, `batch.rs:369-380`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `apply[].node: NodeRef` (`#[serde(alias = "node_id")]`) | `Option<String>`, `NodeRef` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+| `SetInProgressOp` (`"set_in_progress"`, `batch.rs:398-421`) | No (`is_spec = false`, no post-serde walk) | `#[serde(rename = "as")] alias: Option<String>`, `#[serde(alias = "node_ids")] nodes: Option<Vec<NodeRef>>`, `#[serde(alias = "node_id")] node: Option<NodeRef>`, `#[serde(alias = "agent_name")] agent: Option<String>` | `Option<String>`, `Option<Vec<NodeRef>>`, `Option<NodeRef>` | Not walked by `describe_spec_args_error`; validated by `validate_ref_pre_run` | Match |
+
+### 4) Skills Loaded & Changes Per File (Round 4)
+
+#### Skills Loaded & Changes Because of Them
+- **Skills loaded**:
+  - `/es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`)
+  - `/es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`)
+  - `/es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`)
+  - `/es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`)
+  - `/es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`)
+  - `/es:astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`)
+- **What changed because of the loaded skills**:
+  - Per `/es:fable-thinking` (falsification-first & systematic scope audit), wrote the red test on `b17d1ba7` first (`r4-red.log`) before editing `errors.rs`, and audited every struct and alias that passes through `describe_spec_args_error` (`ApplySpecOp`, `SetSlotOp`, `ApplySpecArgs`, plus all other batch ops).
+  - Per `/es:rust` (zero-clone data flow), kept `describe_spec_args_error(&Value)` operating on borrowed `&Value` references without cloning JSON subtrees.
+
+#### Per-File Summary
+- **`crates/designos-mcp/src/tools/errors.rs`**:
+  - In `describe_spec_args_error`, extracted `let op = obj.get("op").and_then(Value::as_str);`.
+  - When `op == Some("apply_spec")`, allowed `"parent_id"` to be `null`, `u64`, or `String` (matching `ApplySpecOp.parent: Option<NodeRef>` with `#[serde(alias = "parent_id")]`), returning `"parent_id must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference."` only when it is none of those.
+  - When `op != Some("apply_spec")` (direct `designos_apply_spec`), preserved the integer-only `"parent_id must be a non-negative integer. Pass a numeric node ID."` check.
+  - In `op == Some("set_slot")`, checked each of `["node", "node_id", "instance"]` in a loop so every `NodeRef` alias on `SetSlotOp` is checked and names the exact key on non-`NodeRef` values.
+- **`crates/designos-mcp/tests/spec_errors.rs`**:
+  - Added `round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string` verifying:
+    1. Direct `designos_apply_spec` with `"parent_id": "root"` is still refused with `"parent_id must be a non-negative integer"`.
+    2. Batch `apply_spec` with `"parent_id": "@card"` succeeds and `Title` lands as a child under `Card`.
+    3. Batch `apply_spec` with `"parent_id": 7`, `"parent": "@sub"`, and `"parent_id": "$prev"` all succeed and place children under their respective parents.
+    4. Batch `apply_spec` with a non-`NodeRef` `"parent_id": true` is refused with `"parent_id must be a node ID or $ref string"`.
+    5. Batch `set_slot` accepts `"@card"` on `"node"`, `"node_id"`, and `"instance"` aliases without a `NodeRef` false reject.
+
+### 5) Exact Commands & Pasted Output (Round 4)
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r4-red.log`
+```text
+$ cargo test -p designos-mcp --test spec_errors --locked round4_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.66s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 1 test
+test round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string ... FAILED
+
+failures:
+
+---- round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string stdout ----
+
+thread 'round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string' (53539057) panicked at crates/designos-mcp/tests/spec_errors.rs:373:10:
+batch apply_spec with parent_id: "@card" must succeed: ToolError { code: BatchOpFailed, message: "op #1 (apply_spec) failed: Invalid arguments: parent_id must be a non-negative integer. Pass a numeric node ID.", path: "/ops/1", received: None, expected: None, valid_options: [], valid_options_total: None, corrected_example: None, cause: Some(ToolError { code: InvalidArguments, message: "Invalid arguments: parent_id must be a non-negative integer. Pass a numeric node ID.", path: "/ops/1", received: None, expected: None, valid_options: [], valid_options_total: None, corrected_example: None, cause: None, failed_op: None, op: None, safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }), failed_op: Some(1), op: Some("apply_spec"), safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --test spec_errors`
+```
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r4-green.log`
+```text
+$ cargo test -p designos-mcp --test spec_errors --locked
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.43s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 8 tests
+test round3_nested_spec_errors_carry_path_from_root ... ok
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... ok
+test apply_spec_reports_field_and_expected_type_in_plain_words ... ok
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... ok
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... ok
+test round3_set_slot_bad_slot_reports_slot_field ... ok
+test round3_f32_overflow_and_comments_parity_with_serde ... ok
+test round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+```
+
+#### Acceptance 2 & 3 Commands & Output
+```text
+$ cargo fmt --all -- --check
+FMT_EXIT=0
+
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.22s
+CLIPPY_EXIT=0
+
+$ cargo test -p designos-mcp --locked
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-96fd55246d4a3a66)
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.21s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/stdio.rs (out/cargo/debug/deps/stdio-9963b9496c82d7e4)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/text_fill.rs (out/cargo/debug/deps/text_fill-b3d88a68a195ca3e)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/tools_snapshot.rs (out/cargo/debug/deps/tools_snapshot-e6488781337fbb09)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+     Running tests/version.rs (out/cargo/debug/deps/version-7878cb959d478560)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+   Doc-tests designos_mcp
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+MCP_TEST_EXIT=0
+
+$ cargo test -p designos-eval --locked
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-9a9f1f166d66684f)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos_eval-30aca93b7d8d8c4a)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/harness.rs (out/cargo/debug/deps/harness-28beba16668beb59)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+     Running tests/real_engine.rs (out/cargo/debug/deps/real_engine-4a6cab08ce582fe8)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+   Doc-tests designos_eval
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EVAL_TEST_EXIT=0
+```
+
 Status: DONE
