@@ -90,3 +90,21 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
     }
     Err(format!("No node matches --select '{s}'"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_doc::{Node, NodeKind};
+
+    #[test]
+    fn bare_numeric_name_precedes_node_id() {
+        let mut doc = Document::new("numeric selector");
+        let page = doc.add_page("Page");
+        let mut named = Node::new(NodeId(4), NodeKind::Rectangle);
+        named.name = "4".into();
+        doc.insert(page, named).unwrap();
+        let target = resolve(&mut doc, "4").unwrap();
+        assert_eq!(target.node, Some(NodeId(4)));
+        assert_eq!(target.matched_by, By::Name);
+    }
+}
