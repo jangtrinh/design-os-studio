@@ -1,0 +1,235 @@
+=== 1. cargo test -p designos-doc --locked styles_ops ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 23 tests
+
+thread 'styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them' (50466790) panicked at crates/designos-doc/src/styles_ops.rs:1533:35:
+assertion `left == right` failed: fontSize/0 must bake onto text style
+  left: 12.0
+ right: 32.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes' (50466791) panicked at crates/designos-doc/src/styles_ops.rs:1420:17:
+assertion `left == right` failed: text resolved look in mode light must match before delete
+  left: Node { id: NodeId(2), source_id: None, name: "Text", kind: Text(TextProps { content: "Hello", style: TextStyle { font_family: "Inter", font_weight: 300, italic: true, font_size: 12.0, line_height: Auto, letter_spacing: 0.0, paragraph_spacing: 0.0, align_h: Left, align_v: Top, case: Original, decoration: None, fills: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], features: [], variation_axes: [] }, runs: [], auto_resize: WidthAndHeight, max_lines: None, paragraph: ParagraphProps { indent: 0.0, list_spacing: 0.0, hanging_punctuation: false, hanging_list: false, leading_trim: None }, lists: [], direction: Auto, auto_rename: true, decoration_skip_ink: true, text_wrap: Auto }), parent: Some(NodeId(1)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 100.0, y: 30.0 }, fills: [], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 0, row_span: 0, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: None, overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} }
+ right: Node { id: NodeId(2), source_id: None, name: "Text", kind: Text(TextProps { content: "Hello", style: TextStyle { font_family: "Inter", font_weight: 700, italic: true, font_size: 12.0, line_height: Auto, letter_spacing: 0.0, paragraph_spacing: 0.0, align_h: Left, align_v: Top, case: Original, decoration: None, fills: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], features: [], variation_axes: [] }, runs: [], auto_resize: WidthAndHeight, max_lines: None, paragraph: ParagraphProps { indent: 0.0, list_spacing: 0.0, hanging_punctuation: false, hanging_list: false, leading_trim: None }, lists: [], direction: Auto, auto_rename: true, decoration_skip_ink: true, text_wrap: Auto }), parent: Some(NodeId(1)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 100.0, y: 30.0 }, fills: [], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 0, row_span: 0, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: None, overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} }
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... ok
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... ok
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run ... ok
+test styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches ... ok
+test styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them ... FAILED
+test styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes ... FAILED
+test styles_ops::tests::deleting_a_text_style_keeps_a_bold_run ... ok
+test styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... ok
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+
+thread 'styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes' (50466804) panicked at crates/designos-doc/src/styles_ops.rs:1186:9:
+used_on_library_page must walk only the doc.library_page subtree, not doc.nodes.values()
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... ok
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref ... ok
+test styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes ... FAILED
+
+failures:
+
+failures:
+    styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them
+    styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes
+    styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes
+
+test result: FAILED. 20 passed; 3 failed; 0 ignored; 0 measured; 617 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+=== 2. cargo test -p designos-fig --test fig_effect_grid_styles --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.24s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 15 tests
+test own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes ... FAILED
+test legacy_inherit_refs_resolve_to_the_style_nodes ... ok
+test style_values_and_metadata_are_imported ... ok
+test a_soft_deleted_style_is_ignored ... ok
+test text_style_paragraph_indent_and_weight_round_trip ... ok
+test consumers_take_effect_and_grid_values_from_the_style_node ... ok
+test fill_style_gradient_stop_binding_round_trips ... ok
+test fig_style_colorvar_round_trips ... ok
+test a_stroke_style_node_is_a_stroke_style ... ok
+test a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted ... ok
+test effect_style_shadow_vars_round_trip ... ok
+test export_then_import_keeps_effect_and_grid_styles_and_their_links ... ok
+test deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip ... FAILED
+test noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport ... ok
+test deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels ... ok
+
+failures:
+
+---- own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes stdout ----
+
+thread 'own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes' (50468185) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:806:9:
+assertion `left == right` failed: resolve_node in mode m1 must match before and after delete_style
+  left: Node { id: NodeId(2), source_id: None, name: "Text", kind: Text(TextProps { content: "Sample", style: TextStyle { font_family: "Inter", font_weight: 300, italic: true, font_size: 12.0, line_height: Auto, letter_spacing: 0.0, paragraph_spacing: 0.0, align_h: Left, align_v: Top, case: Original, decoration: None, fills: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], features: [], variation_axes: [] }, runs: [], auto_resize: WidthAndHeight, max_lines: None, paragraph: ParagraphProps { indent: 0.0, list_spacing: 0.0, hanging_punctuation: false, hanging_list: false, leading_trim: None }, lists: [], direction: Auto, auto_rename: true, decoration_skip_ink: true, text_wrap: Auto }), parent: Some(NodeId(1)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 120.0, y: 30.0 }, fills: [], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 0, row_span: 0, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: None, overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} }
+ right: Node { id: NodeId(2), source_id: None, name: "Text", kind: Text(TextProps { content: "Sample", style: TextStyle { font_family: "Inter", font_weight: 700, italic: true, font_size: 12.0, line_height: Auto, letter_spacing: 0.0, paragraph_spacing: 0.0, align_h: Left, align_v: Top, case: Original, decoration: None, fills: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], features: [], variation_axes: [] }, runs: [], auto_resize: WidthAndHeight, max_lines: None, paragraph: ParagraphProps { indent: 0.0, list_spacing: 0.0, hanging_punctuation: false, hanging_list: false, leading_trim: None }, lists: [], direction: Auto, auto_rename: true, decoration_skip_ink: true, text_wrap: Auto }), parent: Some(NodeId(1)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 120.0, y: 30.0 }, fills: [], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 0, row_span: 0, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: None, overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip stdout ----
+
+thread 'deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip' (50468177) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:592:5:
+exported .fig still has a style node for deleted Shadow/Card: ["Shadow/Card", "Layout/12 col", "Border/Strong"]
+
+
+failures:
+    deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip
+    own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+
+=== 3. cargo test -p designos-app --bin designos --locked style ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.48s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 89 tests
+test check_designs::tests::a_fill_already_bound_or_linked_to_a_style_is_not_flagged ... ok
+test check_designs::tests::instances::a_disabled_library_style_on_a_main_component_is_reported_once_not_per_instance ... ok
+test check_designs::tests::instances::a_disabled_library_style_applied_inside_an_instance_is_reported_on_that_layer ... ok
+test check_designs::tests::a_stroke_is_matched_against_stroke_variables_and_stroke_styles ... ok
+test check_designs::tests::a_fill_list_equal_to_a_fill_style_suggests_the_style_when_no_variable_matches ... ok
+test check_designs::tests::effects_equal_to_an_effect_style_suggest_the_style ... ok
+test check_designs::tests::instances::an_instance_mirroring_an_unstyled_main_text_reports_no_text_style_once_on_the_main_component ... ok
+test check_designs::tests::numbers::text_linked_to_a_style_or_with_mixed_run_sizes_is_not_flagged_for_number_variables ... ok
+test check_designs::tests::resolved_styles::bound_font_size_resolving_differently_still_offers_the_style ... ok
+test check_designs::tests::rules::text_styles_rule_flags_unstyled_text_and_offers_fix_when_style_matches ... ok
+test check_designs::tests::rules::text_without_text_style_is_flagged_with_apply_style_when_exact_match ... ok
+test check_designs::tests::rules::two_text_styles_that_equal_the_text_offer_no_fix ... ok
+test check_designs::tests::rules::library_assets_rule_flags_instance_style_and_variable_from_disabled_library ... ok
+test check_designs::tests::rules::a_typography_number_match_or_binding_does_not_hide_the_text_style_rule ... ok
+test check_designs::tests::text_equal_to_a_text_style_apart_from_its_colour_suggests_the_style ... ok
+test check_designs::tests::resolved_styles::a_style_fix_found_in_dark_is_refused_once_the_frame_is_back_in_light ... ok
+test live_canvas_scope::tests::scoped_canvas_carries_all_collections_variables_styles_and_meta ... ok
+test check_designs::tests::text_run_fills::updating_a_linked_colour_style_still_recolours_every_run ... ok
+test check_designs::tests::outside_the_box::text_painted_by_a_style_run_is_behind_the_text_it_overlaps ... ok
+test check_designs::tests::safety::the_contrast_fix_also_recolours_the_style_runs_because_the_renderer_paints_the_runs ... ok
+test check_designs::tests::resolved_styles::an_effect_style_matched_only_after_an_opacity_binding_resolves_is_fixable ... ok
+test check_designs::tests::text_run_fills::applying_a_fill_style_recolours_every_run ... ok
+test richtext::tests::style_middle_splits_and_whole_merges_into_base ... ok
+test richtext::tests::replace_selection_takes_first_char_style ... ok
+test richtext::tests::list_membership_follows_edits_and_styles ... ok
+test agent_mention::tests::style_and_variable_resolution_use_existing_tools ... ok
+test panels::inspect::tests::inspect_code_connect_redlines_mcp_and_typography_style_mutate_state ... ok
+test check_designs::tests::resolved_styles::bound_font_size_in_place_still_offers_and_applies_text_style ... ok
+test check_designs::tests::applying_fill_text_and_effect_styles_links_them_in_one_step_each ... ok
+test check_designs::tests::resolved_styles::a_text_style_matched_only_after_a_dark_mode_font_size_resolves_is_fixable ... ok
+test canvas::textsession::tests::a_bold_typing_style_moves_the_wght_axis ... ok
+test canvas::textsession::tests::caret_style_applies_to_next_typed_text_only ... ok
+test canvas::textsession::tests::inspector_style_edits_request_the_new_face_with_or_without_a_session ... ok
+test check_designs::tests::libraries::library_fill_text_and_effect_styles_are_suggested_with_their_library_name_and_applied_in_one_undo_step ... ok
+test canvas::textsession::tests::undoing_a_second_quick_style_edit_finds_the_face_of_the_first ... ok
+test shell::tests::clicking_a_text_style_applies_it_to_text ... ok
+test shell::tests::libraries::creating_a_style_from_the_picker_is_one_undo_step ... ok
+test shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open ... FAILED
+test shell::tests::effect_grid_styles::local_styles_list_effect_and_grid_groups ... ok
+test shell::tests::clicking_a_color_style_applies_it_to_the_selection ... ok
+test shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu ... ok
+test shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu ... FAILED
+test shell::tests::effect_grid_styles::renaming_an_effect_style_from_the_menu ... ok
+test shell::tests::libraries::updating_a_library_style_is_undoable ... ok
+test shell::tests::effect_grid_styles::creating_an_effect_style_links_the_layer_in_one_undo_step ... ok
+test shell::tests::effect_grid_styles::creating_detaching_and_applying_a_grid_style ... ok
+test shell::tests::effect_grid_styles::detaching_and_applying_an_effect_style_from_the_menu ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row ... ok
+test shell::tests::libraries::color_picker_libraries_tab_lists_library_styles_and_applies_one_undoably ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_the_list ... ok
+test styles::fill_binding_tests::applying_a_fill_style_drops_the_fill_binding_and_the_canvas_shows_the_style ... ok
+test styles::fill_binding_tests::applying_a_fill_style_to_text_drops_the_colour_binding ... ok
+test styles::fill_binding_tests::applying_a_stroke_style_leaves_the_fill_bindings_alone ... ok
+test styles::fill_binding_tests::one_undo_restores_the_previous_fill_and_its_binding ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test styles::instance_refit_tests::editing_the_mains_style_does_not_copy_the_mains_size_onto_text_with_its_own_text_style ... ok
+test styles::instance_refit_tests::explicit_height_edit_on_height_mode_instance_label_survives_main_sync ... ok
+test shell::tests::style_edit::a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing ... ok
+test styles::instance_refit_tests::height_mode_refit_does_not_record_size_override_unless_width_changes ... ok
+test shell::tests::style_edit::deleted_variable_bound_on_a_style_renders_detachable_pill_and_emits_broken_style_binding_lint ... ok
+test styles::instance_refit_tests::instance_text_whose_characters_come_from_a_property_refits_when_the_style_changes ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu ... FAILED
+test styles::tests::applying_fill_style_sets_ref_and_values_and_undoes ... ok
+test styles::tests::applying_fill_style_to_rich_text_recolours_runs_and_undoes_in_one_step ... ok
+test shell::tests::libraries::library_variables_bind_to_a_style_through_the_picker_in_one_undo_step ... ok
+test styles::tests::creating_renaming_and_detaching_an_effect_style_are_single_undo_steps ... ok
+test styles::instance_refit_tests::instance_text_with_its_own_characters_refits_when_the_style_grows_in_height_mode ... ok
+test styles::instance_refit_tests::instance_text_with_its_own_characters_refits_when_the_style_grows_in_width_and_height_mode ... ok
+test showcase::tests::styles_flows_and_prototype_links ... ok
+test styles::tests::effect_and_grid_styles_have_their_own_groups ... ok
+test styles::tests::entries_use_display_names_and_group_by_prefix ... ok
+test styles::tests::replacing_a_selection_color_edits_everywhere_in_one_step ... ok
+test styles::tests::selection_colors_are_unique_across_subtree ... ok
+test styles::instance_refit_tests::instance_text_with_its_own_text_style_refits_when_that_style_grows ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step ... ok
+test styles::tests::editing_a_style_does_not_refit_library_nodes_skipped_by_doc_update_style ... ok
+test shell::tests::style_folders_collapse ... ok
+test styles::tests::editing_a_text_style_refits_the_main_and_the_instance_follows_without_a_size_override ... ok
+test styles::tests::applying_text_style_keeps_color_and_skips_shapes ... ok
+test textmeasure::tests::measure_follows_run_styles ... ok
+test styles::tests::editing_a_style_updates_all_linked_layers_in_one_undo_step ... ok
+test shell::tests::style_edit::a_drag_is_recorded_once_when_the_pointer_is_released ... ok
+test shell::tests::style_edit::editing_a_color_style_from_the_list_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::editing_a_grid_style_from_the_style_menu_updates_the_linked_frame ... ok
+test shell::tests::style_edit::editing_a_text_style_from_the_list_restyles_every_linked_text_layer ... ok
+test shell::tests::style_edit::editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step ... ok
+test shell::tests::board::contextual_bar_for_connectors_has_line_style_and_caps ... ok
+test shell::tests::style_edit::popover_number_fields_use_distinct_non_duplicate_prefixes ... ok
+
+failures:
+
+---- shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open stdout ----
+
+thread 'shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open' (50471452) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:299:5:
+assertion `left == right` failed: expected 0 library-page scans per frame with the style menu closed, got 4
+  left: 4
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu stdout ----
+
+thread 'shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu' (50471366) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:251:5:
+Rename style stays enabled for library-page style
+
+---- shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu stdout ----
+
+thread 'shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu' (50471773) panicked at crates/designos-app/src/shell/tests/style_edit.rs:302:28:
+colour-style menu should paint 'Edit style' label, got ["Learn more", "Get started", "Welcome", "Card", "Dashboard", "360 × 240", "File", "Agents", "Assets", "Tools", "Variables", "Plugins", "Untitled", "Drafts · Team project", "Pages", "Page 1", "Components", "Archive", "Layers", "Dashboard", "Frame", "Card", "Auto layout", "Welcome", "Frame", "Button", "Frame", "Pick up where…", "Text", "Welcome back", "Text", "Avatar", "Ellipse", "Hero", "Rect", "Get started", "Instance", "Learn more", "Instance", "J", "Share", "Design", "Prototype", "86%", "Hero", "Hero", "Position", "Alignment", "Position", "X", "0", "0", "Y", "0", "0", "Rotation", "0", "0", "°", "Layout", "Dimensions", "W", "360", "360", "H", "240", "240", "Constraints", "Left", "Top", "Appearance", "100", "100", "%", "0", "0", "Fill", "Brand/Primary", "100", "100", "%", "Stroke", "Effects", "Styles", "Text styles", "Body", "Ag", "Regular", "16/24", "Heading", "Ag", "Large", "32/40", "Color styles", "Accent", "Sun", "Brand", "Primary", "Neutral", "Ink", "Effect styles", "Effect style 1", "Grid styles", "Grid style 1", "Export", "Accent/Sun", "Brand/Primary", "Neutral/Ink", "Edit in the library file", "Created \"Grid style 1\""]
+
+
+failures:
+    shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu
+    shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open
+    shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu
+
+test result: FAILED. 86 passed; 3 failed; 0 ignored; 0 measured; 2853 filtered out; finished in 2.36s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

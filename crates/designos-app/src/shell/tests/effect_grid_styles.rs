@@ -30,6 +30,22 @@ fn grids_of(s: &Sim, id: NodeId) -> Vec<LayoutGrid> {
     s.app().doc.get(id).unwrap().kind.frame_props().expect("Welcome is a frame").grids.clone()
 }
 
+fn collect_shape_texts(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+    match shape {
+        egui::epaint::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+        egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect_shape_texts(s, out)),
+        _ => {}
+    }
+}
+
+fn painted_texts(s: &Sim) -> Vec<String> {
+    let mut out = Vec::new();
+    for cs in &s.shapes {
+        collect_shape_texts(&cs.shape, &mut out);
+    }
+    out
+}
+
 /// Opens the menu behind `button` and clicks its `row`-th row, `separators` of which sit above it
 /// (the menu opens 4 px below the button, right-aligned to it).
 fn pick(s: &mut Sim, button: &str, row: usize, separators: usize) {
@@ -194,6 +210,25 @@ fn a_library_style_cannot_be_deleted_from_the_style_menu() {
     pick(&mut s, "effect-style-button", 4, 1);
     assert!(s.app().doc.styles.contains_key("Effect style 1"));
     assert_eq!(s.app().doc.get(welcome).unwrap().style_refs.get("effect").map(String::as_str), Some("Effect style 1"));
+
+    // Hovering the disabled rows in the open menu paints the LIBRARY_STYLE_TIP tooltip.
+    s.shell.app.props.style_menu = Some(StyleProperty::Effect);
+    s.frame(vec![]);
+    for row_idx in [2usize, 4, 5] {
+        let pt = s.rect_of(&format!("menu-row-0-{row_idx}")).center();
+        s.mv(pt + Vec2::new(0.0, 1.0));
+        s.mv(pt);
+        for _ in 0..30 {
+            s.frame(vec![]);
+        }
+        let painted = painted_texts(&s);
+        assert!(
+            painted.iter().any(|t| t == style_edit::LIBRARY_STYLE_TIP),
+            "row {row_idx} hover should paint {:?}, got {painted:?}",
+            style_edit::LIBRARY_STYLE_TIP
+        );
+    }
+    s.shell.app.props.style_menu = None;
 }
 
 #[test]
@@ -212,12 +247,60 @@ fn a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu() {
     lib_node.style_refs.insert("effect".into(), "Effect style 1".into());
     s.shell.app.doc.insert(lp, lib_node).unwrap();
 
+    let rename_row = style_picker::rename_style_row(s.app(), &sel, StyleProperty::Effect);
+    assert!(!rename_row.disabled && rename_row.tooltip.is_empty(), "Rename style stays enabled for library-page style");
+    let edit_row = style_picker::edit_style_row(s.app(), &sel, StyleProperty::Effect);
+    assert!(!edit_row.disabled && edit_row.tooltip.is_empty(), "Edit style stays enabled for library-page style");
+
     let row = style_picker::delete_style_row(s.app(), &sel, StyleProperty::Effect);
     assert!(row.disabled, "Delete style row is disabled when a node on the hidden library page uses the style");
     assert_eq!(row.label, "Delete style");
     assert_eq!(row.tooltip, style_edit::LIBRARY_STYLE_TIP);
 
+    // In the open menu, hovering Delete style paints the tip, while hovering Rename style does not.
+    s.shell.app.props.style_menu = Some(StyleProperty::Effect);
+    s.frame(vec![]);
+    let del_pt = s.rect_of("menu-row-0-4").center();
+    s.mv(del_pt + Vec2::new(0.0, 1.0));
+    s.mv(del_pt);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(painted_texts(&s).iter().any(|t| t == style_edit::LIBRARY_STYLE_TIP));
+    let ren_pt = s.rect_of("menu-row-0-2").center();
+    s.mv(ren_pt + Vec2::new(0.0, 1.0));
+    s.mv(ren_pt);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(!painted_texts(&s).iter().any(|t| t == style_edit::LIBRARY_STYLE_TIP));
+    s.shell.app.props.style_menu = None;
+
     pick(&mut s, "effect-style-button", 4, 1);
     assert!(s.app().doc.styles.contains_key("Effect style 1"));
     assert_eq!(s.app().doc.get(welcome).unwrap().style_refs.get("effect").map(String::as_str), Some("Effect style 1"));
+}
+
+#[test]
+fn library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open() {
+    let (mut s, welcome) = welcome_sim();
+    s.shell.app.create_style_from(welcome, StyleProperty::Effect);
+    s.shell.app.create_style_from(welcome, StyleProperty::Grid);
+    let lp = designos_doc::ensure_library_page(&mut s.shell.app.doc);
+    let lib_node_id = s.shell.app.doc.alloc_id();
+    let lib_node = designos_doc::Node::rectangle(lib_node_id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+    s.shell.app.doc.insert(lp, lib_node).unwrap();
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+
+    designos_doc::take_library_page_scans();
+    s.frame(vec![]);
+    let closed_scans = designos_doc::take_library_page_scans();
+    assert_eq!(closed_scans, 0, "expected 0 library-page scans per frame with the style menu closed, got {closed_scans}");
+
+    s.shell.app.props.style_menu = Some(StyleProperty::Effect);
+    designos_doc::take_library_page_scans();
+    s.frame(vec![]);
+    let open_scans = designos_doc::take_library_page_scans();
+    assert!(open_scans <= 1, "expected at most 1 library-page scan per frame with the style menu open, got {open_scans}");
 }

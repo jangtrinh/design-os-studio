@@ -259,8 +259,8 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
         }
         let edit_row = items.len();
         let read_only = linked.as_deref().is_some_and(|k| super::style_edit::is_read_only(app, k));
-        let edit_label = if read_only { super::style_edit::LIBRARY_STYLE_TIP } else { "Edit style" };
-        items.push(crate::widgets::menu::MenuItem::new(edit_label).disabled(linked.is_none() || read_only));
+        let ro_tip = if read_only { super::style_edit::LIBRARY_STYLE_TIP } else { "" };
+        items.push(crate::widgets::menu::MenuItem::new("Edit style").disabled(linked.is_none() || read_only).tooltip(ro_tip));
         let pos = Pos2::new(styles.right() - 168.0, styles.bottom() + 4.0);
         match crate::widgets::menu::popup_menu(ui.ctx(), egui::Id::new(("styles-menu", stroke)), pos, 168.0, &items, Some(styles)) {
             crate::widgets::menu::MenuResult::Picked(i) => {

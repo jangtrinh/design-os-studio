@@ -308,9 +308,193 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
 }
 
+thread_local! {
+    static LIBRARY_PAGE_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Returns and resets the number of [`used_on_library_page`] scans on the current thread.
+pub fn take_library_page_scans() -> usize {
+    LIBRARY_PAGE_SCANS.with(|c| c.replace(0))
+}
+
 /// Whether any node on the hidden library page (remote-component copies) links to style `key`.
 pub fn used_on_library_page(doc: &Document, key: &str) -> bool {
-    doc.library_page.is_some() && doc.nodes.values().any(|n| n.style_refs.values().any(|k| k == key) && is_library_node(doc, n.id))
+    LIBRARY_PAGE_SCANS.with(|c| c.set(c.get() + 1));
+    let Some(lp) = doc.library_page else { return false };
+    let mut stack = vec![lp];
+    while let Some(id) = stack.pop() {
+        let Some(n) = doc.get(id) else { continue };
+        if n.style_refs.values().any(|k| k == key) {
+            return true;
+        }
+        stack.extend(n.children.iter().copied());
+    }
+    false
+}
+
+fn color_var_has_translucent_mode(doc: &Document, var_id: &str) -> bool {
+    doc.variables.get(var_id).is_some_and(|v| v.values.values().any(|val| matches!(val, VariableValue::Color(c) if c.a < 1.0)))
+}
+
+/// Whether moving `node_key` onto `n.variables.bindings` would flip precedence against one of
+/// `n`'s existing own bindings (because `resolve_node` applies style bindings before own bindings,
+/// whereas `n.variables.bindings` is a `BTreeMap` iterated in key order).
+fn own_binding_overrides_style_key(doc: &Document, n: &Node, node_key: &str) -> bool {
+    let own = &n.variables.bindings;
+    if node_key == "fontWeight" && own.contains_key("fontStyle") {
+        return true;
+    }
+    if let Some(idx) = node_key.strip_prefix("fills/").and_then(|s| s.strip_suffix("/opacity")) {
+        let fill_key = format!("fills/{idx}");
+        if own.get(&fill_key).is_some_and(|vid| color_var_has_translucent_mode(doc, vid)) {
+            return true;
+        }
+    }
+    if let Some(idx) = node_key.strip_prefix("strokes/").and_then(|s| s.strip_suffix("/opacity")) {
+        let stroke_key = format!("strokes/{idx}");
+        if own.get(&stroke_key).is_some_and(|vid| color_var_has_translucent_mode(doc, vid)) {
+            return true;
+        }
+    }
+    if let Some(idx) = node_key.strip_prefix("effects/").and_then(|s| s.strip_suffix("/opacity")) {
+        if own.contains_key(&format!("effects/{idx}/color")) {
+            return true;
+        }
+    }
+    if let Some((idx, _)) = node_key.strip_prefix("fills/").and_then(|s| s.split_once("/stops/")) {
+        if own.contains_key(&format!("fills/{idx}")) {
+            return true;
+        }
+    }
+    if let Some((idx, _)) = node_key.strip_prefix("strokes/").and_then(|s| s.split_once("/stops/")) {
+        if own.contains_key(&format!("strokes/{idx}")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Bakes a resolved variable value for a style binding key outside `property_kind` onto `node`
+/// so that unrecognized or legacy keys never vanish silently on style deletion.
+fn bake_unrecognized_style_binding(node: &mut Node, slot: &str, key: &str, val: &VariableValue) {
+    if let Some(stripped) = key.strip_suffix("/0") {
+        if property_kind(stripped).is_some() {
+            set_bound_property(node, stripped, val);
+            return;
+        }
+    }
+    if let Some(prefix) = key.strip_suffix("/color") {
+        if (prefix.starts_with("fills/") || prefix.starts_with("strokes/")) && property_kind(prefix).is_some() {
+            set_bound_property(node, prefix, val);
+            return;
+        }
+    }
+    if let Some(idx) = key.strip_prefix("fillOpacities/") {
+        let k = format!("fills/{idx}/opacity");
+        if property_kind(&k).is_some() {
+            set_bound_property(node, &k, val);
+            return;
+        }
+    }
+    if let Some(idx) = key.strip_prefix("strokeOpacities/") {
+        let k = format!("strokes/{idx}/opacity");
+        if property_kind(&k).is_some() {
+            set_bound_property(node, &k, val);
+            return;
+        }
+    }
+    if let Some((i, j)) = key.strip_prefix("fillStops/").and_then(|s| s.split_once('/')) {
+        let k = format!("fills/{i}/stops/{j}");
+        if property_kind(&k).is_some() {
+            set_bound_property(node, &k, val);
+            return;
+        }
+    }
+    if let Some((i, j)) = key.strip_prefix("strokeStops/").and_then(|s| s.split_once('/')) {
+        let k = format!("strokes/{i}/stops/{j}");
+        if property_kind(&k).is_some() {
+            set_bound_property(node, &k, val);
+            return;
+        }
+    }
+    if let Some(rest) = key.strip_prefix("effects/") {
+        let mapped = if let Some(i) = rest.strip_suffix("/x").or_else(|| rest.strip_suffix("/offset/x")) {
+            Some(format!("effects/{i}/offsetX"))
+        } else {
+            rest.strip_suffix("/y").or_else(|| rest.strip_suffix("/offset/y")).map(|i| format!("effects/{i}/offsetY"))
+        };
+        if let Some(k) = mapped {
+            if property_kind(&k).is_some() {
+                set_bound_property(node, &k, val);
+                return;
+            }
+        }
+    }
+    match (slot, key) {
+        ("fill", "color") => {
+            set_bound_property(node, "fills/0", val);
+            return;
+        }
+        ("stroke", "color") => {
+            set_bound_property(node, "strokes/0", val);
+            return;
+        }
+        ("fill", "opacity") => {
+            set_bound_property(node, "fills/0/opacity", val);
+            return;
+        }
+        ("stroke", "opacity") => {
+            set_bound_property(node, "strokes/0/opacity", val);
+            return;
+        }
+        ("effect", "color" | "opacity" | "radius" | "spread" | "offsetX" | "offsetY") => {
+            set_bound_property(node, &format!("effects/0/{key}"), val);
+            return;
+        }
+        ("effect", "x") => {
+            set_bound_property(node, "effects/0/offsetX", val);
+            return;
+        }
+        ("effect", "y") => {
+            set_bound_property(node, "effects/0/offsetY", val);
+            return;
+        }
+        _ => {}
+    }
+    match key {
+        "cornerRadius" => {
+            apply_bound_key_to_node(node, "cornerRadius", val);
+        }
+        "size/x" => set_bound_property(node, "width", val),
+        "size/y" => set_bound_property(node, "height", val),
+        "individualStrokeWeights/top" => set_bound_property(node, "strokeTopWeight", val),
+        "individualStrokeWeights/right" => set_bound_property(node, "strokeRightWeight", val),
+        "individualStrokeWeights/bottom" => set_bound_property(node, "strokeBottomWeight", val),
+        "individualStrokeWeights/left" => set_bound_property(node, "strokeLeftWeight", val),
+        "minWidth" => {
+            if let VariableValue::Number(x) = *val {
+                node.layout_child.min_w = Some(x.max(0.0));
+            }
+        }
+        "maxWidth" => {
+            if let VariableValue::Number(x) = *val {
+                node.layout_child.max_w = Some(x.max(0.0));
+            }
+        }
+        "minHeight" => {
+            if let VariableValue::Number(x) = *val {
+                node.layout_child.min_h = Some(x.max(0.0));
+            }
+        }
+        "maxHeight" => {
+            if let VariableValue::Number(x) = *val {
+                node.layout_child.max_h = Some(x.max(0.0));
+            }
+        }
+        _ => {
+            set_bound_property(node, key, val);
+        }
+    }
 }
 
 /// Deletes style `key`, detaching every linked layer while keeping its current
@@ -318,7 +502,9 @@ pub fn used_on_library_page(doc: &Document, key: &str) -> bool {
 /// layer's own properties as a single undoable command. A library style (or a
 /// style used by a remote-component copy on the hidden library page) is refused.
 pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> {
-    let _stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if !doc.styles.contains_key(key) {
+        return Err(StyleOpError::UnknownStyle(key.into()));
+    }
     if is_library_style(doc, key) || used_on_library_page(doc, key) {
         return Err(StyleOpError::LibraryStyle(key.into()));
     }
@@ -338,18 +524,26 @@ pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> 
                 }
                 for (bkey, variable) in bindings {
                     let node_key = if slot == "stroke" {
-                        let Some(rest) = bkey.strip_prefix("fills/") else { continue };
-                        format!("strokes/{rest}")
+                        match bkey.strip_prefix("fills/") {
+                            Some(rest) => format!("strokes/{rest}"),
+                            None => bkey.clone(),
+                        }
                     } else {
                         bkey.clone()
                     };
                     if copy.variables.bindings.contains_key(&node_key) {
                         continue;
                     }
+                    if own_binding_overrides_style_key(doc, n, &node_key) {
+                        if let Some(val) = doc.resolve_variable(id, variable) {
+                            set_bound_property(&mut copy, &node_key, &val);
+                        }
+                        continue;
+                    }
                     if property_kind(&node_key).is_some() {
                         copy.variables.bindings.insert(node_key, variable.clone());
                     } else if let Some(val) = doc.resolve_variable(id, variable) {
-                        set_bound_property(&mut copy, &node_key, &val);
+                        bake_unrecognized_style_binding(&mut copy, slot, &node_key, &val);
                     }
                 }
             }
@@ -1141,5 +1335,374 @@ mod tests {
         let refs = &d.get(ichild).unwrap().style_refs;
         assert_eq!(refs.get("effect").map(String::as_str), Some("S"));
         assert!(refs.values().all(|k| d.styles.contains_key(k)), "reset_instance leaves no dangling link: {refs:?}");
+    }
+
+    #[test]
+    fn used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes() {
+        let mut d = Document::new("t");
+        let p = d.add_page("Page 1");
+        let lp = ensure_library_page(&mut d);
+
+        let local_id = d.alloc_id();
+        let mut local = Node::rectangle(local_id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        local.style_refs.insert("effect".into(), "LocalOnly".into());
+        d.insert(p, local).unwrap();
+
+        let comp_id = d.alloc_id();
+        let mut comp = Node::frame(comp_id, Rect::new(0.0, 0.0, 20.0, 20.0));
+        comp.kind = NodeKind::Component(FrameProps::default());
+        let comp = d.insert(lp, comp).unwrap();
+        let nested_id = d.alloc_id();
+        let mut nested = Node::rectangle(nested_id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        nested.style_refs.insert("effect".into(), "LibUsed".into());
+        d.insert(comp, nested).unwrap();
+
+        // An unlinked node in doc.nodes that is NOT reachable from lp.children
+        // must not be visited when walking only the doc.library_page subtree.
+        let orphan_id = d.alloc_id();
+        let mut orphan = Node::rectangle(orphan_id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        orphan.parent = Some(lp);
+        orphan.style_refs.insert("effect".into(), "OrphanStyle".into());
+        d.nodes.insert(orphan_id, orphan);
+
+        assert!(used_on_library_page(&d, "LibUsed"));
+        assert!(!used_on_library_page(&d, "LocalOnly"));
+        assert!(!used_on_library_page(&d, "OrphanStyle"), "used_on_library_page must walk only the doc.library_page subtree, not doc.nodes.values()");
+
+        // Synthetic 302,000-node document with a 2,000-node library page (probe, not a CI timing assertion).
+        let mut big = Document::new("perf-probe");
+        let big_p = big.add_page("Main");
+        let big_lp = ensure_library_page(&mut big);
+        for _ in 0..300_000 {
+            let id = big.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(big_p);
+            big.nodes.insert(id, n);
+        }
+        let mut lp_children = Vec::with_capacity(2_000);
+        for i in 0..2_000 {
+            let id = big.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(big_lp);
+            if i == 1_999 {
+                n.style_refs.insert("effect".into(), "Target".into());
+            }
+            big.nodes.insert(id, n);
+            lp_children.push(id);
+        }
+        big.get_mut(big_lp).unwrap().children = lp_children;
+
+        let full_walk = |doc: &Document, key: &str| -> bool {
+            doc.library_page.is_some()
+                && doc.nodes.values().any(|n| {
+                    let mut cur = Some(n.id);
+                    let mut on_lp = false;
+                    while let Some(id) = cur {
+                        if doc.library_page == Some(id) {
+                            on_lp = true;
+                            break;
+                        }
+                        cur = doc.get(id).and_then(|node| node.parent);
+                    }
+                    on_lp && n.style_refs.values().any(|k| k == key)
+                })
+        };
+
+        let iters = 20u32;
+        let t_sub = std::time::Instant::now();
+        for _ in 0..iters {
+            assert!(!used_on_library_page(&big, "Missing"));
+            assert!(used_on_library_page(&big, "Target"));
+        }
+        let sub_per_call = t_sub.elapsed() / (iters * 2);
+
+        let t_full = std::time::Instant::now();
+        for _ in 0..iters {
+            assert!(!full_walk(&big, "Missing"));
+            assert!(full_walk(&big, "Target"));
+        }
+        let full_per_call = t_full.elapsed() / (iters * 2);
+        eprintln!("[perf-probe] 300k main nodes + 2k library_page nodes: subtree={sub_per_call:?}/call vs full_walk={full_per_call:?}/call");
+    }
+
+    #[test]
+    fn deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes() {
+        let mut d = Document::new("t");
+        let p = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_style".into(), "v_weight".into(), "v_fill".into(), "v_op".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_style".into(),
+            Variable {
+                id: "v_style".into(),
+                name: "fontStyle".into(),
+                collection: "c".into(),
+                kind: VariableKind::String,
+                values: [
+                    ("light".to_string(), VariableValue::String("Bold Italic".into())),
+                    ("dark".to_string(), VariableValue::String("SemiBold Italic".into())),
+                ]
+                .into_iter()
+                .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_weight".into(),
+            Variable {
+                id: "v_weight".into(),
+                name: "fontWeight".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [("light".to_string(), VariableValue::Number(300.0)), ("dark".to_string(), VariableValue::Number(400.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_fill".into(),
+            Variable {
+                id: "v_fill".into(),
+                name: "fillColor".into(),
+                collection: "c".into(),
+                kind: VariableKind::Color,
+                values: [
+                    ("light".to_string(), VariableValue::Color(Color::rgba(200, 100, 50, 128))),
+                    ("dark".to_string(), VariableValue::Color(Color::rgba(40, 80, 160, 192))),
+                ]
+                .into_iter()
+                .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_op".into(),
+            Variable {
+                id: "v_op".into(),
+                name: "fillOpacity".into(),
+                collection: "c".into(),
+                kind: VariableKind::Number,
+                values: [("light".to_string(), VariableValue::Number(0.25)), ("dark".to_string(), VariableValue::Number(0.75))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 30.0), "Hello", TextStyle::default());
+        t.style_refs.insert("text".into(), "Heading".into());
+        t.variables.bindings.insert("fontStyle".into(), "v_style".into());
+        let tid = d.insert(p, t).unwrap();
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 40.0, 100.0, 40.0));
+        r.fills = vec![Paint::solid(Color::BLACK)];
+        r.style_refs.insert("fill".into(), "Surface".into());
+        r.variables.bindings.insert("fills/0".into(), "v_fill".into());
+        let rid = d.insert(p, r).unwrap();
+
+        d.styles.insert("Heading".into(), Style::Text(TextStyle::default()));
+        d.style_meta.insert(
+            "Heading".into(),
+            StyleMeta {
+                name: "Heading".into(),
+                property: StyleProperty::Text,
+                bindings: [("fontWeight".to_string(), "v_weight".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        d.styles.insert("Surface".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        d.style_meta.insert(
+            "Surface".into(),
+            StyleMeta {
+                name: "Surface".into(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0/opacity".to_string(), "v_op".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+
+        let mut text_before_modes = Vec::new();
+        let mut rect_before_modes = Vec::new();
+        for mode in ["light", "dark"] {
+            d.get_mut(tid).unwrap().variables.modes.insert("c".into(), mode.into());
+            let mut rt = resolve_node(&d, d.get(tid).unwrap()).into_owned();
+            rt.style_refs.clear();
+            rt.variables = Default::default();
+            text_before_modes.push((mode, rt));
+
+            d.get_mut(rid).unwrap().variables.modes.insert("c".into(), mode.into());
+            let mut rr = resolve_node(&d, d.get(rid).unwrap()).into_owned();
+            rr.style_refs.clear();
+            rr.variables = Default::default();
+            rect_before_modes.push((mode, rr));
+        }
+        d.get_mut(tid).unwrap().variables.modes.insert("c".into(), "light".into());
+        d.get_mut(rid).unwrap().variables.modes.insert("c".into(), "light".into());
+
+        let mut h = History::default();
+        let c1 = delete_style(&d, "Heading");
+        run(&mut d, &mut h, c1);
+        let c2 = delete_style(&d, "Surface");
+        run(&mut d, &mut h, c2);
+
+        for (mode, expected) in &text_before_modes {
+            d.get_mut(tid).unwrap().variables.modes.insert("c".into(), (*mode).into());
+            let mut actual = resolve_node(&d, d.get(tid).unwrap()).into_owned();
+            actual.variables = Default::default();
+            assert_eq!(actual, *expected, "text resolved look in mode {mode} must match before delete");
+        }
+        for (mode, expected) in &rect_before_modes {
+            d.get_mut(rid).unwrap().variables.modes.insert("c".into(), (*mode).into());
+            let mut actual = resolve_node(&d, d.get(rid).unwrap()).into_owned();
+            actual.variables = Default::default();
+            assert_eq!(actual, *expected, "rect resolved look in mode {mode} must match before delete");
+        }
+    }
+
+    #[test]
+    fn deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them() {
+        let mut d = Document::new("t");
+        let p = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "C".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "M1".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v_sz".into(), "v_col".into(), "v_dx".into(), "v_rad".into(), "v_minw".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (id, kind, val) in [
+            ("v_sz", VariableKind::Number, VariableValue::Number(32.0)),
+            ("v_col", VariableKind::Color, VariableValue::Color(Color::rgb(12, 34, 56))),
+            ("v_dx", VariableKind::Number, VariableValue::Number(14.0)),
+            ("v_rad", VariableKind::Number, VariableValue::Number(9.0)),
+            ("v_minw", VariableKind::Number, VariableValue::Number(120.0)),
+        ] {
+            d.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: id.into(),
+                    collection: "c".into(),
+                    kind,
+                    values: [("m1".to_string(), val)].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 30.0), "Hi", TextStyle { font_size: 12.0, ..Default::default() });
+        t.style_refs.insert("text".into(), "Txt".into());
+        let tid = d.insert(p, t).unwrap();
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 40.0, 100.0, 50.0));
+        r.fills = vec![Paint::solid(Color::WHITE)];
+        r.effects = vec![shadow(4.0)];
+        r.style_refs.insert("fill".into(), "FillS".into());
+        r.style_refs.insert("effect".into(), "FxS".into());
+        let rid = d.insert(p, r).unwrap();
+
+        d.styles.insert("Txt".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        d.style_meta.insert(
+            "Txt".into(),
+            StyleMeta {
+                name: "Txt".into(),
+                property: StyleProperty::Text,
+                bindings: [("fontSize/0".to_string(), "v_sz".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        d.styles.insert("FillS".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+        d.style_meta.insert(
+            "FillS".into(),
+            StyleMeta {
+                name: "FillS".into(),
+                property: StyleProperty::Fill,
+                bindings: [
+                    ("fills/0/color".to_string(), "v_col".to_string()),
+                    ("cornerRadius".to_string(), "v_rad".to_string()),
+                    ("minWidth".to_string(), "v_minw".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            },
+        );
+        d.styles.insert("FxS".into(), Style::Effect(vec![shadow(4.0)]));
+        d.style_meta.insert(
+            "FxS".into(),
+            StyleMeta {
+                name: "FxS".into(),
+                property: StyleProperty::Effect,
+                bindings: [("effects/0/x".to_string(), "v_dx".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+
+        let mut h = History::default();
+        for k in ["Txt", "FillS", "FxS"] {
+            let c = delete_style(&d, k);
+            run(&mut d, &mut h, c);
+        }
+
+        match &d.get(tid).unwrap().kind {
+            NodeKind::Text(tp) => assert_eq!(tp.style.font_size, 32.0, "fontSize/0 must bake onto text style"),
+            other => panic!("expected text, got {other:?}"),
+        }
+        let rn = d.get(rid).unwrap();
+        assert_eq!(rn.fills, vec![Paint::solid(Color::rgb(12, 34, 56))], "fills/0/color must bake onto fills[0]");
+        assert_eq!(rn.corner_radii, [9.0; 4], "cornerRadius must bake onto corner_radii");
+        assert_eq!(rn.layout_child.min_w, Some(120.0), "minWidth must bake onto layout_child.min_w");
+        match &rn.effects[0] {
+            Effect::DropShadow { offset, .. } => assert_eq!(offset.x, 14.0, "effects/0/x must bake onto shadow offset.x"),
+            other => panic!("expected drop shadow, got {other:?}"),
+        }
     }
 }

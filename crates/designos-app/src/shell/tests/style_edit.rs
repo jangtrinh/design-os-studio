@@ -267,6 +267,54 @@ fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     s.click(button.center());
     s.frame(vec![]);
     assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
+
+    // In the colour-style menu (properties.rs), a linked library fill style keeps the normal
+    // "Edit style" label (disabled) and shows "Edit in the library file" only as a hover tooltip.
+    fn collect_texts(shape: &egui::epaint::Shape, out: &mut Vec<(String, Rect)>) {
+        match shape {
+            egui::epaint::Shape::Text(t) => out.push((t.galley.job.text.clone(), t.visual_bounding_rect())),
+            egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect_texts(s, out)),
+            _ => {}
+        }
+    }
+    let painted_with_rects = |s: &Sim| -> Vec<(String, Rect)> {
+        let mut out = Vec::new();
+        for cs in &s.shapes {
+            collect_texts(&cs.shape, &mut out);
+        }
+        out
+    };
+    let hero = s.by_name("Hero");
+    s.shell.app.selection = vec![hero];
+    s.shell.app.apply_style(&[hero], "Brand/Primary");
+    make_library_style(&mut s, "Brand/Primary");
+    s.shell.app.props.scroll = 0.0;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.shell.app.props.styles_menu = Some(false);
+    s.mv(Pos2::new(10.0, 10.0));
+    s.frame(vec![]);
+    let items = painted_with_rects(&s);
+    let edit_rect = items
+        .iter()
+        .find(|(t, _)| t == "Edit style")
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("colour-style menu should paint 'Edit style' label, got {:?}", items.iter().map(|(t, _)| t).collect::<Vec<_>>()));
+    assert!(
+        !items.iter().any(|(t, _)| t == "Edit in the library file"),
+        "colour-style menu must not swap the row label to 'Edit in the library file' when not hovered"
+    );
+    let pt = edit_rect.center();
+    s.mv(pt + Vec2::new(0.0, 1.0));
+    s.mv(pt);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    let hovered_items = painted_with_rects(&s);
+    assert!(
+        hovered_items.iter().any(|(t, _)| t == "Edit in the library file"),
+        "hovering disabled 'Edit style' in colour-style menu should paint 'Edit in the library file'"
+    );
 }
 
 #[test]

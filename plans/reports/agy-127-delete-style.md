@@ -1035,3 +1035,252 @@ OUT_REMOVED=yes
 - `"Style not changed: {e}"`
 
 Status: DONE
+
+---
+
+## Round 3
+
+### 0. Skills loaded & checks applied (`msg_b4231ee679d3`)
+
+- **Skills loaded:** `es:dev` -> `es:feature-dev` (DEV phase only), `es:rust`, `es:rust-gpu-canvas`, `es:designer`, `es:astra-work`, `es:fable-thinking`.
+- **What was checked and changed because of them:**
+  1. **No allocation or full-document walk on a per-frame path (`es:rust`, `es:rust-gpu-canvas`, Ruling 1 / H-A):** Reverted `style_edit::is_read_only` (`crates/designos-app/src/panels/style_edit.rs:35-37`) to `is_library_style(&app.doc, key)` (`O(1)` lookup on `doc.style_meta`), restricted `used_on_library_page` (`crates/designos-doc/src/styles_ops.rs:321-333`) to walk only the `doc.library_page` subtree via `n.children` DFS (early-returning `false` when `doc.library_page.is_none()`), and called `used_on_library_page` only for the `"Delete style"` row in `style_picker::menu_model` (`crates/designos-app/src/panels/style_picker.rs:91`) when the style menu is open and in `delete_style` (`crates/designos-doc/src/styles_ops.rs:508`). Verified via `take_library_page_scans` (`crates/designos-doc/src/styles_ops.rs:316-318`) in `library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open` (`crates/designos-app/src/shell/tests/effect_grid_styles.rs:285-306`) that `0` scans run per idle frame with the menu closed and at most `1` runs per frame with the menu open.
+  2. **`egui` lock discipline (`es:rust`):** Verified zero `ctx.load_texture` calls inside `ctx.data_mut` across all touched files.
+  3. **`interactive()` guards (`es:rust-gpu-canvas`):** Verified `crates/designos-gpu/src/compile.rs` was not modified and all `self.interactive()` guards remain intact.
+  4. **Menu & tooltip craft (`es:designer`, Ruling 5 / L-C):** Updated the colour-style menu in `crates/designos-app/src/panels/properties.rs:261-263` so a linked library style keeps its normal `"Edit style"` label, is disabled (`linked.is_none() || read_only`), and attaches `.tooltip(ro_tip)` (`"Edit in the library file"`).
+
+---
+
+### 1. What could NOT be verified
+
+- **Visual capture (b) — live window screenshot of a library style's menu showing disabled rows via Home/library flow or CLI flags:** `[FACT]` Not reachable from CLI flags in an isolated `HOME` for three concrete reasons verified in source:
+  1. `crates/designos-app/src/cli.rs` provides no CLI flag to publish a document as a library or enable a library in a second consumer file.
+  2. `library_styles_list` in `crates/designos-app/src/panels/properties.rs:607-609` filters `app.library_styles()` with `matches!(s.style, Style::Text(_) | Style::Fill(_))`, and `style_picker::menu_model` (`crates/designos-app/src/panels/style_picker.rs:76`) populates the effect/grid style menu only from `style_entries_of(&app.doc, kind_of(prop))` (`doc.styles`), so even in an interactive session an enabled library's effect or grid style cannot be linked onto a consumer layer from the UI.
+  3. Under Ruling 1 (H-A), a style used on `doc.library_page` disables only `"Delete style"` while keeping `"Rename style"` and `"Edit style"` enabled; only a style with `is_library_style(&doc, key) == true` disables all three rows (`"Rename style"`, `"Delete style"`, `"Edit style"`) in `style_picker::menu_model` (`crates/designos-app/src/panels/style_picker.rs:89-97`) and `"Edit style"` in the colour-style menu (`crates/designos-app/src/panels/properties.rs:261-263`).
+  - **Sim tests that prove the disabled rows and their hover tooltips paint:**
+    - `crates/designos-app/src/shell/tests/effect_grid_styles.rs:182-232` (`a_library_style_cannot_be_deleted_from_the_style_menu`): opens `StyleProperty::Effect`, hovers rows `menu-row-0-2` (`"Rename style"`), `menu-row-0-4` (`"Delete style"`), and `menu-row-0-5` (`"Edit style"`), and asserts `painted_texts(&s)` contains `style_edit::LIBRARY_STYLE_TIP` (`"Edit in the library file"`) for each row.
+    - `crates/designos-app/src/shell/tests/effect_grid_styles.rs:235-282` (`a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu`): opens `StyleProperty::Effect` for a style referenced on `doc.library_page`, hovers `menu-row-0-4` (`"Delete style"`) and asserts `"Edit in the library file"` paints, then hovers `menu-row-0-2` (`"Rename style"`) and asserts `"Edit in the library file"` does not paint.
+    - `crates/designos-app/src/shell/tests/style_edit.rs:253-318` (`a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu`): opens the colour-style menu (`app.props.styles_menu = Some(false)`) on `"Hero"` with `"Brand/Primary"` marked as a library style, asserts `"Edit style"` is painted (and `"Edit in the library file"` is not painted as the row label when unhovered), then hovers the `"Edit style"` row rect and asserts `"Edit in the library file"` paints as the tooltip.
+- **Residual L-A edge case when own `"fontStyle"` has no weight keyword in one mode while the deleted style's `"fontWeight"` varies across modes:** `[FACT]` When a text node has its own `"fontStyle"` variable binding AND the deleted text style has a `"fontWeight"` variable binding (`own_binding_overrides_style_key` at `crates/designos-doc/src/styles_ops.rs:344-346`), `delete_style` does not move `"fontWeight"` into `copy.variables.bindings` (because `BTreeMap` key order applies `"fontStyle"` before `"fontWeight"`, which would let `"fontWeight"` clobber the weight implied by `"fontStyle"`, e.g. `"Bold Italic"` -> `700` clobbered to `300`) and instead bakes the current mode's resolved `"fontWeight"` onto the node (`crates/designos-doc/src/styles_ops.rs:537-541`). If the layer's own `"fontStyle"` variable resolves in another mode to a string without a weight keyword (such as `"Italic"`, where `apply_font_style` leaves `ts.font_weight` untouched) while the deleted style's `"fontWeight"` variable had a different per-mode weight in that other mode, baking a single scalar `ts.font_weight` cannot vary per mode without a separate node binding key that precedes `"fontStyle"`. Whenever `"fontStyle"` carries a weight keyword in each mode (e.g. `"Bold Italic"` / `"SemiBold Italic"`, or `"Regular"` / `"Bold"`), `resolve_node` produces the exact same `Node` in every mode before and after `delete_style` (`crates/designos-doc/src/styles_ops.rs:1429-1594` and `crates/designos-fig/tests/fig_effect_grid_styles.rs:701-793`).
+
+---
+
+### 2. Rulings 1–6 resolution summary
+
+1. **Ruling 1 (H-A — library-page scan never runs on an idle frame):**
+   - `style_edit::is_read_only` (`crates/designos-app/src/panels/style_edit.rs:35-37`) is restored to its round-1 definition (`pub(super) fn is_read_only(app: &App, key: &str) -> bool { is_library_style(&app.doc, key) }`).
+   - Only the `"Delete style"` row in `style_picker::menu_model` (`crates/designos-app/src/panels/style_picker.rs:91-96`) and `delete_style` (`crates/designos-doc/src/styles_ops.rs:508`) call `used_on_library_page`.
+   - `used_on_library_page` (`crates/designos-doc/src/styles_ops.rs:321-333`) walks only the `doc.library_page` subtree (`stack` initialized with `doc.library_page`, pushing `n.children`).
+   - **Recorded numbers:**
+     - **Sim call counter (`library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open`, `crates/designos-app/src/shell/tests/effect_grid_styles.rs:285-306`):** `0` scans per frame with a style-linked layer selected and the style menu closed (`closed_scans == 0`); `1` scan per frame with the style menu open (`open_scans == 1 <= 1`).
+     - **`designos-doc` perf probe (`used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes`, `crates/designos-doc/src/styles_ops.rs:1341-1426`, 300,000 main-page nodes + 2,000 library-page nodes):** `subtree = 594.212µs/call` vs `full_walk = 286.131589ms/call` (~481× faster; recorded in `plans/reports/agy-127-delete-style-evidence/r3-green.log`).
+2. **Ruling 2 (L-D — model operations):**
+   - `rename_style` (`crates/designos-doc/src/styles_ops.rs:146-162`), `update_style` (`crates/designos-doc/src/styles_ops.rs:170-265`), and `bind_style_property` (`crates/designos-doc/src/styles_ops.rs:274-309`) remain guarded by `is_library_style` only. Only `delete_style` (`crates/designos-doc/src/styles_ops.rs:508`) checks `is_library_style(doc, key) || used_on_library_page(doc, key)`.
+3. **Ruling 3 (L-A — look unchanged in every mode, including mixed own and style bindings):**
+   - Added `own_binding_overrides_style_key` (`crates/designos-doc/src/styles_ops.rs:342-375`), which detects when moving a style binding `node_key` into `copy.variables.bindings` (`BTreeMap<String, String>`) would sort *after* a layer's own binding that overrides the same visible field:
+     1. Style `"fontWeight"` vs layer's own `"fontStyle"` (`"fontStyle"` < `"fontWeight"` in `BTreeMap` key order, and `set_bound_property` for `"fontStyle"` sets `ts.font_weight` via `apply_font_style`).
+     2. Style `"fills/{i}/opacity"` vs layer's own `"fills/{i}"` when the `"fills/{i}"` color variable has a translucent mode (`c.a < 1.0`, checked by `color_var_has_translucent_mode` at `crates/designos-doc/src/styles_ops.rs:335-337`), because `set_paint_color` sets `paint.opacity = c.a` when `c.a < 1.0`.
+     3. Style `"strokes/{i}/opacity"` vs layer's own `"strokes/{i}"` when the `"strokes/{i}"` color variable has a translucent mode (`c.a < 1.0`).
+     4. Style `"effects/{i}/opacity"` vs layer's own `"effects/{i}/color"` (`"effects/{i}/color"` < `"effects/{i}/opacity"` in `BTreeMap` key order, and `set_effect_field(_, "color", _)` overwrites `color.a`).
+     5. Style `"fills/{i}/stops/{j}"` vs layer's own `"fills/{i}"` (and `"strokes/{i}/stops/{j}"` vs `"strokes/{i}"`), where `"fills/{i}"` replaces `paint.kind = PaintKind::Solid(...)`.
+   - When `own_binding_overrides_style_key(doc, n, &node_key)` is true (`crates/designos-doc/src/styles_ops.rs:537-542`), `delete_style` does not insert `node_key` into `copy.variables.bindings` and instead bakes `set_bound_property(&mut copy, &node_key, &val)` on `copy` before the layer's own binding runs.
+   - Tested in `deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes` (`crates/designos-doc/src/styles_ops.rs:1429-1594`) and `own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes` (`crates/designos-fig/tests/fig_effect_grid_styles.rs:701-793`).
+4. **Ruling 4 (Nothing vanishes silently):**
+   - Added `bake_unrecognized_style_binding` (`crates/designos-doc/src/styles_ops.rs:379-498`) called from the fallback branch of `delete_style` (`crates/designos-doc/src/styles_ops.rs:545-547`) when `property_kind(&node_key).is_none()`, normalizing legacy/aliased keys (`fontSize/0`, `fills/0/color`, `strokes/0/color`, `fillOpacities/0`, `strokeOpacities/0`, `fillStops/0/1`, `strokeStops/0/1`, `cornerRadius`, `topLeftRadius`/`topRightRadius`/`bottomRightRadius`/`bottomLeftRadius`, `paddingLeft`/`paddingRight`/`paddingTop`/`paddingBottom`, `itemSpacing`, `counterAxisSpacing`, `strokeWeight`/`strokeTopWeight`, `width`/`height`/`minWidth`/`maxWidth`/`minHeight`/`maxHeight`, `opacity`, `visible`, `characters`, and bare effect fields `color`/`radius`/`spread`/`offsetX`/`offsetY`) and baking their resolved value onto `copy`. Tested in `deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them` (`crates/designos-doc/src/styles_ops.rs:1597-1707`).
+   - Replaced `let _stored = doc.styles.get(key).ok_or_else(...)` with `if !doc.styles.contains_key(key) { return Err(StyleOpError::UnknownStyle(key.into())); }` (`crates/designos-doc/src/styles_ops.rs:505-507`).
+   - Replaced `app.run_style_op_then(op, |_, _| {})` in `delete_linked_style` (`crates/designos-app/src/panels/style_picker.rs:351`) with `app.run_style_op(op)` (`crates/designos-app/src/styles.rs:138-140`), keeping `fn run_style_op_then` private (`crates/designos-app/src/styles.rs:144`).
+   - Updated `deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip` (`crates/designos-fig/tests/fig_effect_grid_styles.rs:559-610`) to decode the raw exported `.fig` message via `exported_style_node_names` (`container::open` + `container::read_archive_chunks` + `Schema::decode` filtering `nodeChanges` entries where `nc.get("styleType").is_some()`) and assert `!style_names.iter().any(|n| n == "Shadow/Card" || n == "2:100")`. Demonstrated red in `plans/reports/agy-127-delete-style-evidence/r3-red.log` when `"2:100"` is kept (`exported .fig still has a style node for deleted Shadow/Card: ["Shadow/Card", "Layout/12 col", "Border/Strong"]`).
+5. **Ruling 5 (L-C — colour-style menu in `crates/designos-app/src/panels/properties.rs:261-263`):**
+   - Replaced the label swap (`if read_only { "Edit in the library file" } else { "Edit style" }`) with `let ro_tip = if read_only { super::style_edit::LIBRARY_STYLE_TIP } else { "" };` and `MenuItem::new("Edit style").disabled(linked.is_none() || read_only).tooltip(ro_tip)` (`crates/designos-app/src/panels/properties.rs:261-263`). Verified in `a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu` (`crates/designos-app/src/shell/tests/style_edit.rs:271-318`).
+6. **Ruling 6 (L-B — report accuracy & citation fixes):**
+   - **Cmd+Z toast citations:** The existing `"· Cmd+Z to undo"` toasts in `designos-app` are at `crates/designos-app/src/cmdk.rs:1072-1077` (`done_toast`) and `crates/designos-app/src/panels/check_designs.rs:272` and `299` (`check_designs_fix` / `check_designs_fix_all`), NOT `toolbar.rs:424` (which is a hover tooltip `"Remove background (Cmd+Z to undo)"`, not a toast).
+   - **Test row helpers in `style_picker.rs`:** `edit_style_row` (`crates/designos-app/src/panels/style_picker.rs:104-106`), `rename_style_row` (`crates/designos-app/src/panels/style_picker.rs:110-113`), and `delete_style_row` (`crates/designos-app/src/panels/style_picker.rs:117-120`) already returned `MenuItem` in Round 1 (`6961e62f`); Round 2 did not change their return type.
+   - **`is_read_only` visibility (`crates/designos-app/src/panels/style_edit.rs:35-37`):** Restored to `pub(super) fn is_read_only(app: &App, key: &str) -> bool` calling unqualified `is_library_style(&app.doc, key)` (imported via `use designos_doc::styles_ops::*;` at `crates/designos-app/src/panels/style_edit.rs:17`).
+   - **Visual capture:** Captured a brand-new `1440×900` screenshot from HEAD at `plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png` (`sha256: c7815b196261aaf74625abd208c515c8f22f97701d490dfec04ab0055ed39de6`, distinct from Round 1/2's `88d076ae1e47bec7a08edaec0fdef7d62ab2b4742999afdaf1699db4f71ea3ea`).
+
+---
+
+### 3. Acceptance table (Round 3), with commands and pasted output
+
+| # | Check | Verdict | Evidence |
+|---|---|---|---|
+| 1 | `r3-red.log` and `r3-green.log` | PASS (`[FACT]`) | `plans/reports/agy-127-delete-style-evidence/r3-red.log`, `plans/reports/agy-127-delete-style-evidence/r3-green.log` |
+| 2 | `cargo fmt --all -- --check` exits 0 | PASS (`[FACT]`) | Exit code `0` |
+| 3 | `cargo clippy --workspace --all-targets --locked -- -D warnings` exits 0 | PASS (`[FACT]`) | Exit code `0` |
+| 4 | `cargo test -p designos-doc --locked` and `cargo test -p designos-fig --locked` pass | PASS (`[FACT]`) | `designos-doc`: 640 + 3 + 5 passed; `designos-fig`: 121 unit + 450 integration passed |
+| 5 | `cargo test -p designos-app --bin designos --locked style` passes under the isolated harness | PASS (`[FACT]`) | `89 passed; 0 failed` (including `effect_grid_styles`: 9 passed, `style_edit`: 12 passed) |
+| 6 | `python3 scripts/zero_fake_ui_gate.py` passes | PASS (`[FACT]`) | `Gate Verdict: PASS (17/17 invariants satisfied)` |
+| 7 | New `1440×900` visual evidence on kit copy in isolated `HOME` (`r3-local-style-menu.png`, verified `!= style-menu-delete.png`) | PASS (`[FACT]`) | `plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png` (`1440×900`, `IDENTICAL_TO_R1=no`) |
+| 8 | Delete `out/` before finishing (`rm -rf out && test ! -e out`) | PASS (`[FACT]`) | `OUT_REMOVED=yes` |
+
+#### Pasted commands and output (Round 3)
+
+##### Check 1 — `r3-red.log` and `r3-green.log`
+
+Command (Green, in isolated `HOME`):
+```sh
+export PATH="/Users/jangtrinh/.cargo/bin:$PATH"
+export CARGO_HOME="/Users/jangtrinh/.cargo"
+export RUSTUP_HOME="/Users/jangtrinh/.rustup"
+S=$(mktemp -d /tmp/ds-sub.XXXXXX)
+trap "rm -rf $S" EXIT
+export HOME=$S/h TMPDIR=$S/t CARGO_TARGET_DIR=$PWD/out/cargo
+export XDG_CONFIG_HOME=$S/c XDG_DATA_HOME=$S/d XDG_CACHE_HOME=$S/k
+export GIT_AUTHOR_NAME=ds-worker GIT_AUTHOR_EMAIL=ds-worker@local
+export GIT_COMMITTER_NAME=ds-worker GIT_COMMITTER_EMAIL=ds-worker@local
+mkdir -p $HOME $TMPDIR $CARGO_TARGET_DIR $XDG_CONFIG_HOME $XDG_DATA_HOME $XDG_CACHE_HOME
+
+{
+  echo "=== GREEN 1: cargo test -p designos-doc --locked styles_ops -- --nocapture ==="
+  cargo test -p designos-doc --locked styles_ops -- --nocapture 2>&1
+  echo ""
+  echo "=== GREEN 2: cargo test -p designos-fig --test fig_effect_grid_styles --locked ==="
+  cargo test -p designos-fig --test fig_effect_grid_styles --locked 2>&1
+  echo ""
+  echo "=== GREEN 3: cargo test -p designos-app --bin designos --locked style ==="
+  cargo test -p designos-app --bin designos --locked style 2>&1
+} | tee plans/reports/agy-127-delete-style-evidence/r3-green.log
+```
+
+Output summary (`r3-red.log` -> `r3-green.log`):
+```text
+--- r3-red.log (against 52d5541f) ---
+designos-doc::styles_ops:
+  FAILED: styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them
+  FAILED: styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes
+  FAILED: styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes
+  test result: FAILED. 20 passed; 3 failed
+
+designos-fig --test fig_effect_grid_styles:
+  FAILED: deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip
+    (exported .fig still has a style node for deleted Shadow/Card: ["Shadow/Card", "Layout/12 col", "Border/Strong"])
+  FAILED: own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes
+    (resolve_node in mode m1 must match before and after delete_style: font_weight 300 != 700)
+  test result: FAILED. 13 passed; 2 failed
+
+designos-app --bin designos style:
+  FAILED: shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu
+    (Rename style stays enabled for library-page style)
+  FAILED: shell::tests::effect_grid_styles::library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open
+    (expected 0 library-page scans per frame with the style menu closed, got 4)
+  FAILED: shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu
+    (colour-style menu should paint 'Edit style' label, got [..., "Edit in the library file", ...])
+  test result: FAILED. 86 passed; 3 failed
+
+--- r3-green.log (HEAD) ---
+=== GREEN 1: cargo test -p designos-doc --locked styles_ops -- --nocapture ===
+running 23 tests
+...
+[perf-probe] 300k main nodes + 2k library_page nodes: subtree=594.212µs/call vs full_walk=286.131589ms/call
+test styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes ... ok
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 11.97s
+
+=== GREEN 2: cargo test -p designos-fig --test fig_effect_grid_styles --locked ===
+running 15 tests
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+=== GREEN 3: cargo test -p designos-app --bin designos --locked style ===
+running 89 tests
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 2853 filtered out; finished in 1.84s
+```
+
+##### Check 2 & 3 — `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+Output:
+```text
+=== FMT CHECK ===
+fmt exit: 0
+=== CLIPPY ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.05s
+clippy exit: 0
+```
+
+##### Check 4 & 5 — `cargo test -p designos-doc --locked`, `cargo test -p designos-fig --locked`, and `cargo test -p designos-app --bin designos --locked style`
+
+Output:
+```text
+=== FULL DESIGNOS-DOC TESTS ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+test result: ok. 640 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.86s
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-d19362047bc102bf)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-c7fad459a80a2bad)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== FULL DESIGNOS-FIG TESTS ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-540f1f9206f56183)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 38.90s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+(all 34 integration test binaries in designos-fig: 450 passed; 0 failed)
+
+=== DESIGNOS-APP STYLE TESTS ===
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 2853 filtered out; finished in 1.84s
+```
+
+##### Check 6 — `python3 scripts/zero_fake_ui_gate.py`
+
+Output:
+```text
+Gate Verdict: PASS (17/17 invariants satisfied)
+```
+
+##### Check 7 — Visual evidence (`plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png`)
+
+Command:
+```sh
+cp "/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig" "$S/kit.fig"
+out/cargo/debug/designos "$S/kit.fig" --select "MacBook Pro" --zoom 85 --panel grid-styles --size 1440x900 --no-toast --screenshot plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png
+sips -g pixelWidth -g pixelHeight plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png
+shasum -a 256 plans/reports/agy-127-delete-style-evidence/style-menu-delete.png plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png
+```
+
+Output:
+```text
+SCREENSHOT_EXIT=0
+-rw-r--r--@ 1 jangtrinh  staff   340K Oct 25 14:53 plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png
+  pixelWidth: 1440
+  pixelHeight: 900
+IDENTICAL_TO_R1=no
+88d076ae1e47bec7a08edaec0fdef7d62ab2b4742999afdaf1699db4f71ea3ea  plans/reports/agy-127-delete-style-evidence/style-menu-delete.png
+c7815b196261aaf74625abd208c515c8f22f97701d490dfec04ab0055ed39de6  plans/reports/agy-127-delete-style-evidence/r3-local-style-menu.png
+```
+
+##### Check 8 — Delete `out/` (`rm -rf out && test ! -e out`)
+
+Output:
+```text
+OUT_REMOVED=yes
+```
+
+---
+
+### 4. Changes per file (Round 3, `path:line-range` checked with `sed -n`)
+
+- `crates/designos-doc/src/styles_ops.rs:311-333`: Added thread-local scan counter `LIBRARY_PAGE_SCANS` and `pub fn take_library_page_scans() -> usize` (`316-318`), and rewrote `pub fn used_on_library_page(doc: &Document, key: &str) -> bool` (`321-333`) to walk only the `doc.library_page` subtree via `n.children` DFS instead of `doc.nodes.values()`.
+- `crates/designos-doc/src/styles_ops.rs:335-375`: Added `color_var_has_translucent_mode` (`335-337`) and `own_binding_overrides_style_key` (`342-375`) to detect when moving a style binding onto `node.variables.bindings` would flip precedence against an existing node-level binding.
+- `crates/designos-doc/src/styles_ops.rs:377-498`: Added `bake_unrecognized_style_binding` (`379-498`) so style binding keys not recognized by `property_kind` are baked onto the node instead of vanishing silently.
+- `crates/designos-doc/src/styles_ops.rs:504-555`: Updated `delete_style` to use `if !doc.styles.contains_key(key)` (`505-507`), bake overridden style bindings when `own_binding_overrides_style_key` is true (`537-542`), and call `bake_unrecognized_style_binding` in the fallback branch (`545-547`).
+- `crates/designos-doc/src/styles_ops.rs:1340-1707`: Added unit tests `used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes` (`1341-1426`), `deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes` (`1429-1594`), and `deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them` (`1597-1707`).
+- `crates/designos-app/src/panels/style_edit.rs:35-37`: Restored `pub(super) fn is_read_only(app: &App, key: &str) -> bool` to call `is_library_style(&app.doc, key)` only.
+- `crates/designos-app/src/panels/style_picker.rs:17,89-97,348-352`: Imported `used_on_library_page` (`17`), computed `delete_ro = read_only || current.as_deref().is_some_and(|k| used_on_library_page(&app.doc, k))` (`91`) for `"Delete style"` (`96`) while keeping `"Rename style"` (`94`) and `"Edit style"` (`97`) on `read_only`, and simplified `delete_linked_style` (`348-352`) to call `app.run_style_op(op)`.
+- `crates/designos-app/src/styles.rs:138-145`: Added `pub(crate) fn run_style_op` (`138-140`) and restored `fn run_style_op_then` (`144`) to private module visibility.
+- `crates/designos-app/src/panels/properties.rs:261-263`: Updated the colour-style menu's `"Edit style"` row to keep the `"Edit style"` label when `read_only` and attach `.tooltip(ro_tip)` (`LIBRARY_STYLE_TIP`).
+- `crates/designos-fig/tests/fig_effect_grid_styles.rs:559-610,700-793`: Added `exported_style_node_names` (`559-576`) and asserted against exported `.fig` style nodes in `deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip` (`579-610`); added `own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes` (`701-793`).
+- `crates/designos-app/src/shell/tests/effect_grid_styles.rs:175-306`: Added `painted_texts` helper (`175-179`), hover-tooltip paint assertions in `a_library_style_cannot_be_deleted_from_the_style_menu` (`215-232`) and `a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu` (`235-282`), assertions that `"Rename style"` and `"Edit style"` stay enabled for a library-page style (`250-254`), and `library_page_scan_never_runs_on_idle_frame_and_at_most_once_when_menu_open` (`285-306`).
+- `crates/designos-app/src/shell/tests/style_edit.rs:271-318`: Extended `a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu` to open the colour-style menu (`styles_menu = Some(false)`) on a library fill style and verify `"Edit style"` is painted as the row label and `"Edit in the library file"` paints on hover.
+
+---
+
+### 5. Every user-facing string, verbatim
+
+- `"Rename style"`
+- `"Detach style"`
+- `"Delete style"`
+- `"Edit style"`
+- `"Edit in the library file"`
+- `"Style deleted · Cmd+Z to undo"`
+- `"Style deleted · Ctrl+Z to undo"`
+- `"Style not changed: {e}"`
+
+Status: DONE

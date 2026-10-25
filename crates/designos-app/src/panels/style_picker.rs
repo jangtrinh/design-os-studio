@@ -29,7 +29,7 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
         app.props.style_rename = None;
     }
     let op = delete_style(&app.doc, &key);
-    if app.run_style_op_then(op, |_, _| {}) {
+    if app.run_style_op(op) {
         app.show_toast(STYLE_DELETED_TOAST, false);
     }
 }
@@ -88,10 +88,12 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     // A library style is edited, renamed and deleted in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
     let ro_tip = if read_only { style_edit::LIBRARY_STYLE_TIP } else { "" };
+    let delete_ro = read_only || current.as_deref().is_some_and(|k| used_on_library_page(&app.doc, k));
+    let delete_tip = if delete_ro { style_edit::LIBRARY_STYLE_TIP } else { "" };
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
     items.push(MenuItem::new("Rename style").disabled(!linked || read_only).tooltip(ro_tip));
     items.push(MenuItem::new("Detach style").disabled(!linked));
-    items.push(MenuItem::new("Delete style").disabled(!linked || read_only).tooltip(ro_tip));
+    items.push(MenuItem::new("Delete style").disabled(!linked || delete_ro).tooltip(delete_tip));
     items.push(MenuItem::new("Edit style").disabled(!linked || read_only).tooltip(ro_tip));
     picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)

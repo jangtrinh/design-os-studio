@@ -556,14 +556,39 @@ fn effect_style_shadow_vars_round_trip() {
     assert_eq!(offset, Vec2::new(8.0, 12.0));
 }
 
+fn exported_style_node_names(bytes: &[u8]) -> Vec<String> {
+    let arch = container::open(bytes).expect("open exported .fig archive");
+    let (schema_bytes, data_bytes) = container::read_archive_chunks(&arch).expect("decode exported .fig chunks");
+    let s = designos_fig::kiwi::Schema::decode(&schema_bytes).expect("decode exported .fig schema");
+    let r = s.find("Message").expect("find Message in schema");
+    let msg_val = s.decode_message(r, &data_bytes).expect("decode exported .fig message");
+    msg_val
+        .get("nodeChanges")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|nc| nc.get("styleType").is_some())
+        .filter_map(|nc| match nc.get("name") {
+            Some(V::String(s)) => Some(s.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
 fn deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip() {
     let mut d = import_fig(&fixture_bytes()).unwrap();
+    assert!(
+        exported_style_node_names(&export_fig(&d).unwrap()).iter().any(|n| n == "Shadow/Card"),
+        "precondition: exported .fig before delete_style carries the Shadow/Card style node"
+    );
     let mut h = History::default();
     let cmd = delete_style(&d, "2:100").expect("delete_style succeeds on local effect style");
     h.exec(&mut d, cmd).unwrap();
 
     let bytes = export_fig(&d).expect("export_fig succeeds after deleting style");
+    let style_names = exported_style_node_names(&bytes);
+    assert!(!style_names.iter().any(|n| n == "Shadow/Card" || n == "2:100"), "exported .fig still has a style node for deleted Shadow/Card: {style_names:?}");
     let d2 = import_fig(&bytes).expect("import_fig succeeds on exported bytes");
 
     assert!(!d2.styles.contains_key("2:100"), "deleted style key must not reappear in styles");
@@ -670,4 +695,99 @@ fn deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels()
     let text_diff = text_px_after.iter().zip(&text_px_before).filter(|(a, b)| a != b).count();
     assert_eq!(fill_diff, 0, "rendered pixels of mixed-colour text must not change after deleting its fill style ({fill_diff} bytes differed)");
     assert_eq!(text_diff, 0, "rendered pixels of mixed-weight text must not change after deleting its text style ({text_diff} bytes differed)");
+}
+
+#[test]
+fn own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes() {
+    use designos_doc::{resolve_node, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let mut d = Document::new("t");
+    let p = d.add_page("p");
+    d.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "m1".into(), name: "M1".into() }, VariableMode { id: "m2".into(), name: "M2".into() }],
+            default_mode: "m1".into(),
+            variables: vec!["v_style".into(), "v_weight".into()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    d.variables.insert(
+        "v_style".into(),
+        Variable {
+            id: "v_style".into(),
+            name: "fontStyle".into(),
+            collection: "c".into(),
+            kind: VariableKind::String,
+            values: [("m1".to_string(), VariableValue::String("Bold Italic".into())), ("m2".to_string(), VariableValue::String("SemiBold Italic".into()))]
+                .into_iter()
+                .collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+    d.variables.insert(
+        "v_weight".into(),
+        Variable {
+            id: "v_weight".into(),
+            name: "fontWeight".into(),
+            collection: "c".into(),
+            kind: VariableKind::Number,
+            values: [("m1".to_string(), VariableValue::Number(300.0)), ("m2".to_string(), VariableValue::Number(400.0))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        },
+    );
+
+    let tid = d.alloc_id();
+    let mut t = Node::text(tid, Rect::new(0.0, 0.0, 120.0, 30.0), "Sample", TextStyle::default());
+    t.style_refs.insert("text".into(), "Heading".into());
+    t.variables.bindings.insert("fontStyle".into(), "v_style".into());
+    let tid = d.insert(p, t).unwrap();
+
+    d.styles.insert("Heading".into(), Style::Text(TextStyle::default()));
+    d.style_meta.insert(
+        "Heading".into(),
+        StyleMeta {
+            name: "Heading".into(),
+            property: StyleProperty::Text,
+            bindings: [("fontWeight".to_string(), "v_weight".to_string())].into_iter().collect(),
+            ..Default::default()
+        },
+    );
+
+    let mut before_by_mode = Vec::new();
+    for mode in ["m1", "m2"] {
+        d.get_mut(tid).unwrap().variables.modes.insert("c".into(), mode.into());
+        let mut r = resolve_node(&d, d.get(tid).unwrap()).into_owned();
+        r.style_refs.clear();
+        r.variables = Default::default();
+        before_by_mode.push((mode, r));
+    }
+    d.get_mut(tid).unwrap().variables.modes.remove("c");
+
+    let mut h = History::default();
+    let cmd = delete_style(&d, "Heading").unwrap();
+    h.exec(&mut d, cmd).unwrap();
+
+    for (mode, before) in before_by_mode {
+        d.get_mut(tid).unwrap().variables.modes.insert("c".into(), mode.into());
+        let mut after = resolve_node(&d, d.get(tid).unwrap()).into_owned();
+        after.variables = Default::default();
+        assert_eq!(after, before, "resolve_node in mode {mode} must match before and after delete_style");
+    }
 }

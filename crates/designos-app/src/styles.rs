@@ -135,12 +135,12 @@ impl App {
     }
 
     /// Runs the outcome of a style operation as one undo step; false (with a toast) when refused.
-    fn run_style_op(&mut self, op: Result<Command, StyleOpError>) -> bool {
+    pub(crate) fn run_style_op(&mut self, op: Result<Command, StyleOpError>) -> bool {
         self.run_style_op_then(op, |_, _| {})
     }
 
     /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
-    pub(crate) fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
+    fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
         let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
         match applied {
