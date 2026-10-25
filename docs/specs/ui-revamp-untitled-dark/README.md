@@ -56,6 +56,10 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 
 - `evidence/baseline-home.png`, `evidence/baseline-editor-with-kit.png`: Studio today, 0.6.x.
 - `evidence/brainstorm-compare-board@2x.png`: the board the owner chose from. It was built in Studio with `--apply-spec` and rendered by `designos_render_png`.
+- `evidence/owner-questions-board-1@2x.png` and `evidence/owner-questions-board-3@2x.png` (with their generators): the open questions the owner answered (R8, R10), built and rendered in Studio. Labels sit off-centre because of #1154.
+- `evidence/1139-widget-kit-specimen@2x.png` (with its generator): spec C's widget kit in every state.
+- `evidence/figma-live-variable-check.md`: the kit values match live Figma (colour variables 273/273 per mode, numbers 76/76).
+- `evidence/button-label-offset@3x.png`: the #1154 measurement.
 
 ## Index
 
@@ -78,9 +82,11 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | O | side | #1127 | [1127-cli-addresses-nodes-by-id-and-figma-id.md](1127-cli-addresses-nodes-by-id-and-figma-id.md) | M |
 | P | side | #1140 | [1140-dtcg-export-bundle-for-design-os-onboarding.md](1140-dtcg-export-bundle-for-design-os-onboarding.md) | M |
 | Q | side | #1122 | [1122-research-untitled-icons-licence.md](1122-research-untitled-icons-licence.md) | S |
+| R | side | #1141 | [1141-cli-screenshot-capture-flake.md](1141-cli-screenshot-capture-flake.md) | M |
+| S | side | #1154 | [1154-nodespec-text-measured-not-estimated.md](1154-nodespec-text-measured-not-estimated.md) | M |
 
 Sizes: S is under about a day, M is one to three days, L is more than three days, for one worker.
 
 ## Order
 
-Phase 0 runs in this order: L (baseline captured before anything changes), then A, then B, then C. A and B both edit `theme.rs`, so they land as sequential PRs. The Phase 1 surfaces (D–K) start once C has merged, and run in parallel with disjoint file ownership; each spec's section 12 lists its files and its conflicts with open PRs. M runs last. N, O, P and Q are independent.
+Phase 0 runs in this order: L (baseline captured before anything changes), then A, then B, then C. A and B both edit `theme.rs`, so they land as sequential PRs. The Phase 1 surfaces (D–K) start once C has merged, and run in parallel with disjoint file ownership; each spec's section 12 lists its files and its conflicts with open PRs. M runs last. N, O, P, Q, R and S are independent. The token contract (`token-contract.md`) names every colour and size; its section (f) holds contrast check C-1, which every spec cites.
