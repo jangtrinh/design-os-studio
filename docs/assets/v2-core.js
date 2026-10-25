@@ -25,17 +25,15 @@
   // Pin a scene with the Tenant engine (emitted verbatim by ui tenant-scaffold): the engine builds a
   // position:sticky stage inside `section`, subscribes to the shared ticker and arms/disarms on
   // IntersectionObserver. The pre-authored `content` (static, final-state markup) moves into its stage.
-  // Progress is read from the section's own bounding box only. `engineConfig` is optional: a scene that
-  // scrubs a frame sequence passes { frames, framesLQ, frameCount, beats } and gets the engine's canvas back.
-  V2.pinScene = function (section, content, travelVh, engineConfig) {
-    var unmountEngine = window.mountScrubSection(section, engineConfig || { beats: [] });
+  // Progress is read from the section's own bounding box only.
+  V2.pinScene = function (section, content, travelVh) {
+    var unmountEngine = window.mountScrubSection(section, { beats: [] });
     var story = section.querySelector('.scrub__story');
     var stage = section.querySelector('.scrub__stage');
     story.style.minHeight = (100 + travelVh) + 'dvh'; // section height = stage + travel
     stage.appendChild(content);
     return {
       stage: stage,
-      canvas: stage.querySelector('.scrub__canvas'), // null unless the config has frames
       armed: function () { return section.getAttribute('data-armed') === 'true'; },
       progress: function () {
         var r = section.getBoundingClientRect(), travel = r.height - window.innerHeight;
@@ -53,19 +51,6 @@
         section.style.removeProperty('--scrub-progress');
       }
     };
-  };
-
-  // The engine sizes its canvas to the stage and cover-crops each frame to that shape. A scene that shows
-  // the sequence in a box of its own keeps the frames' own shape instead: after the engine resizes the
-  // backing store (on arm and on window resize) this puts it back to w x h before anything is drawn.
-  V2.lockCanvas = function (section, canvas, w, h) {
-    if (!canvas) return function () {};
-    var fix = function () { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; };
-    var watcher = window.MutationObserver ? new MutationObserver(fix) : null;
-    if (watcher) watcher.observe(section, { attributes: true, attributeFilter: ['data-armed'] });
-    window.addEventListener('resize', fix);
-    fix();
-    return function () { if (watcher) watcher.disconnect(); window.removeEventListener('resize', fix); };
   };
 
   // Links a pinned scene owns: id -> { el, offset() }. In motion mode a click on #id scrolls to the point

@@ -1,6 +1,6 @@
 /* v2-workflow.css: scene "Workflow". Tokens come from index.html :root; the sheet colour is the owner's.
    Default rules style the static state (no JS, reduced motion, under 800px): one sheet, three chapters side by
-   side on wide screens and stacked on narrow ones, each with its copy and one film frame. No pin.
+   side on wide screens and stacked on narrow ones, each with its copy and one 0.6.0 capture. No pin.
    The motion layout is keyed to .workflow.scrub, the class the Tenant engine puts on the section while it is
    pinned, so a scene that falls back to static is static again.
    Sticky-stage rule: nothing here puts transform, filter, perspective, contain or a non-visible overflow on an
@@ -45,19 +45,19 @@
 }
 
 /* ---- motion layout: the scene is the sticky stage's one child ----
-   Copy on the left, the canvas on the right filling the sheet's right side to its edge. The three chapters
-   share one grid cell, so the sheet never changes height; progress sets which one is visible. */
+   Copy on the left, the crossfade stage on the right filling the sheet's right side to its edge. The three
+   chapters share one grid cell, so the sheet never changes height; progress sets which one is visible. */
 .workflow.scrub .wf__scene { height: 100%; display: grid; align-content: center; padding-block: 72px 24px; }
-/* pinned, the sheet takes the stage width with a 16px inset; its width is capped so the 16:9 canvas never
+/* pinned, the sheet takes the stage width with a 16px inset; its width is capped so the 16:10 stage never
    grows taller than the stage under the header */
 .workflow.scrub .wf__scene.wrap { width: 100%; padding-inline: 16px; }
 .workflow.scrub .wf__sheet {
   grid-template-columns: var(--copy-w) minmax(0, 1fr);
-  width: 100%; max-width: calc((100dvh - 120px) * 16 / 9 + var(--copy-w)); justify-self: center;
+  width: 100%; max-width: calc((100dvh - 120px) * 16 / 10 + var(--copy-w)); justify-self: center;
 }
 .workflow.scrub .wf__chapter { grid-area: 1 / 1; align-self: center; padding: 32px; box-shadow: none; }
 .workflow.scrub .wf__view { grid-area: 1 / 2; justify-self: stretch; }
-/* narrower screens: a slimmer, tighter copy column keeps the sheet short, so the frame stays near 16:9 */
+/* narrower screens: a slimmer, tighter copy column keeps the sheet short, so the frame stays near 16:10 */
 @media (max-width: 1199px) {
   #workflow { --copy-w: 280px; }
   .workflow.scrub .wf__chapter { padding: 24px; }
@@ -72,10 +72,10 @@
 .workflow.scrub .wf__poster { display: none; }
 .workflow.scrub[data-armed="true"] .wf__chapter { will-change: opacity, transform; }
 
-.wf__view { position: relative; align-self: stretch; min-height: 0; aspect-ratio: 16 / 9; background: var(--bg); border-left: 1px solid var(--rim); }
-.wf__view .scrub__canvas {
-  position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; /* the whole frame shows; bars only where the copy makes the sheet taller than 16:9 */
-  opacity: calc(1 - var(--dip, 0) * .7);
+.wf__view { position: relative; align-self: stretch; min-height: 0; aspect-ratio: 16 / 10; background: var(--bg); border-left: 1px solid var(--rim); overflow: hidden; }
+.wf__still {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain;
 }
+.workflow.scrub[data-armed="true"] .wf__still { will-change: opacity; }
 /* the engine's own copy, route rail and progress bar are not used; its chapters only supply scroll distance */
 #workflow .scrub__chapter { min-height: 0; }

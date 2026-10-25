@@ -1,6 +1,6 @@
 /* v2-big-files.css: scene "Built for big files." Tokens come from index.html :root only.
    Default rules style the static state (no JS, reduced motion, under 800px): the real count, the copy and the
-   last frame of the zoom, no pin. The motion layout is keyed to .scale.scrub, the class the Tenant engine puts
+   kit overview capture, no pin. The motion layout is keyed to .scale.scrub, the class the Tenant engine puts
    on the section while it is pinned.
    Sticky-stage rule: nothing here puts transform, filter, perspective, contain or a non-visible overflow on an
    ancestor of .scrub__stage. The section carries no padding or border either, so its pinned height is exactly
@@ -19,10 +19,15 @@
 .scale__copy .scale__stat + p { margin-top: 20px; }
 .scale__copy strong { color: var(--text); font-weight: 600; }
 .scale__view { margin: 0; }
-.scale__poster, .scale__view .scrub__canvas {
-  width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-md);
+.scale__stage {
+  position: relative; aspect-ratio: 16 / 10; border-radius: var(--r-md); overflow: hidden;
   background: var(--bg); outline: 1px solid rgba(255, 255, 255, .1); outline-offset: -1px;
 }
+.scale__poster, .scale__from {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.scale__from { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.scale__poster { position: relative; z-index: 1; }
 .scale__view figcaption { margin-top: 12px; color: var(--muted); font-size: .875rem; line-height: 1.4; }
 
 @media (max-width: 899px) {
@@ -33,7 +38,6 @@
 /* ---- motion layout: the grid is the sticky stage's one child ---- */
 .scale.scrub .scale__scene { height: 100%; align-content: center; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); padding-block: 72px 24px; }
 .scale.scrub .scale__num { font-size: clamp(3.5rem, 8vw, 7rem); }
-.scale.scrub .scale__poster { display: none; }
-.scale.scrub .scale__view .scrub__canvas { display: block; }
+.scale.scrub[data-armed="true"] .scale__from { will-change: opacity; }
 /* the engine's own copy, route rail and progress bar are not used; its chapter only supplies scroll distance */
 #scale .scrub__chapter { min-height: 0; }

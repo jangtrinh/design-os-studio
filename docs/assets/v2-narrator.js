@@ -111,7 +111,7 @@
     }
   });
 
-  // Hero stops: the headline, then the film. Later scenes add their own with a higher order.
+  // Hero stops: the headline, then the hero frame. Later scenes add their own with a higher order.
   var byId = function (id) { return document.getElementById(id); };
   N.add({ id: 'headline', order: 10, pad: 0, rect: function () { return byId('sel-box').getBoundingClientRect(); } });
   N.add({

@@ -1,0 +1,44 @@
+test_clean_tree_passes_its_baseline (test_check_spacing_relationships.SpacingRatchetTest.test_clean_tree_passes_its_baseline) ... ok
+test_comments_and_tests_are_not_counted (test_check_spacing_relationships.SpacingRatchetTest.test_comments_and_tests_are_not_counted) ... ok
+test_dirty_tree_fails_in_every_category (test_check_spacing_relationships.SpacingRatchetTest.test_dirty_tree_fails_in_every_category) ... ok
+test_matching_baseline_passes_and_one_extra_literal_fails (test_check_spacing_relationships.SpacingRatchetTest.test_matching_baseline_passes_and_one_extra_literal_fails) ... ok
+test_missing_baseline_is_a_usage_error_not_a_pass (test_check_spacing_relationships.SpacingRatchetTest.test_missing_baseline_is_a_usage_error_not_a_pass) ... ok
+test_new_file_with_a_literal_fails_even_when_totals_would_fall (test_check_spacing_relationships.SpacingRatchetTest.test_new_file_with_a_literal_fails_even_when_totals_would_fall) ... ok
+test_write_baseline_refuses_to_raise_a_count (test_check_spacing_relationships.SpacingRatchetTest.test_write_baseline_refuses_to_raise_a_count) ... ok
+test_a_drifted_ladder_rung_in_the_real_theme_fails (test_non_colour_token_parity.NonColourParityTest.test_a_drifted_ladder_rung_in_the_real_theme_fails) ... ok
+test_a_new_role_constant_without_a_token_or_a_reason_fails (test_non_colour_token_parity.NonColourParityTest.test_a_new_role_constant_without_a_token_or_a_reason_fails) ... ok
+test_agreement_passes (test_non_colour_token_parity.NonColourParityTest.test_agreement_passes) ... ok
+test_alias_or_expression_constant_fails (test_non_colour_token_parity.NonColourParityTest.test_alias_or_expression_constant_fails) ... ok
+test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive (test_non_colour_token_parity.NonColourParityTest.test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive) ... ok
+test_known_drift_passes_only_while_pinned (test_non_colour_token_parity.NonColourParityTest.test_known_drift_passes_only_while_pinned) ... ok
+test_missing_token_fails (test_non_colour_token_parity.NonColourParityTest.test_missing_token_fails) ... ok
+test_repository_is_in_parity_with_the_pinned_drift_only (test_non_colour_token_parity.NonColourParityTest.test_repository_is_in_parity_with_the_pinned_drift_only) ... ok
+test_rust_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_rust_drift_fails) ... ok
+test_title_token_is_not_matched_by_name (test_non_colour_token_parity.NonColourParityTest.test_title_token_is_not_matched_by_name) ... ok
+test_token_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_token_drift_fails) ... ok
+test_numeric_compare_refuses_0_10_0_to_0_9_0 (test_release_sync_pages.GuardTests.test_numeric_compare_refuses_0_10_0_to_0_9_0) ... ok
+test_refuses_downgrade (test_release_sync_pages.GuardTests.test_refuses_downgrade) ... ok
+test_refuses_prerelease_and_bad_version (test_release_sync_pages.GuardTests.test_refuses_prerelease_and_bad_version) ... ok
+test_size_label_rounds_decimal_megabytes (test_release_sync_pages.GuardTests.test_size_label_rounds_decimal_megabytes) ... ok
+test_version_compare_is_numeric_not_lexicographic (test_release_sync_pages.GuardTests.test_version_compare_is_numeric_not_lexicographic) ... ok
+test_final_assertion_catches_leftover_old_link (test_release_sync_pages.MissingAssetTests.test_final_assertion_catches_leftover_old_link) ... ok
+test_missing_asset_in_markdown_fails (test_release_sync_pages.MissingAssetTests.test_missing_asset_in_markdown_fails) ... ok
+test_missing_required_dmg_fails (test_release_sync_pages.MissingAssetTests.test_missing_required_dmg_fails) ... ok
+test_optional_assets_missing_are_dropped_with_warning (test_release_sync_pages.MissingAssetTests.test_optional_assets_missing_are_dropped_with_warning) ... ok
+test_cli_exit_code_matches (test_release_sync_pages.PublishJobTests.test_cli_exit_code_matches) ... ok
+test_cli_unusable_answer_exits_2_not_skip (test_release_sync_pages.PublishJobTests.test_cli_unusable_answer_exits_2_not_skip) ... ok
+test_publish_skipped_or_failed_or_missing (test_release_sync_pages.PublishJobTests.test_publish_skipped_or_failed_or_missing) ... ok
+test_publish_succeeded_while_a_platform_leg_failed (test_release_sync_pages.PublishJobTests.test_publish_succeeded_while_a_platform_leg_failed) ... ok
+test_accepts_v_prefix (test_release_sync_pages.RewriteTests.test_accepts_v_prefix) ... ok
+test_idempotent (test_release_sync_pages.RewriteTests.test_idempotent) ... ok
+test_marketing_copy_is_not_rewritten (test_release_sync_pages.RewriteTests.test_marketing_copy_is_not_rewritten) ... ok
+test_report_lists_manual_followups (test_release_sync_pages.RewriteTests.test_report_lists_manual_followups) ... ok
+test_rewrites_every_download_link_and_size (test_release_sync_pages.RewriteTests.test_rewrites_every_download_link_and_size) ... ok
+test_updates_readme_install_and_sitemap (test_release_sync_pages.RewriteTests.test_updates_readme_install_and_sitemap) ... ok
+test_mismatch_is_detected (test_release_sync_pages.WhatsNewParityTests.test_mismatch_is_detected) ... ok
+test_readme_and_homepage_whats_new_versions_match (test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match) ... ok
+
+----------------------------------------------------------------------
+Ran 39 tests in 1.922s
+
+OK

@@ -1,0 +1,16 @@
+=== v0.6.1 Anatomy Re-capture (2026-10-25T02:16:05Z) ===
+[git rev] 821cb052059f9e2591e4b64ab047e7f2d98bc29e (v0.6.1)
+[cmd gpu] /tmp/agy-v061-scratch/target/release/designos-studio /tmp/agy-v061-scratch/untitled-ui-kit.fig --select "Input field" --zoom 17 --size 1440x900 --scale 2 --gpu --screenshot /tmp/agy-v061-scratch/renders/anatomy-window-gpu.png --library /tmp/agy-v061-scratch/renders/library --no-toast
+real 9.69
+user 7.48
+sys 1.83
+[exit gpu] 0 (attempt 1)
+[cmd cpu] (already captured in same run)
+[cmp] anatomy-window-cpu.png vs anatomy-window-gpu.png: byte-identical
+de72e87599c59d04045daec4f9d7f64f0e5ae30a6d30ea8b9fe24b4e2957212b  /tmp/agy-v061-scratch/renders/anatomy-window-gpu.png
+de72e87599c59d04045daec4f9d7f64f0e5ae30a6d30ea8b9fe24b4e2957212b  /tmp/agy-v061-scratch/renders/anatomy-window-cpu.png
+/private/tmp/agy-v061-scratch/renders/anatomy-window-gpu.png
+  pixelWidth: 2880
+  pixelHeight: 1800
+[inspect-json]
+node_count: 207601 pages: 113

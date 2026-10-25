@@ -54,6 +54,8 @@ html.v2-motion .hero .pill { display: none; }
 .proof-note code { white-space: normal; }
 .proof-face--back { position: relative; }
 .proof-face--back img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; object-position: top; border-radius: 0; }
+.proof-slot:nth-child(2) .proof-face--back img { object-position: left top; }
+.proof-slot:nth-child(3) .proof-face--back img { object-position: right top; }
 /* static (no pin): the render is a band under the fact; its caption would repeat the front label */
 html:not(.v2-motion) .proof-face--back figcaption { display: none; }
 html:not(.v2-motion) .proof-face--back { flex: 1 1 auto; display: flex; flex-direction: column; }
@@ -83,6 +85,8 @@ html.v2-motion .proof-face {
 }
 html.v2-motion .proof-face--back { display: flex; flex-direction: column; transform: rotateY(180deg); }
 html.v2-motion .proof-face--back img { flex: 1 1 0; min-height: 0; height: auto; aspect-ratio: auto; object-position: center top; }
+html.v2-motion .proof-slot:nth-child(2) .proof-face--back img { object-position: left top; }
+html.v2-motion .proof-slot:nth-child(3) .proof-face--back img { object-position: right top; }
 @media (prefers-reduced-motion: reduce) { .proof-card { transition: none; } }
 
 /* ---- the narrator: one selection box (blue hairline, 4 handles, live W x H pill) ---- */

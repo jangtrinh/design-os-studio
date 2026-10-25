@@ -36,13 +36,13 @@
     {
       "@type": "SoftwareSourceCode",
       "name": "DESIGN:OS Studio",
-      "description": "A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code, Codex or Antigravity edit the open canvas through a bundled MCP server.",
+      "description": "A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code, Codex, Grok, Antigravity or Gemini CLI edit the open canvas through a bundled MCP server.",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "codeRepository": "https://github.com/jangtrinh/design-os-studio",
       "programmingLanguage": "Rust",
       "license": "https://polyformproject.org/licenses/shield/1.0.0",
       "author": { "@type": "Person", "name": "jangtrinh", "url": "https://github.com/jangtrinh" },
-      "keywords": "design editor, figma fig files, mcp server, claude code, codex, antigravity, wgpu, rust"
+      "keywords": "design editor, figma fig files, mcp server, claude code, codex, grok, antigravity, gemini cli, wgpu, rust"
     },
     {
       "@type": "FAQPage",
@@ -60,7 +60,7 @@
         {
           "@type": "Question",
           "name": "How do coding agents work with it?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server, and an Agents panel with built-in presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI. Agent edits replay into your open document, wait while you drag, and each one is its own undo step." }
         },
         {
           "@type": "Question",
@@ -162,28 +162,14 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
 .cta-note{margin-top:14px;font-size:.9375rem;color:var(--muted)}
 .cta-note a{display:inline-flex;align-items:center;min-height:44px}
 
-/* film */
+/* hero frame */
 .film{margin-top:clamp(28px,3vw,40px);scroll-margin-top:80px}
-.film-stage{position:relative;aspect-ratio:16/9;background:var(--panel);border-radius:var(--r-lg);overflow:hidden}
+.film-stage{position:relative;aspect-ratio:16/10;background:var(--panel);border-radius:var(--r-lg);overflow:hidden}
 .film-stage::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);pointer-events:none}
-.film-stage video{width:100%;height:100%;object-fit:cover;border-radius:inherit}
-.film-play{position:absolute;inset:0;display:grid;place-items:end start;padding:24px;border:0;border-radius:inherit;background:transparent;cursor:pointer;color:var(--text)}
-.film-play[hidden],.film-bar[hidden]{display:none}
-.film-play span{display:inline-flex;align-items:center;gap:10px;min-height:56px;padding:0 28px;border-radius:var(--r-pill);background:var(--text);color:var(--ink);font-size:1.0625rem;font-weight:600;transition:background-color .15s ease-out}
-.film-bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px}
-.film-bar p{margin-left:auto;font-size:.875rem;color:var(--muted)}
-.film-bar [data-state]{color:var(--muted);font-weight:500}
-.film[data-playing="true"] .i-play,.film[data-playing="false"] .i-pause{display:none}
-.film-bar [aria-pressed="true"] .i-off,.film-bar [aria-pressed="false"] .i-on{display:none}
-@media (max-width:640px) and (orientation:portrait){
-  .film-stage{aspect-ratio:9/16;width:min(100%,calc(80svh * 9 / 16));margin-inline:auto}
-}
+.film-stage img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 
 /* band: full-width panel strip (install) */
 .band{background:var(--panel);border-block:1px solid var(--border)}
-
-/* 5. new in 0.3.0: gallery rows share one height per row */
-
 
 /* 6. install */
 .install{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(40px,6vw,88px);margin-top:40px;align-items:start}
@@ -235,7 +221,6 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   .navlinks a:hover{color:var(--text);background:var(--hover)}
   .btn-primary:hover{background:#fff;color:var(--ink)}
   .btn-ghost:hover{background:var(--hover);color:var(--text)}
-  .film-play:hover span{background:#fff}
   .tab:hover{background:var(--hover);color:var(--text)}
   .copy:hover{background:var(--hover);color:var(--text)}
   .qa summary:hover{color:#fff}
@@ -268,7 +253,6 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   .brand{font-size:.9375rem}
   .topbar .btn{padding:0 12px;font-size:.875rem}
   .cta .btn{width:100%}
-  .film-bar p{margin-left:0;flex-basis:100%}
   .code pre{font-size:.8125rem}
 }
 @media (max-width:340px){
@@ -288,10 +272,6 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   <symbol id="i-github" viewBox="0 0 256 256"><path fill="currentColor" d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></symbol>
   <symbol id="i-download" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M128 32v136M80 120l48 48 48-48M40 216h176"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M208 96l-80 80-80-80"/></symbol>
-  <symbol id="i-play" viewBox="0 0 256 256"><path fill="currentColor" d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></symbol>
-  <symbol id="i-pause" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M64 48h32v160H64zM160 48h32v160h-32z"/></symbol>
-  <symbol id="i-sound-off" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M32 104h40l72-56v160l-72-56H32zM48 40l160 176"/></symbol>
-  <symbol id="i-sound-on" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M32 104h40l72-56v160l-72-56H32zM176 104a32 32 0 0 1 0 48M204 76a64 64 0 0 1 0 104"/></symbol>
 </svg>
 <a class="skip" href="#main">Skip to content</a>
 
@@ -323,25 +303,9 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       </div>
       <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
 
-      <!-- Film swap: edit the one <video> line below. It holds all four paths (poster, <source src>,
-           data-portrait-src, data-portrait-poster); the script reads them from that line. -->
-      <figure id="film" class="film" data-playing="true">
+      <figure id="film" class="film">
         <div class="film-stage">
-          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-v030-16x9-poster.png" data-portrait-src="videos/designos-studio-v030-9x16.mp4" data-portrait-poster="videos/designos-studio-v030-9x16-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio 0.3.0 launch film"><source src="videos/designos-studio-v030-16x9.mp4" type="video/mp4">
-            <p>This browser cannot play the film.</p>
-          </video>
-          <button type="button" class="film-play" id="film-play" hidden><span><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg>Play film</span></button>
-        </div>
-        <div class="film-bar" id="film-bar" role="group" aria-label="Film controls" hidden>
-          <button type="button" class="btn btn-ghost btn-sm" id="film-sound" aria-pressed="false">
-            <svg class="ico i-off" aria-hidden="true"><use href="#i-sound-off"/></svg><svg class="ico i-on" aria-hidden="true"><use href="#i-sound-on"/></svg>
-            <span>Sound <span data-state aria-hidden="true">Off</span></span>
-          </button>
-          <button type="button" class="btn btn-ghost btn-sm" id="film-toggle">
-            <svg class="ico i-pause" aria-hidden="true"><use href="#i-pause"/></svg><svg class="ico i-play" aria-hidden="true"><use href="#i-play"/></svg>
-            <span id="film-toggle-label">Pause</span>
-          </button>
-          <p>0.3.0 launch film. It starts muted and loops.</p>
+          <img src="images/v0.6/studio-hero.png" width="2880" height="1800" fetchpriority="high" decoding="async" alt="DESIGN:OS Studio with a copy of the Untitled UI PRO v8.0 Figma kit open: the Page header component set is selected on the canvas, the Pages and Layers panels are on the left, and the Design panel with its Properties is on the right">
         </div>
       </figure>
     </div>
@@ -350,51 +314,51 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
   <!-- 2. Proof cards. The pre-authored markup below is the final state: facts with their renders, no JS needed.
        In motion mode the Tenant engine pins it and the cards flip on scroll.
        Source ledger (every number traces to a file):
-         208,610  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages)
-         22       assert_eq!(tools.len(), 22) in crates/designos-mcp/tests/stdio.rs
-         7        css, tailwind, swiftui, uikit, compose, android-xml, react: golden tests in crates/designos-export/src/*.rs -->
+         207,601  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages; README.md)
+         36       assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs
+         8        css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src/*.rs -->
   <section id="proof" class="proof" aria-labelledby="proof-h">
     <div class="proof__scene sec">
       <div class="wrap">
         <h2 id="proof-h">Every number has a render.</h2>
         <p class="lead">Each card states one fact. Its back is a real capture from Studio.</p>
         <ul class="proof-cards" tabindex="0" aria-label="Proof cards">
-          <li class="proof-slot" data-source="node_count from designos --inspect-json on the Untitled UI PRO v8.0 kit">
+          <li class="proof-slot" data-source="node_count from designos --inspect-json on the Untitled UI PRO v8.0 kit (113 pages)">
             <article class="proof-card" style="--tint:227 99 35">
               <div class="proof-face proof-face--front">
-                <p class="proof-num">208,610</p>
+                <p class="proof-num">207,601</p>
                 <p class="proof-label"><i aria-hidden="true"></i>nodes in one file</p>
                 <p class="proof-note">The Untitled UI PRO v8.0 Figma kit opens and renders on the GPU, across 113 pages.</p>
               </div>
               <figure class="proof-face proof-face--back">
-                <img src="images/v2/proof-nodes.webp" width="960" height="1200" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open: the Layers panel on the left and the Input field frame selected on the canvas, measuring 4888 by 2584">
-                <figcaption>208,610 nodes</figcaption>
+                <img src="images/designos-hero.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open: the Pages and Layers panels on the left, the Page header component set selected on the canvas, and the Design panel on the right">
+                <figcaption>207,601 nodes</figcaption>
               </figure>
             </article>
           </li>
-          <li class="proof-slot" data-source="assert_eq!(tools.len(), 22) in crates/designos-mcp/tests/stdio.rs">
+          <li class="proof-slot" data-source="assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs">
             <article class="proof-card" style="--tint:13 153 255">
               <div class="proof-face proof-face--front">
-                <p class="proof-num">22</p>
+                <p class="proof-num">36</p>
                 <p class="proof-label"><i aria-hidden="true"></i>MCP tools</p>
-                <p class="proof-note">Coding agents edit the document you have open through <code>designos-mcp</code>. Built-in presets: Claude Code, Codex and Antigravity.</p>
+                <p class="proof-note">Coding agents edit the document you have open through <code>designos-mcp</code>. Built-in presets: Claude Code, Codex, Grok, Antigravity and Gemini CLI.</p>
               </div>
               <figure class="proof-face proof-face--back">
-                <img src="images/v2/proof-mcp.webp" width="960" height="1200" loading="lazy" decoding="async" alt="The Studio inspector in Dev Mode showing the MCP section: selection details, session activity, estimated tokens, an Implement this design prompt and a Copy design:os MCP link button">
-                <figcaption>22 MCP tools</figcaption>
+                <img src="images/designos-agent-spec.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Agents panel open on the Untitled UI PRO v8.0 kit: Claude Code, Codex, Grok, Antigravity and Gemini CLI listed in the New session picker beside the Avatar group component on the canvas">
+                <figcaption>36 MCP tools</figcaption>
               </figure>
             </article>
           </li>
-          <li class="proof-slot" data-source="css, tailwind, swiftui, uikit, compose, android-xml, react: golden tests in crates/designos-export/src">
+          <li class="proof-slot" data-source="css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src">
             <article class="proof-card" style="--tint:20 174 92">
               <div class="proof-face proof-face--front">
-                <p class="proof-num">7</p>
+                <p class="proof-num">8</p>
                 <p class="proof-label"><i aria-hidden="true"></i>code targets</p>
-                <p class="proof-note">Dev Mode prints CSS, Tailwind, SwiftUI, UIKit, Compose, Android XML and React.</p>
+                <p class="proof-note">Dev Mode prints CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML.</p>
               </div>
               <figure class="proof-face proof-face--back">
-                <img src="images/v2/proof-code.webp" width="960" height="1200" loading="lazy" decoding="async" alt="The Studio Dev Mode Code panel with UIKit selected, printing Swift code for a text layer">
-                <figcaption>7 code targets</figcaption>
+                <img src="images/designos-devmode.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio in Dev Mode with the Avatar group component set selected and the Inspect panel on the right showing Ready for dev, a component playground, MCP link and Layer properties">
+                <figcaption>8 code targets</figcaption>
               </figure>
             </article>
           </li>
@@ -407,36 +371,35 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
        no JS needed. In motion mode the Tenant engine pins it, the six layer drawings (traced from this same
        render, images/v2/anatomy/*.svg) draw on, lift apart with leader lines to the labels, and settle back.
        Source ledger:
-         208,610  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages)
-         7        css, tailwind, swiftui, uikit, compose, android-xml, react: golden tests in crates/designos-export/src/*.rs
+         207,601  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages)
+         8        css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src/*.rs
          quarter second  IDLE_REFINE_DELAY = 0.25 s in crates/designos-app/src/canvas/gpu.rs -->
   <section id="anatomy" class="anatomy" aria-labelledby="anatomy-h">
     <div class="anatomy-grid sec wrap">
       <h2 id="anatomy-h">Five layers, one window.</h2>
-      <p class="anatomy__lede">Studio opens your .fig file in a native window. The canvas draws it on the GPU, the Layers panel and the inspector edit it, and the Agents rail lets a coding agent work on it with you.</p>
+      <p class="anatomy__lede">Studio opens your .fig file in a native window. The canvas draws it on the GPU, the Layers panel and the inspector edit it, and the Agents rail opens a coding agent beside your work.</p>
       <figure class="anatomy__frame">
         <div class="anatomy__stack">
-          <img class="anatomy__render" src="images/v2/anatomy/studio-window-030.webp" width="1600" height="1000" loading="lazy" decoding="async" alt="DESIGN:OS Studio 0.3.0 with the Untitled UI PRO v8.0 kit open: the Agents rail and the Layers panel on the left, the Input field frame selected on the canvas at 4888 by 2584, the inspector on the right and the tool bar along the bottom">
+          <img class="anatomy__render" src="images/v2/anatomy/studio-window-061.webp" width="1600" height="1000" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open: the left rail and the Layers panel on the left, the Input field frame selected on the canvas at 4888 by 2584, the Design inspector on the right and the tool bar along the bottom">
         </div>
       </figure>
       <ol class="anatomy__labels" aria-label="The five layers">
-        <li class="anatomy__label" data-layer="file"><strong>The .fig file</strong><span>Read and written natively. This one, the Untitled UI PRO v8.0 kit, has 208,610 nodes.</span></li>
+        <li class="anatomy__label" data-layer="file"><strong>The .fig file</strong><span>Read and written natively. This one, the Untitled UI PRO v8.0 kit, has 207,601 nodes.</span></li>
         <li class="anatomy__label" data-layer="canvas"><strong>Canvas</strong><span>Drawn on the GPU with wgpu. When nothing changes for a quarter second, it draws one full-quality frame.</span></li>
         <li class="anatomy__label" data-layer="layers"><strong>Layers</strong><span>Pages and layers, as the file has them.</span></li>
-        <li class="anatomy__label" data-layer="inspector"><strong>Inspector</strong><span>Design, Prototype and Dev Mode, with code in 7 targets.</span></li>
-        <li class="anatomy__label" data-layer="rail"><strong>Agents rail</strong><span>Claude Code, Codex and Antigravity in a terminal beside the canvas.</span></li>
+        <li class="anatomy__label" data-layer="inspector"><strong>Inspector</strong><span>Design, Prototype and Dev Mode, with code in 8 targets.</span></li>
+        <li class="anatomy__label" data-layer="rail"><strong>Agents rail</strong><span>Opens the Agents panel for Claude Code, Codex, Grok, Antigravity and Gemini CLI.</span></li>
       </ol>
     </div>
   </section>
 
-  <!-- 2b. Workflow: Figma, agents, code. The markup below is the final state: three chapters, each with a frame
-       from the 0.3.0 launch film, no JS needed. In motion mode the Tenant engine pins the section, the film's
-       frames scrub on one canvas and the chapter copy follows progress. The chapter ids keep the old #figma
-       and #agents anchors.
+  <!-- 2b. Workflow: Figma, agents, code. The markup below is the final state: three chapters, each with a
+       real Studio capture on the Untitled UI PRO v8.0 kit, no JS needed. In motion mode the Tenant engine
+       pins the section, the three stills crossfade on one stage and the chapter copy follows progress.
+       The chapter ids keep the #figma, #agents and #code anchors.
        Source ledger:
-         22  assert_eq!(tools.len(), 22) in crates/designos-mcp/tests/stdio.rs
-         7   css, tailwind, react, swiftui, uikit, compose, android-xml: golden tests in crates/designos-export/src/*.rs
-       Frames: the Untitled UI PRO v8.0 kit in the launch film (media/v2/workflow/manifest.json) -->
+         36  assert_eq!(tools.len(), snapshot.len()) (36 tools) in crates/designos-mcp/tests/stdio.rs
+         8   css, tailwind, react, swiftui, uikit, compose, android_xml, html: golden tests in crates/designos-export/src/*.rs -->
   <section id="workflow" class="workflow" aria-label="Workflow">
     <div class="wf__scene sec wrap">
       <div class="wf__sheet">
@@ -446,109 +409,139 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
           <ul class="wf__facts">
             <li><strong>Paste from Figma desktop.</strong> Press Cmd+V on the canvas. Images come along.</li>
             <li><strong>Read and write <code>.fig</code> files.</strong> Open a Figma file, edit it, save it back.</li>
-            <li><strong>Styles travel with the file.</strong> A <code>.fig</code> file brings its effect and grid styles with it.</li>
+            <li><strong>Styles and variables travel with the file.</strong> A <code>.fig</code> file brings its effect styles, grid styles and variable modes with it.</li>
           </ul>
-          <img class="wf__poster" src="media/v2/workflow/fallback/figma.webp" width="1280" height="720" loading="lazy" decoding="async" alt="DESIGN:OS Studio just after a paste with Cmd+V: the Untitled UI Split image section, 1440 by 862, is selected on the canvas, with the headline People first. Design later.">
+          <img class="wf__poster" src="images/designos-components.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open on the Buttons page: the Button component set is selected on the canvas, with its variants and properties in the Design panel">
         </article>
         <article id="agents" class="wf__chapter" aria-labelledby="agents-h" style="--tint:13 153 255">
           <p class="wf__kicker"><i aria-hidden="true"></i>02 Agents</p>
           <h2 id="agents-h">Let an agent build with you.</h2>
           <ul class="wf__facts">
-            <li><strong>22 tools through <code>designos-mcp</code>.</strong> <span class="wf__nb">Built-in</span> presets for Claude Code, Codex and Antigravity.</li>
-            <li><strong>Edits replay as node operations.</strong> Agents wait while you drag or edit text, then the edit lands.</li>
-            <li><strong>Every agent edit is its own undo.</strong> The new layer is selected and your view stays where it was.</li>
+            <li><strong>36 tools through <code>designos-mcp</code>.</strong> <span class="wf__nb">Built-in</span> presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI.</li>
+            <li><strong>Live sessions in the Agents panel.</strong> Each CLI uses its own sign-in, keeps its sessions across restarts, and asks before acting by default.</li>
+            <li><strong>Every agent turn is one undo step.</strong> Review what changed and keep it or revert it, while your view stays where it was.</li>
           </ul>
-          <img class="wf__poster" src="media/v2/workflow/fallback/agent.webp" width="1280" height="720" loading="lazy" decoding="async" alt="A 1440 by 883 pricing section that a coding agent added to the open file: a monthly and annual billing toggle and three plan cards, Basic, Business and Enterprise, at $10, $20 and $40 per month.">
+          <img class="wf__poster" src="images/designos-agents-chat.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio Agents panel beside an Untitled UI canvas with the Avatar group component selected, showing Claude Code, Codex, Grok, Antigravity and Gemini CLI in the New session list">
         </article>
         <article id="code" class="wf__chapter" aria-labelledby="code-h" style="--tint:20 174 92">
           <p class="wf__kicker"><i aria-hidden="true"></i>03 Code</p>
           <h2 id="code-h">Ship the code.</h2>
           <ul class="wf__facts">
-            <li><strong>Dev Mode prints 7 targets:</strong> CSS, Tailwind, React, SwiftUI, UIKit, Compose and Android XML.</li>
+            <li><strong>Dev Mode prints 8 targets:</strong> CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML.</li>
+            <li><strong>Inspect tokens and layout.</strong> Read the CSS box-model diagram, resolved variables, slot parameters and Ready for dev status.</li>
           </ul>
-          <img class="wf__poster" src="media/v2/workflow/fallback/code.webp" width="1280" height="720" loading="lazy" decoding="async" alt="Studio Dev Mode printing code for the Start your free trial heading, selected at 250 by 88, in UIKit and in Android XML.">
+          <img class="wf__poster" src="images/designos-devmode.png" width="2880" height="1800" loading="lazy" decoding="async" alt="DESIGN:OS Studio Dev Mode on the Untitled UI kit with the Avatar group component set selected and the Inspect tab open on the right">
         </article>
       </div>
     </div>
   </section>
 
-  <!-- 4. Built for big files. The markup below is the final state: the real count, copy and the last frame of
-       the zoom. In motion mode the Tenant engine pins the section, the count climbs and the canvas scrubs the
-       zoom-out of one page of the kit. The frames show that one page, not the whole file.
+  <!-- 4. Built for big files. The markup below is the final state: the real count, copy and the kit overview
+       capture. In motion mode the Tenant engine pins the section, the count climbs and the view crossfades
+       from the close-up hero capture to the full-page kit overview.
        Source ledger:
-         208,610  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages)
-         quarter second  IDLE_REFINE_DELAY = 0.25 s in crates/designos-app/src/canvas/gpu.rs
-       Frames: the Untitled UI PRO v8.0 kit in the launch film (media/v2/scale/manifest.json) -->
+         207,601  node_count from `designos --inspect-json` on the Untitled UI PRO v8.0 kit (113 pages)
+         quarter second  IDLE_REFINE_DELAY = 0.25 s in crates/designos-app/src/canvas/gpu.rs -->
   <section id="scale" class="scale" aria-labelledby="scale-h">
     <div class="scale__scene sec wrap">
       <div class="scale__copy">
         <h2 id="scale-h">Built for big files.</h2>
-        <p class="scale__stat"><span class="scale__num" aria-hidden="true">208,610</span><span class="sr-only">208,610</span> <span class="scale__unit">nodes on 113 pages</span></p>
+        <p class="scale__stat"><span class="scale__num" aria-hidden="true">207,601</span><span class="sr-only">207,601</span> <span class="scale__unit">nodes on 113 pages</span></p>
         <p>That is the Untitled UI PRO v8.0 Figma kit. The canvas draws it on the GPU through <strong>wgpu</strong>.</p>
         <p>Large pages render at low zoom, and after a quarter second without changes the canvas draws one full-quality frame.</p>
       </div>
       <figure class="scale__view">
-        <img class="scale__poster" src="media/v2/scale/fallback/scale.webp" width="1280" height="720" loading="lazy" decoding="async" alt="One page of the Untitled UI PRO v8.0 kit zoomed far out on the Studio canvas: its frames sit in a grid inside one selection.">
-        <figcaption>One page of the kit, zoomed out.</figcaption>
+        <div class="scale__stage">
+          <img class="scale__poster" src="images/designos-overview.png" width="2880" height="1800" loading="lazy" decoding="async" alt="One page of the Untitled UI PRO v8.0 kit zoomed out to 6% on the DESIGN:OS Studio canvas, with all 28 Page header frames rendered in a grid">
+        </div>
+        <figcaption>One page of the kit, zoomed out to 6%.</figcaption>
       </figure>
     </div>
   </section>
 
-  <!-- 5. New in 0.3.0: active list + render swap. The markup below is the no-JS state: every title and line
-       is visible, the panel shows the first render, and each item links to its full-size image.
-       v2-new.js turns the list into a tablist and swaps the render. Renders: Studio 0.3.0 headless captures
-       of Untitled UI PRO v8.0 kit frames (see CHANGELOG 0.3.0 for each claim). -->
+  <!-- 5. What's new: mirrors README.md's What's new section. Newest releases first (0.6.1 list and 0.6.0
+       captures + list), followed by 0.5.0, 0.4.0 and 0.3.0 as folded entries and a link to CHANGELOG.md. -->
   <section id="new" class="sec new" aria-labelledby="new-h">
     <div class="wrap">
       <div class="new-head">
-        <h2 id="new-h">New in 0.3.0.</h2>
-        <p class="lead">Real renders from Studio 0.3.0, on frames from the Untitled UI kit.</p>
+        <h2 id="new-h">What’s new.</h2>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.1, a short list. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
-        <ul class="new-list" id="new-list" aria-label="New in 0.3.0">
-          <li class="new-item" data-w="1600" data-h="900" data-alt="DESIGN:OS Studio with a frame pasted from Figma onto an empty Page 1: the Untitled UI Split image section, 1440 by 862, is selected in the middle of the canvas, showing the headline People first. Design later. beside an image of glass blocks">
-            <h3 class="new-item__title">Paste from Figma</h3>
-            <p class="new-item__line">Copy layers in Figma desktop and press Cmd+V. They land centered in the view, images included, as one undo step.</p>
-            <a class="new-item__full" href="images/v2/new/paste-from-figma.webp" aria-label="Full-size render: Paste from Figma">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1600" data-h="900" data-alt="DESIGN:OS Studio with the Untitled UI PRO v8.0 kit open on the Header sections page: a Pricing Section frame that a coding agent added sits under a purple header, with a monthly and annual billing toggle and three plan cards priced $10, $20 and $40 per month">
-            <h3 class="new-item__title">Agents edit the open file</h3>
-            <p class="new-item__line">Agent edits replay as node operations into the document you have open, and wait while you drag.</p>
-            <a class="new-item__full" href="images/v2/new/agent-edits-open-file.webp" aria-label="Full-size render: Agents edit the open file">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1600" data-h="900" data-alt="DESIGN:OS Studio at 100% zoom on the Pricing sections page: the Business plan card at $20 per month with a pink column grid laid over it, and the Styles list open in the inspector">
-            <h3 class="new-item__title">Effect and grid styles</h3>
-            <p class="new-item__line">A .fig file brings its effect and grid styles with it.</p>
-            <a class="new-item__full" href="images/v2/new/effect-and-grid-styles.webp" aria-label="Full-size render: Effect and grid styles">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1600" data-h="900" data-alt="DESIGN:OS Studio with three pricing cards from the Untitled UI kit on the canvas, the middle one selected at 360 by 589, and an Edit style panel open for a drop shadow style set to X 0, Y 4, blur 4 and spread -1">
-            <h3 class="new-item__title">Edit a style everywhere</h3>
-            <p class="new-item__line">Change a style once and every layer that uses it updates, in one undo step.</p>
-            <a class="new-item__full" href="images/v2/new/edit-style-everywhere.webp" aria-label="Full-size render: Edit a style everywhere">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1600" data-h="900" data-alt="DESIGN:OS Studio with a Simple logos frame from the Untitled UI kit: the heading Start your free trial, two buttons and six client logos wrapped into three rows of two">
-            <h3 class="new-item__title">Space evenly and wrap</h3>
-            <p class="new-item__line">Auto layout adds Space around and Space evenly, and wrapped lines can spread.</p>
-            <a class="new-item__full" href="images/v2/new/space-evenly-and-wrap.webp" aria-label="Full-size render: Space evenly and wrap">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1600" data-h="900" data-alt="The same Simple logos frame in DESIGN:OS Studio with the heading Start your free trial broken into two even lines and the six logos spread out with more space between the rows">
-            <h3 class="new-item__title">Text wrap Balance</h3>
-            <p class="new-item__line">Balance evens out the lines of a wrapping heading.</p>
-            <a class="new-item__full" href="images/v2/new/text-wrap-balance.webp" aria-label="Full-size render: Text wrap Balance">Full-size render</a>
-          </li>
-          <li class="new-item" data-w="1200" data-h="1083" data-alt="DESIGN:OS Studio in Dev Mode with the Heading text layer of the Simple logos frame selected, 250 by 88, and the Code panel set to Android XML, printing a TextView whose android:textColor is a @color resource">
-            <h3 class="new-item__title">UIKit and Android XML</h3>
-            <p class="new-item__line">Dev Mode now prints UIKit and Android XML, with variables in their code syntax. Shown: Android XML.</p>
-            <a class="new-item__full" href="images/v2/new/dev-mode-android-xml.webp" aria-label="Full-size render: UIKit and Android XML">Full-size render</a>
-          </li>
-        </ul>
-        <div class="new-frame" id="new-panel">
-          <img class="new-img" src="images/v2/new/paste-from-figma.webp" width="1600" height="900" loading="lazy" decoding="async" alt="DESIGN:OS Studio with a frame pasted from Figma onto an empty Page 1: the Untitled UI Split image section, 1440 by 862, is selected in the middle of the canvas, showing the headline People first. Design later. beside an image of glass blocks">
+        <article class="new-release new-release--061" id="new-in-v061" aria-labelledby="v061-h">
+          <h3 id="v061-h" class="new-ver">0.6.1</h3>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> The bottom terminal dock and the <code>&gt;_</code> rail button are gone. <code>Cmd+`</code> (<code>Ctrl+`</code> on Windows and Linux) opens and closes the Agents panel. Agents ask before acting by default.</li>
+            <li><strong>Unsaved edits.</strong> Studio asks <code>Save changes to {name}?</code> before a close, a quit or an open drops edits to a file outside the library, and asks before a file changed on disk replaces them. On macOS, Cmd+Q asks too. An agent that opens another document no longer replaces yours.</li>
+            <li><strong>Undo.</strong> Undo and redo of your own edits restore the document exactly. The command palette’s design fix and its Figma AI rows are one undo step each. After a font face arrives, and for an agent’s edits, undo solves layout again.</li>
+            <li><strong>Paste and drop.</strong> Paste text and images from other apps, and drop PNG, JPEG or WebP files on the canvas. Pasting a main component in its own file makes an instance.</li>
+            <li><strong><code>.fig</code> files.</strong> Export never replaces an existing file and says where it wrote. <code>designos --export-fig</code> refuses a path that does not end in <code>.fig</code> and a symbolic link, and needs <code>--overwrite</code> to replace a file. A save or export to <code>.fig</code> or <code>.pen</code> warns when it leaves comments out.</li>
+            <li><strong>Slow machines.</strong> Draw, move, resize and rotate end where the pointer let go. A software renderer starts on the CPU canvas.</li>
+            <li><strong>CLI.</strong> <code>designos --version</code> prints the version, and a file argument that is not on disk stops with an error.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--060" id="new-in-v060" aria-labelledby="v060-h">
+          <h3 id="v060-h" class="new-ver">0.6.0</h3>
+          <p class="new-note">Real screenshots from the v0.6.0 macOS build, captured headlessly with <code>designos-studio --screenshot</code> (2x) on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click an image for full size. The approval card comes from the built-in <code>--panel agents-approval-queued</code> preview.</p>
+          <div class="new-shots" id="new-panel">
+            <figure class="new-shot">
+              <a class="new-shot__link" href="images/v0.6/check-designs-color-fixes.png">
+                <img class="new-img" src="images/v0.6/check-designs-color-fixes.png" width="2880" height="1800" decoding="async" alt="DESIGN:OS Studio Check designs panel open on the Avatar variant set of the Untitled UI kit: the Color group lists findings such as Stroke #000000 matches variable Colors/Base/black, each with a Fix button, and a Fix all button sits at the top">
+              </a>
+              <figcaption><strong>Check designs: Color</strong> Hard-coded colors that match a variable are listed under Color, each with a one-click Fix, plus Fix all.</figcaption>
+            </figure>
+            <figure class="new-shot">
+              <a class="new-shot__link" href="images/v0.6/ask-before-acting-approval.png">
+                <img class="new-img" src="images/v0.6/ask-before-acting-approval.png" width="2880" height="1800" decoding="async" alt="DESIGN:OS Studio Agents panel in ask mode: an approval card reading Claude Code wants to run Bash, with the command git status --short, a 1 of 3 count and Deny and Approve buttons, beside the Untitled UI Avatar frame on the canvas">
+              </a>
+              <figcaption><strong>Ask before acting</strong> With Ask before acting on, Claude Code’s request to run a command waits in the Agents panel for Approve or Deny.</figcaption>
+            </figure>
+          </div>
+          <p class="new-subhead"><strong>Also in 0.6.0</strong></p>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> A file keeps its sessions after a restart. Review what an agent changed in a turn and keep it or revert it in one undo step. Stop one agent or all of them from the panel.</li>
+            <li><strong>Variables.</strong> Import and export Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with <code>--import-variables</code> and <code>--export-variables</code>. An import merges into the file and reports what it skipped.</li>
+            <li><strong>MCP.</strong> Agents can see the design, read its design system, write in one step with <code>designos_apply_batch</code> and check their work with <code>designos_lint</code>.</li>
+            <li><strong>Dev Mode.</strong> HTML joins CSS, Tailwind, React, SwiftUI, UIKit, Compose and Android XML.</li>
+            <li><strong>License.</strong> Studio is source-available under PolyForm Shield 1.0.0. Releases up to 0.5.0 keep MIT or Apache-2.0.</li>
+          </ul>
+        </article>
+        <div class="new-older" aria-label="Earlier releases">
+          <details class="new-fold" id="new-in-v050">
+            <summary><h3 class="new-ver">0.5.0</h3><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul class="new-bullets">
+              <li><strong>Slots.</strong> Create a slot on a component and set its rules: minimum and maximum children, preferred components, stretch on insert and show empty. Edit slot content in an instance without detaching it.</li>
+              <li><strong>Empty slots.</strong> An empty slot shows a <strong>+</strong> that opens the preferred-instance picker. Migrate to slot turns an instance-swap or boolean region into a slot in one undo step.</li>
+              <li><strong>Dev Mode.</strong> Code for React, Tailwind, SwiftUI and Compose gets one parameter per slot. The component playground lets you try properties and variants without editing the file.</li>
+              <li><strong>Check designs.</strong> It flags hard-coded numbers that match a number variable, suggests variables and styles from enabled libraries, and audits text and overrides inside instances.</li>
+              <li><strong><code>.fig</code> files.</strong> Export follows Figma’s own field numbering, types and enum values, and slot preferred values are written as Figma’s real object.</li>
+              <li><strong>Agent tabs.</strong> Antigravity and Grok tabs start again, and a tab that fails to start shows the cause.</li>
+            </ul>
+          </details>
+          <details class="new-fold" id="new-in-v040">
+            <summary><h3 class="new-ver">0.4.0</h3><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul class="new-bullets">
+              <li><strong>Grid auto layout.</strong> More than 8 rows and columns, auto-placed items and auto rows, and children aligned inside their cell. Edit tracks on the canvas or in the Properties panel: insert, delete, resize and drag to reorder.</li>
+              <li><strong>Auto layout.</strong> Child margins from <code>.fig</code> files, per-child align-self, and an Update auto layout action that upgrades an older frame.</li>
+              <li><strong>Layout guides match Figma.</strong> Alignment, a fixed column or row width, auto count, and show or hide per guide. All of it round-trips through <code>.fig</code>.</li>
+              <li><strong>Check designs.</strong> A panel that audits the page for low contrast, unbound colors, detached styles and detached instances, with a one-click Fix per finding and Fix all.</li>
+              <li><strong>Vectors and export.</strong> Offset path, and scale for several selected points. PDF export draws vectors with selectable text. Lossless WebP export.</li>
+              <li><strong>Dev Mode.</strong> Grid code for CSS, Tailwind and React is printed from the real tracks and placement.</li>
+            </ul>
+          </details>
+          <details class="new-fold" id="new-in-v030">
+            <summary><h3 class="new-ver">0.3.0</h3><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+            <ul class="new-bullets">
+              <li><strong>Paste from Figma.</strong> Copy a selection in Figma desktop and press Cmd+V on the canvas. The layers land centered in the view as one undo step, images included.</li>
+              <li><strong>Effect and grid styles.</strong> Create, apply, detach and rename them. Edit a style from the picker and every layer that uses it updates in one undo step. <code>.fig</code> files bring their effect and grid styles.</li>
+              <li><strong>Auto layout and text.</strong> Space around and Space evenly, vertical wrap, and the text wrap modes Balance and Pretty.</li>
+              <li><strong>Variables.</strong> Bind paint and effect opacity to number variables. Variables keep their Web, Android and iOS code syntax.</li>
+              <li><strong>Dev Mode.</strong> UIKit and Android XML join the code languages, and a variable prints the way Figma does.</li>
+              <li><strong>PDF export.</strong> Selected frames export as one multi-page PDF from the Export panel.</li>
+            </ul>
+          </details>
+          <p class="new-changelog"><a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">Read the full changelog</a></p>
         </div>
-      </div>
-      <div class="new-also">
-        <p><strong>Also new:</strong> multi-page PDF export, opacity bound to number variables, Text wrap Pretty, and files with broken numbers open again.</p>
-        <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md#030---2026-10-17">Read the full changelog</a>
       </div>
     </div>
   </section>
@@ -626,7 +619,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         </details>
         <details>
           <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-          <p>Studio bundles <code>designos-mcp</code>, a local MCP server. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step.</p>
+          <p>Studio bundles <code>designos-mcp</code>, a local MCP server, and an Agents panel with built-in presets for Claude Code, Codex, Grok, Antigravity and Gemini CLI. Agent edits replay into your open document, wait while you drag, and each one is its own undo step.</p>
         </details>
         <details>
           <summary>Which systems does it run on?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
@@ -672,7 +665,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
           .fig read and write&#160;&#160;·&#160;&#160;
           GPU canvas&#160;&#160;·&#160;&#160;
           designos-mcp&#160;&#160;·&#160;&#160;
-          22 MCP tools&#160;&#160;·&#160;&#160;
+          36 MCP tools&#160;&#160;·&#160;&#160;
           Dev Mode&#160;&#160;·&#160;&#160;
           CSS&#160;&#160;·&#160;&#160;
           Tailwind&#160;&#160;·&#160;&#160;
@@ -681,21 +674,20 @@ rm -rf /tmp/design-os-studio</code></pre></div>
           UIKit&#160;&#160;·&#160;&#160;
           Compose&#160;&#160;·&#160;&#160;
           Android XML&#160;&#160;·&#160;&#160;
-          Agents rail&#160;&#160;·&#160;&#160;
-          Layers&#160;&#160;·&#160;&#160;
-          Inspector&#160;&#160;·&#160;&#160;
-          Prototype&#160;&#160;·&#160;&#160;
-          Effect and grid styles&#160;&#160;·&#160;&#160;
-          Edit a style everywhere&#160;&#160;·&#160;&#160;
-          Space evenly and wrap&#160;&#160;·&#160;&#160;
-          Text wrap Balance&#160;&#160;·&#160;&#160;
-          PDF export&#160;&#160;·&#160;&#160;
-          Auto layout&#160;&#160;·&#160;&#160;
+          HTML&#160;&#160;·&#160;&#160;
+          Agents panel&#160;&#160;·&#160;&#160;
+          Ask before acting&#160;&#160;·&#160;&#160;
+          Check designs&#160;&#160;·&#160;&#160;
+          Slots&#160;&#160;·&#160;&#160;
+          Grid auto layout&#160;&#160;·&#160;&#160;
           Variables&#160;&#160;·&#160;&#160;
+          Multi-Edit&#160;&#160;·&#160;&#160;
           Claude Code&#160;&#160;·&#160;&#160;
           Codex&#160;&#160;·&#160;&#160;
+          Grok&#160;&#160;·&#160;&#160;
           Antigravity&#160;&#160;·&#160;&#160;
-          208,610 nodes&#160;&#160;·&#160;&#160;
+          Gemini CLI&#160;&#160;·&#160;&#160;
+          207,601 nodes&#160;&#160;·&#160;&#160;
           wgpu&#160;&#160;·&#160;&#160;</text>
         </defs>
         <g class="closer__rows" clip-path="url(#closer-clip)">
@@ -760,50 +752,6 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       pill.textContent = Math.round(r.width) + ' × ' + Math.round(r.height);
     }).observe(box);
     pill.hidden = false;
-  }
-
-  // Film: 16:9 on wide screens, 9:16 on phones held upright. Paths come from the <video> tag.
-  var fig = document.getElementById('film'), v = document.getElementById('film-video');
-  if (fig && v && typeof v.play === 'function') {
-    var narrow = matchMedia('(max-width:640px) and (orientation:portrait)');
-    var calm = matchMedia('(prefers-reduced-motion: reduce)');
-    var cut = {
-      land: { src: v.querySelector('source').getAttribute('src'), poster: v.getAttribute('poster') },
-      port: { src: v.getAttribute('data-portrait-src'), poster: v.getAttribute('data-portrait-poster') }
-    };
-    var kind = 'land';
-    var bar = document.getElementById('film-bar'), overlay = document.getElementById('film-play'),
-        toggle = document.getElementById('film-toggle'), label = document.getElementById('film-toggle-label'),
-        sound = document.getElementById('film-sound'), state = sound.querySelector('[data-state]');
-    var sync = function () {
-      var playing = !v.paused && !v.ended;
-      fig.setAttribute('data-playing', playing ? 'true' : 'false');
-      label.textContent = playing ? 'Pause' : 'Play';
-      overlay.hidden = playing;
-      sound.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
-      state.textContent = v.muted ? 'Off' : 'On';
-    };
-    var start = function () { var p = v.play(); if (p && p.catch) p.catch(sync); };
-    var use = function (next, keepPlace) {
-      if (next === kind) return;
-      var at = keepPlace ? v.currentTime : 0, was = !v.paused;
-      kind = next;
-      v.poster = cut[next].poster;
-      v.src = cut[next].src + (at > 0.5 ? '#t=' + at.toFixed(1) : '');
-      v.load();
-      if (keepPlace && was) start();
-    };
-    var listen = function (mq, fn) { if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn); };
-    ['play', 'playing', 'pause', 'ended', 'volumechange', 'loadedmetadata'].forEach(function (e) { v.addEventListener(e, sync); });
-    toggle.addEventListener('click', function () { if (v.paused) start(); else v.pause(); });
-    overlay.addEventListener('click', start);
-    sound.addEventListener('click', function () { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1; });
-    listen(narrow, function () { use(narrow.matches ? 'port' : 'land', true); });
-    listen(calm, function () { if (calm.matches) v.pause(); });
-    v.removeAttribute('autoplay'); v.removeAttribute('controls');
-    use(narrow.matches ? 'port' : 'land', false);
-    if (calm.matches) v.pause(); else start();
-    bar.hidden = false; sync();
   }
 
   // Install: one tab per agent, each with a working Copy button. Without JS every panel shows.

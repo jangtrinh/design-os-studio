@@ -75,6 +75,7 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
    - Re-run for a release that is already published: Actions → Release sync pages → Run workflow, with `version` set to `X.Y.Z`. The run is idempotent: on an up-to-date tree it opens nothing.
    - **Manual fallback** (workflow broken or the PR is needed locally): on a branch from `main`, run `python3 scripts/release-sync-pages.py X.Y.Z --verify-urls --report /tmp/report.md`. It reads `gh release view vX.Y.Z`, so you need `gh` signed in. Review `git diff`, commit, and open the PR. The tests are `python3 -m unittest discover -s scripts/tests -v`. Without the script, read the names from `gh release view vX.Y.Z --json assets --jq '.assets[].name'`, edit `docs/index.html` and the files above by hand, and link only the assets that list shows.
    - Not covered: the `EXPECT_VERSION` default in `scripts/release-smoke-macos.sh`. The smoke test runs before the tag exists, so a post-release sync would always leave it one version behind. Pass `EXPECT_VERSION=X.Y.Z` when you run it.
+6. Update the homepage's "What's new" (`docs/index.html`) in the same step as the README's (`README.md`), so both list the same release versions.
 
 ## What gets built
 

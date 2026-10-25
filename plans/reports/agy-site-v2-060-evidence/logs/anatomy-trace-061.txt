@@ -1,0 +1,9 @@
+map px per layer {'file': 128093, 'canvas': 21168, 'layers': 7769, 'inspector': 17902, 'rail': 3141, 'chrome': 4649} sum 182722 union 182722 pairwise overlap px 0
+deliverables /Users/jangtrinh/orca/workspaces/design-os-studio/agy-site-v2-060/docs/images/v2/anatomy
+total bytes 73933 = 72.2 KB
+file 49312 B paths 2 subpaths(M) 2168 bars 1047 bbox [320.0, 139.5, 879.0, 583.5] anchor [1199.0, 431.2]
+canvas 14220 B paths 2 subpaths(M) 946 bars 33 bbox [298.0, 32.0, 901.0, 867.5] anchor [750, 900]
+layers 2735 B paths 2 subpaths(M) 109 bars 22 bbox [57.0, 32.0, 241.0, 867.5] anchor [177.5, 900]
+inspector 5171 B paths 2 subpaths(M) 144 bars 28 bbox [1199.0, 32.0, 240.5, 867.5] anchor [1440, 450]
+rail 1503 B paths 2 subpaths(M) 44 bars 6 bbox [5.5, 32.0, 51.5, 867.5] anchor [0, 450]
+chrome 992 B paths 2 subpaths(M) 24 bars 2 bbox [0.0, 3.0, 1439.5, 29.0] anchor [720, 0]

@@ -231,5 +231,46 @@ class PublishJobTests(unittest.TestCase):
         self.assertEqual(self.run_cli(self.jobs(windows_leg="success", Publish_release="skipped")), 1)
 
 
+def readme_whats_new_versions(text: str) -> list[str]:
+    m = re.search(r"(?ms)^## What's new\s*$(.*?)(?=^## |\Z)", text)
+    if not m:
+        return []
+    return re.findall(r"(?m)^### (\d+\.\d+\.\d+)\s*$", m.group(1))
+
+
+def homepage_whats_new_versions(html: str) -> list[str]:
+    m = re.search(r'(?ms)<section\s+id="new"[\s>].*?</section>', html)
+    if not m:
+        return []
+    return re.findall(r"<h3\b[^>]*>\s*(\d+\.\d+\.\d+)\s*</h3>", m.group(0))
+
+
+class WhatsNewParityTests(unittest.TestCase):
+    """README.md and docs/index.html must list the exact same versions in What's new."""
+
+    REPO_ROOT = HERE.parent.parent
+
+    def test_readme_and_homepage_whats_new_versions_match(self):
+        readme = (self.REPO_ROOT / "README.md").read_text()
+        html = (self.REPO_ROOT / "docs" / "index.html").read_text()
+        r_vers = readme_whats_new_versions(readme)
+        h_vers = homepage_whats_new_versions(html)
+        self.assertTrue(r_vers, "no version headings found in README.md What's new")
+        self.assertEqual(
+            r_vers,
+            h_vers,
+            f"What's new versions differ between README.md ({r_vers}) and docs/index.html ({h_vers})",
+        )
+
+    def test_mismatch_is_detected(self):
+        readme = (self.REPO_ROOT / "README.md").read_text()
+        html = (self.REPO_ROOT / "docs" / "index.html").read_text()
+        drifted = html.replace(">0.6.1</h3>", ">0.6.2</h3>", 1)
+        self.assertNotEqual(
+            readme_whats_new_versions(readme),
+            homepage_whats_new_versions(drifted),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
