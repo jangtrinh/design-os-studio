@@ -2988,7 +2988,14 @@ mod tests {
         lib_doc.styles.insert("s_btn_fill".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
         lib_doc.style_meta.insert(
             "s_btn_fill".into(),
-            StyleMeta { name: "Button/Fill".into(), description: String::new(), key: None, property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Button/Fill".into(),
+                description: String::new(),
+                key: None,
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         lib_doc.variable_collections.insert(
             "c_brand".into(),

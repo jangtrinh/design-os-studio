@@ -51,20 +51,32 @@ pub fn style_entries(doc: &Document, text: bool) -> Vec<StyleEntry> {
     style_entries_of(doc, if text { StyleKind::Text } else { StyleKind::Color })
 }
 
-/// The styles of one kind, root-level ones first and then folders alphabetically.
+/// The styles of one kind, ordered by `sort_position` (or stored order when absent) and grouped
+/// by folder in first-seen folder order.
 pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
-    let mut out: Vec<StyleEntry> = doc
-        .styles
-        .iter()
-        .filter(|(_, s)| kind.holds(s))
-        .map(|(k, _)| {
-            let (folder, leaf) = split_name(doc.style_name(k));
-            StyleEntry { key: k.clone(), folder, leaf }
+    let ordered: Vec<StyleEntry> = ordered_style_keys(doc, None)
+        .into_iter()
+        .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s)))
+        .map(|k| {
+            let (folder, leaf) = split_name(doc.style_name(&k));
+            StyleEntry { key: k, folder, leaf }
         })
         .collect();
-    out.sort_by(|a, b| {
-        (!a.folder.is_empty(), a.folder.to_lowercase(), a.leaf.to_lowercase()).cmp(&(!b.folder.is_empty(), b.folder.to_lowercase(), b.leaf.to_lowercase()))
-    });
+    let mut out = Vec::with_capacity(ordered.len());
+    let mut seen_folders: Vec<String> = Vec::new();
+    for idx in 0..ordered.len() {
+        let folder = &ordered[idx].folder;
+        if folder.is_empty() {
+            out.push(ordered[idx].clone());
+        } else if !seen_folders.contains(folder) {
+            seen_folders.push(folder.clone());
+            for item in &ordered[idx..] {
+                if &item.folder == folder {
+                    out.push(item.clone());
+                }
+            }
+        }
+    }
     out
 }
 
@@ -206,6 +218,12 @@ impl App {
     /// Renames style `key` (the display name; folders come from "/").
     pub fn rename_style_to(&mut self, key: &str, name: &str) -> bool {
         let op = rename_style(&self.doc, key, name);
+        self.run_style_op(op)
+    }
+
+    /// Renames folder `old_folder` to `new_folder` across every member style in one undo step.
+    pub fn rename_style_folder_to(&mut self, old_folder: &str, new_folder: &str) -> bool {
+        let op = rename_style_folder(&self.doc, old_folder, new_folder);
         self.run_style_op(op)
     }
 

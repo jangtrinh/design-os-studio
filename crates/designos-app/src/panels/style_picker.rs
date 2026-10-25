@@ -77,6 +77,7 @@ enum Pick {
     Apply(String),
     Create,
     Rename,
+    RenameFolder(String),
     Detach,
     Delete,
     Edit,
@@ -89,8 +90,15 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         if prop == StyleProperty::Effect { ("No effect styles", "Create style from effects") } else { ("No grid styles", "Create style from guides") };
     let mut items = Vec::new();
     let mut picks = Vec::new();
+    let mut last_folder: Option<String> = None;
     for e in style_entries_of(&app.doc, kind_of(prop)) {
-        items.push(MenuItem::new(app.doc.style_name(&e.key)).checked(current.as_deref() == Some(e.key.as_str())));
+        if !e.folder.is_empty() && last_folder.as_deref() != Some(e.folder.as_str()) {
+            items.push(MenuItem::new(e.folder.clone()).disabled(true));
+            picks.push(None);
+        }
+        last_folder = Some(e.folder.clone());
+        let label = if e.folder.is_empty() { e.leaf } else { format!("  {}", e.leaf) };
+        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())));
         picks.push(Some(Pick::Apply(e.key)));
     }
     if items.is_empty() {
@@ -106,12 +114,19 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     let ro_tip = if read_only { style_edit::LIBRARY_STYLE_TIP } else { "" };
     let delete_ro = read_only || current.as_deref().is_some_and(|k| used_on_library_page(&app.doc, k));
     let delete_tip = if delete_ro { style_edit::LIBRARY_STYLE_TIP } else { "" };
+    let linked_folder = current.as_deref().map(|k| crate::styles::split_name(app.doc.style_name(k)).0).filter(|f| !f.is_empty());
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
+    picks.push(Some(Pick::Create));
     items.push(MenuItem::new("Rename style").disabled(!linked || read_only).tooltip(ro_tip));
+    picks.push(Some(Pick::Rename));
+    if let Some(folder) = linked_folder {
+        items.push(MenuItem::new("Rename folder").disabled(read_only).tooltip(ro_tip));
+        picks.push(Some(Pick::RenameFolder(folder)));
+    }
     items.push(MenuItem::new("Detach style").disabled(!linked));
     items.push(MenuItem::new("Delete style").disabled(!linked || delete_ro).tooltip(delete_tip));
     items.push(MenuItem::new("Edit style").disabled(!linked || read_only).tooltip(ro_tip));
-    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
+    picks.extend([Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)
 }
 
@@ -162,6 +177,13 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
                 }
                 Some(Pick::Rename) => {
                     if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
+                        ui.data_mut(|d| d.remove_temp::<String>(Id::new(("style-folder-rename", key))));
+                        app.props.style_rename = Some(prop);
+                    }
+                }
+                Some(Pick::RenameFolder(folder)) => {
+                    if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
+                        ui.data_mut(|d| d.insert_temp(Id::new(("style-folder-rename", key)), folder));
                         app.props.style_rename = Some(prop);
                     }
                 }
@@ -188,29 +210,38 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
 /// button that detaches it. Leaves `pane` below the row.
 pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], prop: StyleProperty, key: &str) {
     let tag = if prop == StyleProperty::Effect { "effect-style" } else { "grid-style" };
+    let btn_key = if prop == StyleProperty::Effect { "effect-style-button" } else { "grid-style-button" };
+    let folder_mode_id = Id::new(("style-folder-rename", btn_key));
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
     widgets::record(ui, &format!("{tag}-row"), row);
     let name = app.doc.style_name(key).to_string();
     let id = Id::new((tag, "name"));
     let read_only = style_edit::is_read_only(app, key);
     if app.props.style_rename == Some(prop) && !read_only {
+        let folder_target = ui.data(|d| d.get_temp::<String>(folder_mode_id));
+        let initial = folder_target.as_deref().unwrap_or(&name);
         let started = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
         field::field_bg(ui, row, id);
-        let committed = field::edit_text(ui, row, id, &name, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
+        let committed = field::edit_text(ui, row, id, initial, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
         if !started {
             // Focus the field with its text selected once it exists; it ends the rename when it loses focus again.
             ui.memory_mut(|m| m.request_focus(id));
             let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(name.chars().count()))));
+            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(initial.chars().count()))));
             state.store(ui.ctx(), id);
             ui.data_mut(|d| d.insert_temp(id, true));
         }
         if committed.is_some() || (started && !ui.memory(|m| m.has_focus(id))) {
             ui.data_mut(|d| d.remove_temp::<bool>(id));
+            ui.data_mut(|d| d.remove_temp::<String>(folder_mode_id));
             app.props.style_rename = None;
         }
         if let Some(text) = committed {
-            app.rename_style_to(key, &text);
+            if let Some(old_folder) = folder_target {
+                app.rename_style_folder_to(&old_folder, &text);
+            } else {
+                app.rename_style_to(key, &text);
+            }
         }
     } else {
         let resp = ui.interact(row, id, Sense::click());

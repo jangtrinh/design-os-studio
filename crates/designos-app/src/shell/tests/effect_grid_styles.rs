@@ -406,3 +406,70 @@ fn deleting_a_style_shows_fallback_toast_for_one_and_three_layers_and_plain_toas
     assert_eq!(run_case(1), format!("Style deleted · 1 layer matches it in this mode only · {undo} to undo"));
     assert_eq!(run_case(3), format!("Style deleted · 3 layers match it in this mode only · {undo} to undo"));
 }
+
+#[test]
+fn styles_order_by_sort_position_group_by_folder_and_rename_folder_in_one_undo_step() {
+    use crate::styles::{style_entries_of, StyleKind};
+    use designos_doc::{Style, StyleMeta};
+
+    let (mut s, welcome) = welcome_sim();
+    // Insert 4 effect styles in 2 folders whose sort_position order is opposite to alphabetical / key order.
+    for (key, name, pos) in [
+        ("2:10", "Shadows/shadow-lg", "!~~p~oLx"),
+        ("2:20", "Focus rings/focus-ring", "\"'#"),
+        ("2:30", "Shadows/shadow-xs", "!~~p~oL"),
+        ("2:40", "Shadows/shadow-sm", "!~~p~oLf"),
+    ] {
+        s.shell.app.doc.styles.insert(key.into(), Style::Effect(vec![shadow()]));
+        s.shell
+            .app
+            .doc
+            .style_meta
+            .insert(key.into(), StyleMeta { name: name.into(), property: StyleProperty::Effect, sort_position: Some(pos.into()), ..Default::default() });
+    }
+
+    let entries = style_entries_of(&s.app().doc, StyleKind::Effect);
+    let ordered_names: Vec<(&str, &str)> = entries.iter().map(|e| (e.folder.as_str(), e.leaf.as_str())).collect();
+    assert_eq!(
+        ordered_names,
+        vec![("Shadows", "shadow-xs"), ("Shadows", "shadow-sm"), ("Shadows", "shadow-lg"), ("Focus rings", "focus-ring"),],
+        "styles must be ordered by sort_position and grouped by folder, not sorted alphabetically by name"
+    );
+
+    // Link welcome to 2:30 ("Shadows/shadow-xs"), open the effect style picker menu, verify
+    // folder headers and ordered leaves are painted, pick "Rename folder" (row 8), and rename
+    // "Shadows" -> "Elevation".
+    s.shell.app.apply_style(&[welcome], "2:30");
+    s.frame(vec![]);
+    let btn = s.rect_of("effect-style-button");
+    s.click(btn.center());
+    s.frame(vec![]);
+    let painted = painted_texts(&s);
+    for expected in ["Shadows", "  shadow-xs", "  shadow-sm", "  shadow-lg", "Focus rings", "  focus-ring", "Rename folder"] {
+        assert!(painted.iter().any(|t| t == expected), "expected {expected:?} in open style picker menu, got {painted:?}");
+    }
+    // Menu rows when 4 styles in 2 folders are listed:
+    // 0: Shadows (disabled header), 1: shadow-xs, 2: shadow-sm, 3: shadow-lg, 4: Focus rings (disabled header), 5: focus-ring
+    // separator
+    // 6: Create, 7: Rename style, 8: Rename folder, 9: Detach, 10: Delete, 11: Edit
+    let rename_folder_row = s.rect_of("menu-row-0-8");
+    s.click(rename_folder_row.center());
+    assert_eq!(s.app().props.style_rename, Some(StyleProperty::Effect));
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert_eq!(s.app().props.style_rename, Some(StyleProperty::Effect));
+    s.type_text("Elevation");
+    s.key(Key::Enter);
+    s.frame(vec![]);
+
+    assert_eq!(s.app().doc.style_name("2:30"), "Elevation/shadow-xs");
+    assert_eq!(s.app().doc.style_name("2:40"), "Elevation/shadow-sm");
+    assert_eq!(s.app().doc.style_name("2:10"), "Elevation/shadow-lg");
+    assert_eq!(s.app().doc.style_name("2:20"), "Focus rings/focus-ring");
+
+    // One undo restores every member style's prefix.
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.style_name("2:30"), "Shadows/shadow-xs");
+    assert_eq!(s.app().doc.style_name("2:40"), "Shadows/shadow-sm");
+    assert_eq!(s.app().doc.style_name("2:10"), "Shadows/shadow-lg");
+}

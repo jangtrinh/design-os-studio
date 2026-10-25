@@ -1057,7 +1057,14 @@ mod tests {
         doc.styles.insert("fill-brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x0D, 0x99, 0xFF))]));
         doc.style_meta.insert(
             "fill-brand".into(),
-            StyleMeta { name: "Brand/Primary".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Brand/Primary".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         let card_mut = doc.get_mut(card_id).unwrap();
         card_mut.style_refs.insert("fill".into(), "fill-brand".into());

@@ -1280,7 +1280,7 @@ fn apply_set_style_op(
         let description = s_in.description.clone().or_else(|| existing_meta.as_ref().map(|m| m.description.clone())).unwrap_or_default();
         let bindings = existing_meta.as_ref().map(|m| m.bindings.clone()).unwrap_or_default();
         styles.insert(key.clone(), style_val);
-        style_meta.insert(key.clone(), StyleMeta { name, key: existing_meta.and_then(|m| m.key), description, property: prop, bindings });
+        style_meta.insert(key.clone(), StyleMeta { name, key: existing_meta.and_then(|m| m.key), description, property: prop, bindings, ..Default::default() });
     }
 
     for del_key in &op.delete {
@@ -2791,7 +2791,14 @@ mod tests {
         engine.doc.styles.insert("s_brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
         engine.doc.style_meta.insert(
             "s_brand".into(),
-            StyleMeta { name: "Brand Fill".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Brand Fill".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         engine.owned_frames = Some(vec![leased_frame]);
 

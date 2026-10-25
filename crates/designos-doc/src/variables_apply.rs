@@ -906,7 +906,14 @@ mod tests {
         d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
         d.style_meta.insert(
             "Card".into(),
-            StyleMeta { name: "Card".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
+            StyleMeta {
+                name: "Card".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: BTreeMap::new(),
+                ..Default::default()
+            },
         );
         let cmd = crate::styles_ops::bind_style_property(&d, "Card", "fills/0", "surface").unwrap();
         cmd.apply(&mut d).unwrap();
@@ -939,6 +946,7 @@ mod tests {
                 description: String::new(),
                 property: StyleProperty::Fill,
                 bindings: [("fills/0".to_string(), "surface".to_string())].into_iter().collect(),
+                ..Default::default()
             },
         );
 
@@ -960,7 +968,14 @@ mod tests {
         d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
         d.style_meta.insert(
             "Card".into(),
-            StyleMeta { name: "Card".into(), key: Some("k-card".into()), description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
+            StyleMeta {
+                name: "Card".into(),
+                key: Some("k-card".into()),
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: BTreeMap::new(),
+                ..Default::default()
+            },
         );
         let json = serde_json::to_string_pretty(&d).unwrap();
         assert!(!json.contains("\"bindings\""), "empty bindings map must be omitted from JSON: {json}");
@@ -975,7 +990,14 @@ mod tests {
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..TextStyle::default() }));
         d.style_meta.insert(
             "Body".into(),
-            StyleMeta { name: "Body".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: BTreeMap::new() },
+            StyleMeta {
+                name: "Body".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Text,
+                bindings: BTreeMap::new(),
+                ..Default::default()
+            },
         );
         let cmd = crate::styles_ops::bind_style_property(&d, "Body", "fontSize", "size-body").unwrap();
         cmd.apply(&mut d).unwrap();

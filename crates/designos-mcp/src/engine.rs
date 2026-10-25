@@ -2129,7 +2129,10 @@ mod tests {
         e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
         e.doc.styles.insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))]));
         for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {
-            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property, bindings: Default::default() });
+            e.doc.style_meta.insert(
+                key.into(),
+                StyleMeta { name: name.into(), key: None, description: String::new(), property, bindings: Default::default(), ..Default::default() },
+            );
         }
         e.doc.get_mut(NodeId(id)).unwrap().style_refs.insert("effect".into(), "Shadow/Card".into());
         let doc = e.call("designos_get_document", json!({})).unwrap();
@@ -3156,6 +3159,7 @@ mod tests {
                 description: String::new(),
                 property: designos_doc::StyleProperty::Fill,
                 bindings,
+                ..Default::default()
             },
         );
     }

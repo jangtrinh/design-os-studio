@@ -121,7 +121,8 @@ pub fn create_style_from_node(doc: &Document, node: NodeId, prop: StyleProperty,
     let mut styles = doc.styles.clone();
     let mut style_meta = doc.style_meta.clone();
     styles.insert(key.clone(), style);
-    style_meta.insert(key.clone(), StyleMeta { name, key: None, description: String::new(), property: prop, bindings: Default::default() });
+    style_meta
+        .insert(key.clone(), StyleMeta { name, key: None, description: String::new(), property: prop, bindings: Default::default(), ..Default::default() });
     let link = updated(n, |n| {
         n.style_refs.insert(ref_key.into(), key.clone());
     });
@@ -221,6 +222,7 @@ pub fn bind_style_property(doc: &Document, key: &str, property: &str, variable: 
         description: String::new(),
         property: prop_kind,
         bindings: Default::default(),
+        ..Default::default()
     });
     meta.bindings.insert(property.to_string(), variable.to_string());
     let mut cmds = vec![Command::SetStyles { styles, style_meta }];
@@ -304,8 +306,74 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
         description: String::new(),
         property,
         bindings: Default::default(),
+        ..Default::default()
     });
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
+}
+
+fn clean_folder_path(folder: &str) -> String {
+    folder.split('/').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/")
+}
+
+/// Renames folder `old_folder` to `new_folder`, updating the prefix of every member style in
+/// one [`Command::SetStyles`] undo step.
+pub fn rename_style_folder(doc: &Document, old_folder: &str, new_folder: &str) -> Result<Command, StyleOpError> {
+    let old_clean = clean_folder_path(old_folder);
+    let new_clean = clean_folder_path(new_folder);
+    if old_clean.is_empty() || new_clean.is_empty() {
+        return Err(StyleOpError::EmptyName);
+    }
+    let old_segs: Vec<&str> = old_clean.split('/').collect();
+    let mut matched = Vec::new();
+    for key in doc.styles.keys() {
+        let raw_name = doc.style_name(key);
+        let segs: Vec<&str> = raw_name.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
+        if segs.len() > old_segs.len() && segs[..old_segs.len()] == old_segs[..] {
+            if is_library_style(doc, key) {
+                return Err(StyleOpError::LibraryStyle(key.clone()));
+            }
+            let rest = segs[old_segs.len()..].join("/");
+            matched.push((key.clone(), format!("{new_clean}/{rest}")));
+        }
+    }
+    if matched.is_empty() {
+        return Err(StyleOpError::UnknownStyle(old_clean));
+    }
+    let mut style_meta = doc.style_meta.clone();
+    for (key, new_name) in matched {
+        let property = style_property(doc, &key);
+        style_meta.entry(key).and_modify(|m| m.name = new_name.clone()).or_insert_with(|| StyleMeta {
+            name: new_name,
+            key: None,
+            description: String::new(),
+            property,
+            bindings: Default::default(),
+            ..Default::default()
+        });
+    }
+    Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
+}
+
+/// Returns the keys of styles in `doc` (optionally filtered to `prop`), ordered by
+/// [`StyleMeta::sort_position`] when present and falling back to stored map order when absent.
+pub fn ordered_style_keys(doc: &Document, prop: Option<StyleProperty>) -> Vec<String> {
+    let mut items: Vec<(usize, &String, Option<&str>)> = doc
+        .styles
+        .keys()
+        .enumerate()
+        .filter(|(_, k)| prop.is_none_or(|p| style_property(doc, k) == p))
+        .map(|(idx, k)| {
+            let pos = doc.style_meta.get(k).and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty());
+            (idx, k, pos)
+        })
+        .collect();
+    items.sort_by(|(a_idx, _, a_pos), (b_idx, _, b_pos)| match (a_pos, b_pos) {
+        (Some(ap), Some(bp)) => ap.cmp(bp).then_with(|| a_idx.cmp(b_idx)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a_idx.cmp(b_idx),
+    });
+    items.into_iter().map(|(_, k, _)| k.clone()).collect()
 }
 
 thread_local! {
@@ -721,7 +789,14 @@ mod tests {
         }
         assert_eq!(
             d.style_meta[&key],
-            StyleMeta { name: "Effect style 1".into(), key: None, description: String::new(), property: StyleProperty::Effect, bindings: Default::default() }
+            StyleMeta {
+                name: "Effect style 1".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Effect,
+                bindings: Default::default(),
+                ..Default::default()
+            }
         );
         assert_eq!(d.get(a).unwrap().style_refs.get("effect"), Some(&key));
         h.undo(&mut d).unwrap();
@@ -825,7 +900,14 @@ mod tests {
         d.styles.insert("Line".into(), Style::Fill(vec![Paint::solid(Color::rgb(0, 255, 0))]));
         d.style_meta.insert(
             "Line".into(),
-            StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke, bindings: Default::default() },
+            StyleMeta {
+                name: "Line".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Stroke,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
         // Metadata that never named the property (it defaults to Fill) must not hide the text layers.
@@ -1151,6 +1233,7 @@ mod tests {
                 description: String::new(),
                 property: StyleProperty::Fill,
                 bindings: [("fills/0".to_string(), "v_fill".to_string())].into_iter().collect(),
+                ..Default::default()
             },
         );
         d.styles.insert("TextStyle".into(), Style::Text(ts.clone()));
@@ -3065,5 +3148,83 @@ mod tests {
                 &format!("row6 deleted in {active_mode}"),
             );
         }
+    }
+
+    #[test]
+    fn style_order_kept_through_native_save_and_load_and_old_file_omits_sort_position() {
+        let mut d = Document::new("StyleOrderDoc");
+        d.add_page("Page 1");
+        // Insert in BTreeMap key order: s1, s2, s3, but assign Figma sortPosition so order is s3, s1, s2.
+        d.styles.insert("s1".into(), Style::Effect(vec![shadow(8.0)]));
+        d.styles.insert("s2".into(), Style::Effect(vec![shadow(16.0)]));
+        d.styles.insert("s3".into(), Style::Effect(vec![shadow(4.0)]));
+        d.style_meta.insert(
+            "s1".into(),
+            StyleMeta { name: "Shadows/md".into(), property: StyleProperty::Effect, sort_position: Some("!~~p~oLf".into()), ..Default::default() },
+        );
+        d.style_meta.insert(
+            "s2".into(),
+            StyleMeta { name: "Shadows/lg".into(), property: StyleProperty::Effect, sort_position: Some("!~~p~oLr".into()), ..Default::default() },
+        );
+        d.style_meta.insert(
+            "s3".into(),
+            StyleMeta { name: "Shadows/xs".into(), property: StyleProperty::Effect, sort_position: Some("!~~p~oL".into()), ..Default::default() },
+        );
+
+        let json = d.to_json().unwrap();
+        let loaded = Document::from_json(&json).unwrap();
+        assert_eq!(loaded.style_meta["s3"].sort_position.as_deref(), Some("!~~p~oL"));
+        assert_eq!(loaded.style_meta["s1"].sort_position.as_deref(), Some("!~~p~oLf"));
+        assert_eq!(loaded.style_meta["s2"].sort_position.as_deref(), Some("!~~p~oLr"));
+        assert_eq!(ordered_style_keys(&loaded, Some(StyleProperty::Effect)), vec!["s3".to_string(), "s1".to_string(), "s2".to_string()]);
+
+        // (d) Old file without `sort_position` loads with stable default order and saving does not add `sort_position`.
+        let mut old_doc = Document::new("LegacyDoc");
+        old_doc.add_page("Page 1");
+        old_doc.styles.insert("b_key".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+        old_doc.styles.insert("a_key".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        old_doc.style_meta.insert("b_key".into(), StyleMeta { name: "Brand/Zeta".into(), property: StyleProperty::Fill, ..Default::default() });
+        old_doc.style_meta.insert("a_key".into(), StyleMeta { name: "Brand/Alpha".into(), property: StyleProperty::Fill, ..Default::default() });
+        let old_json = old_doc.to_json().unwrap();
+        assert!(!old_json.contains("sort_position"), "old file without sort_position must omit field on save: {old_json}");
+        let old_loaded = Document::from_json(&old_json).unwrap();
+        assert_eq!(old_loaded.style_meta["a_key"].sort_position, None);
+        assert_eq!(old_loaded.style_meta["b_key"].sort_position, None);
+        assert_eq!(ordered_style_keys(&old_loaded, Some(StyleProperty::Fill)), vec!["a_key".to_string(), "b_key".to_string()]);
+        let saved_again = old_loaded.to_json().unwrap();
+        assert!(!saved_again.contains("sort_position"), "saving loaded legacy file must not add sort_position");
+    }
+
+    #[test]
+    fn folder_rename_renames_every_member_and_one_undo_restores_all() {
+        let mut d = Document::new("FolderRenameDoc");
+        d.add_page("Page 1");
+        for (key, name) in [("s1", "Brand/Primary"), ("s2", "Brand/Secondary"), ("s3", "Brand/Nested/Accent"), ("s4", "BrandNew/Untouched"), ("s5", "Surface")]
+        {
+            d.styles.insert(key.into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+            d.style_meta.insert(
+                key.into(),
+                StyleMeta { name: name.into(), property: StyleProperty::Fill, sort_position: Some(format!("!00000{key}")), ..Default::default() },
+            );
+        }
+
+        let mut h = History::default();
+        let cmd = rename_style_folder(&d, "Brand", "Theme").unwrap();
+        h.exec(&mut d, cmd).unwrap();
+
+        assert_eq!(d.style_name("s1"), "Theme/Primary");
+        assert_eq!(d.style_name("s2"), "Theme/Secondary");
+        assert_eq!(d.style_name("s3"), "Theme/Nested/Accent");
+        assert_eq!(d.style_name("s4"), "BrandNew/Untouched");
+        assert_eq!(d.style_name("s5"), "Surface");
+        assert_eq!(d.style_meta["s1"].sort_position.as_deref(), Some("!00000s1"), "sort_position preserved on folder rename");
+
+        // Single undo step restores all members.
+        assert!(h.undo(&mut d).unwrap());
+        assert_eq!(d.style_name("s1"), "Brand/Primary");
+        assert_eq!(d.style_name("s2"), "Brand/Secondary");
+        assert_eq!(d.style_name("s3"), "Brand/Nested/Accent");
+        assert_eq!(d.style_name("s4"), "BrandNew/Untouched");
+        assert_eq!(d.style_name("s5"), "Surface");
     }
 }

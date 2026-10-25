@@ -647,7 +647,8 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
 }
 
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
-    let styles: Vec<(String, Style)> = cx.doc.styles.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let styles: Vec<(String, Style)> =
+        designos_doc::ordered_style_keys(cx.doc, None).into_iter().filter_map(|k| cx.doc.styles.get(&k).cloned().map(|s| (k, s))).collect();
     let empty_bindings = BTreeMap::new();
     for (sid, style) in styles {
         let sguid = cx.style_guids[&sid];
@@ -673,6 +674,9 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         ];
         if let Some(k) = meta.and_then(|m| m.key.as_ref()) {
             fields.push(("key", V::String(k.clone())));
+        }
+        if let Some(sp) = meta.and_then(|m| m.sort_position.as_ref()).filter(|s| !s.is_empty()) {
+            fields.push(("sortPosition", V::String(sp.clone())));
         }
         match &style {
             Style::Fill(paints) => {

@@ -206,6 +206,7 @@ mod tests {
                 description: "Body copy".into(),
                 property: StyleProperty::Text,
                 bindings: Default::default(),
+                ..Default::default()
             },
         );
         doc.styles.insert("S:surface".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));

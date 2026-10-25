@@ -237,16 +237,28 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
     }
     if open {
         let want = if stroke { StyleProperty::Stroke } else { StyleProperty::Fill };
-        let entries: Vec<(String, String)> = crate::styles::style_entries(&app.doc, false)
+        let entries: Vec<crate::styles::StyleEntry> = crate::styles::style_entries(&app.doc, false)
             .into_iter()
             .filter(|e| app.doc.style_meta.get(&e.key).map(|m| m.property).unwrap_or(StyleProperty::Fill) == want)
-            .map(|e| (e.key.clone(), app.doc.style_name(&e.key).to_string()))
             .collect();
-        let mut items: Vec<crate::widgets::menu::MenuItem> = if entries.is_empty() {
-            vec![crate::widgets::menu::MenuItem::new("No color styles").disabled(true)]
+        let mut items: Vec<crate::widgets::menu::MenuItem> = Vec::new();
+        let mut picks: Vec<Option<String>> = Vec::new();
+        if entries.is_empty() {
+            items.push(crate::widgets::menu::MenuItem::new("No color styles").disabled(true));
+            picks.push(None);
         } else {
-            entries.iter().map(|(_, n)| crate::widgets::menu::MenuItem::new(n.clone())).collect()
-        };
+            let mut last_folder: Option<String> = None;
+            for e in &entries {
+                if !e.folder.is_empty() && last_folder.as_deref() != Some(e.folder.as_str()) {
+                    items.push(crate::widgets::menu::MenuItem::new(e.folder.clone()).disabled(true));
+                    picks.push(None);
+                }
+                last_folder = Some(e.folder.clone());
+                let label = if e.folder.is_empty() { e.leaf.clone() } else { format!("  {}", e.leaf) };
+                items.push(crate::widgets::menu::MenuItem::new(label));
+                picks.push(Some(e.key.clone()));
+            }
+        }
         // The style this selection is linked to can be edited from here.
         let linked = sel
             .first()
@@ -269,7 +281,7 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
                     if let Some(key) = &linked {
                         super::style_edit::toggle(app, key, styles);
                     }
-                } else if let Some((key, _)) = entries.get(i) {
+                } else if let Some(Some(key)) = picks.get(i) {
                     app.apply_style(sel, key);
                 }
             }
@@ -499,24 +511,54 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             if !e.folder.is_empty() && last_folder.as_deref() != Some(e.folder.as_str()) {
                 let r = pane.rect(8.0, 0.0, theme::RIGHT_PANEL_WIDTH - 17.0, theme::STYLE_FOLDER_ROW_H);
                 widgets::record(ui, &format!("folder:{folder_key}"), r);
-                let resp = ui.interact(r, ui.id().with(("sfolder", &folder_key)), Sense::click());
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-                }
-                let open = !app.props.folded.contains(&folder_key);
-                icons::paint(
-                    ui.painter(),
-                    if open { Icon::ChevronDown } else { Icon::ChevronRight },
-                    Pos2::new(r.left() + 14.0, r.center().y),
-                    12.0,
-                    theme::ICON_TERTIARY,
-                );
-                ui.painter().text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &e.folder, theme::font_body(), theme::TEXT_SECONDARY);
-                if resp.clicked() {
-                    if open {
-                        app.props.folded.insert(folder_key.clone());
-                    } else {
+                let edit_id = ui.id().with(("sfolder-edit", &folder_key));
+                let editing_id = ui.id().with(("sfolder-editing", &folder_key));
+                let started_id = ui.id().with(("sfolder-started", &folder_key));
+                let is_editing = ui.data(|d| d.get_temp::<bool>(editing_id)).unwrap_or(false);
+                if is_editing {
+                    let started = ui.data(|d| d.get_temp::<bool>(started_id)).unwrap_or(false);
+                    field::field_bg(ui, r, edit_id);
+                    let committed = field::edit_text(ui, r, edit_id, &e.folder, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
+                    if !started {
+                        ui.memory_mut(|m| m.request_focus(edit_id));
+                        let mut state = egui::widgets::text_edit::TextEdit::load_state(ui.ctx(), edit_id).unwrap_or_default();
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(e.folder.chars().count()),
+                        )));
+                        state.store(ui.ctx(), edit_id);
+                        ui.data_mut(|d| d.insert_temp(started_id, true));
+                    }
+                    if committed.is_some() || (started && !ui.memory(|m| m.has_focus(edit_id))) {
+                        ui.data_mut(|d| d.remove_temp::<bool>(started_id));
+                        ui.data_mut(|d| d.remove_temp::<bool>(editing_id));
+                    }
+                    if let Some(text) = committed {
+                        app.rename_style_folder_to(&e.folder, &text);
+                    }
+                } else {
+                    let resp = ui.interact(r, ui.id().with(("sfolder", &folder_key)), Sense::click());
+                    if resp.hovered() {
+                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+                    }
+                    let open = !app.props.folded.contains(&folder_key);
+                    icons::paint(
+                        ui.painter(),
+                        if open { Icon::ChevronDown } else { Icon::ChevronRight },
+                        Pos2::new(r.left() + 14.0, r.center().y),
+                        12.0,
+                        theme::ICON_TERTIARY,
+                    );
+                    ui.painter().text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &e.folder, theme::font_body(), theme::TEXT_SECONDARY);
+                    if resp.double_clicked() {
                         app.props.folded.remove(&folder_key);
+                        ui.data_mut(|d| d.insert_temp(editing_id, true));
+                    } else if resp.clicked() {
+                        if open {
+                            app.props.folded.insert(folder_key.clone());
+                        } else {
+                            app.props.folded.remove(&folder_key);
+                        }
                     }
                 }
                 pane.y += theme::STYLE_FOLDER_ROW_H;
@@ -1777,6 +1819,7 @@ fn create_style(app: &mut App, pk: &mut Picker) {
             description: String::new(),
             property: if stroke { StyleProperty::Stroke } else { StyleProperty::Fill },
             bindings: Default::default(),
+            ..Default::default()
         },
     );
     if let Err(e) = pk.tx.cmd(&mut app.doc, Command::SetStyles { styles, style_meta }) {

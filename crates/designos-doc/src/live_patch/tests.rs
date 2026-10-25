@@ -928,6 +928,7 @@ fn styles_the_agent_adds_merge_into_the_editors_and_undo_removes_only_those() {
             description: String::new(),
             property: crate::StyleProperty::Fill,
             bindings: Default::default(),
+            ..Default::default()
         },
     );
     agent_exec(&mut agent, &mut hist, &mut ops, Command::SetStyles { styles, style_meta: meta });
