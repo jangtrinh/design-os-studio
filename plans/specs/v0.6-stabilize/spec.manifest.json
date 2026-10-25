@@ -1,0 +1,80 @@
+{
+  "format": "2",
+  "title": "design:os studio v0.6 stabilize",
+  "language": "vi (EN product terms kept)",
+  "date": "2026-10-25",
+  "tests_root": "tests",
+  "glossary": {
+    "document": "decisions/glossary.md"
+  },
+  "artifacts": [
+    {
+      "id": "intake",
+      "folder": "intake",
+      "name": "Intake",
+      "status": "Done",
+      "owner_role": "PM"
+    },
+    {
+      "id": "contract",
+      "folder": "contract",
+      "name": "Feature contract",
+      "status": "Draft for G2",
+      "owner_role": "PM"
+    },
+    {
+      "id": "prd",
+      "folder": "prd",
+      "name": "PRD",
+      "status": "Written",
+      "owner_role": "PM"
+    },
+    {
+      "id": "us",
+      "folder": "us",
+      "name": "Delivery slices as stories",
+      "status": "Written",
+      "owner_role": "PM"
+    },
+    {
+      "id": "delivery",
+      "folder": "delivery",
+      "name": "Patch slices v0.6.2-v0.6.5",
+      "status": "In progress",
+      "owner_role": "Delivery lead"
+    },
+    {
+      "id": "decisions",
+      "folder": "decisions",
+      "name": "Decision log",
+      "status": "Current to D4",
+      "owner_role": "PM"
+    },
+    {
+      "id": "handoff",
+      "name": "Handoff",
+      "status": "Planned"
+    }
+  ],
+  "reading_order": [
+    {
+      "pages": [
+        "fc-v06"
+      ],
+      "note": "phạm vi và gate"
+    },
+    {
+      "pages": [
+        "prd-v06",
+        "us-index"
+      ],
+      "note": "yêu cầu rồi slice"
+    },
+    {
+      "pages": [
+        "release-train"
+      ],
+      "note": "cách ship"
+    }
+  ]
+}
