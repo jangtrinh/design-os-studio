@@ -51,6 +51,20 @@
       "owner_role": "PM"
     },
     {
+      "id": "tests",
+      "folder": "tests",
+      "name": "Test cases",
+      "status": "Written",
+      "owner_role": "QA"
+    },
+    {
+      "id": "evidence",
+      "folder": "evidence",
+      "name": "Mockups per story",
+      "status": "Written",
+      "owner_role": "PM"
+    },
+    {
       "id": "handoff",
       "name": "Handoff",
       "status": "Planned"
