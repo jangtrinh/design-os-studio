@@ -448,8 +448,8 @@ enum Sink {
 impl Sink {
     fn write(&self, job: &ExportJob, bytes: &[u8]) -> Result<PathBuf, (PathBuf, std::io::Error)> {
         match self {
-            Sink::File(path) => crate::io::write_new_dashed_path(path, bytes).map_err(|e| (path.clone(), e)),
-            Sink::Dir(dir) => crate::io::write_new_dashed_in(dir, &job.file, bytes).map_err(|e| (dir.join(&job.file), e)),
+            Sink::File(path) => crate::io::write_new_dashed_path(path, bytes).map_err(|e| (e.path, e.error)),
+            Sink::Dir(dir) => crate::io::write_new_dashed_in(dir, &job.file, bytes).map_err(|e| (e.path, e.error)),
         }
     }
 }
