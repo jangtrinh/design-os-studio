@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -4953,7 +4953,7 @@
+ pub(crate) fn status_hook_command_for_tab(paths: &crate::agent_hook_outputs::HookPaths, event: &str, state: &str, tab: Option<usize>) -> String {
+     let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&paths.events(), event, tab);
+     format!(
+-        "{append_cmd}; {{ printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}; }} 2>/dev/null || true",
++        "{append_cmd}; {{ printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}; }}",
+         crate::agent_turn_status::sh_single_quote(&paths.status().display().to_string())
+     )
+ }
