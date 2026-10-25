@@ -135,12 +135,21 @@ pub(crate) fn build_created_node(
     let constructor = validate_create_fields(kind, name.as_deref(), text.as_deref(), x, y, width, height)?;
     let rect = Rect::new(x, y, width, height);
     let id = doc.try_alloc_id().ok_or_else(|| ToolError::new(ErrorCode::IdExhausted, "", "Document has exhausted node IDs"))?;
+    let (centre_h, centre_v) = doc.parent_centres_children(parent_id);
     let mut node = constructor(id, rect);
     if let Some(name) = name {
         node.name = name;
     }
-    if let (Some(text), NodeKind::Text(props)) = (text, &mut node.kind) {
-        props.content = text;
+    if let NodeKind::Text(props) = &mut node.kind {
+        if centre_h {
+            props.style.align_h = designos_doc::TextAlignH::Center;
+        }
+        if centre_v {
+            props.style.align_v = designos_doc::TextAlignV::Center;
+        }
+        if let Some(text) = text {
+            props.content = text;
+        }
     }
     Ok((id, target_index, node))
 }
@@ -229,6 +238,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if let Some(y) = u.y {
         node.transform.ty = y;
     }
+    let size_overridden = u.width.is_some() || u.height.is_some();
     if let Some(width) = u.width {
         node.size.x = width;
     }
@@ -252,6 +262,9 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.content = text;
             props.runs.clear();
             props.lists.clear();
+            if !size_overridden && props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+                node.size = designos_doc::spec::estimate_intrinsic_text_size(props);
+            }
         }
     }
     let changed = doc.get(id) != Some(&node);
