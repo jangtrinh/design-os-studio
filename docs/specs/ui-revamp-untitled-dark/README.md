@@ -49,7 +49,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | L | 0, first | #1126 | [1126-layout-unchanged-gate-baseline-capture.md](1126-layout-unchanged-gate-baseline-capture.md) | M |
 | A | 0 | — | Onboard Untitled UI dark with the design:os CLI: colour roles, `design/`, `theme.rs` colours, soul, principles, design agents (spec in progress) | — |
 | B | 0 | — | Untitled type, spacing, radius and control-size scale (spec in progress) | — |
-| C | 0 | — | Widget kit: Untitled component anatomy and states (spec in progress) | — |
+| C | 0 | #1139 | [1139-widget-kit-untitled-anatomy.md](1139-widget-kit-untitled-anatomy.md) | L |
 | D | 1 | #1119 | [1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md](1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md) | M |
 | E | 1 | #1120 | [1120-surface-left-panel-pages-layers.md](1120-surface-left-panel-pages-layers.md) | M |
 | F | 1 | #1124 | [1124-surface-right-panel-inspector-design-prototype.md](1124-surface-right-panel-inspector-design-prototype.md) | L |
