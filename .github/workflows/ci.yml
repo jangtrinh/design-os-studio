@@ -57,6 +57,31 @@ jobs:
           python3 -B scripts/check_vendor_skills.py map-coverage
           python3 -B -m unittest scripts/test_check_vendor_skills.py
 
+      - name: Configure Linux swap and debuginfo
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          if sudo modprobe zram 2>/dev/null && command -v zramctl >/dev/null 2>&1; then
+            zdev=$(sudo zramctl --find --size 24G --algorithm zstd 2>/dev/null || sudo zramctl --find --size 24G 2>/dev/null || true)
+            if [ -n "$zdev" ]; then
+              sudo mkswap "$zdev" && sudo swapon -p 100 "$zdev" || true
+            fi
+          fi
+          if [ -d /sys/module/zswap/parameters ]; then
+            echo zstd | sudo tee /sys/module/zswap/parameters/compressor >/dev/null 2>&1 || true
+            echo 50 | sudo tee /sys/module/zswap/parameters/max_pool_percent >/dev/null 2>&1 || true
+            echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null 2>&1 || true
+          fi
+          sudo fallocate -l 24G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon -p 10 /swapfile
+          swapon --show
+          free -m
+          df -h /
+          echo "CARGO_PROFILE_DEV_DEBUG=0" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_TEST_DEBUG=0" >> "$GITHUB_ENV"
+
       - name: Build workspace (designos-studio, designos, designos-mcp, designos-diff)
         run: cargo build --workspace --all-targets --locked
 
@@ -82,23 +107,13 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test --workspace --locked
 
-      - name: Test workspace (Linux)
+      - name: Test workspace crates (Linux)
         if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          (while true; do date -u; free -m; df -h /; ps -eo rss,etime,args --sort=-rss | head -8; sleep 10; done) | tee -a "$RUNNER_TEMP/mem.log" &
-          sampler_pid=$!
-          trap "kill $sampler_pid 2>/dev/null || true" EXIT
-          sh -c 'echo 500 > /proc/self/oom_score_adj 2>/dev/null || true; exec cargo test --workspace --locked'
+        run: cargo test --workspace --exclude designos-app --locked -- --test-threads=2
 
-      - name: Print Linux memory diagnostic log
-        if: always() && runner.os == 'Linux'
-        shell: bash
-        run: |
-          echo "=== $RUNNER_TEMP/mem.log ==="
-          cat "$RUNNER_TEMP/mem.log" || true
-          echo "=== dmesg OOM events ==="
-          sudo dmesg -T | grep -iE 'oom|out of memory|killed process' || true
+      - name: Test designos-app (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test -p designos-app --locked -- --test-threads=2
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
