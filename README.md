@@ -136,7 +136,7 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.2, a short list. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.2. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
 
 <a id="new-in-v062"></a>
 ### 0.6.2
@@ -145,7 +145,7 @@ Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.
 - **Gemini, Grok and Antigravity.** Gemini CLI tabs in Ask mode show `Needs approval` with an `Open tab` button and hold the composer while Gemini's confirmation prompt is on screen. Ask-mode Grok and Antigravity tabs move non-Studio session configs aside before starting, and Grok never evaluates a `.envrc`.
 - **Styles and Properties.** Create a text style from a text layer in the Typography section (`Create text style`), pick styles from enabled libraries when the file has none of its own, and export a page from the page panel's Export section.
 - **Components and Dev Mode.** Syncing a main component keeps its instances' own layer names. Dev Mode keeps each code line on one row with horizontal scrolling, grows the MCP prompt box to fit, and escapes `\`, `"`, `\(` and control characters in SwiftUI strings.
-- **Command palette.** Rename layers semantically, Boost resolution and the design fix record field changes without JSON, cutting their time on very large pages.
+- **Command palette.** Rename layers semantically and Boost resolution take about a second per click on a very large page, where they took about four.
 - **CLI and MCP.** `designos-diff --version` prints the version. MCP file writes (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) refuse links, control or bidi characters, and names over 255 bytes; `designos_export_fig_file` refuses an existing file unless `overwrite` is set; and outside-workspace errors no longer echo the path.
 
 <a id="new-in-v061"></a>
