@@ -201,7 +201,7 @@ impl Shell {
             }
         }
         if opts.select.is_some() {
-            match crate::resolve_select_node(&app.doc, opts.select.as_deref()) {
+            match crate::resolve_select_node(&mut app.doc, opts.select.as_deref()) {
                 Ok(Some(id)) => {
                     if let Some(pg) = app.doc.page_of(id) {
                         app.doc.ensure_page_hydrated(pg);

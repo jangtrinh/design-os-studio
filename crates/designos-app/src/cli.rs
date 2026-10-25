@@ -264,8 +264,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
-                let v = it.next().ok_or("--zoom needs a percentage (e.g. 800)")?;
-                o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
+                let v = it.next().ok_or(
+                    "--zoom needs a percentage (e.g. 800)
+",
+                )?;
+                if v.eq_ignore_ascii_case("fit") {
+                    o.zoom = None;
+                } else {
+                    o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
+                }
             }
             "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a text layer name")?),
             "--select-text" => {

@@ -89,6 +89,7 @@ mod protovars;
 mod richtext;
 #[cfg(test)]
 mod scratch_cli_home;
+mod select_target;
 mod shell;
 mod showcase;
 mod skills;
@@ -228,45 +229,17 @@ impl SaveTarget {
     }
 }
 
-pub(crate) fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Result<Option<designos_doc::NodeId>, String> {
+pub(crate) fn resolve_select_node(doc: &mut designos_doc::Document, select: Option<&str>) -> Result<Option<designos_doc::NodeId>, String> {
     let Some(raw) = select else {
         return Ok(None);
     };
-    let s = raw.trim();
-    if s.is_empty() || s.eq_ignore_ascii_case("none") {
+    if raw.trim().is_empty() {
+        return Err("--select requires a non-empty selector".into());
+    }
+    if raw.trim().eq_ignore_ascii_case("none") {
         return Ok(None);
     }
-
-    let (kind, value) = if let Some(v) = s.strip_prefix("id:") {
-        ("id", v)
-    } else if let Some(v) = s.strip_prefix("fig:") {
-        ("fig", v)
-    } else if let Some(v) = s.strip_prefix("name:") {
-        ("name", v)
-    } else {
-        ("bare", s)
-    };
-    if value.trim().is_empty() {
-        return Err(format!("Invalid --select '{s}': selector value is empty"));
-    }
-
-    let found = match kind {
-        "id" => value.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()),
-        "fig" => doc.nodes.values().find(|n| n.source_id.as_deref() == Some(value)).map(|n| n.id),
-        "name" => doc.nodes.values().find(|n| n.name == value).map(|n| n.id),
-        "bare" => {
-            // A bare numeric token remains a native node id for backwards compatibility.
-            value.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()).or_else(|| {
-                // Preserve the CLI's top-level name precedence before walking descendants.
-                doc.pages
-                    .iter()
-                    .find_map(|pid| doc.get(*pid).filter(|p| p.name.eq_ignore_ascii_case(value)).map(|p| p.id))
-                    .or_else(|| doc.nodes.values().find(|n| n.name.eq_ignore_ascii_case(value)).map(|n| n.id))
-            })
-        }
-        _ => unreachable!(),
-    };
-    found.map(Some).ok_or_else(|| format!("No node matches --select '{s}'"))
+    select_target::resolve(doc, raw).map(|t| t.node)
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
@@ -327,7 +300,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
-    let selected_node = resolve_select_node(&doc, opts.select.as_deref())?;
+    let selected_node = resolve_select_node(&mut doc, opts.select.as_deref())?;
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
@@ -521,6 +494,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 "id": id.0,
                 "source_id": doc.get(id).and_then(|n| n.source_id.clone()),
                 "name": doc.get(id).map(|n| n.name.clone()),
+                "kind": doc.get(id).map(|n| n.kind.default_name()),
+                "page_id": doc.page_of(id).map(|p| p.0),
+                "x": doc.get(id).map(|n| n.transform.e),
+                "y": doc.get(id).map(|n| n.transform.f),
+                "width": doc.get(id).map(|n| n.size.x),
+                "height": doc.get(id).map(|n| n.size.y),
             })),
             "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
                 "id": p.id.0,
@@ -533,6 +512,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                     "width": c.size.x,
                     "height": c.size.y,
                     "dev_status": c.dev.status.map(|s| s.label()),
+                    "source_id": c.source_id,
                 })).collect::<Vec<_>>()
             })).collect::<Vec<_>>()
         });
@@ -553,14 +533,14 @@ mod icon_tests {
         node.source_id = Some("12:34".into());
         doc.insert(page, node).unwrap();
 
-        assert_eq!(super::resolve_select_node(&doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert!(super::resolve_select_node(&doc, Some("id:999")).is_err());
-        assert!(super::resolve_select_node(&doc, Some("Missing")).is_err());
-        assert_eq!(super::resolve_select_node(&doc, Some("none")).unwrap(), None);
-        assert_eq!(super::resolve_select_node(&doc, None).unwrap(), None);
+        assert_eq!(super::resolve_select_node(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert!(super::resolve_select_node(&mut doc, Some("id:999")).is_err());
+        assert!(super::resolve_select_node(&mut doc, Some("Missing")).is_err());
+        assert_eq!(super::resolve_select_node(&mut doc, Some("none")).unwrap(), None);
+        assert_eq!(super::resolve_select_node(&mut doc, None).unwrap(), None);
     }
 
     #[test]
