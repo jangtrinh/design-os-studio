@@ -282,6 +282,16 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // Resolve --select before any mutating import or save operation. A miss must be side-effect free.
     let selected_target = resolve_select_node(&mut doc, opts.select.as_deref())?;
     let selected_node = selected_target.node;
+    if selected_target.matched_by == select_target::By::BareId {
+        if let Some(id) = selected_node {
+            eprintln!(
+                "designos: --select {} matched no layer name; selected node id {} (use --select id:{}).",
+                opts.select.as_deref().unwrap_or(""),
+                id.0,
+                id.0
+            );
+        }
+    }
 
     if let Some(cap_path) = &opts.import_capture {
         let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
