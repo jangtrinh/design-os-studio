@@ -568,7 +568,8 @@ fn deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip()
 
     assert!(!d2.styles.contains_key("2:100"), "deleted style key must not reappear in styles");
     assert!(!d2.style_meta.contains_key("2:100"), "deleted style key must not reappear in style_meta");
-    assert!(d2.style_meta.values().all(|m| m.name != "Shadow/Card"), "no orphan style node named Shadow/Card");
+    assert!(d2.style_meta.values().all(|m| m.name != "Shadow/Card"), "no orphan style_meta entry named Shadow/Card");
+    assert!(d2.nodes.values().all(|n| n.name != "Shadow/Card"), "no orphan style node named Shadow/Card");
     for n in d2.nodes.values() {
         for (slot, target) in &n.style_refs {
             assert_ne!(target, "2:100", "node {} still points at deleted style 2:100 via {slot}", n.name);
@@ -581,4 +582,92 @@ fn deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip()
         assert_eq!(drop_shadow_radius(&n.effects[0]), 8.0, "{name} keeps its resolved effect values");
         assert_eq!(n.style_refs.get("grid").map(String::as_str), Some("2:101"), "{name} keeps its other style refs");
     }
+}
+
+/// A .fig whose internal canvas holds a remote component that uses the same style as a local layer.
+fn remote_component_fixture() -> Vec<u8> {
+    let nodes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![("backgroundColor", color(1.0, 1.0, 1.0, 1.0))]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        style_node(100, "Shadow/Card", "EFFECT", "key-fx", vec![("effects", V::Array(vec![shadow(8.0)]))]),
+        node((2, 300), (0, 2), "c", "SYMBOL", "Remote Card", vec![("size", vec2(100.0, 100.0)), ("key", V::String("comp-key".into()))]),
+        node(
+            (2, 301),
+            (2, 300),
+            "a",
+            "FRAME",
+            "Remote Card Body",
+            vec![("size", vec2(50.0, 50.0)), ("styleIdForEffect", sref(100)), ("effects", V::Array(vec![shadow(8.0)]))],
+        ),
+        frame(1, "Local", vec![("styleIdForEffect", sref(100)), ("effects", V::Array(vec![shadow(8.0)]))]),
+    ];
+    let message = msg(vec![("nodeChanges", V::Array(nodes))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    container::write_container(&schema.encode(), &body, Compression::Zstd, 101)
+}
+
+#[test]
+fn a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted() {
+    let d = import_fig(&remote_component_fixture()).unwrap();
+    let body = d.nodes.values().find(|n| n.name == "Remote Card Body").map(|n| n.id).expect("remote body imported");
+    assert!(is_library_node(&d, body), "Remote Card Body sits on the hidden library page");
+
+    let err = delete_style(&d, "2:100").unwrap_err();
+    assert!(matches!(&err, StyleOpError::LibraryStyle(k) if k == "2:100"), "expected LibraryStyle error, got {err:?}");
+    assert!(d.styles.contains_key("2:100"));
+    for n in d.nodes.values() {
+        for target in n.style_refs.values() {
+            assert!(d.styles.contains_key(target), "no dangling style ref on {}", n.name);
+        }
+    }
+}
+
+#[test]
+fn deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let black = vec![Paint::solid(Color::BLACK)];
+    let red = vec![Paint::solid(Color::rgb(255, 0, 0))];
+    let base_fill = TextStyle { font_size: 20.0, fills: black.clone(), ..Default::default() };
+    let hi_fill = TextStyle { fills: red, ..base_fill.clone() };
+    let t_fill_id = d.alloc_id();
+    let mut t_fill = Node::text(t_fill_id, Rect::new(0.0, 0.0, 220.0, 40.0), "Hello world", base_fill.clone());
+    if let NodeKind::Text(tp) = &mut t_fill.kind {
+        tp.runs = vec![TextRun { start: 0, end: 5, style: base_fill }, TextRun { start: 5, end: 11, style: hi_fill }];
+    }
+    let t_fill = d.insert(page, t_fill).unwrap();
+    d.get_mut(t_fill).unwrap().style_refs.insert("fill".into(), "Ink".into());
+    d.styles.insert("Ink".into(), Style::Fill(black));
+    d.style_meta.insert("Ink".into(), StyleMeta { name: "Ink".into(), property: StyleProperty::Fill, ..Default::default() });
+
+    let base_text = TextStyle { font_size: 20.0, font_weight: 400, ..Default::default() };
+    let bold_text = TextStyle { font_weight: 700, ..base_text.clone() };
+    let t_text_id = d.alloc_id();
+    let mut t_text = Node::text(t_text_id, Rect::new(0.0, 50.0, 220.0, 40.0), "Hello world", base_text.clone());
+    if let NodeKind::Text(tp) = &mut t_text.kind {
+        tp.runs = vec![TextRun { start: 0, end: 5, style: base_text.clone() }, TextRun { start: 5, end: 11, style: bold_text }];
+    }
+    let t_text = d.insert(page, t_text).unwrap();
+    d.get_mut(t_text).unwrap().style_refs.insert("text".into(), "Body".into());
+    d.styles.insert("Body".into(), Style::Text(base_text));
+    d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+
+    let fill_px_before = designos_render::render_node(&d, t_fill, 1.0).expect("render t_fill before").data().to_vec();
+    let text_px_before = designos_render::render_node(&d, t_text, 1.0).expect("render t_text before").data().to_vec();
+
+    let mut h = History::default();
+    let c1 = delete_style(&d, "Ink").unwrap();
+    h.exec(&mut d, c1).unwrap();
+    let c2 = delete_style(&d, "Body").unwrap();
+    h.exec(&mut d, c2).unwrap();
+
+    let fill_px_after = designos_render::render_node(&d, t_fill, 1.0).expect("render t_fill after").data().to_vec();
+    let text_px_after = designos_render::render_node(&d, t_text, 1.0).expect("render t_text after").data().to_vec();
+    let fill_diff = fill_px_after.iter().zip(&fill_px_before).filter(|(a, b)| a != b).count();
+    let text_diff = text_px_after.iter().zip(&text_px_before).filter(|(a, b)| a != b).count();
+    assert_eq!(fill_diff, 0, "rendered pixels of mixed-colour text must not change after deleting its fill style ({fill_diff} bytes differed)");
+    assert_eq!(text_diff, 0, "rendered pixels of mixed-weight text must not change after deleting its text style ({text_diff} bytes differed)");
 }

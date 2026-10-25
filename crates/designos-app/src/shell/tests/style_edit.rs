@@ -255,11 +255,12 @@ fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     for (_, key) in props {
         make_library_style(&mut s, key);
     }
-    // A library style: the same row is disabled and says where the style is edited.
+    // A library style: the same row keeps its label, is disabled, and gives its reason on hover.
     for (prop, _) in props {
         let row = style_picker::edit_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the menu row is disabled for a library style");
-        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the row names where to edit");
+        assert_eq!(row.label, "Edit style", "{prop:?}: the Edit style row keeps its normal label");
+        assert_eq!(row.tooltip, "Edit in the library file", "{prop:?}: the Edit style row gives its reason on hover");
     }
     // The linked row's edit button opens nothing either.
     let button = s.rect_of("effect-style-edit");
@@ -283,7 +284,8 @@ fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
     for (prop, _) in props {
         let row = style_picker::rename_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
-        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the Rename style row names where to edit");
+        assert_eq!(row.label, "Rename style", "{prop:?}: the Rename style row keeps its normal label");
+        assert_eq!(row.tooltip, "Edit in the library file", "{prop:?}: the Rename style row gives its reason on hover");
     }
     // Double-clicking the linked row does not open the inline rename field for a library style.
     let linked = s.rect_of("effect-style-row");

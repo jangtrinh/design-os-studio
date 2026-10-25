@@ -308,12 +308,18 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
 }
 
+/// Whether any node on the hidden library page (remote-component copies) links to style `key`.
+pub fn used_on_library_page(doc: &Document, key: &str) -> bool {
+    doc.library_page.is_some() && doc.nodes.values().any(|n| n.style_refs.values().any(|k| k == key) && is_library_node(doc, n.id))
+}
+
 /// Deletes style `key`, detaching every linked layer while keeping its current
-/// resolved values (including any variable bindings resolved in each layer's
-/// mode) as a single undoable command. A library style is refused.
+/// values and moving any variable bindings carried by the style onto each
+/// layer's own properties as a single undoable command. A library style (or a
+/// style used by a remote-component copy on the hidden library page) is refused.
 pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> {
-    let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
-    if is_library_style(doc, key) {
+    let _stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if is_library_style(doc, key) || used_on_library_page(doc, key) {
         return Err(StyleOpError::LibraryStyle(key.into()));
     }
     let meta_bindings = doc.style_meta.get(key).map(|m| &m.bindings);
@@ -325,25 +331,25 @@ pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> 
     for id in linked_style_nodes(doc, key) {
         let Some(n) = doc.get(id) else { continue };
         let mut copy = n.clone();
-        apply_style_values(&mut copy, stored, key);
         if let Some(bindings) = meta_bindings {
-            for (property, variable) in bindings {
-                if let Some(val) = doc.resolve_variable(id, variable) {
-                    if copy.style_refs.get("stroke").is_some_and(|k| k == key) {
-                        if let Some(rest) = property.strip_prefix("fills/") {
-                            let s_key = format!("strokes/{rest}");
-                            if !copy.variables.bindings.contains_key(&s_key) {
-                                set_bound_property(&mut copy, &s_key, &val);
-                            }
-                        }
+            for slot in ["fill", "stroke", "text", "effect"] {
+                if copy.style_refs.get(slot).is_none_or(|k| k != key) {
+                    continue;
+                }
+                for (bkey, variable) in bindings {
+                    let node_key = if slot == "stroke" {
+                        let Some(rest) = bkey.strip_prefix("fills/") else { continue };
+                        format!("strokes/{rest}")
+                    } else {
+                        bkey.clone()
+                    };
+                    if copy.variables.bindings.contains_key(&node_key) {
+                        continue;
                     }
-                    if copy.style_refs.get("fill").is_some_and(|k| k == key)
-                        || copy.style_refs.get("text").is_some_and(|k| k == key)
-                        || copy.style_refs.get("effect").is_some_and(|k| k == key)
-                    {
-                        if !copy.variables.bindings.contains_key(property) {
-                            set_bound_property(&mut copy, property, &val);
-                        }
+                    if property_kind(&node_key).is_some() {
+                        copy.variables.bindings.insert(node_key, variable.clone());
+                    } else if let Some(val) = doc.resolve_variable(id, variable) {
+                        set_bound_property(&mut copy, &node_key, &val);
                     }
                 }
             }
@@ -847,17 +853,35 @@ mod tests {
         let mut h = History::default();
 
         // 1. Delete FillStyle (bound to v_fill: resolves to light_col on f1, dark_col on f2).
+        let f1_before = resolve_node(&d, d.get(f1).unwrap()).fills.clone();
+        let f2_before = resolve_node(&d, d.get(f2).unwrap()).fills.clone();
+        assert_eq!(f1_before, vec![Paint::solid(light_col)]);
+        assert_eq!(f2_before, vec![Paint::solid(dark_col)]);
+
         let c = delete_style(&d, "FillStyle");
         run(&mut d, &mut h, c);
         assert!(!d.styles.contains_key("FillStyle") && !d.style_meta.contains_key("FillStyle"));
         assert!(!d.get(f1).unwrap().style_refs.contains_key("fill"));
         assert!(!d.get(f2).unwrap().style_refs.contains_key("fill"));
-        assert_eq!(d.get(f1).unwrap().fills, vec![Paint::solid(light_col)]);
-        assert_eq!(d.get(f2).unwrap().fills, vec![Paint::solid(dark_col)], "variable binding on the style resolved in f2's dark mode");
+        assert_eq!(d.get(f1).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("v_fill"));
+        assert_eq!(d.get(f2).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("v_fill"));
+        assert_eq!(resolve_node(&d, d.get(f1).unwrap()).fills, f1_before, "light-mode layer keeps its look");
+        assert_eq!(resolve_node(&d, d.get(f2).unwrap()).fills, f2_before, "dark-mode layer keeps its look");
+        assert_eq!(d.get(f2).unwrap().fills, vec![Paint::solid(light_col)], "do not bake a resolved dark literal into raw fills");
+        // Switching the layer's mode after delete still changes its colour.
+        d.get_mut(f1).unwrap().variables.modes.insert("c1".into(), "dark".into());
+        d.get_mut(f2).unwrap().variables.modes.insert("c1".into(), "light".into());
+        assert_eq!(resolve_node(&d, d.get(f1).unwrap()).fills, vec![Paint::solid(dark_col)]);
+        assert_eq!(resolve_node(&d, d.get(f2).unwrap()).fills, vec![Paint::solid(light_col)]);
+        d.get_mut(f1).unwrap().variables.modes.remove("c1");
+        d.get_mut(f2).unwrap().variables.modes.insert("c1".into(), "dark".into());
+
         h.undo(&mut d).unwrap();
         assert!(d.styles.contains_key("FillStyle") && d.style_meta.contains_key("FillStyle"));
         assert_eq!(d.get(f1).unwrap().style_refs.get("fill").map(String::as_str), Some("FillStyle"));
         assert_eq!(d.get(f2).unwrap().style_refs.get("fill").map(String::as_str), Some("FillStyle"));
+        assert!(d.get(f1).unwrap().variables.bindings.is_empty());
+        assert!(d.get(f2).unwrap().variables.bindings.is_empty());
         h.redo(&mut d).unwrap();
         assert!(!d.styles.contains_key("FillStyle") && !d.get(f1).unwrap().style_refs.contains_key("fill"));
 
@@ -921,5 +945,201 @@ mod tests {
         assert!(d.styles.contains_key("Brand"));
         assert_eq!(d.get(fill_node).unwrap().style_refs.get("fill").map(String::as_str), Some("Brand"));
         assert!(matches!(delete_style(&d, "nope").unwrap_err(), StyleOpError::UnknownStyle(k) if k == "nope"));
+    }
+
+    fn mixed_run_text(d: &mut Document, page: NodeId, base: TextStyle, run2: TextStyle) -> NodeId {
+        let id = d.alloc_id();
+        let mut t = Node::text(id, Rect::new(0.0, 0.0, 200.0, 30.0), "Hello world", base.clone());
+        if let NodeKind::Text(tp) = &mut t.kind {
+            tp.runs = vec![TextRun { start: 0, end: 5, style: base }, TextRun { start: 5, end: 11, style: run2 }];
+        }
+        d.insert(page, t).unwrap()
+    }
+
+    fn resolved_runs(d: &Document, id: NodeId) -> Vec<(Vec<Paint>, u16, f32)> {
+        let n = resolve_node(d, d.get(id).unwrap()).into_owned();
+        match n.kind {
+            NodeKind::Text(t) => t.runs.iter().map(|r| (r.style.fills.clone(), r.style.font_weight, r.style.font_size)).collect(),
+            other => panic!("expected text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deleting_a_colour_style_on_text_keeps_a_highlighted_run() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let black = vec![Paint::solid(Color::BLACK)];
+        let red = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        let base = TextStyle { fills: black.clone(), ..Default::default() };
+        let hi = TextStyle { fills: red.clone(), ..Default::default() };
+        let t = mixed_run_text(&mut d, page, base, hi);
+        d.get_mut(t).unwrap().style_refs.insert("fill".into(), "Ink".into());
+        d.styles.insert("Ink".into(), Style::Fill(black.clone()));
+        d.style_meta.insert("Ink".into(), StyleMeta { name: "Ink".into(), property: StyleProperty::Fill, ..Default::default() });
+
+        let before_runs = resolved_runs(&d, t);
+        let mut before_node = resolve_node(&d, d.get(t).unwrap()).into_owned();
+        before_node.style_refs.clear();
+
+        let mut h = History::default();
+        let c = delete_style(&d, "Ink");
+        run(&mut d, &mut h, c);
+
+        let after_runs = resolved_runs(&d, t);
+        let after_node = resolve_node(&d, d.get(t).unwrap()).into_owned();
+        assert_eq!(after_runs, before_runs, "every run keeps its colour after deleting the fill style");
+        assert_eq!(after_runs[0].0, black);
+        assert_eq!(after_runs[1].0, red);
+        assert_eq!(after_node, before_node, "resolved node data matches before and after delete");
+    }
+
+    #[test]
+    fn deleting_a_text_style_keeps_a_bold_run() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let base = TextStyle { font_size: 16.0, font_weight: 400, ..Default::default() };
+        let bold = TextStyle { font_weight: 700, ..base.clone() };
+        let t = mixed_run_text(&mut d, page, base.clone(), bold);
+        d.get_mut(t).unwrap().style_refs.insert("text".into(), "Body".into());
+        d.styles.insert("Body".into(), Style::Text(base));
+        d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+
+        let before_runs = resolved_runs(&d, t);
+        let mut before_node = resolve_node(&d, d.get(t).unwrap()).into_owned();
+        before_node.style_refs.clear();
+
+        let mut h = History::default();
+        let c = delete_style(&d, "Body");
+        run(&mut d, &mut h, c);
+
+        let after_runs = resolved_runs(&d, t);
+        let after_node = resolve_node(&d, d.get(t).unwrap()).into_owned();
+        assert_eq!(after_runs, before_runs, "every run keeps its weight after deleting the text style");
+        assert_eq!((after_runs[0].1, after_runs[1].1), (400, 700));
+        assert_eq!(after_node, before_node, "resolved node data matches before and after delete");
+    }
+
+    #[test]
+    fn deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_surface".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let light = Color::rgb(250, 250, 250);
+        let dark = Color::rgb(10, 10, 10);
+        d.variables.insert(
+            "v_surface".into(),
+            Variable {
+                id: "v_surface".into(),
+                name: "surface".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: [("light".to_string(), VariableValue::Color(light)), ("dark".to_string(), VariableValue::Color(dark))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0));
+        f.variables.modes.insert("c1".into(), "dark".into());
+        let f = d.insert(page, f).unwrap();
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 50.0, 50.0));
+        r.fills = vec![Paint::solid(light)];
+        r.stroke.paints = vec![Paint::solid(light)];
+        r.style_refs.insert("fill".into(), "S".into());
+        r.style_refs.insert("stroke".into(), "S".into());
+        r.style_refs.insert("effect".into(), "Other".into());
+        let r = d.insert(f, r).unwrap();
+        d.styles.insert("S".into(), Style::Fill(vec![Paint::solid(light)]));
+        d.style_meta.insert(
+            "S".into(),
+            StyleMeta {
+                name: "S".into(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0".to_string(), "v_surface".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        d.styles.insert("Other".into(), Style::Effect(vec![]));
+
+        let shown_before = resolve_node(&d, d.get(r).unwrap()).into_owned();
+        let mut h = History::default();
+        let c = delete_style(&d, "S");
+        run(&mut d, &mut h, c);
+
+        let n = d.get(r).unwrap();
+        assert_eq!(n.variables.bindings.get("fills/0").map(String::as_str), Some("v_surface"));
+        assert_eq!(n.variables.bindings.get("strokes/0").map(String::as_str), Some("v_surface"));
+        assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("Other"));
+        assert!(!n.style_refs.contains_key("fill") && !n.style_refs.contains_key("stroke"));
+
+        let shown_after = resolve_node(&d, n).into_owned();
+        assert_eq!(shown_after.fills, shown_before.fills);
+        assert_eq!(shown_after.stroke.paints, shown_before.stroke.paints);
+
+        // Switching the parent frame's mode to light changes both fill and stroke colour.
+        d.get_mut(f).unwrap().variables.modes.insert("c1".into(), "light".into());
+        let shown_light = resolve_node(&d, d.get(r).unwrap()).into_owned();
+        assert_eq!(shown_light.fills, vec![Paint::solid(light)]);
+        assert_eq!(shown_light.stroke.paints, vec![Paint::solid(light)]);
+        d.get_mut(f).unwrap().variables.modes.insert("c1".into(), "dark".into());
+
+        h.undo(&mut d).unwrap();
+        let u = d.get(r).unwrap();
+        assert_eq!((u.style_refs.get("fill").map(String::as_str), u.style_refs.get("stroke").map(String::as_str)), (Some("S"), Some("S")));
+        assert!(u.variables.bindings.is_empty());
+    }
+
+    #[test]
+    fn reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let lp = ensure_library_page(&mut d);
+        d.styles.insert("S".into(), Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]));
+        d.style_meta.insert("S".into(), StyleMeta { name: "S".into(), property: StyleProperty::Effect, ..Default::default() });
+        let cid = d.alloc_id();
+        let mut comp = Node::frame(cid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        comp.kind = NodeKind::Component(FrameProps::default());
+        comp.name = "Main".into();
+        let comp = d.insert(lp, comp).unwrap();
+        let kid = d.alloc_id();
+        let mut child = Node::rectangle(kid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        child.name = "Child".into();
+        child.effects = vec![Effect::LayerBlur { radius: 4.0, visible: true }];
+        child.style_refs.insert("effect".into(), "S".into());
+        d.insert(comp, child).unwrap();
+
+        let mut h = History::default();
+        let c = create_instance(&mut d, comp, page, Vec2::ZERO);
+        h.exec(&mut d, c).unwrap();
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let err = delete_style(&d, "S").unwrap_err();
+        assert!(matches!(&err, StyleOpError::LibraryStyle(k) if k == "S"), "expected LibraryStyle error, got {err:?}");
+        assert!(d.styles.contains_key("S"), "refused delete keeps S in doc.styles");
+
+        let c = reset_instance(&mut d, inst);
+        h.exec(&mut d, c).unwrap();
+        let ichild = d.get(inst).unwrap().children[0];
+        let refs = &d.get(ichild).unwrap().style_refs;
+        assert_eq!(refs.get("effect").map(String::as_str), Some("S"));
+        assert!(refs.values().all(|k| d.styles.contains_key(k)), "reset_instance leaves no dangling link: {refs:?}");
     }
 }

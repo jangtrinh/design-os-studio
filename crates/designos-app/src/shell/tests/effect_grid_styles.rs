@@ -186,11 +186,37 @@ fn a_library_style_cannot_be_deleted_from_the_style_menu() {
     for (prop, _) in props {
         let row = style_picker::delete_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the Delete style row is disabled for a library style");
-        assert_eq!(row.label, style_edit::LIBRARY_STYLE_TIP, "{prop:?}: the Delete style row shows the A13 wording");
+        assert_eq!(row.label, "Delete style", "{prop:?}: the Delete style row keeps its normal label");
         assert_eq!(row.tooltip, style_edit::LIBRARY_STYLE_TIP, "{prop:?}: the Delete style row carries the A13 tooltip");
     }
 
     // Clicking the disabled Delete style row in the menu leaves the library style and its link intact.
+    pick(&mut s, "effect-style-button", 4, 1);
+    assert!(s.app().doc.styles.contains_key("Effect style 1"));
+    assert_eq!(s.app().doc.get(welcome).unwrap().style_refs.get("effect").map(String::as_str), Some("Effect style 1"));
+}
+
+#[test]
+fn a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu() {
+    use crate::panels::{style_edit, style_picker};
+
+    let (mut s, welcome) = welcome_sim();
+    s.shell.app.create_style_from(welcome, StyleProperty::Effect);
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    let sel = s.app().selection.clone();
+
+    let lp = designos_doc::ensure_library_page(&mut s.shell.app.doc);
+    let lib_node_id = s.shell.app.doc.alloc_id();
+    let mut lib_node = designos_doc::Node::rectangle(lib_node_id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+    lib_node.style_refs.insert("effect".into(), "Effect style 1".into());
+    s.shell.app.doc.insert(lp, lib_node).unwrap();
+
+    let row = style_picker::delete_style_row(s.app(), &sel, StyleProperty::Effect);
+    assert!(row.disabled, "Delete style row is disabled when a node on the hidden library page uses the style");
+    assert_eq!(row.label, "Delete style");
+    assert_eq!(row.tooltip, style_edit::LIBRARY_STYLE_TIP);
+
     pick(&mut s, "effect-style-button", 4, 1);
     assert!(s.app().doc.styles.contains_key("Effect style 1"));
     assert_eq!(s.app().doc.get(welcome).unwrap().style_refs.get("effect").map(String::as_str), Some("Effect style 1"));

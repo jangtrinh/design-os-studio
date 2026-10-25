@@ -28,18 +28,9 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     if app.props.style_rename == Some(prop) {
         app.props.style_rename = None;
     }
-    let mut tx = crate::edit::Tx::new();
-    let applied = delete_style(&app.doc, &key).map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut app.doc, cmd).map_err(|e| e.to_string()));
-    match applied {
-        Ok(()) => {
-            if app.run_tx(tx) {
-                app.show_toast(STYLE_DELETED_TOAST, false);
-            }
-        }
-        Err(e) => {
-            tx.cancel(&mut app.doc);
-            app.show_toast(format!("Style not changed: {e}"), true);
-        }
+    let op = delete_style(&app.doc, &key);
+    if app.run_style_op_then(op, |_, _| {}) {
+        app.show_toast(STYLE_DELETED_TOAST, false);
     }
 }
 
@@ -94,17 +85,14 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         last.separator_after = true;
     }
     let linked = current.is_some();
-    // A library style is edited and renamed in its library file.
+    // A library style is edited, renamed and deleted in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
+    let ro_tip = if read_only { style_edit::LIBRARY_STYLE_TIP } else { "" };
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
-    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Rename style" }).disabled(!linked || read_only));
+    items.push(MenuItem::new("Rename style").disabled(!linked || read_only).tooltip(ro_tip));
     items.push(MenuItem::new("Detach style").disabled(!linked));
-    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Delete style" }).disabled(!linked || read_only).tooltip(if read_only {
-        style_edit::LIBRARY_STYLE_TIP
-    } else {
-        ""
-    }));
-    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
+    items.push(MenuItem::new("Delete style").disabled(!linked || read_only).tooltip(ro_tip));
+    items.push(MenuItem::new("Edit style").disabled(!linked || read_only).tooltip(ro_tip));
     picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)
 }

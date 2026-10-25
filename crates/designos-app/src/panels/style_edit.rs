@@ -28,12 +28,13 @@ pub struct StyleEdit {
     pub pending: Option<Style>,
 }
 
-/// Tooltip (and menu label) of an "Edit style" control for a style that belongs to a library.
+/// Tooltip of a style control disabled because the style belongs to a library.
 pub(crate) const LIBRARY_STYLE_TIP: &str = "Edit in the library file";
 
-/// A style published by a shared library is read-only in the files that use it, as in Figma.
+/// A style published by a shared library (or used by a remote-component copy on the hidden library
+/// page) is read-only in the files that use it, as in Figma.
 pub(super) fn is_read_only(app: &App, key: &str) -> bool {
-    is_library_style(&app.doc, key)
+    is_library_style(&app.doc, key) || used_on_library_page(&app.doc, key)
 }
 
 /// The "Edit style" icon button: opens the popover (returns true when clicked), or stays dimmed

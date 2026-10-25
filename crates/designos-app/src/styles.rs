@@ -140,7 +140,7 @@ impl App {
     }
 
     /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
-    fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
+    pub(crate) fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
         let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
         match applied {
