@@ -27,6 +27,7 @@ pub struct Options {
     pub panel: Option<String>,
     /// Initial zoom in percent (`--zoom 800`), centred on the selection or the page.
     pub zoom: Option<f32>,
+    pub zoom_fit: bool,
     /// Show the rulers.
     pub rulers: bool,
     /// Draw the canvas with the GPU renderer (`--screenshot` otherwise always uses the

@@ -21,6 +21,7 @@ const REVEAL_LABEL: &str = "Show in folder";
 
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
+pub static SELECT_MISS: AtomicBool = AtomicBool::new(false);
 
 /// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
 pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -210,7 +211,14 @@ impl Shell {
                     app.selection = vec![id];
                 }
                 Ok(None) => app.selection.clear(),
-                Err(err) => eprintln!("designos: {err}"),
+                Err(err) => {
+                    SELECT_MISS.store(true, Ordering::SeqCst);
+                    eprintln!("designos: {err}");
+                    app.show_toast(format!("No layer matches selector"), true);
+                    if opts.screenshot.is_some() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
             }
         }
         if let Some(spec) = &opts.menu {
@@ -233,6 +241,7 @@ impl Shell {
             app.ui.pixel_grid = true;
         }
         app.startup_zoom = opts.zoom.map(|z| z / 100.0);
+        app.startup_fit_selection = opts.zoom_fit;
         if let Some(kind) = &opts.layout_grid {
             let target = app.selection.first().copied();
             if let Some(id) = target {

@@ -208,6 +208,9 @@ fn main() {
             eprintln!("{err}");
             std::process::exit(1);
         }
+        if shell::SELECT_MISS.load(Ordering::SeqCst) {
+            std::process::exit(2);
+        }
         if !shell::SHOT_OK.load(Ordering::SeqCst) {
             eprintln!("designos: screenshot was not captured");
             std::process::exit(1);
@@ -496,8 +499,8 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 "name": doc.get(id).map(|n| n.name.clone()),
                 "kind": doc.get(id).map(|n| n.kind.default_name()),
                 "page_id": doc.page_of(id).map(|p| p.0),
-                "x": doc.get(id).map(|n| n.transform.e),
-                "y": doc.get(id).map(|n| n.transform.f),
+                "x": doc.get(id).map(|n| n.transform.tx),
+                "y": doc.get(id).map(|n| n.transform.ty),
                 "width": doc.get(id).map(|n| n.size.x),
                 "height": doc.get(id).map(|n| n.size.y),
             })),
