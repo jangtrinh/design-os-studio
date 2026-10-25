@@ -1,0 +1,323 @@
+{
+  "files": {
+    "app.rs": {
+      "offset_literals": 2
+    },
+    "board/bar.rs": {
+      "inset_literals": 4,
+      "offset_literals": 14
+    },
+    "board/canvas.rs": {
+      "offset_literals": 4
+    },
+    "board/toolbar.rs": {
+      "inset_literals": 3,
+      "offset_literals": 12
+    },
+    "canvas/create.rs": {
+      "offset_literals": 6
+    },
+    "canvas/draw.rs": {
+      "inset_literals": 4,
+      "offset_literals": 15,
+      "radius_literals": 13
+    },
+    "canvas/hit.rs": {
+      "offset_literals": 2
+    },
+    "canvas/interact.rs": {
+      "font_literals": 1,
+      "inset_literals": 2
+    },
+    "canvas/proto.rs": {
+      "offset_literals": 2
+    },
+    "canvas/rulers.rs": {
+      "offset_literals": 8,
+      "radius_literals": 2
+    },
+    "canvas/textsession.rs": {
+      "offset_literals": 2
+    },
+    "canvas/vector.rs": {
+      "nonconcentric_pairs": 1,
+      "offset_literals": 4
+    },
+    "clipboard.rs": {
+      "offset_literals": 2
+    },
+    "cmdk.rs": {
+      "offset_literals": 35,
+      "radius_literals": 9
+    },
+    "comments/panel.rs": {
+      "offset_literals": 20
+    },
+    "comments/thread.rs": {
+      "offset_literals": 17
+    },
+    "comments/time.rs": {
+      "offset_literals": 2
+    },
+    "comments/ui.rs": {
+      "inset_literals": 4,
+      "offset_literals": 1
+    },
+    "decks/demo.rs": {
+      "offset_literals": 3
+    },
+    "decks/ui.rs": {
+      "inset_literals": 2,
+      "offset_literals": 11
+    },
+    "dev/annot.rs": {
+      "inset_literals": 1,
+      "offset_literals": 15,
+      "radius_literals": 4
+    },
+    "dev/compare.rs": {
+      "offset_literals": 30
+    },
+    "dev/list.rs": {
+      "offset_literals": 9,
+      "radius_literals": 1
+    },
+    "dev/preset.rs": {
+      "offset_literals": 1
+    },
+    "dev/sections.rs": {
+      "offset_literals": 64,
+      "radius_literals": 7
+    },
+    "find/filter.rs": {
+      "offset_literals": 10
+    },
+    "find/panel.rs": {
+      "offset_literals": 11
+    },
+    "history/banner.rs": {
+      "offset_literals": 2
+    },
+    "history/modal.rs": {
+      "inset_literals": 1,
+      "offset_literals": 3
+    },
+    "history/panel.rs": {
+      "offset_literals": 23
+    },
+    "home/dialog.rs": {
+      "inset_literals": 1,
+      "offset_literals": 10
+    },
+    "home/main_view.rs": {
+      "offset_literals": 47,
+      "radius_literals": 1
+    },
+    "home/mod.rs": {
+      "font_literals": 2,
+      "offset_literals": 162,
+      "radius_literals": 43
+    },
+    "home/sidebar.rs": {
+      "offset_literals": 14
+    },
+    "home/thumb.rs": {
+      "offset_literals": 2
+    },
+    "libraries/mod.rs": {
+      "offset_literals": 3
+    },
+    "libraries/modal.rs": {
+      "inset_literals": 1,
+      "offset_literals": 35,
+      "radius_literals": 1
+    },
+    "libraries/review.rs": {
+      "offset_literals": 8,
+      "radius_literals": 2
+    },
+    "lint.rs": {
+      "inset_literals": 2,
+      "offset_literals": 4
+    },
+    "panels/assets.rs": {
+      "inset_literals": 2,
+      "offset_literals": 29
+    },
+    "panels/check_designs.rs": {
+      "offset_literals": 11
+    },
+    "panels/components.rs": {
+      "offset_literals": 9,
+      "radius_literals": 2
+    },
+    "panels/context.rs": {
+      "offset_literals": 9,
+      "radius_literals": 2
+    },
+    "panels/effects.rs": {
+      "inset_literals": 1,
+      "offset_literals": 9
+    },
+    "panels/export.rs": {
+      "offset_literals": 9
+    },
+    "panels/inspect.rs": {
+      "offset_literals": 54,
+      "radius_literals": 4
+    },
+    "panels/layers.rs": {
+      "offset_literals": 11
+    },
+    "panels/layoutguide.rs": {
+      "offset_literals": 3,
+      "radius_literals": 1
+    },
+    "panels/left.rs": {
+      "offset_literals": 21
+    },
+    "panels/menus.rs": {
+      "inset_literals": 1,
+      "offset_literals": 26,
+      "radius_literals": 2
+    },
+    "panels/mod.rs": {
+      "offset_literals": 3,
+      "radius_literals": 1
+    },
+    "panels/properties.rs": {
+      "inset_literals": 2,
+      "offset_literals": 37,
+      "radius_literals": 10
+    },
+    "panels/proto_actions.rs": {
+      "offset_literals": 11
+    },
+    "panels/prototype.rs": {
+      "offset_literals": 43,
+      "radius_literals": 8
+    },
+    "panels/rail.rs": {
+      "offset_literals": 4
+    },
+    "panels/right.rs": {
+      "offset_literals": 21,
+      "radius_literals": 6
+    },
+    "panels/stroke.rs": {
+      "offset_literals": 2
+    },
+    "panels/style_picker.rs": {
+      "offset_literals": 4
+    },
+    "panels/toolbar.rs": {
+      "inset_literals": 3,
+      "offset_literals": 15,
+      "radius_literals": 4
+    },
+    "panels/typography.rs": {
+      "font_literals": 1,
+      "inset_literals": 1,
+      "offset_literals": 31,
+      "radius_literals": 1
+    },
+    "panels/var_bind.rs": {
+      "offset_literals": 7
+    },
+    "panels/vertex.rs": {
+      "offset_literals": 3
+    },
+    "plugins/ui.rs": {
+      "inset_literals": 2,
+      "offset_literals": 25
+    },
+    "present.rs": {
+      "offset_literals": 48
+    },
+    "shell.rs": {
+      "nonconcentric_pairs": 2,
+      "offset_literals": 48,
+      "radius_literals": 6
+    },
+    "showcase/kit.rs": {
+      "offset_literals": 3
+    },
+    "showcase/mobile.rs": {
+      "offset_literals": 1
+    },
+    "showcase/web.rs": {
+      "offset_literals": 1
+    },
+    "specs.rs": {
+      "font_literals": 20,
+      "nonconcentric_pairs": 1,
+      "offset_literals": 239,
+      "radius_literals": 79
+    },
+    "tabs.rs": {
+      "offset_literals": 30,
+      "radius_literals": 6
+    },
+    "terminal.rs": {
+      "font_literals": 1,
+      "nonconcentric_pairs": 1,
+      "offset_literals": 180,
+      "radius_literals": 43
+    },
+    "updater.rs": {
+      "offset_literals": 55,
+      "radius_literals": 14
+    },
+    "variables/library.rs": {
+      "offset_literals": 3
+    },
+    "variables/popover.rs": {
+      "offset_literals": 38,
+      "radius_literals": 2
+    },
+    "variables/view.rs": {
+      "inset_literals": 4,
+      "offset_literals": 49,
+      "radius_literals": 3
+    },
+    "variables/widgets.rs": {
+      "inset_literals": 1,
+      "offset_literals": 32,
+      "radius_literals": 1
+    },
+    "widgets/field.rs": {
+      "offset_literals": 1
+    },
+    "widgets/menu.rs": {
+      "offset_literals": 11,
+      "radius_literals": 1
+    },
+    "widgets/mod.rs": {
+      "offset_literals": 2
+    },
+    "widgets/picker.rs": {
+      "inset_literals": 3,
+      "offset_literals": 47,
+      "radius_literals": 6
+    },
+    "widgets/popover.rs": {
+      "offset_literals": 7
+    }
+  },
+  "note": "Ratchet baseline for scripts/check_spacing_relationships.py. Per-file counts of literal geometry outside theme.rs. Counts may only fall: lower them with --write-baseline, which refuses to raise any entry.",
+  "totals": {
+    "font_literals": 25,
+    "inset_literals": 45,
+    "nonconcentric_pairs": 5,
+    "offset_literals": 1807,
+    "radius_literals": 285
+  },
+  "totals_excluding_own_palette": {
+    "font_literals": 4,
+    "inset_literals": 45,
+    "nonconcentric_pairs": 3,
+    "offset_literals": 1388,
+    "radius_literals": 163
+  },
+  "version": 1
+}

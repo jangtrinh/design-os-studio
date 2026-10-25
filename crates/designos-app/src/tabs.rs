@@ -15,6 +15,8 @@ use designos_doc::{Document, DocumentKind, History, NodeId};
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::path::{Path, PathBuf};
 
+mod agent_document;
+
 /// Exact height of the 1:1 Figma UI3 Top Window Tab Bar (`32px`).
 pub const TOP_TAB_BAR_HEIGHT: f32 = 32.0;
 
@@ -70,6 +72,7 @@ pub struct ProjectTab {
     pub doc: Document,
     pub hist: History,
     pub terminal: crate::terminal::TerminalState,
+    pub image_jobs: crate::image_jobs::ImageJobsState,
     pub page: NodeId,
     pub selection: Vec<NodeId>,
     pub view: View,
@@ -77,7 +80,11 @@ pub struct ProjectTab {
     pub lib_file: Option<LibFile>,
     pub dev_mode: bool,
     pub pinned: bool,
+    /// The document was changed by a writer that leaves no undo step, since its last save. The rest of the
+    /// unsaved dot is read from `hist`: see [`tab_is_unsaved`].
     pub dirty: bool,
+    /// What the tab remembers of its file while another tab is shown: its saved hash and the file's mtime.
+    pub disk: crate::home::DiskState,
 }
 
 impl ProjectTab {
@@ -97,6 +104,7 @@ impl ProjectTab {
             doc: Document::default(),
             hist: History::default(),
             terminal: crate::terminal::TerminalState::for_tab(id),
+            image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
             page: app.page,
             selection: app.selection.clone(),
             view: app.view,
@@ -104,7 +112,8 @@ impl ProjectTab {
             lib_file: app.lib_file.clone(),
             dev_mode: app.ui.dev_mode,
             pinned: false,
-            dirty: app.hist.can_undo() || app.autosave.pending(),
+            dirty: app.autosave.dot.flag(),
+            disk: app.autosave.disk_state(),
         }
     }
 
@@ -158,6 +167,10 @@ impl Default for TabsState {
 }
 
 impl TabsState {
+    pub(crate) fn is_hist_in_app(&self) -> bool {
+        self.hist_in_app
+    }
+
     fn ensure_instance_id(&mut self) {
         if self.instance_id.is_empty() {
             static NEXT_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -222,7 +235,8 @@ impl TabsState {
         tab.file_path = app.file_path.clone();
         tab.lib_file = app.lib_file.clone();
         tab.dev_mode = app.ui.dev_mode;
-        tab.dirty = app.hist.can_undo() || tab.hist.can_undo() || app.autosave.pending();
+        tab.dirty = app.autosave.dot.flag();
+        tab.disk = app.autosave.disk_state();
     }
 
     /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
@@ -235,9 +249,18 @@ impl TabsState {
         std::mem::take(&mut app.doc)
     }
 
-    /// Parks the active tab's state (moving `app.doc`, `app.hist`, and `app.terminal` into `entries[active_idx]`).
-    fn park_active_from_app(&mut self, app: &mut App) {
+    /// Takes the terminal out of the window for a parked tab. Its log watcher stops here and starts again when
+    /// the tab shows (`LivePatchLog::stop_wake`).
+    fn park_terminal(app: &mut App) -> crate::terminal::TerminalState {
+        let mut terminal = std::mem::take(&mut app.terminal);
+        terminal.live_patch.stop_wake();
+        terminal
+    }
+
+    /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
+    pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -248,8 +271,10 @@ impl TabsState {
             tab.doc = Self::take_live_doc(app);
             tab.hist = std::mem::take(&mut app.hist);
             app.terminal.bind_session(&sid);
-            tab.terminal = std::mem::take(&mut app.terminal);
-            tab.dirty = tab.hist.can_undo() || app.autosave.pending();
+            tab.terminal = Self::park_terminal(app);
+            tab.image_jobs = app.image_jobs.take_for_park();
+            tab.dirty = app.autosave.dot.flag();
+            tab.disk = app.autosave.disk_state();
             self.entries.push(tab);
             self.active_idx = 0;
             self.hist_in_app = false;
@@ -260,17 +285,22 @@ impl TabsState {
                 let active_id = self.entries[self.active_idx].id;
                 let sid = self.session_id_for_tab(active_id);
                 app.terminal.bind_session(&sid);
-                if self.entries[self.active_idx].doc.nodes.is_empty() {
+                if !app.doc.nodes.is_empty() {
+                    self.entries[self.active_idx].page = app.page;
+                    self.entries[self.active_idx].selection = app.selection.clone();
+                    self.entries[self.active_idx].view = app.view;
                     self.entries[self.active_idx].doc = Self::take_live_doc(app);
                 }
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
-                self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
+                self.entries[self.active_idx].terminal = Self::park_terminal(app);
+                self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
                 self.hist_in_app = false;
             }
             return;
         }
         self.sync_from_app(app);
         if self.hist_in_app && self.active_idx < self.entries.len() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -280,8 +310,10 @@ impl TabsState {
             app.terminal.bind_session(&sid);
             self.entries[self.active_idx].doc = Self::take_live_doc(app);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
-            self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
-            self.entries[self.active_idx].dirty = self.entries[self.active_idx].hist.can_undo() || app.autosave.pending();
+            self.entries[self.active_idx].terminal = Self::park_terminal(app);
+            self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
+            self.entries[self.active_idx].dirty = app.autosave.dot.flag();
+            self.entries[self.active_idx].disk = app.autosave.disk_state();
             self.hist_in_app = false;
         }
     }
@@ -297,14 +329,14 @@ impl TabsState {
         app.exit_version_view();
         app.flush_autosave();
 
-        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind) = {
+        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk) = {
             let tab = &mut self.entries[idx];
             let doc = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
                 std::mem::take(&mut app.doc)
             } else {
                 std::mem::take(&mut tab.doc)
             };
-            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind)
+            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty, tab.disk)
         };
         crate::io::ensure_page(&mut doc);
         let page = if doc.pages.contains(&tab_page) { tab_page } else { doc.pages[0] };
@@ -314,6 +346,14 @@ impl TabsState {
         app.view = tab_view;
         app.file_path = tab_file_path;
         app.lib_file = tab_lib_file;
+        // The flag a tab had when it was left comes back with its document. The undo history, which holds the
+        // rest of the unsaved state, is handed over by the caller.
+        app.autosave.dot.adopt(tab_dirty);
+        // The file state is this document's own, not the previous tab's: an outside write is a write that happened
+        // while the tab was away, never the switch itself. (A click on another tab while the "File changed on disk"
+        // question is open lands on its scrim and answers it, so no switch comes in with a question open.)
+        let tab_path = app.watched_disk_path();
+        app.autosave.adopt_disk_state(tab_disk, tab_path);
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
@@ -321,6 +361,8 @@ impl TabsState {
         app.canvas.reset_interaction();
         app.comments.close_popovers();
         app.layers.reset();
+        app.agent_presence.reset();
+        app.agent_changes_chip.clear();
         app.fonts.load_for(&app.doc);
         if tab_kind == ProjectTabKind::Spec {
             app.ui.rail = Some(RailItem::Specs);
@@ -336,7 +378,7 @@ impl TabsState {
         app.changed();
     }
 
-    /// Switches from the current tab (or `Home`) to `entries[idx]`, preserving `History`, `TerminalState`, and view state.
+    /// Switches from the current tab (or `Home`) to `entries[idx]`, preserving `History`, `TerminalState`, `ImageJobsState`, and view state.
     pub fn switch_to(&mut self, idx: usize, app: &mut App) {
         if self.entries.is_empty() {
             self.sync_from_app(app);
@@ -352,9 +394,10 @@ impl TabsState {
         let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[idx].hist);
         app.terminal = std::mem::take(&mut self.entries[idx].terminal);
+        app.image_jobs = std::mem::take(&mut self.entries[idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
-        self.entries[idx].dirty = app.hist.can_undo() || app.autosave.pending();
+        self.entries[idx].dirty = app.autosave.dot.flag();
         self.hist_in_app = true;
     }
 
@@ -362,6 +405,7 @@ impl TabsState {
     pub fn enter_home(&mut self, app: &mut App) {
         if app.home.is_none() {
             // The closing version needs the live document and its file, which parking detaches.
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.save_close_version();
             self.park_active_from_app(app);
@@ -383,10 +427,14 @@ impl TabsState {
             return;
         }
         if self.entries.is_empty() {
+            self.parked_in_home = false;
             self.sync_from_app(app);
             if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
+                if app.terminal.tabs.is_empty() {
+                    self.bind_shown_terminal_to_open_file(app, &sid);
+                }
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             }
             return;
@@ -401,6 +449,7 @@ impl TabsState {
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
                     app.terminal = std::mem::take(&mut self.entries[existing].terminal);
+                    app.image_jobs = std::mem::take(&mut self.entries[existing].image_jobs);
                     app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                     self.hist_in_app = true;
@@ -414,6 +463,7 @@ impl TabsState {
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
                     app.terminal = std::mem::take(&mut self.entries[existing].terminal);
+                    app.image_jobs = std::mem::take(&mut self.entries[existing].image_jobs);
                     app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                     self.hist_in_app = true;
@@ -434,8 +484,14 @@ impl TabsState {
                 self.entries.push(tab);
                 self.active_idx = self.entries.len() - 1;
                 app.terminal = crate::terminal::TerminalState::for_tab(id);
+                if let Some(lib) = &app.lib {
+                    app.terminal.library_root = Some(lib.root().to_path_buf());
+                    app.terminal.skills.set_library_root(lib.root().to_path_buf());
+                }
                 app.terminal.bind_session(&sid);
+                self.bind_shown_terminal_to_open_file(app, &sid);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+                app.image_jobs = crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs);
                 self.hist_in_app = true;
                 return;
             }
@@ -444,16 +500,35 @@ impl TabsState {
                 tab.doc = Document::default();
                 if !self.hist_in_app {
                     app.terminal = std::mem::take(&mut tab.terminal);
+                    app.image_jobs = std::mem::take(&mut tab.image_jobs);
                 }
                 self.hist_in_app = true;
+                if let Some(lib) = &app.lib {
+                    app.terminal.library_root = Some(lib.root().to_path_buf());
+                    if app.terminal.skills.library_root != lib.root() {
+                        app.terminal.skills.set_library_root(lib.root().to_path_buf());
+                    }
+                }
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
+                if app.terminal.tabs.is_empty() {
+                    self.bind_shown_terminal_to_open_file(app, &sid);
+                }
             }
         }
         self.sync_from_app(app);
         if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
             let sid = self.session_id_for_tab(tab_id);
+            if let Some(lib) = &app.lib {
+                app.terminal.library_root = Some(lib.root().to_path_buf());
+                if app.terminal.skills.library_root != lib.root() {
+                    app.terminal.skills.set_library_root(lib.root().to_path_buf());
+                }
+            }
             app.terminal.bind_session(&sid);
+            if app.terminal.tabs.is_empty() {
+                self.bind_shown_terminal_to_open_file(app, &sid);
+            }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         }
     }
@@ -474,6 +549,10 @@ impl TabsState {
         let id = self.alloc_id();
         let sid = self.session_id_for_tab(id);
         let mut terminal = crate::terminal::TerminalState::for_tab(id);
+        if let Some(lib) = &app.lib {
+            terminal.library_root = Some(lib.root().to_path_buf());
+            terminal.skills.set_library_root(lib.root().to_path_buf());
+        }
         terminal.bind_session(&sid);
         let tab = ProjectTab {
             id,
@@ -482,6 +561,7 @@ impl TabsState {
             doc,
             hist: History::default(),
             terminal,
+            image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
             page,
             selection: Vec::new(),
             view: View::default(),
@@ -490,6 +570,7 @@ impl TabsState {
             dev_mode: false,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         self.entries.push(tab);
         let new_idx = self.entries.len() - 1;
@@ -498,6 +579,13 @@ impl TabsState {
         self.apply_to_app(new_idx, app);
         app.hist = History::default();
         app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
+        app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
+        if let Some(lib) = &app.lib {
+            app.terminal.library_root = Some(lib.root().to_path_buf());
+            if app.terminal.skills.library_root != lib.root() {
+                app.terminal.skills.set_library_root(lib.root().to_path_buf());
+            }
+        }
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
@@ -580,25 +668,41 @@ impl TabsState {
             self.hist_in_app = true;
             app.terminal = crate::terminal::TerminalState::for_tab(id);
             app.terminal.bind_session(&sid);
+            if let Some(lib) = &app.lib {
+                app.terminal.bind_library_file(lib.root(), file_id, &sid);
+            }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+            app.image_jobs = crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs);
             Some(idx)
         } else {
             None
         }
     }
 
-    /// The library file of tab `idx` as `(id, disk path)`; the disk path keys its cached pre-repair bytes.
-    fn library_file_of_tab(&self, idx: usize, app: &App) -> Option<(String, PathBuf)> {
-        let live = app.home.is_none() && idx == self.active_idx;
-        let lf = if live { app.lib_file.clone() } else { self.entries.get(idx)?.lib_file.clone() }?;
-        Some((lf.id.clone(), app.lib_file_disk_path(&lf)?))
+    /// Disk path of tab `idx` (its external `file_path` or its library file's disk path), reading
+    /// live `app` fields when `idx` is the active unparked tab.
+    pub(crate) fn disk_path_of_tab(&self, idx: usize, app: &App) -> Option<PathBuf> {
+        let live = app.home.is_none() && !self.parked_in_home && idx == self.active_idx;
+        if live {
+            if let Some(p) = app.file_path.clone().or_else(|| app.lib_file.as_ref().and_then(|lf| app.lib_file_disk_path(lf))) {
+                return Some(p);
+            }
+        }
+        let tab = self.entries.get(idx)?;
+        tab.file_path.clone().or_else(|| tab.lib_file.as_ref().and_then(|lf| app.lib_file_disk_path(lf)))
     }
 
-    /// Drops the cached pre-repair bytes of closed library files no remaining tab holds. Runs after the
-    /// closed file's last save, which is what consumes them to write the backup.
-    fn release_closed_library_files(&self, closed: &[(String, PathBuf)]) {
-        for (id, path) in closed {
-            if !self.entries.iter().any(|t| t.lib_file.as_ref().is_some_and(|lf| lf.id == *id)) {
+    /// True when any tab in `self.entries` (other than `skip_idx`, if given) holds a file with the
+    /// same [`crate::io::same_repair_key`] as `path`.
+    pub(crate) fn has_open_repair_key(&self, app: &App, path: &Path, skip_idx: Option<usize>) -> bool {
+        (0..self.entries.len()).filter(|i| Some(*i) != skip_idx).filter_map(|i| self.disk_path_of_tab(i, app)).any(|tp| crate::io::same_repair_key(&tp, path))
+    }
+
+    /// Drops the cached pre-repair bytes of closed tabs no remaining tab holds (by repair key).
+    /// Runs after the closed file's last save, which is what consumes them to write the backup.
+    fn release_closed_paths(&self, app: &App, closed: &[PathBuf]) {
+        for path in closed {
+            if !self.has_open_repair_key(app, path, None) {
                 crate::io::drop_repaired_original(path);
             }
         }
@@ -607,10 +711,10 @@ impl TabsState {
     /// Closes `entries[idx]` unless it is `pinned`. If `entries` becomes empty, opens `Home`;
     /// otherwise activates the nearest remaining tab.
     pub fn close_tab(&mut self, idx: usize, app: &mut App) -> bool {
-        let closed_lib: Vec<_> = self.library_file_of_tab(idx, app).into_iter().collect();
+        let closed_paths: Vec<_> = self.disk_path_of_tab(idx, app).into_iter().collect();
         let closed = self.close_tab_entry(idx, app);
         if closed {
-            self.release_closed_library_files(&closed_lib);
+            self.release_closed_paths(app, &closed_paths);
         }
         closed
     }
@@ -620,26 +724,32 @@ impl TabsState {
             return false;
         }
         let was_home = app.home.is_some();
+        if was_home && self.hist_in_app {
+            self.park_active_from_app(app);
+        }
         let old_active = self.active_idx;
         if !was_home && idx == old_active {
+            app.cleanup_image_jobs_on_file_close();
             app.terminal.shutdown();
+            app.agent_presence.reset();
+            app.agent_changes_chip.clear();
         }
         let mut removed = self.entries.remove(idx);
+        removed.image_jobs.cancel_and_cleanup(Some(removed.terminal.session_dir.join("image-jobs")));
         removed.terminal.shutdown();
-        let closed_path = removed.file_path.clone().or_else(|| (!was_home && idx == old_active).then(|| app.file_path.clone()).flatten());
-        if let Some(p) = closed_path.as_deref() {
-            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
-            if !still_open {
-                crate::io::drop_repaired_original(p);
-            }
-        }
         if self.entries.is_empty() {
             self.active_idx = 0;
             self.hist_in_app = false;
             self.parked_in_home = true;
             if !was_home {
                 if app.lib.is_some() {
-                    // Saves the file being left, so it must still be attached to the app here.
+                    // Saves the file being left before detaching it so `go_home` does not re-park a closed tab.
+                    crate::decks::ui::flush_notes(app);
+                    app.save_close_version();
+                    app.stop_plugin();
+                    app.flush_autosave();
+                    app.file_path = None;
+                    app.lib_file = None;
                     app.go_home();
                 } else {
                     app.home = Some(crate::home::Home::new());
@@ -671,6 +781,7 @@ impl TabsState {
         let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[next_idx].hist);
         app.terminal = std::mem::take(&mut self.entries[next_idx].terminal);
+        app.image_jobs = std::mem::take(&mut self.entries[next_idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
@@ -682,28 +793,25 @@ impl TabsState {
         if keep_idx >= self.entries.len() {
             return;
         }
-        if app.home.is_none() {
+        if app.home.is_none() || self.hist_in_app {
             self.park_active_from_app(app);
         }
         let keep_id = self.entries[keep_idx].id;
         let mut closed_paths = Vec::new();
-        let mut closed_lib = Vec::new();
-        for t in &mut self.entries {
-            if t.id != keep_id && !t.pinned {
-                t.terminal.shutdown();
-                if let Some(p) = t.file_path.clone() {
+        for idx in 0..self.entries.len() {
+            if self.entries[idx].id != keep_id && !self.entries[idx].pinned {
+                if let Some(p) = self.disk_path_of_tab(idx, app) {
                     closed_paths.push(p);
                 }
-                closed_lib.extend(t.lib_file.as_ref().and_then(|lf| Some((lf.id.clone(), app.lib_file_disk_path(lf)?))));
+            }
+        }
+        for t in &mut self.entries {
+            if t.id != keep_id && !t.pinned {
+                t.image_jobs.cancel_and_cleanup(Some(t.terminal.session_dir.join("image-jobs")));
+                t.terminal.shutdown();
             }
         }
         self.entries.retain(|t| t.id == keep_id || t.pinned);
-        for p in &closed_paths {
-            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
-            if !still_open {
-                crate::io::drop_repaired_original(p);
-            }
-        }
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
             let sid = self.session_id_for_tab(tab_id);
@@ -712,11 +820,12 @@ impl TabsState {
             self.apply_to_app(new_idx, app);
             app.hist = std::mem::take(&mut self.entries[new_idx].hist);
             app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
+            app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
             app.terminal.bind_session(&sid);
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             self.hist_in_app = true;
         }
-        self.release_closed_library_files(&closed_lib);
+        self.release_closed_paths(app, &closed_paths);
     }
 
     /// Clones `entries[idx]` as `"<title> (Copy)"` in a new tab right after `idx` and activates it.
@@ -731,6 +840,8 @@ impl TabsState {
         let copy_title = format!("{} (Copy)", src.title);
         let mut copy_doc = src.doc.clone();
         copy_doc.name = copy_title.clone();
+        // a file of its own: layers copied in the original paste here as real copies, not as links to its mains
+        copy_doc.renew_runtime_id();
         let copy_kind = src.kind;
         let copy_page = src.page;
         let copy_selection = src.selection.clone();
@@ -748,6 +859,7 @@ impl TabsState {
             doc: copy_doc,
             hist: History::default(),
             terminal,
+            image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
             page: copy_page,
             selection: copy_selection,
             view: copy_view,
@@ -756,6 +868,7 @@ impl TabsState {
             dev_mode: copy_dev_mode,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         let insert_idx = (idx + 1).min(self.entries.len());
         self.entries.insert(insert_idx, new_tab);
@@ -764,6 +877,7 @@ impl TabsState {
         self.apply_to_app(insert_idx, app);
         app.hist = History::default();
         app.terminal = std::mem::take(&mut self.entries[insert_idx].terminal);
+        app.image_jobs = std::mem::take(&mut self.entries[insert_idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
@@ -807,6 +921,14 @@ enum TabUiAction {
     NewDesignTab,
     NewBoardTab,
     NewDeckTab,
+}
+
+/// Whether tab `idx` shows the unsaved dot: its document is not at the point on its undo history that was
+/// last saved or opened, or a writer without an undo step changed it. The shown tab reads the live state, a
+/// parked tab the history it took along. Costs nothing: no document is hashed.
+pub(crate) fn tab_is_unsaved(app: &App, idx: usize) -> bool {
+    let is_active = app.home.is_none() && idx == app.tabs.active_idx;
+    app.tabs.entries.get(idx).is_some_and(|t| if is_active { app.has_unsaved_edits() } else { !t.hist.is_clean() || t.dirty })
 }
 
 /// Renders the 1:1 Figma UI3 Top Window Tab Bar (`32px` height) inside `ui`.
@@ -869,7 +991,6 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
     // 3. Open Project Tabs Strip
     let is_home = app.home.is_some();
     let active_idx = app.tabs.active_idx;
-    let active_dirty_live = app.hist.can_undo() || app.autosave.pending();
     let avail_for_tabs = (bar_rect.right() - x - 118.0).max(120.0);
     let tab_count = app.tabs.entries.len().max(1);
     let ideal_w = (avail_for_tabs / tab_count as f32).clamp(112.0, 240.0);
@@ -878,7 +999,10 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let tab = &app.tabs.entries[idx];
         let tab_id = tab.id;
         let is_active = !is_home && idx == active_idx;
-        let is_dirty = tab.dirty || (is_active && active_dirty_live);
+        let is_dirty = tab_is_unsaved(app, idx);
+        if is_active {
+            app.autosave.dot.painted(is_dirty);
+        }
         let tab_w = if tab.pinned && tab.title.len() <= 8 { ideal_w.min(132.0) } else { ideal_w };
         let tab_rect = Rect::from_min_size(Pos2::new(x, bar_rect.top() + 3.0), Vec2::new(tab_w, 26.0));
         if tab_rect.right() > bar_rect.right() - 104.0 {
@@ -902,10 +1026,15 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         }
 
         if is_active {
-            p.rect_filled(tab_rect, theme::cr_each(6, 6, 4, 4), TAB_ACTIVE_BG);
-            p.rect_stroke(tab_rect, theme::cr_each(6, 6, 4, 4), Stroke::new(1.0, TAB_ACTIVE_BORDER), StrokeKind::Inside);
+            p.rect_filled(tab_rect, theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT), TAB_ACTIVE_BG);
+            p.rect_stroke(
+                tab_rect,
+                theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT),
+                Stroke::new(1.0, TAB_ACTIVE_BORDER),
+                StrokeKind::Inside,
+            );
         } else if hovered {
-            p.rect_filled(tab_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(tab_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         } else {
             // Subtle right separator between inactive tabs
             p.vline(tab_rect.right() + 1.0, (tab_rect.top() + 5.0)..=(tab_rect.bottom() - 5.0), Stroke::new(1.0, TAB_BAR_BORDER));
@@ -937,9 +1066,10 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         p.text(Pos2::new(text_left, tab_rect.center().y), Align2::LEFT_CENTER, &display_title, font, fg);
 
         // Unsaved/modified dot `•`
+        let dot_center = Pos2::new(if tab.pinned { tab_rect.right() - 10.0 } else { close_rect.left() - 6.0 }, tab_rect.center().y);
+        widgets::record(ui, &format!("tab-unsaved-dot-{tab_id}"), if is_dirty { Rect::from_center_size(dot_center, Vec2::splat(6.0)) } else { Rect::NOTHING });
         if is_dirty {
-            let dot_x = if tab.pinned { tab_rect.right() - 10.0 } else { close_rect.left() - 6.0 };
-            p.circle_filled(Pos2::new(dot_x, tab_rect.center().y), 3.0, BADGE_DESIGN_BLUE);
+            p.circle_filled(dot_center, 3.0, BADGE_DESIGN_BLUE);
         }
 
         // Close `×` button — always visible on unpinned tabs so user can close in 1 click
@@ -980,7 +1110,7 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let plus_resp = ui.interact(plus_rect, ui.id().with("tab-bar-new"), Sense::click());
         if plus_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(plus_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(plus_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
         icons::paint(&p, Icon::Plus, plus_rect.center(), 13.0, if plus_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
         if plus_resp.clicked() {
@@ -999,14 +1129,14 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let upd_resp = ui.interact(upd_rect, ui.id().with("top-tab-update-btn"), Sense::click());
         if upd_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(upd_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(upd_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
         p.circle_filled(Pos2::new(upd_rect.left() + 8.0, upd_rect.center().y), 2.5, Color32::from_rgb(0x1B, 0xC4, 0x7D));
         p.text(
             Pos2::new(upd_rect.left() + 14.0, upd_rect.center().y),
             Align2::LEFT_CENTER,
             "Update",
-            theme::font_small(),
+            theme::font_caption(),
             if upd_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
         if upd_resp.on_hover_text("Check for updates & verify binary SHA-256").clicked() {
@@ -1094,12 +1224,16 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
 
     if !actions.is_empty() {
         let mut tabs = std::mem::take(&mut app.tabs);
+        // Closing a tab can end unsaved edits, so it goes through the question: see `home::leave`.
+        let mut leaves = Vec::new();
         for act in actions {
             match act {
                 TabUiAction::ClickHome => tabs.enter_home(app),
                 TabUiAction::SwitchTab(idx) => tabs.switch_to(idx, app),
                 TabUiAction::CloseTab(idx) => {
-                    tabs.close_tab(idx, app);
+                    if let Some(t) = tabs.entries.get(idx) {
+                        leaves.push(crate::home::Leave::CloseTab(t.id));
+                    }
                 }
                 TabUiAction::DuplicateTab(idx) => {
                     tabs.duplicate_tab(idx, app);
@@ -1108,7 +1242,9 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
                     tabs.toggle_pin(idx);
                 }
                 TabUiAction::CloseOtherTabs(idx) => {
-                    tabs.close_other_tabs(idx, app);
+                    if let Some(t) = tabs.entries.get(idx) {
+                        leaves.push(crate::home::Leave::CloseOthers(t.id));
+                    }
                 }
                 TabUiAction::NewDesignTab => {
                     tabs.open_new_design_tab(app);
@@ -1122,6 +1258,9 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
             }
         }
         app.tabs = tabs;
+        for leave in leaves {
+            app.request_leave(Some(ui.ctx()), leave);
+        }
     }
 }
 
@@ -1327,30 +1466,30 @@ mod tests {
     #[test]
     fn closing_background_tab_and_per_tab_terminal_isolation() {
         let mut app = make_app_with_doc("File One");
-        app.terminal.input_line = "claude --file-one".to_string();
+        app.terminal.set_composer_draft("claude --file-one");
 
         let doc2 = Document::new("File Two");
         let idx2 = app.open_new_tab("File Two", doc2, ProjectTabKind::Design);
         assert_eq!(idx2, 1);
-        assert_eq!(app.terminal.input_line, "", "New file tab gets its own clean TerminalState");
-        app.terminal.input_line = "codex --file-two".to_string();
+        assert_eq!(app.terminal.composer_draft(), "", "New file tab gets its own clean TerminalState");
+        app.terminal.set_composer_draft("codex --file-two");
 
         // Switch back to File One and verify its terminal state was isolated & preserved
         app.switch_tab(0);
         assert_eq!(app.doc.name, "File One");
-        assert_eq!(app.terminal.input_line, "claude --file-one");
+        assert_eq!(app.terminal.composer_draft(), "claude --file-one");
 
         // Switch to File Two and verify its terminal state was isolated & preserved
         app.switch_tab(1);
         assert_eq!(app.doc.name, "File Two");
-        assert_eq!(app.terminal.input_line, "codex --file-two");
+        assert_eq!(app.terminal.composer_draft(), "codex --file-two");
 
         // Close background tab 0 (File One) while editing active tab 1 (File Two)
         assert!(app.close_tab(0));
         assert_eq!(app.tabs.entries.len(), 1);
         assert_eq!(app.tabs.active_idx, 0);
         assert_eq!(app.doc.name, "File Two");
-        assert_eq!(app.terminal.input_line, "codex --file-two");
+        assert_eq!(app.terminal.composer_draft(), "codex --file-two");
     }
 
     #[test]
@@ -1645,7 +1784,9 @@ mod tests {
         tabs.sync_from_app(&app);
         let id = tabs.alloc_id();
         tabs.entries.push(ProjectTab::from_app(id, &app, None));
+        app.tabs = tabs;
         app.open_library_file(&other_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
         tabs.sync_from_app(&app);
         app.tabs = tabs;
         assert_eq!(app.tabs.entries.len(), 2);
@@ -1761,7 +1902,7 @@ mod tests {
         let mut app = App::new(Document::new("Preset"));
         let bound = app.tabs.active_session_id();
         app.terminal.bind_session(&bound);
-        app.terminal.ensure_default_tab(None);
+        let _ = app.terminal.spawn_tab(crate::terminal::AgentCliPreset::Shell, None);
         assert_eq!(app.terminal.tabs.len(), 1, "precondition: the shell started");
         let started_with = app.terminal.session_env();
 
@@ -1786,5 +1927,106 @@ mod tests {
         let second = app.tabs.entries[app.tabs.active_idx].id;
         assert_ne!(first, second);
         assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(second));
+    }
+
+    #[test]
+    fn replacing_a_repaired_library_file_in_place_drops_its_repaired_original_bytes() {
+        let (lib, dir, file_id, _rect) = library_with_one_file("replace_in_place");
+        let project = lib.file(&file_id).unwrap().project;
+        let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        std::fs::write(&disk_path, damaged.to_json().unwrap()).unwrap();
+
+        let ext_path = dir.join("external_other.designos");
+        let mut ext_doc = Document::new("External Other");
+        ext_doc.add_page("P");
+        std::fs::write(&ext_path, ext_doc.to_json().unwrap()).unwrap();
+
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib);
+
+        // 1. Open damaged library file without editing, then replace in-place via `new_file_here`.
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&disk_path), "opening damaged library file caches pre-repair bytes");
+        app.new_file_here();
+        assert!(!crate::io::has_repaired_original(&disk_path), "new_file_here must drop the replaced library file's cached pre-repair bytes");
+
+        // 2. Re-open damaged library file without editing, then replace in-place via `open_path`.
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&disk_path), "re-opening damaged library file caches pre-repair bytes");
+        app.open_path(ext_path);
+        assert!(!crate::io::has_repaired_original(&disk_path), "open_path must drop the replaced library file's cached pre-repair bytes");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn library_tab_and_external_tab_on_same_disk_path_share_still_open_check() {
+        let (lib, dir, file_id, _rect) = library_with_one_file("shared_repair_key");
+        let project = lib.file(&file_id).unwrap().project;
+        let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        let damaged_bytes = damaged.to_json().unwrap().into_bytes();
+        let backup = crate::io::backup_path(&disk_path);
+
+        // Case A: close the library tab (tab 0), then save from the external tab (tab 1).
+        std::fs::write(&disk_path, &damaged_bytes).unwrap();
+        let _ = std::fs::remove_file(&backup);
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        app.open_path(disk_path.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 2);
+        assert!(crate::io::has_repaired_original(&disk_path));
+
+        assert!(app.close_tab(0), "closing library tab 0 while external tab 1 holds the same file");
+        assert!(crate::io::has_repaired_original(&disk_path), "external tab still holds the file, so pre-repair bytes must stay cached");
+        let page = app.page;
+        app.rename(page, "Edited from external tab");
+        app.save(false);
+        assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "saving the remaining external tab writes the pre-repair .bak");
+
+        // Case B: close the external tab (tab 1), then save from the library tab (tab 0).
+        std::fs::write(&disk_path, &damaged_bytes).unwrap();
+        let _ = std::fs::remove_file(&backup);
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib);
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        app.open_path(disk_path.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 2);
+        assert!(crate::io::has_repaired_original(&disk_path));
+
+        assert!(app.close_tab(1), "closing external tab 1 while library tab 0 holds the same file");
+        assert!(crate::io::has_repaired_original(&disk_path), "library tab still holds the file, so pre-repair bytes must stay cached");
+        let page = app.page;
+        app.rename(page, "Edited from library tab");
+        app.save(false);
+        assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "saving the remaining library tab writes the pre-repair .bak");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

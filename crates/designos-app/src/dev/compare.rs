@@ -53,7 +53,7 @@ fn texture(ctx: &Context, name: &str, png: &[u8]) -> Option<TextureHandle> {
 fn pane(p: &egui::Painter, ctx: &Context, rect: Rect, title: &str, tex: Option<&TextureHandle>) {
     p.text(Pos2::new(rect.left(), rect.top() + 10.0), Align2::LEFT_CENTER, title, theme::font_body_strong(), theme::TEXT);
     let area = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + 24.0), rect.max);
-    p.rect_filled(area, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(area, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     match tex {
         Some(t) => {
             let sz = t.size_vec2();
@@ -98,7 +98,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(Pos2::ZERO)) {
             close = true;
         }
-        widgets::menu_panel(&p, rect, theme::MENU_RADIUS);
+        widgets::menu_panel(&p, rect, theme::RADIUS_FRAME);
         let pad = 20.0;
         let title = format!("Compare changes \u{2022} {}", v.name);
         p.text(
@@ -153,16 +153,16 @@ pub fn show(app: &mut App, ctx: &Context) {
                     theme::font_body_strong(),
                     theme::TEXT,
                 );
-                p.text(Pos2::new(list.right() - 12.0, y + 13.0), Align2::RIGHT_CENTER, label, theme::font_small(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(list.right() - 12.0, y + 13.0), Align2::RIGHT_CENTER, label, theme::font_caption(), theme::TEXT_SECONDARY);
                 y += 26.0;
                 if let ChangeKind::Modified(props) = &c.kind {
                     for pc in props {
-                        p.text(Pos2::new(list.left() + 22.0, y + 10.0), Align2::LEFT_CENTER, &pc.property, theme::font_small(), theme::TEXT_SECONDARY);
-                        let before = elide(&p, &pc.before, &theme::font_small(), 150.0);
-                        let after = elide(&p, &pc.after, &theme::font_small(), 150.0);
-                        p.text(Pos2::new(list.left() + 170.0, y + 10.0), Align2::LEFT_CENTER, before, theme::font_small(), theme::DANGER);
-                        p.text(Pos2::new(list.left() + 330.0, y + 10.0), Align2::LEFT_CENTER, "\u{2192}", theme::font_small(), theme::TEXT_TERTIARY);
-                        p.text(Pos2::new(list.left() + 350.0, y + 10.0), Align2::LEFT_CENTER, after, theme::font_small(), theme::DEV_READY);
+                        p.text(Pos2::new(list.left() + 22.0, y + 10.0), Align2::LEFT_CENTER, &pc.property, theme::font_caption(), theme::TEXT_SECONDARY);
+                        let before = elide(&p, &pc.before, &theme::font_caption(), 150.0);
+                        let after = elide(&p, &pc.after, &theme::font_caption(), 150.0);
+                        p.text(Pos2::new(list.left() + 170.0, y + 10.0), Align2::LEFT_CENTER, before, theme::font_caption(), theme::DANGER);
+                        p.text(Pos2::new(list.left() + 330.0, y + 10.0), Align2::LEFT_CENTER, "\u{2192}", theme::font_caption(), theme::TEXT_TERTIARY);
+                        p.text(Pos2::new(list.left() + 350.0, y + 10.0), Align2::LEFT_CENTER, after, theme::font_caption(), theme::DEV_READY);
                         y += 20.0;
                     }
                     y += 6.0;
@@ -178,7 +178,7 @@ pub fn show(app: &mut App, ctx: &Context) {
             close = true;
         }
         let r = ui.interact(ok, Id::new("compare-remark"), Sense::click());
-        p.rect_filled(ok, theme::cr(theme::RADIUS_MEDIUM), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
+        p.rect_filled(ok, theme::cr_pill(ok.height()), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
         p.text(ok.center(), Align2::CENTER_CENTER, "Mark as ready for dev again", theme::font_body_strong(), theme::TEXT);
         if r.clicked() {
             remark = true;

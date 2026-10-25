@@ -16,17 +16,34 @@ use crate::layout;
 use crate::ops::apply_resize;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{Command, Document, NodeKind};
+use designos_doc::{mains_held_by, Command, Document, NodeKind};
 use egui::{Modifiers, Pos2, Response};
 
 pub fn dv(p: Pos2) -> DV {
     DV::new(p.x, p.y)
 }
 
+#[derive(Clone)]
 struct Inp {
+    /// Where the pointer is at the end of the frame (egui reports only the last position of the frame).
     pos: Option<Pos2>,
+    /// Where the button that went down this frame went down. It differs from `pos` when the pointer moved on within
+    /// the same frame, which happens on a slow frame or a quick flick.
+    press_pos: Option<Pos2>,
+    /// Where the primary button went up this frame, when that release came after the last press of the frame.
+    release_pos: Option<Pos2>,
+    /// Where the primary button went up before the last press of the frame: the end of the gesture that was open
+    /// when the frame began.
+    prior_release_pos: Option<Pos2>,
+    /// The modifiers held when the primary button went up (see `release_pos`). `mods` is the state at the END of the
+    /// frame and may already have changed since: a gesture that ends at the release was drawn with these.
+    release_mods: Option<Modifiers>,
+    /// The modifiers held at `prior_release_pos`.
+    prior_release_mods: Option<Modifiers>,
     pressed: bool,
     down: bool,
+    /// The primary button went up after the last press of this frame, so the gesture that press started is over.
+    /// A release that came before that press belongs to the previous gesture (see `prior_release_pos`).
     released: bool,
     mid_pressed: bool,
     mid_down: bool,
@@ -36,16 +53,44 @@ struct Inp {
 }
 
 fn gather(ui: &Ui, typing: bool) -> Inp {
-    ui.input(|i| Inp {
-        pos: i.pointer.latest_pos(),
-        pressed: i.pointer.primary_pressed(),
-        down: i.pointer.primary_down(),
-        released: i.pointer.primary_released(),
-        mid_pressed: i.pointer.button_pressed(egui::PointerButton::Middle),
-        mid_down: i.pointer.middle_down(),
-        mods: i.modifiers,
-        space: !typing && i.key_down(egui::Key::Space),
-        z_down: !typing && i.key_down(egui::Key::Z),
+    ui.input(|i| {
+        // The pointer state keeps only the last position of the frame; the button events know where each press and
+        // release happened, even when the press, the moves and the release arrive in one frame.
+        // Events are walked in arrival order: a release only ends the gesture of the press that came before it.
+        let (mut press, mut mid_press, mut release, mut prior_release) = (None, None, None, None);
+        for ev in &i.events {
+            if let egui::Event::PointerButton { pos, button, pressed, modifiers } = ev {
+                match (button, pressed) {
+                    (egui::PointerButton::Primary, true) => {
+                        press = Some(*pos);
+                        // The FIRST release of the frame ended the gesture that was open when it began; any later
+                        // press and release pair is a gesture of its own that this frame does not play out.
+                        let seen = release.take();
+                        prior_release = prior_release.or(seen);
+                    }
+                    (egui::PointerButton::Primary, false) => release = Some((*pos, *modifiers)),
+                    (egui::PointerButton::Middle, true) => mid_press = Some(*pos),
+                    _ => {}
+                }
+            }
+        }
+        let pressed = i.pointer.primary_pressed();
+        Inp {
+            pos: i.pointer.latest_pos(),
+            press_pos: if pressed { press } else { mid_press },
+            release_pos: release.map(|r| r.0),
+            prior_release_pos: prior_release.map(|r| r.0),
+            release_mods: release.map(|r| r.1),
+            prior_release_mods: prior_release.map(|r| r.1),
+            pressed,
+            down: i.pointer.primary_down(),
+            released: i.pointer.primary_released() && (release.is_some() || press.is_none()),
+            mid_pressed: i.pointer.button_pressed(egui::PointerButton::Middle),
+            mid_down: i.pointer.middle_down(),
+            mods: i.modifiers,
+            space: !typing && i.key_down(egui::Key::Space),
+            z_down: !typing && i.key_down(egui::Key::Z),
+        }
     })
 }
 
@@ -248,7 +293,7 @@ fn snap_point(p: DV, targets: &[Rect], zoom: f32) -> (DV, snap::SnapResult) {
 pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     let ctx = ui.ctx().clone();
     let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
-    let typing = (ctx.egui_wants_keyboard_input() || app.terminal.is_capturing_keyboard(agent_rail_open)) && app.canvas.text.is_none();
+    let typing = (crate::agent_a11y::non_canvas_has_focus(&ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)) && app.canvas.text.is_none();
     let inp = gather(ui, typing);
     let hovered = resp.hovered();
 
@@ -300,12 +345,32 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         builder::hover(app, app.canvas.pointer_page);
     }
 
-    if (inp.pressed || inp.mid_pressed) && hovered {
+    if inp.pressed {
+        // a release that never reached us must not complete a later gesture
+        ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id()));
+    }
+    let new_press = inp.pressed || inp.mid_pressed;
+    if new_press && hovered {
         app.terminal.viewport_focused = false;
         if let Some(focused_id) = ctx.memory(|m| m.focused()) {
             ctx.memory_mut(|m| m.surrender_focus(focused_id));
         }
-        on_press(app, rect, &inp);
+    }
+    // A new press ends a draw, move, resize or rotate still open (a middle press, a pan habit, while the primary
+    // button is held; a release and a press in one slow frame; a press after a lost release). Without this the
+    // press starts another gesture over the open one, and what it did stays in the document outside undo.
+    // A release before this frame's press ends the gesture wherever that press lands: on a panel it never reaches
+    // the canvas, and the gesture would follow the held button.
+    let open_gesture =
+        matches!(app.canvas.inter, Interaction::Draw(_) | Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_));
+    if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some()) {
+        end_open_gesture(app, rect, &inp);
+    }
+    if new_press && hovered {
+        on_press(app, &ctx, rect, &inp);
+    }
+    if inp.released {
+        finish_grid_track_pill(app, &ctx, rect, inp.pos);
     }
     if !matches!(app.canvas.inter, Interaction::None) {
         if inp.down || inp.mid_down {
@@ -317,7 +382,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
             _ => inp.released || !inp.down && !inp.pressed,
         };
         if ended {
-            on_release(app, rect, &inp);
+            on_release(app, rect, &Inp { mods: inp.release_mods.unwrap_or(inp.mods), ..inp.clone() }, release_end(&inp));
         }
     }
     if resp.secondary_clicked() && hovered {
@@ -386,7 +451,8 @@ pub fn try_click_dev_status_badge(app: &mut App, rect: ERect, pos: Pos2) -> bool
     false
 }
 
-/// Checks if the click hits the on-canvas `"Tidy up"` pill (`#16`) or a 2D CSS Grid track header pill (`#18`).
+/// Checks if the click hits the on-canvas `"Tidy up"` pill (`#16`), a 2D CSS Grid track header pill (`#18`)
+/// or a grid `+` add-track button (`#144`).
 pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bool {
     if let Some(tidy_r) = super::draw::tidy_up_pill_rect(app, rect) {
         if tidy_r.contains(pos) {
@@ -394,45 +460,106 @@ pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bo
             return true;
         }
     }
-    for (grid_id, is_col, idx, pill_r) in super::draw::grid_track_pill_rects(app, rect) {
-        if pill_r.contains(pos) {
-            let mut tx = Tx::new();
-            let mut label = String::new();
-            if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
-                if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
-                    if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
-                        if is_col {
-                            if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
-                                *tr = match *tr {
-                                    designos_doc::GridTrack::Flex(_) => {
-                                        designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
-                                    }
-                                    designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                    designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                                };
-                                label = super::grids::format_grid_track(*tr);
-                            }
-                        } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
-                            *tr = match *tr {
-                                designos_doc::GridTrack::Flex(_) => {
-                                    designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0))
-                                }
-                                designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                            };
-                            label = super::grids::format_grid_track(*tr);
-                        }
-                    }
-                }
-                layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
-            }
-            if app.run_tx(tx) && !label.is_empty() {
-                app.show_toast(format!("Grid track → {label}"), false);
+    if try_cycle_grid_track_pill(app, rect, pos) {
+        return true;
+    }
+    for (grid_id, is_col, add_r) in super::draw::grid_track_add_button_rects(app, rect) {
+        if add_r.contains(pos) {
+            let at = super::grids::grid_track_count(&app.doc, grid_id, is_col);
+            if super::grids::insert_grid_track(app, grid_id, is_col, at, designos_doc::GridTrack::Flex(1.0)) {
+                app.show_toast(if is_col { "Added column track" } else { "Added row track" }, false);
             }
             return true;
         }
     }
     false
+}
+
+/// Cycles the sizing (`1fr` -> `Npx` -> `Hug` -> `1fr`) of the grid track whose header pill is at `pos`, in one undo step.
+pub fn try_cycle_grid_track_pill(app: &mut App, rect: ERect, pos: Pos2) -> bool {
+    let Some((grid_id, is_col, idx, _)) = super::draw::grid_track_pill_at(app, rect, pos) else {
+        return false;
+    };
+    let mut tx = Tx::new();
+    let mut label = String::new();
+    if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
+        if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
+            if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
+                if is_col {
+                    if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
+                        *tr = match *tr {
+                            designos_doc::GridTrack::Flex(_) => {
+                                designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
+                            }
+                            designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                            designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                        };
+                        label = super::grids::format_grid_track(*tr);
+                    }
+                } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
+                    *tr = match *tr {
+                        designos_doc::GridTrack::Flex(_) => designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0)),
+                        designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                        designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                    };
+                    label = super::grids::format_grid_track(*tr);
+                }
+            }
+        }
+        layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
+    }
+    if app.run_tx(tx) && !label.is_empty() {
+        app.show_toast(format!("Grid track → {label}"), false);
+    }
+    true
+}
+
+/// Pointer travel (screen px) past which a press on a grid track pill is a drag instead of a click.
+const GRID_PILL_DRAG_SLOP: f32 = 4.0;
+
+fn grid_pill_press_id() -> egui::Id {
+    egui::Id::new("grid-track-pill-press")
+}
+
+/// Holds back a press on a grid track header pill until the button is released, so one gesture is one edit:
+/// a drag onto another pill of the same grid and axis reorders the tracks, a click cycles the sizing.
+fn arm_grid_track_pill(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> bool {
+    if super::draw::tidy_up_pill_rect(app, rect).is_some_and(|r| r.contains(pos)) {
+        return false;
+    }
+    if super::draw::grid_track_pill_at(app, rect, pos).is_none() {
+        return false;
+    }
+    ctx.data_mut(|d| d.insert_temp(grid_pill_press_id(), pos));
+    true
+}
+
+/// Completes a press that [`arm_grid_track_pill`] held back. A release still on the source pill cycles its sizing;
+/// a drag onto another pill of the same grid and axis reorders the tracks; a release off every pill changes nothing.
+fn finish_grid_track_pill(app: &mut App, ctx: &egui::Context, rect: ERect, release: Option<Pos2>) {
+    let Some(press) = ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id())) else { return };
+    let Some(release) = release else { return };
+    let same_pill = match (super::draw::grid_track_pill_at(app, rect, press), super::draw::grid_track_pill_at(app, rect, release)) {
+        (Some((g0, c0, i0, _)), Some((g1, c1, i1, _))) => g0 == g1 && c0 == c1 && i0 == i1,
+        _ => false,
+    };
+    if (release - press).length() > GRID_PILL_DRAG_SLOP && !same_pill {
+        try_drag_grid_track_pill(app, rect, press, release);
+    } else {
+        try_cycle_grid_track_pill(app, rect, press);
+    }
+}
+
+/// Reorders a grid column/row track when dragging from one on-canvas track header pill to another (`#144`).
+pub fn try_drag_grid_track_pill(app: &mut App, rect: ERect, from_pos: Pos2, to_pos: Pos2) -> bool {
+    let Some((grid_id, is_col, from_idx, _)) = super::draw::grid_track_pill_at(app, rect, from_pos) else {
+        return false;
+    };
+    let same_axis = super::draw::grid_track_pill_rects(app, rect).into_iter().filter(|&(gid, col, idx, _)| gid == grid_id && col == is_col && idx != from_idx);
+    let Some((_, _, to_idx, _)) = super::draw::nearest_pill(same_axis, to_pos) else {
+        return false;
+    };
+    super::grids::move_grid_track(app, grid_id, is_col, from_idx, to_idx)
 }
 
 /// Returns `(shared_parent_id, items_with_world_aabb)` when 2 or more selected nodes
@@ -548,8 +675,8 @@ pub fn update_smart_selection_drag(app: &mut App, sd: &mut SmartSelectionDragSta
     app.changed();
 }
 
-fn on_press(app: &mut App, rect: ERect, inp: &Inp) {
-    let Some(pos) = inp.pos else { return };
+fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
+    let Some(pos) = inp.press_pos.or(inp.pos) else { return };
     if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
         return;
     }
@@ -572,7 +699,10 @@ fn on_press(app: &mut App, rect: ERect, inp: &Inp) {
         finish_text(app, true);
     }
     let mid = inp.mid_pressed && !inp.pressed;
-    if !mid && !inp.space && (try_click_dev_status_badge(app, rect, pos) || try_click_canvas_action_pill(app, rect, pos)) {
+    if !mid
+        && !inp.space
+        && (try_click_dev_status_badge(app, rect, pos) || arm_grid_track_pill(app, ctx, rect, pos) || try_click_canvas_action_pill(app, rect, pos))
+    {
         return;
     }
     if app.canvas.vedit.is_some() && !mid && !inp.space && vector::press(app, rect, pos, inp.mods) {
@@ -647,10 +777,9 @@ fn on_press(app: &mut App, rect: ERect, inp: &Inp) {
         }
         PressAction::TextCreate => text_press(app, page),
         PressAction::Nothing => {
+            // The Comment tool does its work on the click, in `comments::pins::process`; the press itself says nothing.
             if app.tool == Tool::Image {
                 place_image(app, page);
-            } else if app.tool == Tool::Comment {
-                app.show_toast("Comments are not available in the offline editor", false);
             }
         }
     }
@@ -858,13 +987,50 @@ fn start_draw(app: &mut App, tool: Tool, page: DV) {
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, start, &[]);
     let node = create::new_shape(app, tool);
     let id = node.id;
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return;
+    }
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).is_err() {
         return;
     }
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.selection = vec![id];
-    app.canvas.inter = Interaction::Draw(DrawState { tx, tool, id, parent, start, last_page: start, targets, dragged: false });
+    app.canvas.inter = Interaction::Draw(DrawState { tx, tool, id, parent, start, press: page, last_page: start, targets, dragged: false });
+    app.changed();
+}
+
+/// Reshapes the shape being drawn so its far corner is at `cur` (page space), and records whether the pointer has
+/// moved far enough from the press for this to be a drag rather than a click. That distance is the raw pointer
+/// distance on screen; snapping only moves the corners of the shape.
+fn update_draw(app: &mut App, d: &mut DrawState, cur: DV, inp: &Inp) {
+    let zoom = app.view.zoom;
+    if inp.space {
+        let delta = sub(cur, d.last_page);
+        d.start = add(d.start, delta);
+        d.press = add(d.press, delta);
+    }
+    d.last_page = cur;
+    let (mut c, snapped) = if inp.mods.command { (cur, snap::SnapResult::default()) } else { snap_point(cur, &d.targets, zoom) };
+    if inp.mods.shift {
+        c = cur;
+    }
+    if !inp.mods.command {
+        if !snapped_on(&snapped.guides, snap::GuideAxis::X) {
+            c.x = px(app, c.x);
+        }
+        if !snapped_on(&snapped.guides, snap::GuideAxis::Y) {
+            c.y = px(app, c.y);
+        }
+    }
+    app.canvas.guides = snapped.guides;
+    app.canvas.measures.clear();
+    if dist(d.press, cur) * zoom > theme::DRAG_THRESHOLD_PX {
+        d.dragged = true;
+    }
+    let g = create::draw_geom(d.tool, d.start, c, inp.mods.shift || crate::board::create::keeps_square(d.tool), inp.mods.alt);
+    create::apply_geom(&mut app.doc, &mut d.tx, d.id, d.parent, &g);
     app.changed();
 }
 
@@ -882,18 +1048,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::ZoomMarquee { cur: c, .. } => {
             *c = cur;
         }
-        Interaction::Pending(p) => {
-            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
-                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
-                if let Some(mut m) = start_move(app, node, start, alt) {
-                    update_move(app, &mut m, cur, inp);
-                    inter = Interaction::Move(m);
-                } else {
-                    inter = Interaction::None;
-                }
-            }
-        }
-        Interaction::Move(m) => update_move(app, m, cur, inp),
+        Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur),
         Interaction::Marquee { start, cur: c, base } => {
@@ -916,28 +1071,6 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
                 }
                 app.selection = sel;
             }
-        }
-        Interaction::Resize(r) => update_resize(app, r, cur, inp),
-        Interaction::Rotate(r) => {
-            r.tx.ed.revert(&mut app.doc);
-            if r.group.is_empty() {
-                let mut ang = r.rot0 + (handles::angle_of(r.center, cur) - r.start_angle);
-                if inp.mods.shift {
-                    ang = handles::snap_angle(ang, 15.0);
-                }
-                let t = handles::rotate_about_center(&r.t0, r.size, ang);
-                if let Some(n) = r.tx.ed.node(&mut app.doc, r.id) {
-                    n.transform = t;
-                }
-                layout::relayout_up(&mut app.doc, &mut r.tx.ed, r.id);
-            } else {
-                let mut delta = handles::angle_of(r.center, cur) - r.start_angle;
-                if inp.mods.shift {
-                    delta = handles::snap_angle(delta, 15.0);
-                }
-                crate::ops::rotate_nodes_about(&mut app.doc, &mut r.tx.ed, &r.group, r.center, delta);
-            }
-            app.changed();
         }
         Interaction::CornerRadius(cr) => {
             cr.tx.ed.revert(&mut app.doc);
@@ -1023,33 +1156,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::ShapeControl(sc) => {
             update_shape_control(app, sc, cur, inp.mods.shift);
         }
-        Interaction::Draw(d) => {
-            if inp.space {
-                let delta = sub(cur, d.last_page);
-                d.start = add(d.start, delta);
-            }
-            d.last_page = cur;
-            let (mut c, snapped) = if inp.mods.command { (cur, snap::SnapResult::default()) } else { snap_point(cur, &d.targets, zoom) };
-            if inp.mods.shift {
-                c = cur;
-            }
-            if !inp.mods.command {
-                if !snapped_on(&snapped.guides, snap::GuideAxis::X) {
-                    c.x = px(app, c.x);
-                }
-                if !snapped_on(&snapped.guides, snap::GuideAxis::Y) {
-                    c.y = px(app, c.y);
-                }
-            }
-            app.canvas.guides = snapped.guides;
-            app.canvas.measures.clear();
-            if dist(d.start, c) * zoom > theme::DRAG_THRESHOLD_PX {
-                d.dragged = true;
-            }
-            let g = create::draw_geom(d.tool, d.start, c, inp.mods.shift || crate::board::create::keeps_square(d.tool), inp.mods.alt);
-            create::apply_geom(&mut app.doc, &mut d.tx, d.id, d.parent, &g);
-            app.changed();
-        }
+        Interaction::Draw(d) => update_draw(app, d, cur, inp),
         Interaction::Pencil(pts) => {
             if pts.last().map(|l| dist(*l, cur) * zoom > 1.5).unwrap_or(true) {
                 pts.push(cur);
@@ -1076,23 +1183,99 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
     }
 }
 
+/// Takes a pending click, a move, a resize or a rotate to the pointer at `pos` (`cur` in page space).
+/// `on_drag` does this on every frame the button is held, but not on the frame of the release.
+fn follow_pointer(app: &mut App, inter: &mut Interaction, pos: Pos2, cur: DV, inp: &Inp) {
+    match inter {
+        Interaction::Pending(p) => {
+            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
+                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
+                *inter = match start_move(app, node, start, alt) {
+                    Some(mut m) => {
+                        update_move(app, &mut m, cur, inp);
+                        Interaction::Move(m)
+                    }
+                    None => Interaction::None,
+                };
+            }
+        }
+        Interaction::Move(m) => update_move(app, m, cur, inp),
+        Interaction::Resize(r) => update_resize(app, r, cur, inp),
+        Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
+        _ => {}
+    }
+}
+
+/// Ends the draw, move, resize or rotate that a new press finds open.
+/// A primary press ends it where the primary button went up before that press, with the modifiers held then. A
+/// primary press with no release before it means the release was lost: the gesture ends as it was last drawn, because
+/// the pointer is now somewhere that has nothing to do with it. A middle press leaves the primary button live, so the
+/// gesture ends at this frame's release if there is one, else at the pointer.
+fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
+    let (end, mods) = if inp.pressed { (inp.prior_release_pos, inp.prior_release_mods) } else { (inp.release_pos.or(inp.pos), inp.release_mods) };
+    let ending = Inp { mods: mods.unwrap_or(inp.mods), ..inp.clone() };
+    if !inp.pressed && matches!(app.canvas.inter, Interaction::Pending(_)) {
+        // A pan habit over a pending click is not a click, so the selection stays. A pointer that went past the drag
+        // threshold within this frame still makes the move.
+        let mut inter = std::mem::take(&mut app.canvas.inter);
+        if let Some(p) = end {
+            let page = app.view.to_page(rect.min, p);
+            follow_pointer(app, &mut inter, p, page, &ending);
+        }
+        if !matches!(inter, Interaction::Pending(_)) {
+            app.canvas.inter = inter;
+        }
+    }
+    if !matches!(app.canvas.inter, Interaction::None) {
+        on_release(app, rect, &ending, end);
+    }
+}
+
+/// Where the primary button went up in this frame: the place a move, resize or rotate still open at the release
+/// ends. `None` for a click, a press and a release at one spot in one frame, which must not resize or rotate
+/// anything by the few pixels between the pointer and the middle of the handle it hit.
+fn release_end(inp: &Inp) -> Option<Pos2> {
+    let end = inp.release_pos.or(inp.pos)?;
+    (!(inp.pressed && inp.press_pos == Some(end))).then_some(end)
+}
+
 fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<MoveState> {
     let mut ids = app.top_selection();
     if ids.is_empty() {
         ids.push(clicked);
     }
     let mut tx = Tx::new();
+    let mut dup_blocked = None;
+    let mut main_copies = Vec::new();
     if alt {
         let mut dup = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
         let clip = crate::clipboard::capture(&app.doc, &ids);
-        let copies = clip.map(|c| crate::clipboard::instantiate(&mut app.doc, &c)).unwrap_or_default();
+        let copies =
+            clip.map(|c| crate::clipboard::instantiate_linking_mains(&mut app.doc, &c, |doc, id| doc.get(id).and_then(|n| n.parent))).unwrap_or_default();
+        // A copy lands next to its original, but the drop may carry it elsewhere: only a copy that
+        // ends up in a slot it would overfill is refused, and that is decided at release.
+        let mut blocked = Vec::new();
+        for (id, _) in ids.iter().zip(&copies) {
+            let Some(parent) = app.doc.get(*id).and_then(|n| n.parent) else { continue };
+            if blocked.iter().any(|(slot, _)| *slot == parent) {
+                continue;
+            }
+            let roots: Vec<&designos_doc::Node> =
+                ids.iter().zip(&copies).filter(|(o, _)| app.doc.get(**o).and_then(|n| n.parent) == Some(parent)).filter_map(|(_, c)| c.first()).collect();
+            if let Some(err) = crate::ops::slot_edit_error(&app.doc, &[], Some((parent, &roots))) {
+                blocked.push((parent, err));
+            }
+        }
+        dup_blocked = Some(blocked);
         for (id, nodes) in ids.iter().zip(copies) {
             let Some(parent) = app.doc.get(*id).and_then(|n| n.parent) else { continue };
             let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| c == id)).map(|i| i + 1).unwrap_or(usize::MAX);
             let root = nodes.first().map(|n| n.id);
+            let is_main = crate::clipboard::is_main(&app.doc, *id);
             if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }).is_ok() {
                 dup.extend(root);
+                main_copies.extend(root.filter(|_| is_main).map(|copy| (*id, copy)));
             }
         }
         if !dup.is_empty() {
@@ -1103,7 +1286,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
     let idx = active_index(app);
     let orig_bbox = union_all(ids.iter().map(|i| super::fast_world_aabb(&app.doc, idx, *i)))?;
     let targets = snap_targets(app, &ids);
-    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None })
+    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None, dup_blocked, main_copies })
 }
 
 fn parent_has_auto_layout(doc: &Document, id: NodeId) -> bool {
@@ -1181,6 +1364,28 @@ fn update_move(app: &mut App, m: &mut MoveState, cur: DV, inp: &Inp) {
     app.changed();
 }
 
+fn update_rotate(app: &mut App, r: &mut RotateState, cur: DV, inp: &Inp) {
+    r.tx.ed.revert(&mut app.doc);
+    if r.group.is_empty() {
+        let mut ang = r.rot0 + (handles::angle_of(r.center, cur) - r.start_angle);
+        if inp.mods.shift {
+            ang = handles::snap_angle(ang, 15.0);
+        }
+        let t = handles::rotate_about_center(&r.t0, r.size, ang);
+        if let Some(n) = r.tx.ed.node(&mut app.doc, r.id) {
+            n.transform = t;
+        }
+        layout::relayout_up(&mut app.doc, &mut r.tx.ed, r.id);
+    } else {
+        let mut delta = handles::angle_of(r.center, cur) - r.start_angle;
+        if inp.mods.shift {
+            delta = handles::snap_angle(delta, 15.0);
+        }
+        crate::ops::rotate_nodes_about(&mut app.doc, &mut r.tx.ed, &r.group, r.center, delta);
+    }
+    app.changed();
+}
+
 fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
     r.tx.ed.revert(&mut app.doc);
     let mut mouse = cur;
@@ -1216,8 +1421,9 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
                 ns.y = 0.0;
             }
             let t = *t0 * Affine::translate(d.x, if is_line { 0.0 } else { d.y });
-            // Cmd/Ctrl while resizing a container ignores child constraints & auto-layout (MI-11).
-            if inp.mods.command && app.doc.get(*id).is_some_and(|n| n.kind.is_container()) {
+            // Cmd/Ctrl while resizing a container ignores child constraints & auto-layout (MI-11). The operands of a
+            // boolean group are its shape rather than its layers, so they scale with it either way.
+            if inp.mods.command && app.doc.get(*id).is_some_and(|n| n.kind.is_container() && !matches!(n.kind, NodeKind::BooleanOp(_))) {
                 if let Some(n) = r.tx.ed.node(&mut app.doc, *id) {
                     n.size = ns;
                     n.transform = t;
@@ -1297,9 +1503,15 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
 }
 
 // ------------------------------------------------------------------ release
-fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
-    let cur = inp.pos.map(|p| app.view.to_page(rect.min, p)).unwrap_or(DV::ZERO);
-    let inter = std::mem::take(&mut app.canvas.inter);
+/// Ends the open gesture. `end` is where the pointer let go: `on_drag` does not run on the frame of the release, and
+/// the release can share its frame with the press and the moves, so a move, resize or rotate is first brought to
+/// `end`. `None` when that place is not known (or the gesture was a click): the gesture then ends as it was last drawn.
+fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
+    let mut inter = std::mem::take(&mut app.canvas.inter);
+    let cur = end.map(|p| app.view.to_page(rect.min, p));
+    if let (Some(pos), Some(page)) = (end, cur) {
+        follow_pointer(app, &mut inter, pos, page, inp);
+    }
     app.canvas.guides.clear();
     app.canvas.measures.clear();
     match inter {
@@ -1315,11 +1527,12 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
         Interaction::Guide(g) => rulers::release(app, g),
         Interaction::Connect(c) => crate::board::connect::release(app, c),
         Interaction::Move(mut m) => {
-            // Holding Space on release suppresses reparenting into a different container (MI-12).
-            if m.moved && !m.ids.is_empty() && !inp.space {
-                reparent_after_move(app, &mut m, cur);
+            if release_move(app, &mut m, cur, inp.space) {
+                app.run_tx(m.tx);
+            } else {
+                // A refused drop leaves the document as it was before the drag.
+                m.tx.cancel(&mut app.doc);
             }
-            app.run_tx(m.tx);
         }
         Interaction::Resize(r) => {
             app.run_tx(r.tx);
@@ -1369,6 +1582,13 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
             app.run_tx(s.tx);
         }
         Interaction::Draw(mut d) => {
+            // `on_drag` does not run on the frame of the release, and the release can share its frame with the press
+            // and the moves. Shape the draw to where the pointer let go, then decide between a drag and a click.
+            if let Some(p) = end {
+                update_draw(app, &mut d, app.view.to_page(rect.min, p), inp);
+                app.canvas.guides.clear();
+                app.canvas.measures.clear();
+            }
             if !d.dragged && (crate::board::create::types_into(d.tool) || d.tool == Tool::Stamp) {
                 // a click places a board item at its default size, centred on the pointer
                 let r = crate::board::create::click_rect(d.tool, d.start);
@@ -1500,25 +1720,107 @@ pub fn commit_auto_layout_inline_value(app: &mut App, id: NodeId, kind: handles:
     app.run_tx(tx)
 }
 
-fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) {
-    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
+/// Settles a finished drag: reparents into the container under the pointer and records the slot
+/// edits it made. Returns false when a slot limit refuses the drop (the caller undoes the drag).
+fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) -> bool {
+    // Holding Space on release suppresses reparenting into a different container (MI-12).
+    if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur) {
+        return false;
+    }
+    settle_main_copies(app, m);
+    for id in m.ids.clone() {
+        let Some(parent) = app.doc.get(id).and_then(|n| n.parent) else { continue };
+        if let Some(blocked) = &m.dup_blocked {
+            if let Some((_, err)) = blocked.iter().find(|(slot, _)| *slot == parent) {
+                app.show_toast(err.to_string(), true);
+                return false;
+            }
+            // A copy that stayed in its slot changed that slot's content.
+            App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, parent);
+        }
+    }
+    true
+}
+
+/// Where an Alt-copy of a main component or set has landed decides what it is: an instance, or a real copy where an
+/// instance cannot go (in a component set, in a layer of an instance of the main). The copy made at the start of the
+/// drag is replaced by the other kind in the same undo step.
+fn settle_main_copies(app: &mut App, m: &mut MoveState) {
+    for k in 0..m.main_copies.len() {
+        let (source, copy) = m.main_copies[k];
+        let Some(recast) = crate::clipboard::recast_copy(&mut app.doc, source, copy) else { continue };
+        let Some(parent) = app.doc.get(copy).and_then(|n| n.parent) else { continue };
+        let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == copy)).unwrap_or(usize::MAX);
+        let new = recast.nodes.first().map(|n| n.id);
+        let swapped = m.tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: recast.nodes }).is_ok()
+            && m.tx.cmd(&mut app.doc, Command::Remove { id: copy }).is_ok();
+        let Some(new) = new.filter(|_| swapped) else { continue };
+        m.main_copies[k].1 = new;
+        for id in m.ids.iter_mut().chain(app.selection.iter_mut()).filter(|id| **id == copy) {
+            *id = new;
+        }
+        // Connectors copied along ended on the copy that is gone: they end on what stands in its place.
+        let mut connectors = Vec::new();
+        for id in &m.ids {
+            app.doc.walk(*id, |n, _| {
+                if matches!(n.kind, NodeKind::Connector(_)) {
+                    connectors.push(n.id);
+                }
+            });
+        }
+        for id in connectors {
+            if let Some(node) = m.tx.ed.node(&mut app.doc, id) {
+                crate::clipboard::restand_connector(node, &recast.stand_in);
+            }
+        }
+    }
+}
+
+/// `cur` is where the layers were dropped; without it they stay in the container they are in.
+fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> bool {
+    let copies = m.dup_blocked.is_some();
     let mut touched_parents = Vec::new();
     if let Some(r) = m.reorder.take() {
         // Dropped inside its auto-layout frame: move to the indicated slot.
         if let Some(&id) = m.ids.first() {
+            if !app.slot_move_allowed(&[id], r.parent) {
+                return false;
+            }
+            let old_parent = app.doc.get(id).and_then(|n| n.parent);
+            let order_before = app.doc.get(r.parent).map(|p| p.children.clone());
             if m.tx.cmd(&mut app.doc, Command::Reparent { id, parent: r.parent, index: r.index }).is_ok() {
+                if old_parent != Some(r.parent) {
+                    App::stretch_into_slot_if_configured(&mut app.doc, &mut m.tx.ed, r.parent, id);
+                }
+                if app.doc.get(r.parent).map(|p| &p.children) != order_before.as_ref() {
+                    App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, r.parent);
+                }
+                if let Some(p) = old_parent.filter(|p| *p != r.parent && !copies) {
+                    App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, p);
+                }
                 layout::relayout_around(&mut app.doc, &mut m.tx.ed, r.parent);
             }
         }
-        return;
+        return true;
     }
-    for id in m.ids.clone() {
-        let Some(n) = app.doc.get(id) else { continue };
-        let old_parent = n.parent;
-        // Children of an auto-layout frame that stay inside it only reorder; leaving it takes them out of the flow.
-        if old_parent == Some(target) || app.doc.is_ancestor(id, target) {
-            continue;
-        }
+    let Some(cur) = cur else { return true };
+    // A layer is not dropped into a main it holds an instance of, nor into a layer inside it: that main would hold
+    // itself. A copy of a main dropped on the main lands beside it.
+    let mut skip = m.ids.clone();
+    skip.extend(mains_held_by(&app.doc, &m.ids));
+    let sources: Vec<NodeId> = m.main_copies.iter().map(|(source, _)| *source).collect();
+    skip.extend(mains_held_by(&app.doc, &sources));
+    skip.extend(sources);
+    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &skip);
+    // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
+    let moving: Vec<NodeId> =
+        m.ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.parent != Some(target)) && !app.doc.is_ancestor(*id, target)).collect();
+    if !moving.is_empty() && !app.slot_move_allowed(&moving, target) {
+        return false;
+    }
+    let mut moved = false;
+    for id in moving {
+        let old_parent = app.doc.get(id).and_then(|n| n.parent);
         let Some(inv) = app.doc.world_transform(target).invert() else { continue };
         let world = app.doc.world_transform(id);
         let index = app.doc.get(target).map(|p| p.children.len()).unwrap_or(0);
@@ -1526,17 +1828,25 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) {
             if let Some(n) = m.tx.ed.node(&mut app.doc, id) {
                 n.transform = inv * world;
             }
-            touched_parents.extend(old_parent);
+            App::stretch_into_slot_if_configured(&mut app.doc, &mut m.tx.ed, target, id);
+            moved = true;
+            // The slot an Alt-copy was parked in never gained or lost anything.
+            if !copies {
+                touched_parents.extend(old_parent);
+            }
         }
     }
-    if !touched_parents.is_empty() {
+    if moved {
         for p in touched_parents {
             if app.doc.get(p).is_some() {
+                App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, p);
                 layout::relayout_around(&mut app.doc, &mut m.tx.ed, p);
             }
         }
+        App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, target);
         layout::relayout_around(&mut app.doc, &mut m.tx.ed, target);
     }
+    true
 }
 
 /// 1:1 Figma `Enter` (select direct children) and `Shift+Enter` (select parent container)
@@ -1803,6 +2113,55 @@ fn pen_press(app: &mut App, rect: ERect, pos: Pos2, page: DV, mods: Modifiers) {
     app.canvas.inter = Interaction::PenDrag;
 }
 
+/// Ends the gesture that is open (a move, a resize, a rotate, a draw, a stroke, a vector drag) where it last drew, as
+/// the one undo step the release would have made. For a place that must leave the document settled while the pointer
+/// may still be down: the document is already in the state the gesture drew, so nothing moves.
+///
+/// A pan, a zoom or a selection box just ends, without the release's pan, zoom or selection and without marking the
+/// document changed ([`App::changed`], which bumps the render revision): it only looks at the document. A press that
+/// has not moved yet is cancelled: its release would turn it into a point on a segment, an inline gap or padding box
+/// with focus, or a default shape, none of which the user made.
+pub fn commit_open_gesture(app: &mut App) {
+    match &app.canvas.inter {
+        Interaction::None => {}
+        Interaction::Pan | Interaction::Marquee { .. } | Interaction::ZoomMarquee { .. } | Interaction::Pending(_) | Interaction::PenDrag => {
+            app.canvas.inter = Interaction::None;
+            app.canvas.guides.clear();
+            app.canvas.measures.clear();
+        }
+        Interaction::Draw(d) if !d.dragged => app.cancel_interaction(),
+        Interaction::AutoLayoutDrag(a) if !a.moved => app.cancel_interaction(),
+        Interaction::VectorDrag if !vector_drag_changed(app) => app.cancel_interaction(),
+        _ => release_without_an_end(app),
+    }
+}
+
+/// Whether the vector point or handle drag that is open has moved something.
+fn vector_drag_changed(app: &App) -> bool {
+    app.canvas.vedit.as_ref().and_then(|v| v.drag.as_ref()).is_some_and(|d| d.changed)
+}
+
+/// The release of the open gesture, with no end position: it ends as it was last drawn.
+fn release_without_an_end(app: &mut App) {
+    let inp = Inp {
+        pos: None,
+        press_pos: None,
+        release_pos: None,
+        prior_release_pos: None,
+        release_mods: None,
+        prior_release_mods: None,
+        pressed: false,
+        down: false,
+        released: true,
+        mid_pressed: false,
+        mid_down: false,
+        mods: Modifiers::NONE,
+        space: false,
+        z_down: false,
+    };
+    on_release(app, app.canvas_rect, &inp, None);
+}
+
 pub fn finish_pen(app: &mut App) {
     let Some(pen) = app.canvas.pen.take() else { return };
     if matches!(app.canvas.inter, Interaction::PenDrag) {
@@ -1840,8 +2199,13 @@ pub fn prepare_image(bytes: Vec<u8>) -> Result<(Vec<u8>, u32, u32), String> {
 }
 
 fn place_image(app: &mut App, page: DV) {
+    place_image_with(app, page, &crate::io::SystemDialogs);
+}
+
+pub(crate) fn place_image_with(app: &mut App, page: DV, dialogs: &dyn crate::io::FileDialogs) {
     let exts: Vec<&str> = IMAGE_EXTENSIONS.iter().chain(crate::video::VIDEO_EXTENSIONS.iter()).copied().collect();
-    let Some(path) = rfd::FileDialog::new().add_filter("Images and video", &exts).pick_file() else { return };
+    let outcome = dialogs.pick(&crate::io::FileRequest::open().filter("Images and video", &exts));
+    let Some(path) = app.picked_path(outcome) else { return };
     let Ok(bytes) = std::fs::read(&path) else {
         app.show_toast("Cannot read file", true);
         return;
@@ -1886,8 +2250,6 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
         n += 1;
     }
     let (poster_key, video_key) = (format!("img-{n}"), format!("video-{n}"));
-    app.doc.images.insert(poster_key.clone(), poster);
-    app.doc.images.insert(video_key.clone(), bytes);
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
     let inv = app.doc.world_transform(parent).invert()?;
     let o = inv.apply(page);
@@ -1897,23 +2259,48 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut node = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
     node.name = name.to_string();
     node.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: poster_key, scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
     }];
-    node.prototype.videos = vec![designos_doc::VideoFill { paint: 0, source: video_key, autoplay: true, looping: false, muted: true }];
+    node.prototype.videos = vec![designos_doc::VideoFill { paint: 0, source: video_key.clone(), autoplay: true, looping: false, muted: true }];
+    // Nothing is stored in the file for a drop that a slot refuses.
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return None;
+    }
+    app.doc.images.insert(poster_key, poster);
+    app.doc.images.insert(video_key, bytes);
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).ok()?;
+    App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, id);
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
+    layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![id];
     app.tool = Tool::Move;
     Some(id)
 }
 
-/// Embeds `bytes` and inserts a rectangle filled with the image at `page`.
+/// Embeds `bytes` and inserts a rectangle filled with the image, its top-left corner at `page`, into the frame
+/// under that point, as one undo step.
 pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) -> Option<NodeId> {
+    let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
+    let inv = app.doc.world_transform(parent).invert()?;
+    let mut tx = Tx::new();
+    let id = insert_image(app, &mut tx, parent, name, bytes, move |_| inv.apply(page))?;
+    app.run_tx(tx);
+    app.selection = vec![id];
+    app.tool = Tool::Move;
+    Some(id)
+}
+
+/// Embeds `bytes` and inserts a rectangle filled with the image into `parent` through `tx`; the caller commits `tx`
+/// and selects the layer. The layer is the picture's size, at most 400 px on its longest side, and `origin` maps
+/// that size to the layer's top-left corner in `parent`'s local space. Nothing is changed when this returns `None`
+/// (the bytes are not a picture, or a slot refuses the layer).
+pub fn insert_image(app: &mut App, tx: &mut Tx, parent: NodeId, name: &str, bytes: Vec<u8>, origin: impl FnOnce(DV) -> DV) -> Option<NodeId> {
     let (bytes, iw, ih) = match prepare_image(bytes) {
         Ok(v) => v,
         Err(e) => {
@@ -1922,27 +2309,29 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
         }
     };
     let key = format!("img-{}", app.doc.images.len() + 1);
-    app.doc.images.insert(key.clone(), bytes);
-    let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
-    let inv = app.doc.world_transform(parent).invert()?;
-    let o = inv.apply(page);
     let id = app.doc.alloc_id();
     let (w, h) = (iw as f32, ih as f32);
     let scale = (400.0f32 / w.max(h)).min(1.0);
-    let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
+    let size = DV::new(w * scale, h * scale);
+    let o = origin(size);
+    let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, size.x, size.y));
     n.name = name.to_string();
     n.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: key, scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
     }];
-    let mut tx = Tx::new();
+    // Nothing is stored in the file for a drop that a slot refuses.
+    if !app.slot_insert_allowed(parent, &[&n]) {
+        return None;
+    }
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![n] }).ok()?;
-    app.run_tx(tx);
-    app.selection = vec![id];
-    app.tool = Tool::Move;
+    app.doc.images.insert(key, bytes);
+    App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, id);
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
+    layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     Some(id)
 }
 
@@ -1958,11 +2347,15 @@ fn text_press(app: &mut App, page: DV) {
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
     let Some((node, _)) = create::new_text(app, parent, page) else { return };
     let id = node.id;
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return;
+    }
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).is_err() {
         return;
     }
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.selection = vec![id];
     app.canvas.text = Some(TextSession::new(id, 0, 0, tx, true));
     app.changed();
@@ -2122,6 +2515,266 @@ mod tests {
     use super::*;
 
     #[test]
+    fn alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ids: Vec<NodeId> = [0.0, 200.0]
+            .iter()
+            .map(|x| {
+                let id = d.alloc_id();
+                d.insert(page, designos_doc::Node::frame(id, Rect::new(*x, 0.0, 100.0, 100.0))).unwrap()
+            })
+            .collect();
+        let (main, plain) = (ids[0], ids[1]);
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        let mut app = App::new(d);
+        app.selection = vec![main, plain];
+        let nodes = app.doc.nodes.len();
+        let m = start_move(&mut app, main, v2(0.0, 0.0), true).unwrap();
+        let [copy_of_main, copy_of_plain] = m.ids[..] else { panic!("two copies, got {:?}", m.ids) };
+        assert!(matches!(app.doc.get(copy_of_main).unwrap().kind, NodeKind::Instance { component: Some(c), .. } if c == main));
+        assert!(matches!(app.doc.get(copy_of_plain).unwrap().kind, NodeKind::Frame(_)));
+        assert!(app.run_tx(m.tx));
+        let mains = app.doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).count();
+        assert_eq!(mains, 1, "the file keeps its one main");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes both copies away");
+    }
+
+    /// A page with `count` plain frames at x = 0, 300, 600 ..., each 100 x 100 with one 40 x 40 layer inside.
+    fn page_of_frames(count: usize) -> (Document, NodeId, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frames: Vec<NodeId> = (0..count)
+            .map(|i| {
+                let id = d.alloc_id();
+                let f = d.insert(page, designos_doc::Node::frame(id, Rect::new(300.0 * i as f32, 0.0, 100.0, 100.0))).unwrap();
+                let id = d.alloc_id();
+                d.insert(f, designos_doc::Node::frame(id, Rect::new(10.0, 10.0, 40.0, 40.0))).unwrap();
+                f
+            })
+            .collect();
+        (d, page, frames)
+    }
+
+    fn make_main(d: &mut Document, id: NodeId) {
+        designos_doc::create_component(d, id).apply(d).unwrap();
+    }
+
+    /// Alt-drags `selection` (starting from `from`) and drops it where the pointer is at `drop`; commits the gesture.
+    fn alt_drag_and_drop(app: &mut App, from: NodeId, drop: DV) -> Vec<NodeId> {
+        let mut m = start_move(app, from, v2(0.0, 0.0), true).unwrap();
+        m.moved = true;
+        assert!(release_move(app, &mut m, Some(drop), false));
+        let ids = m.ids.clone();
+        assert!(app.run_tx(m.tx));
+        ids
+    }
+
+    fn mains_in(app: &App) -> usize {
+        app.doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).count()
+    }
+
+    fn is_instance_of(app: &App, id: NodeId, main: NodeId) -> bool {
+        app.doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { component: Some(c), .. } if c == main))
+    }
+
+    #[test]
+    fn alt_drag_of_a_main_keeps_its_connectors_attached_to_the_new_instance() {
+        let (mut d, page, f) = page_of_frames(2);
+        let (main, other) = (f[0], f[1]);
+        make_main(&mut d, main);
+        let layer = d.get(main).unwrap().children[0];
+        let (on_main, on_layer) = (connector(&mut d, page, main, other), connector(&mut d, page, layer, other));
+        let mut app = App::new(d);
+        app.selection = vec![main, other, on_main, on_layer];
+        let m = start_move(&mut app, main, v2(0.0, 0.0), true).unwrap();
+        let [copy_main, copy_other, copy_on_main, copy_on_layer] = m.ids[..] else { panic!("four copies, got {:?}", m.ids) };
+        assert!(is_instance_of(&app, copy_main, main));
+        assert_eq!(connector_ends(&app, copy_on_main), (Some(copy_main), Some(copy_other)), "attached to the instance");
+        let mirror = app.doc.get(copy_main).unwrap().children[0];
+        assert_eq!(app.doc.get(mirror).unwrap().component.source, Some(layer));
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(mirror), Some(copy_other)), "attached to the instance's copy of the layer");
+    }
+
+    /// A connector on `page` from `from` to `to`.
+    fn connector(d: &mut Document, page: NodeId, from: NodeId, to: NodeId) -> NodeId {
+        let id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(from, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(to, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        d.insert(page, designos_doc::Node::connector(id, props)).unwrap()
+    }
+
+    fn connector_ends(app: &App, id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+        match &app.doc.get(id).unwrap().kind {
+            NodeKind::Connector(c) => (c.start.node, c.end.node),
+            k => panic!("{k:?}"),
+        }
+    }
+
+    /// Two connectors that run from `main` and from its first layer to `to`; returns them and the layer.
+    fn connectors_on(app: &mut App, main: NodeId, to: NodeId) -> (NodeId, NodeId, NodeId) {
+        let layer = app.doc.get(main).unwrap().children[0];
+        let page = app.page;
+        (connector(&mut app.doc, page, main, to), connector(&mut app.doc, page, layer, to), layer)
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_set_keeps_its_connectors_attached_to_the_new_variant() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        let (on_main, on_layer, _layer) = connectors_on(&mut app, solo, variants[0]);
+        app.selection = vec![solo, on_main, on_layer];
+        let nodes = app.doc.nodes.len();
+        let r = crate::util::world_aabb(&app.doc, set);
+        let ids = alt_drag_and_drop(&mut app, solo, v2(r.x + 2.0, r.y + 2.0));
+        let [variant, copy_on_main, copy_on_layer] = ids[..] else { panic!("three copies, got {ids:?}") };
+        let n = app.doc.get(variant).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)) && n.parent == Some(set), "a new variant, got {:?}", n.kind);
+        let layer_copy = n.children[0];
+        assert_eq!(connector_ends(&app, copy_on_main), (Some(variant), Some(variants[0])), "attached to the new variant");
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(layer_copy), Some(variants[0])), "attached to the variant's own layer");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes the copies away");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_out_of_its_set_keeps_its_connectors_attached_to_the_new_instance() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        let (on_variant, on_layer, layer) = connectors_on(&mut app, variants[1], solo);
+        app.selection = vec![variants[1], on_variant, on_layer];
+        let nodes = app.doc.nodes.len();
+        let r = crate::util::world_aabb(&app.doc, set);
+        let ids = alt_drag_and_drop(&mut app, variants[1], v2(r.x + 5000.0, r.y + 5000.0));
+        let [instance, copy_on_variant, copy_on_layer] = ids[..] else { panic!("three copies, got {ids:?}") };
+        assert!(is_instance_of(&app, instance, variants[1]), "got {:?}", app.doc.get(instance).unwrap().kind);
+        let mirror =
+            app.doc.get(instance).unwrap().children.iter().copied().find(|c| app.doc.get(*c).unwrap().component.source == Some(layer)).expect("a mirror");
+        assert_eq!(connector_ends(&app, copy_on_variant), (Some(instance), Some(solo)), "attached to the instance");
+        assert_eq!(connector_ends(&app, copy_on_layer), (Some(mirror), Some(solo)), "attached to the instance's copy of the layer");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes the copies away");
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_layer_of_its_own_instance_is_a_real_copy_that_an_edit_of_the_main_keeps() {
+        let (mut d, page, f) = page_of_frames(1);
+        let main = f[0];
+        make_main(&mut d, main);
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, main, page, v2(400.0, 0.0)) else { panic!("instance") };
+        let instance = nodes[0].id;
+        designos_doc::Command::Insert { parent: page, index: 1, nodes }.apply(&mut d).unwrap();
+        let mirror = d.get(instance).unwrap().children[0];
+        let inside = crate::util::rect_center(&crate::util::world_aabb(&d, mirror));
+        let mut app = App::new(d);
+        app.selection = vec![main];
+        let copy = alt_drag_and_drop(&mut app, main, inside)[0];
+        let n = app.doc.get(copy).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)), "a real copy, got {:?}", n.kind);
+        assert_eq!(n.parent, Some(mirror));
+        let _ = designos_doc::sync_instances(&mut app.doc, main).apply(&mut app.doc);
+        assert!(app.doc.get(copy).is_some(), "the next edit of the main keeps the copy");
+    }
+
+    #[test]
+    fn a_main_holding_an_instance_of_b_alt_dragged_onto_b_lands_beside_b() {
+        let (mut d, page, f) = page_of_frames(2);
+        let (a, b) = (f[0], f[1]);
+        make_main(&mut d, a);
+        make_main(&mut d, b);
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, b, a, v2(50.0, 50.0)) else { panic!("instance of B") };
+        designos_doc::Command::Insert { parent: a, index: 0, nodes }.apply(&mut d).unwrap();
+        let inside_b = crate::util::rect_center(&crate::util::world_aabb(&d, b));
+        let mut app = App::new(d);
+        app.selection = vec![a];
+        let copy = alt_drag_and_drop(&mut app, a, inside_b)[0];
+        assert!(is_instance_of(&app, copy, a));
+        assert_eq!(app.doc.get(copy).unwrap().parent, Some(page), "not inside B, which would then hold itself");
+        let _ = designos_doc::sync_instances(&mut app.doc, b).apply(&mut app.doc);
+    }
+
+    /// A page with a set of two variants (`variants`) and a plain main `solo` beside it.
+    fn set_and_a_main() -> (App, NodeId, Vec<NodeId>, NodeId) {
+        let (mut d, _page, f) = page_of_frames(3);
+        for id in &f {
+            make_main(&mut d, *id);
+        }
+        designos_doc::combine_as_variants(&mut d, &f[..2]).apply(&mut d).unwrap();
+        let set = d.get(f[0]).unwrap().parent.unwrap();
+        (App::new(d), set, f[..2].to_vec(), f[2])
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_component_set_is_a_new_variant_not_an_instance_in_the_set() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        app.selection = vec![solo];
+        let (mains, assets) = (mains_in(&app), app.local_components().len());
+        let r = crate::util::world_aabb(&app.doc, set);
+        let copy = alt_drag_and_drop(&mut app, solo, v2(r.x + 2.0, r.y + 2.0))[0];
+        let n = app.doc.get(copy).unwrap();
+        assert_eq!(n.parent, Some(set), "dropped in the set");
+        assert!(matches!(n.kind, NodeKind::Component(_)), "a new variant, got {:?}", n.kind);
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len() + 1);
+        assert_eq!((mains_in(&app), app.local_components().len()), (mains + 1, assets), "a variant adds no Assets row");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_out_of_its_set_becomes_an_instance_of_that_variant() {
+        let (mut app, set, variants, _solo) = set_and_a_main();
+        app.selection = vec![variants[1]];
+        let (mains, assets) = (mains_in(&app), app.local_components().len());
+        let r = crate::util::world_aabb(&app.doc, set);
+        let copy = alt_drag_and_drop(&mut app, variants[1], v2(r.x + 5000.0, r.y + 5000.0))[0];
+        assert!(is_instance_of(&app, copy, variants[1]), "got {:?}", app.doc.get(copy).unwrap().kind);
+        assert_eq!(app.doc.get(copy).unwrap().parent, Some(app.page));
+        assert_eq!((mains_in(&app), app.local_components().len()), (mains, assets), "Assets lists each main once");
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len(), "the set keeps its variants");
+        app.undo();
+        assert!(app.doc.get(copy).is_none(), "one undo takes the copy away");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_a_little_stays_in_its_set_as_a_new_variant() {
+        let (mut app, set, variants, _solo) = set_and_a_main();
+        app.selection = vec![variants[0]];
+        let at = crate::util::rect_center(&crate::util::world_aabb(&app.doc, variants[0]));
+        let copy = alt_drag_and_drop(&mut app, variants[0], at)[0];
+        let n = app.doc.get(copy).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)), "got {:?}", n.kind);
+        assert_eq!(n.parent, Some(set));
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len() + 1);
+    }
+
+    #[test]
+    fn mains_held_by_follows_instances_through_the_mains_they_link_to() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let main = |d: &mut Document, name: &str| {
+            let id = d.alloc_id();
+            let f = d.insert(page, designos_doc::Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+            d.get_mut(f).unwrap().name = name.into();
+            designos_doc::create_component(d, f).apply(d).unwrap();
+            f
+        };
+        let (button, card, plain) = (main(&mut d, "Button"), main(&mut d, "Card"), main(&mut d, "Plain"));
+        // Card holds a Button instance; a layer on the page holds a Card instance.
+        let Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, button, card, v2(0.0, 0.0)) else { panic!("instance") };
+        Command::Insert { parent: card, index: 0, nodes }.apply(&mut d).unwrap();
+        let Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, card, page, v2(0.0, 0.0)) else { panic!("instance") };
+        let card_instance = nodes[0].id;
+        Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+
+        let mut held = mains_held_by(&d, &[card_instance]);
+        held.sort();
+        let mut want = vec![button, card];
+        want.sort();
+        assert_eq!(held, want, "the Card instance holds Card, and Button through it");
+        assert!(mains_held_by(&d, &[plain]).is_empty(), "a main holds no main of its own");
+    }
+
+    #[test]
     fn snap_point_aligns_to_edges() {
         let t = [Rect::new(100.0, 100.0, 50.0, 50.0)];
         let (p, r) = snap_point(v2(102.0, 300.0), &t, 1.0);
@@ -2147,6 +2800,11 @@ mod tests {
         let mut m = start_move(&mut app, a, v2(50.0, 50.0), false).unwrap();
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2175,6 +2833,11 @@ mod tests {
         assert_ne!(m.ids[0], a, "alt-drag moves a duplicate");
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2207,6 +2870,11 @@ mod tests {
         };
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2359,6 +3027,11 @@ mod tests {
 
         let inp = Inp {
             pos: Some(Pos2::new(50.0, 50.0)),
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: false,
             released: false,
@@ -2532,6 +3205,11 @@ mod tests {
         };
         let inp_cmd = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,

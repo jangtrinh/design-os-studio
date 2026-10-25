@@ -28,12 +28,10 @@ pub fn is_slice_node(n: &Node) -> bool {
 
 #[inline]
 fn fast_is_slot_container(doc: &designos_doc::Document, n: &Node, id: NodeId) -> bool {
-    let has_own = n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
-    let has_src = n
-        .component
-        .source
-        .and_then(|s| doc.get(s))
-        .is_some_and(|sn| sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty());
+    let has_own = n.component.is_slot || n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
+    let has_src = n.component.source.and_then(|s| doc.get(s)).is_some_and(|sn| {
+        sn.component.is_slot || sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty()
+    });
     (has_own || has_src) && designos_doc::is_slot_container(doc, id)
 }
 
@@ -195,7 +193,7 @@ fn outline(app: &App, p: &Painter, rect: ERect, id: NodeId, col: Color32, width:
 }
 
 fn badge(p: &Painter, center_top: Pos2, text: &str, col: Color32) {
-    let font = theme::font_small_strong();
+    let font = theme::font_canvas_strong();
     let w = crate::widgets::text_width(p, text, &font) + theme::CANVAS_BADGE_PAD_X * 2.0;
     let r = ERect::from_min_size(Pos2::new(center_top.x - w / 2.0, center_top.y), EV::new(w, theme::CANVAS_BADGE_HEIGHT));
     p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), col);
@@ -228,15 +226,51 @@ fn collect_page_chrome_nodes(doc: &designos_doc::Document, page_id: NodeId) -> V
     out
 }
 
-/// Paints persistent dashed borders for `ComponentSet`, component slots, and `Slice` nodes on the active page.
-fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
-    if app.view.zoom < 0.15 {
-        return;
-    }
+/// Page-space window (x0, y0, x1, y1) the canvas shows, with a 64 unit margin.
+fn chrome_window(app: &App, rect: ERect) -> (f32, f32, f32, f32) {
     let z = app.view.zoom.max(1e-3);
-    let win = (app.view.offset.x - 64.0, app.view.offset.y - 64.0, app.view.offset.x + rect.width() / z + 64.0, app.view.offset.y + rect.height() / z + 64.0);
-    let overlaps_win = |(x0, y0, x1, y1): (f32, f32, f32, f32)| x0 <= win.2 && win.0 <= x1 && y0 <= win.3 && win.1 <= y1;
-    let idx = super::interact::active_index(app);
+    (app.view.offset.x - 64.0, app.view.offset.y - 64.0, app.view.offset.x + rect.width() / z + 64.0, app.view.offset.y + rect.height() / z + 64.0)
+}
+
+fn chrome_flags(doc: &designos_doc::Document, id: NodeId) -> Option<(NodeId, bool, bool, bool)> {
+    let n = doc.get(id)?;
+    let is_comp_set = matches!(n.kind, NodeKind::ComponentSet(_));
+    let is_slot = fast_is_slot_container(doc, n, id);
+    let is_slice = is_slice_node(n);
+    (n.visible && (is_comp_set || is_slot || is_slice)).then_some((id, is_comp_set, is_slot, is_slice))
+}
+
+/// True when a node above `id` is hidden, so nothing of `id` is drawn.
+fn under_hidden_ancestor(doc: &designos_doc::Document, id: NodeId) -> bool {
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(c) = cur {
+        let Some(n) = doc.get(c) else { return false };
+        if !n.visible {
+            return true;
+        }
+        cur = n.parent;
+    }
+    false
+}
+
+/// ComponentSet / slot / slice nodes to draw chrome for and to hit-test (`+` buttons), shared by the
+/// painter and the overlay so a painted button is always a clickable one.
+///
+/// With a scene index the list is the index's own incrementally kept chrome list: no tree walk and no
+/// depth limit, filtered to the window by its stored bounds. Without one (the index is rebuilding) it
+/// falls back to the cached tree walk, which stops at depth 3 on documents above 10,000 nodes; the
+/// selection and hover are added to that so they keep their chrome.
+fn page_chrome_nodes(app: &App, win: (f32, f32, f32, f32)) -> Vec<(NodeId, bool, bool, bool)> {
+    let overlaps = |(x0, y0, x1, y1): (f32, f32, f32, f32)| x0 <= win.2 && win.0 <= x1 && y0 <= win.3 && win.1 <= y1;
+    if let Some(idx) = super::interact::active_index(app) {
+        return idx
+            .chrome_nodes()
+            .iter()
+            .filter(|&&id| idx.bounds_of(id).is_some_and(overlaps))
+            .filter_map(|&id| chrome_flags(&app.doc, id))
+            .filter(|&(id, ..)| !under_hidden_ancestor(&app.doc, id))
+            .collect();
+    }
     let key = (app.doc.runtime_id(), app.page, app.doc.mutation_epoch());
     let in_transform_drag = matches!(
         app.canvas.inter,
@@ -259,19 +293,27 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
         *borrow = Some((key, built.clone()));
         built
     });
-
     if app.doc.nodes.len() > 10_000 {
         for &extra in app.selection.iter().chain(app.hover.iter()).chain(app.hover_layer.iter()) {
-            if let Some(n) = app.doc.get(extra) {
-                let is_comp_set = matches!(n.kind, NodeKind::ComponentSet(_));
-                let is_slot = fast_is_slot_container(&app.doc, n, extra);
-                let is_slice = is_slice_node(n);
-                if (is_comp_set || is_slot || is_slice) && !chrome_nodes.iter().any(|(cid, ..)| *cid == extra) {
-                    chrome_nodes.push((extra, is_comp_set, is_slot, is_slice));
+            if let Some(entry) = chrome_flags(&app.doc, extra) {
+                if !chrome_nodes.iter().any(|(cid, ..)| *cid == extra) {
+                    chrome_nodes.push(entry);
                 }
             }
         }
     }
+    chrome_nodes
+}
+
+/// Paints persistent dashed borders for `ComponentSet`, component slots, and `Slice` nodes on the active page.
+fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
+    if app.view.zoom < 0.15 {
+        return;
+    }
+    let win = chrome_window(app, rect);
+    let overlaps_win = |(x0, y0, x1, y1): (f32, f32, f32, f32)| x0 <= win.2 && win.0 <= x1 && y0 <= win.3 && win.1 <= y1;
+    let idx = super::interact::active_index(app);
+    let chrome_nodes = page_chrome_nodes(app, win);
 
     for (id, is_comp_set, is_slot, is_slice) in chrome_nodes {
         let Some(n) = app.doc.get(id) else { continue };
@@ -297,9 +339,30 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
             dashed_quad(p, &corners, 6.0, 4.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
         }
         if is_slot {
-            dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.0, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.75)));
+            let show_placeholder = designos_doc::should_show_empty_slot_placeholder(&app.doc, id);
+            if show_placeholder {
+                p.add(egui::Shape::convex_polygon(corners.to_vec(), FIGMA_COMPONENT_PURPLE.gamma_multiply(0.08), Stroke::NONE));
+                dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
+                if let Some(plus_r) = empty_slot_plus_button_rect(app, rect, id) {
+                    p.rect_filled(plus_r, theme::cr_pill(plus_r.height()), FIGMA_COMPONENT_PURPLE);
+                    crate::icons::paint(p, crate::icons::Icon::Plus, plus_r.center(), 12.0, Color32::WHITE);
+                    let s_rect = ERect::from_two_pos(corners[0], corners[2]);
+                    if s_rect.width() >= 64.0 && s_rect.height() >= 48.0 {
+                        let font = theme::font_canvas_strong();
+                        p.text(
+                            Pos2::new(plus_r.center().x, plus_r.bottom() + theme::SPACE_INLINE),
+                            Align2::CENTER_CENTER,
+                            &n.name,
+                            font,
+                            FIGMA_COMPONENT_PURPLE,
+                        );
+                    }
+                }
+            } else if !n.children.is_empty() || app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {
+                dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.0, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.75)));
+            }
             if app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {
-                let font = theme::font_small_strong();
+                let font = theme::font_canvas_strong();
                 let w = crate::widgets::text_width(p, "Slot", &font) + 8.0;
                 let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 17.0), EV::new(w, 15.0));
                 p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
@@ -309,7 +372,7 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
         if is_slice {
             let col = if app.is_selected(id) || app.hover == Some(id) { Color32::from_rgb(0xF5, 0x9E, 0x0B) } else { FIGMA_SLICE_GREEN };
             dashed_quad(p, &corners, 5.0, 3.0, Stroke::new(1.0, col));
-            let font = theme::font_small_strong();
+            let font = theme::font_canvas_strong();
             let w = crate::widgets::text_width(p, "Slice", &font) + 8.0;
             let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 16.0), EV::new(w, 14.0));
             p.rect_filled(pill, theme::cr(2), col);
@@ -318,14 +381,88 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
     }
 }
 
+/// Screen rect of the centered `+` button inside an empty slot placeholder,
+/// or `None` when `id` should not display an empty-slot placeholder.
+pub fn empty_slot_plus_button_rect(app: &App, rect: ERect, id: NodeId) -> Option<ERect> {
+    if !designos_doc::should_show_empty_slot_placeholder(&app.doc, id) {
+        return None;
+    }
+    let n = app.doc.get(id)?;
+    let world = super::fast_world_transform(&app.doc, id);
+    let c0 = app.view.to_screen(rect.min, world.apply(DV::ZERO));
+    let c2 = app.view.to_screen(rect.min, world.apply(DV::new(n.size.x, n.size.y)));
+    let s_rect = ERect::from_two_pos(c0, c2);
+    if s_rect.width() < 16.0 || s_rect.height() < 16.0 {
+        return None;
+    }
+    Some(ERect::from_center_size(s_rect.center(), EV::splat(22.0)))
+}
+
+/// Records and handles clicks on the on-canvas `+` buttons of empty slot placeholders,
+/// and renders the active preferred-instance picker popup.
+pub fn empty_slot_picker_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
+    if app.view.zoom >= 0.15 && app.history.viewing.is_none() {
+        let chrome_nodes = page_chrome_nodes(app, chrome_window(app, rect));
+        let blocked = crate::widgets::pointer_over_popup(ui.ctx());
+        let mut clicked_slot: Option<(NodeId, ERect)> = None;
+        for (id, _, is_slot, _) in chrome_nodes {
+            if !is_slot {
+                continue;
+            }
+            let Some(plus_r) = empty_slot_plus_button_rect(app, rect, id) else { continue };
+            if !rect.intersects(plus_r) {
+                continue;
+            }
+            crate::widgets::record(ui, &format!("canvas-slot-plus:{}", id.0), plus_r);
+            let resp = ui.interact(plus_r, ui.id().with(("canvas-slot-plus", id)), if blocked { Sense::hover() } else { Sense::click() });
+            if resp.hovered() && !blocked {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            let ptr_clicked = !blocked
+                && ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary) && i.pointer.interact_pos().is_some_and(|p| plus_r.contains(p)));
+            if resp.clicked() || ptr_clicked {
+                clicked_slot = Some((id, plus_r));
+            }
+        }
+        if let Some((slot_id, plus_r)) = clicked_slot {
+            app.selection = vec![slot_id];
+            app.ui.slot_picker = if app.ui.slot_picker.map(|(s, _)| s) == Some(slot_id) { None } else { Some((slot_id, plus_r)) };
+        }
+    }
+    crate::panels::components::show_slot_picker_popup(app, ui.ctx());
+}
+
 /// Screen rect and status of the on-canvas Dev Status pill badge right after a top-level frame label (`S3-12`).
 pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<(ERect, designos_doc::DevStatus)> {
     let status = n.dev.status?;
     let _ = id;
-    let text_w = status.label().chars().count() as f32 * theme::FONT_SIZE_SMALL * 0.62 + 12.0;
+    let text_w = status.label().chars().count() as f32 * theme::FONT_SIZE_CANVAS * 0.62 + 12.0;
     let h = 16.0;
     let r = ERect::from_min_size(Pos2::new(label_rect.right() + 6.0, label_rect.center().y - h * 0.5), EV::new(text_w, h));
     Some((r, status))
+}
+
+/// Screen rect and state of the on-canvas "Agent working" pill badge right after a top-level frame label (`E15-7`).
+pub fn in_progress_badge_rect(doc: &designos_doc::Document, id: NodeId, n: &Node, label_rect: ERect) -> Option<(ERect, designos_doc::InProgress)> {
+    let ip = doc.get_in_progress(id)?.clone();
+    let label = ip.badge_text();
+    let text_w = label.chars().count() as f32 * theme::FONT_SIZE_CAPTION * 0.62 + 12.0;
+    let h = 18.0;
+    let left_x = dev_status_badge_rect(id, n, label_rect).map_or(label_rect.right(), |(dr, _)| dr.right()) + theme::SPACE_ROW;
+    let r = ERect::from_min_size(Pos2::new(left_x, label_rect.center().y - h * 0.5), EV::new(text_w, h));
+    Some((r, ip))
+}
+
+/// The grid frames whose header pills and `+` buttons a click can reach: the selected ones and the hovered one.
+/// What is painted and what is hit-tested both come from this list.
+fn grid_track_candidates(app: &App) -> Vec<NodeId> {
+    let mut candidates = app.selection.clone();
+    if let Some(h) = app.hover {
+        if !candidates.contains(&h) {
+            candidates.push(h);
+        }
+    }
+    candidates
 }
 
 /// Paints the Figma UI3 2D CSS Grid Overlay (`LayoutDirection::Grid`) for selected/hovered grid containers.
@@ -346,6 +483,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         push_unique(h);
     }
 
+    let reachable = grid_track_candidates(app);
     let cell_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 140));
     let gap_fill = Color32::from_rgba_unmultiplied(0xFF, 0x38, 0x8C, 36);
     let pill_bg = Color32::from_rgba_unmultiplied(0x1E, 0x1E, 0x1E, 230);
@@ -387,26 +525,21 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
             dashed_quad(p, &c_pts, 3.0, 3.0, cell_stroke);
         }
 
-        // 3. Compact Column & Row Track Header Pills outside top and left edges when zoom >= 0.4.
-        if app.view.zoom >= 0.4 {
-            let font = theme::font_small_strong();
-            for c in 0..ov.cols {
-                let label = super::grids::format_grid_track(ov.col_tracks[c]);
-                let top_mid = to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0);
-                let tw = crate::widgets::text_width(p, &label, &font) + 8.0;
-                let pill = ERect::from_center_size(Pos2::new(top_mid.x, top_mid.y - 11.0), EV::new(tw, 15.0));
+        // 3. Compact Column & Row Track Header Pills outside top/left edges when zoom >= 0.4.
+        // Only the grids a click can reach get pills and `+` buttons, so a drawn control always works.
+        if app.view.zoom >= 0.4 && reachable.contains(&grid_id) {
+            let font = theme::font_canvas_strong();
+            for (is_col, idx, _hit, pill) in grid_pill_rects_of(&ov, to_s) {
+                let label = super::grids::format_grid_track(if is_col { ov.col_tracks[idx] } else { ov.row_tracks[idx] });
                 p.rect_filled(pill, theme::cr(3), pill_bg);
                 p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
-                p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
+                // a pill squeezed by its neighbours clips its label instead of spilling over them
+                p.with_clip_rect(pill).text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
             }
-            for r in 0..ov.rows {
-                let label = super::grids::format_grid_track(ov.row_tracks[r]);
-                let left_mid = to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5);
-                let tw = crate::widgets::text_width(p, &label, &font) + 8.0;
-                let pill = ERect::from_min_size(Pos2::new(left_mid.x - tw - 5.0, left_mid.y - 7.5), EV::new(tw, 15.0));
-                p.rect_filled(pill, theme::cr(3), pill_bg);
-                p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
-                p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
+            for (_, add) in grid_add_buttons(&ov, n.size, to_s) {
+                p.rect_filled(add, theme::cr(3), pill_bg);
+                p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
+                p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
             }
         }
     }
@@ -429,13 +562,54 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         if cs > 1 || rs > 1 {
             let corners = super::fast_world_corners(&app.doc, id).map(|c| app.view.to_screen(rect.min, c));
             let text = format!("{cs}×{rs}");
-            let font = theme::font_small_strong();
+            let font = theme::font_canvas_strong();
             let tw = crate::widgets::text_width(p, &text, &font) + 8.0;
             let pill = ERect::from_min_size(Pos2::new(corners[1].x - tw - 4.0, corners[1].y + 4.0), EV::new(tw, 15.0));
             p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
             p.text(pill.center(), Align2::CENTER_CENTER, text, font, Color32::WHITE);
         }
     }
+}
+
+/// Painted height (screen px) of a track header pill.
+const GRID_PILL_HEIGHT: f32 = 15.0;
+
+/// Minimum hit-target dimension (screen px) for interactive track header pills (`P3` 24x24 floor).
+const GRID_PILL_HIT_FLOOR: f32 = 24.0;
+
+/// Screen rects `(is_col, track, hit_rect, paint_rect)` of the header pills of one grid: column pills sit above
+/// the frame, row pills left of it, each centred on its track. Every `hit_rect` stays at least 24x24 px (`nearest_pill`
+/// picks the nearest centre when narrow tracks overlap), while `paint_rect` clips the painted pill and label to the
+/// track pitch so painted pills on the same axis never spill over each other.
+fn grid_pill_rects_of(ov: &super::grids::CssGridOverlay, to_s: impl Fn(f32, f32) -> Pos2) -> Vec<(bool, usize, ERect, ERect)> {
+    let label_w = |t: designos_doc::GridTrack| (super::grids::format_grid_track(t).chars().count() as f32 * 6.0 + 10.0).max(GRID_PILL_HIT_FLOOR);
+    // room a pill has along its axis: the distance to the nearest neighbour centre
+    let room = |centres: &[Pos2], i: usize| {
+        let before = i.checked_sub(1).map_or(f32::INFINITY, |j| centres[i].distance(centres[j]));
+        let after = centres.get(i + 1).map_or(f32::INFINITY, |next| centres[i].distance(*next));
+        before.min(after)
+    };
+    let col_centres: Vec<Pos2> = (0..ov.cols).map(|c| to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0)).collect();
+    let row_centres: Vec<Pos2> = (0..ov.rows).map(|r| to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5)).collect();
+    let mut out = Vec::with_capacity(ov.cols + ov.rows);
+    for (c, &centre) in col_centres.iter().enumerate() {
+        let paint_w = label_w(ov.col_tracks[c]).min(room(&col_centres, c));
+        let hit_w = paint_w.max(GRID_PILL_HIT_FLOOR);
+        let center = Pos2::new(centre.x, centre.y - 12.0);
+        let hit = ERect::from_center_size(center, EV::new(hit_w, GRID_PILL_HIT_FLOOR));
+        let paint = ERect::from_center_size(center, EV::new(paint_w, GRID_PILL_HEIGHT));
+        out.push((true, c, hit, paint));
+    }
+    for (r, &centre) in row_centres.iter().enumerate() {
+        let w = label_w(ov.row_tracks[r]);
+        let paint_h = GRID_PILL_HEIGHT.min(room(&row_centres, r));
+        let hit_h = paint_h.max(GRID_PILL_HIT_FLOOR);
+        let center = Pos2::new(centre.x - w * 0.5 - 5.0, centre.y);
+        let hit = ERect::from_center_size(center, EV::new(w.max(GRID_PILL_HIT_FLOOR), hit_h));
+        let paint = ERect::from_center_size(center, EV::new(w, paint_h));
+        out.push((false, r, hit, paint));
+    }
+    out
 }
 
 /// Returns `(grid_frame_id, is_col, track_index, screen_rect)` for every visible 2D CSS Grid
@@ -445,30 +619,61 @@ pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize
     if app.view.zoom < 0.4 {
         return out;
     }
-    let mut candidates = app.selection.clone();
-    if let Some(h) = app.hover {
-        if !candidates.contains(&h) {
-            candidates.push(h);
-        }
-    }
-    for id in candidates {
+    for id in grid_track_candidates(app) {
         let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
         let w_xform = super::fast_world_transform(&app.doc, id);
         let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
-        for c in 0..ov.cols {
-            let label = super::grids::format_grid_track(ov.col_tracks[c]);
-            let top_mid = to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0);
-            let tw = (label.chars().count() as f32 * 6.0 + 10.0).max(24.0);
-            let pill = ERect::from_center_size(Pos2::new(top_mid.x, top_mid.y - 11.0), EV::new(tw, 15.0));
-            out.push((id, true, c, pill));
-        }
-        for r in 0..ov.rows {
-            let label = super::grids::format_grid_track(ov.row_tracks[r]);
-            let left_mid = to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5);
-            let tw = (label.chars().count() as f32 * 6.0 + 10.0).max(24.0);
-            let pill = ERect::from_min_size(Pos2::new(left_mid.x - tw - 5.0, left_mid.y - 7.5), EV::new(tw, 15.0));
-            out.push((id, false, r, pill));
-        }
+        out.extend(grid_pill_rects_of(&ov, to_s).into_iter().map(|(is_col, idx, hit, _)| (id, is_col, idx, hit)));
+    }
+    out
+}
+
+/// The header pill under `pos`. Of the pills that contain it, the one whose centre is nearest wins, so the answer
+/// never depends on list order.
+pub fn grid_track_pill_at(app: &App, rect: ERect, pos: Pos2) -> Option<(NodeId, bool, usize, ERect)> {
+    nearest_pill(grid_track_pill_rects(app, rect), pos)
+}
+
+/// Of `pills`, the one that contains `pos` and has its centre nearest to it.
+pub fn nearest_pill(pills: impl IntoIterator<Item = (NodeId, bool, usize, ERect)>, pos: Pos2) -> Option<(NodeId, bool, usize, ERect)> {
+    pills.into_iter().filter(|(_, _, _, r)| r.contains(pos)).min_by(|a, b| a.3.center().distance_sq(pos).total_cmp(&b.3.center().distance_sq(pos)))
+}
+
+/// Side (screen px) of the `+` add-track buttons: the pointer-target floor of the design system.
+const GRID_ADD_BUTTON_SIZE: f32 = 24.0;
+
+/// The `+` add-column / add-row buttons of one grid frame as `(is_col, screen_rect)`. An axis that already
+/// has the most tracks the solver lays out has no button.
+fn grid_add_buttons(ov: &super::grids::CssGridOverlay, frame: designos_doc::Vec2, to_s: impl Fn(f32, f32) -> Pos2) -> Vec<(bool, ERect)> {
+    let [pt, pr, pb, pl] = ov.padding;
+    let size = EV::splat(GRID_ADD_BUTTON_SIZE);
+    let mut out = Vec::with_capacity(2);
+    if ov.cols < designos_doc::MAX_GRID_TRACKS {
+        // right of the column pills, level with them
+        let top_right = to_s((frame.x - pr).max(pl), 0.0);
+        out.push((true, ERect::from_min_size(Pos2::new(top_right.x + 4.0, top_right.y - 12.0 - GRID_ADD_BUTTON_SIZE * 0.5), size)));
+    }
+    if ov.rows < designos_doc::MAX_GRID_TRACKS {
+        // under the row pills, ending where they end
+        let bot_left = to_s(0.0, (frame.y - pb).max(pt));
+        out.push((false, ERect::from_min_size(Pos2::new(bot_left.x - 5.0 - GRID_ADD_BUTTON_SIZE, bot_left.y + 4.0), size)));
+    }
+    out
+}
+
+/// Returns `(grid_frame_id, is_col, screen_rect)` for the on-canvas `+` add-column / add-row buttons (`#144`)
+/// of the selected and hovered grid frames.
+pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, ERect)> {
+    let mut out = Vec::new();
+    if app.view.zoom < 0.4 {
+        return out;
+    }
+    for id in grid_track_candidates(app) {
+        let Some(n) = app.doc.get(id) else { continue };
+        let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
+        let w_xform = super::fast_world_transform(&app.doc, id);
+        let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
+        out.extend(grid_add_buttons(&ov, n.size, to_s).into_iter().map(|(is_col, r)| (id, is_col, r)));
     }
     out
 }
@@ -604,9 +809,9 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         let col = if selected || hovered || is_comp_like { sel_color(app, id) } else { lab_col };
         let dx = if is_comp_like { 18.0 } else { 0.0 };
         if is_comp {
-            crate::icons::paint(&p, crate::icons::Icon::Component, Pos2::new(r.left() + 7.0, r.center().y), 14.0, col);
+            crate::icons::paint(&p, crate::icons::Icon::Component, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 14.0, col);
         } else if is_inst {
-            paint_instance_diamond(&p, Pos2::new(r.left() + 7.0, r.center().y), 5.0, col);
+            paint_instance_diamond(&p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
         }
         let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
         let name = crate::widgets::elide(&p, clean_name, &theme::font_body(), (r.width() - dx + 8.0).max(8.0));
@@ -618,7 +823,44 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                 designos_doc::DevStatus::Changed => theme::DEV_CHANGED,
             };
             p.rect_filled(badge_r, theme::cr(3), badge_col);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_small_strong(), Color32::WHITE);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_canvas_strong(), Color32::WHITE);
+        }
+        if let Some((badge_r, ip)) = in_progress_badge_rect(&app.doc, id, n, r) {
+            p.rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::STATUS_INFO_BG);
+            p.rect_stroke(badge_r, theme::cr_pill(badge_r.height()), Stroke::new(1.0, theme::STATUS_INFO_BORDER), StrokeKind::Inside);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, ip.badge_text(), theme::font_caption_medium(), theme::STATUS_INFO_TEXT);
+            let resp = ui.interact(badge_r, ui.id().with(("in-progress-badge", id)), egui::Sense::hover());
+            if resp.hovered() {
+                let now_ms = app.doc.now_ms();
+                let exp_ms = ip.expiry_ms(now_ms, designos_doc::default_in_progress_stale_ms());
+                let agent_str = ip.agent.as_deref().unwrap_or("Agent");
+                let mut segments = vec![format!("{agent_str} is working here")];
+                if let Some(run) = ip.run_id.as_deref() {
+                    segments.push(format!("run {run}"));
+                }
+                if let Some(exp) = exp_ms {
+                    segments.push(format!("stale in {}s", exp.saturating_sub(now_ms) / 1000));
+                }
+                let tip = segments.join(" · ");
+                resp.on_hover_text(tip);
+            }
+        }
+    }
+    if !app.doc.in_progress.is_empty() {
+        let now_ms = app.doc.now_ms();
+        let default_stale_ms = designos_doc::default_in_progress_stale_ms();
+        let min_remaining_ms = app
+            .doc
+            .in_progress
+            .iter()
+            .filter(|(&id, _)| app.doc.page_of(id) == Some(app.page))
+            .filter_map(|(_, ip)| {
+                let exp = ip.expiry_ms(now_ms, default_stale_ms)?;
+                (exp > now_ms).then_some(exp - now_ms)
+            })
+            .min();
+        if let Some(rem_ms) = min_remaining_ms {
+            ui.ctx().request_repaint_after(Duration::from_millis(rem_ms.max(1)));
         }
     }
 
@@ -788,7 +1030,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             }
             if let Some(tidy_r) = tidy_up_pill_rect(app, rect) {
                 p.rect_filled(tidy_r, theme::cr(3), FIGMA_PINK);
-                p.text(tidy_r.center(), Align2::CENTER_CENTER, "Tidy up", theme::font_small_strong(), Color32::WHITE);
+                p.text(tidy_r.center(), Align2::CENTER_CENTER, "Tidy up", theme::font_canvas_strong(), Color32::WHITE);
             }
         }
     }
@@ -821,7 +1063,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         }
         let mid = Pos2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
         let text = format!("{}", m.value.round() as i64);
-        let font = theme::font_small_strong();
+        let font = theme::font_canvas_strong();
         let w = crate::widgets::text_width(&p, &text, &font) + theme::GUIDE_TEXT_PAD * 2.0;
         let r = ERect::from_center_size(mid + EV::new(0.0, if horiz { -10.0 } else { 0.0 }), EV::new(w, theme::GUIDE_TEXT_HEIGHT));
         p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), gcol);
@@ -1320,5 +1562,250 @@ mod tests {
         assert!(hit_ms < 10.0, "hit_test_with_index took {:.4}ms", hit_ms);
         assert!(with_sync_ms < 10.0, "comp_ops::with_sync took {:.4}ms", with_sync_ms);
         assert!(layout_ms < 30.0, "layout_node took {:.3}ms", layout_ms);
+    }
+
+    /// The overlay of an empty grid with the given tracks (columns/rows as set on `al`).
+    fn bare_overlay(al: &designos_doc::AutoLayout) -> super::super::grids::CssGridOverlay {
+        super::super::grids::compute_css_grid_overlay(al, DV::new(2000.0, 2000.0), &[])
+    }
+
+    fn disjoint_per_axis(pills: &[(bool, usize, ERect, ERect)]) -> bool {
+        pills.iter().enumerate().all(|(i, (a_col, _, _, a))| {
+            pills[i + 1..].iter().all(|(b_col, _, _, b)| a_col != b_col || !(a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y))
+        })
+    }
+
+    #[test]
+    fn header_pills_keep_a_24x24_hit_floor_while_painted_pills_shrink_to_the_track_pitch() {
+        let mut al = designos_doc::AutoLayout { grid_columns: 8, grid_rows: 8, ..Default::default() };
+        for i in 0..8 {
+            al.grid_col_tracks[i] = designos_doc::GridTrack::Fixed(24.0);
+            al.grid_row_tracks[i] = designos_doc::GridTrack::Fixed(10.0);
+        }
+        let ov = bare_overlay(&al);
+        let zoomed_out = |x: f32, y: f32| Pos2::new(x * 0.4, y * 0.4);
+        let pills = grid_pill_rects_of(&ov, zoomed_out);
+        assert_eq!(pills.len(), 16);
+        assert!(disjoint_per_axis(&pills), "painted pills overlap: {pills:?}");
+        for (is_col, i, hit, paint) in &pills {
+            assert!(
+                hit.width() >= GRID_PILL_HIT_FLOOR && hit.height() >= GRID_PILL_HIT_FLOOR,
+                "pill {i} (is_col={is_col}) hit rect is {}x{}, below 24x24 floor",
+                hit.width(),
+                hit.height()
+            );
+            assert!((hit.center() - paint.center()).length() < 1e-4, "hit and paint rects share the same centre");
+            if *is_col {
+                assert!(paint.width() <= 9.6 + 1e-3, "column pill {i} paint is {} px wide at a 9.6 px pitch", paint.width());
+            } else {
+                assert!(paint.height() <= 4.0 + 1e-3, "row pill {i} paint is {} px tall at a 4 px pitch", paint.height());
+            }
+        }
+    }
+
+    #[test]
+    fn header_pills_keep_their_label_size_when_the_tracks_have_room() {
+        let mut al = designos_doc::AutoLayout { grid_columns: 3, grid_rows: 2, ..Default::default() };
+        al.grid_col_tracks[0] = designos_doc::GridTrack::Fixed(100.0);
+        al.grid_col_tracks[1] = designos_doc::GridTrack::Hug;
+        al.grid_row_tracks[0] = designos_doc::GridTrack::Fixed(60.0);
+        let ov = bare_overlay(&al);
+        let pills = grid_pill_rects_of(&ov, Pos2::new);
+        let (_, _, col0_hit, col0_paint) = *pills.iter().find(|(c, i, _, _)| *c && *i == 0).unwrap();
+        assert_eq!((col0_hit.width(), col0_hit.height()), (40.0, GRID_PILL_HIT_FLOOR));
+        assert_eq!((col0_paint.width(), col0_paint.height()), (40.0, GRID_PILL_HEIGHT), "`100px` is 5 characters: 5 * 6 + 10");
+        let (_, _, col1_hit, col1_paint) = *pills.iter().find(|(c, i, _, _)| *c && *i == 1).unwrap();
+        assert_eq!((col1_hit.width(), col1_hit.height()), (28.0, GRID_PILL_HIT_FLOOR));
+        assert_eq!(col1_paint.width(), 28.0, "`Hug` is 3 characters: 3 * 6 + 10");
+        let (_, _, row0_hit, row0_paint) = *pills.iter().find(|(c, i, _, _)| !*c && *i == 0).unwrap();
+        assert_eq!(row0_hit.height(), GRID_PILL_HIT_FLOOR);
+        assert_eq!(row0_paint.height(), GRID_PILL_HEIGHT);
+    }
+
+    #[test]
+    fn the_nearest_centre_wins_when_pills_overlap() {
+        let near = (NodeId(1), true, 1, ERect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(30.0, 15.0)));
+        let far = (NodeId(1), true, 0, ERect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(20.0, 15.0)));
+        let at = Pos2::new(18.0, 7.0);
+        assert_eq!(nearest_pill([far, near], at).map(|p| p.2), Some(1));
+        assert_eq!(nearest_pill([near, far], at).map(|p| p.2), Some(1), "list order does not matter");
+        assert!(nearest_pill([far, near], Pos2::new(50.0, 7.0)).is_none(), "outside every pill is nothing");
+    }
+
+    #[test]
+    fn in_progress_batch_flag_and_clear_on_run_end() {
+        designos_doc::set_mock_now_ms(Some(3_000_000));
+        let mut doc = designos_doc::Document::new("InProgress App Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let mut frame_node = Node::frame(fid, Rect::new(40.0, 60.0, 360.0, 240.0));
+        frame_node.name = "Hero Screen".into();
+        let frame_id = doc.insert(page, frame_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.doc.set_in_progress(
+            frame_id,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_e15_7".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(300),
+                status: Some("Building header...".into()),
+            }),
+        );
+
+        let viewport = ERect::from_min_size(Pos2::ZERO, EV::new(1280.0, 800.0));
+        let labels = label_rects(&app, viewport);
+        let (_, label_r) = labels.into_iter().find(|(id, _)| *id == frame_id).expect("root frame must have a label rect");
+        let node = app.doc.get(frame_id).unwrap();
+        let (badge_r, ip) = in_progress_badge_rect(&app.doc, frame_id, node, label_r).expect("flagged frame must produce an in_progress badge rect");
+        assert_eq!(badge_r.height(), 18.0);
+        assert!((badge_r.left() - (label_r.right() + theme::SPACE_ROW)).abs() < 1e-4);
+        assert_eq!(ip.badge_text(), "Claude Code working");
+
+        // Transitioning agent run to done emits ClearInProgress and clears the badge.
+        crate::shell::execute_terminal_actions(
+            &mut app,
+            vec![crate::terminal::TerminalAction::ClearInProgress { run_id: Some("run_e15_7".into()), agent: Some("Claude Code".into()) }],
+        );
+        assert!(app.doc.get_in_progress(frame_id).is_none());
+        let node = app.doc.get(frame_id).unwrap();
+        assert!(in_progress_badge_rect(&app.doc, frame_id, node, label_r).is_none());
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_killed_agent_flag_goes_stale_and_dead_run_cleared_on_load() {
+        designos_doc::set_mock_now_ms(Some(4_000_000));
+        let mut doc = designos_doc::Document::new("Stale & Load Test");
+        let page = doc.add_page("Page 1");
+        let f1 = doc.alloc_id();
+        let frame1 = doc.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 300.0, 200.0))).unwrap();
+        let f2 = doc.alloc_id();
+        let frame2 = doc.insert(page, Node::frame(f2, Rect::new(340.0, 0.0, 300.0, 200.0))).unwrap();
+
+        doc.set_in_progress(
+            frame1,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_dead".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        );
+        doc.set_in_progress(
+            frame2,
+            Some(designos_doc::InProgress {
+                run_id: None,
+                agent: Some("External Plugin".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: None,
+                status: None,
+            }),
+        );
+
+        // On replace_document (simulating Studio restart / reload), entries with a dead run_id are cleared
+        // while imported/user entries with run_id: None remain.
+        let mut app = App::new(designos_doc::Document::new("Initial"));
+        app.replace_document(doc, None);
+        assert!(app.doc.get_in_progress(frame1).is_none(), "dead run_id must be cleared on document load");
+        assert!(app.doc.get_in_progress(frame2).is_some(), "run_id: None entry without stale_after_s stays active");
+
+        // Now flag frame1 with stale_after_s: 60 and advance clock 61s.
+        app.doc.set_in_progress(
+            frame1,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_killed_pty".into()),
+                agent: Some("Codex".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        );
+        assert!(app.doc.get_in_progress(frame1).is_some());
+        designos_doc::advance_mock_now_ms(61_000);
+        let label_r = ERect::from_min_size(Pos2::new(20.0, 20.0), EV::new(80.0, 14.0));
+        let n1 = app.doc.get(frame1).unwrap();
+        assert!(in_progress_badge_rect(&app.doc, frame1, n1, label_r).is_none(), "stale badge must not paint");
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_undo_does_not_touch_flag() {
+        designos_doc::set_mock_now_ms(Some(5_000_000));
+        let mut doc = designos_doc::Document::new("Undo Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let mut app = App::new(doc);
+
+        let mut after = app.doc.get(frame).unwrap().clone();
+        after.name = "Updated Title".into();
+        app.hist.exec(&mut app.doc, designos_doc::Command::Update { node: Box::new(after) }).unwrap();
+        assert_eq!(app.doc.get(frame).unwrap().name, "Updated Title");
+
+        app.doc.set_in_progress(
+            frame,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_undo".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(300),
+                status: None,
+            }),
+        );
+        app.undo();
+        assert_eq!(app.doc.get(frame).unwrap().name, "Frame");
+        assert!(app.doc.get_in_progress(frame).is_some(), "App::undo must not clear in_progress flag");
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_set_and_clear_do_not_bump_tile_view_rev_and_studio_provisions_run_id() {
+        designos_doc::set_mock_now_ms(Some(6_000_000));
+        let mut doc = designos_doc::Document::new("Rev & RunId Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let mut app = App::new(doc);
+
+        // Consume initial dirty state and record baseline TileView::rev.
+        let base_rev = crate::canvas::tiles::take_rev(&mut app);
+
+        // 1. LivePatch containing only SetInProgress must not dirty canvas or bump TileView::rev.
+        let patch = designos_doc::live_patch::LivePatch::new(vec![designos_doc::live_patch::LiveOp::SetInProgress {
+            node: frame,
+            state: Some(designos_doc::InProgress {
+                run_id: Some("p99-tab-1-1-1".into()),
+                agent: Some("claude".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        }]);
+        crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+        assert!(app.doc.get_in_progress(frame).is_some());
+        assert_eq!(crate::canvas::tiles::take_rev(&mut app), base_rev, "SetInProgress live patch must not bump TileView::rev");
+
+        // 2. TerminalAction::ClearInProgress must not bump TileView::rev.
+        crate::shell::execute_terminal_actions(
+            &mut app,
+            vec![crate::terminal::TerminalAction::ClearInProgress { run_id: Some("p99-tab-1-1-1".into()), agent: Some("claude".into()) }],
+        );
+        assert!(app.doc.get_in_progress(frame).is_none());
+        assert_eq!(crate::canvas::tiles::take_rev(&mut app), base_rev, "ClearInProgress must not bump TileView::rev");
+
+        // 3. Studio session provisions DESIGNOS_AGENT_RUN_ID (<session_id>-<tab>-<n>) and DESIGNOS_AGENT_RUNTIME in mcp-config.json and PTY env.
+        let mut st = crate::terminal::TerminalState::for_tab(777);
+        st.sync_live_file_context(&app.doc, page, &[], None);
+        st.flush_live_sync();
+        let mcp_cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("mcp-config.json")).unwrap()).unwrap();
+        let mcp_env = &mcp_cfg["mcpServers"]["designos"]["env"];
+        let expected_prefix = format!("{}-", st.session_id);
+        let mcp_run_id = mcp_env["DESIGNOS_AGENT_RUN_ID"].as_str().unwrap_or("");
+        assert!(mcp_run_id.starts_with(&expected_prefix), "expected <session_id>-<tab>-<n> in mcp-config.json, got '{mcp_run_id}'");
+        assert!(!mcp_env["DESIGNOS_AGENT_RUNTIME"].as_str().unwrap_or("").is_empty(), "DESIGNOS_AGENT_RUNTIME must be set in mcp-config.json");
+        designos_doc::set_mock_now_ms(None);
     }
 }

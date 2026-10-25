@@ -14,7 +14,7 @@ use designos_doc as d;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use designos_render::board;
 use designos_render::tiny_skia as sk;
-use designos_render::{node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
+use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -77,6 +77,9 @@ pub struct CompileOptions {
     /// including root program 0) are capped at this count backstop alongside
     /// `refine_vram_budget_bytes`. Ignored by capped and headless compiles.
     pub refine_max_programs: usize,
+    /// Runtime-only per-node opacity multipliers (`0.0..=1.0`) applied during
+    /// interactive canvas rendering without mutating `Document` or bumping `rev`.
+    pub runtime_node_opacities: Vec<(NodeId, f32)>,
 }
 
 impl Default for CompileOptions {
@@ -88,6 +91,7 @@ impl Default for CompileOptions {
             uncap_programs: false,
             refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
             refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
+            runtime_node_opacities: Vec::new(),
         }
     }
 }
@@ -311,20 +315,6 @@ fn hits(bb: FBox, r: IRect) -> bool {
 
 fn draws_children(n: &Node) -> bool {
     !n.children.is_empty() && !matches!(n.kind, NodeKind::BooleanOp(_))
-}
-
-/// The opaque box of a mask whose stencil takes its alpha from its children
-/// alone (a frame, component or instance with children and no visible fill, see
-/// `designos_render::mask_stencil`), drawn without those children; `None` for
-/// any other mask.
-fn mask_frame_box(mask: &Node) -> Option<Node> {
-    if !draws_children(mask) || matches!(mask.kind, NodeKind::Text(_) | NodeKind::Group) || has_visible_fills(mask) {
-        return None;
-    }
-    let mut n = designos_render::mask_stencil(mask);
-    n.children.clear();
-    n.fills = vec![d::Paint::solid(d::Color::BLACK)];
-    Some(n)
 }
 
 fn special_blend(b: d::BlendMode) -> bool {
@@ -633,6 +623,16 @@ impl Ctx<'_> {
         }
     }
 
+    /// Whether program `id` (or any child program it composites) recorded a draw.
+    fn prog_has_draws(&self, id: ProgId) -> bool {
+        let p = &self.progs[id as usize];
+        p.pixels.is_some()
+            || p.ops.iter().any(|op| match op {
+                Op::Draw(_) | Op::Backdrop(_) => true,
+                Op::Composite(c) => self.prog_has_draws(c.src),
+            })
+    }
+
     /// A mask node clips the siblings that follow it.
     fn draw_mask(&mut self, mask: &Node, siblings: &[NodeId], i: usize, parent_ts: sk::Transform, ts: sk::Transform, clip: ClipId) {
         let doc = self.doc;
@@ -659,7 +659,7 @@ impl Ctx<'_> {
         let lclip = self.narrow_clip(clip, rect);
         // the mask program below is opened after the siblings: keep its slot
         self.reserving(1, mask_cost, |c| c.with_prog(layer, |c| c.draw_children(rest, parent_ts, lclip)));
-        let mask_node = designos_render::mask_stencil(mask);
+        let mask_node = mask_stencil(mask);
         let mprog = self.new_prog(rect);
         let mclip = self.full_clip(rect);
         let deferred = self.geom.deferred_empty;
@@ -668,9 +668,10 @@ impl Ctx<'_> {
             c.draw_node(&mask_node, ts, mclip);
             // A frame mask takes its alpha from its children. If this frame left
             // them out (geometry not built yet, or a frame too small for its
-            // children), the stencil is empty and hides every sibling the mask
-            // cuts: stand in the frame's box until the children draw.
-            if c.geom.deferred_empty != deferred || c.stencil_children_skipped {
+            // children) and nothing else drew into the stencil, it is empty and
+            // hides every sibling the mask cuts: stand in the frame's box until
+            // the children draw.
+            if !c.prog_has_draws(mprog) && (c.geom.deferred_empty != deferred || c.stencil_children_skipped) {
                 if let Some(frame_box) = mask_frame_box(mask) {
                     c.draw_node(&frame_box, ts, mclip);
                 }
@@ -694,7 +695,10 @@ impl Ctx<'_> {
         if !n.visible {
             return false;
         }
-        n.effects.iter().any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible))
+        (!matches!(n.kind, NodeKind::Unknown { .. })
+            && n.effects
+                .iter()
+                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
             || (draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -725,7 +729,13 @@ impl Ctx<'_> {
     }
 
     fn draw_node(&mut self, n: &Node, ts: sk::Transform, clip: ClipId) {
-        if !n.visible || matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. }) {
+        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
+            return;
+        }
+        if matches!(n.kind, NodeKind::Unknown { .. }) {
+            if !n.children.is_empty() {
+                self.draw_children(&n.children, ts, clip);
+            }
             return;
         }
         if n.kind.is_board_item() {
@@ -750,7 +760,7 @@ impl Ctx<'_> {
         }
         let bw = bb.2 - bb.0;
         let bh = bb.3 - bb.1;
-        if self.zoom_lod() && !has_kids && ((bw < 1.25 && bh < 1.25) || (bw.max(bh) < 4.0 && bw.min(bh) < 0.35)) {
+        if self.zoom_lod() && !has_kids && self.stencil_root != Some(n.id) && ((bw < 1.25 && bh < 1.25) || (bw.max(bh) < 4.0 && bw.min(bh) < 0.35)) {
             return;
         }
         let paints = visible_fills(n).count() + visible_strokes(n).count();
@@ -769,7 +779,8 @@ impl Ctx<'_> {
             })
             .fold(0.0f32, f32::max);
         let special = special_blend(n.blend);
-        let opacity = n.opacity.clamp(0.0, 1.0);
+        let runtime_mul = self.opts.runtime_node_opacities.iter().find(|&&(id, _)| id == n.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let opacity = (n.opacity * runtime_mul).clamp(0.0, 1.0);
         if opacity <= 0.0 && !special {
             return;
         }
@@ -936,10 +947,10 @@ impl Ctx<'_> {
                         let r = IRect::new(x0.round() as i32, y0.round() as i32, x1.round() as i32, y1.round() as i32);
                         let cc = self.narrow_clip(clip, r);
                         if !self.visible(cc).is_empty() {
-                            self.draw_children(&n.children, ts, cc);
+                            self.draw_children(&n.paint_children(), ts, cc);
                         }
                     } else {
-                        self.draw_children(&n.children, ts, clip);
+                        self.draw_children(&n.paint_children(), ts, clip);
                     }
                 }
                 return;
@@ -1033,9 +1044,9 @@ impl Ctx<'_> {
                 if self.visible(cc).is_empty() {
                     return;
                 }
-                self.draw_children(&n.children, ts, cc);
+                self.draw_children(&n.paint_children(), ts, cc);
             } else {
-                self.draw_children(&n.children, ts, clip);
+                self.draw_children(&n.paint_children(), ts, clip);
             }
         }
     }
@@ -1133,7 +1144,7 @@ impl Ctx<'_> {
         if matches!(n.kind, NodeKind::Text(_)) {
             for (i, t) in g.text.iter().enumerate() {
                 let _ = i;
-                let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(|p| p.opacity).fold(0.0, f32::max) };
+                let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
                 self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
             }
             return;
@@ -1145,15 +1156,7 @@ impl Ctx<'_> {
                         self.draw_mesh(fill, ts2, black(1.0), DrawBlend::Over, clip);
                     } else if sh.fillable {
                         for p in visible_fills(n) {
-                            let a = if opaque {
-                                1.0
-                            } else {
-                                let base = match &p.kind {
-                                    d::PaintKind::Solid(c) => c.a,
-                                    _ => 1.0,
-                                };
-                                base * p.opacity
-                            };
+                            let a = if opaque { 1.0 } else { p.silhouette_alpha() };
                             self.draw_mesh(fill, ts2, black(a), DrawBlend::Over, clip);
                         }
                     }
@@ -1185,7 +1188,7 @@ impl Ctx<'_> {
         if draws_children(n) {
             // silhouettes are drawn offset from the page grid: no index culling
             let was = std::mem::replace(&mut self.cull, false);
-            self.draw_children(&n.children, ts2, clip);
+            self.draw_children(&n.paint_children(), ts2, clip);
             self.cull = was;
         }
     }

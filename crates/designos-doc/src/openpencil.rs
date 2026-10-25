@@ -3,7 +3,7 @@
 
 use crate::*;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Canonical XPath upper-case node type name for a [`NodeKind`].
 pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
@@ -31,7 +31,7 @@ pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
     }
 }
 
-fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
+pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     if matches!(kind, NodeKind::Page { .. }) {
         return test.eq_ignore_ascii_case("PAGE");
     }
@@ -44,11 +44,88 @@ fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     }
     matches!(
         (canonical, test.to_ascii_uppercase().as_str()),
-        ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
+        ("RECTANGLE", "RECT") | ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
     )
 }
 
-fn layout_mode_str(n: &Node) -> &'static str {
+/// Node-type tokens a selector step may use: `*`, `NODE`, `PAGE`, every [`xpath_type_name`] value and
+/// the short aliases [`matches_node_test`] accepts. A step whose test is none of these names a node.
+/// The query tool reads the exact upper-case token as a kind test only; see [`is_exact_node_type_token`].
+const NODE_TYPE_TESTS: &[&str] = &[
+    "*",
+    "NODE",
+    "PAGE",
+    "FRAME",
+    "GROUP",
+    "SECTION",
+    "RECTANGLE",
+    "ELLIPSE",
+    "LINE",
+    "POLYGON",
+    "STAR",
+    "VECTOR",
+    "TEXT",
+    "BOOLEAN_OPERATION",
+    "COMPONENT",
+    "COMPONENT_SET",
+    "INSTANCE",
+    "STICKY",
+    "CONNECTOR",
+    "SHAPE_WITH_TEXT",
+    "STAMP",
+    "UNKNOWN",
+    "RECT",
+    "BOOLEAN_OP",
+    "BOOLEAN",
+    "COMPONENTSET",
+    "PATH",
+    "REF",
+];
+
+/// `true` when `test` is a node-type token (see [`NODE_TYPE_TESTS`]), ignoring case.
+pub(crate) fn is_node_type_test(test: &str) -> bool {
+    NODE_TYPE_TESTS.iter().any(|t| t.eq_ignore_ascii_case(test))
+}
+
+/// `true` when `test` is a node-type token spelled exactly as [`NODE_TYPE_TESTS`] lists it (upper case).
+/// The query tool matches such a step by kind only; the same word in another case (`Group`, `Page`)
+/// is a bare word and follows the previous query tool, see [`is_node_kind_word`].
+pub(crate) fn is_exact_node_type_token(test: &str) -> bool {
+    NODE_TYPE_TESTS.contains(&test)
+}
+
+/// Every `NodeKind::default_name`: the kind words of the previous query tool, which compared a step with
+/// the default name of each node's kind. A guard test reads them out of the `default_name` source.
+const NODE_KIND_DEFAULT_NAMES: &[&str] = &[
+    "Page",
+    "Frame",
+    "Group",
+    "Section",
+    "Rectangle",
+    "Ellipse",
+    "Line",
+    "Polygon",
+    "Star",
+    "Vector",
+    "Text",
+    "Union",
+    "Component",
+    "Component set",
+    "Instance",
+    "Sticky note",
+    "Connector",
+    "Shape",
+    "Stamp",
+    "Layer",
+];
+
+/// `true` when `word` names a node kind in any casing: a node-type token ([`NODE_TYPE_TESTS`]) or the
+/// default name of a kind (`Union`, `Shape`, `Sticky note`). Any other word is a name.
+pub(crate) fn is_node_kind_word(word: &str) -> bool {
+    is_node_type_test(word) || NODE_KIND_DEFAULT_NAMES.iter().any(|name| name.eq_ignore_ascii_case(word))
+}
+
+pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
     match n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         Some(al) => match al.direction {
             LayoutDirection::Horizontal => "HORIZONTAL",
@@ -106,19 +183,19 @@ pub fn node_to_xpath(doc: &Document, id: NodeId) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum XPathAxis {
+pub(crate) enum XPathAxis {
     Child,
     Descendant,
 }
 
 #[derive(Clone, Debug)]
-struct XPathStep {
-    axis: XPathAxis,
-    node_test: String,
-    predicates: Vec<String>,
+pub(crate) struct XPathStep {
+    pub(crate) axis: XPathAxis,
+    pub(crate) node_test: String,
+    pub(crate) predicates: Vec<String>,
 }
 
-fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
+pub(crate) fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Err("empty XPath expression".into());
@@ -243,6 +320,7 @@ fn node_attr(n: &Node, raw_attr: &str) -> AttrValue {
         "layoutMode" => AttrValue::Str(layout_mode_str(n).to_string()),
         "visible" => AttrValue::Bool(n.visible),
         "locked" => AttrValue::Bool(n.locked),
+        "fill" | "fills" => AttrValue::Bool(!n.fills.is_empty()),
         "clipsContent" | "clip" => AttrValue::Bool(n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false)),
         "id" => AttrValue::Num(n.id.0 as f32),
         _ => AttrValue::None,
@@ -331,7 +409,7 @@ fn parse_fn_two_args(inner: &str) -> Option<(String, String)> {
     None
 }
 
-fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
+pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Ok(true);
@@ -396,7 +474,11 @@ fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, Str
                 AttrValue::Bool(v) => v.to_string(),
                 AttrValue::None => String::new(),
             };
+            // The name is searched without regard to case, as the previous query tool did; every other
+            // attribute keeps its case.
+            let folds_case = attr_expr.trim().trim_start_matches('@') == "name";
             let matched = match mode {
+                "contains" if folds_case => hay.to_lowercase().contains(&needle.to_lowercase()),
                 "contains" => hay.contains(&needle),
                 "starts" => hay.starts_with(&needle),
                 "ends" => hay.ends_with(&needle),
@@ -426,6 +508,15 @@ fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, Str
             if s[i..].starts_with(op) {
                 let lhs = s[..i].trim();
                 let rhs = s[i + op.len()..].trim();
+                if lhs.trim_start_matches('@') == "component" {
+                    let names = component_names(doc, n);
+                    let named = names.iter().any(|name| *name == unquote(rhs));
+                    return Ok(match op {
+                        "=" => named,
+                        "!=" => !names.is_empty() && !named,
+                        _ => false,
+                    });
+                }
                 let lv = node_attr(n, lhs);
                 return Ok(compare_attr(&lv, op, rhs));
             }
@@ -433,12 +524,29 @@ fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, Str
     }
 
     // Bare attribute truthiness, e.g. `@visible`
+    if s.trim_start_matches('@') == "component" {
+        return Ok(!component_names(doc, n).is_empty());
+    }
     match node_attr(n, s) {
         AttrValue::Bool(b) => Ok(b),
         AttrValue::Num(v) => Ok(v != 0.0),
         AttrValue::Str(v) => Ok(!v.is_empty()),
         AttrValue::None => Err(format!("unsupported XPath predicate: {s}")),
     }
+}
+
+/// The names an instance answers to for `@component`: its main component's name and, for a
+/// variant, the name of the component set that holds it. Empty for anything that is not an
+/// instance of an existing component.
+fn component_names(doc: &Document, n: &Node) -> Vec<String> {
+    let Some(main) = instance_component(n).and_then(|id| doc.get(id)) else {
+        return Vec::new();
+    };
+    let mut names = vec![main.name.clone()];
+    if let Some(set) = main.parent.and_then(|id| doc.get(id)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
+        names.push(set.name.clone());
+    }
+    names
 }
 
 fn compare_attr(lv: &AttrValue, op: &str, rhs_raw: &str) -> bool {
@@ -503,64 +611,36 @@ fn node_summary_json(doc: &Document, n: &Node) -> Value {
 }
 
 /// Evaluates an Open-Pencil XPath selector query on `doc` (scoped to `page` if provided).
+///
+/// Compatibility wrapper around [`crate::query::run`] (E15-17).
 pub fn query_xpath(doc: &Document, page: Option<NodeId>, expr: &str, limit: usize) -> Result<Vec<Value>, String> {
-    let steps = parse_xpath(expr)?;
-    let mut current: Vec<NodeId> = match page {
-        Some(p) => {
-            if !doc.nodes.contains_key(&p) {
-                return Err(format!("page {p:?} not found"));
-            }
-            vec![p]
+    if let Some(p) = page {
+        if !doc.nodes.contains_key(&p) {
+            return Err(format!("page {p:?} not found"));
         }
-        None => doc.pages.clone(),
-    };
-
-    for step in &steps {
-        let mut candidates = Vec::new();
-        let mut seen = BTreeSet::new();
-        for &root_id in &current {
-            match step.axis {
-                XPathAxis::Child => {
-                    if let Some(rn) = doc.get(root_id) {
-                        for &cid in &rn.children {
-                            if seen.insert(cid) {
-                                candidates.push(cid);
-                            }
-                        }
-                    }
-                }
-                XPathAxis::Descendant => {
-                    doc.walk(root_id, |node, depth| {
-                        if depth > 0 && seen.insert(node.id) {
-                            candidates.push(node.id);
-                        }
-                    });
-                }
-            }
-        }
-
-        let mut next = Vec::new();
-        for cid in candidates {
-            let Some(cn) = doc.get(cid) else { continue };
-            if !matches_node_test(&cn.kind, &step.node_test) {
-                continue;
-            }
-            let mut ok = true;
-            for pred in &step.predicates {
-                if !eval_predicate_expr(doc, cn, pred)? {
-                    ok = false;
-                    break;
-                }
-            }
-            if ok {
-                next.push(cid);
-            }
-        }
-        current = next;
     }
-
-    let max = if limit == 0 { usize::MAX } else { limit };
-    Ok(current.into_iter().take(max).filter_map(|id| doc.get(id).map(|n| node_summary_json(doc, n))).collect())
+    let max_limit = if limit == 0 { crate::query::MAX_LIMIT } else { limit.clamp(1, crate::query::MAX_LIMIT) };
+    let page_res = crate::query::run(
+        doc,
+        &crate::query::QueryOptions {
+            selector: expr.to_string(),
+            page,
+            within: None,
+            limit: Some(max_limit),
+            cursor: None,
+            projection: crate::query::Projection::Compact,
+            fields: Some(vec!["id".to_string()]),
+            max_depth: None,
+            node_budget: None,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(page_res
+        .matches
+        .into_iter()
+        .filter_map(|v| v.get("id").and_then(|id| id.as_u64()).and_then(|id| doc.get(NodeId(id))).map(|n| node_summary_json(doc, n)))
+        .collect())
 }
 
 /// Infers a semantic UI role hint (`"button"`, `"input"`, `"card"`, `"navbar"`, `"heading"`, `"badge"`, `"icon"`, `"container"`).
@@ -668,315 +748,58 @@ pub fn describe_node(doc: &Document, id: NodeId, depth: usize) -> Result<Value, 
     }))
 }
 
-const SPACING_SCALE: [f32; 15] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 80.0, 96.0];
-const FONT_SCALE: [f32; 22] =
-    [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 18.0, 20.0, 24.0, 28.0, 30.0, 32.0, 36.0, 40.0, 48.0, 56.0, 60.0, 64.0, 72.0, 80.0, 96.0];
-const RADIUS_SCALE: [f32; 14] = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0, 24.0, 32.0, 999.0, 1000.0, 9999.0];
+use crate::lint::rules::is_grid_multiple;
 
-fn on_scale(v: f32, scale: &[f32]) -> bool {
-    scale.iter().any(|&s| (v - s).abs() < 0.05)
-}
-
-fn nearest_on_scale(v: f32, scale: &[f32]) -> f32 {
-    scale.iter().copied().min_by(|a, b| (v - *a).abs().total_cmp(&(v - *b).abs())).unwrap_or(v)
-}
-
-fn is_grid_multiple(v: f32, step: f32) -> bool {
-    let rem = (v / step).round() * step - v;
-    rem.abs() < 0.05
-}
-
-fn is_default_layer_name(name: &str) -> bool {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return true;
-    }
-    const PREFIXES: [&str; 13] =
-        ["Frame", "Group", "Rectangle", "Ellipse", "Line", "Polygon", "Star", "Vector", "Text", "Section", "Component", "Instance", "Layer"];
-    for p in PREFIXES {
-        if trimmed.eq_ignore_ascii_case(p) {
-            return true;
-        }
-        if let Some(rest) = trimmed.strip_prefix(p) {
-            let rest = rest.trim();
-            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn relative_luminance(c: Color) -> f32 {
-    fn chan(v: f32) -> f32 {
-        let v = v.clamp(0.0, 1.0);
-        if v <= 0.03928 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    0.2126 * chan(c.r) + 0.7152 * chan(c.g) + 0.0722 * chan(c.b)
-}
-
-fn contrast_ratio(a: Color, b: Color) -> f32 {
-    let l1 = relative_luminance(a);
-    let l2 = relative_luminance(b);
-    let (bright, dark) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
-    (bright + 0.05) / (dark + 0.05)
-}
-
-fn effective_background_color(doc: &Document, id: NodeId) -> Color {
-    let mut cur = doc.get(id).and_then(|n| n.parent);
-    while let Some(pid) = cur {
-        let Some(pn) = doc.get(pid) else { break };
-        for fill in pn.fills.iter().rev() {
-            if fill.visible {
-                if let PaintKind::Solid(c) = fill.kind {
-                    if c.a * fill.opacity >= 0.5 {
-                        return c;
-                    }
-                }
-            }
-        }
-        if let NodeKind::Page { background } = pn.kind {
-            return background;
-        }
-        cur = pn.parent;
-    }
-    Color::WHITE
-}
-
-fn rule_enabled(preset: &str, rule: &str, category: &str) -> bool {
-    match preset.to_ascii_lowercase().as_str() {
-        "" | "all" | "strict" | "recommended" | "default" => true,
-        "layout" => category.eq_ignore_ascii_case("layout"),
-        "tokens" => category.eq_ignore_ascii_case("tokens"),
-        "naming" => category.eq_ignore_ascii_case("Naming"),
-        "accessibility" | "a11y" => category.eq_ignore_ascii_case("accessibility"),
-        "structure" => category.eq_ignore_ascii_case("structure"),
-        other => other.split(',').any(|r| r.trim().eq_ignore_ascii_case(rule)),
-    }
-}
-
-/// Runs the 17 Open-Pencil design lint rules across `layout`, `tokens`, `Naming`, `accessibility`, and `structure`.
+/// Compatibility wrapper delegating to [`crate::lint`].
 pub fn lint_document(doc: &Document, page: Option<NodeId>, preset: &str) -> Value {
     let roots: Vec<NodeId> = match page {
         Some(p) => vec![p],
         None => doc.pages.clone(),
     };
-    let mut issues = Vec::new();
+    let effective_preset = match preset.trim().to_ascii_lowercase().as_str() {
+        "" | "all" | "strict" | "recommended" | "default" => "strict",
+        _ => preset.trim(),
+    };
+    let config =
+        crate::lint::LintConfig::from_preset_str(effective_preset).unwrap_or_else(|_| crate::lint::LintConfig::from_preset(crate::lint::LintPreset::Strict));
+    let mut budget = crate::lint::Budget::unlimited();
+    let report = crate::lint::lint_subtree(doc, &roots, &config, &crate::lint::ApproxLintEnv, &mut budget);
+
     let mut by_category: BTreeMap<String, usize> =
         BTreeMap::from([("layout".into(), 0), ("tokens".into(), 0), ("Naming".into(), 0), ("accessibility".into(), 0), ("structure".into(), 0)]);
     let mut by_rule: BTreeMap<String, usize> = BTreeMap::new();
+    let mut issues = Vec::with_capacity(report.findings.len());
 
-    let mut push_issue = |rule: &str, category: &str, severity: &str, n: &Node, msg: String, fixable: bool| {
-        if !rule_enabled(preset, rule, category) {
-            return;
-        }
-        *by_category.entry(category.to_string()).or_insert(0) += 1;
-        *by_rule.entry(rule.to_string()).or_insert(0) += 1;
+    for f in &report.findings {
+        let cat_key = match f.category {
+            crate::lint::Category::Naming => "Naming",
+            other => other.as_str(),
+        };
+        *by_category.entry(cat_key.to_string()).or_insert(0) += 1;
+        *by_rule.entry(f.rule.to_string()).or_insert(0) += 1;
         issues.push(json!({
-            "rule": rule,
-            "category": category,
-            "severity": severity,
-            "node_id": n.id.0,
-            "node_name": n.name,
-            "xpath": node_to_xpath(doc, n.id),
-            "message": msg,
-            "fixable": fixable,
+            "rule": f.rule,
+            "category": cat_key,
+            "severity": f.severity.as_str(),
+            "node_id": f.node.0,
+            "node_name": f.node_name,
+            "xpath": f.xpath,
+            "bounds": {
+                "x": f.bounds.x,
+                "y": f.bounds.y,
+                "width": f.bounds.w,
+                "height": f.bounds.h,
+            },
+            "message": f.message,
+            "suggested_fix": f.suggested_fix,
+            "fixable": f.fixable,
         }));
-    };
+    }
 
-    for root in roots {
-        doc.walk(root, |n, depth| {
-            if matches!(n.kind, NodeKind::Page { .. }) || !n.visible {
-                return;
-            }
-
-            // 10. default-layer-name (Naming)
-            if is_default_layer_name(&n.name) {
-                push_issue("default-layer-name", "Naming", "warning", n, format!("Layer '{}' uses a generic default name", n.name), true);
-            }
-
-            // 14. deeply-nested (structure)
-            if depth > 6 {
-                push_issue("deeply-nested", "structure", "warning", n, format!("Node is nested at depth {depth} (> 6)"), false);
-            }
-
-            // 15. empty-container (structure)
-            if matches!(n.kind, NodeKind::Frame(_) | NodeKind::Group)
-                && n.children.is_empty()
-                && n.fills.iter().all(|p| !p.visible)
-                && n.stroke.paints.iter().all(|p| !p.visible)
-                && n.effects.iter().all(|e| !e.visible())
-            {
-                push_issue("empty-container", "structure", "info", n, "Empty container has no children, fills, strokes, or effects".into(), true);
-            }
-
-            // 6. non-4px-grid (layout)
-            if !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line)
-                && (!is_grid_multiple(n.size.x, 4.0) || !is_grid_multiple(n.size.y, 4.0))
-            {
-                push_issue("non-4px-grid", "layout", "info", n, format!("Size {}x{} is not aligned to the 4px grid", n.size.x, n.size.y), true);
-            }
-
-            // Frame / Auto-layout rules
-            if let Some(fp) = n.kind.frame_props() {
-                if let Some(al) = &fp.auto_layout {
-                    // 1. inconsistent-spacing (layout)
-                    if !on_scale(al.item_spacing, &SPACING_SCALE) {
-                        push_issue("inconsistent-spacing", "layout", "warning", n, format!("item_spacing {} is off the spacing scale", al.item_spacing), true);
-                    }
-                    // 5. unbalanced-padding (layout)
-                    if (al.padding[0] - al.padding[2]).abs() > 0.1 || (al.padding[1] - al.padding[3]).abs() > 0.1 {
-                        push_issue(
-                            "unbalanced-padding",
-                            "layout",
-                            "info",
-                            n,
-                            format!("Unbalanced padding [{}, {}, {}, {}]", al.padding[0], al.padding[1], al.padding[2], al.padding[3]),
-                            true,
-                        );
-                    }
-                } else if n.children.len() >= 2 {
-                    // 3. missing-auto-layout (layout)
-                    push_issue(
-                        "missing-auto-layout",
-                        "layout",
-                        "warning",
-                        n,
-                        format!("Container with {} children does not use auto-layout", n.children.len()),
-                        false,
-                    );
-
-                    // Check sibling alignment & overlaps
-                    let child_nodes: Vec<&Node> = n.children.iter().filter_map(|&cid| doc.get(cid)).filter(|c| c.visible).collect();
-                    let mut misaligned = false;
-                    let mut overlapping = false;
-                    for i in 0..child_nodes.len() {
-                        for j in (i + 1)..child_nodes.len() {
-                            let a = child_nodes[i];
-                            let b = child_nodes[j];
-                            let dx = (a.transform.tx - b.transform.tx).abs();
-                            let dy = (a.transform.ty - b.transform.ty).abs();
-                            if (dx > 0.1 && dx <= 3.0) || (dy > 0.1 && dy <= 3.0) {
-                                misaligned = true;
-                            }
-                            let ra = Rect::new(a.transform.tx, a.transform.ty, a.size.x, a.size.y);
-                            let rb = Rect::new(b.transform.tx, b.transform.ty, b.size.x, b.size.y);
-                            if ra.intersects(&rb) {
-                                overlapping = true;
-                            }
-                        }
-                    }
-                    // 2. misaligned-siblings (layout)
-                    if misaligned {
-                        push_issue("misaligned-siblings", "layout", "warning", n, "Child layers are off-alignment by 1–3px".into(), true);
-                    }
-                    // 16. overlapping-siblings (structure)
-                    if overlapping {
-                        push_issue("overlapping-siblings", "structure", "warning", n, "Sibling layers overlap without auto-layout".into(), false);
-                    }
-                }
-
-                // 4. overflowing-children (layout)
-                for &cid in &n.children {
-                    if let Some(cn) = doc.get(cid) {
-                        if cn.visible
-                            && (cn.transform.tx < -0.5
-                                || cn.transform.ty < -0.5
-                                || cn.transform.tx + cn.size.x > n.size.x + 0.5
-                                || cn.transform.ty + cn.size.y > n.size.y + 0.5)
-                        {
-                            push_issue("overflowing-children", "layout", "warning", cn, format!("Child '{}' overflows parent '{}'", cn.name, n.name), false);
-                        }
-                    }
-                }
-            }
-
-            // 7. hardcoded-color (tokens)
-            let has_solid_fill = n.fills.iter().any(|p| p.visible && matches!(p.kind, PaintKind::Solid(_)));
-            let has_bound_fill = n.variables.bindings.keys().any(|k| k.starts_with("fills") || k == "fill") || n.style_refs.contains_key("fill");
-            if has_solid_fill && !has_bound_fill {
-                push_issue("hardcoded-color", "tokens", "info", n, "Solid fill color is hardcoded without a variable or style token".into(), false);
-            }
-
-            // 9. inconsistent-radius (tokens)
-            if n.corner_radii != [0.0; 4] {
-                let r0 = n.corner_radii[0];
-                let uniform = n.corner_radii.iter().all(|&r| (r - r0).abs() < 0.05);
-                if !uniform || !on_scale(r0, &RADIUS_SCALE) {
-                    push_issue(
-                        "inconsistent-radius",
-                        "tokens",
-                        "info",
-                        n,
-                        format!("Corner radii {:?} are non-uniform or off the radius scale", n.corner_radii),
-                        true,
-                    );
-                }
-            }
-
-            // 12. small-touch-target (accessibility)
-            let role = infer_role_hint(doc, n);
-            if matches!(role, "button" | "input") && (n.size.x < 44.0 || n.size.y < 44.0) {
-                push_issue(
-                    "small-touch-target",
-                    "accessibility",
-                    "warning",
-                    n,
-                    format!("Interactive {role} is {}x{} (< 44x44 minimum touch target)", n.size.x, n.size.y),
-                    true,
-                );
-            }
-
-            // Text-specific rules: 8, 11, 13, 17
-            if let Some(t) = n.kind.any_text() {
-                // 8. non-scale-font-size (tokens)
-                if !on_scale(t.style.font_size, &FONT_SCALE) {
-                    push_issue("non-scale-font-size", "tokens", "info", n, format!("Font size {}px is not on the typographic scale", t.style.font_size), true);
-                }
-
-                // 13. tiny-text (accessibility)
-                if t.style.font_size < 12.0 {
-                    push_issue(
-                        "tiny-text",
-                        "accessibility",
-                        "warning",
-                        n,
-                        format!("Text font size {}px is below 12px legibility minimum", t.style.font_size),
-                        true,
-                    );
-                }
-
-                // 17. detached-text-style (tokens)
-                if !n.style_refs.contains_key("text") {
-                    push_issue("detached-text-style", "tokens", "info", n, "Text layer is not linked to a shared text style".into(), false);
-                }
-
-                // 11. low-contrast-text (accessibility)
-                if let Some(fg) = t.style.fills.iter().rev().find(|p| p.visible).and_then(|p| match p.kind {
-                    PaintKind::Solid(c) => Some(c),
-                    _ => None,
-                }) {
-                    let bg = effective_background_color(doc, n.id);
-                    let ratio = contrast_ratio(fg, bg);
-                    let large = t.style.font_size >= 24.0 || (t.style.font_size >= 18.0 && t.style.font_weight >= 700);
-                    let min_ratio = if large { 3.0 } else { 4.5 };
-                    if ratio < min_ratio {
-                        push_issue(
-                            "low-contrast-text",
-                            "accessibility",
-                            "error",
-                            n,
-                            format!("Text contrast ratio {:.2}:1 is below WCAG AA {:.1}:1 (#{} on #{})", ratio, min_ratio, fg.to_hex(), bg.to_hex()),
-                            false,
-                        );
-                    }
-                }
-            }
-        });
+    for issue in crate::lint::broken_style_binding_findings_for(doc, &config) {
+        *by_category.entry("tokens".to_string()).or_insert(0) += 1;
+        *by_rule.entry("broken-style-binding".to_string()).or_insert(0) += 1;
+        issues.push(issue);
     }
 
     json!({
@@ -985,227 +808,22 @@ pub fn lint_document(doc: &Document, page: Option<NodeId>, preset: &str) -> Valu
         "summary_by_category": by_category,
         "summary_by_rule": by_rule,
         "issues": issues,
+        "findings": report.findings,
+        "total": report.total,
+        "by_severity": report.by_severity,
+        "by_rule": report.by_rule,
+        "skipped_rules": report.skipped_rules,
+        "scanned": report.scanned,
+        "complete": report.complete,
+        "elapsed_ms": report.elapsed_ms,
+        "cursor": report.cursor,
+        "summary": report.summary,
     })
 }
 
-/// Applies deterministic auto-fixes for enabled lint rules and returns `{ "fixed_count", "changes" }`.
+/// Compatibility wrapper delegating to [`crate::lint::lint_fix_document`].
 pub fn lint_fix_document(doc: &mut Document, page: Option<NodeId>, rules: Option<&[String]>) -> Value {
-    let allow = |rule: &str| -> bool {
-        match rules {
-            None => true,
-            Some(list) if list.is_empty() => true,
-            Some(list) => list.iter().any(|r| r.eq_ignore_ascii_case(rule)),
-        }
-    };
-
-    let roots: Vec<NodeId> = match page {
-        Some(p) => vec![p],
-        None => doc.pages.clone(),
-    };
-    let mut visit_ids = Vec::new();
-    for r in roots {
-        doc.walk(r, |n, depth| {
-            if depth > 0 {
-                visit_ids.push(n.id);
-            }
-        });
-    }
-
-    let mut changes = Vec::new();
-    let mut to_remove = Vec::new();
-
-    for id in visit_ids {
-        let role = doc.get(id).map(|n| infer_role_hint(doc, n)).unwrap_or("container");
-        let is_empty_leaf = doc.get(id).is_some_and(|n| {
-            matches!(n.kind, NodeKind::Frame(_) | NodeKind::Group)
-                && n.children.is_empty()
-                && n.fills.iter().all(|p| !p.visible)
-                && n.stroke.paints.iter().all(|p| !p.visible)
-                && n.effects.iter().all(|e| !e.visible())
-        });
-        if allow("empty-container") && is_empty_leaf {
-            to_remove.push(id);
-            changes.push(json!({
-                "rule": "empty-container",
-                "node_id": id.0,
-                "action": "removed empty container",
-            }));
-            continue;
-        }
-
-        // Fix misaligned siblings inside non-auto-layout containers
-        if allow("misaligned-siblings") {
-            let children =
-                doc.get(id).filter(|n| n.kind.frame_props().is_some_and(|f| f.auto_layout.is_none())).map(|n| n.children.clone()).unwrap_or_default();
-            for i in 0..children.len() {
-                for j in (i + 1)..children.len() {
-                    let (Some(a), Some(b)) = (doc.get(children[i]).cloned(), doc.get(children[j]).cloned()) else {
-                        continue;
-                    };
-                    let dx = (a.transform.tx - b.transform.tx).abs();
-                    let dy = (a.transform.ty - b.transform.ty).abs();
-                    if dx > 0.1 && dx <= 3.0 {
-                        if let Some(bm) = doc.get_mut(children[j]) {
-                            bm.transform.tx = a.transform.tx;
-                            changes.push(json!({
-                                "rule": "misaligned-siblings",
-                                "node_id": children[j].0,
-                                "action": format!("snapped x to {}", a.transform.tx),
-                            }));
-                        }
-                    }
-                    if dy > 0.1 && dy <= 3.0 {
-                        if let Some(bm) = doc.get_mut(children[j]) {
-                            bm.transform.ty = a.transform.ty;
-                            changes.push(json!({
-                                "rule": "misaligned-siblings",
-                                "node_id": children[j].0,
-                                "action": format!("snapped y to {}", a.transform.ty),
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-
-        let Some(n) = doc.get_mut(id) else { continue };
-
-        if allow("default-layer-name") && is_default_layer_name(&n.name) {
-            let new_name = match &n.kind {
-                NodeKind::Text(t) => {
-                    let snippet: String = t.content.trim().chars().take(24).collect();
-                    if snippet.is_empty() {
-                        "Text Label".to_string()
-                    } else {
-                        snippet
-                    }
-                }
-                _ => match role {
-                    "button" => "Button".to_string(),
-                    "input" => "Input Field".to_string(),
-                    "card" => "Card".to_string(),
-                    "navbar" => "Navigation Bar".to_string(),
-                    "badge" => "Badge".to_string(),
-                    "icon" => "Icon".to_string(),
-                    _ => match n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
-                        Some(al) => match al.direction {
-                            LayoutDirection::Horizontal => "Row".to_string(),
-                            LayoutDirection::Vertical => "Column".to_string(),
-                            LayoutDirection::Grid => "Grid".to_string(),
-                        },
-                        None => format!("{} Layer", xpath_type_name(&n.kind).to_ascii_lowercase()),
-                    },
-                },
-            };
-            n.name = new_name.clone();
-            changes.push(json!({
-                "rule": "default-layer-name",
-                "node_id": id.0,
-                "action": format!("renamed to '{new_name}'"),
-            }));
-        }
-
-        if allow("tiny-text") {
-            if let Some(t) = n.kind.any_text_mut() {
-                if t.style.font_size < 12.0 {
-                    t.style.font_size = 12.0;
-                    changes.push(json!({
-                        "rule": "tiny-text",
-                        "node_id": id.0,
-                        "action": "bumped font_size to 12px",
-                    }));
-                }
-            }
-        }
-
-        if allow("non-scale-font-size") {
-            if let Some(t) = n.kind.any_text_mut() {
-                if !on_scale(t.style.font_size, &FONT_SCALE) {
-                    let snapped = nearest_on_scale(t.style.font_size, &FONT_SCALE);
-                    t.style.font_size = snapped;
-                    changes.push(json!({
-                        "rule": "non-scale-font-size",
-                        "node_id": id.0,
-                        "action": format!("snapped font_size to {snapped}px"),
-                    }));
-                }
-            }
-        }
-
-        if allow("small-touch-target") && matches!(role, "button" | "input") {
-            if n.size.x < 44.0 || n.size.y < 44.0 {
-                n.size.x = n.size.x.max(44.0);
-                n.size.y = n.size.y.max(44.0);
-                changes.push(json!({
-                    "rule": "small-touch-target",
-                    "node_id": id.0,
-                    "action": format!("expanded touch target to {}x{}", n.size.x, n.size.y),
-                }));
-            }
-        }
-
-        if allow("non-4px-grid") && !matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::Line) {
-            let sx = (n.size.x / 4.0).round().max(1.0) * 4.0;
-            let sy = (n.size.y / 4.0).round().max(1.0) * 4.0;
-            if (sx - n.size.x).abs() >= 0.05 || (sy - n.size.y).abs() >= 0.05 {
-                n.size.x = sx;
-                n.size.y = sy;
-                changes.push(json!({
-                    "rule": "non-4px-grid",
-                    "node_id": id.0,
-                    "action": format!("snapped size to {sx}x{sy}"),
-                }));
-            }
-        }
-
-        if allow("inconsistent-radius") && n.corner_radii != [0.0; 4] {
-            let r0 = nearest_on_scale(n.corner_radii[0], &RADIUS_SCALE);
-            if n.corner_radii != [r0; 4] {
-                n.corner_radii = [r0; 4];
-                changes.push(json!({
-                    "rule": "inconsistent-radius",
-                    "node_id": id.0,
-                    "action": format!("normalized corner_radii to {r0}px"),
-                }));
-            }
-        }
-
-        if let Some(fp) = n.kind.frame_props_mut() {
-            if let Some(al) = &mut fp.auto_layout {
-                if allow("inconsistent-spacing") && !on_scale(al.item_spacing, &SPACING_SCALE) {
-                    let snapped = nearest_on_scale(al.item_spacing, &SPACING_SCALE);
-                    al.item_spacing = snapped;
-                    changes.push(json!({
-                        "rule": "inconsistent-spacing",
-                        "node_id": id.0,
-                        "action": format!("snapped item_spacing to {snapped}px"),
-                    }));
-                }
-                if allow("unbalanced-padding") && ((al.padding[0] - al.padding[2]).abs() > 0.1 || (al.padding[1] - al.padding[3]).abs() > 0.1) {
-                    let v = nearest_on_scale((al.padding[0] + al.padding[2]) * 0.5, &SPACING_SCALE);
-                    let h = nearest_on_scale((al.padding[1] + al.padding[3]) * 0.5, &SPACING_SCALE);
-                    al.padding = [v, h, v, h];
-                    changes.push(json!({
-                        "rule": "unbalanced-padding",
-                        "node_id": id.0,
-                        "action": format!("balanced padding to [{v}, {h}, {v}, {h}]"),
-                    }));
-                }
-            }
-        }
-    }
-
-    for rem_id in to_remove {
-        let _ = doc.remove(rem_id);
-    }
-    if !changes.is_empty() {
-        doc.mark_full_dirty();
-    }
-
-    json!({
-        "fixed_count": changes.len(),
-        "changes": changes,
-    })
+    crate::lint::lint_fix_document(doc, page, rules)
 }
 
 fn srgb_to_lab(c: Color) -> [f32; 3] {
@@ -1548,6 +1166,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_type_name_xpath_type_name_returns_is_a_node_type_token() {
+        // Reads the names out of the `xpath_type_name` source, so a new node kind whose name is not in
+        // `NODE_TYPE_TESTS` fails here instead of turning `//NEWKIND` into a name search.
+        let source = include_str!("openpencil.rs");
+        let start = source.find("pub fn xpath_type_name").expect("xpath_type_name source");
+        let body = &source[start..start + source[start..].find("\n}\n").expect("end of xpath_type_name")];
+        let names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
+        assert!(names.len() >= 20, "found only {names:?}");
+        for name in names {
+            assert!(is_node_type_test(name), "{name} is returned by xpath_type_name but is not a node type token");
+            assert!(is_node_type_test(&name.to_ascii_lowercase()), "{name} must match in lower case");
+        }
+        for token in ["*", "NODE", "RECT", "path", "Ref"] {
+            assert!(is_node_type_test(token), "{token}");
+        }
+        for token in ["*", "NODE", "TEXT", "PAGE", "GROUP", "RECT"] {
+            assert!(is_exact_node_type_token(token), "{token} is spelled as the list has it");
+        }
+        for word in ["Text", "text", "Group", "Page", "path", "Union", "Card"] {
+            assert!(!is_exact_node_type_token(word), "{word} is not the upper-case token");
+        }
+        for word in ["Card", "Hero", "Text field", "Frame 12"] {
+            assert!(!is_node_type_test(word), "{word} is a name");
+        }
+    }
+
+    #[test]
+    fn every_default_kind_name_is_a_node_kind_word() {
+        // Reads the names out of the `default_name` source, so a new node kind whose default name is not in
+        // `NODE_KIND_DEFAULT_NAMES` fails here instead of turning `//Newkind[@x]` into a name search.
+        let source = include_str!("node.rs");
+        let start = source.find("pub fn default_name").expect("default_name source");
+        let body = &source[start..start + source[start..].find("\n    }\n").expect("end of default_name")];
+        let mut names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
+        assert!(names.len() >= 20, "found only {names:?}");
+        for name in &names {
+            assert!(is_node_kind_word(name) && is_node_kind_word(&name.to_ascii_uppercase()), "{name} is a kind word in any casing");
+        }
+        names.sort_unstable();
+        let mut listed = NODE_KIND_DEFAULT_NAMES.to_vec();
+        listed.sort_unstable();
+        assert_eq!(names, listed, "NODE_KIND_DEFAULT_NAMES lists exactly the default names");
+        for word in ["rect", "Path", "ref", "node", "Union", "SHAPE", "sticky note"] {
+            assert!(is_node_kind_word(word), "{word}");
+        }
+        for word in ["Card", "Hero", "Text field", "Frame 12", "Home"] {
+            assert!(!is_node_kind_word(word), "{word} is a name");
+        }
+    }
+
+    #[test]
     fn new_page_default_background_is_5a5a5a() {
         let mut doc = Document::new("Test");
         let page = doc.add_page("Page 1");
@@ -1648,7 +1317,7 @@ mod tests {
         let rules_hit = report["summary_by_rule"].as_object().unwrap();
         assert!(rules_hit.contains_key("default-layer-name"));
         assert!(rules_hit.contains_key("tiny-text"));
-        assert!(rules_hit.contains_key("low-contrast-text"));
+        assert!(rules_hit.contains_key("contrast"));
         assert!(rules_hit.contains_key("empty-container"));
 
         let fix_res = lint_fix_document(&mut doc, Some(page), None);

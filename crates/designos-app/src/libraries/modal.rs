@@ -51,9 +51,9 @@ pub(super) fn frame(ctx: &Context, id: &'static str, m: Rect, body: impl FnOnce(
             let scrim = ui.interact(screen, Id::new((id, "scrim")), Sense::click_and_drag());
             ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(120));
             let p = ui.painter().clone();
-            widgets::elevation_400(&p, m, theme::MENU_RADIUS);
-            p.rect_filled(m, theme::cr(theme::MENU_RADIUS), theme::BG);
-            p.rect_stroke(m, theme::cr(theme::MENU_RADIUS), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+            widgets::elevation_400(&p, m, theme::RADIUS_FRAME);
+            p.rect_filled(m, theme::cr(theme::RADIUS_FRAME), theme::BG);
+            p.rect_stroke(m, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
             ui.interact(m, Id::new((id, "body")), Sense::click_and_drag());
             let closed = body(ui);
             closed || scrim.clicked() && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| !m.contains(p))
@@ -68,7 +68,7 @@ pub(super) fn header(ui: &mut Ui, m: Rect, title: &str, close_key: &'static str)
     widgets::hline(&p, m.left(), m.right(), m.top() + HEADER_H - 1.0, theme::BORDER);
     let cb = Rect::from_center_size(Pos2::new(m.right() - 28.0, m.top() + HEADER_H / 2.0), Vec2::splat(28.0));
     let r = ui.interact(cb, Id::new(close_key), Sense::click());
-    widgets::button_bg(&p, cb, &r, false, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, cb, &r, false, theme::cr(theme::RADIUS_CONTROL));
     widgets::record(ui, close_key, cb);
     let c = cb.center();
     let st = Stroke::new(1.3, theme::ICON);
@@ -83,7 +83,7 @@ pub(super) fn button(ui: &mut Ui, rect: Rect, key: &str, label: &str, primary: b
     let r = ui.interact(rect, Id::new(("lib-btn", key)), sense);
     widgets::record(ui, key, rect);
     let p = ui.painter();
-    let radius = theme::cr(theme::RADIUS_MEDIUM);
+    let radius = theme::cr_pill(rect.height());
     let (fill, text) = match (primary, enabled) {
         (true, true) => (
             if r.is_pointer_button_down_on() {
@@ -218,7 +218,7 @@ fn this_file(app: &mut App, ui: &mut Ui, m: Rect, mut y: f32) -> f32 {
                 Pos2::new(x0 + 8.0, y + CHANGE_ROW_H / 2.0),
                 Align2::LEFT_CENTER,
                 format!("and {} more", changes.len() - MAX_CHANGES_SHOWN),
-                theme::font_small(),
+                theme::font_caption(),
                 theme::TEXT_TERTIARY,
             );
             y += CHANGE_ROW_H;
@@ -228,8 +228,8 @@ fn this_file(app: &mut App, ui: &mut Ui, m: Rect, mut y: f32) -> f32 {
         let s = widgets::elide(&p, &c.name, &theme::font_body(), x1 - x0 - 190.0);
         p.text(Pos2::new(x0 + 30.0, y + CHANGE_ROW_H / 2.0), Align2::LEFT_CENTER, s, theme::font_body(), theme::TEXT);
         let (tag, col) = change_tag(c.change);
-        p.text(Pos2::new(x1 - 8.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, tag, theme::font_small(), col);
-        p.text(Pos2::new(x1 - 70.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, kind_label(c.kind), theme::font_small(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(x1 - 8.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, tag, theme::font_caption(), col);
+        p.text(Pos2::new(x1 - 70.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, kind_label(c.kind), theme::font_caption(), theme::TEXT_TERTIARY);
         widgets::record(ui, &format!("lib-change:{}", c.name), Rect::from_min_size(Pos2::new(x0, y), Vec2::new(x1 - x0, CHANGE_ROW_H)));
         y += CHANGE_ROW_H;
     }
@@ -345,7 +345,7 @@ fn available(app: &mut App, ui: &mut Ui, m: Rect, top: f32) {
             ("No results", "Try a different search.")
         };
         p.text(Pos2::new(list.center().x, list.top() + 40.0), Align2::CENTER_CENTER, a, theme::font_body(), theme::TEXT_TERTIARY);
-        p.text(Pos2::new(list.center().x, list.top() + 60.0), Align2::CENTER_CENTER, b, theme::font_small(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(list.center().x, list.top() + 60.0), Align2::CENTER_CENTER, b, theme::font_caption(), theme::TEXT_TERTIARY);
     }
     let pending = app.pending_libraries();
     let mut toggled: Option<(String, bool)> = None;
@@ -361,15 +361,15 @@ fn available(app: &mut App, ui: &mut Ui, m: Rect, top: f32) {
             let rr = ui.interact(row, Id::new(("lib-row", id)), Sense::hover());
             widgets::record(ui, &format!("lib-row:{name}"), row);
             if rr.hovered() {
-                p.rect_filled(row.shrink2(Vec2::new(8.0, 2.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(row.shrink2(Vec2::new(8.0, 2.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             let icon_box = Rect::from_center_size(Pos2::new(x0 + 20.0, row.center().y), Vec2::splat(36.0));
-            p.rect_filled(icon_box, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(icon_box, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             icons::paint(&p, Icon::Book, icon_box.center(), 18.0, if enabled { theme::ICON_SELECTED } else { theme::ICON_SECONDARY });
             let tx = icon_box.right() + 12.0;
             let s = widgets::elide(&p, name, &theme::font_body_strong(), x1 - tx - 150.0);
             p.text(Pos2::new(tx, row.center().y - 9.0), Align2::LEFT_CENTER, s, theme::font_body_strong(), theme::TEXT);
-            p.text(Pos2::new(tx, row.center().y + 9.0), Align2::LEFT_CENTER, sub, theme::font_small(), theme::TEXT_TERTIARY);
+            p.text(Pos2::new(tx, row.center().y + 9.0), Align2::LEFT_CENTER, sub, theme::font_caption(), theme::TEXT_TERTIARY);
             let mut right = x1;
             if *ok || enabled {
                 let tr = Rect::from_center_size(Pos2::new(right - 14.0, row.center().y), Vec2::new(32.0, 24.0));
@@ -420,7 +420,7 @@ pub(super) fn show_preview(app: &mut App, ctx: &Context) {
         let mut closed = header(ui, m, &node.name, "library-preview-close");
         let p = ui.painter().clone();
         let area = Rect::from_min_size(Pos2::new(m.left() + PAD, m.top() + HEADER_H + 16.0), Vec2::new(m.width() - 2.0 * PAD, 190.0));
-        p.rect_filled(area, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(area, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         if let Some(t) = &tex {
             let sz = t.size_vec2() / ui.ctx().pixels_per_point();
             let sz = sz * (area.width() / sz.x).min(area.height() / sz.y).min(1.0);
@@ -433,7 +433,7 @@ pub(super) fn show_preview(app: &mut App, ctx: &Context) {
             Pos2::new(area.left(), y + 20.0),
             Align2::LEFT_CENTER,
             "The file that defines this component is not available on this device.",
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
         let bw = 80.0;

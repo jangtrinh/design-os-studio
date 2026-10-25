@@ -10,17 +10,43 @@
 mod record;
 mod replay;
 mod replay_comments;
+mod replay_tokens;
 mod validate;
 
-pub use record::live_ops_for_command;
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
+pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
+pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
 
-use crate::{Comment, CommentAnchor, CommentThread, Node, NodeId};
+use crate::{
+    Comment, CommentAnchor, CommentThread, ExternalAsset, InProgress, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
-/// Format version written in every [`LivePatch`].
-pub const LIVE_PATCH_VERSION: u32 = 1;
+/// Format version written in every [`LivePatch`] and [`DocEpoch`].
+///
+/// Version 2 is the v0.6 log: the `variables`, `styles`, `library_state`, `images` and `set_in_progress`
+/// ops and the `label`, `session_id` and `agent_label` fields. A build reads every version from
+/// [`MIN_LIVE_PATCH_VERSION`] up to this one and refuses a newer one ([`log_version_refusal`]).
+pub const LIVE_PATCH_VERSION: u32 = 2;
+
+/// Oldest format version this build still reads.
+pub const MIN_LIVE_PATCH_VERSION: u32 = 1;
+
+/// What to do about a log written by a newer build: Studio and `designos-mcp` must be the same version.
+pub const UPDATE_BOTH_HINT: &str = "Update Studio and designos-mcp to the same version.";
+
+/// Why this build cannot read a log line written in format version `v`, or `None` when it can.
+/// A newer log means Studio and `designos-mcp` are different builds, so the text names the fix.
+pub fn log_version_refusal(v: u32) -> Option<String> {
+    if v > LIVE_PATCH_VERSION {
+        Some(format!("Log version {v} is newer than this build reads. {UPDATE_BOTH_HINT}"))
+    } else if v < MIN_LIVE_PATCH_VERSION {
+        Some(format!("Log version {v} is not supported."))
+    } else {
+        None
+    }
+}
 
 /// The edits of one agent tool call: one line of the session's `doc-patch.jsonl`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,16 +57,36 @@ pub struct LivePatch {
     /// base: after the agent reloads a newer canvas it sees the editor's own ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<u64>,
+    /// Optional undo-group label shown in Studio's History panel (e.g. `Agent: <run>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Optional agent session / run identifier (`#682`, `#572`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Optional human-readable agent label (`Claude`, `Codex`, `Grok`, `Antigravity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, session_id: None, agent_label: None, ops }
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {
         self.base = base;
+        self
+    }
+
+    pub fn with_label(mut self, label: Option<String>) -> Self {
+        self.label = label;
+        self
+    }
+
+    pub fn with_agent(mut self, session_id: impl Into<String>, agent_label: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self.agent_label = Some(agent_label.into());
         self
     }
 }
@@ -81,18 +127,31 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 pub enum LiveLogLine {
     Patch(LivePatch),
     DocEpoch(DocEpoch),
+    /// An edit written in a format version newer than this build reads. Its ops are not parsed: a
+    /// newer writer may use ops this build has never heard of, and the reader must still say "newer"
+    /// instead of "unreadable". Never replay it; report [`log_version_refusal`].
+    Newer {
+        v: u32,
+    },
 }
 
 impl LiveLogLine {
-    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit.
+    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit. An
+    /// edit in a newer format version is named, not parsed. A switch always parses, so a reader
+    /// that cannot honour it still stops following the agent's previous document.
     pub fn parse(line: &[u8]) -> Result<Self, serde_json::Error> {
         #[derive(Deserialize)]
         struct Probe {
             #[serde(default)]
+            v: Option<u32>,
+            #[serde(default)]
             doc_epoch: Option<u64>,
         }
-        if serde_json::from_slice::<Probe>(line)?.doc_epoch.is_some() {
+        let probe = serde_json::from_slice::<Probe>(line)?;
+        if probe.doc_epoch.is_some() {
             serde_json::from_slice(line).map(Self::DocEpoch)
+        } else if let Some(v) = probe.v.filter(|v| *v > LIVE_PATCH_VERSION) {
+            Ok(Self::Newer { v })
         } else {
             serde_json::from_slice(line).map(Self::Patch)
         }
@@ -156,6 +215,30 @@ pub enum LiveOp {
     Remove {
         id: NodeId,
     },
+    /// Variables and collections the agent added, replaced or removed, by id. The agent's copy can
+    /// lack variables the editor has (a scoped canvas), so the editor merges these into its own
+    /// maps instead of taking the agent's maps whole.
+    Variables {
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "collections_set")]
+        collections: Vec<VariableCollection>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "variables_set")]
+        variables: Vec<Variable>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "collections_removed")]
+        removed_collections: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "variables_removed")]
+        removed_variables: Vec<String>,
+    },
+    /// Shared styles and their metadata the agent added, replaced or removed, by style key.
+    Styles {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty", alias = "upserted")]
+        styles_set: BTreeMap<String, Style>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "removed")]
+        styles_removed: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty", alias = "upserted_meta")]
+        meta_set: BTreeMap<String, StyleMeta>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "removed_meta")]
+        meta_removed: Vec<String>,
+    },
     /// Comment threads the agent created, edited or deleted, by thread id. The agent's copy can
     /// lack threads the editor has, so ids it picks may already be taken there.
     Comments {
@@ -168,6 +251,36 @@ pub enum LiveOp {
         changed: Vec<ThreadChange>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed: Vec<String>,
+    },
+    /// Sets or clears a transient work-in-progress flag on `node` without creating a [`Command`](crate::Command)
+    /// or undo step (`E15-7` / `#592`).
+    SetInProgress {
+        #[serde(alias = "id")]
+        node: NodeId,
+        #[serde(default, alias = "value", skip_serializing_if = "Option::is_none")]
+        state: Option<InProgress>,
+    },
+    /// Library state and hidden library page changes.
+    LibraryState {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        published: Option<Option<PublishInfo>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        upserted_enabled: Vec<LibraryRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_enabled: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        upserted_external: BTreeMap<String, ExternalAsset>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_external: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        library_page: Option<Option<NodeId>>,
+    },
+    /// Embedded image blobs added or removed.
+    Images {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        add: BTreeMap<String, Vec<u8>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remove: Vec<String>,
     },
 }
 
@@ -202,3 +315,5 @@ mod log_line_tests;
 mod tests;
 #[cfg(test)]
 mod validate_tests;
+#[cfg(test)]
+mod version_tests;

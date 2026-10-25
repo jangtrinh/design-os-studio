@@ -3,7 +3,7 @@ name = "designos-render"
 description = "CPU renderer (tiny-skia) for designos documents; deterministic for pixel diffs"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 cosmic-text = "0.19.0"
@@ -18,4 +18,6 @@ tiny-skia.workspace = true
 
 [dev-dependencies]
 # Live tests fetch the Noto script fonts (ignored unless run with --ignored).
+designos-fig.workspace = true
 designos-fonts = { path = "../designos-fonts" }
+serde_json.workspace = true

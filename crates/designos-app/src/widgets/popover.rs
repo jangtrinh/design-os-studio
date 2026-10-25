@@ -24,9 +24,9 @@ pub fn show(ctx: &egui::Context, id: Id, anchor: Rect, region: Rect, w: f32, h: 
         ui.allocate_rect(rect, Sense::hover());
         {
             let p = ui.painter();
-            elevation_400(p, rect, theme::RADIUS_LARGE);
-            p.rect_filled(rect, theme::cr(theme::RADIUS_LARGE), theme::BG);
-            p.rect_stroke(rect, theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+            elevation_400(p, rect, theme::RADIUS_FRAME);
+            p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG);
+            p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
             let font = theme::font_body_strong();
             let tr = Rect::from_min_size(rect.min, Vec2::new(w, HEADER_H));
             text_on_baseline(p, rect.left() + LABEL_X, centered_baseline(tr, &font), title, font, theme::TEXT);
@@ -43,7 +43,12 @@ pub fn show(ctx: &egui::Context, id: Id, anchor: Rect, region: Rect, w: f32, h: 
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
     let other_popup = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l.order == egui::Order::Foreground && l != layer);
     let outside = pressed && ptr.is_some_and(|p| !rect.contains(p) && !anchor.contains(p) && !other_popup(p));
-    close || outside || esc
+    let closing = close || outside || esc;
+    if !closing {
+        // An open popover holds the keys from a surface that draws before it (`widgets::popup_open`).
+        super::popup_open::mark_open(ctx);
+    }
+    closing
 }
 
 /// A labelled row of the popover body: label at x+16, then `control(ui, rect)` in the 112px column.
@@ -67,10 +72,10 @@ pub fn check(ui: &mut Ui, r: Rect, key: impl Key, value: bool) -> Option<bool> {
     let b = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 7.0), Vec2::splat(14.0));
     let p = ui.painter();
     if value {
-        p.rect_filled(b, theme::cr(theme::RADIUS_SMALL), theme::BG_BRAND);
+        p.rect_filled(b, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
         paint_icon_in(p, b, Icon::Check, 12.0, theme::TEXT);
     } else {
-        p.rect_stroke(b, theme::cr(theme::RADIUS_SMALL), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
+        p.rect_stroke(b, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
     }
     resp.clicked().then_some(!value)
 }

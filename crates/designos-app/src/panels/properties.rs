@@ -169,6 +169,8 @@ pub(super) struct Pane {
     pub(super) x0: f32,
     pub(super) oy: f32,
     pub(super) y: f32,
+    /// `y` right after the latest section title: a label there follows a heading, not a field.
+    pub(super) title_end: f32,
 }
 
 impl Pane {
@@ -217,6 +219,7 @@ pub(super) fn title(ui: &mut Ui, pane: &mut Pane, text: &str, action: Option<Ico
         clicked = widgets::icon_button(ui, b, ("title-action", text), ic, false, "").clicked();
     }
     pane.y += theme::SECTION_TITLE_HEIGHT;
+    pane.title_end = pane.y;
     clicked
 }
 
@@ -277,10 +280,15 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
     clicked
 }
 
+/// Label of a field group: `SPACE_GROUP` below the field above, `SPACE_FACT` above the field it names.
+/// A row already ends with `SPACE_ROW`, so only the difference is added; right after a title nothing is.
 pub(super) fn sublabel(ui: &Ui, pane: &mut Pane, text: &str) {
-    let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::SUBLABEL_HEIGHT);
-    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_small_medium(), theme::TEXT_SECONDARY);
-    pane.y += theme::SUBLABEL_HEIGHT + 4.0;
+    if pane.y > pane.title_end {
+        pane.y += theme::SPACE_GROUP - theme::SPACE_ROW;
+    }
+    let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::LABEL_BOX_H);
+    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_caption_medium(), theme::TEXT_SECONDARY);
+    pane.y += theme::LABEL_BOX_H + theme::SPACE_FACT;
 }
 
 /// Row advance after a 24px field row.
@@ -300,9 +308,9 @@ fn segmented_marks(ui: &mut Ui, pane: &Pane, x: f32, key: &str, items: &[Icon], 
     for (i, icon) in items.iter().enumerate() {
         let r = pane.rect(x + i as f32 * seg_w, 0.0, seg_w, theme::FIELD_HEIGHT);
         let radius = match (i == 0, i + 1 == n) {
-            (true, true) => theme::cr(theme::RADIUS_MEDIUM),
-            (true, false) => theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM),
-            (false, true) => theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+            (true, true) => theme::cr(theme::RADIUS_CONTROL),
+            (true, false) => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+            (false, true) => theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
             _ => theme::cr(0),
         };
         let resp = ui.interact(r, ui.id().with(("seg", key, i)), Sense::click());
@@ -333,10 +341,10 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
     let b = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 7.0), Vec2::splat(14.0));
     let p = ui.painter();
     if value {
-        p.rect_filled(b, theme::cr(theme::RADIUS_SMALL), theme::BG_BRAND);
+        p.rect_filled(b, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
         icons::paint(p, Icon::Check, b.center(), 12.0, theme::TEXT);
     } else {
-        p.rect_stroke(b, theme::cr(theme::RADIUS_SMALL), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
+        p.rect_stroke(b, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
     }
     p.text(Pos2::new(b.right() + 8.0, r.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
     pane.y += theme::FIELD_HEIGHT + 4.0;
@@ -357,7 +365,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let sel = app.selection.clone();
     let end = clipped(ui, region, |ui| {
         // Spec x values are relative to the panel's outer left edge (border at x=0).
-        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0 };
+        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0, title_end: 0.0 };
         if sel.is_empty() {
             page_section(app, ui, &mut pane);
             styles_section(app, ui, &mut pane);
@@ -390,11 +398,11 @@ fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let focused = ui.memory(|m| m.has_focus(hex_id) || m.has_focus(op_id));
     {
         let p = ui.painter();
-        p.rect_filled(g, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         if focused {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
         } else if ui.rect_contains_pointer(g) {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
         }
     }
     let sw = Rect::from_center_size(Pos2::new(g.left() + theme::PAGE_SWATCH_CX, g.center().y), Vec2::splat(theme::PAGE_SWATCH));
@@ -493,7 +501,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 widgets::record(ui, &format!("folder:{folder_key}"), r);
                 let resp = ui.interact(r, ui.id().with(("sfolder", &folder_key)), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 let open = !app.props.folded.contains(&folder_key);
                 icons::paint(
@@ -523,9 +531,9 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             let resp = ui.interact(r, ui.id().with((kind.ref_key(), &e.key)), Sense::click());
             let is_current = current.as_deref() == Some(e.key.as_str());
             if is_current {
-                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             if matches!(kind, StyleKind::Effect | StyleKind::Grid) {
                 let icon = match app.doc.styles.get(&e.key) {
@@ -577,7 +585,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 widgets::record(ui, &format!("style-edit:{}", e.key), edit_r);
                 ui.painter().rect_filled(
                     edit_r.expand2(Vec2::new(4.0, 0.0)),
-                    theme::cr(theme::RADIUS_MEDIUM),
+                    theme::cr(theme::RADIUS_CONTROL),
                     if is_current { theme::BG_SELECTED } else { theme::BG_HOVER },
                 );
                 edit_clicked = super::style_edit::edit_button(app, ui, edit_r, ("style-edit", &e.key), &e.key);
@@ -617,7 +625,7 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                 widgets::record(ui, &format!("libstyle:{}", s.name), r);
                 let resp = ui.interact(r, ui.id().with(("libstyle", &s.library_id, &s.key)), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 let (_, leaf) = crate::styles::split_name(&s.name);
                 match &s.style {
@@ -690,10 +698,10 @@ fn selection_colors_section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[
                 app.props.sel_colors_cache = None;
             }
         }
-        ui.painter().rect_filled(op_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        ui.painter().rect_filled(op_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         let cnt = counts.get(i).copied().unwrap_or(1).max(1);
         let badge_txt = if cnt > 1 { format!("100% · {cnt}") } else { "100 %".to_string() };
-        ui.painter().text(op_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_small(), theme::TEXT_SECONDARY);
+        ui.painter().text(op_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_caption(), theme::TEXT_SECONDARY);
         pane.y += theme::FIELD_HEIGHT + 8.0;
     }
     pane.y += 4.0;
@@ -724,7 +732,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let id = ui.id().with("sel-name");
         if ui.rect_contains_pointer(name_r) || ui.memory(|m| m.has_focus(id)) {
             let col = if ui.memory(|m| m.has_focus(id)) { theme::BORDER_SELECTED } else { theme::BORDER };
-            ui.painter().rect_stroke(name_r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, col), StrokeKind::Inside);
+            ui.painter().rect_stroke(name_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, col), StrokeKind::Inside);
         }
         let comp = matches!(n0.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }) || n0.component.source.is_some();
         if let Some(s) = field::edit_text(ui, name_r, id, &n0.name, theme::font_large(), if comp { theme::TEXT_COMPONENT } else { theme::TEXT }, 8.0) {
@@ -755,7 +763,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let slides_bg = if slides_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
         ui.painter().rect_filled(slides_r, theme::cr(6), slides_bg);
         ui.painter().rect_stroke(slides_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(slides_r.center(), Align2::CENTER_CENTER, "Copy to Slide Deck", theme::font_small(), theme::TEXT);
+        ui.painter().text(slides_r.center(), Align2::CENTER_CENTER, "Copy to Slide Deck", theme::font_caption(), theme::TEXT);
         if slides_resp.on_hover_text("Copy selected frame to Slide Deck").clicked() {
             if let Some(s) = app.copy_selection() {
                 ui.ctx().copy_text(s);
@@ -970,7 +978,12 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     pane.y += super::export::section(app, ui, pane.x0, pane.oy + pane.y, sel);
 }
 
+#[cfg(test)]
 fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
+    sizing_of_with_parent(n, horizontal, Some(false))
+}
+
+fn sizing_of_with_parent(n: &Node, horizontal: bool, counter_horizontal: Option<bool>) -> Sizing {
     if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         if al.sizing_along(horizontal) == Sizing::Hug {
             return Sizing::Hug;
@@ -981,11 +994,7 @@ fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
             return Sizing::Hug;
         }
     }
-    if horizontal {
-        n.layout_child.horizontal
-    } else {
-        n.layout_child.vertical
-    }
+    n.layout_child.effective_sizing(horizontal, counter_horizontal)
 }
 
 fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
@@ -1040,7 +1049,8 @@ fn resizing_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], n0: 
     sublabel(ui, pane, "Resizing");
     let opts = ["Fixed", "Hug", "Fill"].map(String::from);
     let order = [Sizing::Fixed, Sizing::Hug, Sizing::Fill];
-    let (hs, vs) = (sizing_of(n0, true), sizing_of(n0, false));
+    let counter_horiz = n0.parent.and_then(|p| app.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
+    let (hs, vs) = (sizing_of_with_parent(n0, true, counter_horiz), sizing_of_with_parent(n0, false, counter_horiz));
     if let Some(i) = dropdown(ui, pane.col(0, 0.0), "rs-h", &format!("W: {}", opts[order.iter().position(|s| *s == hs).unwrap_or(0)]), &opts) {
         set_sizing(app, sel, true, order[i]);
     }
@@ -1149,6 +1159,9 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
             update_al(app, sel, |al| al.grid_rows = r);
         }
         row_end(pane);
+        if let &[grid_id] = sel {
+            grid_tracks_ui(app, ui, pane, grid_id);
+        }
     }
     dimensions_ui(app, ui, pane, sel, false);
     let _ = parent_al;
@@ -1215,9 +1228,9 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         widgets::record(ui, "al-upgrade-v1", up_r);
         let resp = ui.interact(up_r, ui.id().with("al-upgrade-v1"), Sense::click());
         let bg = if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
-        ui.painter().rect_filled(up_r, theme::cr(5), bg);
-        ui.painter().rect_stroke(up_r, theme::cr(5), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_small(), theme::TEXT);
+        ui.painter().rect_filled(up_r, theme::cr(theme::RADIUS_CONTROL), bg);
+        ui.painter().rect_stroke(up_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_caption(), theme::TEXT);
         if resp.on_hover_text("Upgrade to Auto layout v1 (borders inside the box)").clicked() {
             app.upgrade_auto_layout_version();
         }
@@ -1240,6 +1253,132 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
         update_al(app, sel, |al| al.counter_align_content = if i == 1 { CounterAlignContent::SpaceBetween } else { CounterAlignContent::Auto });
     }
     row_end(pane);
+}
+
+/// Rects of the widgets of one grid-track row of the inspector, left to right. The heading row of a track
+/// list uses `label` and `add`; a track row uses `mode`, `value`, `move_btn` and `delete`. Every button is
+/// the panel's 24 px action size, rows are 24 px tall, and nothing overlaps or leaves the section content.
+struct GridTrackRow {
+    label: Rect,
+    add: Rect,
+    mode: Rect,
+    value: Rect,
+    move_btn: Rect,
+    delete: Rect,
+}
+
+fn grid_track_row(pane: &Pane) -> GridTrackRow {
+    const GAP: f32 = 4.0;
+    const MODE_W: f32 = 64.0;
+    let (b, h) = (theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
+    let left = theme::SECTION_CONTENT_X;
+    let delete_x = left + theme::SECTION_CONTENT_W - b;
+    let move_x = delete_x - GAP - b;
+    let value_x = left + MODE_W + GAP;
+    GridTrackRow {
+        label: pane.rect(left, 0.0, delete_x - GAP - left, h),
+        add: pane.rect(delete_x, 0.0, b, b),
+        mode: pane.rect(left, 0.0, MODE_W, h),
+        value: pane.rect(value_x, 0.0, move_x - GAP - value_x, h),
+        move_btn: pane.rect(move_x, 0.0, b, b),
+        delete: pane.rect(delete_x, 0.0, b, b),
+    }
+}
+
+/// The move button of track `idx` in a list of `len` tracks (`len > 1`): its icon, tooltip and the track it swaps with.
+fn track_move_button(idx: usize, len: usize) -> (Icon, &'static str, usize) {
+    if idx + 1 < len {
+        (Icon::ChevronDown, "Move down", idx + 1)
+    } else {
+        (Icon::ChevronUp, "Move up", idx - 1)
+    }
+}
+
+/// Index of a track's sizing mode in the Flex / Fixed / Hug dropdown.
+fn track_mode_index(track: designos_doc::GridTrack) -> usize {
+    use designos_doc::GridTrack;
+    match track {
+        GridTrack::Flex(_) => 0,
+        GridTrack::Fixed(_) => 1,
+        GridTrack::Hug => 2,
+    }
+}
+
+/// The track a mode-dropdown pick turns `track` into, or `None` when the pick is the mode it already has.
+/// Re-picking the current mode must keep a custom size such as `Flex(2.0)` or `Fixed(80.0)`.
+fn track_after_mode_pick(track: designos_doc::GridTrack, picked: usize) -> Option<designos_doc::GridTrack> {
+    use designos_doc::GridTrack;
+    if picked == track_mode_index(track) {
+        return None;
+    }
+    Some(match picked {
+        0 => GridTrack::Flex(1.0),
+        1 => GridTrack::Fixed(120.0),
+        _ => GridTrack::Hug,
+    })
+}
+
+/// Column and row track lists of the selected grid: sizing mode, value, move and delete per track, `+` per list.
+/// The rows listed are the ones the canvas draws a header pill for.
+fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) {
+    use crate::canvas::grids::{
+        delete_grid_track, grid_track_delete_changes_document, insert_grid_track, move_grid_track, node_css_grid_overlay, resize_grid_track,
+    };
+    use designos_doc::GridTrack;
+
+    let Some(ov) = node_css_grid_overlay(&app.doc, grid_id) else { return };
+    let options = ["Flex", "Fixed", "Hug"].map(String::from);
+    for (is_col, heading, tag, tracks) in [(true, "Columns", "col", &ov.col_tracks), (false, "Rows", "row", &ov.row_tracks)] {
+        let head = grid_track_row(pane);
+        ui.painter().text(
+            Pos2::new(head.label.left(), head.label.center().y),
+            Align2::LEFT_CENTER,
+            heading,
+            theme::font_caption_medium(),
+            theme::TEXT_SECONDARY,
+        );
+        if tracks.len() < MAX_GRID_TRACKS
+            && widgets::icon_button(ui, head.add, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked()
+        {
+            insert_grid_track(app, grid_id, is_col, tracks.len(), GridTrack::Flex(1.0));
+        }
+        row_end(pane);
+        for (idx, &track) in tracks.iter().enumerate() {
+            let row = grid_track_row(pane);
+            let mode = track_mode_index(track);
+            if let Some(picked) = dropdown(ui, row.mode, format!("grid-{tag}-mode-{idx}"), &options[mode], &options) {
+                if let Some(next) = track_after_mode_pick(track, picked) {
+                    resize_grid_track(app, grid_id, is_col, idx, next);
+                }
+            }
+            match track {
+                GridTrack::Flex(fr) => {
+                    if let Some(v) = field::num_field(ui, row.value, format!("grid-{tag}-fr-{idx}"), Prefix::Text("fr"), Some(fr), "") {
+                        resize_grid_track(app, grid_id, is_col, idx, GridTrack::Flex(v.max(0.1)));
+                    }
+                }
+                GridTrack::Fixed(px) => {
+                    if let Some(v) = field::num_field(ui, row.value, format!("grid-{tag}-px-{idx}"), Prefix::Text("px"), Some(px), "") {
+                        resize_grid_track(app, grid_id, is_col, idx, GridTrack::Fixed(v.max(1.0)));
+                    }
+                }
+                GridTrack::Hug => {}
+            }
+            if tracks.len() > 1 {
+                let (icon, tip, next_idx) = track_move_button(idx, tracks.len());
+                if widgets::icon_button(ui, row.move_btn, format!("grid-{tag}-mv-{idx}"), icon, false, tip).clicked() {
+                    move_grid_track(app, grid_id, is_col, idx, next_idx);
+                }
+            }
+            if grid_track_delete_changes_document(&app.doc, grid_id, is_col, idx, tracks.len()) {
+                widgets::record(ui, &format!("grid-{tag}-del-{idx}"), row.delete);
+                if widgets::icon_button(ui, row.delete, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
+                    delete_grid_track(app, grid_id, is_col, idx);
+                }
+            }
+            row_end(pane);
+        }
+    }
 }
 
 /// The Auto spacing popup: Between, Around or Evenly, or back to packed items.
@@ -1348,13 +1487,15 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             app.props.selected_property = Some(prop);
             app.props.drag_property = Some(prop);
         }
-        let g = pane.rect(theme::SWATCH_ROW_X, 0.0, PAINT_GROUP_W, theme::FIELD_HEIGHT);
+        let is_image_fill = !stroke && matches!(p.kind, PaintKind::Image { .. }) && sel.len() == 1;
+        let group_w = if is_image_fill { PAINT_GROUP_W - 28.0 } else { PAINT_GROUP_W };
+        let divider_x = if is_image_fill { PAINT_DIVIDER_X - 28.0 } else { PAINT_DIVIDER_X };
+        let g = pane.rect(theme::SWATCH_ROW_X, 0.0, group_w, theme::FIELD_HEIGHT);
         let sw = Rect::from_min_size(Pos2::new(g.left() + 4.0, g.center().y - theme::SWATCH_SIZE / 2.0), Vec2::splat(theme::SWATCH_SIZE));
-        let hex_r = Rect::from_min_max(
-            Pos2::new(g.left() + theme::FIELD_PREFIX_X + theme::FIELD_PREFIX_ICON, g.top()),
-            Pos2::new(g.left() + PAINT_DIVIDER_X, g.bottom()),
-        );
-        let op_r = Rect::from_min_max(Pos2::new(g.left() + PAINT_DIVIDER_X + 1.0, g.top()), Pos2::new(g.right() - 16.0, g.bottom()));
+        let hex_r =
+            Rect::from_min_max(Pos2::new(g.left() + theme::FIELD_PREFIX_X + theme::FIELD_PREFIX_ICON, g.top()), Pos2::new(g.left() + divider_x, g.bottom()));
+        let op_r = Rect::from_min_max(Pos2::new(g.left() + divider_x + 1.0, g.top()), Pos2::new(g.right() - 16.0, g.bottom()));
+        let ai_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0 - 28.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let eye_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let minus_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, &format!("sw:{stroke}:{i}"), sw);
@@ -1370,11 +1511,11 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             if app.props.selected_property == Some(prop) {
                 pt.rect_stroke(row_r, theme::cr(4), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             }
-            pt.rect_filled(g, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            pt.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             if focused {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             } else if ui.rect_contains_pointer(g) {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
             }
         }
         if let Some(drag_prop) = app.props.drag_property {
@@ -1399,7 +1540,7 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         let var_key = format!("{}/{i}", if stroke { "strokes" } else { "fills" });
         let bound = var_bind::pill_field(app, ui, Rect::from_min_max(hex_r.min, Pos2::new(g.right(), hex_r.bottom())), sel, &[var_key.as_str()]);
         if !bound {
-            widgets::vline(ui.painter(), g.left() + PAINT_DIVIDER_X, g.top(), g.bottom(), theme::BG);
+            widgets::vline(ui.painter(), g.left() + divider_x, g.top(), g.bottom(), theme::BG);
         }
         if swr.clicked() && !bound {
             app.props.selected_property = Some(prop);
@@ -1443,6 +1584,9 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             }
             let pct_x = g.right() - 8.0 - widgets::text_width(ui.painter(), "%", &font);
             widgets::text_on_baseline(ui.painter(), pct_x, widgets::centered_baseline(g, &font), "%", font, theme::TEXT_SECONDARY);
+        }
+        if is_image_fill {
+            crate::image_jobs::paint_row_ai_button(app, ui, ai_r, sel[0], i);
         }
         if widgets::icon_button(ui, eye_r, ("peye", key), if p.visible { Icon::Eye } else { Icon::EyeOff }, false, "").clicked() {
             edit_paint_list(app, sel, stroke, |ps| {
@@ -1627,7 +1771,13 @@ fn create_style(app: &mut App, pk: &mut Picker) {
     styles.insert(key.clone(), Style::Fill(vec![Paint { visible: true, ..pk.paint.clone() }]));
     style_meta.insert(
         key.clone(),
-        StyleMeta { name: key.clone(), key: None, description: String::new(), property: if stroke { StyleProperty::Stroke } else { StyleProperty::Fill } },
+        StyleMeta {
+            name: key.clone(),
+            key: None,
+            description: String::new(),
+            property: if stroke { StyleProperty::Stroke } else { StyleProperty::Fill },
+            bindings: Default::default(),
+        },
     );
     if let Err(e) = pk.tx.cmd(&mut app.doc, Command::SetStyles { styles, style_meta }) {
         app.show_toast(format!("Edit failed: {e}"), true);
@@ -1779,18 +1929,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.props.eyedropper = Some(pk.target);
     }
     if out.want_image {
-        if let Some(path) = rfd::FileDialog::new().add_filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]).pick_file() {
-            match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
-                Ok((bytes, _, _)) => {
-                    let key = format!("img-{}", app.doc.images.len() + 1);
-                    app.doc.images.insert(key.clone(), bytes);
-                    pk.paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
-                    pk.paint.opacity = 1.0;
-                    changed = true;
-                }
-                Err(e) => app.show_toast(e, true),
-            }
-        }
+        changed |= choose_image_fill(app, &mut pk.paint, &crate::io::SystemDialogs);
     }
     // Eyedropper: the next canvas click samples the colour under the pointer.
     if pk.eyedrop {
@@ -1890,11 +2029,33 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             app.apply_style(&ids, &key);
         }
     } else {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(&ctx);
         app.props.picker = Some(pk);
     }
 }
 
 /// Handles of the gradient on the canvas are in screen space; clicks on them must not close the picker.
+/// Fills `paint` with an image chosen from disk. Returns whether the paint changed.
+pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn crate::io::FileDialogs) -> bool {
+    let request = crate::io::FileRequest::open().filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]);
+    let outcome = dialogs.pick(&request);
+    let Some(path) = app.picked_path(outcome) else { return false };
+    match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
+        Ok((bytes, _, _)) => {
+            let key = format!("img-{}", app.doc.images.len() + 1);
+            app.doc.images.insert(key.clone(), bytes);
+            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
+            paint.opacity = 1.0;
+            true
+        }
+        Err(e) => {
+            app.show_toast(e, true);
+            false
+        }
+    }
+}
+
 fn handle_hit(pk: &Picker, app: &App, p: Pos2) -> bool {
     let pts = handle_points(pk, app);
     if pts.iter().any(|(_, c)| c.distance(p) < 12.0) {
@@ -2168,7 +2329,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             // usual 12 column ones, and with no style yet one is created from the selection.
             let prop = if spec == "grid-styles" { StyleProperty::Grid } else { StyleProperty::Effect };
             if prop == StyleProperty::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
-                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
                 app.edit_nodes(&[id], |n| {
                     if let Some(f) = n.kind.frame_props_mut() {
                         f.grids.push(grid.clone());
@@ -2198,7 +2359,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 app.edit_nodes(&[id], |n| n.effects.push(fx.clone()));
             }
             if kind == StyleKind::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
-                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
                 app.edit_nodes(&[id], |n| {
                     if let Some(f) = n.kind.frame_props_mut() {
                         f.grids.push(grid.clone());
@@ -2252,6 +2413,31 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 80.0, 800.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::Effect(i), anchor, ids: vec![id] });
         }
+        "ai-image-menu" | "ai-image-expand" | "ai-image-erase" => {
+            // Ensure the selected node has a valid PNG image fill so the AI button and popover render.
+            const SAMPLE_PNG: &[u8] = include_bytes!("../../../../assets/icon/png/icon_256.png");
+            let img_key = "sample-ai-image".to_string();
+            app.doc.images.entry(img_key.clone()).or_insert_with(|| SAMPLE_PNG.to_vec());
+            let has_img = app.doc.get(id).is_some_and(|n| crate::image_jobs::topmost_visible_image_fill(n).is_some());
+            if !has_img {
+                app.edit_nodes(&[id], |n| {
+                    n.fills = vec![Paint {
+                        visible: true,
+                        opacity: 1.0,
+                        blend: BlendMode::Normal,
+                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+                    }];
+                });
+            }
+            let fill_idx = app.doc.get(id).and_then(crate::image_jobs::topmost_visible_image_fill).map(|t| t.0).unwrap_or(0);
+            let anchor = Rect::from_min_size(Pos2::new(screen.x - (theme::SPACE_SECTION * 3.0 + theme::SPACE_GROUP), 640.0), Vec2::splat(24.0));
+            app.image_jobs.override_agent_installed = Some(true);
+            match spec {
+                "ai-image-menu" => app.image_jobs.open_fill_menu = Some((id, fill_idx, anchor)),
+                "ai-image-expand" => app.open_expand_image_popover(id, fill_idx, anchor),
+                _ => app.open_erase_image_popover(id, fill_idx, anchor),
+            }
+        }
         _ => {}
     }
 }
@@ -2259,6 +2445,32 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_move_button_icon_and_tip_name_the_direction_the_track_goes() {
+        let (icon, tip, to) = track_move_button(0, 3);
+        assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 1));
+        let (icon, tip, to) = track_move_button(1, 3);
+        assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 2));
+        // the last track has nowhere to go but up, so the button must point up with ChevronUp
+        let (icon, tip, to) = track_move_button(2, 3);
+        assert_eq!((icon, tip, to), (Icon::ChevronUp, "Move up", 1));
+        let (icon, tip, to) = track_move_button(1, 2);
+        assert_eq!((icon, tip, to), (Icon::ChevronUp, "Move up", 0));
+    }
+
+    #[test]
+    fn picking_the_mode_a_track_already_has_keeps_its_custom_size() {
+        use designos_doc::GridTrack;
+        assert_eq!(track_after_mode_pick(GridTrack::Flex(2.0), 0), None);
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 1), None);
+        assert_eq!(track_after_mode_pick(GridTrack::Hug, 2), None);
+        // a different mode still applies its preset
+        assert_eq!(track_after_mode_pick(GridTrack::Flex(2.0), 1), Some(GridTrack::Fixed(120.0)));
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 0), Some(GridTrack::Flex(1.0)));
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 2), Some(GridTrack::Hug));
+        assert_eq!(track_after_mode_pick(GridTrack::Hug, 0), Some(GridTrack::Flex(1.0)));
+    }
 
     #[test]
     fn color_conversion_roundtrip() {
@@ -2316,6 +2528,31 @@ mod tests {
         assert_eq!((sizing_of(n, true), sizing_of(n, false)), (Sizing::Fixed, Sizing::Hug));
     }
 
+    #[test]
+    fn grid_track_rows_fit_the_section_without_overlap_at_the_pointer_floor() {
+        let heading = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: 0.0 };
+        let mut below = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: 0.0 };
+        row_end(&mut below);
+        let (head, row) = (grid_track_row(&heading), grid_track_row(&below));
+        let named =
+            [("heading label", head.label), ("add", head.add), ("mode", row.mode), ("value", row.value), ("move", row.move_btn), ("delete", row.delete)];
+        let (left, right) = (theme::SECTION_CONTENT_X, theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W);
+        for (name, r) in named {
+            assert!(r.height() >= 24.0, "{name} is {} px tall", r.height());
+            assert!(r.min.x >= left && r.max.x <= right, "{name} {r:?} leaves the section content {left}..{right}");
+        }
+        for (name, r) in [("add", head.add), ("move", row.move_btn), ("delete", row.delete)] {
+            assert!(r.width() >= 24.0, "{name} button is {} px wide", r.width());
+        }
+        assert!(row.value.width() >= 40.0, "the value field keeps room for a number: {}", row.value.width());
+        for (i, (a_name, a)) in named.iter().enumerate() {
+            for (b_name, b) in &named[i + 1..] {
+                let overlap = a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y;
+                assert!(!overlap, "{a_name} {a:?} overlaps {b_name} {b:?}");
+            }
+        }
+    }
+
     /// A `direction` flow frame of 200x100 holding one 30x20 rectangle imported the way `layoutAlign: STRETCH` is
     /// stored: Fill on the counter axis plus `AlignSelf::Stretch`. The child has not been laid out yet.
     fn app_with_imported_stretch_child(direction: LayoutDirection) -> (App, NodeId) {
@@ -2369,5 +2606,70 @@ mod tests {
         let n = app.doc.get(cid).unwrap();
         assert_eq!(n.layout_child.align_self, AlignSelf::Stretch);
         assert_eq!(n.size.y, 100.0);
+    }
+
+    #[test]
+    fn margin_inspector_section_renders_in_running_frame_only_when_margins_are_set() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        app.selection = vec![cid];
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let raw = egui::RawInput { screen_rect: Some(region), ..Default::default() };
+
+        // With zero margins, the Margin fields are not drawn.
+        let _ = ctx.run_ui(raw.clone(), |ui| show(&mut app, ui, region));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        assert!(field_rect(&ctx, "margin-l").is_none());
+
+        // With non-zero margins on the child, all four margin fields render in the Layout section.
+        app.doc.get_mut(cid).unwrap().layout_child.margin = [4.0, 8.0, 12.0, 16.0];
+        let _ = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+        for key in ["margin-l", "margin-r", "margin-t", "margin-b"] {
+            assert!(field_rect(&ctx, key).is_some(), "expected {key} field to render in properties panel");
+        }
+    }
+
+    #[test]
+    fn sizing_of_reports_fill_for_a_stretch_plus_fixed_child_on_the_counter_axis() {
+        let mut n = Node::rectangle(NodeId(99), designos_doc::Rect::new(0.0, 0.0, 30.0, 20.0));
+        n.layout_child.align_self = AlignSelf::Stretch;
+        assert_eq!(sizing_of(&n, true), Sizing::Fixed);
+        assert_eq!(sizing_of(&n, false), Sizing::Fill);
+    }
+
+    #[test]
+    fn typing_dimensions_or_apply_resize_on_a_fill_or_stretch_child_ends_the_stretch() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid = app.doc.get(cid).unwrap().parent.unwrap();
+        app.doc.relayout_subtree(fid);
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(30.0, 100.0));
+
+        resize_selection(&mut app, &[cid], None, Some(45.0));
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.vertical, Sizing::Fixed);
+        assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
+        assert_eq!(n.size, v2(30.0, 45.0), "typed height must stick instead of snapping back to 100");
+    }
+
+    #[test]
+    fn setting_primary_axis_to_fill_on_stretch_plus_fixed_child_keeps_stretch_and_stretches_height() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        app.doc.get_mut(cid).unwrap().layout_child.vertical = Sizing::Fixed;
+        set_sizing(&mut app, &[cid], true, Sizing::Fill);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.horizontal, Sizing::Fill);
+        assert_eq!(n.layout_child.vertical, Sizing::Fixed);
+        assert_eq!(n.layout_child.align_self, AlignSelf::Stretch);
+        assert_eq!(n.size, v2(200.0, 100.0));
+
+        // Flipping the parent direction via update_al does not double-stretch an imported Stretch+Fill child
+        let (mut app2, cid2) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid2 = app2.doc.get(cid2).unwrap().parent.unwrap();
+        update_al(&mut app2, &[fid2], |al| al.direction = LayoutDirection::Vertical);
+        let n2 = app2.doc.get(cid2).unwrap();
+        assert_eq!(n2.size, v2(30.0, 100.0));
+        assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
     }
 }

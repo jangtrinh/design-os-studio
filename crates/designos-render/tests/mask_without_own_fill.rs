@@ -115,8 +115,63 @@ fn childless_frame_without_fill_masks_as_an_opaque_box() {
     assert_eq!(px(&pm, 60, 60), WHITE, "outside the box");
 }
 
+#[test]
+fn mask_frame_box_matches_alpha_only_from_children_rule() {
+    let mut frame = Node::frame(NodeId(1), Rect::new(0.0, 0.0, 40.0, 40.0));
+    frame.fills.clear();
+    assert!(designos_render::mask_frame_box(&frame).is_none(), "childless frame gets its own fill from mask_stencil");
+
+    frame.children = vec![NodeId(2)];
+    let stand_in = designos_render::mask_frame_box(&frame).expect("fill-less frame with children has a stand-in box");
+    assert!(stand_in.children.is_empty());
+    assert_eq!(stand_in.fills, vec![Paint::solid(Color::BLACK)]);
+
+    frame.fills = vec![Paint::solid(BLUE)];
+    assert!(designos_render::mask_frame_box(&frame).is_none(), "frame with a visible fill already has its own alpha");
+
+    let mut group = Node::new(NodeId(3), NodeKind::Group);
+    group.children = vec![NodeId(4)];
+    assert!(designos_render::mask_frame_box(&group).is_none(), "group has no box of its own");
+}
+
 impl T {
     fn node(&mut self, id: NodeId) -> &mut Node {
         self.doc.get_mut(id).unwrap()
     }
+}
+
+#[test]
+fn reverse_z_auto_layout_draws_masked_background_pattern_behind_earlier_siblings() {
+    let mut t = T::new();
+    let hero = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    // Child 0: heading box at (20, 20, 40, 40) in solid BLUE
+    t.rect(Some(hero), Rect::new(20.0, 20.0, 40.0, 40.0), BLUE);
+    // Child 1: absolute background pattern with a fill-less 50%-alpha mask and a RED pattern square
+    let pat = t.add(Some(hero), |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.layout_child.absolute = true;
+        n
+    });
+    let mask = t.add(Some(pat), |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.is_mask = true;
+        n
+    });
+    t.rect(Some(mask), Rect::new(0.0, 0.0, 80.0, 80.0), Color { a: 0.5, ..BLUE });
+    t.rect(Some(pat), Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+
+    let pm = t.render(80);
+    // Inside the heading box (30, 30): solid BLUE, not tinted by the faded RED pattern
+    assert_eq!(px(&pm, 30, 30), [0, 0, 255, 255], "heading stays solid over the masked background pattern");
+    // Outside the heading box (10, 10): faded RED over white stays visible
+    let bg = px(&pm, 10, 10);
+    assert!(bg[0] == 255 && (bg[1] as i32 - 128).abs() <= 2 && (bg[2] as i32 - 128).abs() <= 2, "faded pattern remains visible behind heading: {bg:?}");
 }

@@ -1,6 +1,7 @@
 //! Jetpack Compose output.
 
 use crate::codegen::*;
+use crate::slots::*;
 use crate::util::num;
 use designos_doc::*;
 
@@ -11,8 +12,54 @@ use designos_doc::*;
 /// variables become `MaterialTheme.colorScheme.name` / `Tokens.name` placeholders.
 pub fn compose_for(doc: &Document, node: NodeId) -> String {
     let mut o = Out::new("    ");
-    emit(doc, node, Parent::root(), 0, &mut o);
+    let slots = slot_infos(doc, node);
+    match doc.get(node) {
+        Some(n) if !slots.is_empty() => slot_function(doc, n, &slots, &mut o),
+        _ => emit(doc, node, Parent::root(), 0, &mut o),
+    }
     o.finish()
+}
+
+/// A component with slots as a `@Composable` function: one lambda parameter per slot, whose
+/// default is the slot's own content.
+fn slot_function(doc: &Document, n: &Node, slots: &[SlotInfo], o: &mut Out) {
+    o.line(0, "@Composable");
+    o.line(0, format!("fun {}(", view_name(doc, n)));
+    o.line(1, "modifier: Modifier = Modifier,");
+    let mut taken: Vec<String> = Vec::new();
+    for p in prop_params(doc, n.id) {
+        let name = prop_ident(&p.name, Lang::Kotlin, &mut taken);
+        o.line(
+            1,
+            match &p.default {
+                PropDefault::Bool(b) => format!("{name}: Boolean = {b},"),
+                PropDefault::Text(t) | PropDefault::Variant { value: t, .. } => format!("{name}: String = {},", quote(t)),
+                PropDefault::Instance(Some(v)) => format!("{name}: @Composable () -> Unit = {{ {v}() }},"),
+                PropDefault::Instance(None) => format!("{name}: @Composable () -> Unit = {{}},"),
+            },
+        );
+    }
+    let single = slots.len() == 1;
+    for s in slots {
+        let s_id = slot_ident_in(&s.name, single, Lang::Kotlin, &mut taken);
+        let head = format!("{s_id}: @Composable () -> Unit = {{");
+        let defaults: Vec<&Node> = s.container.and_then(|c| doc.get(c)).map(|c| visible_children(doc, c)).unwrap_or_default();
+        if defaults.is_empty() {
+            o.line(1, format!("{head}}},"));
+            continue;
+        }
+        o.line(1, head);
+        let me = s.container.and_then(|c| doc.get(c)).map(Parent::of).unwrap_or_else(Parent::root);
+        for k in defaults {
+            emit(doc, k.id, me, 2, o);
+        }
+        o.line(1, "},");
+    }
+    o.line(0, ") {");
+    o.root_takes_modifier = true;
+    emit(doc, n.id, Parent::root(), 1, o);
+    o.root_takes_modifier = false;
+    o.line(0, "}");
 }
 
 fn dp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
@@ -92,14 +139,17 @@ fn arg(s: impl Into<String>) -> Arg {
     vec![s.into()]
 }
 
-fn modifier_arg(mods: &[String]) -> Option<Arg> {
+/// The `modifier` argument of a call. The exported root of a function with a `modifier`
+/// parameter chains onto that parameter, so a caller's modifier styles the root layout.
+fn modifier_arg(o: &Out, parent: Parent<'_>, mods: &[String]) -> Option<Arg> {
+    let base = if o.root_takes_modifier && parent.root { "modifier" } else { "Modifier" };
     if mods.is_empty() {
-        return None;
+        return (base == "modifier").then(|| arg("modifier = modifier"));
     }
     if mods.len() == 1 {
-        return Some(arg(format!("modifier = Modifier{}", mods[0])));
+        return Some(arg(format!("modifier = {base}{}", mods[0])));
     }
-    let mut v = vec!["modifier = Modifier".to_string()];
+    let mut v = vec![format!("modifier = {base}")];
     v.extend(mods.iter().map(|m| format!("    {m}")));
     Some(v)
 }
@@ -260,7 +310,8 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     }
     let sz = sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
-    let kids = visible_children(doc, n);
+    let site = slot_site(doc, id);
+    let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
     if let Some((x, y)) = offset(n, parent, &sz) {
         if x != 0.0 || y != 0.0 {
@@ -270,7 +321,10 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let rot = rotation_deg(n);
 
     if let NodeKind::Instance { .. } = n.kind {
-        let mut args: Vec<Arg> = instance_args(doc, n)
+        let comp = instance_component(n);
+        let slots = instance_slots(doc, n);
+        let single = slots.single();
+        let mut args: Vec<Arg> = instance_args_for(doc, n, Lang::Kotlin)
             .into_iter()
             .map(|(name, lit)| match lit {
                 PropLit::Bool(b) => arg(format!("{name} = {b}")),
@@ -280,15 +334,40 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             .collect();
         size_mods(doc, n, &sz, parent, &mut mods);
         finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(&mods));
-        open_call(o, depth, &view_name(doc, n), args, false);
+        args.extend(modifier_arg(o, parent, &mods));
+        let me = Parent::of(n);
+        if single && !slots.fills.is_empty() {
+            // The only slot is the trailing content lambda.
+            open_call(o, depth, &view_name(doc, n), args, true);
+            for k in slots.fills.iter().flat_map(|f| &f.ids) {
+                emit(doc, *k, me, depth + 1, o);
+            }
+            o.line(depth, "}");
+        } else {
+            for f in &slots.fills {
+                let name = slot_ident_for(doc, comp, &f.name, single, Lang::Kotlin);
+                if f.ids.is_empty() {
+                    args.push(arg(format!("{name} = {{}}")));
+                    continue;
+                }
+                let mut body = o.sub();
+                for k in &f.ids {
+                    emit(doc, *k, me, 1, &mut body);
+                }
+                let mut lines = vec![format!("{name} = {{")];
+                lines.extend(body.into_lines());
+                lines.push("}".to_string());
+                args.push(lines);
+            }
+            open_call(o, depth, &view_name(doc, n), args, false);
+        }
         return;
     }
     if is_vector_asset(doc, id) {
         size_mods(doc, n, &sz, parent, &mut mods);
         finish_mods(doc, n, rot, &mut mods);
         let mut args = vec![arg(format!("painter = painterResource(R.drawable.{})", snake(&n.name))), arg("contentDescription = null")];
-        args.extend(modifier_arg(&mods));
+        args.extend(modifier_arg(o, parent, &mods));
         open_call(o, depth, "Icon", args, false);
         return;
     }
@@ -297,7 +376,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         text_args(doc, n, t, &mut args);
         size_mods(doc, n, &sz, parent, &mut mods);
         finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(&mods));
+        args.extend(modifier_arg(o, parent, &mods));
         open_call(o, depth, "Text", args, false);
         return;
     }
@@ -306,13 +385,13 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let block;
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
-    if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
+    if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         name = if horizontal { "Row" } else { "Column" };
         block = true;
         padding_mods(doc, n, al, &mut mods);
         finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(&mods));
+        args.extend(modifier_arg(o, parent, &mods));
         let spacing = (al.item_spacing > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", al.item_spacing));
         let (start, center, end) = if horizontal {
             ("Alignment.Start", "Alignment.CenterHorizontally", "Alignment.End")
@@ -343,12 +422,15 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         args.push(arg(format!("{} = {cross}", if horizontal { "verticalAlignment" } else { "horizontalAlignment" })));
     } else {
         name = "Box";
-        block = !kids.is_empty();
+        block = !kids.is_empty() || site.is_some();
         finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(&mods));
+        args.extend(modifier_arg(o, parent, &mods));
     }
     open_call(o, depth, name, args, block);
     if block {
+        if let Some(site) = &site {
+            o.line(depth + 1, format!("{}()", slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Kotlin)));
+        }
         let me = Parent::of(n);
         for k in kids {
             emit(doc, k.id, me, depth + 1, o);
@@ -424,5 +506,57 @@ mod tests {
     }
 }"####;
         assert_eq!(compose_for(&d, id), expected);
+    }
+
+    #[test]
+    fn stretch_child_keeps_its_cross_size_when_the_parent_hugs() {
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Hug, &[40.0]);
+        let out = compose_for(&d, row);
+        assert!(out.contains("height = 40.dp") && !out.contains("fillMaxHeight"), "{out}");
+
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Fixed, &[40.0]);
+        let out = compose_for(&d, row);
+        assert!(out.contains("fillMaxHeight"), "a fixed parent still stretches the child: {out}");
+    }
+
+    #[test]
+    fn compose_hugging_row_all_fill_children() {
+        let (d, row, _) = fixture::row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        let out = compose_for(&d, row);
+        assert_eq!(out.matches("height = 100.dp").count(), 2, "{out}");
+        assert!(!out.contains("fillMaxHeight"), "{out}");
+    }
+
+    #[test]
+    fn grid_stretch_child_exports_its_solved_size() {
+        // (row track, solved height): an auto row is sized by the child, a taller row is filled.
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            // Export the grid: a node exported on its own has no flow parent.
+            let (d, grid, _) = fixture::grid_stretch_child(track, false);
+            let out = compose_for(&d, grid);
+            assert!(out.contains(&format!("width = 30.dp, height = {height}.dp")), "{track:?}: {out}");
+            for banned in ["fillMax", "weight"] {
+                assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn compose_grid_fill_child_exports_solved_height() {
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            for (d, grid, _) in [fixture::grid_fill_child(track), fixture::grid_stretch_child(track, true), fixture::grid_text_fill_child(track)] {
+                let out = compose_for(&d, grid);
+                assert!(out.contains(&format!("width = 30.dp, height = {height}.dp")), "{track:?}: {out}");
+                for banned in ["fillMax", "weight"] {
+                    assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
+                }
+            }
+        }
+        // A real Hug text child (vertical != Fill, align_self != Stretch) stays on the Hug path.
+        let (mut d, grid, tid) = fixture::grid_text_fill_child(Some(GridTrack::Fixed(100.0)));
+        d.get_mut(tid).unwrap().layout_child.vertical = Sizing::Fixed;
+        d.relayout_subtree(grid);
+        let out = compose_for(&d, grid);
+        assert!(out.contains(".width(30.dp)"), "real Hug text uses width only: {out}");
     }
 }

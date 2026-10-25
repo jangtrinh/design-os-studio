@@ -100,7 +100,7 @@ pub fn run(manifest: &Path, out_dir: &Path, default_tolerance: u8) -> Result<Vec
             Ok((report, dir)) => CaseResult {
                 name: case.name.clone(),
                 threshold: case.threshold,
-                passed: report.ratio <= case.threshold,
+                passed: report.passes(case.threshold),
                 report: Some(report),
                 error: None,
                 asset_dir: Some(dir),
@@ -129,7 +129,7 @@ pub fn table(results: &[CaseResult]) -> String {
                 r.threshold,
                 d.ssim,
                 if r.passed { "PASS" } else { "FAIL" },
-                if d.size_mismatch { " (size mismatch)" } else { "" },
+                d.size_note().map(|n| format!(" ({n})")).unwrap_or_default(),
             )),
             (None, e) => out.push_str(&format!("{:<width$}  {:>9}  {:>9.6}  {:>6}  ERROR {}\n", r.name, "-", r.threshold, "-", e.as_deref().unwrap_or(""))),
         }

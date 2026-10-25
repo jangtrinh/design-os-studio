@@ -1,0 +1,1641 @@
+# Generated and verified by `python3 scripts/check_vendor_skills.py map-coverage` (E15-46 / #636)
+[meta]
+upstream_commit = "4c66b1fa86e9ab70187b43d7da9b6fdb29f2ef63"
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#1"
+text_sha1 = "7acf75bc0a44bfe40dad29c62c9b1385c0515247"
+map = "web-only"
+reason = "Keyboard focus order has no canvas meaning; prototypes are out of this rule's scope."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#2"
+text_sha1 = "63b38f62486ac317d58b3becc1ee23f48d4e8a4f"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#3"
+text_sha1 = "798d0e80cff8f693d5b37976108db179c85c28bf"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#4"
+text_sha1 = "945defd530c567eff8665bf434364bd4454b374c"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#5"
+text_sha1 = "cf13e73d4cccc479ecab7e811e5f2f05c9e85aad"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#6"
+text_sha1 = "3dbb9be079eaa17cfb6ec72fff35511748dbbe97"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#7"
+text_sha1 = "c57eb0b12d391b5b69994003f5b96718dbe992fc"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/focus-and-keyboard#8"
+text_sha1 = "bd13166334f84cda9e24c49a5b0411e186cf57da"
+map = "web-only"
+reason = "DOM keyboard focus order, roving tabindex, and keydown listeners have no static canvas meaning."
+
+[[rule]]
+id = "better-accessibility/forms#1"
+text_sha1 = "71390ad8a3c158756d4ad45a258111b4fbde3cd0"
+map = "web-only"
+reason = "`aria-invalid` is a DOM attribute on a form control; a canvas frame has no ARIA state."
+
+[[rule]]
+id = "better-accessibility/forms#2"
+text_sha1 = "92b139be68689247bd9bb29d6825d17d6f125417"
+map = "web-only"
+reason = "`aria-describedby` links DOM elements; a canvas frame has no accessibility tree."
+
+[[rule]]
+id = "better-accessibility/forms#3"
+text_sha1 = "a2de3a6094dc54d20abca58d4e6513545f9aaf94"
+map = "rubric:color"
+canvas_text = "Show a field error as inline text or an icon beside the field; a red border alone is a colour-only cue and is not enough."
+
+[[rule]]
+id = "better-accessibility/forms#4"
+text_sha1 = "718047e2217981a5e4a00371bf621defa5778ef2"
+map = "web-only"
+reason = "Moving focus to the first invalid field on submit is runtime DOM behaviour."
+
+[[rule]]
+id = "better-accessibility/forms#5"
+text_sha1 = "03d92ec6f74f5c99ac5bd1d0628a57cfda298e6d"
+map = "web-only"
+reason = "Accepting free text and validating after, trimming values, is input-handling code with no static canvas form."
+
+[[rule]]
+id = "better-accessibility/forms#6"
+text_sha1 = "34d15a0037406c57f2d95c1e45dc93f4a0623ef8"
+map = "skill:generate-design/states"
+canvas_text = "Draw the submitting state of a button with its original label kept and a spinner beside it (\"Save\" plus spinner), never a bare spinner, and keep the button enabled until the request starts."
+
+[[rule]]
+id = "better-accessibility/forms#7"
+text_sha1 = "65e8a2690e4ed15904fae3c6e50c9d23e7aa59fa"
+map = "web-only"
+reason = "HTML form submission attributes, input autocomplete tokens, and DOM focus events are web-runtime concerns."
+
+[[rule]]
+id = "better-accessibility/forms#8"
+text_sha1 = "00e3e776780aba68120b9139e9da5f1c5e0315d8"
+map = "web-only"
+reason = "Live regions and `role=\"alert\"` announcements are ARIA runtime behaviour."
+
+[[rule]]
+id = "better-accessibility/forms#9"
+text_sha1 = "2ed781db92b04fde0cf6ebc6bdbc77a0ce5de8a5"
+map = "web-only"
+reason = "HTML form submission attributes, input autocomplete tokens, and DOM focus events are web-runtime concerns."
+
+[[rule]]
+id = "better-accessibility/hit-areas#1"
+text_sha1 = "d4ab617d437ad8741d972b61bfa3f2d0fae3f335"
+map = "skill:generate-design/interaction"
+canvas_text = "Give every drag interaction on a design a single-pointer alternative, such as move-up and move-down buttons on a sortable row or a menu on a kanban card."
+
+[[rule]]
+id = "better-accessibility/hit-areas#2"
+text_sha1 = "34593163fbd0d90c7d105b8068086bcd737c3b22"
+map = "web-only"
+reason = "Browser pointer gesture events and CSS touch-action properties apply only to web runtime."
+
+[[rule]]
+id = "better-accessibility/hit-areas#3"
+text_sha1 = "e14c54a38c565538d220a0bdf2361650c9f65881"
+map = "web-only"
+reason = "Browser pointer gesture events and CSS touch-action properties apply only to web runtime."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#1"
+text_sha1 = "1427cffa7b45faa55a07df1b3f9160041f11a16a"
+map = "rubric:motion"
+canvas_text = "Anything that moves, blinks or updates on its own for more than 5 seconds, looping hero video included, needs a visible pause or stop control drawn in the frame."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#2"
+text_sha1 = "5849ff1d1f8c95b4532085529ec25f4ed7ae787d"
+map = "rubric:motion"
+canvas_text = "Prefer explicit dismissal to a timer: a toast that carries an action, an error or information the user may need stays on screen until the user closes it."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#3"
+text_sha1 = "518c02292c97e59a1a357bbb15e97e3fb692fdb8"
+map = "rubric:motion"
+canvas_text = "Where a toast must time out, show it for at least 5 seconds and pause its timer while it is hovered or focused."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#4"
+text_sha1 = "1b7a80d4ed31d0d1b7246e13f382b7ae26e4a34d"
+map = "rubric:motion"
+canvas_text = "Never place critical information, such as the only link to an undo action, in an element that disappears on a timer."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#5"
+text_sha1 = "89acb1b98763a78ce0db93f9c9ff3e9069f5c525"
+map = "lint:text-truncated"
+canvas_text = "Design text so all content and functionality survives text scaled to 200%: give text frames room to grow instead of clipping; check with `designos_lint` text-truncated."
+
+[[rule]]
+id = "better-accessibility/motion-and-zoom#6"
+text_sha1 = "8ef1f3c3a2a8414f585002c2d0230eacdc088a58"
+map = "lint:overflow-parent"
+canvas_text = "Make the 320 px frame work with vertical scrolling alone, as a 400% zoom on a 1280 px viewport would; only genuinely 2D content such as tables, maps and code blocks scrolls inside its own container; check with `designos_lint` overflow-parent."
+
+[[rule]]
+id = "better-accessibility/screen-readers#1"
+text_sha1 = "f92dce368c4db3c62839283f9c3177ab88fa5fa0"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#2"
+text_sha1 = "3c4fb38b1348ef9a4be702a3e9f906b75a6d7890"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#3"
+text_sha1 = "10cbfe9d36da5303eb4bb25aa54cc41e6016c306"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#4"
+text_sha1 = "5783364a429b95bec4496fdc2b1f48a51ae365bd"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#5"
+text_sha1 = "2b123268b08f97aa50b70ea2a96032a431eedc45"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#6"
+text_sha1 = "b2270edc5f612498462a828da9a9671e5b3fb763"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#7"
+text_sha1 = "738d753072723a81195cc96b6f6dfe71eb5e32fd"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#8"
+text_sha1 = "b761d71c66c2f6f27ba0b0173d52a1430b5c91b6"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#9"
+text_sha1 = "e624730ae7f4bbba49811cff1c104b5b2555b922"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#10"
+text_sha1 = "185ba5c7478652957320ec01a45cf085716a4eda"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#11"
+text_sha1 = "cecb6fc66c96eaad96fb09f81fb293e861f96864"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/screen-readers#12"
+text_sha1 = "6c5366e21d0b999e3721cac2869c435c2df39025"
+map = "web-only"
+reason = "ARIA live regions, screen-reader announcement politeness, and DOM alt attributes have no static canvas representation."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#1"
+text_sha1 = "a64cb26af3b38b6a27a055ef0d2e8419b5fc8560"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#2"
+text_sha1 = "663ea08e0933a1b8fc7a1e5c60e54d020844ad1f"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#3"
+text_sha1 = "66be8912f9efd82eb67b8aea13d1a7c89f6384ee"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#4"
+text_sha1 = "d312a3e465838bd89bb5943d312eca88edb90d0a"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#5"
+text_sha1 = "5648f23d21369de8e5125bab01be9414d13fb574"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#6"
+text_sha1 = "366bb487df9df5292f97a3f948bf9f0d4a89d612"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#7"
+text_sha1 = "520a47c0ea86033ecdbfa109ddf1070821cfb33a"
+map = "rubric:typography"
+canvas_text = "Treat headings as structure, not styling: name and order heading layers by level (H1, H2, H3) and give each level its text style, rather than choosing a level by how large it looks."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#8"
+text_sha1 = "be936b2b93a69556016c22f6eaf72d59ae9976de"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#9"
+text_sha1 = "43634800ff94db432cd6b0ec315975b0dc0dbe24"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#10"
+text_sha1 = "d72b02b7ffe94a8fbbf482714ad5163b392f937b"
+map = "rubric:iconography"
+canvas_text = "Give an icon-only button a name: put a descriptive layer name on it (such as `Button / Close`) so exported specs and accessibility inspection carry a label, and keep the icon layer decorative."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#11"
+text_sha1 = "158062c1d0f7623be73fb1589b5e099996cc98f4"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#12"
+text_sha1 = "9b931cd30b46961b90ba2efe559ca0221c8370a2"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#13"
+text_sha1 = "bc7ddb5d19e960561050c9fa76fdbb740531c340"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#14"
+text_sha1 = "52d5b8688b2f2c929a794c58cddaef14491fe7cc"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#15"
+text_sha1 = "1c1ebe59a0073d619065d4f1b467f746261a1f4c"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#16"
+text_sha1 = "aad4c9f02f25ef9bf796177358cd83665ad88ebd"
+map = "web-only"
+reason = "HTML landmark tags and ARIA attribute semantics apply to DOM markup rather than canvas vector nodes."
+
+[[rule]]
+id = "better-accessibility/semantics-and-aria#17"
+text_sha1 = "c54e6662bfcc21ef8d5fab15d934a0ce7d4ee53b"
+map = "lint:contrast"
+canvas_text = "Disabled controls are exempt from contrast minimums: draw the disabled state with muted tokens on purpose, and hold every active control to `designos_lint` contrast."
+
+[[rule]]
+id = "better-colors/color-formats#1"
+text_sha1 = "3d435a91d4a9bc88715a4acfc906db1f3058abd9"
+map = "web-only"
+reason = "CSS keyword preservation and stylesheet comment formatting apply only to text-file code edits."
+
+[[rule]]
+id = "better-colors/color-formats#2"
+text_sha1 = "a6bbde5d56e8c58536de204612ab1d671dbd7d7e"
+map = "web-only"
+reason = "CSS keyword preservation and stylesheet comment formatting apply only to text-file code edits."
+
+[[rule]]
+id = "better-colors/color-formats#3"
+text_sha1 = "16486ee839d57d438d9ea4aabf0af13f7c225464"
+map = "web-only"
+reason = "CSS keyword preservation and stylesheet comment formatting apply only to text-file code edits."
+
+[[rule]]
+id = "better-colors/color-formats#4"
+text_sha1 = "d7b85080ec7bd1b7dfb8d01ba928af2028b0c373"
+map = "web-only"
+reason = "CSS keyword preservation and stylesheet comment formatting apply only to text-file code edits."
+
+[[rule]]
+id = "better-colors/color-formats#5"
+text_sha1 = "ca15a80de727fba6c74fc36286ea3c587512f725"
+map = "skill:generate-library/tokens"
+canvas_text = "Keep derived colours such as a `color-mix()` tint out of the token layer: store the resulting tint as an explicit colour variable value, because a mixed colour cannot be inspected in a design tool."
+
+[[rule]]
+id = "better-colors/color-formats#6"
+text_sha1 = "93713ab35f290341e7157a7e2cf541bf3683736c"
+map = "skill:generate-library/tokens"
+canvas_text = "Do not define a colour variable by chained derivations such as relative colour syntax that darkens an accent by hand: one derivation at most, otherwise the token is unreadable."
+
+[[rule]]
+id = "better-colors/color-formats#7"
+text_sha1 = "0d15faf3123e77fab33b2cd4981cc2c61304c32f"
+map = "skill:generate-library/tokens"
+canvas_text = "Keep both appearances of a colour in one variable as its Light and Dark modes, the canvas equivalent of `light-dark()`, instead of two unrelated variables."
+
+[[rule]]
+id = "better-colors/contrast#1"
+text_sha1 = "917e58958121338742b13c3f242c755c90f804b8"
+map = "lint:contrast"
+canvas_text = "A mid-lightness background (OKLCH L near 0.75) caps achievable contrast even for black text (about Lc 60); move body-text backgrounds toward one lightness extreme; check with `designos_lint` contrast."
+
+[[rule]]
+id = "better-colors/contrast#2"
+text_sha1 = "a38d434a4c556d4a3d8eb6f1cb50cc315b16abbd"
+map = "rubric:color"
+canvas_text = "When pushing lightness to fix contrast, reduce saturation as needed so the colour stays inside the document gamut (Display P3) and remains renderable."
+
+[[rule]]
+id = "better-colors/contrast#3"
+text_sha1 = "1fb67200120257e89f878bb8e9209cdc096366b7"
+map = "lint:contrast"
+canvas_text = "Check every foreground and background pair in every appearance: a pair that passes in the Light mode can fail in the Dark mode; run `designos_lint` contrast on both."
+
+[[rule]]
+id = "better-colors/contrast#4"
+text_sha1 = "f8ef81d7f4b82a27eefc2e565a7fc69a0171e3d0"
+map = "lint:contrast"
+canvas_text = "For text on a translucent or background-blur surface, test against the lightest and darkest content that can sit behind it, or make the surface opaque enough that the shift cannot break the pair."
+
+[[rule]]
+id = "better-colors/contrast#5"
+text_sha1 = "b07e23e61f2d224766ef526d2dcf636d14ced682"
+map = "lint:contrast"
+canvas_text = "Measure the rendered result of computed colours (mixes, relative colours, opacity modifiers), not the declaration; `designos_lint` contrast uses the resolved colour."
+
+[[rule]]
+id = "better-colors/contrast#6"
+text_sha1 = "fc3d84dc7eadaa4fb654e3264bf3d9db326f3b66"
+map = "lint:contrast"
+canvas_text = "For text over an image there is no single background colour: measure the worst region, or guarantee one with a scrim behind the text."
+
+[[rule]]
+id = "better-colors/palette-generation#1"
+text_sha1 = "36e06847c61eea9ba76f6c5302e01faea801afb4"
+map = "rubric:color"
+canvas_text = "Step a ramp's lightness steadily in OKLCH L; evenly spaced HSL lightness is not perceptual and bunches at one end."
+
+[[rule]]
+id = "better-colors/palette-generation#2"
+text_sha1 = "91c106efa8fab6255fe38bf15b83bfe073de095f"
+map = "rubric:color"
+canvas_text = "Hold hue constant from one end of a ramp to the other so every step reads as the same colour, and so it sits against a neutral built on a different hue."
+
+[[rule]]
+id = "better-colors/palette-generation#3"
+text_sha1 = "387d2e77132a371f71c74bdf5de45902b5f911b9"
+map = "rubric:color"
+canvas_text = "Let vividness peak in the middle of a ramp and fall off at both ends: the lightest and darkest steps are nearly neutral, so the 50 does not glow and the 950 does not look like spilled ink."
+
+[[rule]]
+id = "better-colors/palette-generation#4"
+text_sha1 = "9b7ae45e40ab621ed1dffff214ab04bb51ed9d7a"
+map = "rubric:color"
+canvas_text = "Space ramp steps finer at the light end: about 0.04 to 0.05 OKLCH L apart for steps 50 to 200 and 0.07 to 0.10 mid-ramp, so there are enough pale steps for a subtle surface."
+
+[[rule]]
+id = "better-colors/palette-generation#5"
+text_sha1 = "e6ae31229e9c6ffcfbc32cef4d0c400e23159fdb"
+map = "rubric:color"
+canvas_text = "Keep adjacent ramp steps at least 0.03 OKLCH L apart; closer steps mean the ramp has more steps than decisions, so drop one."
+
+[[rule]]
+id = "better-colors/palette-generation#6"
+text_sha1 = "7f08332dc45125e2af11c3d780915837ddb439ee"
+map = "rubric:color"
+canvas_text = "Stop both ends of a ramp short of pure black and pure white, so the ramp keeps its identity where the page background lives."
+
+[[rule]]
+id = "better-colors/palette-generation#7"
+text_sha1 = "d0b98bfd6a314ae63a52e82c3c92c8c6875881d3"
+map = "rubric:color"
+canvas_text = "Match perceived lightness exactly across hues: the same step has the same brightness in every ramp."
+
+[[rule]]
+id = "better-colors/palette-generation#8"
+text_sha1 = "1d304d08fcc01959f0bfb0151e956f8e81845c68"
+map = "rubric:color"
+canvas_text = "Match vividness across hues in proportion to what each hue can reach, not by one absolute chroma; a saturated yellow and a saturated blue are not equally far from gray."
+
+[[rule]]
+id = "better-colors/palette-generation#9"
+text_sha1 = "7e0a927026306b281c1d4595e585a23fa25c11ef"
+map = "rubric:color"
+canvas_text = "Bring vividness down in dark appearances: an accent that reads confident on white reads neon on near-black, so use it a step or two less vivid."
+
+[[rule]]
+id = "better-colors/palette-generation#10"
+text_sha1 = "11ae3d561b010ba0b625151357f192eec270d69a"
+map = "rubric:color"
+canvas_text = "Give the dark end of a ramp more separation between steps: steps that read as distinct pale backgrounds collapse into each other as dark surfaces."
+
+[[rule]]
+id = "better-colors/palette-generation#11"
+text_sha1 = "ee65cf84530375f5b10db753e9d1343453c750b2"
+map = "lint:contrast"
+canvas_text = "Contrast does not survive the mirror: recheck every pair in both appearances with `designos_lint` contrast, because mirrored pairs score differently."
+
+[[rule]]
+id = "better-colors/palette-generation#12"
+text_sha1 = "843e23be8c66307aa096f0ef2fc0a454645ff8f1"
+map = "web-only"
+reason = "CSS media queries (`prefers-color-scheme`), `.dark` selector toggling, and `light-dark()` syntax are CSS runtime mechanisms."
+
+[[rule]]
+id = "better-colors/palette-generation#13"
+text_sha1 = "c6a491c0c15eb3b0cf9a2afa782f329676684f52"
+map = "web-only"
+reason = "CSS media queries (`prefers-color-scheme`), `.dark` selector toggling, and `light-dark()` syntax are CSS runtime mechanisms."
+
+[[rule]]
+id = "better-colors/palette-generation#14"
+text_sha1 = "43ab207f365ca2e8bf47f9e5b860157ad19013eb"
+map = "web-only"
+reason = "CSS media queries (`prefers-color-scheme`), `.dark` selector toggling, and `light-dark()` syntax are CSS runtime mechanisms."
+
+[[rule]]
+id = "better-colors/palette-structure#1"
+text_sha1 = "673222e3ea70134e1d559f3d3838d78dd4be8f6e"
+map = "skill:generate-library/tokens"
+canvas_text = "Define colour steps by role, as Radix does: step 9 is the solid fill in every ramp and appearance, and the dark scale is a separate ramp reusing the same step numbers so components never change."
+
+[[rule]]
+id = "better-colors/palette-structure#2"
+text_sha1 = "3f48754940b10f81aa32e9520db9ec53ee4b3c79"
+map = "skill:generate-library/tokens"
+canvas_text = "Where steps are defined by lightness, as Tailwind does (50 light, 950 dark), the mapping inverts in dark mode: components either swap step numbers per appearance or read one semantic token that swaps once."
+
+[[rule]]
+id = "better-colors/palette-structure#3"
+text_sha1 = "565de8076704a0e99cbdd59f492f07faeb3bebb7"
+map = "skill:generate-library/tokens"
+canvas_text = "Keep every status hue at least 15 degrees of OKLCH hue away from the accent; if the brand is red, danger cannot also be red, so give the destructive action a distinct treatment such as an outlined button with an icon."
+
+[[rule]]
+id = "better-colors/palette-structure#4"
+text_sha1 = "668cc9539633a0cedbe2a3cbf1c92bb9246a17b8"
+map = "skill:generate-library/tokens"
+canvas_text = "Give status ramps fewer steps than the accent: most render four roles (background, border, solid fill, text); generate the full ramp only where the product styles status components across the whole range."
+
+[[rule]]
+id = "better-colors/palette-structure#5"
+text_sha1 = "d54b59896bd2c0df3d8da4a037c572a17bd0838a"
+map = "lint:hardcoded-color"
+canvas_text = "Collect every colour literal in the document, including SVG fills and strokes and chart colours, before tokenising; check with `designos_lint` hardcoded-color."
+
+[[rule]]
+id = "better-colors/palette-structure#6"
+text_sha1 = "c89a5cb894fc49aed36266d7c61ace495984f929"
+map = "skill:generate-library/tokens"
+canvas_text = "Sort the collected colours by perceived lightness within each hue family so duplicates surface as near-identical neighbours."
+
+[[rule]]
+id = "better-colors/palette-structure#7"
+text_sha1 = "aad6239a89b4d5caabd05753b820da89c2485ab7"
+map = "lint:hardcoded-color"
+canvas_text = "Collapse near-duplicate colours: two colours within 0.02 OKLab delta E are one colour that drifted, so keep the most used and retire the others, never average them."
+
+[[rule]]
+id = "better-colors/palette-structure#8"
+text_sha1 = "60d1956183c24559e75931d334f97b90bda7e1d7"
+map = "lint:hardcoded-color"
+canvas_text = "Assign every surviving colour a role from the palette structure; a colour that matches no role is a missing token or a mistake, and the finding says which."
+
+[[rule]]
+id = "better-colors/palette-structure#9"
+text_sha1 = "14931a4cbdfeb42c4792c70a91352e89bc4b1086"
+map = "skill:generate-library/tokens"
+canvas_text = "Count the ramps left: more ramps than the system needs means the palette outgrew its structure, not that the product needs more colour."
+
+[[rule]]
+id = "better-interface/SKILL#1"
+text_sha1 = "4e40c9bd7d46c3c52e4f5df0065cb6e25e994907"
+map = "skill:critique/workflow"
+canvas_text = "Run the accessibility review domain as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#2"
+text_sha1 = "d14cc166de7b71a1fd3c775eb9b51631b4be98fc"
+map = "skill:critique/workflow"
+canvas_text = "Run the layout review domain as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#3"
+text_sha1 = "9694ce0e643cb4e54358b6d5d8da19682ebc900a"
+map = "skill:critique/workflow"
+canvas_text = "Run the writing review domain (UI copy) as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#4"
+text_sha1 = "60dd47c7ad399270e60711ccd96155299d7ceb82"
+map = "skill:critique/workflow"
+canvas_text = "Run the typography review domain as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#5"
+text_sha1 = "b1c27fba0f555573ad55df3f8827a98e9ffa61eb"
+map = "skill:critique/workflow"
+canvas_text = "Run the colour review domain as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#6"
+text_sha1 = "4745f9558e4089dd716bd36f4a2ed52b52e2bf5a"
+map = "skill:critique/workflow"
+canvas_text = "Run the UI craft review domain (motion, icons, interaction polish) as one of the six domains of a critique."
+
+[[rule]]
+id = "better-interface/SKILL#7"
+text_sha1 = "5e4ee7bf466d5c552031b57855a2333b533c199e"
+map = "skill:critique/workflow"
+canvas_text = "Rate a finding HIGH when it blocks a task, misleads the user, hides content or controls, risks data loss, or repeats as a systemic failure."
+
+[[rule]]
+id = "better-interface/SKILL#8"
+text_sha1 = "559f14c21d3b5b8cad086782d167777c7e438f27"
+map = "skill:critique/workflow"
+canvas_text = "Rate a finding MEDIUM when it meaningfully harms comprehension, efficiency, adaptability or consistency."
+
+[[rule]]
+id = "better-interface/SKILL#9"
+text_sha1 = "ff8e4ad1232ccd7a2c3c5385da1b1e155a5e9918"
+map = "skill:critique/workflow"
+canvas_text = "Rate a finding LOW when it is isolated polish with limited task impact."
+
+[[rule]]
+id = "better-interface/SKILL#10"
+text_sha1 = "0240206d8e05c0d6d8be817f395d853a0629bdbd"
+map = "web-only"
+reason = "An interactive control with no accessible name is a DOM accessibility-tree finding."
+
+[[rule]]
+id = "better-interface/SKILL#11"
+text_sha1 = "a67dca52148e01f0987010b112a38922566ac1e1"
+map = "web-only"
+reason = "DOM keyboard reachability, `:focus-visible` outlines, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "better-interface/SKILL#12"
+text_sha1 = "2293fe07002cf75009d5d3b7db50a8adf3e85b8a"
+map = "web-only"
+reason = "DOM keyboard reachability, `:focus-visible` outlines, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "better-interface/SKILL#13"
+text_sha1 = "eb5a4cfa9654edf994f4e12fe84a734b8806bb71"
+map = "web-only"
+reason = "DOM keyboard reachability, `:focus-visible` outlines, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "better-interface/SKILL#14"
+text_sha1 = "11cdd695d664407f1ccae4e7caa16f2f1d6800b2"
+map = "lint:clipped-partial"
+canvas_text = "Flag content or a control that is clipped, overlapped or unreachable at 320 px width or 200% zoom; check with `designos_lint` clipped-partial, sibling-overlap and overflow-parent."
+
+[[rule]]
+id = "better-interface/SKILL#15"
+text_sha1 = "973d57c1675695f2fba692b42a1937f7895840bb"
+map = "lint:contrast"
+canvas_text = "Flag body or control text whose rendered contrast pair fails its required ratio; check with `designos_lint` contrast."
+
+[[rule]]
+id = "better-interface/SKILL#16"
+text_sha1 = "b0dcbc10d0a6fe366400220219d5340de5ee9202"
+map = "rubric:color"
+canvas_text = "Flag any state or meaning carried by colour alone; pair it with an icon, a label or a shape."
+
+[[rule]]
+id = "better-interface/SKILL#17"
+text_sha1 = "ef7207888f21e61f7cd32242d0fa02fee285af5c"
+map = "skill:critique/workflow"
+canvas_text = "Flag a destructive action that has no confirmation, no undo and no distinct treatment."
+
+[[rule]]
+id = "better-interface/SKILL#18"
+text_sha1 = "18b5e5a721431a9a8f975c0fd7cb99fea31abe03"
+map = "skill:critique/workflow"
+canvas_text = "Flag truncated content that gives no way to reach the full value."
+
+[[rule]]
+id = "better-interface/SKILL#19"
+text_sha1 = "8ea6e76449da2bf88a979b2195c0af4d48f6701d"
+map = "skill:critique/workflow"
+canvas_text = "Flag content or a control reachable only past a scroll edge or behind a disclosure that has no visible cue."
+
+[[rule]]
+id = "better-interface/SKILL#20"
+text_sha1 = "d4a46394ec54c7c66f8d0bf20a9daa382e61ee57"
+map = "skill:critique/workflow"
+canvas_text = "Flag an error message that names no way to recover from it."
+
+[[rule]]
+id = "better-interface/SKILL#21"
+text_sha1 = "25212d1d55c678c4c99123816e34cb719f6ed494"
+map = "skill:critique/workflow"
+canvas_text = "Flag a semantic colour used against its meaning, such as the danger hue on a non-destructive action."
+
+[[rule]]
+id = "better-interface/SKILL#22"
+text_sha1 = "9dac7443db75ed720c7a791b218ec5e22be33b83"
+map = "rubric:motion"
+canvas_text = "Flag a state change carried by motion alone: a colour, icon or label must remain when the animation does not run."
+
+[[rule]]
+id = "better-interface/SKILL#23"
+text_sha1 = "7919a02089442b733316cf43c96744da08c2b53e"
+map = "skill:critique/workflow"
+canvas_text = "Repair by deleting first: a separator that space would carry, an animation on a high-frequency interaction, an ARIA attribute a native element makes redundant, a ramp nothing imports."
+
+[[rule]]
+id = "better-interface/SKILL#24"
+text_sha1 = "7c26ad0fcc7f46eed7a935664a708f7c80b8f09a"
+map = "skill:critique/workflow"
+canvas_text = "Repair by using the platform: the native element, the native control or the browser's own focus ring in place of a custom rebuild."
+
+[[rule]]
+id = "better-interface/SKILL#25"
+text_sha1 = "12e89368a7d2ab18edfab56244f779caca59947b"
+map = "skill:critique/workflow"
+canvas_text = "Repair by reusing what the project has: an existing token, spacing step or motion curve before any new value."
+
+[[rule]]
+id = "better-interface/SKILL#26"
+text_sha1 = "ea0988f18882a80b865c2a9277fb4b164bece96e"
+map = "skill:critique/workflow"
+canvas_text = "Repair by correcting the value: the wrong easing, radius, gap or contrast pair, using the exact value the owning skill gives."
+
+[[rule]]
+id = "better-interface/SKILL#27"
+text_sha1 = "ac65a5d24fc860c3cec967312fcf0b09897858ea"
+map = "skill:critique/workflow"
+canvas_text = "Repair by adding only what the platform cannot supply: a new token, a wrapper, a media query, an ARIA attribute."
+
+[[rule]]
+id = "better-interface/review-format#1"
+text_sha1 = "d66631fade491eaa7cbb16c1c9fdf0a5b736468a"
+map = "skill:critique/workflow"
+canvas_text = "Take each finding's severity from ranking by user impact."
+
+[[rule]]
+id = "better-interface/review-format#2"
+text_sha1 = "6129aebba0344d6a34d8029d357409aab528588f"
+map = "skill:critique/workflow"
+canvas_text = "Name each finding's domain as the owning review skill without the better- prefix."
+
+[[rule]]
+id = "better-interface/review-format#3"
+text_sha1 = "3a851f0ae12a4861611979344768ddfe624eed8b"
+map = "skill:critique/workflow"
+canvas_text = "Give each finding's location as the exact frame and component (node id and layer path) when the artifact has no source file."
+
+[[rule]]
+id = "better-interface/review-format#4"
+text_sha1 = "9b0dd49152b0acdddce11ad890edc5ae73c981a1"
+map = "skill:critique/workflow"
+canvas_text = "Show a finding's Before (the current design) and After (an actionable replacement), each in its own cell."
+
+[[rule]]
+id = "better-interface/review-format#5"
+text_sha1 = "65a097bad0c51ea8d4b57dbe4db4a7363ea9d9dc"
+map = "skill:critique/workflow"
+canvas_text = "State in Why the violated principle and its user impact."
+
+[[rule]]
+id = "better-interface/review-format#6"
+text_sha1 = "9f29ed753b5a79970eb3eb0cd5b6c8483aaa4e16"
+map = "skill:critique/workflow"
+canvas_text = "End the review with Block when one or more HIGH findings remain; do not ship until they are fixed."
+
+[[rule]]
+id = "better-interface/review-format#7"
+text_sha1 = "07398f3aade7bc9bf4feb13b77fa7d2d06b91fdf"
+map = "skill:critique/workflow"
+canvas_text = "End the review with Approve when no HIGH finding remains; MEDIUM and LOW findings stay in the table as work to do."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#1"
+text_sha1 = "d41bd87b079560f4536d5d090f66f79cfc06c4a5"
+map = "lint:off-scale"
+canvas_text = "Group related elements with negative space by default: on-scale auto-layout gaps and padding, no stray off-grid offsets; check with `designos_lint` off-scale."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#2"
+text_sha1 = "e505916bc031f22e13be2df5d5c94787cdad9a77"
+map = "rubric:layout"
+canvas_text = "Use a background shape, a card or filled container, where a group must read as one unit, such as a selectable row or a draggable card."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#3"
+text_sha1 = "08fc44981c36edc7f4fbe4383d9f3938c815b9b8"
+map = "rubric:layout"
+canvas_text = "Use separator lines only for dense data where space costs too much, such as tables and long settings lists."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#4"
+text_sha1 = "5e466993cf6f7e214e590172f34ff788415245f6"
+map = "lint:off-scale"
+canvas_text = "Fix stray edges: an icon 2 px off the text edge, or a card padded unlike its neighbour; check with `designos_lint` off-scale."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#5"
+text_sha1 = "254a7c6b3105b23fadff8d9ff95859bb07285fc2"
+map = "lint:off-scale"
+canvas_text = "Repeat the same spacing step in deeper nesting instead of inventing a new one; check with `designos_lint` off-scale."
+
+[[rule]]
+id = "better-layout/grouping-and-alignment#6"
+text_sha1 = "fcba19822fca12c19e908f3a49aae6f813c495b7"
+map = "rubric:typography"
+canvas_text = "Right-align numbers in tables (end) and left-align text (start); tabular figures belong to typography."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#1"
+text_sha1 = "6d7708d78a6e25f0a704c88ff4b6cd4db6285375"
+map = "rubric:layout"
+canvas_text = "Let a row of cards peek past the container edge: a row that ends exactly at the edge looks complete and nobody scrolls it."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#2"
+text_sha1 = "96e9fabc223dc83a3663e83db2f271d35a1abbbc"
+map = "rubric:layout"
+canvas_text = "Give a collapsed section a chevron or a control that names what is hidden (\"Show 12 more results\", not \"More\")."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#3"
+text_sha1 = "4d049e96b2996f7b396b028c47a1c51916034a34"
+map = "lint:text-truncated"
+canvas_text = "Pair every truncated value with an expand control, a link to a detail view or a tooltip that also opens on focus; hover-only hints do not count; check with `designos_lint` text-truncated."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#4"
+text_sha1 = "2c0cdc833af7d9f6d4932a8b8e75dba1fc36abba"
+map = "web-only"
+reason = "`100dvh` against `100vh` concerns mobile browser toolbars."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#5"
+text_sha1 = "d3f1ddc3ed5a9902e013404e689e843fcc4b5528"
+map = "rubric:layout"
+canvas_text = "Design a modal that fits the screen height with a scrolling body and an action row outside the scroll area."
+
+[[rule]]
+id = "better-layout/spacing-and-adaptivity#6"
+text_sha1 = "7b7cd3a5b83f6160a77e452d7755c42e62e20e98"
+map = "rubric:layout"
+canvas_text = "Keep primary actions in stable chrome, such as a footer bar with safe-area padding or the top of the view."
+
+[[rule]]
+id = "better-typography/SKILL#1"
+text_sha1 = "eca51f113ece73623e3d391e589e0458f83e21b0"
+map = "rubric:typography"
+canvas_text = "Balance the line lengths of headings and short descriptions so the lines even out; never on paragraphs."
+
+[[rule]]
+id = "better-typography/SKILL#2"
+text_sha1 = "4dc8ebe249c99a13dfb1d3d899e71d5b5665976a"
+map = "lint:text-unexpected-wrap"
+canvas_text = "Keep a lone word off the last line of a paragraph; check with `designos_lint` text-unexpected-wrap."
+
+[[rule]]
+id = "better-typography/SKILL#3"
+text_sha1 = "f88ceb7aaee67e61f0de3462b6957d966ddac4aa"
+map = "lint:overflow-parent"
+canvas_text = "Where a long word, link or ID could escape its container, let the text break inside the frame instead of overflowing it; check with `designos_lint` overflow-parent."
+
+[[rule]]
+id = "better-typography/SKILL#4"
+text_sha1 = "e0b4fe820e066e98547951e6c4565b1dcb73424c"
+map = "lint:text-unexpected-wrap"
+canvas_text = "Keep labels and badges on one line where a line break looks broken; check with `designos_lint` text-unexpected-wrap."
+
+[[rule]]
+id = "better-typography/SKILL#5"
+text_sha1 = "5a138d9535196c880cd29710cd23defca6f19a26"
+map = "rubric:typography"
+canvas_text = "Size input text up on mobile frames (16 px) so the control stays legible and does not trigger zoom."
+
+[[rule]]
+id = "better-typography/SKILL#6"
+text_sha1 = "7eca50657bff06add54356970f7062ffcf2a6902"
+map = "web-only"
+reason = "CSS `transform: scale()` workarounds for iOS Safari input auto-zoom are web browser specific."
+
+[[rule]]
+id = "better-typography/details-and-accessibility#1"
+text_sha1 = "2dc9bd73d78bbe45f2796c62740221598d1ee681"
+map = "web-only"
+reason = "CSS pseudo-elements (`::target-text`, `::placeholder`), `caret-color`, and the DOM Custom Highlight API have no static canvas equivalent."
+
+[[rule]]
+id = "better-typography/details-and-accessibility#2"
+text_sha1 = "6dc024fdf23fbba8b664b59fcbe8fdc6e0ac2da8"
+map = "web-only"
+reason = "CSS pseudo-elements (`::target-text`, `::placeholder`), `caret-color`, and the DOM Custom Highlight API have no static canvas equivalent."
+
+[[rule]]
+id = "better-typography/details-and-accessibility#3"
+text_sha1 = "f53d53c88c75bcd2990cb2396296b60ba9e087f6"
+map = "web-only"
+reason = "CSS pseudo-elements (`::target-text`, `::placeholder`), `caret-color`, and the DOM Custom Highlight API have no static canvas equivalent."
+
+[[rule]]
+id = "better-typography/details-and-accessibility#4"
+text_sha1 = "42f3eb3769462172db874dcf67a85b49887ac6fb"
+map = "web-only"
+reason = "CSS pseudo-elements (`::target-text`, `::placeholder`), `caret-color`, and the DOM Custom Highlight API have no static canvas equivalent."
+
+[[rule]]
+id = "better-typography/variable-fonts-and-opentype#1"
+text_sha1 = "b30b73600bad2c59d40c3f8558a5885aa4b9efb2"
+map = "rubric:typography"
+canvas_text = "A static font is one weight and style per file: regular, medium and bold are three files, so count them when choosing a family."
+
+[[rule]]
+id = "better-typography/variable-fonts-and-opentype#2"
+text_sha1 = "e5d9add0f951f02eba58dcf209a6c0bdbce285fa"
+map = "rubric:typography"
+canvas_text = "Prefer a variable font where a whole weight range lives in one file and any value in it, such as 589, is usable on a text style."
+
+[[rule]]
+id = "better-typography/variable-fonts-and-opentype#3"
+text_sha1 = "153634575205d94df39746694bf84472b15145a9"
+map = "rubric:typography"
+canvas_text = "Use real small capitals (the font's own small-cap glyphs), not uppercase letters set at a smaller size."
+
+[[rule]]
+id = "better-typography/variable-fonts-and-opentype#4"
+text_sha1 = "e68561c1dea06c4473ecc21aa6989b0ea4c01ac2"
+map = "rubric:typography"
+canvas_text = "Use proper superscript and subscript glyphs (the 2 in x squared, H2O), not shrunken and shifted digits."
+
+[[rule]]
+id = "better-typography/wrapping-and-punctuation#1"
+text_sha1 = "0ec485b7f4d982c72c8c746b2977dd3498869f48"
+map = "rubric:typography"
+canvas_text = "Align a paragraph of three or more lines to its own script, so an English paragraph stays start-aligned left-to-right even inside a right-to-left interface; one or two line snippets follow the UI direction."
+
+[[rule]]
+id = "better-typography/wrapping-and-punctuation#2"
+text_sha1 = "dd68bc489638f73d038c3b32975069bc0f64fb6e"
+map = "rubric:typography"
+canvas_text = "Keep digit runs such as a phone number in their left-to-right order inside right-to-left text; repair a value that adjacent RTL text disturbs."
+
+[[rule]]
+id = "better-ui/enter-exit#1"
+text_sha1 = "64a451533b865c99b1db320f8715241c53aa9016"
+map = "rubric:motion"
+canvas_text = "Split an entering element into semantic groups such as title, description and actions, each animated as one layer group."
+
+[[rule]]
+id = "better-ui/enter-exit#2"
+text_sha1 = "37e07500610d7718170635b760bbee64640c438b"
+map = "rubric:motion"
+canvas_text = "Stagger the entering groups 100 ms apart in the prototype transition."
+
+[[rule]]
+id = "better-ui/enter-exit#3"
+text_sha1 = "17426e57f41ca1822c044835fca99efd8f6d03e0"
+map = "rubric:motion"
+canvas_text = "Split a short display headline into words staggered 80 ms apart where it should read word by word."
+
+[[rule]]
+id = "better-ui/enter-exit#4"
+text_sha1 = "b53995b306bf1db0bde0c1b3c8680427b8f7caa9"
+map = "rubric:motion"
+canvas_text = "Combine opacity, blur and a small upward translate for each group's enter."
+
+[[rule]]
+id = "better-ui/icons#1"
+text_sha1 = "04b77891bb2ffeab872f86bdf51f41873e5f686f"
+map = "rubric:iconography"
+canvas_text = "Use one icon library per surface and never mix libraries on one toolbar; where it has no stroke variants, keep its native stroke and use size or colour for emphasis."
+
+[[rule]]
+id = "better-ui/icons#2"
+text_sha1 = "a674dd6305397ad0cf615999f5ac4dcf84d11e28"
+map = "rubric:iconography"
+canvas_text = "Size an inline icon at 1 to 1.25 times the adjacent font size so the pair scales together."
+
+[[rule]]
+id = "better-ui/icons#3"
+text_sha1 = "fe87566078ce418bcfd9a96ddcc0df936ab3a88a"
+map = "rubric:iconography"
+canvas_text = "Test every icon at the smallest size it renders, often 16 px; it must stay recognisable there."
+
+[[rule]]
+id = "better-ui/icons#4"
+text_sha1 = "0183aea677899ffe37f8fa2196c5a28736233863"
+map = "rubric:iconography"
+canvas_text = "Prefer a simplified glyph for small contexts over scaling detailed artwork down."
+
+[[rule]]
+id = "better-ui/icons#5"
+text_sha1 = "8259bed3804c3809e7b31518990e6f9ca3628967"
+map = "rubric:iconography"
+canvas_text = "Where the icon set ships per-size grids (16, 20, 24), use the grid that matches the render size; a 24 px drawing scaled to 16 px lands off the pixel grid and renders soft."
+
+[[rule]]
+id = "better-ui/icons#6"
+text_sha1 = "faa49e811ea371941fb68bac8a71cb18bc05c6a7"
+map = "rubric:iconography"
+canvas_text = "Use vector SVG icons, never raster."
+
+[[rule]]
+id = "better-writing/SKILL#1"
+text_sha1 = "225085753bbd56e250c543ceb342dc31e4920ed7"
+map = "web-only"
+reason = "Searching for translation calls and locale files is a source-code step; a canvas document has no i18n catalogue."
+
+[[rule]]
+id = "better-writing/SKILL#2"
+text_sha1 = "30c43560be86ad16d0073e9f693c696271c0dfbc"
+map = "skill:generate-design/content"
+canvas_text = "List the noun used for each object and the verb used for each action (\"project\" or \"workspace\", \"Delete\" or \"Remove\") and keep them consistent in every frame."
+
+[[rule]]
+id = "better-writing/SKILL#3"
+text_sha1 = "ca2c2cc7d759512c75f28aa20dcde1df8c9de6cf"
+map = "skill:generate-design/content"
+canvas_text = "Note the capitalisation used for each element type and any voice or content style guide, and apply it to every label and heading."
+
+[[rule]]
+id = "better-writing/SKILL#4"
+text_sha1 = "ec09a3eba4359e7aa225b3bbcd21951de0827be6"
+map = "lint:placeholder-text"
+canvas_text = "Name the action and the object in a confirmation title (\"Delete 'Q3 report'?\"), never \"Are you sure?\"; check generic placeholder strings with `designos_lint` placeholder-text."
+
+[[rule]]
+id = "better-writing/SKILL#5"
+text_sha1 = "40b123ed3f9243b0821b7f791ae83b54afd2a0bc"
+map = "skill:generate-design/content"
+canvas_text = "In a confirmation body say what is lost and what cannot be recovered, with counts where they apply."
+
+[[rule]]
+id = "better-writing/SKILL#6"
+text_sha1 = "3f029237b67e33441053827149d0e52bda284593"
+map = "skill:generate-design/content"
+canvas_text = "Write confirmation buttons as verb plus object (\"Delete project\", \"Cancel\"), never \"Yes\" and \"No\"."
+
+[[rule]]
+id = "better-writing/SKILL#7"
+text_sha1 = "7947b07ccc23f035173e4d189032867a0a47cdfa"
+map = "skill:generate-design/content"
+canvas_text = "For an account, workspace or repository deletion, ask the person to type the object's name."
+
+[[rule]]
+id = "build-design/SKILL#1"
+text_sha1 = "cf40cf290e82d3ca92d88efc5d3a821bd33d865a"
+map = "skill:designos-use/workflow"
+canvas_text = "Report what is unwired: whatever renders from props until the backend exists."
+
+[[rule]]
+id = "build-design/SKILL#2"
+text_sha1 = "bb942e13d60fb5ce51f18320e2b4b88a6d4a0100"
+map = "skill:generate-design/states"
+canvas_text = "Report the missing states: what the design does not draw."
+
+[[rule]]
+id = "build-design/SKILL#3"
+text_sha1 = "3dcb9b387c1baaf62327045125a971b1aa8876e1"
+map = "skill:designos-use/workflow"
+canvas_text = "Report domain conflicts: where the design breaks a rule, naming the owning skill."
+
+[[rule]]
+id = "build-design/figma#1"
+text_sha1 = "5468c4d060eb9872aadb564a8416fa0b350126e5"
+map = "lint:hardcoded-value"
+canvas_text = "Prefer variable names over raw values: a fill bound to `gray/600` maps to the project's `gray-600` even where the hex drifted; a raw hex with no variable goes through the mapping table; check with `designos_lint` hardcoded-value."
+
+[[rule]]
+id = "build-design/figma#2"
+text_sha1 = "4a08c037c7311b5475f04397c04033696aa42224"
+map = "lint:detached-instance"
+canvas_text = "Prefer a Code Connect mapping over name matching: a node with a mapping names the exact component and props, so use that component unless it cannot express the design, and report the case; check detached copies with `designos_lint` detached-instance."
+
+[[rule]]
+id = "build-design/figma#3"
+text_sha1 = "b6c97535bea4464884917fe2f577caf648f5df94"
+map = "lint:absolute-in-auto-layout"
+canvas_text = "Prefer auto layout over absolute positions: gap and padding on an auto layout frame are the spacing intent, absolute x and y on a floating layer is where someone dropped it; check with `designos_lint` absolute-in-auto-layout."
+
+[[rule]]
+id = "build-design/figma#4"
+text_sha1 = "03146148e4779fdb0e65eac9b0cb5019b87fe3e5"
+map = "skill:designos-use/workflow"
+canvas_text = "Prefer downloaded assets over Figma URLs: asset URLs from the server expire, so save each asset into the project and leave no Figma URL in code."
+
+[[rule]]
+id = "explain-interface/SKILL#1"
+text_sha1 = "823e929a43b8ea984bfe2b2cc19ac1be10041a6a"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/SKILL#2"
+text_sha1 = "8b9fa429ad69f5328b6a84e1b75ab460d7b60c52"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/SKILL#3"
+text_sha1 = "d59d875ed757cb7da16b274a23a1287038078431"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/SKILL#4"
+text_sha1 = "cfdf0e6c2831ec25ee11c367461c3ce855ab02d4"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/find-the-effect#1"
+text_sha1 = "9dd867fa4511a5bd08714a037d2bef9dd99e46dd"
+map = "lint:overflow-parent"
+canvas_text = "Compare a child's box against its frame: a child wider than the frame, or with a negative offset, is oversized on purpose so its edges never show; confirm which with `designos_lint` overflow-parent."
+
+[[rule]]
+id = "explain-interface/find-the-effect#2"
+text_sha1 = "4dcad390920de2ef1b07c216c3813e553b0187f3"
+map = "rubric:depth"
+canvas_text = "Read layers in paint order: within one stacking context a later layer paints over an earlier one and a higher layer over both; confirm the order at a pixel."
+
+[[rule]]
+id = "explain-interface/find-the-effect#3"
+text_sha1 = "042592507a27ee162f4010511fc84781e62ead3a"
+map = "lint:contrast"
+canvas_text = "A layer with a background blur frosts whatever is beneath it, so the layer beneath is part of the answer and of the contrast measurement."
+
+[[rule]]
+id = "explain-interface/find-the-effect#4"
+text_sha1 = "1cdd4abe7e7d551550ad0df04c3a67972b2092e0"
+map = "lint:contrast"
+canvas_text = "A layer with a blend mode takes its colour from what it covers, so name what is underneath before explaining or measuring it."
+
+[[rule]]
+id = "explain-interface/from-an-image#1"
+text_sha1 = "75b85d6fabf52120696768095fc74f74295366e4"
+map = "rubric:color"
+canvas_text = "Convert each sampled colour to OKLCH so lightness is comparable across hues."
+
+[[rule]]
+id = "explain-interface/from-an-image#2"
+text_sha1 = "98021a5c7bfa47a9e3eb3c88c67d1e49cce7a609"
+map = "rubric:color"
+canvas_text = "Sort samples by lightness to see whether they form a ramp, and report the spacing found: steps are expected to sit closer together at the light end."
+
+[[rule]]
+id = "explain-interface/from-an-image#3"
+text_sha1 = "85aced9d62f50f019601a936bf449cf5690c8f70"
+map = "rubric:color"
+canvas_text = "Compare hue across the ramp: hue is expected constant end to end, so report how far it moves."
+
+[[rule]]
+id = "explain-interface/from-an-image#4"
+text_sha1 = "5d256ce6d60966e7b75732ee7e08350c54d5f66e"
+map = "lint:contrast"
+canvas_text = "Measure contrast on every foreground and background pair that can be isolated; it is exact and the most valuable single number an image gives; check with `designos_lint` contrast."
+
+[[rule]]
+id = "explain-interface/from-an-image#5"
+text_sha1 = "b77e13bd133bc16c4b98aa746ee7a9548b5510cf"
+map = "rubric:color"
+canvas_text = "Check the grays for a few percent of the accent hue and name a tinted neutral where one is found."
+
+[[rule]]
+id = "explain-interface/from-an-image#6"
+text_sha1 = "cdeaf7ecf772d420c30c80cca5a6d35bc340a75b"
+map = "rubric:typography"
+canvas_text = "Name the typeface category (geometric sans, grotesque, humanist, transitional serif or slab) and say why."
+
+[[rule]]
+id = "explain-interface/from-an-image#7"
+text_sha1 = "8af13e81bf906d2452a238eede64592c7df01126"
+map = "rubric:typography"
+canvas_text = "Name the tells of the typeface: single or double-storey a and g, terminal angle, aperture, x-height against cap height, lining or old-style digits, tabular figures."
+
+[[rule]]
+id = "explain-interface/from-an-image#8"
+text_sha1 = "314e3f93e09f4f080ad92083afbe0bbf24845045"
+map = "rubric:typography"
+canvas_text = "Count the distinct sizes, express them as multiples of the body size and derive the ratio."
+
+[[rule]]
+id = "explain-interface/from-an-image#9"
+text_sha1 = "0d70a20a6a769f7f73f5a057c6a751a26ac67ce1"
+map = "rubric:typography"
+canvas_text = "Count the weights in use and estimate how far apart they sit."
+
+[[rule]]
+id = "explain-interface/from-an-image#10"
+text_sha1 = "c2e85213349dfffa655527b887fa30d2f71c9b62"
+map = "rubric:typography"
+canvas_text = "Count characters on a full line of body copy and compare it with the 60 to 75 character measure."
+
+[[rule]]
+id = "explain-interface/from-an-image#11"
+text_sha1 = "570c956771e99a37b293c276d2d23639fb4c3880"
+map = "skill:generate-design/states"
+canvas_text = "List the interactive states shown or missing: hover, focus, active, disabled, loading, empty and error."
+
+[[rule]]
+id = "explain-interface/from-an-image#12"
+text_sha1 = "89493e98dec32a6cdc9a965f1bd95df43149c5d1"
+map = "rubric:motion"
+canvas_text = "Record whether anything animates and how."
+
+[[rule]]
+id = "explain-interface/from-an-image#13"
+text_sha1 = "be6e9f916aadab2a320fa243c31695c55f992c16"
+map = "rubric:layout"
+canvas_text = "Record the layout's behaviour at any other width."
+
+[[rule]]
+id = "explain-interface/from-an-image#14"
+text_sha1 = "719c0b6fb20e7c7a3322bea5fe132b3f4be0388e"
+map = "web-only"
+reason = "Keyboard reachability and visible focus are DOM runtime properties that a picture or a canvas frame cannot show."
+
+[[rule]]
+id = "explain-interface/from-an-image#15"
+text_sha1 = "71426efab05361ad2f943ee914a43e311215b928"
+map = "skill:generate-design/states"
+canvas_text = "Provide or request the other appearance, light or dark, as its own frame."
+
+[[rule]]
+id = "explain-interface/no-browser#1"
+text_sha1 = "d5533bd8b8bbf2929ba6abbc19ac29ef6a0c1d89"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/no-browser#2"
+text_sha1 = "b8f42f22c7c3df1b2284e72dab4d14f3dd210c8c"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/no-browser#3"
+text_sha1 = "d44512a68856695c7401d10cb1466dc9aee2691d"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/read-the-system#1"
+text_sha1 = "5bff2d0f4cbf84c2d7168b07e07a9f654ac03f41"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/read-the-system#2"
+text_sha1 = "bc56a7bb234dee487912f060f2f636f0601a0266"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "explain-interface/read-the-system#3"
+text_sha1 = "53f637cf81ea3811ae23dea8b65dc9f9d07063ea"
+map = "web-only"
+reason = "Browser DevTools inspection, runtime CSS-in-JS resolution, and live DOM viewport resizing apply only to web pages."
+
+[[rule]]
+id = "interface-review/SKILL#1"
+text_sha1 = "73eb6a90366216e8828124bf3a435430233a7db8"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#2"
+text_sha1 = "ecfd9c61461b9b01b08d68fdf87785aa53a03e21"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#3"
+text_sha1 = "c447eb00224557acdcaea9728cd73380da13604a"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#4"
+text_sha1 = "4ac90840b6336f800e91ceb2b3cb2cf49d25f286"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#5"
+text_sha1 = "1395e5b717729b4a329530481d76c805990926e2"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#6"
+text_sha1 = "ce6cb64d18ddc07bfb4546470eca63b5bfe20d4b"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#7"
+text_sha1 = "f1fa3da0358d44d35d3fc0169c7982030123d9fc"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#8"
+text_sha1 = "869698730802f3c043198cc7164e06aa11fff0f0"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#9"
+text_sha1 = "fa24937b1840ccc0621f11ab8bdf99c251a6dde4"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#10"
+text_sha1 = "8255a0923fe098d50f0404f567a5250773a5bb4e"
+map = "web-only"
+reason = "Git branch, commit range, and pull-request diff selection commands apply to source control workflows rather than canvas nodes."
+
+[[rule]]
+id = "interface-review/SKILL#11"
+text_sha1 = "b6faabcc9d079d3d0024ad495ef080021d7412db"
+map = "skill:generate-design/states"
+canvas_text = "Flag a new variant, size or theme drawn for some states but not all of hover, focus, active, disabled, loading and selected."
+
+[[rule]]
+id = "interface-review/SKILL#12"
+text_sha1 = "9070101acad2f3e66bd26417c9ae6885f380a020"
+map = "web-only"
+reason = "i18n translation catalogue key lookups apply to source code repositories."
+
+[[rule]]
+id = "interface-review/SKILL#13"
+text_sha1 = "e52f5c287bcc4db4fd087e16489f6bf977c0e2bd"
+map = "skill:generate-design/states"
+canvas_text = "Flag a new component with no empty, loading, error, disabled or narrow-width state."
+
+[[rule]]
+id = "interface-review/SKILL#14"
+text_sha1 = "1ea3d459badbba417862a7009d602584bc5a4791"
+map = "rubric:consistency"
+canvas_text = "Flag a control added to one surface but not to the sibling surfaces that already carry its peers."
+
+[[rule]]
+id = "interface-review/removed-signals#1"
+text_sha1 = "8c8b89ab7634a983b4da8e978ca51c278c4bd260"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/removed-signals#2"
+text_sha1 = "15cfede86c9d42ea03b2737bfabe6555c1a04abd"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/removed-signals#3"
+text_sha1 = "705e889e3ffc3ad8aba26f987a0c863ac4f41637"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/removed-signals#4"
+text_sha1 = "21ea4bdac85415e1ccdcf491e3544663f814de7f"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/removed-signals#5"
+text_sha1 = "6c21c9be612ae75c9b1e224281be47ec5b5fa23a"
+map = "lint:hardcoded-color"
+canvas_text = "A colour literal replaced by a variable of the same value is a valid tokenisation fix, not a regression; check remaining literals with `designos_lint` hardcoded-color."
+
+[[rule]]
+id = "interface-review/removed-signals#6"
+text_sha1 = "de6dcabd894d98935ea8baa72ea4cea7e0cd8d29"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/removed-signals#7"
+text_sha1 = "2fe10e2a5ff878fa1ca08e0dbbda17dcffd669f2"
+map = "web-only"
+reason = "DOM ARIA attribute refactors, CSS `:focus-visible` selectors, and i18n string extraction apply to web source code."
+
+[[rule]]
+id = "interface-review/scope-resolution#1"
+text_sha1 = "ae8deb66ac78dc90fb5d8200d5d73eefddd399b0"
+map = "web-only"
+reason = "Source file importer graph traversal and framework route file discovery apply to codebases rather than canvas documents."
+
+[[rule]]
+id = "interface-review/scope-resolution#2"
+text_sha1 = "95eec05f04b42aa4c76cee7ab910d80445e648e4"
+map = "web-only"
+reason = "Source file importer graph traversal and framework route file discovery apply to codebases rather than canvas documents."
+
+[[rule]]
+id = "interface-review/scope-resolution#3"
+text_sha1 = "a42f10d3520ec96fd5126b9acd83be5ca9913dda"
+map = "web-only"
+reason = "Source file importer graph traversal and framework route file discovery apply to codebases rather than canvas documents."
+
+[[rule]]
+id = "state-machine/SKILL#1"
+text_sha1 = "02f6cc391a200195b747a7043c98a320d02ab7f3"
+map = "web-only"
+reason = "React component prop wiring and query-cache mocking apply to web application code."
+
+[[rule]]
+id = "state-machine/SKILL#2"
+text_sha1 = "ab6943f272b37dfb8f37f282ab81c1d687376751"
+map = "web-only"
+reason = "React component prop wiring and query-cache mocking apply to web application code."
+
+[[rule]]
+id = "state-machine/switcher#1"
+text_sha1 = "234c6e655ce430ce3217e263c97faaa5eb57869f"
+map = "skill:generate-library/components"
+canvas_text = "Give every group of a state showcase a heading, even when there is only one, and put the same small arrow icon on every heading."
+
+[[rule]]
+id = "state-machine/switcher#2"
+text_sha1 = "8c463b50057666fd69c3f12dd83bbc741d919455"
+map = "skill:generate-library/components"
+canvas_text = "List states and groups in the order they were written down."
+
+[[rule]]
+id = "state-machine/switcher#3"
+text_sha1 = "912b240d3500e7c4a60fd9506bfd318295d43824"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#4"
+text_sha1 = "32a3507b059cc906218d60c155452f8303fce2e1"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#5"
+text_sha1 = "60caec93160b42f999fc42bb16c8771f7f60fbea"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#6"
+text_sha1 = "7f26a069b93d37b96de605935e902674c1ef1016"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#7"
+text_sha1 = "50c6221c4ac298fe5f967302f655b9fd9df63caf"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#8"
+text_sha1 = "d4b6a6b0df87d82696155c2df91600bd9ffa406c"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#9"
+text_sha1 = "c5cf6a1fe805ef7791dc6013bcb509ff26e49bb9"
+map = "web-only"
+reason = "URL `__state` query parameters and DOM keyboard event handlers apply only to web preview harnesses."
+
+[[rule]]
+id = "state-machine/switcher#10"
+text_sha1 = "64e9238c2df0809e712c589460d7ef406b4cb48f"
+map = "skill:generate-library/components"
+canvas_text = "With room, lay the showcase out as two columns: the state list, then the component at its production width."
+
+[[rule]]
+id = "state-machine/switcher#11"
+text_sha1 = "ed1360698cd7012b6ac272744db7edd0d0e601fc"
+map = "skill:generate-library/components"
+canvas_text = "With no room, put the state selector above the component in the page flow."
+
+[[rule]]
+id = "technical-drawing/SKILL#1"
+text_sha1 = "958afd00df1dccb85a005dcbc9be7e39454ec170"
+map = "rubric:layout"
+canvas_text = "Draw the outer silhouette and major volumes of a technical illustration first."
+
+[[rule]]
+id = "technical-drawing/SKILL#2"
+text_sha1 = "496dd7289fdb0a345cd0b89ab4afa3ce706d22d9"
+map = "rubric:layout"
+canvas_text = "Then place interfaces, cavities and fasteners where components join."
+
+[[rule]]
+id = "technical-drawing/SKILL#3"
+text_sha1 = "77db4cec831fbaebd7a179937efa937d415fa036"
+map = "rubric:layout"
+canvas_text = "Then add the distinguishing functional details, such as ribs, slots, seals and strain reliefs."
+
+[[rule]]
+id = "technical-drawing/SKILL#4"
+text_sha1 = "d9e1c104978dd1a4ea55cc6a968ef7ca87239f3e"
+map = "rubric:layout"
+canvas_text = "Finally resolve occlusion and remove construction lines that do not explain the object."
+
+[[rule]]
+id = "variant/SKILL#1"
+text_sha1 = "f3246e66dd2423966298efa0296206f2380e8f98"
+map = "web-only"
+reason = "DOM accessible name computation, keyboard tab navigation, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "variant/SKILL#2"
+text_sha1 = "4eda5d45dcd0627e27aa72f4af2e55d861031e6e"
+map = "web-only"
+reason = "DOM accessible name computation, keyboard tab navigation, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "variant/SKILL#3"
+text_sha1 = "cdd4c4013b4db60696bd8aa6b4582695257aa66a"
+map = "web-only"
+reason = "DOM accessible name computation, keyboard tab navigation, and `prefers-reduced-motion` media queries are web runtime checks."
+
+[[rule]]
+id = "variant/SKILL#4"
+text_sha1 = "5451fc7c0df5dc283a87697b3fa9425a19ca932f"
+map = "lint:clipped-partial"
+canvas_text = "Make sure nothing in a variant clips, overlaps or becomes unreachable at 320 px width or 200% zoom; check with `designos_lint` clipped-partial and sibling-overlap."
+
+[[rule]]
+id = "variant/SKILL#5"
+text_sha1 = "d2e3400b952124e8aebbd144f496cec3222cf82c"
+map = "lint:contrast"
+canvas_text = "Body and control text in every variant must pass its required contrast ratio; check with `designos_lint` contrast."
+
+[[rule]]
+id = "variant/SKILL#6"
+text_sha1 = "55c53cd7c0efa543758c74f4cc03b7dbe44fe04b"
+map = "rubric:color"
+canvas_text = "In every variant no state or meaning rides on colour alone and no state change on motion alone."
+
+[[rule]]
+id = "variant/SKILL#7"
+text_sha1 = "27eda756cacc14cd45cc82f0e216e7e4c2b3effd"
+map = "rubric:consistency"
+canvas_text = "In every variant a destructive action has a confirmation, an undo or a distinct treatment."
+
+[[rule]]
+id = "variant/SKILL#8"
+text_sha1 = "39992a9f37ee753f9d125cee43e23a540dc1989e"
+map = "lint:text-truncated"
+canvas_text = "Truncated content in a variant has a way to reach the full value; check with `designos_lint` text-truncated."
+
+[[rule]]
+id = "variant/SKILL#9"
+text_sha1 = "446a47b77222e058633199f44faa0a5080758642"
+map = "rubric:layout"
+canvas_text = "Nothing in a variant hides past a scroll edge or behind a disclosure with no visible cue."
+
+[[rule]]
+id = "variant/SKILL#10"
+text_sha1 = "e327d64e4f6a352e6d54c87464991d7ca4cbe4e3"
+map = "rubric:consistency"
+canvas_text = "Every error shown in a variant names a way to recover."
+
+[[rule]]
+id = "variant/SKILL#11"
+text_sha1 = "02c9abc3835d29d8d2aaa3a1dafdbab9aca57e01"
+map = "rubric:color"
+canvas_text = "No semantic colour in a variant is used against its meaning, such as the danger hue on a non-destructive action."
+
+[[rule]]
+id = "variant/SKILL#12"
+text_sha1 = "f5218aa2ba40c8eda44383b4fa77c0717e9fda92"
+map = "rubric:consistency"
+canvas_text = "Before exploring variants, read the project's styling system, component library and any motion library, and stay inside them."
+
+[[rule]]
+id = "variant/SKILL#13"
+text_sha1 = "f278d79e095e42e529e290647a200002ed4a992f"
+map = "lint:hardcoded-value"
+canvas_text = "Read the tokens (colour, spacing, radius, type scale, easing) and bind each variant to them instead of raw values; check with `designos_lint` hardcoded-value."
+
+[[rule]]
+id = "variant/SKILL#14"
+text_sha1 = "005d6569e0e32845965ae3bb6df0b755c53a4efb"
+map = "rubric:consistency"
+canvas_text = "Respect the product's density and voice: a dense professional tool bounds how far the boldest variant may go."
+
+[[rule]]
+id = "variant/SKILL#15"
+text_sha1 = "57da697f7924d73ae96de0f8a8b99134f03d666b"
+map = "rubric:consistency"
+canvas_text = "Design each variant for where the piece renders: against what background, beside which neighbours, at which widths."
+
+[[rule]]
+id = "variant/picker#1"
+text_sha1 = "234c6e655ce430ce3217e263c97faaa5eb57869f"
+map = "skill:generate-design/variants"
+canvas_text = "Give every group of the variant picker a heading, even when there is only one, and put the same small arrow icon on every heading."
+
+[[rule]]
+id = "variant/picker#2"
+text_sha1 = "ad1abb6e9b65b2ceb2dcf80e0eed58541ed567e5"
+map = "skill:generate-design/variants"
+canvas_text = "List variants and groups in the order they were written down."
+
+[[rule]]
+id = "variant/picker#3"
+text_sha1 = "a74bdac674669b9e0127e4b1246eaf543ab6ca59"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#4"
+text_sha1 = "0978a2e71ef20e9580afaeb879f6f101dc08030f"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#5"
+text_sha1 = "a6027b8f84af0e45a114672b1db04e7000360d7b"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#6"
+text_sha1 = "7f26a069b93d37b96de605935e902674c1ef1016"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#7"
+text_sha1 = "50c6221c4ac298fe5f967302f655b9fd9df63caf"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#8"
+text_sha1 = "05d3acb79995ef5a1af3b985a71cfcbe1a07380b"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#9"
+text_sha1 = "1798743777205e4467b711cfe1bc654bcd68c4ff"
+map = "web-only"
+reason = "URL `__variant` search parameters and DOM keyboard shortcuts apply only to web browser pickers."
+
+[[rule]]
+id = "variant/picker#10"
+text_sha1 = "bc3fbfa5430b9046adadfb57adf6d6991d4222c7"
+map = "skill:generate-design/variants"
+canvas_text = "With room, lay the variants out as two columns: the variant list, then the piece at its production width."
+
+[[rule]]
+id = "variant/picker#11"
+text_sha1 = "5279ab00d4e79a8dc33865c728b2bf455345e901"
+map = "skill:generate-design/variants"
+canvas_text = "With no room, put the variant selector above the piece in the page flow."

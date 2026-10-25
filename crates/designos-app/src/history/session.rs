@@ -26,6 +26,8 @@ impl App {
         self.hover_layer = None;
         self.canvas.reset_interaction();
         self.layers.reset();
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         self.fonts.load_for(&self.doc);
         self.comments.close_popovers();
         self.changed();
@@ -95,6 +97,8 @@ impl App {
 
     fn write_after_restore(&mut self) {
         if let Err(e) = self.save_library_file() {
+            // The restored document has a fresh history, which reads clean: say it is not in the file.
+            self.mark_edited_outside_history();
             self.show_toast(e, true);
         }
     }

@@ -1,0 +1,268 @@
+{
+  "figma_docs_url": "https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/",
+  "retrieved": "2026-10-19",
+  "core_tools": 32,
+  "weave_tools": 9,
+  "rows": [
+    {
+      "figma_tool": "download_assets",
+      "status": "task",
+      "studio_tool": "designos_download_assets",
+      "task_id": "T7.8",
+      "note": "Download a subtree's images and vectors into the workspace (designos_download_assets)"
+    },
+    {
+      "figma_tool": "get_code_connect_map",
+      "status": "task",
+      "studio_tool": "designos_get_code_connect_map",
+      "task_id": "T7.18",
+      "note": "Read Code Connect mappings for selected instances"
+    },
+    {
+      "figma_tool": "get_code_connect_suggestions",
+      "status": "task",
+      "studio_tool": "designos_get_code_connect_suggestions",
+      "task_id": "T7.18",
+      "note": "Suggest Code Connect mappings for components"
+    },
+    {
+      "figma_tool": "get_context_for_code_connect",
+      "status": "task",
+      "studio_tool": "designos_get_context_for_code_connect",
+      "task_id": "T7.39",
+      "note": "Return component property and structure metadata for authoring Code Connect templates"
+    },
+    {
+      "figma_tool": "get_design_context",
+      "status": "implemented",
+      "studio_tool": "designos_get_design_context",
+      "note": "Returns unified code, variable hints, and screenshot context for a node (designos_get_design_context); codegen also available via designos_generate_code"
+    },
+    {
+      "figma_tool": "get_figjam",
+      "status": "task",
+      "studio_tool": "designos_get_board",
+      "task_id": "T7.11",
+      "note": "Return board stickies, connectors, sections, and shapes (designos_get_board)"
+    },
+    {
+      "figma_tool": "get_generative_plugin",
+      "status": "task",
+      "studio_tool": "designos_get_generative_plugin",
+      "task_id": "T8.21",
+      "note": "Read a generative plugin's source from the local library"
+    },
+    {
+      "figma_tool": "get_libraries",
+      "status": "implemented",
+      "studio_tool": "designos_get_libraries",
+      "note": "List local and enabled component/variable libraries for the workspace (designos_get_libraries)"
+    },
+    {
+      "figma_tool": "get_metadata",
+      "status": "implemented",
+      "studio_tool": "designos_get_metadata",
+      "note": "Returns sparse XML node hierarchy with IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts (designos_get_metadata)"
+    },
+    {
+      "figma_tool": "get_motion_context",
+      "status": "task",
+      "studio_tool": "designos_get_motion_context",
+      "task_id": "T7.12",
+      "note": "Return keyframe animation data and motion code snippets (designos_get_motion_context)"
+    },
+    {
+      "figma_tool": "get_screenshot",
+      "status": "implemented",
+      "studio_tool": "designos_get_screenshot",
+      "note": "Returns inline MCP image/png content for a node or page (designos_get_screenshot); file rasterization also available via designos_render_png"
+    },
+    {
+      "figma_tool": "get_shader",
+      "status": "task",
+      "studio_tool": "designos_get_shader",
+      "task_id": "T7.41",
+      "note": "Read a WGSL shader effect or fill source"
+    },
+    {
+      "figma_tool": "get_variable_defs",
+      "status": "implemented",
+      "studio_tool": "designos_get_variables",
+      "note": "Reads variable definitions, collections, resolved node bindings, and code_syntax"
+    },
+    {
+      "figma_tool": "list_file_shaders",
+      "status": "task",
+      "studio_tool": "designos_list_file_shaders",
+      "task_id": "T7.41",
+      "note": "List shaders referenced in the open document"
+    },
+    {
+      "figma_tool": "list_generative_plugins",
+      "status": "task",
+      "studio_tool": "designos_list_generative_plugins",
+      "task_id": "T8.21",
+      "note": "List generative plugins in the local library"
+    },
+    {
+      "figma_tool": "list_shaders",
+      "status": "task",
+      "studio_tool": "designos_list_shaders",
+      "task_id": "T7.41",
+      "note": "List shader effects and fills in the local library"
+    },
+    {
+      "figma_tool": "search_design_system",
+      "status": "implemented",
+      "studio_tool": "designos_search_design_system",
+      "note": "Search libraries for components, variables, and styles (designos_search_design_system)"
+    },
+    {
+      "figma_tool": "whoami",
+      "status": "task",
+      "studio_tool": "designos_whoami",
+      "task_id": "T7.35",
+      "note": "Return local user identity and single-user free plan metadata (R4.14)"
+    },
+    {
+      "figma_tool": "add_code_connect_map",
+      "status": "task",
+      "studio_tool": "designos_add_code_connect_map",
+      "task_id": "T7.18",
+      "note": "Map a design component to a code component in the workspace"
+    },
+    {
+      "figma_tool": "create_generative_plugin",
+      "status": "task",
+      "studio_tool": "designos_create_generative_plugin",
+      "task_id": "T8.21",
+      "note": "Create a generative plugin starter in the local library"
+    },
+    {
+      "figma_tool": "create_new_file",
+      "status": "task",
+      "studio_tool": "designos_create_new_file",
+      "task_id": "T7.36",
+      "note": "In-session designos_new_document exists today; T7.36 creates a library file without replacing the open document"
+    },
+    {
+      "figma_tool": "create_shader",
+      "status": "task",
+      "studio_tool": "designos_create_shader",
+      "task_id": "T7.41",
+      "note": "Create a WGSL shader effect or fill starter"
+    },
+    {
+      "figma_tool": "generate_diagram",
+      "status": "task",
+      "studio_tool": "designos_generate_diagram",
+      "task_id": "E9-17",
+      "note": "Generate a board diagram from a description or Mermaid syntax"
+    },
+    {
+      "figma_tool": "generate_figma_design",
+      "status": "implemented",
+      "studio_tool": "designos_import_web_capture",
+      "note": "Import live web UI captures into editable design layers (R6.22)"
+    },
+    {
+      "figma_tool": "generate_image",
+      "status": "task",
+      "studio_tool": "designos_upload_assets",
+      "task_id": "T7.37",
+      "note": "Image generation runs through the agent CLI (R4.13); studio side is upload_assets (T7.37)"
+    },
+    {
+      "figma_tool": "html_to_figma",
+      "status": "implemented",
+      "studio_tool": "designos_import_web_capture",
+      "note": "Convert captured HTML into editable design layers via Studio's web-capture importer (R6.22)"
+    },
+    {
+      "figma_tool": "send_code_to_figma",
+      "status": "implemented",
+      "studio_tool": "designos_import_web_capture",
+      "note": "Import local web/code capture into editable design layers (T7.14, R6.22)"
+    },
+    {
+      "figma_tool": "send_code_connect_mappings",
+      "status": "task",
+      "studio_tool": "designos_send_code_connect_mappings",
+      "task_id": "T7.18",
+      "note": "Confirm suggested Code Connect mappings in bulk"
+    },
+    {
+      "figma_tool": "update_generative_plugin",
+      "status": "task",
+      "studio_tool": "designos_update_generative_plugin",
+      "task_id": "T8.21",
+      "note": "Update a generative plugin's source in the local library"
+    },
+    {
+      "figma_tool": "update_shader",
+      "status": "task",
+      "studio_tool": "designos_update_shader",
+      "task_id": "T7.41",
+      "note": "Update a WGSL shader's source"
+    },
+    {
+      "figma_tool": "upload_assets",
+      "status": "task",
+      "studio_tool": "designos_upload_assets",
+      "task_id": "T7.37",
+      "note": "Upload images and SVGs into a document (designos_upload_assets)"
+    },
+    {
+      "figma_tool": "use_figma",
+      "status": "task",
+      "studio_tool": "designos_run_plugin_script",
+      "task_id": "T7.13",
+      "note": "Declarative writes exist via designos_apply_spec and node tools; T7.13 adds Plugin-API JS script execution (designos_run_plugin_script)"
+    },
+    {
+      "figma_tool": "weave_list_tools",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_get_tool_inputs",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_upload_asset",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_run_tool",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_get_tool_run_output",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_cancel_tool_run",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_find_model",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_run_model",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    },
+    {
+      "figma_tool": "weave_get_model_run_output",
+      "status": "excluded",
+      "reason": "hosted service (R4.14)"
+    }
+  ]
+}

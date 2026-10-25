@@ -13,7 +13,7 @@ pub fn avatar_color(name: &str) -> Color32 {
 /// Round avatar with the author's initial.
 pub fn avatar(p: &Painter, center: Pos2, diameter: f32, name: &str) {
     p.circle_filled(center, diameter / 2.0, avatar_color(name));
-    let font = if diameter >= 24.0 { theme::font_body_strong() } else { theme::font_small_strong() };
+    let font = if diameter >= 24.0 { theme::font_body_strong() } else { theme::font_caption_strong() };
     p.text(center, Align2::CENTER_CENTER, model::initial(name), font, theme::TEXT);
 }
 
@@ -62,9 +62,9 @@ pub fn box_height(p: &Painter, text: &str, width: f32) -> f32 {
 /// A multi-line text field with the standard field background. Returns the edit response.
 pub fn text_box(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str, focus: bool) -> Response {
     let focused = ui.memory(|m| m.has_focus(id));
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     if focused {
-        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     }
     let font = theme::font_body();
     let te = TextEdit::multiline(text)
@@ -101,7 +101,7 @@ pub fn button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, label: &str, prima
         (false, true) => Color32::TRANSPARENT,
     };
     if bg != Color32::TRANSPARENT {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), bg);
+        p.rect_filled(rect, theme::cr_pill(rect.height()), bg);
     }
     let col = if !enabled { theme::TEXT_DISABLED } else { theme::TEXT };
     p.text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body_strong(), col);
@@ -110,14 +110,14 @@ pub fn button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, label: &str, prima
 
 /// Width of a [`button`] for `label`.
 pub fn button_width(p: &Painter, label: &str) -> f32 {
-    widgets::text_width(p, label, &theme::font_body_strong()) + 24.0
+    widgets::text_width(p, label, &theme::font_body_strong()) + 2.0 * theme::INSET_BUTTON
 }
 
 /// The "…" button.
 pub fn dots_button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, tip: &str) -> Response {
     let resp = ui.interact(rect, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    widgets::button_bg(p, rect, &resp, false, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(p, rect, &resp, false, theme::cr(theme::RADIUS_CONTROL));
     let col = if resp.hovered() { theme::ICON } else { theme::ICON_SECONDARY };
     for dx in [-4.0, 0.0, 4.0] {
         p.circle_filled(rect.center() + Vec2::new(dx, 0.0), 1.2, col);
@@ -132,16 +132,16 @@ pub fn dots_button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, tip: &str) ->
 /// A row of mutually exclusive options; returns the clicked index.
 pub fn segmented(ui: &mut Ui, rect: Rect, id: impl widgets::Key + Copy, labels: &[&str], selected: usize) -> Option<usize> {
     let p = ui.painter().clone();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let w = rect.width() / labels.len() as f32;
     let mut out = None;
     for (i, l) in labels.iter().enumerate() {
         let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * w, rect.top()), Vec2::new(w, rect.height()));
         let resp = ui.interact(r, ui.id().with((id, i)), Sense::click());
         if i == selected {
-            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_MEDIUM), theme::BG_TERTIARY);
+            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
         } else if resp.hovered() {
-            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(r.shrink(2.0), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         p.text(r.center(), Align2::CENTER_CENTER, l, if i == selected { theme::font_body_strong() } else { theme::font_body() }, theme::TEXT);
         if resp.clicked() {

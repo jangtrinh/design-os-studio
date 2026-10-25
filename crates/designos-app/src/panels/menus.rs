@@ -20,6 +20,7 @@ pub enum Action {
     NewBoard,
     NewDeck,
     Open,
+    ImportWebCapture,
     Save,
     SaveAs,
     ExportFig,
@@ -57,6 +58,7 @@ pub enum Action {
     SendToBack,
     ToggleSidebar,
     CreateComponent,
+    ConvertToSlot,
     Detach,
     CombineVariants,
     GoToMain,
@@ -113,6 +115,8 @@ pub enum Action {
     YourName,
     /// Preferences -> Use GPU rendering.
     ToggleGpu,
+    /// Preferences -> Agent permissions.
+    AgentPermissions,
     Shortcuts,
     AboutDesignOS,
     OpenGithub,
@@ -123,6 +127,11 @@ pub enum Action {
     MarkReadyForDev,
     MarkCompleted,
     ClearDevStatus,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    AiRemoveBackground,
+    AiIsolateSubject,
+    AiExpandImage,
+    AiEraseImage,
     /// Switches to a tool (also from the command palette).
     Tool(Tool),
 }
@@ -133,6 +142,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::NewBoard => app.new_board_here(),
         Action::NewDeck => app.new_deck_here(),
         Action::Open => app.open_dialog(),
+        Action::ImportWebCapture => app.import_web_capture_dialog(),
         Action::Save => app.save(false),
         Action::SaveAs => app.save(true),
         Action::ExportFig => app.export_fig_copy(),
@@ -169,6 +179,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendToBack => app.reorder(false, true),
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
+        Action::ConvertToSlot => app.convert_selection_to_slot(),
         Action::Detach => app.detach_selection(),
         Action::CombineVariants => app.combine_selection_as_variants(),
         Action::GoToMain => {
@@ -180,6 +191,12 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Copy => {
             if let Some(s) = app.copy_selection() {
                 ctx.copy_text(s);
+            }
+        }
+        Action::Paste if app.canvas.text.is_some() => {
+            // Like Ctrl+V: while a text is being edited the clipboard text goes into it, and an image has no place there.
+            if let Some(text) = (app.system_text)() {
+                crate::canvas::textsession::insert_text(app, &text, crate::textedit::EditKind::Other);
             }
         }
         Action::Paste => app.paste_from_system(None),
@@ -240,6 +257,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
+        Action::AgentPermissions => app.open_agent_permissions(),
         Action::Shortcuts => app.show_shortcuts(),
         Action::AboutDesignOS => app.show_about(),
         Action::OpenGithub => app.confirm_open_github(),
@@ -266,6 +284,28 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
             let sel = app.top_selection();
             app.dev_clear_status(&sel);
         }
+        Action::AiRemoveBackground => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::RemoveBackground);
+            }
+        }
+        Action::AiIsolateSubject => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::IsolateSubject);
+            }
+        }
+        Action::AiExpandImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_expand_image_popover(node, fill_idx, anchor);
+            }
+        }
+        Action::AiEraseImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_erase_image_popover(node, fill_idx, anchor);
+            }
+        }
         Action::Tool(t) => pick_tool(app, t),
     }
     ctx.request_repaint();
@@ -273,6 +313,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
 
 /// Selects `t` and remembers it as its toolbar group's current pick.
 pub fn pick_tool(app: &mut App, t: Tool) {
+    let t = t.or_fallback();
     if let Some((g, i)) = GROUPS.iter().enumerate().find_map(|(g, tools)| tools.iter().position(|x| *x == t).map(|i| (g, i))) {
         app.group_pick[g] = i;
     }
@@ -319,6 +360,10 @@ impl Node {
     }
     fn icon(mut self, i: Icon) -> Self {
         self.item = self.item.icon(i);
+        self
+    }
+    fn tip(mut self, text: &str) -> Self {
+        self.item = self.item.tooltip(text);
         self
     }
 }
@@ -390,9 +435,10 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("New board", "", Action::NewBoard),
         leaf("New deck", "", Action::NewDeck),
         leaf("Open…", "Ctrl+O", Action::Open),
+        leaf("Import web capture…", "", Action::ImportWebCapture),
         leaf("Save", "Ctrl+S", Action::Save),
         leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs),
-        leaf("Save local .fig copy…", "", Action::ExportFig),
+        leaf("Save .fig copy", "", Action::ExportFig),
         leaf("Save to library…", "", Action::SaveToLibrary).off(app.lib.is_none() || app.lib_file.is_some()).sep(),
         leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open),
         leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(!app.has_history()).sep(),
@@ -406,7 +452,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Undo", "Ctrl+Z", Action::Undo).off(!app.hist.can_undo()),
         leaf("Redo", "Ctrl+Shift+Z", Action::Redo).off(!app.hist.can_redo()).sep(),
         leaf("Copy", "Ctrl+C", Action::Copy).off(!has_sel),
-        leaf("Paste", "Ctrl+V", Action::Paste).off(app.clip.is_none()),
+        // always on: the system clipboard is read when it runs, not while the menu draws
+        leaf("Paste", "Ctrl+V", Action::Paste),
         leaf("Duplicate", "Ctrl+D", Action::Duplicate).off(!has_sel),
         leaf("Delete", "Del", Action::Delete).off(!has_sel).sep(),
         leaf("Select all", "Ctrl+A", Action::SelectAll),
@@ -512,13 +559,23 @@ fn main_nodes(app: &App) -> Vec<Node> {
             "Preferences",
             vec![
                 leaf("Your name…", "", Action::YourName),
-                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available),
+                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
+                leaf("Agent permissions…", "", Action::AgentPermissions),
             ],
         ),
         leaf("Libraries", "", Action::OpenLibraries).sep(),
         leaf("AI balance", "", Action::OpenAgents).sep(),
         submenu("Help and account", help),
     ]
+}
+
+/// Why the GPU canvas is off when the app chose that (a software renderer); empty when the user did.
+fn gpu_off_reason(app: &App) -> &'static str {
+    if app.canvas.gpu.off_for_software && !app.canvas.gpu.pref {
+        crate::canvas::gpu_default::SOFTWARE_OFF_REASON
+    } else {
+        ""
+    }
 }
 
 fn tool_nodes(app: &App, g: usize) -> Vec<Node> {
@@ -579,9 +636,10 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("New board"), Some(Action::NewBoard)),
         (MenuItem::new("New deck"), Some(Action::NewDeck)),
         (MenuItem::new("Open…").shortcut("Ctrl+O"), Some(Action::Open)),
+        (MenuItem::new("Import web capture…"), Some(Action::ImportWebCapture)),
         (MenuItem::new("Save").shortcut("Ctrl+S"), Some(Action::Save)),
         (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S"), Some(Action::SaveAs)),
-        (MenuItem::new("Save local .fig copy…"), Some(Action::ExportFig)),
+        (MenuItem::new("Save .fig copy"), Some(Action::ExportFig)),
         (MenuItem::new("Save to library…").disabled(app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
         (MenuItem::new("Show version history").checked(app.history.open), Some(Action::ToggleVersionHistory)),
         (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(!app.has_history()).sep(), Some(Action::SaveVersion)),
@@ -653,12 +711,12 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
-        menu_panel(&p, rect, theme::MENU_RADIUS);
+        menu_panel(&p, rect, theme::RADIUS_FRAME);
 
         // Top editable Zoom percentage input box (`#0D99FF` active border ring)
         let input_box = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 8.0), Vec2::new(w - 16.0, 26.0));
-        p.rect_filled(input_box, egui::CornerRadius::same(5), theme::BG_SECONDARY);
-        p.rect_stroke(input_box, egui::CornerRadius::same(5), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
+        p.rect_filled(input_box, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(input_box, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
 
         let buf_id = id.with("zoom-input-buf");
         let default_pct = format!("{}%", (app.view.zoom * 100.0).round() as i32);
@@ -689,7 +747,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             let r_rect = Rect::from_min_size(Pos2::new(rect.left(), ry), Vec2::new(w, row_h));
             let row_resp = ui.interact(r_rect, id.with(("zrow", idx)), Sense::click());
             if row_resp.hovered() {
-                p.rect_filled(r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::MENU_PILL_RADIUS), theme::BG_MENU_SELECTED);
+                p.rect_filled(r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
             }
             if r.checked {
                 icons::paint(&p, Icon::Check, Pos2::new(r_rect.left() + 18.0, r_rect.center().y), 12.0, theme::TEXT);
@@ -748,7 +806,8 @@ pub fn show(app: &mut App, ctx: &Context) {
             let nodes = tool_nodes(app, g);
             let items = to_items(&nodes);
             let h = theme::MENU_PADDING * 2.0 + items.len() as f32 * theme::MENU_ITEM_HEIGHT;
-            let pos = super::toolbar::tool_menu_pos(screen, g, h);
+            // Hung off the chevron that opened it; the window rect only stands in when nothing recorded one.
+            let pos = super::toolbar::tool_menu_pos(anchor.unwrap_or_else(|| super::toolbar::chevron_rect(screen, g)), h);
             match popup_tree(ctx, id, pos, theme::TOOL_MENU_WIDTH, &items, anchor) {
                 TreeResult::Picked(path) => {
                     app.ui.menu = None;
@@ -901,9 +960,9 @@ fn palette(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("palette")).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
-        widgets::elevation_400(&p, rect, 12);
-        p.rect_filled(rect, egui::CornerRadius::same(12), bg_surface);
-        p.rect_stroke(rect, egui::CornerRadius::same(12), egui::Stroke::new(1.0, border_col), egui::StrokeKind::Inside);
+        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), bg_surface);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, border_col), egui::StrokeKind::Inside);
 
         // 1. Top Search Row
         let srow = Rect::from_min_size(rect.min, Vec2::new(rect.width(), PALETTE_SEARCH_H));
@@ -955,7 +1014,7 @@ fn palette(app: &mut App, ctx: &Context) {
         // 3. Section Header ("Recents" when query is empty)
         let sec_top = tab_row.bottom() + 1.0;
         let sec_label = if q.is_empty() { "Recents" } else { "Matching actions" };
-        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_small(), theme::TEXT_SECONDARY);
+        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_caption(), theme::TEXT_SECONDARY);
 
         let top = sec_top + PALETTE_SEC_H;
         if n == 0 {
@@ -980,7 +1039,7 @@ fn palette(app: &mut App, ctx: &Context) {
                 pick = Some(list[li]);
             }
             if lit {
-                p.rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::MENU_PILL_RADIUS), tab_active_bg);
+                p.rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), tab_active_bg);
             }
             let col = if c.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
             p.text(Pos2::new(row.left() + 16.0, row.center().y), Align2::LEFT_CENTER, &c.label, font.clone(), col);
@@ -1030,11 +1089,83 @@ pub fn palette_entries(app: &App, query: &str) -> Vec<(String, String)> {
 mod tests {
     use super::*;
 
+    /// Whether the Edit menu's Paste row can be clicked.
+    fn edit_paste_enabled(app: &App) -> bool {
+        let nodes = main_nodes(app);
+        let edit = nodes.iter().find(|n| n.item.label == "Edit").expect("Edit submenu");
+        !edit.kids.iter().find(|n| n.item.label == "Paste").expect("Paste row").item.disabled
+    }
+
+    #[test]
+    fn edit_paste_is_not_greyed_out_before_anything_was_copied_in_studio() {
+        // the system clipboard may hold text or an image from another app, and it is read only when Paste runs
+        let mut app = App::new(designos_doc::Document::new("t"));
+        assert!(app.clip.is_none());
+        assert!(edit_paste_enabled(&app));
+        // the rows that work on Studio's own copy only stay off until it exists
+        let nodes = main_nodes(&app);
+        let edit = nodes.iter().find(|n| n.item.label == "Edit").unwrap();
+        assert!(edit.kids.iter().find(|n| n.item.label == "Paste over selection").unwrap().item.disabled);
+        app.copy_selection();
+        assert!(edit_paste_enabled(&app));
+    }
+
     #[test]
     fn query_matching_is_word_based() {
         assert!(matches_query("Zoom to fit", "zoom fit"));
         assert!(matches_query("Zoom to fit", ""));
         assert!(!matches_query("Zoom to fit", "pen"));
+    }
+
+    /// The tooltip of Preferences -> "Use GPU rendering" in the main menu.
+    fn gpu_row_tooltip(app: &App) -> String {
+        let nodes = main_nodes(app);
+        let prefs = nodes.iter().find(|n| n.item.label == "Preferences").expect("Preferences submenu");
+        prefs.kids.iter().find(|n| n.item.label == "Use GPU rendering").expect("Use GPU rendering row").item.tooltip.clone()
+    }
+
+    #[test]
+    fn preferences_says_why_the_gpu_canvas_is_off_for_a_software_renderer() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        app.canvas.gpu.available = true;
+        assert_eq!(gpu_row_tooltip(&app), "", "a real GPU needs no explanation");
+        app.canvas.gpu.pref = false;
+        assert_eq!(gpu_row_tooltip(&app), "", "a choice the user made needs no explanation");
+        app.canvas.gpu.off_for_software = true;
+        assert_eq!(gpu_row_tooltip(&app), crate::canvas::gpu_default::SOFTWARE_OFF_REASON);
+    }
+
+    #[test]
+    fn choosing_the_gpu_canvas_drops_the_software_explanation() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        app.canvas.gpu.available = true;
+        app.canvas.gpu.pref = false;
+        app.canvas.gpu.off_for_software = true;
+        app.toggle_gpu();
+        assert!(app.canvas.gpu.pref, "toggled on");
+        assert!(!app.canvas.gpu.off_for_software, "the user chose, so the default no longer applies");
+        assert_eq!(gpu_row_tooltip(&app), "");
+        app.toggle_gpu();
+        assert!(!app.canvas.gpu.pref && !app.canvas.gpu.off_for_software, "an explicit off is the user's own choice, not the adapter's");
+        assert_eq!(gpu_row_tooltip(&app), "");
+    }
+
+    #[test]
+    fn palette_and_dropdowns_do_not_offer_the_arrow_tool() {
+        let app = App::new(designos_doc::Document::new("t"));
+        assert!(commands(&app).iter().all(|c| !matches!(c.act, Action::Tool(Tool::Arrow))), "Cmd+K must not offer the Arrow tool");
+        assert!(palette_entries(&app, "").iter().all(|(_, shortcut)| shortcut != "Shift+L"), "no row advertises Shift+L");
+        for g in 0..GROUPS.len() {
+            assert!(tool_nodes(&app, g).iter().all(|n| n.item.label != "Arrow"), "toolbar group {g} lists Arrow");
+        }
+    }
+
+    #[test]
+    fn picking_the_hidden_arrow_tool_remembers_line_for_the_group() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        pick_tool(&mut app, Tool::Arrow);
+        assert_eq!(app.tool, Tool::Line);
+        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Line, "the shape button shows Line, never a stale Arrow");
     }
 
     #[test]

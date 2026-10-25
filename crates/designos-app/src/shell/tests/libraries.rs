@@ -301,11 +301,10 @@ fn publish_red(root: &Path) -> (Sim, String) {
     store.set_value(&n, &mode, VariableValue::Number(8.0));
     assert!(a.shell.app.commit_store(store, &[], &[]));
     a.shell.app.doc.styles.insert("Brand/Red".into(), Style::Fill(vec![Paint::solid(Color::rgb(255, 0, 0))]));
-    a.shell
-        .app
-        .doc
-        .style_meta
-        .insert("Brand/Red".into(), StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+    a.shell.app.doc.style_meta.insert(
+        "Brand/Red".into(),
+        StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+    );
     assert!(a.shell.app.publish_file());
     let lib_id = a.app().doc.library.published.clone().unwrap().library_id;
     (a, lib_id)
@@ -370,6 +369,62 @@ fn library_variables_bind_through_the_picker_in_one_undo_step() {
     b.key(Key::Z);
     b.mods = egui::Modifiers::NONE;
     assert_eq!(box_pixel(&b, id), [255, 0, 0]);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn library_variables_bind_to_a_style_through_the_picker_in_one_undo_step() {
+    let root = tmp("stylevarpick");
+    let (_a, lib_id) = publish_red(&root);
+    let (mut b, id) = consumer_with_rect(&root, &lib_id);
+    b.shell.app.doc.styles.insert("Card/Fill".into(), designos_doc::Style::Fill(vec![designos_doc::Paint::solid(designos_doc::Color::WHITE)]));
+    b.shell.app.doc.style_meta.insert(
+        "Card/Fill".into(),
+        designos_doc::StyleMeta {
+            name: "Card/Fill".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Fill,
+            bindings: Default::default(),
+        },
+    );
+    b.shell.app.apply_style(&[id], "Card/Fill");
+    b.shell.app.selection.clear();
+    frames(&mut b, 2);
+
+    b.scroll_inspector_down();
+    let row = b.rect_of("style:Card/Fill");
+    b.mv(row.center());
+    b.frame(vec![]);
+    let edit_btn = b.rect_of("style-edit:Card/Fill");
+    b.click(edit_btn.center());
+    b.frame(vec![]);
+
+    // Open the style variable picker for `fills/0` and pick the enabled library's `Brand/Red` variable.
+    let anchor = egui::Rect::from_min_size(Pos2::new(900.0, 200.0), Vec2::new(120.0, 24.0));
+    b.shell.app.vars.bind_picker = Some(crate::variables::BindPicker {
+        keys: vec!["fills/0".into()],
+        kind: designos_doc::VariableKind::Color,
+        nodes: Vec::new(),
+        style_key: Some("Card/Fill".into()),
+        anchor,
+        query: String::new(),
+    });
+    b.frame(vec![]);
+    let pick_rect = b.rect_of("pick:Brand/Red");
+    b.click(pick_rect.center());
+    b.frame(vec![]);
+
+    let local = b.app().doc.style_meta["Card/Fill"].bindings.get("fills/0").cloned().expect("style bound to imported library variable");
+    assert!(b.app().doc.variables.contains_key(&local), "imported local variable id {local} exists in doc.variables");
+    assert_eq!(b.app().doc.variables[&local].name, "Brand/Red");
+    assert_eq!(box_pixel(&b, id), [255, 0, 0], "linked layer renders the library variable's colour");
+
+    // One undo removes the style binding and the imported variable copy together.
+    b.cmd_key(Key::Z);
+    assert!(b.app().doc.style_meta["Card/Fill"].bindings.is_empty());
+    assert!(b.app().doc.variables.is_empty() && b.app().doc.variable_collections.is_empty());
+    assert_eq!(box_pixel(&b, id), [255, 255, 255]);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -470,5 +525,243 @@ fn shared_libraries_follow_the_projects_library_root_and_open_its_files() {
     s.shell.app.go_to_main(inst);
     assert_eq!(s.app().lib_file.as_ref().unwrap().id, home_file);
     assert!(!s.app().selection.is_empty(), "the main component is selected");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn go_to_main_component_waits_for_the_save_changes_question_and_does_not_navigate_in_the_old_document() {
+    let root = tmp("gotomainask");
+    let mut s = Sim::with(Options { library: Some(root.clone()), ..Default::default() });
+    let home_file = s.app().lib.as_ref().unwrap().all_files()[0].id.clone();
+    s.shell.app.open_library_file(&home_file);
+    assert!(s.shell.app.publish_file());
+    let lib_id = s.app().doc.library.published.clone().unwrap().library_id;
+    s.shell.app.flush_autosave();
+    // A document outside the library uses the library, and has edits no save has written (the dropped instance).
+    let mut consumer = designos_doc::Document::new("Consumer");
+    consumer.add_page("P");
+    s.shell.app.open_new_tab("Consumer", consumer, crate::tabs::ProjectTabKind::Design);
+    s.frame(vec![]);
+    assert!(s.app().lib_file.is_none(), "outside the library");
+    // A local component of the same name: what the search for the main component finds in this document, if it looks.
+    let local = {
+        let app = &mut s.shell.app;
+        let (page, id) = (app.page, app.doc.alloc_id());
+        let mut frame = designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 30.0));
+        frame.name = "Primary button".into();
+        let mut tx = crate::edit::Tx::new();
+        tx.cmd(&mut app.doc, Command::Insert { parent: page, index: 0, nodes: vec![frame] }).unwrap();
+        let make = designos_doc::create_component(&mut app.doc, id);
+        tx.cmd(&mut app.doc, make).unwrap();
+        app.run_tx(tx);
+        id
+    };
+    s.shell.app.set_library_enabled(&lib_id, true);
+    let key = {
+        let snap = s.shell.app.latest_snapshot(&lib_id).unwrap();
+        snap.assets.iter().find(|x| x.name == "Primary button").unwrap().key.clone()
+    };
+    let inst = s.shell.app.drop_library_asset(&lib_id, &key, designos_doc::Vec2::new(40.0, 40.0)).unwrap();
+    assert!(s.app().has_unsaved_edits());
+    let (page, selection) = (s.app().page, s.app().selection.clone());
+    s.shell.app.go_to_main(inst);
+    assert!(s.app().leave.is_asking(), "opening the main component's file asks first");
+    assert_eq!(s.app().doc.name, "Consumer", "the file is not open yet");
+    assert_eq!((s.app().page, s.app().selection.clone()), (page, selection), "and nothing was selected or shown in this document meanwhile");
+    assert!(!s.app().selection.contains(&local), "in particular not its own component of that name");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// File B holds an instance whose slot (limits `min`/`max`) already has one child; returns (slot, centre of the slot).
+fn slot_with_one_child_in_b(b: &mut Sim, max: u32) -> (NodeId, designos_doc::Vec2) {
+    slot_in_b(b, None, max, 1)
+}
+
+/// File B holds an instance whose slot has `fill` children; returns (slot, centre of the slot).
+fn slot_in_b(b: &mut Sim, min: Option<u32>, max: u32, fill: usize) -> (NodeId, designos_doc::Vec2) {
+    use designos_doc::{Node, Rect, SlotPropConfig, Vec2};
+    let app = &mut b.shell.app;
+    let page = app.page;
+    let run = |app: &mut App, cmd: Command| {
+        let mut tx = crate::edit::Tx::new();
+        tx.cmd(&mut app.doc, cmd).unwrap();
+        app.run_tx(tx);
+    };
+    let host = app.doc.alloc_id();
+    run(app, Command::Insert { parent: page, index: 0, nodes: vec![Node::frame(host, Rect::new(600.0, 100.0, 240.0, 120.0))] });
+    let slot_frame = app.doc.alloc_id();
+    let mut slot_node = Node::frame(slot_frame, Rect::new(10.0, 10.0, 160.0, 80.0));
+    slot_node.name = "Body".into();
+    run(app, Command::Insert { parent: host, index: 0, nodes: vec![slot_node] });
+    let cmd = designos_doc::create_component(&mut app.doc, host);
+    run(app, cmd);
+    let cmd = designos_doc::convert_to_slot(&mut app.doc, slot_frame);
+    run(app, cmd);
+    let cmd = designos_doc::set_slot_config(&mut app.doc, host, "Body", SlotPropConfig { min_children: min, max_children: Some(max), ..Default::default() });
+    run(app, cmd);
+    let cmd = designos_doc::create_instance(&mut app.doc, host, page, Vec2::new(900.0, 300.0));
+    run(app, cmd);
+    let inst = designos_doc::instances_of(&app.doc, host)[0];
+    let slot = *app.doc.get(inst).unwrap().children.iter().find(|c| app.doc.get(**c).unwrap().name == "Body").unwrap();
+    for _ in 0..fill {
+        let id = app.doc.alloc_id();
+        let child = Node::frame(id, Rect::new(0.0, 0.0, 20.0, 20.0));
+        let cmd = designos_doc::insert_into_slot(&mut app.doc, slot, 0, vec![child]).unwrap();
+        run(app, cmd);
+    }
+    app.toast = None;
+    let c = crate::util::rect_center(&crate::util::world_aabb(&app.doc, slot));
+    (slot, c)
+}
+
+fn primary_button_key(b: &mut Sim) -> (String, String) {
+    let lib_id = b.app().doc.library.enabled[0].id.clone();
+    let key = b.shell.app.latest_snapshot(&lib_id).unwrap().assets.iter().find(|x| x.name == "Primary button").unwrap().key.clone();
+    (lib_id, key)
+}
+
+#[test]
+fn a_library_drop_on_a_full_slot_is_refused_and_changes_nothing() {
+    let root = tmp("slot-drop-full");
+    let _a = publish_from_a(&root);
+    let mut b = enable_in_b(&root);
+    let (slot, at) = slot_with_one_child_in_b(&mut b, 1);
+    let (lib_id, key) = primary_button_key(&mut b);
+    let (nodes, kids) = (b.count(), b.app().doc.get(slot).unwrap().children.clone());
+    assert!(b.app().doc.library_page.is_none());
+    assert!(b.shell.app.drop_library_asset(&lib_id, &key, at).is_none());
+    // The import is rolled back: no imported component, no instance. (The empty hidden library page is
+    // created before the command runs and stays, as it does when an import is a no-op.)
+    let lib_page_kids = b.app().doc.library_page.and_then(|p| b.app().doc.get(p)).map_or(0, |p| p.children.len());
+    assert_eq!(lib_page_kids, 0, "no imported component is left behind");
+    assert_eq!(b.count(), nodes + usize::from(b.app().doc.library_page.is_some()), "no layer was added");
+    assert_eq!(b.app().doc.get(slot).unwrap().children, kids);
+    let toast = b.app().toast.as_ref().expect("toast");
+    assert!(toast.error && toast.text.contains("maximum"), "{}", toast.text);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_library_drop_on_a_slot_with_room_joins_it_and_marks_the_slot() {
+    let root = tmp("slot-drop-room");
+    let _a = publish_from_a(&root);
+    let mut b = enable_in_b(&root);
+    let (slot, at) = slot_with_one_child_in_b(&mut b, 2);
+    let (lib_id, key) = primary_button_key(&mut b);
+    let dropped = b.shell.app.drop_library_asset(&lib_id, &key, at).expect("dropped");
+    assert_eq!(b.app().doc.get(dropped).unwrap().parent, Some(slot));
+    assert_eq!(b.app().doc.get(slot).unwrap().children.len(), 2);
+    assert!(b.app().doc.get(slot).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_library_drop_into_an_empty_slot_below_its_min_is_allowed() {
+    let root = tmp("slot-drop-min");
+    let _a = publish_from_a(&root);
+    let mut b = enable_in_b(&root);
+    let (slot, at) = slot_in_b(&mut b, Some(2), 4, 0);
+    let (lib_id, key) = primary_button_key(&mut b);
+    let dropped = b.shell.app.drop_library_asset(&lib_id, &key, at).expect("the first of the two required children can be added");
+    assert_eq!(b.app().doc.get(slot).unwrap().children, vec![dropped]);
+    assert!(b.app().toast.as_ref().is_none_or(|t| !t.error), "no refusal toast");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn tiny_png() -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::new(4, 4).write_to(&mut out, image::ImageFormat::Png).expect("encode png");
+    out.into_inner()
+}
+
+/// File A publishes a button whose background is an image fill.
+fn publish_image_button_from_a(root: &Path) -> Sim {
+    let mut a = sim(root);
+    let main = a.by_name("Primary button");
+    let bg = *a.app().doc.get(main).unwrap().children.iter().find(|c| a.app().doc.get(**c).unwrap().name == "Bg").unwrap();
+    a.shell.app.doc.images.insert("pic".into(), tiny_png());
+    a.shell.app.edit_nodes(&[bg], |n| {
+        n.fills = vec![designos_doc::Paint {
+            kind: designos_doc::PaintKind::Image { image_ref: "pic".into(), scale_mode: designos_doc::ImageScaleMode::Fill },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
+        }]
+    });
+    a.shell.app.open_libraries();
+    frames(&mut a, 3);
+    let b = a.rect_of("lib-publish");
+    a.click(b.center());
+    frames(&mut a, 2);
+    a
+}
+
+#[test]
+fn a_refused_first_library_drop_stores_no_image_bytes() {
+    let root = tmp("slot-drop-images");
+    let _a = publish_image_button_from_a(&root);
+    let mut b = enable_in_b(&root);
+    let (slot, at) = slot_with_one_child_in_b(&mut b, 1);
+    let (lib_id, key) = primary_button_key(&mut b);
+    let snap = b.shell.app.latest_snapshot(&lib_id).unwrap();
+    assert!(!snap.images.is_empty(), "the published component carries its image");
+    let stored = b.app().doc.images.keys().cloned().collect::<Vec<_>>();
+    let kids = b.app().doc.get(slot).unwrap().children.clone();
+    assert!(b.shell.app.drop_library_asset(&lib_id, &key, at).is_none());
+    assert_eq!(b.app().doc.get(slot).unwrap().children, kids);
+    assert_eq!(b.app().doc.images.keys().cloned().collect::<Vec<_>>(), stored, "the refused import left no bytes in the file");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn an_allowed_first_library_drop_keeps_its_image_bytes() {
+    let root = tmp("slot-drop-images-ok");
+    let _a = publish_image_button_from_a(&root);
+    let mut b = enable_in_b(&root);
+    let (slot, at) = slot_in_b(&mut b, None, 2, 0);
+    let (lib_id, key) = primary_button_key(&mut b);
+    let dropped = b.shell.app.drop_library_asset(&lib_id, &key, at).expect("dropped");
+    assert_eq!(b.app().doc.get(dropped).unwrap().parent, Some(slot));
+    assert!(!b.app().doc.images.is_empty(), "the imported component keeps the image its fill refers to");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn branch_merge_applies_and_undoes_in_one_step() {
+    let root = tmp("branch-merge");
+    let mut s = sim(&root);
+    let lib = designos_library::Library::open(&root).unwrap();
+    let proj = lib.create_project("Product").unwrap();
+    let file = lib.create_file(&proj.id, None, "App", &s.shell.app.doc).unwrap();
+    let branch = lib.create_branch(&file.id, &s.shell.app.doc, "ui-polish", "Alice").unwrap();
+
+    let page = s.shell.app.doc.pages[0];
+    let mut branch_doc = lib.load_branch(&file.id, &branch.id).unwrap();
+
+    // Add colliding NodeIds on main and branch after branch point.
+    let m_id = s.shell.app.doc.alloc_id();
+    let mut m_rect = designos_doc::Node::rectangle(m_id, designos_doc::Rect::new(20.0, 20.0, 60.0, 40.0));
+    m_rect.name = "Main Banner".into();
+    s.shell.app.doc.insert(page, m_rect).unwrap();
+    lib.save_file(&file.id, &s.shell.app.doc).unwrap();
+
+    let b_id = branch_doc.alloc_id();
+    assert_eq!(m_id, b_id);
+    let mut b_rect = designos_doc::Node::rectangle(b_id, designos_doc::Rect::new(100.0, 20.0, 80.0, 40.0));
+    b_rect.name = "Branch Card".into();
+    branch_doc.insert(page, b_rect).unwrap();
+    lib.save_branch(&file.id, &branch.id, &branch_doc).unwrap();
+
+    let pre_merge_count = s.shell.app.doc.nodes.len();
+    let outcome = lib.merge_branch(&file.id, &branch.id, &mut s.shell.app.doc, &mut s.shell.app.hist, &designos_doc::Resolution::default()).unwrap();
+
+    assert_eq!(s.shell.app.doc.nodes.len(), pre_merge_count + 1);
+    assert!(designos_doc::validate_merged_references(&s.shell.app.doc).is_empty());
+    assert_eq!(outcome.branch.status, designos_library::BranchStatus::Merged { into_version: outcome.after_version.n });
+
+    // One undo in the app reverts the entire branch merge batch.
+    s.shell.app.undo();
+    assert_eq!(s.shell.app.doc.nodes.len(), pre_merge_count);
+
     let _ = std::fs::remove_dir_all(root);
 }

@@ -3,7 +3,7 @@ name = "designos-app"
 description = "DESIGN:OS Studio desktop editor"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 default-run = "designos-studio"
 
 [[bin]]
@@ -34,6 +34,8 @@ designos-fonts.workspace = true
 designos-export.workspace = true
 designos-svg.workspace = true
 designos-gpu.workspace = true
+designos-mcp.workspace = true
+designos-webcapture.workspace = true
 arboard = "3"
 eframe = "0.35.0"
 rfd = "0.17.2"
@@ -49,11 +51,17 @@ roxmltree = "0.20"
 egui = "0.35"
 resvg = { version = "0.45", default-features = false }
 portable-pty = "0.8"
+toml = "1"
 vt100 = "0.15"
+
+# macOS only: the app menu's Quit item (`src/macos_menu.rs`). The versions and the feature set are the ones eframe
+# already builds for the app icon, so no package is added to the build.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
 
 [build-dependencies]
 winresource = "0.1"
 
 [dev-dependencies]
 base64 = "0.22"
-designos-mcp.workspace = true

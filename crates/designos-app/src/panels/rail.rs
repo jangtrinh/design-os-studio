@@ -47,7 +47,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let r = ui.interact(mb, ui.id().with("rail-menu"), Sense::click());
     widgets::record(ui, "rail-menu", mb);
     let menu_open = app.ui.menu == Some(MenuKind::Main);
-    widgets::button_bg(&p, mb, &r, menu_open, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, mb, &r, menu_open, theme::cr(theme::RADIUS_CONTROL));
     let menu_fg = if r.hovered() || menu_open { theme::ICON } else { theme::ICON_SECONDARY };
     icons::paint(&p, Icon::ListView, mb.center(), 18.0, menu_fg);
     if r.clicked() {
@@ -74,9 +74,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         // Active item: 32x32 rounded tile behind the icon.
         let ic = Pos2::new(ir.center().x, ir.top() + theme::RAIL_ICON_CENTER_Y);
         if selected {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         let icon_col = if selected && *item == RailItem::Agents { theme::ICON_SELECTED } else { theme::ICON };
         match *item {
@@ -85,7 +85,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             RailItem::Tools => paint_tools_rail_box(&p, ic, icon_col),
             _ => icons::paint(&p, *icon, ic, theme::RAIL_ICON_SIZE, icon_col),
         }
-        let font = if selected { theme::font_small_strong() } else { theme::font_small() };
+        let font = if selected { theme::font_caption_strong() } else { theme::font_caption() };
         p.text(Pos2::new(ir.center().x, ir.top() + theme::RAIL_LABEL_CENTER_Y), Align2::CENTER_CENTER, *label, font, theme::TEXT);
         if resp.secondary_clicked() && *item == RailItem::File {
             toggle(app, MenuKind::FileMenu, ir);
@@ -116,13 +116,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                     app.ui.menu = None;
                 }
             } else if *item == RailItem::Agents {
-                if app.ui.rail == Some(RailItem::Agents) && !app.ui.left_collapsed {
-                    app.ui.rail = None;
-                } else {
-                    app.ui.rail = Some(RailItem::Agents);
-                    app.ui.left_collapsed = false;
-                    app.terminal.ensure_default_tab(app.file_path.as_deref());
-                }
+                app.toggle_agents_panel();
             } else if *item == RailItem::Specs {
                 if app.ui.rail == Some(RailItem::Specs) && app.specs.open {
                     app.ui.rail = None;
@@ -132,16 +126,6 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                     app.ui.left_collapsed = false;
                     app.specs.open = true;
                     app.specs.ensure_loaded();
-                }
-            } else if *item == RailItem::Tools {
-                if app.ui.rail == Some(RailItem::Tools) && !app.ui.left_collapsed {
-                    app.ui.rail = None;
-                    app.terminal.dock_open = false;
-                } else {
-                    app.ui.rail = Some(RailItem::Tools);
-                    app.ui.left_collapsed = false;
-                    app.terminal.dock_open = true;
-                    app.terminal.ensure_default_tab(app.file_path.as_deref());
                 }
             } else {
                 if *item == RailItem::Variables {
@@ -159,21 +143,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     }
 
-    // Bottom: Agent Terminal quick toggle (`>_`) + Figma Sync/Updates button with blue indicator dot.
-    let tr = Rect::from_min_size(
-        Pos2::new(rect.left() + theme::RAIL_MENU_BUTTON_X, rect.bottom() - 48.0 - theme::RAIL_MENU_BUTTON_SIZE),
-        Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE),
-    );
-    widgets::record(ui, "rail-terminal", tr);
-    if widgets::icon_button(ui, tr, "rail-terminal", Icon::Terminal, app.terminal.dock_open, "Agent Terminal (Claude / Codex / Shell)").clicked() {
-        app.terminal.dock_open = !app.terminal.dock_open;
-        if app.terminal.dock_open {
-            app.ui.rail = Some(RailItem::Agents);
-            app.ui.left_collapsed = false;
-            app.terminal.ensure_default_tab(app.file_path.as_deref());
-        }
-    }
-
+    // Bottom: Figma Sync/Updates button with blue indicator dot.
     let br = Rect::from_min_size(
         Pos2::new(rect.left() + theme::RAIL_MENU_BUTTON_X, rect.bottom() - 8.0 - theme::RAIL_MENU_BUTTON_SIZE),
         Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE),

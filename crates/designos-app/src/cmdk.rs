@@ -8,6 +8,8 @@
 //! - Concentric radii (`12px` outer dialog, `6px` inner rows and controls)
 //! - Semantic status pills (`OK #4CC58B`, `WARN #E0A53C`, `BAD #FF7A8C`, `INFO #8FB0FF`)
 
+use crate::app::App;
+use crate::edit::{Edit, Tx};
 use crate::icons::{self, Icon};
 use crate::terminal::{
     AgentCliPreset, STATUS_BAD_BG, STATUS_BAD_BORDER, STATUS_BAD_TEXT, STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT, STATUS_OK_BG, STATUS_OK_BORDER,
@@ -15,7 +17,7 @@ use crate::terminal::{
 };
 use crate::theme;
 use crate::widgets;
-use designos_doc::{Document, LayoutSpec, NodeId, NodeKind, NodeSpec, PaintKind};
+use designos_doc::{Command, Document, LayoutSpec, NodeId, NodeKind, NodeSpec, PaintKind};
 use egui::{Align2, Area, Color32, Context, CornerRadius, Id, Key, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 /// Persistent UI state for the floating `Cmd+K` Agent & Design Gate Bar.
@@ -79,6 +81,14 @@ fn take_pending_ai_op() -> Option<FigmaAiOp> {
     PENDING_AI_OP.lock().ok().and_then(|mut slot| slot.take())
 }
 
+/// Serializes the tests that queue or take the Figma AI operation. The slot is process-wide, so two such tests
+/// running at once could take each other's operation: every one of them holds this guard while it does.
+#[cfg(test)]
+pub(crate) fn ai_op_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Actions returned by `cmdk::show` for the host `App` / `Shell` to execute.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CmdKAction {
@@ -89,6 +99,8 @@ pub enum CmdKAction {
     ExportFig,
     SelectNode(NodeId),
     AutoFixDesignGate,
+    /// Opens the Check designs panel on the selection (or the page).
+    OpenCheckDesigns,
 }
 
 #[allow(non_upper_case_globals, non_snake_case)]
@@ -118,7 +130,7 @@ struct QuickCommandItem {
     keywords: &'static str,
 }
 
-const QUICK_COMMANDS: [QuickCommandItem; 11] = [
+const QUICK_COMMANDS: [QuickCommandItem; 12] = [
     QuickCommandItem {
         id: "cmdk-open-terminal",
         section: "Recents",
@@ -145,12 +157,12 @@ const QUICK_COMMANDS: [QuickCommandItem; 11] = [
         id: "cmdk-synth-spec",
         section: "Image editing",
         icon: Icon::Image,
-        title: "Make an image",
-        subtitle: "Synthesizes an EaseUI BrainWave 2.0 NodeSpec subtree with Auto-Layout & $easeui.* tokens",
+        title: "Insert example card",
+        subtitle: "EaseUI card with auto layout and tokens",
         badge: "AI",
         shortcut: "↵",
         tab_mask: 0b1011,
-        keywords: "make an image make design first draft generate create prompt card modal table pricing login hero sidebar console spec assets",
+        keywords: "insert example card template make an image make design first draft generate create prompt card modal table pricing login hero sidebar console spec assets",
     },
     QuickCommandItem {
         id: "cmdk-rename-layers",
@@ -208,11 +220,22 @@ const QUICK_COMMANDS: [QuickCommandItem; 11] = [
         keywords: "audit gate review vsf lint spacing tap target token readability plugin widget",
     },
     QuickCommandItem {
+        id: "cmdk-check-designs",
+        section: "Quality & Audit",
+        icon: Icon::Check,
+        title: "Check designs",
+        subtitle: "Finds hard-coded values that match a variable or style, WCAG AA contrast failures and detached instances, each with a one-click fix",
+        badge: "Audit",
+        shortcut: "",
+        tab_mask: 0b1000,
+        keywords: "check designs lint hard-coded hardcoded variable style bind contrast wcag detached instance reconnect fix all",
+    },
+    QuickCommandItem {
         id: "cmdk-send-selection",
         section: "Development",
         icon: Icon::Comment,
-        title: "Send Selection & Pin-Comments to Agent Terminal",
-        subtitle: "Exports selected frame to /tmp/designos-live-selection.spec.json and pipes into PTY stdin",
+        title: "Send selection to agent",
+        subtitle: "Sends the selected frame to the agent",
         badge: "Development",
         shortcut: "⇧⌘E",
         tab_mask: 0b0100,
@@ -233,7 +256,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 11] = [
         id: "cmdk-export-fig",
         section: "Assets",
         icon: Icon::Export,
-        title: "Save Local Figma .fig Binary Copy",
+        title: "Save .fig copy",
         subtitle: "Writes a 1:1 round-trip Figma kiwi binary snapshot of the current document",
         badge: "Assets",
         shortcut: "⇧⌘K",
@@ -327,9 +350,9 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
         let p = ui.painter().clone();
 
         // Outer modal: 12px radius + 1px `#383838` border + deep elevation shadow
-        widgets::elevation_400(&p, rect, 12);
-        p.rect_filled(rect, CornerRadius::same(12), CMDK_BG_SURFACE);
-        p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0, CMDK_BORDER), StrokeKind::Inside);
+        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), CMDK_BG_SURFACE);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, CMDK_BORDER), StrokeKind::Inside);
 
         // 1. Top Search Row (40px) — 1:1 `figma_ui3_actions_cmdk.png`:
         // Left search icon, clean borderless input (`Search`), right `Icon::Image` visual-search button.
@@ -345,7 +368,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             p.rect_filled(img_btn_r, CornerRadius::same(6), CMDK_BG_ROW_HOVER);
         }
         icons::paint(&p, Icon::Image, img_btn_r.center(), 14.0, theme::ICON_SECONDARY);
-        if img_resp.on_hover_text("Search with image or generate visual draft").clicked() {
+        if img_resp.on_hover_text("Insert example card").clicked() {
             let prompt = if state.query.trim().is_empty() { "pricing card" } else { state.query.trim() };
             let spec = synthesize_spec_from_prompt(prompt);
             state.status = Some(format!("Synthesized '{}' on Canvas", spec.name));
@@ -380,7 +403,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             "Design Gate: live VSF / EaseUI audit & 1-click auto-fix",
         ];
         for (t_idx, t_label) in ["All", "Assets", "Plugins & widgets", "Design Gate"].iter().enumerate() {
-            let tw = widgets::text_width(&p, t_label, &theme::font_body_semibold());
+            let tw = widgets::text_width(&p, t_label, &theme::font_body_strong());
             let tr = Rect::from_min_size(Pos2::new(tx, tab_row.top()), Vec2::new(tw + 8.0, tab_row.height()));
             let tresp = ui.interact(tr, Id::new(("cmdk-tab", t_idx)), Sense::click()).on_hover_text(tab_tips[t_idx]);
             let is_active = state.active_tab == t_idx;
@@ -388,7 +411,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                 tr.center(),
                 Align2::CENTER_CENTER,
                 *t_label,
-                if is_active { theme::font_body_semibold() } else { theme::font_body() },
+                if is_active { theme::font_body_strong() } else { theme::font_body() },
                 if is_active {
                     Color32::WHITE
                 } else if tresp.hovered() {
@@ -418,7 +441,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
             if sec != current_sec {
                 current_sec = sec;
-                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_small(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_SECONDARY);
                 row_y += 28.0;
             }
 
@@ -442,10 +465,10 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             );
 
             // Right-aligned rounded badge (`Development` or `AI` in `#383838` pill with `#B3B3B3` text)
-            let badge_w = widgets::text_width(&p, item.badge, &theme::font_small()) + 12.0;
+            let badge_w = widgets::text_width(&p, item.badge, &theme::font_caption()) + 12.0;
             let badge_r = Rect::from_min_size(Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - 9.0), Vec2::new(badge_w, 18.0));
             p.rect_filled(badge_r, CornerRadius::same(4), CMDK_BADGE_BG);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, item.badge, theme::font_small(), CMDK_BADGE_TEXT);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, item.badge, theme::font_caption(), CMDK_BADGE_TEXT);
 
             let title_str = widgets::elide(&p, item.title, &theme::font_body(), (badge_r.left() - row_rect.left() - 40.0).max(60.0));
             p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), Color32::WHITE);
@@ -461,22 +484,22 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                         state.open = false;
                         out_action = Some(CmdKAction::ApplySpec(Box::new(spec)));
                     }
+                    // The Figma AI rows leave the palette open: the shell closes it once the operation has committed
+                    // an undo step (its search field keeps Cmd+Z). A run that changes nothing or is refused leaves no
+                    // step to undo, and the open palette lets the user pick another action.
                     "cmdk-wire-prototype" => {
                         queue_pending_ai_op(FigmaAiOp::MakePrototype);
                         state.status = Some("Wired SmartAnimate prototype flows across frames".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::MakePrototype);
                     }
                     "cmdk-rename-layers" => {
                         queue_pending_ai_op(FigmaAiOp::BoostResolution);
                         state.status = Some("Boosted resolution, snapped integer bounds & renamed layers".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::BoostResolution);
                     }
                     "cmdk-semantic-rename" => {
                         queue_pending_ai_op(FigmaAiOp::RenameLayers);
                         state.status = Some("Renamed generic layers semantically".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::RenameLayers);
                     }
                     "cmdk-translate-vi" => {
@@ -490,13 +513,11 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                             TextAiMode::TranslateVi
                         };
                         state.status = Some(format!("Applied {:?} across selected layers", mode));
-                        state.open = false;
                         out_action = Some(CmdKAction::RewriteText(mode));
                     }
                     "cmdk-populate-content" => {
                         queue_pending_ai_op(FigmaAiOp::PopulateContent);
                         state.status = Some("Populated realistic SaaS content & metrics".into());
-                        state.open = false;
                         out_action = Some(CmdKAction::PopulateContent);
                     }
                     "cmdk-design-gate" => {
@@ -504,6 +525,10 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                         state.status =
                             Some(format!("Design Gate Score: {}/100 ({} warnings across {} nodes)", report.score, report.warnings.len(), report.node_count));
                         state.last_audit = Some(report);
+                    }
+                    "cmdk-check-designs" => {
+                        state.open = false;
+                        out_action = Some(CmdKAction::OpenCheckDesigns);
                     }
                     "cmdk-open-terminal" => {
                         state.status = Some("Opened live interactive Agent PTY CLI".into());
@@ -565,15 +590,16 @@ fn render_audit_section(
     let score_badge = Rect::from_min_size(Pos2::new(sec_rect.left() + 12.0, sec_rect.top() + 8.0), Vec2::new(86.0, 22.0));
     p.rect_filled(score_badge, CornerRadius::same(6), score_bg);
     p.rect_stroke(score_badge, CornerRadius::same(6), Stroke::new(1.0, score_border), StrokeKind::Inside);
-    p.text(score_badge.center(), Align2::CENTER_CENTER, format!("SCORE {}/100", audit.score), theme::font_small_strong(), score_fg);
+    p.text(score_badge.center(), Align2::CENTER_CENTER, format!("SCORE {}/100", audit.score), theme::font_caption_strong(), score_fg);
 
     let summary_txt = format!("{} passed • {} warnings ({} nodes audited)", audit.passed, audit.warnings.len(), audit.node_count);
-    let elided_sum = widgets::elide(p, &summary_txt, &theme::font_small_medium(), (sec_rect.width() - 320.0).max(60.0));
-    p.text(Pos2::new(score_badge.right() + 10.0, score_badge.center().y), Align2::LEFT_CENTER, elided_sum, theme::font_small_medium(), theme::TEXT_SECONDARY);
+    let elided_sum = widgets::elide(p, &summary_txt, &theme::font_caption_medium(), (sec_rect.width() - 320.0).max(60.0));
+    p.text(Pos2::new(score_badge.right() + 10.0, score_badge.center().y), Align2::LEFT_CENTER, elided_sum, theme::font_caption_medium(), theme::TEXT_SECONDARY);
 
     // 1-Click "Auto-Fix Spacing & Tap Targets" button with Sparkle vector icon
     let fix_w = 198.0;
     let fix_rect = Rect::from_min_size(Pos2::new(sec_rect.right() - fix_w - 12.0, sec_rect.top() + 8.0), Vec2::new(fix_w, 22.0));
+    widgets::record(ui, "cmdk-autofix-gate-btn", fix_rect);
     let fix_resp = ui.interact(fix_rect, Id::new("cmdk-autofix-gate-btn"), Sense::click());
     p.rect_filled(fix_rect, CornerRadius::same(6), if fix_resp.hovered() { TERM_BG_HOVER } else { STATUS_WARN_BG });
     p.rect_stroke(fix_rect, CornerRadius::same(6), Stroke::new(1.0, STATUS_WARN_BORDER), StrokeKind::Inside);
@@ -582,7 +608,7 @@ fn render_audit_section(
         Pos2::new(fix_rect.left() + 20.0, fix_rect.center().y),
         Align2::LEFT_CENTER,
         "Auto-Fix Spacing & Tap Targets",
-        theme::font_small_strong(),
+        theme::font_caption_strong(),
         STATUS_WARN_TEXT,
     );
     if fix_resp.clicked() {
@@ -596,23 +622,23 @@ fn render_audit_section(
         let focus_resp = ui.interact(focus_r, Id::new(("cmdk-issue-focus", idx, issue.node_id.0)), Sense::click());
         p.rect_filled(focus_r, CornerRadius::same(4), if focus_resp.hovered() { TERM_BG_HOVER } else { STATUS_INFO_BG });
         p.rect_stroke(focus_r, CornerRadius::same(4), Stroke::new(1.0, STATUS_INFO_BORDER), StrokeKind::Inside);
-        p.text(focus_r.center(), Align2::CENTER_CENTER, "Focus", theme::font_small_medium(), STATUS_INFO_TEXT);
+        p.text(focus_r.center(), Align2::CENTER_CENTER, "Focus", theme::font_caption_medium(), STATUS_INFO_TEXT);
         if focus_resp.clicked() {
             state.open = false;
             *out_action = Some(CmdKAction::SelectNode(issue.node_id));
         }
 
         let line = format!("[{}] {}: {}", issue.rule, issue.node_name, issue.detail);
-        let elided_line = widgets::elide(p, &line, &theme::font_small(), (sec_rect.width() - 80.0).max(60.0));
-        p.text(Pos2::new(sec_rect.left() + 12.0, iy + 10.0), Align2::LEFT_CENTER, elided_line, theme::font_small(), theme::TEXT);
+        let elided_line = widgets::elide(p, &line, &theme::font_caption(), (sec_rect.width() - 80.0).max(60.0));
+        p.text(Pos2::new(sec_rect.left() + 12.0, iy + 10.0), Align2::LEFT_CENTER, elided_line, theme::font_caption(), theme::TEXT);
         iy += 26.0;
     }
 
     *row_y += sec_h + 4.0;
 }
 
-/// Synthesizes a multi-node EaseUI BrainWave 2.0 `NodeSpec` subtree from a natural-language prompt.
-pub fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {
+/// Synthesizes a multi-node EaseUI BrainWave 2.0 `NodeSpec` template subtree from a natural-language prompt.
+fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {
     let raw = prompt.trim();
     let lower = raw.to_ascii_lowercase();
 
@@ -638,7 +664,7 @@ fn text_node(name: &str, text: &str, size: f32, weight: u16, color: &str) -> Nod
         kind: "text".into(),
         name: name.into(),
         text: Some(text.into()),
-        font_size: Some(size),
+        font_size: Some(size.into()),
         font_weight: Some(weight),
         text_color: Some(color.into()),
         ..Default::default()
@@ -673,13 +699,18 @@ fn synthesize_pricing_card(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Pro Pricing Card".into(),
         preset: Some("easeui-card".into()),
-        width: Some(380.0),
+        width: Some(380.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.orange".into()),
-        stroke_weight: Some(1.5),
-        corner_radius: Some(16.0),
+        stroke_weight: Some(1.5.into()),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [24.0, 24.0, 24.0, 24.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [24.0.into(), 24.0.into(), 24.0.into(), 24.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Tier Badge", "MOST POPULAR • BRAINWAVE 2.0", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Plan Title", "Studio Autonomous Pro", 22.0, 700, "$easeui.text.primary"),
@@ -698,12 +729,17 @@ fn synthesize_login_modal(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Auth Sign-In Modal".into(),
         preset: Some("easeui-card".into()),
-        width: Some(420.0),
+        width: Some(420.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border.subtle".into()),
-        corner_radius: Some(16.0),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [28.0, 28.0, 28.0, 28.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [28.0.into(), 28.0.into(), 28.0.into(), 28.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Auth Badge", "SSO • ZERO-TRUST WORKSPACE", "$easeui.accent.blue", "$easeui.text.primary"),
             text_node("Modal Heading", "Sign in to design:os studio", 20.0, 700, "$easeui.text.primary"),
@@ -737,12 +773,17 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Design Gate Audit Table".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(680.0),
+        width: Some(680.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Gate Status Badge", "VSF GATE G4 • 98/100 PASS", "$easeui.status.success", "$easeui.text.primary"),
             text_node("Table Title", "Live Agent & Design Gate Telemetry Log", 18.0, 700, "$easeui.text.primary"),
@@ -752,8 +793,13 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
                 preset: Some("easeui-row".into()),
                 width_sizing: Some("fill".into()),
                 fill: Some("$easeui.bg.surface".into()),
-                corner_radius: Some(8.0),
-                layout: Some(LayoutSpec { direction: "row".into(), gap: 16.0, padding: [12.0, 16.0, 12.0, 16.0], ..Default::default() }),
+                corner_radius: Some(8.0.into()),
+                layout: Some(LayoutSpec {
+                    direction: "row".into(),
+                    gap: 16.0.into(),
+                    padding: [12.0.into(), 16.0.into(), 12.0.into(), 16.0.into()],
+                    ..Default::default()
+                }),
                 children: vec![
                     badge_node("Pass Pill 1", "PASS", "$easeui.status.success", "$easeui.text.primary"),
                     text_node("Rule 1", "4px Spacing Rhythm & Auto-Layout 5.0 Grid", 13.0, 600, "$easeui.text.primary"),
@@ -766,8 +812,13 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
                 preset: Some("easeui-row".into()),
                 width_sizing: Some("fill".into()),
                 fill: Some("$easeui.bg.surface".into()),
-                corner_radius: Some(8.0),
-                layout: Some(LayoutSpec { direction: "row".into(), gap: 16.0, padding: [12.0, 16.0, 12.0, 16.0], ..Default::default() }),
+                corner_radius: Some(8.0.into()),
+                layout: Some(LayoutSpec {
+                    direction: "row".into(),
+                    gap: 16.0.into(),
+                    padding: [12.0.into(), 16.0.into(), 12.0.into(), 16.0.into()],
+                    ..Default::default()
+                }),
                 children: vec![
                     badge_node("Pass Pill 2", "PASS", "$easeui.accent.blue", "$easeui.text.primary"),
                     text_node("Rule 2", "100% $easeui.* Semantic Token Binding Coverage", 13.0, 600, "$easeui.text.primary"),
@@ -784,12 +835,17 @@ fn synthesize_agent_console(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Agent Console Panel".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(640.0),
+        width: Some(640.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.violet".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Agent Runtime Badge", "CLAUDE + CODEX + GROK PTY", "$easeui.accent.violet", "$easeui.text.primary"),
             text_node("Console Header", "Autonomous Design-to-Code Agent Bridge", 18.0, 700, "$easeui.text.primary"),
@@ -811,12 +867,17 @@ fn synthesize_sidebar_nav(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Sidebar Navigation".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(260.0),
+        width: Some(260.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 8.0, padding: [16.0, 16.0, 16.0, 16.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 8.0.into(),
+            padding: [16.0.into(), 16.0.into(), 16.0.into(), 16.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Workspace Pill", "design:os studio", "$easeui.accent.orange", "$easeui.text.primary"),
             button_node("Nav Item Canvas", "Canvas & Layers", true),
@@ -833,12 +894,17 @@ fn synthesize_hero_banner(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI BrainWave 2.0 Hero Banner".into(),
         preset: Some("easeui-card".into()),
-        width: Some(840.0),
+        width: Some(840.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.orange".into()),
-        corner_radius: Some(16.0),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [32.0, 32.0, 32.0, 32.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [32.0.into(), 32.0.into(), 32.0.into(), 32.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Hero Tag", "AGENT-NATIVE VECTOR & PRODUCT STUDIO", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Hero Headline", "Design, Audit, and Ship Production UI with Live Agent PTYs", 28.0, 700, "$easeui.text.primary"),
@@ -869,12 +935,17 @@ fn synthesize_custom_easeui_card(prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: format!("EaseUI — {title}"),
         preset: Some("easeui-card".into()),
-        width: Some(420.0),
+        width: Some(420.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border.subtle".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Spec Badge", "CMD+K SYNTHESIZED • EASEUI 2.0", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Card Title", &title, 18.0, 700, "$easeui.text.primary"),
@@ -983,12 +1054,122 @@ pub fn run_design_gate_audit(doc: &Document, page: NodeId, selection: &[NodeId])
     DesignGateReport { score: if warnings.is_empty() { 100 } else { score }, passed, warnings, node_count }
 }
 
+/// How a click on the palette's fix button ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoFixOutcome {
+    /// The operation changed the document and the change is one undo step. `op` is the Figma AI operation that
+    /// ran, or `None` for the design-gate fix; `count` is the number the operation reports.
+    Committed { op: Option<FigmaAiOp>, count: usize },
+    /// The operation ran and left the document as it was: no undo step, nothing to tell the agent.
+    NoChange,
+    /// The edit was refused (an old version is open, or the commit failed); [`App::run_tx`] has said why.
+    Refused,
+}
+
+/// The toast after a committed fix: it names the operation that ran and promises the undo that works.
+pub fn done_toast(op: Option<FigmaAiOp>) -> &'static str {
+    match op {
+        None => "Spacing and tap targets fixed · Cmd+Z to undo",
+        Some(FigmaAiOp::MakePrototype) => "Prototype flows wired · Cmd+Z to undo",
+        Some(FigmaAiOp::RenameLayers) => "Layers renamed · Cmd+Z to undo",
+        Some(FigmaAiOp::RewriteText(_)) => "Text rewritten · Cmd+Z to undo",
+        Some(FigmaAiOp::PopulateContent) => "Content replaced · Cmd+Z to undo",
+        Some(FigmaAiOp::BoostResolution) => "Resolution boosted · Cmd+Z to undo",
+    }
+}
+
+/// The frames the prototype wiring links, in order: the selected frames when two or more are selected, otherwise
+/// every frame on `page`. `None` when that leaves fewer than two frames, which leaves nothing to link.
+fn prototype_wiring_frames(doc: &Document, page: NodeId, selection: &[NodeId]) -> Option<Vec<NodeId>> {
+    let is_frame = |id: &NodeId| doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_)));
+    let selected: Vec<NodeId> = selection.iter().copied().filter(is_frame).collect();
+    let frames =
+        if selected.len() >= 2 { selected } else { doc.get(page).map(|pg| pg.children.iter().copied().filter(is_frame).collect()).unwrap_or_default() };
+    (frames.len() >= 2).then_some(frames)
+}
+
+/// Every node [`auto_fix_design_gate`] may write for `selection` (or the whole `page` when nothing is selected)
+/// when it runs `op`: the subtrees it walks. The prototype wiring walks the frames it links
+/// ([`prototype_wiring_frames`]) and what is in them, and nothing when there are fewer than two. A relayout only
+/// moves nodes below the one that changed, so the subtrees are the whole write set.
+fn auto_fix_scope(doc: &Document, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> Vec<NodeId> {
+    let roots: Vec<NodeId> = if op == Some(FigmaAiOp::MakePrototype) {
+        prototype_wiring_frames(doc, page, selection).unwrap_or_default()
+    } else if selection.is_empty() {
+        doc.get(page).map(|pg| pg.children.clone()).unwrap_or_default()
+    } else {
+        selection.to_vec()
+    };
+    let mut scope = Vec::new();
+    for root in roots {
+        collect_subtree(doc, root, &mut scope);
+    }
+    scope
+}
+
+/// Runs `op` (the design-gate fix when `None`) on `doc` and leaves `ed` holding exactly the nodes it changed.
+/// The operations write straight into the document, so each node they may write is recorded before they run,
+/// and the ones they left as they were are dropped afterwards: the undo step, the transaction's bookkeeping and
+/// the record of the user's edits then only handle what changed, not the whole page. Returns the operation's count.
+///
+/// The operations also solve auto layout on the live document, which moves the layout epoch inside the
+/// transaction. The edit takes the epoch again once they are done, so the step can be recorded as holding its own
+/// layout and undo and redo replay it as stored. That is sound because every layout write an operation makes lies
+/// under a root recorded before it ran: `auto_fix_scope` records the subtrees an operation walks first, and
+/// `Document::relayout_subtree(r)` writes only `r` and what is below it. Layout written after this returns, while
+/// the transaction commits, is not vouched for: if it moves the epoch the step stays unrecorded and undo solves
+/// layout again. Nor is layout that was already queued when the operation started: a node it solves from that
+/// queue has its unsolved state recorded, which no edit of this step wrote, so such a run keeps the epoch it
+/// opened at and its step is left to the solve on undo.
+fn run_recorded(doc: &mut Document, ed: &mut Edit, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> usize {
+    for id in auto_fix_scope(doc, page, selection, op) {
+        ed.touch(doc, id);
+    }
+    let queue_was_idle = doc.pending_relayout().is_empty();
+    let count = auto_fix_design_gate(doc, page, selection, op);
+    ed.retain_changed(doc);
+    if queue_was_idle {
+        ed.rebase_layout_epoch(doc);
+    }
+    count
+}
+
+/// Runs the queued Figma AI operation, or the design-gate fix when none is queued, as one undo step through
+/// [`App::run_tx`]. The prototype flows, which belong to the document and not to a node, go through their own
+/// command.
+pub fn run_auto_fix_design_gate(app: &mut App) -> AutoFixOutcome {
+    let op = take_pending_ai_op();
+    let selection = app.selection.clone();
+    let page = app.page;
+    if op == Some(FigmaAiOp::MakePrototype) && prototype_wiring_frames(&app.doc, page, &selection).is_none() {
+        // Fewer than two frames to link: decided before anything is recorded, which on a large page clones all of it.
+        return AutoFixOutcome::NoChange;
+    }
+    let mut tx = Tx::new();
+    let flows_before = app.doc.flows.clone();
+    let count = run_recorded(&mut app.doc, &mut tx.ed, page, &selection, op);
+    if app.doc.flows != flows_before {
+        let flows = std::mem::replace(&mut app.doc.flows, flows_before);
+        tx.cmd(&mut app.doc, Command::SetFlows { flows }).expect("SetFlows swaps the flow list and cannot fail");
+    } else if tx.ed.before_nodes().is_empty() {
+        // Everything the operation wrote equals what was there and no flow moved: there is no edit to run, so
+        // nothing is committed, redrawn or toasted here and what is on screen stays.
+        return AutoFixOutcome::NoChange;
+    }
+    if app.run_tx(tx) {
+        AutoFixOutcome::Committed { op, count }
+    } else {
+        // `run_tx` refused it (an old version is open, or the commit failed) and has said why.
+        AutoFixOutcome::Refused
+    }
+}
+
 /// Auto-fixes spacing rhythm (snaps `item_spacing` and `padding` to nearest 4px multiple),
 /// enlarges interactive buttons/inputs `<32px` up to `32px`, and raises `<11px` text to `11px`
-/// (or executes a queued `FigmaAiOp` when triggered from a Figma AI `CmdKAction`).
+/// (or runs `op`, the Figma AI operation the palette queued).
 /// Returns the number of modified nodes.
-pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeId]) -> usize {
-    if let Some(op) = take_pending_ai_op() {
+pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeId], op: Option<FigmaAiOp>) -> usize {
+    if let Some(op) = op {
         return match op {
             FigmaAiOp::MakePrototype => auto_wire_prototype_flows(doc, page, selection),
             FigmaAiOp::RenameLayers => auto_rename_layers_semantically(doc, page, selection),
@@ -1066,22 +1247,9 @@ pub fn auto_fix_design_gate(doc: &mut Document, page: NodeId, selection: &[NodeI
 pub fn auto_wire_prototype_flows(doc: &mut Document, page: NodeId, selection: &[NodeId]) -> usize {
     use designos_doc::{Action, Easing, Flow, Reaction, Transition, TransitionKind, Trigger};
 
-    let selected_frames: Vec<NodeId> = selection.iter().copied().filter(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_)))).collect();
-
-    let frames: Vec<NodeId> = if selected_frames.len() >= 2 {
-        selected_frames
-    } else {
-        doc.get(page)
-            .map(|pg| pg.children.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&id| doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Frame(_))))
-            .collect()
-    };
-
-    if frames.len() < 2 {
+    let Some(frames) = prototype_wiring_frames(doc, page, selection) else {
         return 0;
-    }
+    };
 
     let mut wired = 0usize;
     for i in 0..frames.len() {
@@ -1552,13 +1720,179 @@ mod tests {
         assert!(report.warnings.iter().any(|w| w.rule == "Token Compliance"));
         assert!(report.warnings.iter().any(|w| w.rule == "Text Readability (>=11px)"));
 
-        let fixed = auto_fix_design_gate(&mut doc, page, &[]);
+        let fixed = auto_fix_design_gate(&mut doc, page, &[], None);
         assert!(fixed >= 2);
 
         let after = run_design_gate_audit(&doc, page, &[]);
         assert!(!after.warnings.iter().any(|w| w.rule == "Spacing Rhythm (4px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Tap Target (>=32px)"));
         assert!(!after.warnings.iter().any(|w| w.rule == "Text Readability (>=11px)"));
+    }
+
+    /// A page the fixes can change in several places and leave alone in others: a screen with a small button,
+    /// small copy, a generic name and a fractional position; a screen of crisp, well-named shapes; a toolbar on a
+    /// 7px rhythm whose children move when it snaps; and a placeholder text. Returns the layers no operation writes.
+    fn page_with_untouched_layers() -> (Document, NodeId, Vec<NodeId>) {
+        let mut doc = Document::new("Write set");
+        let page = doc.add_page("Page 1");
+
+        let first = doc.alloc_id();
+        let mut frame = Node::frame(first, Rect::new(0.0, 0.4, 320.0, 240.0));
+        frame.name = "Frame 1".into();
+        doc.insert(page, frame).unwrap();
+        let button = doc.alloc_id();
+        let mut btn = Node::frame(button, Rect::new(16.0, 180.0, 140.0, 24.0));
+        btn.name = "Primary Button".into();
+        doc.insert(first, btn).unwrap();
+        let copy = doc.alloc_id();
+        doc.insert(first, Node::text(copy, Rect::new(16.0, 20.0, 120.0, 12.0), "Welcome back", TextStyle { font_size: 9.0, ..TextStyle::default() })).unwrap();
+
+        let second = doc.alloc_id();
+        let mut screen = Node::frame(second, Rect::new(400.0, 0.0, 320.0, 240.0));
+        screen.name = "Onboarding".into();
+        doc.insert(page, screen).unwrap();
+        let card = doc.alloc_id();
+        let mut c = Node::rectangle(card, Rect::new(16.0, 16.0, 100.0, 100.0));
+        c.name = "Card".into();
+        doc.insert(second, c).unwrap();
+        let divider = doc.alloc_id();
+        let mut d = Node::rectangle(divider, Rect::new(16.0, 130.0, 100.0, 2.0));
+        d.name = "Divider".into();
+        doc.insert(second, d).unwrap();
+
+        let toolbar = doc.alloc_id();
+        let mut tb = Node::frame(toolbar, Rect::new(800.0, 0.0, 400.0, 60.0));
+        tb.name = "Toolbar".into();
+        if let Some(fp) = tb.kind.frame_props_mut() {
+            fp.auto_layout = Some(AutoLayout { item_spacing: 7.0, padding: [5.0, 12.0, 5.0, 12.0], ..Default::default() });
+        }
+        doc.insert(page, tb).unwrap();
+        for (name, w) in [("Save Button", 120.0), ("Tail", 40.0)] {
+            let id = doc.alloc_id();
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, w, 24.0));
+            n.name = name.into();
+            doc.insert(toolbar, n).unwrap();
+        }
+        // a saved file already holds an auto-layout frame's children where the layout puts them
+        doc.relayout_subtree(toolbar);
+
+        let placeholder = doc.alloc_id();
+        let mut ph = Node::text(placeholder, Rect::new(0.0, 300.0, 120.0, 20.0), "$0", TextStyle::default());
+        ph.name = "Text 4".into();
+        doc.insert(page, ph).unwrap();
+        (doc, page, vec![card, divider])
+    }
+
+    #[test]
+    fn every_operation_records_exactly_the_nodes_it_writes() {
+        use std::collections::BTreeSet;
+        let ops = [
+            ("design-gate fix", None),
+            ("prototype wiring", Some(FigmaAiOp::MakePrototype)),
+            ("layer rename", Some(FigmaAiOp::RenameLayers)),
+            ("text rewrite", Some(FigmaAiOp::RewriteText(TextAiMode::TranslateVi))),
+            ("content replace", Some(FigmaAiOp::PopulateContent)),
+            ("resolution boost", Some(FigmaAiOp::BoostResolution)),
+        ];
+        for (what, op) in ops {
+            let (mut doc, page, untouched) = page_with_untouched_layers();
+            let before = doc.nodes.clone();
+            let mut ed = Edit::new();
+
+            run_recorded(&mut doc, &mut ed, page, &[], op);
+
+            let changed: BTreeSet<NodeId> = before.iter().filter(|(id, n)| doc.nodes.get(id) != Some(n)).map(|(id, _)| *id).collect();
+            let touched: BTreeSet<NodeId> = ed.touched().into_iter().collect();
+            assert!(!changed.is_empty(), "{what} has something to do on the fixture");
+            let names = |ids: BTreeSet<NodeId>| ids.iter().map(|id| before[id].name.clone()).collect::<Vec<_>>();
+            assert!(
+                changed.is_subset(&touched),
+                "{what} wrote layers it did not record, so undo would miss them: {:?}",
+                names(changed.difference(&touched).copied().collect())
+            );
+            assert_eq!(touched, changed, "{what} recorded layers it never wrote: {:?}", names(touched.difference(&changed).copied().collect()));
+            for id in untouched {
+                assert!(!touched.contains(&id), "{what} recorded the untouched layer {:?}", before[&id].name);
+            }
+        }
+    }
+
+    #[test]
+    fn the_recorded_scope_is_the_selection_unless_nothing_is_selected_or_frames_are_wired() {
+        use std::collections::BTreeSet;
+        let (doc, page, _) = page_with_untouched_layers();
+        let set = |ids: Vec<NodeId>| ids.into_iter().collect::<BTreeSet<_>>();
+        let first = doc.get(page).unwrap().children[0];
+        let first_subtree = set(std::iter::once(first).chain(doc.get(first).unwrap().children.iter().copied()).collect());
+        let whole_page = set(doc.nodes.iter().filter(|(_, n)| !matches!(n.kind, NodeKind::Page { .. })).map(|(id, _)| *id).collect());
+
+        assert_eq!(
+            set(auto_fix_scope(&doc, page, &[first], None)),
+            first_subtree,
+            "a selected screen records that screen and what is in it, not the rest of the page"
+        );
+        assert_eq!(set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::RenameLayers))), first_subtree);
+        assert_eq!(set(auto_fix_scope(&doc, page, &[], None)), whole_page, "with nothing selected the fix walks the whole page");
+        let page_frames: Vec<NodeId> =
+            doc.get(page).unwrap().children.iter().copied().filter(|id| matches!(doc.get(*id).unwrap().kind, NodeKind::Frame(_))).collect();
+        let frames_of_the_page = subtree_of(&doc, &page_frames);
+        assert_ne!(frames_of_the_page, whole_page, "precondition: the page also holds copy outside every frame");
+        assert_eq!(
+            set(auto_fix_scope(&doc, page, &[first], Some(FigmaAiOp::MakePrototype))),
+            frames_of_the_page,
+            "wiring takes every frame of the page, and what is in them, when fewer than two are selected"
+        );
+    }
+
+    fn subtree_of(doc: &Document, roots: &[NodeId]) -> std::collections::BTreeSet<NodeId> {
+        let mut out = Vec::new();
+        for &r in roots {
+            collect_subtree(doc, r, &mut out);
+        }
+        out.into_iter().collect()
+    }
+
+    #[test]
+    fn wiring_two_or_more_selected_frames_records_only_those_frames_and_what_is_in_them() {
+        let (doc, page, _) = page_with_untouched_layers();
+        let kids = doc.get(page).unwrap().children.clone();
+        let (first, second, toolbar, placeholder) = (kids[0], kids[1], kids[2], kids[3]);
+        assert!(matches!(doc.get(placeholder).unwrap().kind, NodeKind::Text(_)), "precondition: the last layer on the page is copy, not a frame");
+
+        let scope =
+            |selection: &[NodeId]| auto_fix_scope(&doc, page, selection, Some(FigmaAiOp::MakePrototype)).into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            scope(&[first, second]),
+            subtree_of(&doc, &[first, second]),
+            "two selected frames: those frames and what is in them, nothing else on the page"
+        );
+        assert_eq!(scope(&[second, toolbar, first]), subtree_of(&doc, &[first, second, toolbar]), "three selected frames");
+        assert_eq!(
+            scope(&[first, placeholder]),
+            subtree_of(&doc, &[first, second, toolbar]),
+            "copy is not a frame, so one selected frame plus a text still wires the page's frames"
+        );
+    }
+
+    #[test]
+    fn wiring_with_fewer_than_two_frames_has_nothing_to_record() {
+        let mut doc = Document::new("One frame");
+        let page = doc.add_page("Page 1");
+        let frame = doc.alloc_id();
+        doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let label = doc.alloc_id();
+        doc.insert(frame, Node::text(label, Rect::new(0.0, 0.0, 80.0, 20.0), "Hello", TextStyle::default())).unwrap();
+        let loose = doc.alloc_id();
+        doc.insert(page, Node::text(loose, Rect::new(400.0, 0.0, 80.0, 20.0), "Loose", TextStyle::default())).unwrap();
+
+        for selection in [vec![], vec![frame], vec![frame, loose]] {
+            assert!(
+                auto_fix_scope(&doc, page, &selection, Some(FigmaAiOp::MakePrototype)).is_empty(),
+                "one frame on the page and {} selected: nothing to link, so nothing to record",
+                selection.len()
+            );
+        }
+        assert!(!auto_fix_scope(&doc, page, &[], Some(FigmaAiOp::RenameLayers)).is_empty(), "the other operations still record what they walk");
     }
 
     #[test]
@@ -1636,11 +1970,18 @@ mod tests {
         assert_eq!(all_tab_items[1].title, "Replace content");
         assert_eq!(all_tab_items[1].badge, "AI");
         assert_eq!(all_tab_items[2].section, "Image editing");
-        assert_eq!(all_tab_items[2].title, "Make an image");
+        assert_eq!(all_tab_items[2].title, "Insert example card");
         assert_eq!(all_tab_items[2].badge, "AI");
         assert_eq!(all_tab_items[3].title, "Boost resolution");
         assert_eq!(all_tab_items[4].title, "Edit image with prompt");
         assert!(QUICK_COMMANDS.iter().all(|item| item.title != "Remove background"), "the fake fill-strip entry must stay removed");
+    }
+
+    #[test]
+    fn the_palette_names_the_fig_export_like_the_file_menu() {
+        let item = QUICK_COMMANDS.iter().find(|item| item.id == "cmdk-export-fig").expect("the .fig export entry");
+        assert_eq!(item.title, "Save .fig copy", "one action, one name: the File menu says the same");
+        assert!(item.title.split_whitespace().count() <= 3, "an action label is 3 words or fewer");
     }
 
     #[test]

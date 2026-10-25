@@ -105,19 +105,7 @@ pub fn collect_colors(doc: &Document, root: NodeId) -> Vec<ColorEntry> {
     out
 }
 
-pub fn weight_name(w: u16) -> &'static str {
-    match w {
-        0..=149 => "Thin",
-        150..=249 => "ExtraLight",
-        250..=349 => "Light",
-        350..=449 => "Regular",
-        450..=549 => "Medium",
-        550..=649 => "SemiBold",
-        650..=749 => "Bold",
-        750..=849 => "ExtraBold",
-        _ => "Black",
-    }
-}
+pub use designos_export::design_context::weight_name;
 
 /// Label/value pairs describing a text style.
 pub fn typography_rows(t: &TextProps) -> Vec<(&'static str, String)> {
@@ -229,7 +217,7 @@ pub(crate) fn copy(app: &mut App, ui: &Ui, text: String, what: &str) {
 pub(crate) fn small_button(ui: &mut Ui, rect: Rect, key: impl widgets::Key, label: &str) -> bool {
     widgets::record(ui, &format!("btn-{key:?}"), rect);
     let r = ui.interact(rect, ui.id().with(("insp-btn", key)), Sense::click());
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), theme::TEXT);
     r.clicked()
 }
@@ -261,7 +249,7 @@ pub(crate) fn kv(ui: &mut Ui, app: &mut App, c: &mut Cur, label: &str, value: &s
     let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, ROW_H);
     let resp = ui.interact(r, ui.id().with(("insp-kv", label)), Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     }
     ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT_SECONDARY);
     let val_font = if is_numeric_or_technical_value(value) { theme::font_mono() } else { theme::font_body() };
@@ -283,6 +271,10 @@ fn ext_for(bytes: &[u8]) -> &'static str {
 }
 
 pub(crate) fn download(app: &mut App, id: NodeId, asset: &Asset) {
+    download_with(app, id, asset, &crate::io::SystemDialogs);
+}
+
+pub(crate) fn download_with(app: &mut App, id: NodeId, asset: &Asset, dialogs: &dyn crate::io::FileDialogs) {
     let name = app.doc.get(id).map(|n| designos_export::sanitize_file_name(&n.name)).unwrap_or_else(|| "asset".into());
     let (file, bytes, label, ext): (String, Vec<u8>, &str, &str) = match asset {
         Asset::Image(r) => {
@@ -299,7 +291,14 @@ pub(crate) fn download(app: &mut App, id: NodeId, asset: &Asset) {
         app.show_toast("Nothing to download", true);
         return;
     }
-    let Some(path) = rfd::FileDialog::new().add_filter(label, &[ext]).set_file_name(file).save_file() else { return };
+    let path = match dialogs.pick(&crate::io::FileRequest::save(file.as_str()).filter(label, &[ext])) {
+        crate::io::DialogOutcome::Picked(path) => path,
+        crate::io::DialogOutcome::Cancelled => return,
+        crate::io::DialogOutcome::Unavailable => {
+            app.save_without_dialog(dialogs, &file, &bytes);
+            return;
+        }
+    };
     match std::fs::write(&path, bytes) {
         Ok(()) => app.show_toast(format!("Saved {}", path.display()), false),
         Err(e) => app.show_toast(format!("Download failed: {e}"), true),
@@ -358,7 +357,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let code_resp = ui.interact(code_r, ui.id().with("dev-inspect-code"), Sense::click());
     icons::paint(ui.painter(), Icon::Dev, code_r.center(), 13.0, if code_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY });
     if code_resp.on_hover_text("Copy active language snippet").clicked() {
-        let snippet = app.dev.lang.generate(&app.doc, id, app.dev.react_tailwind);
+        let snippet = app.dev_code_for(id, app.dev.lang, app.dev.react_tailwind);
         copy(app, ui, snippet, app.dev.lang.label());
     }
 
@@ -369,23 +368,24 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         more_r.center(),
         Align2::CENTER_CENTER,
         "•••",
-        theme::font_small_strong(),
+        theme::font_caption_strong(),
         if more_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY },
     );
     if more_resp.on_hover_text("Copy full multi-language code bundle (CSS + React + SwiftUI + UIKit + Compose + Android XML)").clicked() {
         let bundle = format!(
             "/* === CSS === */\n{}\n\n// === React ===\n{}\n\n// === SwiftUI ===\n{}\n\n// === UIKit ===\n{}\n\n// === Compose ===\n{}\n\n<!-- === Android XML === -->\n{}",
-            crate::dev::Language::Css.generate(&app.doc, id, false),
-            crate::dev::Language::React.generate(&app.doc, id, app.dev.react_tailwind),
-            crate::dev::Language::SwiftUi.generate(&app.doc, id, false),
-            crate::dev::Language::UiKit.generate(&app.doc, id, false),
-            crate::dev::Language::Compose.generate(&app.doc, id, false),
-            crate::dev::Language::AndroidXml.generate(&app.doc, id, false),
+            app.dev_code_for(id, crate::dev::Language::Css, false),
+            app.dev_code_for(id, crate::dev::Language::React, app.dev.react_tailwind),
+            app.dev_code_for(id, crate::dev::Language::SwiftUi, false),
+            app.dev_code_for(id, crate::dev::Language::UiKit, false),
+            app.dev_code_for(id, crate::dev::Language::Compose, false),
+            app.dev_code_for(id, crate::dev::Language::AndroidXml, false),
         );
         copy(app, ui, bundle, "multi-language code bundle");
     }
     c.y += 24.0;
-    let sub = if count > 1 { format!("{} · {} layers selected, showing the first", kind_label(&n.kind), count) } else { kind_label(&n.kind).to_string() };
+    let base_kind = if n.component.is_slot || is_slot_container(&app.doc, id) { "Slot" } else { kind_label(&n.kind) };
+    let sub = if count > 1 { format!("{base_kind} · {count} layers selected, showing the first") } else { base_kind.to_string() };
     let sub_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 18.0);
     let kind_ic = match &n.kind {
         NodeKind::Section => Icon::Section,
@@ -524,7 +524,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         pill_r.center(),
         Align2::CENTER_CENTER,
         if is_connected { "Connected" } else { "Not started" },
-        theme::font_small(),
+        theme::font_caption(),
         if is_connected { Color32::from_rgb(0x4A, 0xDE, 0x80) } else { Color32::from_rgb(0xB3, 0xB3, 0xB3) },
     );
     if cc_resp.on_hover_text("Click to generate & copy design:os Code Connect snippet").clicked() {
@@ -553,12 +553,12 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     c.y += cc_h + 8.0;
 
     let cc_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 26.0);
-    if small_button(ui, cc_r, "code-connect-terminal", "Send to Agent Terminal") {
+    if small_button(ui, cc_r, "code-connect-terminal", "Send to agent") {
         match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
-            Ok(p) => app.show_toast(format!("Sent selection to Agent Terminal ({})", p.display()), false),
+            Ok(_) => app.show_toast("Sent selection to agent", false),
             Err(e) => app.show_toast(e, true),
         }
-        app.terminal.dock_open = true;
+        app.show_agents_panel();
     }
     c.y += 32.0;
 
@@ -620,7 +620,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
                     Pos2::new(sub_r.left(), sub_r.center().y),
                     Align2::LEFT_CENTER,
                     group_label,
-                    theme::font_small_strong(),
+                    theme::font_caption_strong(),
                     Color32::from_rgb(0x8C, 0x8C, 0x8C),
                 );
                 c.y += 20.0;
@@ -629,7 +629,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
             widgets::record(ui, &format!("dev-copy-color-{i}"), r);
             let resp = ui.interact(r, ui.id().with(("insp-color", i)), Sense::click());
             if resp.hovered() {
-                ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             }
             let sw = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 8.0), Vec2::splat(16.0));
             widgets::swatch(ui.painter(), sw, c32(&e.color.with_alpha(1.0), e.opacity));
@@ -637,15 +637,15 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
             let pct_str = format!("{}%", (e.opacity * 100.0).round() as i32);
             let label = elide(ui.painter(), &value, &theme::font_body(), r.width() - 60.0);
             ui.painter().text(Pos2::new(sw.right() + 8.0, r.top() + 12.0), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
-            ui.painter().text(Pos2::new(r.right(), r.top() + 12.0), Align2::RIGHT_CENTER, pct_str, theme::font_small(), theme::TEXT_SECONDARY);
+            ui.painter().text(Pos2::new(r.right(), r.top() + 12.0), Align2::RIGHT_CENTER, pct_str, theme::font_caption(), theme::TEXT_SECONDARY);
             let detail = match &e.style {
                 Some(s) => format!("{} · {}", e.role, s),
                 None => e.role.to_string(),
             };
-            let detail = elide(ui.painter(), &detail, &theme::font_small(), r.width() - 64.0);
-            ui.painter().text(Pos2::new(sw.right() + 8.0, r.top() + 31.0), Align2::LEFT_CENTER, detail, theme::font_small(), theme::TEXT_SECONDARY);
+            let detail = elide(ui.painter(), &detail, &theme::font_caption(), r.width() - 64.0);
+            ui.painter().text(Pos2::new(sw.right() + 8.0, r.top() + 31.0), Align2::LEFT_CENTER, detail, theme::font_caption(), theme::TEXT_SECONDARY);
             if resp.hovered() {
-                ui.painter().text(Pos2::new(r.right(), r.top() + 31.0), Align2::RIGHT_CENTER, "Copy", theme::font_small(), theme::TEXT_SECONDARY);
+                ui.painter().text(Pos2::new(r.right(), r.top() + 31.0), Align2::RIGHT_CENTER, "Copy", theme::font_caption(), theme::TEXT_SECONDARY);
             }
             if resp.clicked() {
                 copy(app, ui, value.clone(), "color");
@@ -682,7 +682,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         widgets::record(ui, "dev-typography-style", style_r);
         let style_resp = ui.interact(style_r, ui.id().with("dev-typography-style"), Sense::click());
         if style_resp.hovered() {
-            ui.painter().rect_filled(style_r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(style_r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         }
         ui.painter().text(Pos2::new(style_r.left(), style_r.center().y), Align2::LEFT_CENTER, "Style", theme::font_body(), theme::TEXT_SECONDARY);
         ui.painter().text(Pos2::new(style_r.left() + 100.0, style_r.center().y), Align2::LEFT_CENTER, &style_name, theme::font_body_strong(), theme::TEXT);
@@ -816,10 +816,10 @@ pub fn measure_overlay(app: &App, ui: &Ui, rect: Rect) {
         }
         let mid = Pos2::new((s0.x + s1.x) / 2.0, (s0.y + s1.y) / 2.0);
         let label = fmt_num((g.value * 10.0).round() / 10.0);
-        let font = theme::font_small_medium();
+        let font = theme::font_caption_medium();
         let w = text_width(&p, &label, &font) + 10.0;
         let pill = Rect::from_center_size(mid + if horizontal { Vec2::new(0.0, -14.0) } else { Vec2::new(18.0 + w / 2.0, 0.0) }, Vec2::new(w, 16.0));
-        p.rect_filled(pill, theme::cr(theme::RADIUS_SMALL), MEASURE);
+        p.rect_filled(pill, theme::cr(theme::RADIUS_MARK), MEASURE);
         p.text(pill.center(), Align2::CENTER_CENTER, label, font, Color32::WHITE);
     }
 }
@@ -911,6 +911,7 @@ mod tests {
                 variables: vec!["background".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         d.variables.insert(
@@ -927,6 +928,8 @@ mod tests {
                 key: None,
 
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         assert_eq!(collect_colors(&d, id)[0].hex(), "#FFFFFF");

@@ -87,8 +87,19 @@ impl App {
                 n.style_refs.insert("stroke".into(), key.into());
             }
             Style::Fill(paints) => {
+                // The style's paints replace the layer's, so a variable bound to the old ones (and a
+                // previous fill style link) must go in the same edit; left in place the canvas would
+                // keep drawing the variable's colour over the style. This runs before the new link is set.
+                detach_fill_paints(n);
                 match &mut n.kind {
-                    NodeKind::Text(t) => t.style.fills = paints.clone(),
+                    NodeKind::Text(t) => {
+                        // Runs carry their own colour; a colour style recolours them all, as
+                        // `apply_style_values` does when the linked style is edited.
+                        t.style.fills = paints.clone();
+                        for r in &mut t.runs {
+                            r.style.fills = paints.clone();
+                        }
+                    }
                     _ => n.fills = paints.clone(),
                 }
                 n.style_refs.insert("fill".into(), key.into());
@@ -195,6 +206,58 @@ impl App {
     /// Renames style `key` (the display name; folders come from "/").
     pub fn rename_style_to(&mut self, key: &str, name: &str) -> bool {
         let op = rename_style(&self.doc, key, name);
+        self.run_style_op(op)
+    }
+
+    /// Applies `bind_style_property` inside an existing transaction `tx` and reflows linked text layers.
+    pub(crate) fn bind_style_variable_in(&mut self, tx: &mut crate::edit::Tx, key: &str, property: &str, var: &str) -> Result<(), String> {
+        let op = bind_style_property(&self.doc, key, property, var);
+        let linked = linked_style_nodes(&self.doc, key);
+        let cmd = op.map_err(|e| e.to_string())?;
+        tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())?;
+        for id in linked {
+            if size_comes_from_main(&self.doc, id) {
+                continue;
+            }
+            if let Some(n) = tx.ed.node(&mut self.doc, id) {
+                if let NodeKind::Text(t) = &mut n.kind {
+                    n.size = layout::fit_text(t, n.size);
+                }
+            }
+            layout::relayout_around(&mut self.doc, &mut tx.ed, id);
+        }
+        Ok(())
+    }
+
+    /// Binds `property` of style `key` to variable `var` and pushes the updated style to linked
+    /// layers as one undo step.
+    pub fn bind_style_variable(&mut self, key: &str, property: &str, var: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == key {
+                st.pending = None;
+            }
+        }
+        let mut tx = crate::edit::Tx::new();
+        match self.bind_style_variable_in(&mut tx, key, property, var) {
+            Ok(()) => self.run_tx(tx),
+            Err(e) => {
+                tx.cancel(&mut self.doc);
+                self.show_toast(format!("Style not changed: {e}"), true);
+                false
+            }
+        }
+    }
+
+    /// Removes the variable binding on `property` of style `key`, keeping its current fallback value.
+    pub fn unbind_style_variable(&mut self, key: &str, property: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == key {
+                st.pending = None;
+            }
+        }
+        let op = unbind_style_property(&self.doc, key, property);
         self.run_style_op(op)
     }
 
@@ -330,6 +393,9 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
 }
 
 #[cfg(test)]
+mod fill_binding_tests;
+
+#[cfg(test)]
 mod instance_refit_tests;
 
 #[cfg(test)]
@@ -390,6 +456,44 @@ mod tests {
     }
 
     #[test]
+    fn applying_fill_style_to_rich_text_recolours_runs_and_undoes_in_one_step() {
+        let (mut app, _f, _r, t) = app();
+        let base_fill = vec![Paint::solid(Color::rgb(0, 0, 255))];
+        let highlight_fill = vec![Paint::solid(Color::rgb(229, 72, 77))];
+        if let NodeKind::Text(tp) = &mut app.doc.get_mut(t).unwrap().kind {
+            tp.content = "Rich text runs".into();
+            tp.runs = vec![
+                TextRun { start: 0, end: 4, style: TextStyle { font_weight: 700, fills: base_fill.clone(), ..Default::default() } },
+                TextRun { start: 5, end: 9, style: TextStyle { italic: true, fills: base_fill.clone(), ..Default::default() } },
+                TextRun { start: 10, end: 14, style: TextStyle { fills: highlight_fill.clone(), ..Default::default() } },
+            ];
+        }
+        app.apply_style(&[t], "Brand/Primary");
+        let primary = vec![Paint::solid(Color::rgb(1, 2, 3))];
+        match &app.doc.get(t).unwrap().kind {
+            NodeKind::Text(tp) => {
+                assert_eq!(tp.style.fills, primary);
+                assert_eq!(tp.runs[0].style.fills, primary, "bold run with base fill follows the style");
+                assert_eq!(tp.runs[1].style.fills, primary, "italic run with base fill follows the style");
+                assert_eq!(tp.runs[2].style.fills, primary, "highlighted run takes the style too");
+            }
+            _ => unreachable!(),
+        }
+        app.undo();
+        let tn = app.doc.get(t).unwrap();
+        assert!(tn.style_refs.is_empty());
+        match &tn.kind {
+            NodeKind::Text(tp) => {
+                assert_eq!(tp.style.fills, base_fill);
+                assert_eq!(tp.runs[0].style.fills, base_fill);
+                assert_eq!(tp.runs[1].style.fills, base_fill);
+                assert_eq!(tp.runs[2].style.fills, highlight_fill);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
     fn applying_text_style_keeps_color_and_skips_shapes() {
         let (mut app, _f, r, t) = app();
         app.apply_style(&[r, t], "s2");
@@ -435,7 +539,7 @@ mod tests {
     fn effect_and_grid_styles_have_their_own_groups() {
         let (mut ed, f, r, _t) = app();
         ed.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]));
-        ed.doc.styles.insert("g".into(), Style::Grid(vec![LayoutGrid::Grid { size: 8.0, color: Color::rgba(255, 0, 0, 26) }]));
+        ed.doc.styles.insert("g".into(), Style::Grid(vec![LayoutGrid::grid(8.0, Color::rgba(255, 0, 0, 26))]));
         ed.doc.style_meta.insert("g".into(), StyleMeta { name: "Layout/8pt".into(), property: StyleProperty::Grid, ..Default::default() });
         let keys = |k| style_entries_of(&ed.doc, k).into_iter().map(|e| (e.key, e.folder, e.leaf)).collect::<Vec<_>>();
         assert_eq!(keys(StyleKind::Effect), vec![("Shadow/Card".to_string(), "Shadow".to_string(), "Card".to_string())]);

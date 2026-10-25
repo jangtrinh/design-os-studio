@@ -16,10 +16,17 @@
 )]
 
 mod board;
+pub mod branch_diff;
+#[cfg(test)]
+mod branch_diff_tests;
+pub mod branch_merge;
 pub mod changelog_features;
 mod comments;
+#[cfg(test)]
+mod component_cycle_tests;
 mod components;
 mod dev;
+pub mod diff;
 pub mod find;
 pub mod finite_json;
 #[cfg(test)]
@@ -27,12 +34,14 @@ mod finite_json_tests;
 mod geom;
 mod history;
 mod layout_apply;
+pub mod layout_constraints;
 pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;
 mod layout_solver_types;
 mod library;
 mod library_ops;
+pub mod lint;
 pub mod live_patch;
 mod load_repair;
 #[cfg(test)]
@@ -41,6 +50,7 @@ mod node;
 pub mod openpencil;
 mod paint;
 mod prototype;
+pub mod query;
 mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
@@ -48,22 +58,38 @@ mod settings;
 #[cfg(test)]
 mod slot_model_tests;
 pub mod spec;
+pub mod spec_bind;
+#[cfg(test)]
+mod spec_bind_reference_forms_tests;
+#[cfg(test)]
+mod spec_bind_rollback_label_tests;
+mod spec_data;
+pub use spec_data::SpecDataSnapshot;
+pub mod spec_instance;
 mod styles_ops;
+mod text_fills;
 mod textmodel;
 mod variables;
 mod variables_apply;
 mod variables_edit;
 pub mod vector;
 mod vector_fit;
+mod writer_command;
 
 pub use board::*;
+pub use branch_diff::{diff3, Conflict, ConflictKind, Diff3, DiffStats, EntityChange, EntityConflict, EntityKey, Group, SideChanges};
+pub use branch_merge::{
+    merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
+};
 pub use changelog_features::*;
 pub use comments::*;
 pub use components::*;
 pub use dev::*;
+pub use diff::*;
 pub use geom::*;
 pub use history::*;
 pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
+pub use layout_constraints::*;
 pub use library::*;
 pub use library_ops::*;
 pub use load_repair::*;
@@ -73,20 +99,30 @@ pub use paint::*;
 pub use prototype::*;
 pub use settings::*;
 pub use spec::*;
+pub use spec_bind::*;
+pub use spec_instance::*;
 pub use styles_ops::*;
+pub use text_fills::set_text_fills_everywhere;
 pub use textmodel::*;
 pub use variables::*;
 pub use variables_apply::*;
 pub use variables_edit::*;
 pub use vector::{HandleMirror, VectorNetwork};
 pub use vector_fit::{fit_polyline, Anchor};
+pub use writer_command::*;
+
+/// Shared spec test fixtures (`tokens_doc`, `button_library`, `card_with_slots`).
+pub mod fixtures {
+    pub use crate::spec_bind::fixtures::*;
+    pub use crate::spec_instance::fixtures::*;
+}
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Stable node identifier. Imported Figma ids ("12:34") are kept in
 /// [`Node::source_id`]; `NodeId` is our own dense key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub u64);
 
 #[derive(Debug, thiserror::Error)]
@@ -173,9 +209,18 @@ pub struct Document {
     /// Hidden page holding copies of library components; not in `pages`.
     #[serde(default)]
     pub library_page: Option<NodeId>,
+    /// Check designs rule toggles, contrast level, and ignored findings.
+    #[serde(default, skip_serializing_if = "CheckDesignsSettings::is_empty")]
+    pub check_designs: CheckDesignsSettings,
     /// Embedded images keyed by content hash (Figma `imageRef`).
     #[serde(default, with = "serde_images", skip_serializing_if = "BTreeMap::is_empty")]
     pub images: BTreeMap<String, Vec<u8>>,
+    /// Active agent work-in-progress flags keyed by root frame [`NodeId`] (`E15-7` / `#592`).
+    ///
+    /// Kept outside [`Node`] so setting or clearing a flag never creates a [`Command::Update`]
+    /// undo step on [`History`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub in_progress: BTreeMap<NodeId, InProgress>,
     next_id: u64,
     /// Where the exhausted-counter fallback resumes scanning, so one id is never handed out twice
     /// before its node is inserted. Runtime only.
@@ -187,9 +232,251 @@ pub struct Document {
     /// after [`MAX_RELAYOUT_RESOLVES`] or [`MAX_RELAYOUT_RESOLVE_DEPTH`] was reached.
     #[serde(skip)]
     pub(crate) pending_relayout: Vec<NodeId>,
+    /// Count of layout writes made to this document outside any history step; see [`Self::layout_epoch`].
+    #[serde(skip)]
+    layout_epoch: u64,
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+}
+
+/// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
+pub const IN_PROGRESS_DEFAULT_STALE_MINUTES: u32 = 15;
+
+/// Minimum allowed value for `agent.in_progress_stale_minutes` (`1` minute, E15-7 §3.3).
+pub const IN_PROGRESS_MIN_STALE_MINUTES: u32 = 1;
+
+/// Maximum allowed value for `agent.in_progress_stale_minutes` (`1440` minutes / 24 hours, E15-7 §3.3).
+pub const IN_PROGRESS_MAX_STALE_MINUTES: u32 = 1440;
+
+/// Default staleness threshold for [`InProgress`] flags in seconds (`15` minutes, E15-7 §3.3).
+pub const IN_PROGRESS_DEFAULT_STALE_S: u32 = IN_PROGRESS_DEFAULT_STALE_MINUTES * 60;
+
+/// Default staleness threshold for [`InProgress`] flags in milliseconds (`15` minutes).
+pub const IN_PROGRESS_DEFAULT_STALE_MS: u64 = (IN_PROGRESS_DEFAULT_STALE_S as u64) * 1000;
+
+static GLOBAL_IN_PROGRESS_STALE_MINUTES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+std::thread_local! {
+    static THREAD_IN_PROGRESS_STALE_MINUTES: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Sets (or resets when `None`) the `agent.in_progress_stale_minutes` setting (clamped to `1..=1440`, E15-7 §3.3).
+pub fn set_in_progress_stale_minutes(minutes: Option<u32>) {
+    let clamped = minutes.map(|m| m.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES));
+    THREAD_IN_PROGRESS_STALE_MINUTES.with(|c| c.set(clamped));
+    GLOBAL_IN_PROGRESS_STALE_MINUTES.store(clamped.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Active `agent.in_progress_stale_minutes` setting (clamped to `1..=1440`, default `15`).
+pub fn in_progress_stale_minutes() -> u32 {
+    if let Some(m) = THREAD_IN_PROGRESS_STALE_MINUTES.with(|c| c.get()) {
+        return m.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+    }
+    let global = GLOBAL_IN_PROGRESS_STALE_MINUTES.load(std::sync::atomic::Ordering::SeqCst);
+    if global != 0 {
+        return global.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+    }
+    if let Ok(env_val) = std::env::var("DESIGNOS_IN_PROGRESS_STALE_MINUTES") {
+        if let Ok(parsed) = env_val.trim().parse::<u32>() {
+            return parsed.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+        }
+    }
+    IN_PROGRESS_DEFAULT_STALE_MINUTES
+}
+
+/// Effective default staleness threshold in seconds from `agent.in_progress_stale_minutes` (`minutes * 60`).
+pub fn default_in_progress_stale_s() -> u32 {
+    in_progress_stale_minutes().saturating_mul(60)
+}
+
+/// Effective default staleness threshold in milliseconds from `agent.in_progress_stale_minutes` (`minutes * 60_000`).
+pub fn default_in_progress_stale_ms() -> u64 {
+    u64::from(default_in_progress_stale_s()).saturating_mul(1000)
+}
+
+/// Injectable clock trait (`fn now_ms()`) so tests do not sleep (E15-7 §10).
+pub trait Clock: Send + Sync + std::fmt::Debug {
+    fn now_ms(&self) -> u64;
+}
+
+/// Default wall-clock implementation of [`Clock`], honouring [`set_mock_now_ms`] in tests.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+}
+
+static GLOBAL_MOCK_NOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+std::thread_local! {
+    static THREAD_MOCK_NOW_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Returns the current Unix timestamp in milliseconds, or the injected test clock when set.
+pub fn now_ms() -> u64 {
+    if let Some(ms) = THREAD_MOCK_NOW_MS.with(|c| c.get()) {
+        return ms;
+    }
+    let global = GLOBAL_MOCK_NOW_MS.load(std::sync::atomic::Ordering::SeqCst);
+    if global != 0 {
+        return global;
+    }
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Overrides (or clears when `None`) the clock read by [`now_ms`] for deterministic tests.
+pub fn set_mock_now_ms(ms: Option<u64>) {
+    THREAD_MOCK_NOW_MS.with(|c| c.set(ms));
+    GLOBAL_MOCK_NOW_MS.store(ms.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Advances the injected test clock by `delta_ms` milliseconds and returns the new timestamp.
+pub fn advance_mock_now_ms(delta_ms: u64) -> u64 {
+    let next = now_ms().saturating_add(delta_ms);
+    set_mock_now_ms(Some(next));
+    next
+}
+
+/// Like [`set_mock_now_ms`], but only the calling thread sees the injected clock (`None` clears it).
+///
+/// [`set_mock_now_ms`] also writes a process-wide clock, so every parallel test on the real clock
+/// reads the mock until it is cleared. A flag stamped under that mock and read after it is cleared
+/// looks decades old and is dropped as stale. Tests that run next to others use this setter.
+pub fn set_thread_mock_now_ms(ms: Option<u64>) {
+    THREAD_MOCK_NOW_MS.with(|c| c.set(ms));
+}
+
+/// Like [`advance_mock_now_ms`], but moves only the calling thread's injected clock.
+pub fn advance_thread_mock_now_ms(delta_ms: u64) -> u64 {
+    let next = now_ms().saturating_add(delta_ms);
+    set_thread_mock_now_ms(Some(next));
+    next
+}
+
+/// Transient agent work-in-progress marker for a root frame or section (`E15-7` / `#592`).
+#[derive(Clone, Debug, Default, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(from = "InProgressWire")]
+pub struct InProgress {
+    /// Identifier of the agent run that owns the flag (`$DESIGNOS_AGENT_RUN_ID`; `None` = imported or user-set).
+    #[serde(default)]
+    pub run_id: Option<String>,
+    /// Agent label shown on the canvas badge (`"Claude Code"`, `"Codex"`, etc.).
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Unix timestamp in milliseconds when the flag was set.
+    #[serde(default)]
+    pub since_ms: u64,
+    /// Optional per-flag staleness timeout in seconds (defaults to `agent.in_progress_stale_minutes`, 15 min).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_after_s: Option<u32>,
+    /// Optional short status note (`"Building header..."`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+impl PartialEq for InProgress {
+    fn eq(&self, other: &Self) -> bool {
+        self.run_id == other.run_id
+            && self.agent == other.agent
+            && self.since_ms == other.since_ms
+            && self.stale_after_s == other.stale_after_s
+            && self.status == other.status
+    }
+}
+
+impl InProgress {
+    pub fn new(agent: Option<String>, status: Option<String>, since_ms: u64) -> Self {
+        Self {
+            run_id: None,
+            agent: agent.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            since_ms,
+            stale_after_s: None,
+            status: status.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        }
+    }
+
+    /// Canonical timestamp in epoch milliseconds.
+    pub fn timestamp_ms(&self) -> u64 {
+        self.since_ms
+    }
+
+    /// Display text for the canvas badge (`"Agent working"` or `"<agent> working"`, E15-7 §7).
+    pub fn badge_text(&self) -> String {
+        match self.agent.as_deref().map(str::trim).filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("agent")) {
+            Some(a) => format!("{a} working"),
+            None => "Agent working".to_string(),
+        }
+    }
+
+    /// Effective expiry timestamp in epoch milliseconds, or `None` when `run_id` and `stale_after_s`
+    /// are both `None` (imported/user-set flags without an explicit timeout never go stale, E15-7 §3.3).
+    pub fn expiry_ms(&self, now_ms: u64, default_max_age_ms: u64) -> Option<u64> {
+        let effective_since = self.since_ms.min(now_ms);
+        if let Some(s) = self.stale_after_s {
+            Some(effective_since.saturating_add(u64::from(s).saturating_mul(1000)))
+        } else if self.run_id.is_some() {
+            Some(effective_since.saturating_add(default_max_age_ms))
+        } else {
+            None
+        }
+    }
+
+    /// True when this entry has expired at `now_ms` (treating future `since_ms` as `now_ms`, E15-7 §8.5).
+    pub fn is_stale(&self, now_ms: u64, default_max_age_ms: u64) -> bool {
+        self.expiry_ms(now_ms, default_max_age_ms).is_some_and(|exp| now_ms >= exp)
+    }
+}
+
+fn canonical_agent_name(s: &str) -> String {
+    let lower = s.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "claude" | "claude code" | "claude-code" => "claude".to_string(),
+        "codex" | "codex cli" | "codex-cli" => "codex".to_string(),
+        "agy" | "antigravity" | "google antigravity" => "agy".to_string(),
+        "grok" | "grok cli" | "grok-cli" => "grok".to_string(),
+        "zsh" | "sh" | "bash" | "shell" | "zsh/sh" => "shell".to_string(),
+        "designos" | "agent guide" => "designos".to_string(),
+        _ => lower,
+    }
+}
+
+fn agent_names_match(a: &str, b: &str) -> bool {
+    let ca = canonical_agent_name(a);
+    let cb = canonical_agent_name(b);
+    !ca.is_empty() && ca == cb
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+struct InProgressWire {
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default, alias = "agent_name")]
+    agent: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    started_at_ms: Option<u64>,
+    #[serde(default)]
+    since_ms: Option<u64>,
+    #[serde(default)]
+    stale_after_s: Option<u32>,
+}
+
+impl From<InProgressWire> for InProgress {
+    fn from(w: InProgressWire) -> Self {
+        let since_ms = w.since_ms.or(w.started_at_ms).unwrap_or(0).min(now_ms());
+        Self {
+            run_id: w.run_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            agent: w.agent.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            since_ms,
+            stale_after_s: w.stale_after_s,
+            status: w.status.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        }
+    }
 }
 
 /// On-demand hydrator for deferred component instances on inactive pages of large multi-page `.fig` documents.
@@ -197,6 +484,18 @@ pub trait PageHydrator: Send + Sync + std::fmt::Debug {
     fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool;
     fn hydrate_all(&mut self, doc: &mut Document) -> bool;
     fn is_hydrated(&self, page: NodeId) -> bool;
+    fn unexpanded_instances(&self) -> usize {
+        0
+    }
+    fn take_unexpanded_instances(&mut self) -> usize {
+        0
+    }
+    fn last_error(&self) -> Option<&str> {
+        None
+    }
+    fn take_last_error(&mut self) -> Option<String> {
+        None
+    }
 }
 
 mod serde_images {
@@ -305,6 +604,36 @@ impl Document {
         Self { name: name.into(), ..Default::default() }
     }
 
+    /// Clones the document structure, styles, variables, comments, and library state without
+    /// copying embedded `images` byte buffers (used by background bootstrap indexing).
+    pub fn clone_without_images(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            kind: self.kind,
+            nodes: self.nodes.clone(),
+            pages: self.pages.clone(),
+            styles: self.styles.clone(),
+            style_meta: self.style_meta.clone(),
+            flows: self.flows.clone(),
+            variables: self.variables.clone(),
+            variable_collections: self.variable_collections.clone(),
+            guides: self.guides.clone(),
+            prototype_device: self.prototype_device.clone(),
+            comments: self.comments.clone(),
+            library: self.library.clone(),
+            library_page: self.library_page,
+            check_designs: self.check_designs.clone(),
+            images: BTreeMap::new(),
+            in_progress: self.in_progress.clone(),
+            next_id: self.next_id,
+            gap_cursor: self.gap_cursor,
+            dirty: self.dirty.clone(),
+            pending_relayout: self.pending_relayout.clone(),
+            layout_epoch: self.layout_epoch,
+            page_hydrator: self.page_hydrator.clone(),
+        }
+    }
+
     /// Ensures deferred component instances on `page` are expanded on demand.
     /// Returns `true` if any deferred instances were expanded.
     pub fn ensure_page_hydrated(&mut self, page: NodeId) -> bool {
@@ -322,13 +651,44 @@ impl Document {
 
     /// Expands all remaining deferred pages (e.g., before full-document export).
     pub fn hydrate_all_pages(&mut self) -> bool {
-        let Some(h) = self.page_hydrator.take() else { return false };
+        let Some(h) = self.page_hydrator.clone() else { return false };
         let Ok(mut guard) = h.lock() else { return false };
         let changed = guard.hydrate_all(self);
+        if guard.unexpanded_instances() == 0 && guard.last_error().is_none() {
+            self.page_hydrator = None;
+        }
         if changed {
             self.mark_tree_full_dirty();
         }
         changed
+    }
+
+    /// Number of instances skipped by deferred page hydration due to hitting the clone budget.
+    pub fn hydration_unexpanded_instances(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(guard) = h.lock() else { return 0 };
+        guard.unexpanded_instances()
+    }
+
+    /// Drains and returns the count of instances skipped by deferred page hydration.
+    pub fn take_hydration_unexpanded_instances(&self) -> usize {
+        let Some(h) = self.page_hydrator.as_ref() else { return 0 };
+        let Ok(mut guard) = h.lock() else { return 0 };
+        guard.take_unexpanded_instances()
+    }
+
+    /// Last error recorded during deferred page hydration, if any.
+    pub fn hydration_error(&self) -> Option<String> {
+        let h = self.page_hydrator.as_ref()?;
+        let guard = h.lock().ok()?;
+        guard.last_error().map(String::from)
+    }
+
+    /// Drains and returns the last error recorded during deferred page hydration, if any.
+    pub fn take_hydration_error(&self) -> Option<String> {
+        let h = self.page_hydrator.as_ref()?;
+        let mut guard = h.lock().ok()?;
+        guard.take_last_error()
     }
 
     /// Hands out a fresh id. The counter never wraps: once it is exhausted (a hostile or
@@ -383,9 +743,122 @@ impl Document {
         self.style_meta.get(key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(key)
     }
 
+    /// Record a per-(rule, node) lint suppression in the unified `check_designs.ignored` store.
+    pub fn ignore_lint(&mut self, rule_id: &str, node: NodeId) {
+        let canonical = crate::lint::canonical_rule_id(rule_id).unwrap_or(rule_id);
+        self.check_designs.ignored.insert(IgnoreKey { node, rule: canonical.to_string(), property: String::new() });
+    }
+
+    /// Remove a per-(rule, node) lint suppression (matching either canonical or alias rule IDs).
+    pub fn unignore_lint(&mut self, rule_id: &str, node: NodeId) {
+        let target_canonical = crate::lint::canonical_rule_id(rule_id);
+        self.check_designs.ignored.retain(|key| {
+            if key.node != node {
+                return true;
+            }
+            if key.rule == rule_id {
+                return false;
+            }
+            if let Some(tc) = target_canonical {
+                if crate::lint::canonical_rule_id(&key.rule) == Some(tc) {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    /// Check whether a finding on `(rule_id, node)` with an optional `property` key is suppressed in
+    /// `check_designs.ignored`.
+    ///
+    /// - Whole-node ignores (`k.property.is_empty()`) match when `k.rule == rule_id` or when `k.rule`
+    ///   maps to the same canonical rule.
+    /// - Per-property ignores (`!k.property.is_empty()`, such as `"fills/0"`) only match when the
+    ///   caller queries that exact `property` (including Check designs per-property `"RECOMMEND_VARIABLES"`
+    ///   ignores on `"hardcoded-color"`).
+    pub fn is_lint_property_ignored(&self, rule_id: &str, node: NodeId, property: &str) -> bool {
+        if self.check_designs.ignored.is_empty() {
+            return false;
+        }
+        if !property.is_empty() && self.check_designs.ignored.contains(&IgnoreKey { node, rule: rule_id.to_string(), property: property.to_string() }) {
+            return true;
+        }
+        if self.check_designs.ignored.contains(&IgnoreKey { node, rule: rule_id.to_string(), property: String::new() }) {
+            return true;
+        }
+        let Some(target_canonical) = crate::lint::canonical_rule_id(rule_id) else {
+            return false;
+        };
+        if self.check_designs.ignored.contains(&IgnoreKey { node, rule: target_canonical.to_string(), property: String::new() }) {
+            return true;
+        }
+        if !property.is_empty() {
+            if self.check_designs.ignored.contains(&IgnoreKey { node, rule: target_canonical.to_string(), property: property.to_string() }) {
+                return true;
+            }
+            if target_canonical == "hardcoded-color"
+                && self.check_designs.ignored.contains(&IgnoreKey { node, rule: "RECOMMEND_VARIABLES".to_string(), property: property.to_string() })
+            {
+                return true;
+            }
+        }
+        self.check_designs.ignored.iter().any(|k| {
+            if k.node != node || crate::lint::canonical_rule_id(&k.rule) != Some(target_canonical) {
+                return false;
+            }
+            if k.property.is_empty() {
+                true
+            } else {
+                !property.is_empty() && k.property == property
+            }
+        })
+    }
+
+    /// Check whether a whole-node finding on `(rule_id, node)` is suppressed in `check_designs.ignored`.
+    pub fn is_lint_ignored(&self, rule_id: &str, node: NodeId) -> bool {
+        self.is_lint_property_ignored(rule_id, node, "")
+    }
+
+    /// Check whether a finding on `(rule_id, node, property)` is suppressed in `check_designs.ignored`.
+    pub fn is_lint_ignored_property(&self, rule_id: &str, node: NodeId, property: Option<&str>) -> bool {
+        let target_canonical = crate::lint::canonical_rule_id(rule_id);
+        let prop = property.unwrap_or("").trim();
+        self.check_designs.ignored.iter().any(|k| {
+            if k.node != node {
+                return false;
+            }
+            // A legacy Contrast ignore stored `{rule: "RECOMMEND_VARIABLES", property: ""}`:
+            // it suppresses `low-contrast-text` / `CONTRAST` (empty property), never token properties on `hardcoded-value`.
+            if k.rule.eq_ignore_ascii_case("RECOMMEND_VARIABLES") && k.property.is_empty() {
+                return prop.is_empty() && (rule_id.eq_ignore_ascii_case("CONTRAST") || target_canonical == Some("low-contrast-text"));
+            }
+            let rule_matches = k.rule.eq_ignore_ascii_case(rule_id)
+                || target_canonical.is_some_and(|tc| crate::lint::canonical_rule_id(&k.rule) == Some(tc))
+                || (target_canonical == Some("hardcoded-value") && prop == "text" && k.rule.eq_ignore_ascii_case("REQUIRE_TEXT_STYLES"));
+            if !rule_matches {
+                return false;
+            }
+            if k.property.is_empty() {
+                return true;
+            }
+            if prop.is_empty() {
+                return false;
+            }
+            k.property == prop
+                || (k.property == "cornerRadius" && matches!(prop, "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius"))
+                || (k.property == "padding" && matches!(prop, "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"))
+        })
+    }
+
     #[inline]
     pub fn runtime_id(&self) -> u64 {
         self.dirty.runtime_id
+    }
+
+    /// Gives this document an id of its own, for a clone that is opened as a file of its own (a duplicated tab):
+    /// a clone otherwise has the id of the document it came from.
+    pub fn renew_runtime_id(&mut self) {
+        self.dirty.runtime_id = NEXT_DOC_RUNTIME_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     #[inline]
@@ -548,6 +1021,7 @@ impl Document {
         let mut out = Vec::new();
         let mut stack = vec![id];
         while let Some(n) = stack.pop() {
+            self.in_progress.remove(&n);
             if let Some(node) = self.nodes.remove(&n) {
                 stack.extend(node.children.iter().rev().copied());
                 out.push(node);
@@ -564,6 +1038,152 @@ impl Document {
             self.mark_tree_full_dirty();
         }
         Ok(out)
+    }
+
+    /// Returns the current timestamp in milliseconds via [`now_ms`] (honouring the injected test clock).
+    pub fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+
+    /// Returns the active (non-stale, existing-node) [`InProgress`] record for `id`, if flagged.
+    pub fn get_in_progress(&self, id: NodeId) -> Option<&InProgress> {
+        let now = now_ms();
+        let default_ms = default_in_progress_stale_ms();
+        self.in_progress.get(&id).filter(|ip| self.nodes.contains_key(&id) && !ip.is_stale(now, default_ms))
+    }
+
+    /// Sets or clears the [`InProgress`] flag on `id` without touching [`History`].
+    pub fn set_in_progress(&mut self, id: NodeId, state: Option<InProgress>) -> Option<InProgress> {
+        let prev = match state {
+            Some(mut st) => {
+                st.since_ms = st.since_ms.min(now_ms());
+                self.in_progress.insert(id, st)
+            }
+            None => self.in_progress.remove(&id),
+        };
+        self.bump_mutation_epoch();
+        prev
+    }
+
+    /// Validates that `id` is a root frame or section eligible for an [`InProgress`] flag
+    /// (a `Frame`, `Section`, `Component`, `ComponentSet`, or `Instance` whose parent is a `Page`
+    /// or a top-level `Section`). On failure, returns `Err(Some(root_frame_id))` when `id` lies inside
+    /// a valid root frame ancestor, or `Err(None)` otherwise.
+    pub fn is_in_progress_root(&self, id: NodeId) -> Result<(), Option<NodeId>> {
+        let is_eligible_kind = |n: &Node| {
+            matches!(n.kind, NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. })
+        };
+        let is_root_container = |pid: NodeId| -> bool {
+            let Some(p) = self.nodes.get(&pid) else { return false };
+            match p.kind {
+                NodeKind::Page { .. } => true,
+                NodeKind::Section => p.parent.and_then(|gp| self.nodes.get(&gp)).is_some_and(|gn| matches!(gn.kind, NodeKind::Page { .. })),
+                _ => false,
+            }
+        };
+        let Some(node) = self.nodes.get(&id) else { return Err(None) };
+        if is_eligible_kind(node) && node.parent.is_some_and(is_root_container) {
+            return Ok(());
+        }
+        let mut cur = node.parent;
+        let mut nearest_root = None;
+        while let Some(cid) = cur {
+            let Some(cn) = self.nodes.get(&cid) else { break };
+            if is_eligible_kind(cn) && cn.parent.is_some_and(is_root_container) {
+                nearest_root = Some(cid);
+                break;
+            }
+            cur = cn.parent;
+        }
+        Err(nearest_root)
+    }
+
+    /// Clears all [`InProgress`] flags owned by `agent_or_run_id` (matching either `run_id` or `agent`,
+    /// or all flags when `agent_or_run_id` is `"*"` or empty), returning the cleared [`NodeId`]s.
+    pub fn clear_in_progress_for_agent(&mut self, agent_or_run_id: &str) -> Vec<NodeId> {
+        let key = agent_or_run_id.trim();
+        let match_all = key.is_empty() || key == "*";
+        let mut matched_run_ids = std::collections::BTreeSet::new();
+        if !match_all {
+            matched_run_ids.insert(key.to_string());
+            for ip in self.in_progress.values() {
+                if ip.agent.as_deref().is_some_and(|a| agent_names_match(a, key)) {
+                    if let Some(r) = &ip.run_id {
+                        matched_run_ids.insert(r.clone());
+                    }
+                }
+            }
+        }
+        let removed: Vec<NodeId> = self
+            .in_progress
+            .iter()
+            .filter(|(_, ip)| {
+                match_all || ip.run_id.as_ref().is_some_and(|r| matched_run_ids.contains(r)) || ip.agent.as_deref().is_some_and(|a| agent_names_match(a, key))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Clears all [`InProgress`] flags owned by `run_id` or `agent` (including sibling flags sharing
+    /// the same `run_id` as a flag matching `agent`), returning the cleared [`NodeId`]s (E15-7 §3.2).
+    pub fn clear_in_progress_for_run_or_agent(&mut self, run_id: Option<&str>, agent: Option<&str>) -> Vec<NodeId> {
+        let rid = run_id.map(str::trim).filter(|s| !s.is_empty());
+        let ag = agent.map(str::trim).filter(|s| !s.is_empty());
+        let mut matched_run_ids = std::collections::BTreeSet::new();
+        if let Some(r) = rid {
+            matched_run_ids.insert(r.to_string());
+        }
+        if let Some(a) = ag {
+            for ip in self.in_progress.values() {
+                if ip.agent.as_deref().is_some_and(|ia| agent_names_match(ia, a)) {
+                    if let Some(r) = &ip.run_id {
+                        matched_run_ids.insert(r.clone());
+                    }
+                }
+            }
+        }
+        let removed: Vec<NodeId> = self
+            .in_progress
+            .iter()
+            .filter(|(_, ip)| {
+                ip.run_id.as_ref().is_some_and(|r| matched_run_ids.contains(r))
+                    || ag.is_some_and(|a| ip.agent.as_deref().is_some_and(|ia| agent_names_match(ia, a)))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Clears [`InProgress`] flags whose age at `now_ms` exceeds their `stale_after_s` (or
+    /// `default_max_age_ms` when `stale_after_s` is `None`), returning the cleared [`NodeId`]s.
+    pub fn clear_stale_in_progress(&mut self, now_ms: u64, default_max_age_ms: u64) -> Vec<NodeId> {
+        let removed: Vec<NodeId> =
+            self.in_progress.iter().filter(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now_ms, default_max_age_ms)).map(|(id, _)| *id).collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Prunes any [`InProgress`] entries whose target node no longer exists or that are stale at [`now_ms`].
+    pub fn prune_in_progress(&mut self) -> Vec<NodeId> {
+        self.clear_stale_in_progress(now_ms(), default_in_progress_stale_ms())
     }
 
     /// Moves `id` under `new_parent` at `index` (clamped).
@@ -688,8 +1308,12 @@ impl Document {
         }
         let before = self.nodes.len();
         self.nodes.retain(|id, _| reachable.contains(id));
+        self.in_progress.retain(|id, _| reachable.contains(id));
         let removed = before - self.nodes.len();
         if removed > 0 {
+            if !self.check_designs.ignored.is_empty() {
+                self.check_designs.ignored.retain(|k| reachable.contains(&k.node));
+            }
             self.mark_tree_full_dirty();
         }
         removed
@@ -709,6 +1333,70 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        let now = now_ms();
+        // Flags of deleted layers and stale flags never reach the file: serialize through a view that filters them.
+        if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
+            #[derive(Serialize)]
+            struct DocumentSerializeView<'a> {
+                name: &'a String,
+                kind: &'a DocumentKind,
+                nodes: &'a BTreeMap<NodeId, Node>,
+                pages: &'a Vec<NodeId>,
+                styles: &'a BTreeMap<String, Style>,
+                style_meta: &'a BTreeMap<String, StyleMeta>,
+                flows: &'a Vec<Flow>,
+                variables: &'a BTreeMap<String, Variable>,
+                variable_collections: &'a BTreeMap<String, VariableCollection>,
+                guides: &'a BTreeMap<NodeId, Vec<Guide>>,
+                prototype_device: &'a PrototypeDevice,
+                comments: &'a Vec<CommentThread>,
+                library: &'a LibraryState,
+                library_page: &'a Option<NodeId>,
+                #[serde(skip_serializing_if = "CheckDesignsSettings::is_empty")]
+                check_designs: &'a CheckDesignsSettings,
+                #[serde(with = "serde_images", skip_serializing_if = "BTreeMap::is_empty")]
+                images: &'a BTreeMap<String, Vec<u8>>,
+                #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+                in_progress: BTreeMap<NodeId, &'a InProgress>,
+                next_id: u64,
+            }
+            let filtered_in_progress: BTreeMap<NodeId, &InProgress> = self
+                .in_progress
+                .iter()
+                .filter(|(id, ip)| self.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS))
+                .map(|(id, ip)| (*id, ip))
+                .collect();
+            let view = DocumentSerializeView {
+                name: &self.name,
+                kind: &self.kind,
+                nodes: &self.nodes,
+                pages: &self.pages,
+                styles: &self.styles,
+                style_meta: &self.style_meta,
+                flows: &self.flows,
+                variables: &self.variables,
+                variable_collections: &self.variable_collections,
+                guides: &self.guides,
+                prototype_device: &self.prototype_device,
+                comments: &self.comments,
+                library: &self.library,
+                library_page: &self.library_page,
+                check_designs: &self.check_designs,
+                images: &self.images,
+                in_progress: filtered_in_progress,
+                next_id: self.next_id,
+            };
+            return finite_json::to_string_finite(&view);
+        }
+        // Ignore keys of deleted layers are written as they are and dropped when the file is read
+        // back (`from_json_with_report`): pruning here would clone the whole document, images
+        // included, on every save after an ignored layer was deleted.
+        let now = now_ms();
+        if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
+            let mut clean = self.clone();
+            clean.in_progress.retain(|id, ip| clean.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS));
+            return finite_json::to_string_finite(&clean);
+        }
         finite_json::to_string_finite(self)
     }
 
@@ -716,6 +1404,43 @@ impl Document {
     /// building the JSON text.
     pub fn count_non_finite(&self) -> serde_json::Result<usize> {
         finite_json::count_non_finite(self)
+    }
+
+    /// Replaces any non-finite numbers in the document with their neutral values (`0` or `1`) in
+    /// place without touching unaffected entries, embedded image blobs, `page_hydrator`, or
+    /// running [`Document::migrate_text`]. Returns how many numbers were replaced.
+    pub fn neutralize_non_finite(&mut self) -> usize {
+        let mut replaced = 0;
+        for node in self.nodes.values_mut() {
+            replaced += finite_json::neutralize_in_place(node);
+        }
+        for style in self.styles.values_mut() {
+            replaced += finite_json::neutralize_in_place(style);
+        }
+        for meta in self.style_meta.values_mut() {
+            replaced += finite_json::neutralize_in_place(meta);
+        }
+        for flow in &mut self.flows {
+            replaced += finite_json::neutralize_in_place(flow);
+        }
+        for var in self.variables.values_mut() {
+            replaced += finite_json::neutralize_in_place(var);
+        }
+        for col in self.variable_collections.values_mut() {
+            replaced += finite_json::neutralize_in_place(col);
+        }
+        for guides in self.guides.values_mut() {
+            replaced += finite_json::neutralize_in_place(guides);
+        }
+        replaced += finite_json::neutralize_in_place(&mut self.prototype_device);
+        for comment in &mut self.comments {
+            replaced += finite_json::neutralize_in_place(comment);
+        }
+        replaced += finite_json::neutralize_in_place(&mut self.library);
+        if replaced > 0 {
+            self.mark_full_dirty();
+        }
+        replaced
     }
 
     /// Parses a native document. Text written by older versions that emulated lists with
@@ -737,19 +1462,52 @@ impl Document {
         // neutral value and counted (see [`finite_json`]).
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
         let mut report = doc.validate_and_repair();
+        let now = now_ms();
+        doc.in_progress.retain(|id, _| doc.nodes.contains_key(id));
+        for ip in doc.in_progress.values_mut() {
+            if ip.since_ms > now {
+                ip.since_ms = now;
+            }
+        }
         report.non_finite_numbers = non_finite_numbers;
+        doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
         Ok((doc, report))
     }
 
-    /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`]).
+    /// Converts literal list prefixes of every text node to real lists (see [`migrate_literal_lists`])
+    /// and migrates legacy `gridChildHorizontalAlign` / `gridChildVerticalAlign` metadata keys onto [`LayoutChild`].
     pub fn migrate_text(&mut self) {
         for node in self.nodes.values_mut() {
             if let NodeKind::Text(t) = &mut node.kind {
                 migrate_literal_lists(t);
             }
+            node.migrate_grid_child_align_metadata();
         }
+        self.infer_grid_align_axis_overrides();
         self.mark_full_dirty();
+    }
+
+    /// Files saved before per-axis grid alignment overrides existed carry a `Layout` override with both axis
+    /// flags clear, which component sync read as "nothing on these axes is overridden". Flags each axis whose
+    /// value differs from the linked main child, so an overridden alignment survives the next sync. Nodes that
+    /// already have a flag set are left alone, so the pass is idempotent.
+    fn infer_grid_align_axis_overrides(&mut self) {
+        let inferred: Vec<(NodeId, [bool; 2])> = self
+            .nodes
+            .values()
+            .filter(|n| n.component.grid_align_overrides == [false, false] && n.component.overrides.contains(&OverrideField::Layout))
+            .filter_map(|n| {
+                let main = self.nodes.get(&n.component.source?)?;
+                let axes = components::record_grid_align_overrides(main, n);
+                (axes != [false, false]).then_some((n.id, axes))
+            })
+            .collect();
+        for (id, axes) in inferred {
+            if let Some(n) = self.nodes.get_mut(&id) {
+                n.component.grid_align_overrides = axes;
+            }
+        }
     }
 }
 
@@ -773,6 +1531,9 @@ pub struct StyleMeta {
     pub description: String,
     /// Property the style is used for (a `Style::Fill` can be a stroke style).
     pub property: StyleProperty,
+    /// Property key -> variable id bound on this style.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.
@@ -803,6 +1564,19 @@ mod tests {
         let removed = d.remove(frame).unwrap();
         assert_eq!(removed.len(), 2);
         assert!(d.get(rect).is_none());
+    }
+
+    #[test]
+    fn a_clone_shares_the_runtime_id_until_it_is_renewed_and_a_loaded_document_gets_its_own() {
+        let mut d = Document::new("t");
+        d.add_page("Page 1");
+        let mut copy = d.clone();
+        assert_eq!(copy.runtime_id(), d.runtime_id());
+        copy.renew_runtime_id();
+        assert_ne!(copy.runtime_id(), d.runtime_id());
+        let (loaded, _) = Document::from_json_with_report(&d.to_json().unwrap()).unwrap();
+        assert_ne!(loaded.runtime_id(), d.runtime_id());
+        assert_ne!(loaded.runtime_id(), copy.runtime_id());
     }
 
     #[test]
@@ -976,5 +1750,212 @@ mod tests {
 
         assert_eq!(d.page_node_count(p1), 4);
         assert_eq!(d.page_node_count(p2), 1);
+    }
+
+    #[test]
+    fn killed_agent_flag_goes_stale() {
+        set_thread_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+
+        d.set_in_progress(
+            frame,
+            Some(InProgress {
+                run_id: Some("run_killed".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: now_ms(),
+                stale_after_s: Some(60),
+                status: Some("Building header...".into()),
+            }),
+        );
+        assert!(d.get_in_progress(frame).is_some());
+        assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Claude Code working");
+
+        // Advance injected clock by 61 seconds without sleeping.
+        advance_thread_mock_now_ms(61_000);
+        assert!(d.get_in_progress(frame).is_none(), "stale flag must be hidden from readers");
+
+        // Next save / prune removes the stale entry from the persisted map.
+        let json = d.to_json().unwrap();
+        assert!(!json.contains("run_killed"), "stale flag must be pruned on save: {json}");
+        let reloaded = Document::from_json(&json).unwrap();
+        assert!(reloaded.in_progress.is_empty());
+
+        // Clock skew: future since_ms is treated as now_ms().
+        set_thread_mock_now_ms(Some(2_000_000));
+        d.set_in_progress(frame, Some(InProgress { run_id: Some("run_skew".into()), agent: None, since_ms: 9_000_000, stale_after_s: Some(60), status: None }));
+        assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Agent working");
+        advance_thread_mock_now_ms(61_000);
+        assert!(d.get_in_progress(frame).is_none(), "clock-skewed flag must expire 60s after effective now");
+        set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn undo_does_not_touch_flag() {
+        set_thread_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0))).unwrap();
+
+        let mut h = History::default();
+        let mut after = d.get(frame).unwrap().clone();
+        after.name = "Renamed Hero".into();
+        h.exec(&mut d, Command::Update { node: Box::new(after) }).unwrap();
+
+        // Flag the frame outside History, then undo the previous node edit.
+        let ip = InProgress { run_id: Some("run_1".into()), agent: Some("Codex".into()), since_ms: now_ms(), stale_after_s: None, status: None };
+        d.set_in_progress(frame, Some(ip.clone()));
+        assert!(h.undo(&mut d).unwrap());
+        assert_eq!(d.get(frame).unwrap().name, "Frame");
+        assert_eq!(d.get_in_progress(frame), Some(&ip), "undoing node edit must leave in_progress flag untouched");
+
+        // Edge case §8.2: undoing the insert that created a flagged frame prunes the entry;
+        // redo restores the frame without the flag.
+        let fid2 = d.alloc_id();
+        let frame2_node = Node::frame(fid2, Rect::new(500.0, 0.0, 300.0, 200.0));
+        h.exec(&mut d, Command::Insert { parent: page, index: 1, nodes: vec![frame2_node] }).unwrap();
+        d.set_in_progress(fid2, Some(ip));
+        assert!(d.get_in_progress(fid2).is_some());
+        assert!(h.undo(&mut d).unwrap());
+        assert!(!d.in_progress.contains_key(&fid2));
+        assert!(h.redo(&mut d).unwrap());
+        assert!(d.get(fid2).is_some());
+        assert!(d.get_in_progress(fid2).is_none(), "redo must not restore transient work state");
+        set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn not_root_refused() {
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let tid = d.alloc_id();
+        let text = d.insert(frame, Node::text(tid, Rect::new(10.0, 10.0, 100.0, 24.0), "Title", TextStyle::default())).unwrap();
+        let sid = d.alloc_id();
+        let section = d.insert(page, Node::new(sid, NodeKind::Section)).unwrap();
+        let sfid = d.alloc_id();
+        let sec_frame = d.insert(section, Node::frame(sfid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+
+        assert_eq!(d.is_in_progress_root(frame), Ok(()));
+        assert_eq!(d.is_in_progress_root(section), Ok(()));
+        assert_eq!(d.is_in_progress_root(sec_frame), Ok(()));
+        assert_eq!(d.is_in_progress_root(text), Err(Some(frame)));
+        assert_eq!(d.is_in_progress_root(page), Err(None));
+    }
+
+    #[test]
+    fn clear_in_progress_matches_cli_binary_aliases_and_flag_run_id() {
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let f1_id = d.alloc_id();
+        let f1 = d.insert(page, Node::frame(f1_id, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let f2_id = d.alloc_id();
+        let f2 = d.insert(page, Node::frame(f2_id, Rect::new(400.0, 0.0, 320.0, 240.0))).unwrap();
+
+        d.set_in_progress(
+            f1,
+            Some(InProgress {
+                run_id: Some("mcp-run-42".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: 1_000,
+                stale_after_s: Some(300),
+                status: Some("Building hero".into()),
+            }),
+        );
+        d.set_in_progress(
+            f2,
+            Some(InProgress {
+                run_id: Some("mcp-run-42".into()),
+                agent: None,
+                since_ms: 1_000,
+                stale_after_s: Some(300),
+                status: Some("Building footer".into()),
+            }),
+        );
+
+        let cleared = d.clear_in_progress_for_run_or_agent(Some("terminal-session-id"), Some("claude"));
+        assert_eq!(cleared.len(), 2);
+        assert!(d.in_progress.is_empty());
+    }
+
+    #[test]
+    fn run_end_clear_without_agent_matches_only_the_finishing_run_id() {
+        set_thread_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let f1 = d.alloc_id();
+        let frame1 = d.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let f2 = d.alloc_id();
+        let frame2 = d.insert(page, Node::frame(f2, Rect::new(240.0, 0.0, 200.0, 200.0))).unwrap();
+        let f3 = d.alloc_id();
+        let frame3 = d.insert(page, Node::frame(f3, Rect::new(480.0, 0.0, 200.0, 200.0))).unwrap();
+
+        d.set_in_progress(
+            frame1,
+            Some(InProgress { run_id: Some("p1-tab-1-1-1".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(
+            frame2,
+            Some(InProgress { run_id: Some("p1-tab-1-2-2".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(frame3, Some(InProgress { run_id: None, agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }));
+
+        let cleared = d.clear_in_progress_for_run_or_agent(Some("p1-tab-1-1-1"), None);
+        assert_eq!(cleared, vec![frame1]);
+        assert!(d.get_in_progress(frame1).is_none());
+        assert!(d.get_in_progress(frame2).is_some(), "other concurrent tab's flag must stay active");
+        assert!(d.get_in_progress(frame3).is_some(), "run_id: None entry must never be cleared by a run id");
+        set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_stale_minutes_setting_controls_default_staleness() {
+        set_thread_mock_now_ms(Some(10_000_000));
+        set_in_progress_stale_minutes(Some(2));
+        assert_eq!(in_progress_stale_minutes(), 2);
+        assert_eq!(default_in_progress_stale_s(), 120);
+        assert_eq!(default_in_progress_stale_ms(), 120_000);
+
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        d.set_in_progress(
+            frame,
+            Some(InProgress { run_id: Some("run_cfg".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }),
+        );
+        advance_thread_mock_now_ms(119_000);
+        assert!(d.get_in_progress(frame).is_some());
+        advance_thread_mock_now_ms(2_000);
+        assert!(d.get_in_progress(frame).is_none());
+        assert_eq!(d.prune_in_progress(), vec![frame]);
+
+        set_in_progress_stale_minutes(Some(0));
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_MIN_STALE_MINUTES);
+        set_in_progress_stale_minutes(Some(5000));
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_MAX_STALE_MINUTES);
+        set_in_progress_stale_minutes(None);
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_DEFAULT_STALE_MINUTES);
+        set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn thread_mock_clock_is_invisible_to_other_threads() {
+        // No other test uses this value, so a sibling test's process-wide mock cannot be mistaken for it.
+        const SENTINEL_MS: u64 = 123_456_789;
+        set_thread_mock_now_ms(Some(SENTINEL_MS));
+        assert_eq!(now_ms(), SENTINEL_MS);
+        assert_eq!(advance_thread_mock_now_ms(1_000), SENTINEL_MS + 1_000);
+        assert_eq!(now_ms(), SENTINEL_MS + 1_000);
+
+        let seen_elsewhere = std::thread::spawn(now_ms).join().unwrap();
+        assert!(seen_elsewhere != SENTINEL_MS && seen_elsewhere != SENTINEL_MS + 1_000, "the thread mock leaked to another thread: {seen_elsewhere}");
+
+        set_thread_mock_now_ms(None);
+        assert_ne!(now_ms(), SENTINEL_MS + 1_000, "clearing must restore this thread's own clock");
     }
 }

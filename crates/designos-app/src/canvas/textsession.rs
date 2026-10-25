@@ -331,12 +331,14 @@ fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut 
     let id = sess.id;
     let (mut caret, mut anchor) = (sess.caret, sess.anchor);
     let mut before = None;
+    let mut added_faces = Vec::new();
     if let Some(n) = sess.tx.ed.node(doc, id) {
         let is_text = matches!(n.kind, NodeKind::Text(_));
         if let Some(t) = n.kind.any_text_mut() {
             let snap = Snap { props: t.clone(), caret, anchor };
             f(t, &mut caret, &mut anchor);
             if *t != snap.props {
+                added_faces = designos_fonts::new_faces(&snap.props, t);
                 before = Some(snap);
             }
             if is_text {
@@ -353,6 +355,25 @@ fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut 
     sess.hint_x = None;
     layout::relayout_up(doc, &mut sess.tx.ed, id);
     canvas.dirty = true;
+    // Every session edit ends here, so a weight, family or italic that is new to the text (Ctrl+B,
+    // Edit > Bold, the inspector, a bold typing style) is asked for in the same frame. Typing and
+    // edits that keep the faces start no load.
+    if !added_faces.is_empty() {
+        app.fonts.request_new_faces(&app.doc, added_faces);
+    }
+}
+
+/// Runs `edit`, a style change to the text layers `ids` made outside a session, and asks for the
+/// font faces it introduced (see `edit_props` for the session case).
+pub fn requesting_new_faces(app: &mut App, ids: &[NodeId], edit: impl FnOnce(&mut App)) {
+    let before: Vec<(NodeId, TextProps)> = ids.iter().filter_map(|id| Some((*id, app.doc.get(*id)?.kind.any_text()?.clone()))).collect();
+    edit(app);
+    let mut added: Vec<_> = before.iter().filter_map(|(id, b)| Some(designos_fonts::new_faces(b, app.doc.get(*id)?.kind.any_text()?))).flatten().collect();
+    added.sort();
+    added.dedup();
+    if !added.is_empty() {
+        app.fonts.request_new_faces(&app.doc, added);
+    }
 }
 
 /// Replaces the selection with `s` (typing / paste).
@@ -481,7 +502,7 @@ pub fn style_selection_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditK
         let Some(t) = stored_of(app) else { return true };
         let caret = app.canvas.text.as_ref().map(|s| s.caret).unwrap_or(0);
         let mut st = app.canvas.text.as_ref().and_then(|s| s.typing.clone()).unwrap_or_else(|| richtext::style_for_typing(&t, caret));
-        f(&mut st);
+        richtext::weight_in_step(&f)(&mut st);
         if let Some(s) = app.canvas.text.as_mut() {
             s.typing = Some(st);
         }
@@ -535,36 +556,38 @@ pub fn text_command(app: &mut App, cmd: TextCmd) {
         return;
     }
     let ids = app.selection.clone();
-    for id in ids {
-        let Some(t) = app.doc.get(id).and_then(|n| n.kind.any_text()).cloned() else { continue };
-        let sum = richtext::summary(&t, 0..t.content.len());
-        match cmd {
-            TextCmd::List(kind) => {
-                app.edit_nodes(&[id], |n| {
-                    let is_text = matches!(n.kind, NodeKind::Text(_));
-                    if let Some(t) = n.kind.any_text_mut() {
-                        let len = t.content.len();
-                        richtext::toggle_list(t, 0..len, kind);
-                        if is_text {
-                            n.size = layout::fit_text(t, n.size);
+    requesting_new_faces(app, &ids, |app| {
+        for &id in &ids {
+            let Some(t) = app.doc.get(id).and_then(|n| n.kind.any_text()).cloned() else { continue };
+            let sum = richtext::summary(&t, 0..t.content.len());
+            match cmd {
+                TextCmd::List(kind) => {
+                    app.edit_nodes(&[id], |n| {
+                        let is_text = matches!(n.kind, NodeKind::Text(_));
+                        if let Some(t) = n.kind.any_text_mut() {
+                            let len = t.content.len();
+                            richtext::toggle_list(t, 0..len, kind);
+                            if is_text {
+                                n.size = layout::fit_text(t, n.size);
+                            }
                         }
-                    }
-                });
-            }
-            c => {
-                let f = style_fn(c, Some(&sum));
-                app.edit_nodes(&[id], |n| {
-                    let is_text = matches!(n.kind, NodeKind::Text(_));
-                    if let Some(t) = n.kind.any_text_mut() {
-                        richtext::apply_all(t, &f);
-                        if is_text {
-                            n.size = layout::fit_text(t, n.size);
+                    });
+                }
+                c => {
+                    let f = style_fn(c, Some(&sum));
+                    app.edit_nodes(&[id], |n| {
+                        let is_text = matches!(n.kind, NodeKind::Text(_));
+                        if let Some(t) = n.kind.any_text_mut() {
+                            richtext::apply_all(t, &f);
+                            if is_text {
+                                n.size = layout::fit_text(t, n.size);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         }
-    }
+    });
 }
 
 fn style_fn(cmd: TextCmd, sum: Option<&richtext::Summary>) -> impl Fn(&mut TextStyle) {
@@ -738,10 +761,14 @@ mod tests {
     use designos_doc::{Document, Node};
 
     fn app_with_text(s: &str) -> (App, NodeId) {
+        app_with_styled_text(s, TextStyle { font_size: 16.0, ..Default::default() })
+    }
+
+    fn app_with_styled_text(s: &str, style: TextStyle) -> (App, NodeId) {
         let mut d = Document::new("t");
         let page = d.add_page("p");
         let id = d.alloc_id();
-        let mut n = Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), s, TextStyle { font_size: 16.0, ..Default::default() });
+        let mut n = Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), s, style);
         if let NodeKind::Text(t) = &n.kind {
             n.size = layout::estimate_text_size(t);
         }
@@ -835,6 +862,388 @@ mod tests {
         assert_eq!(t.style.font_weight, 700);
         text_command(&mut app, TextCmd::Bold);
         assert_eq!(text_of(&app, id).style.font_weight, 400);
+    }
+
+    /// A family that is not bundled, so its faces have to be fetched.
+    fn lato() -> TextStyle {
+        TextStyle { font_family: "TestLato".into(), font_size: 16.0, ..Default::default() }
+    }
+
+    fn asked_for(app: &App, family: &str, weight: u16) -> bool {
+        app.fonts.requested().contains(&designos_fonts::FontRequest::new(family, weight, false))
+    }
+
+    #[test]
+    fn ctrl_b_requests_the_bold_face_of_a_downloaded_family() {
+        let (mut app, id) = app_with_styled_text("hello world", lato());
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        assert_eq!(text_of(&app, id).runs[0].style.font_weight, 700);
+        assert!(asked_for(&app, "TestLato", 700), "the 700 face must be requested in the frame Ctrl+B ran: {:?}", app.fonts.requested());
+    }
+
+    #[test]
+    fn edit_menu_bold_requests_the_bold_face_in_a_session_and_on_a_selected_layer() {
+        let (mut app, id) = app_with_styled_text("hello world", lato());
+        set_sel(&mut app, 5, 0, false);
+        text_command(&mut app, TextCmd::Bold);
+        assert!(asked_for(&app, "TestLato", 700), "session: {:?}", app.fonts.requested());
+
+        let (mut app, id2) = app_with_styled_text("hello world", lato());
+        finish_text(&mut app, true);
+        app.selection = vec![id2];
+        text_command(&mut app, TextCmd::Bold);
+        assert_eq!(text_of(&app, id2).style.font_weight, 700);
+        assert!(asked_for(&app, "TestLato", 700), "selected layer: {:?}", app.fonts.requested());
+        let _ = id;
+    }
+
+    #[test]
+    fn bold_set_before_typing_requests_the_face_once_the_bold_text_exists() {
+        let (mut app, id) = app_with_styled_text("ab", lato());
+        set_sel(&mut app, 2, 2, false);
+        key(&mut app, egui::Key::B, false, true);
+        insert_text(&mut app, "C", EditKind::Typing);
+        assert_eq!(text_of(&app, id).runs.len(), 1);
+        assert!(asked_for(&app, "TestLato", 700), "{:?}", app.fonts.requested());
+    }
+
+    #[test]
+    fn typing_in_a_face_the_text_already_uses_requests_nothing() {
+        let (mut app, id) = app_with_styled_text("ab", lato());
+        set_sel(&mut app, 2, 2, false);
+        insert_text(&mut app, "c", EditKind::Typing);
+        insert_text(&mut app, "d", EditKind::Typing);
+        assert_eq!(text_of(&app, id).content, "abcd");
+        assert!(app.fonts.requested().is_empty(), "plain typing must not start a font load: {:?}", app.fonts.requested());
+    }
+
+    #[test]
+    fn inspector_style_edits_request_the_new_face_with_or_without_a_session() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_text("hello world");
+        set_sel(&mut app, 5, 0, false);
+        set_style(&mut app, &[id], |s| s.font_family = "TestLato".into());
+        assert!(asked_for(&app, "TestLato", 400), "session: {:?}", app.fonts.requested());
+
+        let (mut app, id) = app_with_text("hello world");
+        finish_text(&mut app, true);
+        set_style(&mut app, &[id], |s| s.font_family = "TestLato".into());
+        assert!(asked_for(&app, "TestLato", 400), "layer: {:?}", app.fonts.requested());
+        set_style(&mut app, &[id], |s| s.font_weight = 700);
+        assert!(asked_for(&app, "TestLato", 700), "layer weight: {:?}", app.fonts.requested());
+    }
+
+    fn wght_inter(weight: u16, axis: f32) -> TextStyle {
+        let mut st = TextStyle { font_size: 32.0, font_weight: weight, ..Default::default() };
+        st.set_axis("wght", axis);
+        st
+    }
+
+    /// Ink coverage of the first page, drawn on white.
+    fn ink_of(app: &mut App) -> u64 {
+        let page = app.page;
+        if let Some(n) = app.doc.get_mut(page) {
+            n.kind = NodeKind::Page { background: designos_doc::Color::WHITE };
+        }
+        let mut pm = designos_render::tiny_skia::Pixmap::new(400, 64).unwrap();
+        designos_render::render_page(&app.doc, page, &designos_render::Viewport::default(), &mut pm);
+        pm.pixels().iter().map(|p| 255 - p.red() as u64).sum()
+    }
+
+    #[test]
+    fn bold_moves_the_wght_axis_so_the_canvas_follows_the_panel() {
+        let (mut app, id) = app_with_styled_text("Hamburgefonstiv", wght_inter(400, 400.0));
+        let regular = ink_of(&mut app);
+        select_all(&mut app);
+        key(&mut app, egui::Key::B, false, true);
+        let t = text_of(&app, id);
+        assert_eq!(t.style.font_weight, 700, "the panel reads font_weight");
+        assert_eq!(t.style.get_axis("wght"), Some(700.0), "the renderer reads the axis first");
+        let bold = ink_of(&mut app);
+        assert!(bold > regular + regular / 10, "Bold must draw heavier: {regular} vs {bold}");
+        key(&mut app, egui::Key::B, false, true);
+        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(400.0), "toggling back follows too");
+    }
+
+    #[test]
+    fn size_and_spacing_edits_start_no_font_load() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_styled_text("hello world", lato());
+        set_sel(&mut app, 5, 0, false);
+        text_command(&mut app, TextCmd::SizeUp);
+        set_style(&mut app, &[id], |s| s.letter_spacing = 1.0);
+        assert!(app.fonts.requested().is_empty(), "session: {:?}", app.fonts.requested());
+
+        let (mut app, id) = app_with_styled_text("hello world", lato());
+        finish_text(&mut app, true);
+        set_style(&mut app, &[id], |s| s.font_size = 20.0);
+        text_command_on(&mut app, id, TextCmd::SizeDown);
+        assert!(app.fonts.requested().is_empty(), "layer: {:?}", app.fonts.requested());
+    }
+
+    fn text_command_on(app: &mut App, id: NodeId, cmd: TextCmd) {
+        app.selection = vec![id];
+        text_command(app, cmd);
+    }
+
+    #[test]
+    fn a_face_added_in_a_document_too_large_to_scan_is_still_requested() {
+        // `requests_for` reads only the first 8,192 nodes of a document over 25,000 nodes, so the
+        // edited text (the last one) is out of its reach: the edit has to name the face itself.
+        let mut d = Document::new("big");
+        let page = d.add_page("p");
+        let mut last = None;
+        for i in 0..25_100 {
+            let id = d.alloc_id();
+            let st = if i == 25_099 { lato() } else { TextStyle::default() };
+            d.insert(page, Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), "hello world", st)).unwrap();
+            last = Some(id);
+        }
+        let id = last.unwrap();
+        let mut app = App::new(d);
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        assert!(asked_for(&app, "TestLato", 700), "{} faces requested", app.fonts.requested().len());
+    }
+
+    #[test]
+    fn a_bold_typing_style_moves_the_wght_axis() {
+        let (mut app, id) = app_with_styled_text("ab", wght_inter(400, 400.0));
+        set_sel(&mut app, 2, 2, false);
+        key(&mut app, egui::Key::B, false, true);
+        insert_text(&mut app, "C", EditKind::Typing);
+        let t = text_of(&app, id);
+        assert_eq!((t.runs[0].start, t.runs[0].style.font_weight, t.runs[0].style.get_axis("wght")), (2, 700, Some(700.0)), "caret + Ctrl+B + typing");
+    }
+
+    /// The weight dropdown writes only `font_weight`.
+    #[test]
+    fn the_inspector_weight_moves_the_wght_axis_in_a_session() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_styled_text("hello", wght_inter(400, 400.0));
+        select_all(&mut app);
+        set_style(&mut app, &[id], |s| s.font_weight = 700);
+        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0));
+    }
+
+    #[test]
+    fn the_inspector_weight_moves_the_wght_axis_on_a_selected_layer() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_styled_text("hello", wght_inter(400, 400.0));
+        finish_text(&mut app, true);
+        set_style(&mut app, &[id], |s| s.font_weight = 700);
+        assert_eq!(text_of(&app, id).style.get_axis("wght"), Some(700.0));
+    }
+
+    fn family_text(family: &str) -> TextStyle {
+        TextStyle { font_family: family.into(), font_size: 16.0, ..Default::default() }
+    }
+
+    /// 25,100 Inter text layers: past the 25,000 where `requests_for` reads only the first 8,192.
+    /// Returns the app and the ids of the last `n` layers, which that scan never reaches.
+    fn large_app(n: usize) -> (App, Vec<NodeId>) {
+        let mut d = Document::new("big");
+        let page = d.add_page("p");
+        let mut ids = Vec::new();
+        for _ in 0..25_100 {
+            let id = d.alloc_id();
+            d.insert(page, Node::text(id, Rect::new(0.0, 0.0, 10.0, 10.0), "hello world", TextStyle::default())).unwrap();
+            ids.push(id);
+        }
+        let last = ids.split_off(ids.len() - n);
+        (App::new(d), last)
+    }
+
+    #[test]
+    fn ctrl_b_fetches_the_bold_face_after_the_regular_face_of_its_family_is_registered() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestLatoOne"));
+        app.fonts = serving(&["TestLatoOne"]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).loaded, 1, "the open load fetches the regular face");
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        let done = settle(&mut app.fonts);
+        assert!(done.failed.is_empty(), "{:?}", done.failed);
+        assert_eq!(done.loaded, 1, "the 700 face is fetched although the regular one is already registered");
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoOne", 700, false)));
+    }
+
+    #[test]
+    fn a_family_installed_on_the_system_is_never_fetched_at_any_weight() {
+        use crate::fonts::testkit::{font_named, serving, settle};
+        designos_render::register_font(font_named("TestSysFamy")); // stands in for a system font
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestSysFamy"));
+        app.fonts = serving(&[]); // a download attempt would fail
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        assert_eq!(app.fonts.started(), 0, "Ctrl+B on a system family starts no load");
+        app.fonts.load_for(&app.doc); // a document load names the bold face too
+        let done = settle(&mut app.fonts);
+        assert_eq!((done.loaded, done.failed.is_empty()), (0, true), "{:?}", done.failed);
+    }
+
+    #[test]
+    fn the_family_picker_keeps_its_face_on_a_large_document() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, ids) = large_app(1);
+        app.fonts = serving(&["TestLatoTwo"]);
+        crate::panels::typography::pick_family(&mut app, &ids, "TestLatoTwo");
+        assert!(asked_for(&app, "TestLatoTwo", 400), "{:?}", app.fonts.requested());
+        settle(&mut app.fonts);
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoTwo", 400, false)));
+    }
+
+    #[test]
+    fn back_to_back_edits_on_a_large_document_each_keep_their_face() {
+        use crate::fonts::testkit::{serving, settle};
+        use crate::panels::typography::set_style;
+        let (mut app, ids) = large_app(2);
+        app.fonts = serving(&["TestLatoTre", "TestLatoFor"]);
+        set_style(&mut app, &ids[..1], |s| s.font_family = "TestLatoTre".into());
+        set_style(&mut app, &ids[1..], |s| s.font_family = "TestLatoFor".into());
+        settle(&mut app.fonts);
+        for family in ["TestLatoTre", "TestLatoFor"] {
+            assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new(family, 400, false)), "{family}: {:?}", app.fonts.registered());
+        }
+    }
+
+    #[test]
+    fn undoing_a_second_quick_style_edit_finds_the_face_of_the_first() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, id) = app_with_styled_text("hello world", family_text("TestLatoFiv"));
+        app.fonts = serving(&["TestLatoFiv"]);
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        key(&mut app, egui::Key::I, false, true); // before the first fetch returns
+        key(&mut app, egui::Key::Z, false, true);
+        let run = text_of(&app, id).runs[0].style.clone();
+        assert_eq!((run.font_weight, run.italic), (700, false), "undo brings the upright bold run back");
+        settle(&mut app.fonts);
+        assert!(app.fonts.registered().contains(&designos_fonts::FontRequest::new("TestLatoFiv", 700, false)), "{:?}", app.fonts.registered());
+    }
+
+    #[test]
+    fn stepping_the_wght_field_costs_one_load_per_face() {
+        use crate::panels::typography::set_style;
+        let (mut app, id) = app_with_styled_text("hello", family_text("TestLatoSix"));
+        finish_text(&mut app, true);
+        // what the Variable tab writes for one wheel step
+        let step = |app: &mut App, w: u16| {
+            set_style(app, &[id], |s| {
+                s.set_axis("wght", f32::from(w));
+                s.font_weight = w;
+            })
+        };
+        step(&mut app, 401);
+        assert!(asked_for(&app, "TestLatoSix", 500) && !asked_for(&app, "TestLatoSix", 401), "401 is drawn with the 500 face: {:?}", app.fonts.requested());
+        assert_eq!(app.fonts.started(), 1);
+        step(&mut app, 402);
+        step(&mut app, 450);
+        assert_eq!(app.fonts.started(), 1, "every weight up to 500 is the same face");
+        step(&mut app, 520);
+        assert!(asked_for(&app, "TestLatoSix", 600), "{:?}", app.fonts.requested());
+        assert_eq!(app.fonts.started(), 2);
+    }
+
+    /// Two texts: the first in `first`, the second in `other_family`.
+    fn app_with_two_texts(first: TextStyle, other_family: &str) -> (App, NodeId, NodeId) {
+        let (mut app, id) = app_with_styled_text("hello world", first);
+        let other = app.doc.alloc_id();
+        let page = app.page;
+        app.doc.insert(page, Node::text(other, Rect::new(0.0, 100.0, 10.0, 10.0), "brand", family_text(other_family))).unwrap();
+        (app, id, other)
+    }
+
+    #[test]
+    fn bold_on_bundled_inter_starts_no_load_while_another_face_has_failed() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandOne");
+        app.fonts = serving(&[]); // nothing is served: the brand family fails
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "reported once, as on open");
+        let started = app.fonts.started();
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        assert_eq!(app.fonts.started(), started, "Inter's bold face is bundled: nothing to fetch");
+        assert!(!app.fonts.is_loading());
+    }
+
+    #[test]
+    fn an_edit_that_adds_a_face_does_not_refetch_or_report_a_failed_face_of_another_text() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(family_text("TestLatoEit"), "TestBrandTwo");
+        app.fonts = serving(&["TestLatoEit"]);
+        app.fonts.load_for(&app.doc);
+        let open = settle(&mut app.fonts);
+        assert_eq!((open.loaded, open.failed.len()), (1, 1));
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        let done = settle(&mut app.fonts);
+        assert_eq!(done.loaded, 1, "the bold face of the text the user touched is fetched");
+        assert!(done.failed.is_empty(), "the other text's failure is not toasted again: {:?}", done.failed);
+    }
+
+    #[test]
+    fn toggling_bold_back_on_needs_no_second_load() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _) = app_with_styled_text("hello world", family_text("TestLatoSev"));
+        app.fonts = serving(&["TestLatoSev"]);
+        set_sel(&mut app, 5, 0, false);
+        key(&mut app, egui::Key::B, false, true);
+        settle(&mut app.fonts);
+        let started = app.fonts.started();
+        key(&mut app, egui::Key::B, false, true); // off
+        key(&mut app, egui::Key::B, false, true); // on again: the 700 face is registered
+        assert_eq!(app.fonts.started(), started);
+    }
+
+    #[test]
+    fn a_failed_face_is_reported_once_per_session_but_retried_when_the_document_reloads() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, _) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandThr");
+        app.fonts = serving(&[]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1);
+        let started = app.fonts.started();
+        app.fonts.load_for(&app.doc); // a tab switch, an open
+        assert_eq!(app.fonts.started(), started + 1, "the face is fetched again, in case the network is back");
+        assert!(settle(&mut app.fonts).failed.is_empty(), "but its failure is not toasted again");
+    }
+
+    #[test]
+    fn picking_the_family_again_retries_a_failed_face_and_reports_it_again() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, _, other) = app_with_two_texts(TextStyle { font_size: 16.0, ..Default::default() }, "TestBrandFor");
+        app.fonts = serving(&[]);
+        app.fonts.load_for(&app.doc);
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1);
+        crate::panels::typography::pick_family(&mut app, &[other], "TestBrandFor");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "an explicit retry says so when it fails again");
+    }
+
+    #[test]
+    fn picking_the_family_again_reaches_a_failed_face_on_a_large_document() {
+        use crate::fonts::testkit::{serving, settle};
+        let (mut app, ids) = large_app(1);
+        if let Some(NodeKind::Text(t)) = app.doc.get_mut(ids[0]).map(|n| &mut n.kind) {
+            t.style.font_family = "TestBrandFiv".into();
+        }
+        app.fonts = serving(&[]);
+        crate::panels::typography::pick_family(&mut app, &ids, "TestBrandFiv");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "the retry names the face, the capped scan would not");
+        crate::panels::typography::pick_family(&mut app, &ids, "TestBrandFiv");
+        assert_eq!(settle(&mut app.fonts).failed.len(), 1, "and again on the next pick");
+    }
+
+    #[test]
+    fn bold_leaves_text_without_a_wght_axis_free_of_axes() {
+        let (mut app, id) = app_with_text("hello");
+        select_all(&mut app);
+        key(&mut app, egui::Key::B, false, true);
+        assert!(text_of(&app, id).style.variation_axes.is_empty());
     }
 
     #[test]

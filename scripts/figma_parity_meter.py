@@ -999,7 +999,7 @@ def evaluate_pillar_5() -> Dict[str, Any]:
         ("T05", "PTY Runtime", "User Shell (`$SHELL`) fallback & multi-tab PTY manager", [r"default_shell_program", r"portable_pty"], terminal_rs, "crates/designos-app/src/terminal.rs"),
         # 4 Live Canvas Bridge & MCP Checkpoints
         ("B01", "Live Bridge", "`$DESIGNOS_LIVE_SPEC` & `$DESIGNOS_SELECTION_JSON` env injection into PTY", [r"DESIGNOS_LIVE_SPEC", r"configure_pty_env"], terminal_rs, "crates/designos-app/src/terminal.rs"),
-        ("B02", "Live Bridge", "`<50ms` `poll_live_agent_bridge` hot-apply to live canvas with single-step Undo", [r"poll_live_agent_bridge", r"extract_spec_json_from_log"], terminal_rs + "\n" + shell_rs, "crates/designos-app/src/terminal.rs"),
+        ("B02", "Live Bridge", "`<50ms` `poll_live_agent_bridge` hot-apply to live canvas with single-step Undo", [r"poll_live_agent_bridge", r"ApplySpecFile"], terminal_rs + "\n" + shell_rs, "crates/designos-app/src/terminal.rs"),
         ("B03", "Live Bridge", "Selection + Pin Comments export to active Agent PTY (`send_copy_for_ai`)", [r"send_copy_for_ai", r"export_selection_and_comments_to_pty"], terminal_rs, "crates/designos-app/src/terminal.rs"),
         ("B04", "MCP Server", "`designos-mcp` server binary exposing scenegraph & design tools", [r"designos_open_file", r"designos_get_document", r"designos_apply_spec"], mcp_server_rs + "\n" + mcp_engine_rs, "crates/designos-mcp/src/server.rs"),
     ]

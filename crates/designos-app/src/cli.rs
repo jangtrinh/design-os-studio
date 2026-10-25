@@ -50,7 +50,7 @@ pub struct Options {
     pub find: Option<String>,
     /// Replacement text for `--find`; also shows the replace row.
     pub replace_with: Option<String>,
-    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml` or `react`.
+    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml`, `react` or `html`.
     pub dev: Option<String>,
     /// With `--dev`: mark the selected layer Ready for dev and give it a demo annotation and link.
     pub dev_demo: bool,
@@ -76,15 +76,38 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
+    /// With `--export-fig`: replace the output file when it already exists. Without it an existing file is refused. Only a
+    /// regular file is ever replaced, never a symbolic link or a directory.
+    pub overwrite: bool,
+    /// Headless agent CLI: generate code for `--select` (or first screen/page) in the given target language and print to stdout.
+    pub codegen: Option<String>,
+    /// Import a `.webcapture` / `.capture.json` file into the document (`--import-capture <path>`).
+    pub import_capture: Option<PathBuf>,
+    /// Output `.designos` / `.fig` path for `--import-capture <path> --out <out.designos>` (`T8.27` §7).
+    pub out: Option<PathBuf>,
+    /// Headless CLI: import variables from a file (`.json` or `.zip`) into the document (`E1-9` §5).
+    pub import_variables: Option<PathBuf>,
+    /// Headless CLI: export variables from the document to a directory or file (`E1-9` §5).
+    pub export_variables: Option<PathBuf>,
+    /// Variable format for `--import-variables` / `--export-variables`: `auto`, `figma-rest`, `figma-native`, or `dtcg`.
+    pub format: Option<String>,
     /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
     /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
     pub no_caption: bool,
     /// With `--screenshot`: never paint transient toasts (e.g. "Opened <file>") into the capture.
     pub no_toast: bool,
     pub help: bool,
+    /// `--version` / `-V`: print the release version and exit.
+    pub version: bool,
 }
 
 impl Options {
+    /// Whether this run may create the file argument instead of reading it: the three agent commands that write a
+    /// new document into a path that is not there yet.
+    pub fn creates_missing_file(&self) -> bool {
+        self.apply_spec.is_some() || self.import_capture.is_some() || self.import_variables.is_some()
+    }
+
     /// Whether this invocation runs a headless Agent CLI command and exits without opening a window.
     pub fn is_agent_cli(&self) -> bool {
         self.inspect_json
@@ -95,23 +118,38 @@ impl Options {
             || self.apply_spec.is_some()
             || self.export_spec.is_some()
             || self.export_fig.is_some()
+            || self.codegen.is_some()
+            || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
+            || self.import_variables.is_some()
+            || self.export_variables.is_some()
     }
 
     /// Whether a launch with these options starts on the home screen: explicitly
     /// with `--home`, or interactively with nothing else to open.
     pub fn wants_home(&self) -> bool {
-        !self.is_agent_cli() && self.open_id.is_none() && (self.home || (self.file.is_none() && self.screenshot.is_none() && self.fixture.is_none()))
+        !self.is_agent_cli()
+            && self.open_id.is_none()
+            && (self.home || (self.file.is_none() && self.import_capture.is_none() && self.screenshot.is_none() && self.fixture.is_none()))
     }
 }
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 44] = [
+pub const PANELS: [&str; 57] = [
     "agents",
     "agents-chat",
+    "agents-picker",
+    "agents-skills",
+    "agents-start-failure",
+    "agents-approval-command",
+    "agents-approval-queued",
+    "agents-approval-open-tab",
+    "agent-permissions",
     "specs",
     "terminal",
     "cmdk",
+    "check-designs",
+    "check-designs-fixed",
     "assets",
     "plugins",
     "plugin-install",
@@ -139,6 +177,10 @@ pub const PANELS: [&str; 44] = [
     "version-history",
     "dev-annotate",
     "dev-compare",
+    "ai-image-menu",
+    "ai-image-expand",
+    "ai-image-erase",
+    "web-capture-report",
     "micro-autolayout",
     "micro-css-grid",
     "micro-smart-selection",
@@ -243,11 +285,18 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--find" => o.find = Some(it.next().ok_or("--find needs the text to search for")?),
             "--replace-with" => o.replace_with = Some(it.next().ok_or("--replace-with needs the replacement text")?),
             "--dev" => {
-                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, uikit, compose, android-xml or react")?;
-                if !matches!(l.as_str(), "css" | "tailwind" | "swiftui" | "uikit" | "compose" | "android-xml" | "react") {
-                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml or react)"));
+                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, uikit, compose, android-xml, react or html")?;
+                if designos_export::CodeLanguage::from_id(&l).is_none() {
+                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml, react or html)"));
                 }
                 o.dev = Some(l);
+            }
+            "--codegen" => {
+                let l = it.next().ok_or("--codegen needs css, tailwind, swiftui, uikit, compose, android-xml, react or html")?;
+                if designos_export::CodeLanguage::from_id(&l).is_none() {
+                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml, react or html)"));
+                }
+                o.codegen = Some(l);
             }
             "--dev-demo" => o.dev_demo = true,
             "--seed-library" => o.seed_library = Some(it.next().ok_or("--seed-library needs a directory")?.into()),
@@ -261,7 +310,22 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--apply-spec" => o.apply_spec = Some(it.next().ok_or("--apply-spec needs a spec JSON path")?.into()),
             "--export-spec" => o.export_spec = Some(it.next().ok_or("--export-spec needs an output JSON path")?.into()),
             "--export-fig" => o.export_fig = Some(it.next().ok_or("--export-fig needs an output .fig path")?.into()),
+            "--overwrite" => o.overwrite = true,
+            "--import-capture" | "--import-web-capture" => o.import_capture = Some(it.next().ok_or("--import-capture needs a capture JSON path")?.into()),
+            "--out" => o.out = Some(it.next().ok_or("--out needs an output path")?.into()),
+            "--import-variables" => o.import_variables = Some(it.next().ok_or("--import-variables needs a file path")?.into()),
+            "--export-variables" => o.export_variables = Some(it.next().ok_or("--export-variables needs a directory or file path")?.into()),
+            "--format" => {
+                let f = it.next().ok_or("--format needs auto, figma-rest, figma-native or dtcg")?;
+                if designos_fig::VariablesFormat::parse_label(&f).is_none() {
+                    return Err(format!("unknown format '{f}' (expected auto, figma-rest, figma-native or dtcg)"));
+                }
+                o.format = Some(f);
+            }
             "-h" | "--help" => o.help = true,
+            "-V" | "--version" => o.version = true,
+            // Launch Services adds -psn_<serial> to some macOS launches; it names the process, not a file.
+            s if s.starts_with("-psn_") => {}
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             _ => {
                 if o.file.is_some() {
@@ -274,18 +338,37 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     Ok(o)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+/// What `--version` prints: the binary's name and the version of the release it was built from.
+pub fn version_line() -> String {
+    format!("{} {}", option_env!("CARGO_BIN_NAME").unwrap_or("designos"), env!("CARGO_PKG_VERSION"))
+}
+
+/// The line to print when the FILE argument names nothing on disk, or `None` when the run can go on.
+pub fn missing_file_message(opts: &Options) -> Option<String> {
+    let file = opts.file.as_ref()?;
+    let gone = matches!(file.try_exists(), Ok(false));
+    (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
+}
+
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+  --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
   --gpu      draw the canvas on the GPU; --screenshot uses the CPU renderer unless this is given
   --library  use DIR as the projects library instead of the default location
-  --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react); --dev-demo marks the selection Ready for dev with an annotation
+  --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react|html); --dev-demo marks the selection Ready for dev with an annotation
+  --codegen  headless Agent CLI: generate code for --select (or first screen/page) in the given language (css|tailwind|swiftui|uikit|compose|android-xml|react|html)
   --no-caption  with --panel micro-<slug>:seq:<N>: record frames without the top shortcut caption bar
   --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
-  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig  headless Agent CLI inspection and mutation";
+  --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
+  --export-fig  headless Agent CLI: write the document to OUT.fig. The path must end in .fig and must not exist yet; --overwrite replaces an existing regular file. A symbolic link is never written through
+  --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
+  --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
+  --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
+  --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]
 mod tests {
@@ -316,8 +399,14 @@ mod tests {
         let o = p(&["--dev", "swiftui", "--dev-demo", "--select", "Card"]).unwrap();
         assert_eq!(o.dev.as_deref(), Some("swiftui"));
         assert!(o.dev_demo);
+        assert_eq!(p(&["--dev", "html"]).unwrap().dev.as_deref(), Some("html"));
+        let cg = p(&["--codegen", "html"]).unwrap();
+        assert_eq!(cg.codegen.as_deref(), Some("html"));
+        assert!(cg.is_agent_cli());
         assert!(p(&["--dev", "cobol"]).is_err());
+        assert!(p(&["--codegen", "cobol"]).is_err());
         assert!(p(&["--dev"]).is_err());
+        assert!(p(&["--codegen"]).is_err());
         assert!(p(&["--panel", "dev-compare"]).is_ok());
     }
 
@@ -365,6 +454,7 @@ mod tests {
         assert_eq!(p(&["--panel", "assets"]).unwrap().panel.as_deref(), Some("assets"));
         assert_eq!(p(&["--panel", "variables"]).unwrap().panel.as_deref(), Some("variables"));
         assert_eq!(p(&["--panel", "variables-floating"]).unwrap().panel.as_deref(), Some("variables-floating"));
+        assert_eq!(p(&["--panel", "web-capture-report"]).unwrap().panel.as_deref(), Some("web-capture-report"));
         assert!(p(&["--panel", "nope"]).is_err());
         assert!(p(&["--panel"]).is_err());
     }
@@ -440,6 +530,114 @@ mod tests {
         assert_eq!(o.export_fig, Some("out.fig".into()));
         assert_eq!(o.reply_comment.as_deref(), Some("t-1"));
         assert_eq!(o.message.as_deref(), Some("Fixed spacing"));
+    }
+
+    #[test]
+    fn overwrite_is_off_unless_given() {
+        assert!(!p(&["doc.designos", "--export-fig", "out.fig"]).unwrap().overwrite);
+        let o = p(&["doc.designos", "--export-fig", "out.fig", "--overwrite"]).unwrap();
+        assert!(o.overwrite && o.export_fig == Some("out.fig".into()));
+        assert!(o.is_agent_cli());
+    }
+
+    #[test]
+    fn the_help_text_names_the_export_fig_rules() {
+        assert!(USAGE.contains("[--export-fig OUT.fig [--overwrite]]"));
+        assert!(USAGE.contains("--overwrite replaces an existing regular file"), "the help says what --overwrite does");
+        assert!(USAGE.contains("never written through"), "the help says a symbolic link is refused");
+    }
+
+    #[test]
+    fn web_capture_cli_flags_parse() {
+        let o = p(&["--import-capture", "card.capture.json", "--out", "out.designos"]).unwrap();
+        assert!(o.is_agent_cli());
+        assert!(!o.wants_home());
+        assert_eq!(o.import_capture, Some("card.capture.json".into()));
+        assert_eq!(o.out, Some("out.designos".into()));
+    }
+
+    #[test]
+    fn parses_the_version_flags() {
+        assert!(p(&["--version"]).unwrap().version);
+        assert!(p(&["-V"]).unwrap().version);
+        assert!(!p(&[]).unwrap().version);
+        assert!(!p(&["--version"]).unwrap().is_agent_cli(), "printing the version opens no window and runs no command");
+        let both = p(&["doctor", "--version"]).unwrap();
+        assert!(both.version && both.file == Some("doctor".into()), "the file argument is kept, and --version wins over it in main");
+    }
+
+    #[test]
+    fn the_version_line_names_the_binary_and_the_cargo_version() {
+        let line = version_line();
+        assert!(line.starts_with("designos"), "{line}");
+        assert!(line.ends_with(env!("CARGO_PKG_VERSION")), "{line}");
+        assert_eq!(line.split(' ').count(), 2, "one name, one version: {line}");
+    }
+
+    #[test]
+    fn the_usage_lists_the_version_flag() {
+        assert!(USAGE.contains("--version"), "{USAGE}");
+        assert!(USAGE.contains("-V"), "{USAGE}");
+    }
+
+    #[test]
+    fn the_usage_lists_the_fixture_and_variable_flags_the_parser_takes() {
+        for flag in ["--fixture", "--import-variables", "--export-variables", "--format"] {
+            let line = USAGE.lines().find(|l| l.trim_start().starts_with(flag)).unwrap_or_else(|| panic!("--help has no line for {flag}:\n{USAGE}"));
+            assert!(line.split_whitespace().count() > 2, "{flag} says what it does: {line}");
+            assert!(!line.contains("(1") && !line.contains("(2") && !line.contains("(3"), "no count in parentheses: {line}");
+        }
+        // The values named in --help are the ones the parser accepts.
+        for fixture in ["showcase", "proto-vars", "no-selection", "variables", "comments", "board", "board-empty"] {
+            assert!(USAGE.contains(fixture), "--fixture lists {fixture}");
+        }
+        for format in ["auto", "figma-rest", "figma-native", "dtcg"] {
+            assert!(USAGE.contains(format), "--format lists {format}");
+            assert!(p(&["--format", format]).is_ok(), "the parser takes {format}");
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_is_named_in_one_plain_line() {
+        let missing = p(&["doctor"]).unwrap();
+        assert_eq!(missing_file_message(&missing).as_deref(), Some("No file named doctor. Run designos --help."));
+        let nested = p(&["no/such/dir/a b.fig"]).unwrap();
+        assert_eq!(missing_file_message(&nested).as_deref(), Some("No file named no/such/dir/a b.fig. Run designos --help."));
+        assert_eq!(missing_file_message(&p(&["doctor", "--screenshot", "x.png"]).unwrap()).as_deref(), Some("No file named doctor. Run designos --help."));
+        assert_eq!(missing_file_message(&p(&["doctor", "--inspect-json"]).unwrap()).as_deref(), Some("No file named doctor. Run designos --help."));
+    }
+
+    #[test]
+    fn a_file_that_exists_or_is_not_asked_for_is_not_called_missing() {
+        let here = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        assert_eq!(missing_file_message(&p(&[here]).unwrap()), None, "an existing file");
+        assert_eq!(missing_file_message(&p(&[env!("CARGO_MANIFEST_DIR")]).unwrap()), None, "a directory is something, and the loader names its own problem");
+        assert_eq!(missing_file_message(&p(&[]).unwrap()), None, "no file argument");
+        assert_eq!(missing_file_message(&p(&["--home"]).unwrap()), None);
+        assert_eq!(missing_file_message(&p(&["--open-id", "abc"]).unwrap()), None);
+    }
+
+    #[test]
+    fn the_process_serial_number_macos_adds_on_some_launches_is_not_a_file() {
+        let o = p(&["-psn_0_12345"]).unwrap();
+        assert_eq!(o.file, None, "Finder and Launch Services may pass -psn_<serial>; it is not a file");
+        assert_eq!(missing_file_message(&o), None, "the app must still start");
+        assert!(o.wants_home());
+        assert_eq!(p(&["-psn_0_12345", "a.designos"]).unwrap().file, Some("a.designos".into()), "a real file next to it still opens");
+    }
+
+    #[test]
+    fn the_commands_that_write_a_new_file_may_name_one_that_is_not_there_yet() {
+        for args in [
+            &["new.designos", "--apply-spec", "spec.json"][..],
+            &["new.designos", "--import-capture", "cap.json"][..],
+            &["new.designos", "--import-variables", "vars.json"][..],
+        ] {
+            let o = p(args).unwrap();
+            assert!(o.creates_missing_file(), "{args:?}");
+            assert_eq!(missing_file_message(&o), None, "{args:?}");
+        }
+        assert!(!p(&["a.designos", "--inspect-json"]).unwrap().creates_missing_file());
     }
 
     #[test]

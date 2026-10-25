@@ -22,7 +22,7 @@ fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -
     widgets::record(ui, key, rect);
     let resp = ui.interact(rect, ui.id().with(("vtx-btn", key)), if enabled { Sense::click() } else { Sense::hover() });
     let bg = if enabled && resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY };
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), bg);
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), bg);
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), if enabled { theme::TEXT } else { theme::TEXT_SECONDARY });
     enabled && resp.clicked()
 }
@@ -44,7 +44,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
             egui::Pos2::new(r.left(), r.top() + 8.0),
             Align2::LEFT_CENTER,
             format!("{n_vertices} vertices. Select one to edit it."),
-            theme::font_small_medium(),
+            theme::font_caption_medium(),
             theme::TEXT_SECONDARY,
         );
         pane.y += 28.0;

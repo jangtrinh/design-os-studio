@@ -33,7 +33,7 @@ and render its frames with `--example fig_render`.
 | Star | `count`, `starInnerScale` | confirmed |
 | Arc | `arcData {startingAngle, endingAngle, innerRadius}` | confirmed |
 | Boolean ops | `booleanOperation`: UNION, SUBTRACT, INTERSECT, XOR (mapped to EXCLUDE) | confirmed |
-| Layout grids | `layoutGrids` (`pattern`/`type`/`axis`, `sectionSize`, `gutterSize`, `count`, `offset`) | **unconfirmed** (no node in either file has the field) |
+| Layout grids | `layoutGrids` (`pattern` GRID/STRIPES, `axis` X/Y, `type` MIN/CENTER/STRETCH/MAX, `numSections` (negative = automatic), `sectionSize`, `gutterSize`, `offset`, `color`, `visible`) | confirmed (VSF - PCP, BW - DLS, Untitled UI kit). The importer also reads the `COLUMNS` / `ROWS` pattern and `count` that Studio wrote before 0.5 |
 | Guides | `guides`: present as an empty list on symbols and instances; element shape (`axis`, `offset`) | field confirmed, element shape unconfirmed |
 | Export settings | `exportSettings [{imageType PNG/SVG, constraint {type CONTENT_SCALE, value}, suffix, contentsOnly, colorProfile, svg*}]` | confirmed (JPEG/PDF, `CONTENT_WIDTH/HEIGHT` unconfirmed) |
 | Dev status / annotations | `sectionStatusInfo {status, prevStatus, lastUpdateUnixTimestamp}` exists on symbols; not mapped. No `devStatus` or annotation fields appear | unconfirmed |

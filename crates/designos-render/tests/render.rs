@@ -295,6 +295,36 @@ fn per_side_stroke_weights() {
 }
 
 #[test]
+fn per_side_stroke_follows_rounded_corners() {
+    // 160x156 rectangle, radius 12, side_weights [0, 1, 1, 1], Inside:
+    // pixel on bottom-left arc at 45 degrees is painted, top edge row stays unpainted.
+    let mut t = T::new();
+    let r = t.rect(None, Rect::new(0.0, 0.0, 160.0, 156.0), Color::WHITE);
+    let n = t.node(r);
+    n.corner_radii = [12.0; 4];
+    n.stroke.paints = vec![Paint::solid(RED)];
+    n.stroke.weight = 1.0;
+    n.stroke.side_weights = Some([0.0, 1.0, 1.0, 1.0]);
+    n.stroke.align = StrokeAlign::Inside;
+    let pm = t.render(160, 156);
+    assert_eq!(px(&pm, 80, 0), WHITE, "top edge row stays unpainted when top weight is 0");
+    let bl_arc = px(&pm, 4, 152);
+    assert!(bl_arc[0] == 255 && bl_arc[1] < 200, "bottom-left corner arc at 45 degrees must be painted, got {bl_arc:?}");
+
+    // Outside stroke on a rounded rectangle must not leave square bars outside the corner rounding.
+    let mut t2 = T::new();
+    let r2 = t2.rect(None, Rect::new(10.0, 10.0, 80.0, 80.0), Color::WHITE);
+    let n2 = t2.node(r2);
+    n2.corner_radii = [20.0; 4];
+    n2.stroke.paints = vec![Paint::solid(RED)];
+    n2.stroke.weight = 4.0;
+    n2.stroke.side_weights = Some([0.0, 4.0, 4.0, 4.0]);
+    n2.stroke.align = StrokeAlign::Outside;
+    let pm2 = t2.render(100, 100);
+    assert_eq!(px(&pm2, 10, 90), WHITE, "square corner outside the rounded arc must stay unpainted");
+}
+
+#[test]
 fn dashed_line_and_caps() {
     let mut t = T::new();
     let l = t.add(None, |id| {
@@ -550,4 +580,84 @@ fn culling_offscreen_nodes_is_harmless() {
     let pm = t.render(20, 20);
     assert_eq!(px(&pm, 5, 5), [0, 0, 255, 255]);
     assert_eq!(px(&pm, 5, 15), WHITE);
+}
+
+#[test]
+fn unknown_table_and_cell_paint_and_index_children() {
+    let mut t = T::new();
+    let table = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE".into() });
+        n.transform = Affine::translate(10.0, 20.0);
+        n.size = Vec2::new(60.0, 60.0);
+        // An Unknown node's own fills and effects remain undrawn; only its children draw.
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    assert!(!t.node(table).kind.is_container());
+    let cell = t.add(Some(table), |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE_CELL".into() });
+        n.transform = Affine::translate(5.0, 6.0);
+        n.size = Vec2::new(40.0, 30.0);
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    let rect = t.rect(Some(cell), Rect::new(2.0, 4.0, 20.0, 10.0), RED);
+    let childless_unknown = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "SLICE".into() });
+        n.transform = Affine::translate(60.0, 60.0);
+        n.size = Vec2::new(10.0, 10.0);
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+
+    let mut idx = designos_render::SceneIndex::new();
+    idx.ensure(&t.doc, t.page, 1);
+    assert_eq!(idx.bounds_of(rect), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(cell), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(table), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(childless_unknown), None);
+    let mut hits = Vec::new();
+    idx.query_top_level((17.0, 30.0, 37.0, 40.0), &mut hits);
+    assert_eq!(hits, vec![table]);
+
+    let pm = t.render(80, 80);
+    assert_eq!(px(&pm, 25, 35), [255, 0, 0, 255], "child rectangle inside TABLE -> TABLE_CELL paints opaque red");
+    assert_eq!(px(&pm, 12, 22), WHITE, "TABLE and TABLE_CELL boxes themselves remain undrawn");
+
+    // Incremental subtree update on the child under Unknown ancestors matches a full rebuild.
+    t.node(rect).transform.tx += 10.0;
+    assert!(idx.update_subtree(&t.doc, rect, 2));
+    let mut full = designos_render::SceneIndex::new();
+    full.ensure(&t.doc, t.page, 2);
+    for id in [table, cell, rect] {
+        assert_eq!(idx.bounds_of(id), full.bounds_of(id));
+    }
+}
+
+#[test]
+fn auto_layout_reverse_z_paints_first_child_on_top() {
+    let mut t = T::new();
+    let row = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        n.fills.clear();
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.clips_content = false;
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: -12.0, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), RED);
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), BLUE);
+    t.doc.relayout_subtree(row);
+
+    let pm = t.render(40, 20);
+    // Child 0 sits at x=0..20 (RED), child 1 sits at x=8..28 (BLUE). With reverse_z, child 0 paints on top in x=8..20.
+    assert_eq!(px(&pm, 4, 10), [255, 0, 0, 255], "left of overlap is child 0 (red)");
+    assert_eq!(px(&pm, 14, 10), [255, 0, 0, 255], "overlap with reverse_z paints child 0 (red) on top");
+    assert_eq!(px(&pm, 24, 10), [0, 0, 255, 255], "right of overlap is child 1 (blue)");
+
+    // Turning reverse_z off paints child 1 (blue) on top in the overlap.
+    t.node(row).kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().reverse_z = false;
+    let pm_normal = t.render(40, 20);
+    assert_eq!(px(&pm_normal, 14, 10), [0, 0, 255, 255], "overlap without reverse_z paints child 1 (blue) on top");
 }

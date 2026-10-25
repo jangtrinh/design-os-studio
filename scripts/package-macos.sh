@@ -89,6 +89,7 @@ printf 'APPL????' > "$app/Contents/PkgInfo"
 # Keep embedded asset notices inside the app, including when installed from the DMG.
 mkdir -p "$res_dir/licenses"
 cp "$root/crates/designos-fonts/assets/inter/OFL.txt" "$res_dir/licenses/Inter-OFL.txt"
+cp "$root/crates/designos-fonts/assets/roboto-mono/OFL.txt" "$res_dir/licenses/RobotoMono-OFL.txt"
 cp "$root/crates/designos-app/assets/icons/phosphor/LICENSE" "$res_dir/licenses/Phosphor-LICENSE.txt"
 cp "$root/crates/designos-app/assets/icons/lucide/LICENSE" "$res_dir/licenses/Lucide-LICENSE.txt"
 
@@ -128,7 +129,7 @@ if [ -f "$root/packaging/macos/install-cli.command" ]; then
   cp "$root/packaging/macos/install-cli.command" "$tar_stage/install-cli.command"
   chmod 755 "$tar_stage/install-cli.command"
 fi
-cp LICENSE-MIT LICENSE-APACHE README.md "$tar_stage/"
+cp LICENSE README.md "$tar_stage/"
 tarball=$dist/$name.tar.gz
 rm -f "$tarball"
 COPYFILE_DISABLE=1 tar -C "$work" -czf "$tarball" "$name"

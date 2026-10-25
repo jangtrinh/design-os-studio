@@ -614,6 +614,8 @@ pub struct SpecsState {
     pub comments: Vec<SpecComment>,
     /// Draft text input for posting a new comment in the Right Rail.
     pub comment_draft: String,
+    /// What each agent's live spec file last put on the canvas, so a rewrite of the file replaces that output.
+    pub live_outputs: std::collections::HashMap<PathBuf, crate::live_spec_apply::LiveSpecOutput>,
 }
 
 impl Default for SpecsState {
@@ -647,6 +649,7 @@ impl Default for SpecsState {
                 },
             ],
             comment_draft: String::new(),
+            live_outputs: Default::default(),
         }
     }
 }
@@ -2180,22 +2183,57 @@ pub fn summarize_json_spec(raw: &str) -> SpecJsonSummary {
 impl App {
     /// Applies a declarative [`NodeSpec`] to the active page in one undoable command and fits the canvas.
     pub fn apply_node_spec(&mut self, spec: &NodeSpec, label: &str) {
+        self.apply_node_spec_replacing(spec, label, None);
+    }
+
+    /// [`App::apply_node_spec`] that, when `replacing` is a layer of the active page, takes that layer's place in the
+    /// same undo step instead of adding the spec at the end. Returns the new root layer.
+    pub fn apply_node_spec_replacing(&mut self, spec: &NodeSpec, label: &str, replacing: Option<NodeId>) -> Option<NodeId> {
         let parent = self.page;
         let mut trial = self.doc.clone();
-        match trial.apply_spec(parent, spec) {
-            Ok(root_id) => {
+        match trial.apply_spec_with_report(parent, spec) {
+            Ok(report) => {
+                let root_id = report.root_node_id;
                 let mut nodes = Vec::new();
                 trial.walk(root_id, |n, _| nodes.push(n.clone()));
-                let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
-                if self.hist.exec(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+                let mut index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
+                // The variables and styles the spec created go in the same undo step as its nodes.
+                let mut commands = self.doc.spec_data_commands(&trial);
+                if let Some(old) = replacing {
+                    if let Some(at) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == old)) {
+                        index = at;
+                        commands.push(Command::Remove { id: old });
+                    }
+                }
+                commands.push(Command::Insert { parent, index, nodes });
+                let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
+                if self.hist.exec(&mut self.doc, command).is_ok() {
+                    // The live-spec writer is the active agent tab; Stop clears flags by run id only. Only the flags this
+                    // spec set (root and nested descendants) carry over: `trial` is a clone of the whole document, so its
+                    // map also holds other writers' flags, and a run-less one must not be handed this tab's run id.
+                    let run_id = self.terminal.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone());
+                    for id in report.in_progress.keys() {
+                        let Some(mut ip) = trial.in_progress.get(id).cloned() else { continue };
+                        if self.doc.get(*id).is_some() {
+                            if ip.run_id.is_none() {
+                                ip.run_id = run_id.clone();
+                            }
+                            self.doc.set_in_progress(*id, Some(ip));
+                        }
+                    }
                     self.doc.relayout_subtree(parent);
                     self.selection = vec![root_id];
                     self.changed();
                     self.fit_all();
                     self.show_toast(format!("Applied UI spec '{label}' to canvas"), false);
+                    return Some(root_id);
                 }
+                None
             }
-            Err(e) => self.show_toast(format!("Spec error: {e}"), true),
+            Err(e) => {
+                self.show_toast(format!("Spec error: {e}"), true);
+                None
+            }
         }
     }
 
@@ -2232,19 +2270,12 @@ impl App {
         }
     }
 
-    /// Saves a local `.fig` binary copy of the current document.
+    /// Exports a `.fig` copy of the current document: next to a file opened from disk, otherwise in the library
+    /// `exports` folder. It never replaces a file; the toast gives the full path and a "Show in folder" action.
     pub fn export_fig_copy(&mut self) {
-        let stem = if self.doc.name.trim().is_empty() { "Untitled" } else { self.doc.name.trim() };
-        let default_path = self
-            .file_path
-            .as_ref()
-            .and_then(|p| p.parent().map(|d| d.join(format!("{stem}.fig"))))
-            .unwrap_or_else(|| std::env::temp_dir().join(format!("{stem}.fig")));
         self.settle_pending_relayout();
-        match crate::io::save_path(&self.doc, &default_path) {
-            Ok(saved) => self.show_toast(format!("Saved .fig binary to {}", saved.display()), false),
-            Err(e) => self.show_toast(e, true),
-        }
+        let result = self.fig_export_target().and_then(|(dir, stem)| crate::fig_export::export_new(&self.doc, &dir, &stem));
+        self.show_fig_export_result(result);
     }
 }
 
@@ -2278,7 +2309,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
         toggle_rect.center(),
         Align2::CENTER_CENTER,
         if app.specs.open { "Reader" } else { "Canvas" },
-        theme::font_small_medium(),
+        theme::font_caption_medium(),
         if app.specs.open { TOKEN_TEXT } else { TOKEN_TEXT_MUTED },
     );
     widgets::record(ui, "specs-reader-toggle", toggle_rect);
@@ -2411,8 +2442,8 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
                 p.rect_filled(row_r, CornerRadius::same(5), TOKEN_SURFACE_3);
             }
             let ver_tag = if pkg.format_version == "2" { ".md · v2" } else { ".md · v1" };
-            let ver_w = widgets::text_width(&p, ver_tag, &theme::font_small()) + 8.0;
-            p.text(Pos2::new(row_r.right() - 8.0, row_r.center().y), Align2::RIGHT_CENTER, ver_tag, theme::font_small(), TOKEN_TEXT_SUBTLE);
+            let ver_w = widgets::text_width(&p, ver_tag, &theme::font_caption()) + 8.0;
+            p.text(Pos2::new(row_r.right() - 8.0, row_r.center().y), Align2::RIGHT_CENTER, ver_tag, theme::font_caption(), TOKEN_TEXT_SUBTLE);
             let clean_title = pkg.title.replace("DESIGN:OS Studio", "design:os studio").replace("Design OS Studio", "design:os studio");
             let title_str = widgets::elide(&p, &clean_title, &theme::font_body_medium(), (row_r.width() - ver_w - 18.0).max(36.0));
             p.text(
@@ -2520,7 +2551,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
 
             p.rect_filled(apply_r, CornerRadius::same(4), if apply_resp.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
             p.rect_stroke(apply_r, CornerRadius::same(4), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-            p.text(apply_r.center(), Align2::CENTER_CENTER, "Apply", theme::font_small(), TOKEN_TEXT_MUTED);
+            p.text(apply_r.center(), Align2::CENTER_CENTER, "Apply", theme::font_caption(), TOKEN_TEXT_MUTED);
             widgets::record(ui, &format!("spec-json-apply:{j_idx}"), apply_r);
             if apply_resp.clicked() {
                 apply_json_action = Some((j_name.clone(), j_raw.clone()));
@@ -2568,7 +2599,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
     if let Some((j_name, j_raw)) = apply_json_action {
         match serde_json::from_str::<NodeSpec>(&j_raw) {
             Ok(spec) => app.apply_node_spec(&spec, &j_name),
-            Err(e) => app.show_toast(format!("Invalid .spec.json: {e}"), true),
+            Err(e) => app.show_toast(format!("Invalid .spec.json: {}", designos_doc::format_spec_serde_error(&e)), true),
         }
     }
     if let Some(fid) = focus_frame_action {
@@ -2587,8 +2618,8 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
     let r1 = ui.interact(btn1, Id::new("specs-drop-canvas-btn"), Sense::click());
     p.rect_filled(btn1, CornerRadius::same(5), if r1.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
     p.rect_stroke(btn1, CornerRadius::same(5), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-    let b1_txt = widgets::elide(&p, "Drop Spec Card on Canvas (D)", &theme::font_small_medium(), (btn1.width() - 14.0).max(36.0));
-    p.text(btn1.center(), Align2::CENTER_CENTER, b1_txt, theme::font_small_medium(), TOKEN_TEXT);
+    let b1_txt = widgets::elide(&p, "Drop Spec Card on Canvas (D)", &theme::font_caption_medium(), (btn1.width() - 14.0).max(36.0));
+    p.text(btn1.center(), Align2::CENTER_CENTER, b1_txt, theme::font_caption_medium(), TOKEN_TEXT);
     widgets::record(ui, "specs-drop-canvas-btn", btn1);
     if r1.clicked() {
         if let Some(pkg) = app.specs.current_package().cloned() {
@@ -2599,8 +2630,8 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
     let r2 = ui.interact(btn2, Id::new("specs-export-json-btn"), Sense::click());
     p.rect_filled(btn2, CornerRadius::same(5), if r2.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
     p.rect_stroke(btn2, CornerRadius::same(5), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-    let b2_txt = widgets::elide(&p, "Export Frame -> .spec.json", &theme::font_small_medium(), (btn2.width() - 14.0).max(36.0));
-    p.text(btn2.center(), Align2::CENTER_CENTER, b2_txt, theme::font_small_medium(), TOKEN_TEXT_MUTED);
+    let b2_txt = widgets::elide(&p, "Export Frame -> .spec.json", &theme::font_caption_medium(), (btn2.width() - 14.0).max(36.0));
+    p.text(btn2.center(), Align2::CENTER_CENTER, b2_txt, theme::font_caption_medium(), TOKEN_TEXT_MUTED);
     widgets::record(ui, "specs-export-json-btn", btn2);
     if r2.clicked() {
         app.export_active_frame_to_spec();
@@ -2622,7 +2653,7 @@ pub fn drop_spec_card_onto_canvas(app: &mut App, pkg: &SpecPackage) {
         "dev_status": "ready",
         "annotation": format!("Figma Specs · Markdown as a Medium · {}", pkg.contract_id),
         "layout": {
-            "dir": "column",
+            "direction": "column",
             "padding": [28.0, 32.0, 28.0, 32.0],
             "gap": 16.0,
             "align": "start",
@@ -2663,7 +2694,7 @@ pub fn drop_spec_card_onto_canvas(app: &mut App, pkg: &SpecPackage) {
                 "stroke_width": 1.0,
                 "radius": 8.0,
                 "layout": {
-                    "dir": "row",
+                    "direction": "row",
                     "padding": [14.0, 16.0, 14.0, 16.0],
                     "gap": 12.0,
                     "align": "center",
@@ -2708,7 +2739,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     let canvas_resp = ui.interact(canvas_btn, Id::new("hero-view-canvas"), Sense::click());
     p.rect_filled(canvas_btn, CornerRadius::same(5), if canvas_resp.hovered() { pal.surface_2 } else { pal.doc_sheet });
     p.rect_stroke(canvas_btn, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-    p.text(canvas_btn.center(), Align2::CENTER_CENTER, "Canvas", theme::font_small_medium(), pal.text);
+    p.text(canvas_btn.center(), Align2::CENTER_CENTER, "Canvas", theme::font_caption_medium(), pal.text);
     widgets::record(ui, "hero-view-canvas", canvas_btn);
     if canvas_resp.clicked() {
         app.specs.open = false;
@@ -2719,7 +2750,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     let theme_resp = ui.interact(theme_btn, Id::new("specs-theme-toggle"), Sense::click());
     p.rect_filled(theme_btn, CornerRadius::same(5), if theme_resp.hovered() { pal.surface_2 } else { pal.doc_sheet });
     p.rect_stroke(theme_btn, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-    p.text(theme_btn.center(), Align2::CENTER_CENTER, if app.specs.light_mode { "Paper" } else { "Slate" }, theme::font_small_medium(), pal.text_muted);
+    p.text(theme_btn.center(), Align2::CENTER_CENTER, if app.specs.light_mode { "Paper" } else { "Slate" }, theme::font_caption_medium(), pal.text_muted);
     widgets::record(ui, "specs-theme-toggle", theme_btn);
     if theme_resp.clicked() {
         app.specs.light_mode = !app.specs.light_mode;
@@ -2730,7 +2761,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     let copy_md_resp = ui.interact(copy_md_btn, Id::new("specs-copy-md"), Sense::click());
     p.rect_filled(copy_md_btn, CornerRadius::same(5), if copy_md_resp.hovered() { pal.surface_2 } else { pal.doc_sheet });
     p.rect_stroke(copy_md_btn, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-    p.text(copy_md_btn.center(), Align2::CENTER_CENTER, "Copy .md", theme::font_small_medium(), pal.text_muted);
+    p.text(copy_md_btn.center(), Align2::CENTER_CENTER, "Copy .md", theme::font_caption_medium(), pal.text_muted);
     widgets::record(ui, "specs-copy-md", copy_md_btn);
     if copy_md_resp.clicked() {
         let md_body = match app.specs.active_tab {
@@ -2749,7 +2780,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     let share_resp = ui.interact(share_btn, Id::new("specs-share-btn"), Sense::click());
     p.rect_filled(share_btn, CornerRadius::same(5), if share_resp.hovered() { pal.surface_2 } else { pal.doc_sheet });
     p.rect_stroke(share_btn, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-    p.text(share_btn.center(), Align2::CENTER_CENTER, "Share", theme::font_small_medium(), pal.text_muted);
+    p.text(share_btn.center(), Align2::CENTER_CENTER, "Share", theme::font_caption_medium(), pal.text_muted);
     widgets::record(ui, "specs-share-btn", share_btn);
     if share_resp.clicked() {
         let deep_link = format!("designos://specs/{}#{}", pkg.slug, app.specs.active_tab.anchor());
@@ -2763,7 +2794,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     let mut tab_rects: Vec<(usize, SpecTab, Rect, &str)> = Vec::new();
     for (ti, tab) in SpecTab::ALL.iter().enumerate().rev() {
         let lbl = tab_labels[ti];
-        let tw = widgets::text_width(&p, lbl, &theme::font_small_medium()) + 16.0;
+        let tw = widgets::text_width(&p, lbl, &theme::font_caption_medium()) + 16.0;
         let left_x = tab_right - tw;
         if left_x > bar_rect.left() + 160.0 {
             let tr = Rect::from_min_size(Pos2::new(left_x, bar_rect.top() + 7.0), Vec2::new(tw, bar_h - 14.0));
@@ -2778,7 +2809,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
             tr.center(),
             Align2::CENTER_CENTER,
             lbl,
-            if active { theme::font_small_strong() } else { theme::font_small_medium() },
+            if active { theme::font_caption_strong() } else { theme::font_caption_medium() },
             if active {
                 pal.text
             } else if resp.hovered() {
@@ -2897,7 +2928,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
 
     icons::paint(&p, Icon::Specs, Pos2::new(header_rect.left() + 14.0, header_rect.center().y), 13.0, TOKEN_TEXT_MUTED);
     p.text(Pos2::new(header_rect.left() + 26.0, header_rect.center().y), Align2::LEFT_CENTER, "Spec Inspector", theme::font_body_strong(), TOKEN_TEXT);
-    p.text(Pos2::new(header_rect.right() - 12.0, header_rect.center().y), Align2::RIGHT_CENTER, ".md · v2", theme::font_small(), TOKEN_TEXT_SUBTLE);
+    p.text(Pos2::new(header_rect.right() - 12.0, header_rect.center().y), Align2::RIGHT_CENTER, ".md · v2", theme::font_caption(), TOKEN_TEXT_SUBTLE);
 
     let Some(pkg) = app.specs.current_package().cloned() else {
         return;
@@ -2923,7 +2954,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         let row_w = (body_rect.width() - pad_x * 2.0).max(80.0);
 
         // 1. ON THIS PAGE (Dynamic Interactive TOC Outline per active SpecTab)
-        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "ON THIS PAGE", theme::font_small_strong(), TOKEN_TEXT_SUBTLE);
+        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "ON THIS PAGE", theme::font_caption_strong(), TOKEN_TEXT_SUBTLE);
         y += 20.0;
 
         let active_toc_idx = toc_entries
@@ -2964,7 +2995,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         y += 14.0;
 
         // 2. SPEC COMMENTS & ANNOTATIONS (Interactive comment cards + Resolve + Post)
-        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "SPEC COMMENTS & ANNOTATIONS", theme::font_small_strong(), TOKEN_TEXT_SUBTLE);
+        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "SPEC COMMENTS & ANNOTATIONS", theme::font_caption_strong(), TOKEN_TEXT_SUBTLE);
         y += 18.0;
 
         let comments_snapshot = app.specs.comments.clone();
@@ -2982,18 +3013,18 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
             let res_resp = ui.interact(res_btn, Id::new(("specs-comment-resolve", ci)), Sense::click());
             p.rect_filled(res_btn, CornerRadius::same(4), if res_resp.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE });
             p.rect_stroke(res_btn, CornerRadius::same(4), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-            p.text(res_btn.center(), Align2::CENTER_CENTER, "Resolve", theme::font_small(), TOKEN_TEXT_MUTED);
+            p.text(res_btn.center(), Align2::CENTER_CENTER, "Resolve", theme::font_caption(), TOKEN_TEXT_MUTED);
             widgets::record(ui, &format!("specs-comment-resolve-{ci}"), res_btn);
             if res_resp.clicked() {
                 resolve_idx = Some(ci);
             }
 
-            let hdr_str = widgets::elide(&p, &format!("{} · {}", cmt.author, cmt.time), &theme::font_small_strong(), (row_w - 64.0).max(36.0));
-            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 15.0), Align2::LEFT_CENTER, hdr_str, theme::font_small_strong(), TOKEN_TEXT);
-            let body_l1 = widgets::elide(&p, &cmt.body, &theme::font_small(), (row_w - 16.0).max(40.0));
-            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 36.0), Align2::LEFT_CENTER, body_l1, theme::font_small(), TOKEN_TEXT_MUTED);
-            let status_l2 = widgets::elide(&p, "Open thread · @spec", &theme::font_small(), (row_w - 16.0).max(40.0));
-            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 52.0), Align2::LEFT_CENTER, status_l2, theme::font_small(), TOKEN_TEXT_SUBTLE);
+            let hdr_str = widgets::elide(&p, &format!("{} · {}", cmt.author, cmt.time), &theme::font_caption_strong(), (row_w - 64.0).max(36.0));
+            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 15.0), Align2::LEFT_CENTER, hdr_str, theme::font_caption_strong(), TOKEN_TEXT);
+            let body_l1 = widgets::elide(&p, &cmt.body, &theme::font_caption(), (row_w - 16.0).max(40.0));
+            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 36.0), Align2::LEFT_CENTER, body_l1, theme::font_caption(), TOKEN_TEXT_MUTED);
+            let status_l2 = widgets::elide(&p, "Open thread · @spec", &theme::font_caption(), (row_w - 16.0).max(40.0));
+            p.text(Pos2::new(ccard.left() + 8.0, ccard.top() + 52.0), Align2::LEFT_CENTER, status_l2, theme::font_caption(), TOKEN_TEXT_SUBTLE);
             y += 74.0;
         }
         if let Some(ci) = resolve_idx {
@@ -3017,9 +3048,9 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
                 .id(Id::new("specs-comment-draft-edit"))
                 .desired_width(inner_in.width())
                 .frame(egui::Frame::NONE)
-                .font(theme::font_small())
+                .font(theme::font_caption())
                 .text_color(TOKEN_TEXT)
-                .hint_text(egui::RichText::new("Comment…").font(theme::font_small()).color(TOKEN_TEXT_SUBTLE));
+                .hint_text(egui::RichText::new("Comment…").font(theme::font_caption()).color(TOKEN_TEXT_SUBTLE));
             let resp = ui.add(te);
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 submit_comment = true;
@@ -3029,7 +3060,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         let post_resp = ui.interact(post_r, Id::new("specs-comment-post"), Sense::click());
         p.rect_filled(post_r, CornerRadius::same(5), if post_resp.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
         p.rect_stroke(post_r, CornerRadius::same(5), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-        p.text(post_r.center(), Align2::CENTER_CENTER, "Post", theme::font_small_medium(), TOKEN_TEXT);
+        p.text(post_r.center(), Align2::CENTER_CENTER, "Post", theme::font_caption_medium(), TOKEN_TEXT);
         widgets::record(ui, "specs-comment-post", post_r);
         if post_resp.clicked() || submit_comment {
             let body = if app.specs.comment_draft.trim().is_empty() {
@@ -3046,7 +3077,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         y += 14.0;
 
         // 3. PROPERTIES & CONNECTORS
-        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "PROPERTIES & CONNECTORS", theme::font_small_strong(), TOKEN_TEXT_SUBTLE);
+        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "PROPERTIES & CONNECTORS", theme::font_caption_strong(), TOKEN_TEXT_SUBTLE);
         y += 20.0;
 
         let props = [
@@ -3057,9 +3088,9 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
             ("Parity", format!("{:.1}% (387/387)", pkg.parity_scorecard.overall_parity_pct)),
         ];
         for (k, v) in props {
-            p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, k, theme::font_small(), TOKEN_TEXT_SUBTLE);
-            let v_clean = widgets::elide(&p, &v, &theme::font_small_medium(), (row_w - 68.0).max(40.0));
-            p.text(Pos2::new(body_rect.right() - pad_x, y), Align2::RIGHT_CENTER, v_clean, theme::font_small_medium(), TOKEN_TEXT);
+            p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, k, theme::font_caption(), TOKEN_TEXT_SUBTLE);
+            let v_clean = widgets::elide(&p, &v, &theme::font_caption_medium(), (row_w - 68.0).max(40.0));
+            p.text(Pos2::new(body_rect.right() - pad_x, y), Align2::RIGHT_CENTER, v_clean, theme::font_caption_medium(), TOKEN_TEXT);
             y += 22.0;
         }
 
@@ -3068,7 +3099,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         y += 14.0;
 
         // 4. AGENT & CANVAS ACTIONS (`Claude · Codex · AGY · Grok`)
-        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "BUILD WITH AGENT & CANVAS", theme::font_small_strong(), TOKEN_TEXT_SUBTLE);
+        p.text(Pos2::new(body_rect.left() + pad_x, y), Align2::LEFT_CENTER, "BUILD WITH AGENT & CANVAS", theme::font_caption_strong(), TOKEN_TEXT_SUBTLE);
         y += 18.0;
 
         // Button 1: Reference @spec in Agent (`hero-copy-ai` / `specs-right-ref-agent`)
@@ -3076,8 +3107,8 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         let resp_ai = ui.interact(btn_ai, Id::new("hero-copy-ai"), Sense::click());
         p.rect_filled(btn_ai, CornerRadius::same(6), if resp_ai.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
         p.rect_stroke(btn_ai, CornerRadius::same(6), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
-        let b_ai_lbl = widgets::elide(&p, "Reference @spec in Agent", &theme::font_small_strong(), (row_w - 16.0).max(40.0));
-        p.text(btn_ai.center(), Align2::CENTER_CENTER, b_ai_lbl, theme::font_small_strong(), TOKEN_TEXT);
+        let b_ai_lbl = widgets::elide(&p, "Reference @spec in Agent", &theme::font_caption_strong(), (row_w - 16.0).max(40.0));
+        p.text(btn_ai.center(), Align2::CENTER_CENTER, b_ai_lbl, theme::font_caption_strong(), TOKEN_TEXT);
         widgets::record(ui, "hero-copy-ai", btn_ai);
         widgets::record(ui, "specs-right-ref-agent", btn_ai);
         if resp_ai.clicked() {
@@ -3116,8 +3147,8 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         let resp_chat = ui.interact(btn_chat, Id::new("spec-right-open-agent"), Sense::click());
         p.rect_filled(btn_chat, CornerRadius::same(6), if resp_chat.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
         p.rect_stroke(btn_chat, CornerRadius::same(6), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-        let b_chat_lbl = widgets::elide(&p, "Open Agent Chat (Claude/Codex/Grok)", &theme::font_small_medium(), (row_w - 16.0).max(40.0));
-        p.text(btn_chat.center(), Align2::CENTER_CENTER, b_chat_lbl, theme::font_small_medium(), TOKEN_TEXT_MUTED);
+        let b_chat_lbl = widgets::elide(&p, "Open Agent Chat (Claude/Codex/Grok)", &theme::font_caption_medium(), (row_w - 16.0).max(40.0));
+        p.text(btn_chat.center(), Align2::CENTER_CENTER, b_chat_lbl, theme::font_caption_medium(), TOKEN_TEXT_MUTED);
         widgets::record(ui, "spec-right-open-agent", btn_chat);
         if resp_chat.clicked() {
             let active_us = pkg.stories.get(app.specs.selected_story).or_else(|| pkg.stories.first());
@@ -3131,8 +3162,8 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         let resp_apply = ui.interact(btn_apply, Id::new("hero-apply-spec"), Sense::click());
         p.rect_filled(btn_apply, CornerRadius::same(6), if resp_apply.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
         p.rect_stroke(btn_apply, CornerRadius::same(6), Stroke::new(1.0, TOKEN_BORDER), StrokeKind::Inside);
-        let b_apply_lbl = widgets::elide(&p, "Drop Spec Card on Canvas", &theme::font_small_medium(), (row_w - 16.0).max(40.0));
-        p.text(btn_apply.center(), Align2::CENTER_CENTER, b_apply_lbl, theme::font_small_medium(), TOKEN_TEXT_MUTED);
+        let b_apply_lbl = widgets::elide(&p, "Drop Spec Card on Canvas", &theme::font_caption_medium(), (row_w - 16.0).max(40.0));
+        p.text(btn_apply.center(), Align2::CENTER_CENTER, b_apply_lbl, theme::font_caption_medium(), TOKEN_TEXT_MUTED);
         widgets::record(ui, "hero-apply-spec", btn_apply);
         if resp_apply.clicked() {
             drop_spec_card = true;
@@ -3147,15 +3178,15 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         ui.ctx().copy_text(payload.clone());
         app.specs.last_ai_copy = Some(payload);
         let spec_ref = format!("@spec://{}/{} ({})", pkg.slug, app.specs.active_tab.anchor(), pkg.contract_id);
-        if app.terminal.input_line.trim().is_empty() {
-            app.terminal.input_line = format!("{spec_ref} ");
-        } else if !app.terminal.input_line.contains(&spec_ref) {
-            app.terminal.input_line = format!("{spec_ref} {}", app.terminal.input_line.trim());
-        }
         let fp = app.file_path.clone();
-        app.terminal.ensure_default_tab(fp.as_deref());
-        app.terminal.dock_open = true;
-        app.ui.rail = Some(crate::app::RailItem::Agents);
+        app.terminal.open_for_agent_use(fp.as_deref());
+        let cur_draft = app.terminal.composer_draft().to_string();
+        if cur_draft.trim().is_empty() {
+            app.terminal.set_composer_draft(format!("{spec_ref} "));
+        } else if !cur_draft.contains(&spec_ref) {
+            app.terminal.set_composer_draft(format!("{spec_ref} {}", cur_draft.trim()));
+        }
+        app.show_agents_panel();
         app.show_toast("Referenced @spec in Agent CLI (Claude / Codex / AGY / Grok)", false);
     }
     if let Some(prompt) = open_agent_prompt {
@@ -3206,8 +3237,8 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         let status_resp = ui.interact(status_pill_r, Id::new("specs-status-pill"), Sense::click());
         p.rect_filled(status_pill_r, CornerRadius::same(99), if status_resp.hovered() { pal.surface_2 } else { pal.surface });
         p.rect_stroke(status_pill_r, CornerRadius::same(99), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
-        let status_lbl = widgets::elide(&p, &pkg.status.to_uppercase(), &theme::font_small_strong(), status_pill_w - 12.0);
-        p.text(status_pill_r.center(), Align2::CENTER_CENTER, status_lbl, theme::font_small_strong(), Color32::from_rgb(0x0D, 0x99, 0xFF));
+        let status_lbl = widgets::elide(&p, &pkg.status.to_uppercase(), &theme::font_caption_strong(), status_pill_w - 12.0);
+        p.text(status_pill_r.center(), Align2::CENTER_CENTER, status_lbl, theme::font_caption_strong(), Color32::from_rgb(0x0D, 0x99, 0xFF));
         widgets::record(ui, "specs-status-pill", status_pill_r);
         if status_resp.clicked() {
             cycle_pkg_status = true;
@@ -3279,8 +3310,8 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
             let br = Rect::from_min_size(Pos2::new(bx, embed_rect.top() + 34.0), Vec2::new(box_w, 42.0));
             p.rect_filled(br, CornerRadius::same(5), pal.doc_sheet);
             p.rect_stroke(br, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-            let st_clean = widgets::elide(&p, st_lbl, &theme::font_small_medium(), (box_w - 8.0).max(24.0));
-            p.text(br.center(), Align2::CENTER_CENTER, st_clean, theme::font_small_medium(), pal.text);
+            let st_clean = widgets::elide(&p, st_lbl, &theme::font_caption_medium(), (box_w - 8.0).max(24.0));
+            p.text(br.center(), Align2::CENTER_CENTER, st_clean, theme::font_caption_medium(), pal.text);
         }
         if embed_resp.clicked() {
             focus_canvas = true;
@@ -3304,8 +3335,8 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         p.rect_stroke(tbl_rect, CornerRadius::same(8), Stroke::new(1.0, pal.border), StrokeKind::Inside);
 
         let th_y = tbl_rect.top() + 15.0;
-        p.text(Pos2::new(tbl_rect.left() + 14.0, th_y), Align2::LEFT_CENTER, "Measure", theme::font_small_strong(), pal.text);
-        p.text(Pos2::new(tbl_rect.right() - 14.0, th_y), Align2::RIGHT_CENTER, "Verified total", theme::font_small_strong(), pal.text);
+        p.text(Pos2::new(tbl_rect.left() + 14.0, th_y), Align2::LEFT_CENTER, "Measure", theme::font_caption_strong(), pal.text);
+        p.text(Pos2::new(tbl_rect.right() - 14.0, th_y), Align2::RIGHT_CENTER, "Verified total", theme::font_caption_strong(), pal.text);
         let mut ry = tbl_rect.top() + 30.0;
         for (m_lbl, m_val) in &metrics_rows {
             widgets::hline(&p, tbl_rect.left() + 1.0, tbl_rect.right() - 1.0, ry, pal.hairline);
@@ -3422,11 +3453,11 @@ fn render_dev_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage
         }
         p.rect_filled(prev_btn, CornerRadius::same(4), pal.surface);
         p.rect_stroke(prev_btn, CornerRadius::same(4), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-        p.text(prev_btn.center(), Align2::CENTER_CENTER, "Prev", theme::font_small(), pal.text_muted);
+        p.text(prev_btn.center(), Align2::CENTER_CENTER, "Prev", theme::font_caption(), pal.text_muted);
 
         p.rect_filled(next_btn, CornerRadius::same(4), pal.surface);
         p.rect_stroke(next_btn, CornerRadius::same(4), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-        p.text(next_btn.center(), Align2::CENTER_CENTER, "Next", theme::font_small(), pal.text_muted);
+        p.text(next_btn.center(), Align2::CENTER_CENTER, "Next", theme::font_caption(), pal.text_muted);
 
         y += 28.0;
 
@@ -3606,7 +3637,7 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
             let resp = ui.interact(apply_btn, Id::new("json-tab-apply-btn"), Sense::click());
             p.rect_filled(apply_btn, CornerRadius::same(5), if resp.hovered() { pal.surface_2 } else { pal.doc_sheet });
             p.rect_stroke(apply_btn, CornerRadius::same(5), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-            p.text(apply_btn.center(), Align2::CENTER_CENTER, "Apply to Canvas", theme::font_small_medium(), pal.text);
+            p.text(apply_btn.center(), Align2::CENTER_CENTER, "Apply to Canvas", theme::font_caption_medium(), pal.text);
             widgets::record(ui, "json-tab-apply-btn", apply_btn);
             if resp.clicked() {
                 apply_json_action = Some((j_name.clone(), j_raw.clone()));
@@ -3653,8 +3684,9 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
     scrollbar(ui, rect, app.specs.scroll, est_h);
 
     if let Some((j_name, j_raw)) = apply_json_action {
-        if let Ok(spec) = serde_json::from_str::<NodeSpec>(&j_raw) {
-            app.apply_node_spec(&spec, &j_name);
+        match serde_json::from_str::<NodeSpec>(&j_raw) {
+            Ok(spec) => app.apply_node_spec(&spec, &j_name),
+            Err(e) => app.show_toast(format!("Invalid .spec.json: {}", designos_doc::format_spec_serde_error(&e)), true),
         }
     }
 }
@@ -3709,7 +3741,7 @@ fn render_gates_and_canvas_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &Spe
                 }
                 p.rect_filled(abtn, CornerRadius::same(4), pal.surface);
                 p.rect_stroke(abtn, CornerRadius::same(4), Stroke::new(1.0, pal.border), StrokeKind::Inside);
-                p.text(abtn.center(), Align2::CENTER_CENTER, "Approve", theme::font_small(), pal.text);
+                p.text(abtn.center(), Align2::CENTER_CENTER, "Approve", theme::font_caption(), pal.text);
             } else {
                 p.text(Pos2::new(col_x + col_w, y), Align2::RIGHT_CENTER, "2/2 PASS", theme::font_mono(), pal.text_subtle);
             }
@@ -3744,8 +3776,8 @@ fn render_gates_and_canvas_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &Spe
 
 fn draw_left_section_header(p: &Painter, pos: Pos2, width: f32, title: &str) {
     let r = Rect::from_min_size(pos, Vec2::new(width, 18.0));
-    let txt = widgets::elide(p, title, &theme::font_small_strong(), (width - 12.0).max(36.0));
-    p.text(Pos2::new(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, txt, theme::font_small_strong(), TOKEN_TEXT_SUBTLE);
+    let txt = widgets::elide(p, title, &theme::font_caption_strong(), (width - 12.0).max(36.0));
+    p.text(Pos2::new(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, txt, theme::font_caption_strong(), TOKEN_TEXT_SUBTLE);
 }
 
 /// Renders natural multi-line word-wrapped editorial prose (up to 24 lines per paragraph block)
@@ -4107,20 +4139,23 @@ mod tests {
         assert_eq!(app.specs.packages[app.specs.selected_pkg].stories.len(), before_us + 1);
         assert_eq!(app.specs.active_tab, SpecTab::UseCases);
 
-        // 6. Click Reference @spec in Agent -> populates terminal input_line and opens Agents rail
+        // 6. Click Reference @spec in Agent -> populates terminal composer draft and opens Agents rail
         render_all(&ctx, &mut app, Vec::new());
         let ref_r = get_rect(&ctx, "specs-right-ref-agent");
         click_at(&ctx, &mut app, ref_r.center());
-        assert!(app.terminal.input_line.contains("@spec://"));
+        assert!(app.terminal.composer_draft().contains("@spec://"));
         assert_eq!(app.ui.rail, Some(crate::app::RailItem::Agents));
 
-        // 7. Submit Ask @agent bar -> dispatches prompt to terminal chat_turns
+        // 7. Submit Ask @agent bar -> dispatches prompt through send_to_agent
         app.specs.ask_input = "Verify AC-01 on canvas".to_string();
         render_all(&ctx, &mut app, Vec::new());
         let send_r = get_rect(&ctx, "specs-ask-agent-send");
-        let turns_before = app.terminal.chat_turns.len();
         click_at(&ctx, &mut app, send_r.center());
-        assert!(app.terminal.chat_turns.len() > turns_before);
+        assert!(
+            app.terminal.active_composer().pending_send.as_deref() == Some("Verify AC-01 on canvas")
+                || app.terminal.active_composer().history.iter().any(|h| h.contains("Verify AC-01 on canvas"))
+                || app.terminal.active_composer().last_outcome.is_some()
+        );
 
         for mut tab in app.terminal.tabs.drain(..) {
             let _ = tab.child.kill();

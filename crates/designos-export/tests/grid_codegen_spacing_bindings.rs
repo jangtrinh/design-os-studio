@@ -27,6 +27,7 @@ fn grid_with_row_gap(row_px: f32, item: bool, counter: bool, bare_tokens: bool) 
             variables: vec!["md".into(), "lg".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     for (id, name, px, token) in [("md", "Spacing/Md", 16.0, "tokens.space.md"), ("lg", "Spacing/Lg", 24.0, "tokens.space.lg")] {
@@ -44,6 +45,8 @@ fn grid_with_row_gap(row_px: f32, item: bool, counter: bool, bare_tokens: bool) 
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax,
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
     }

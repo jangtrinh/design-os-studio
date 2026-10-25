@@ -415,7 +415,7 @@ pub fn overlay(app: &App, ui: &Ui, rect: ERect) {
                 GuideAxis::Y => "Y",
             };
             let text = format!("{axis_lbl}: {}", fmt_value(v));
-            let font = theme::font_small_strong();
+            let font = theme::font_caption_strong();
             let w = crate::widgets::text_width(&p, &text, &font) + theme::CANVAS_BADGE_PAD_X * 2.0;
             let r = ERect::from_min_size(ptr + EV::new(12.0, 12.0), EV::new(w, theme::CANVAS_BADGE_HEIGHT));
             p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), theme::RULER_GUIDE);

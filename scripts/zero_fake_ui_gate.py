@@ -7,16 +7,17 @@ Every visible button, input bar, scrollbar, tab, menu item, and agent CLI runtim
 `design:os studio` (`crates/designos-app/src/`) must execute real state mutation, real OS
 clipboard/filesystem I/O, or real CLI subprocess execution.
 
-Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
+Verifies 17 hard invariants (`Z01..Z17`):
   - Z01: `terminal.rs` has `runtime_binary_available` and real CLI invocation
          (`claude -p`, `codex exec`, `agy -p`, `grok -p`) in `submit_chat_prompt`.
   - Z02: `terminal.rs` `set_active_runtime` mutates `tab.preset` (not just renaming `tab.title`)
          without typing into the live PTY; `DESIGNOS_AGENT_RUNTIME` is set in `configure_pty_env`
          and `build_real_cli_command`.
   - Z03: `terminal.rs` `dispatch_figma_ai_prompt` does NOT prefix PTY commands with a `#` shell comment.
-  - Z04: `terminal.rs` header & composer buttons (`agents-header-ai`, `agents-header-popout`,
-         `agents-header-more`, `agents-composer-attach`, `agents-composer-context`,
-         `agents-composer-mic`) all have interactive click handlers (`Sense::click()`).
+  - Z04: `terminal.rs` header & composer buttons (`agents-header-ai`,
+         `agents-composer-attach`, `agents-composer-context`) all have
+         interactive click handlers (`Sense::click()`); `agents-composer-mic` stays removed.
+         The chat header's `More` button was removed because it had no handler and no spec'd menu.
   - Z05: `specs.rs` `specs-ask-agent-bar` hosts a real `TextEdit::singleline` (`ask_input`)
          instead of only sending a hardcoded prompt string.
   - Z06: `specs.rs` Right Inspector has dynamic `active_section_toc` and interactive
@@ -39,18 +40,29 @@ Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
          still builds its candidate from `ReleaseManifest::sample_for_channel`; the guard must be
          CODE (comments stripped) in every entry point: the `tabs.rs` button, the Home sidebar card
          and the update modal.
+  - Z15: `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` /
+         `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`.
+  - Z17: no shipped (non-test) Rust source under `crates/designos-app/src/` or `crates/designos-mcp/src/`
+         contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json` fallback.
 
 All source matching runs on shipped code: `//` comments and `#[cfg(test)]` items are stripped first, then
 every string literal is rewritten to the text the Rust compiler builds from it (escapes decoded, raw strings quoted,
 `concat!` of literals and adjacent literals joined).
 `scripts/zero_fake_ui_gate_selftest.py` re-introduces each fake-UI regression in memory and asserts
 this gate fails.
+  - Z16: UX writing (`design/ux-writing.md` rules 1 and 3): a visible action label (button, menu item) has at
+         most 3 words and no count in it (parentheses, digits, a formatted `.len()`). Coverage: the registered
+         button/menu helpers, labels `let`-bound in the same fn, and label fns such as `fix_label`
+         (`scripts/ux_writing_labels.py`: LABEL_CALLS, LABEL_FNS). Ratchet against `scripts/ux_writing_baseline.json`:
+         a new violation fails, a baseline entry that no longer occurs fails as "fixed, remove from baseline".
+         `--write-ux-baseline` only shrinks (it refuses to add or raise an entry); `--allow-grow` is a
+         bootstrap escape for a scanner coverage change and needs reviewer sign-off.
   - Z12: `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `app.doc.images`
          entries, and `panels/mod.rs::scrollbar` + `variables/view.rs::hscrollbar` support
          `Sense::click_and_drag()`.
 
 Exit code:
-  0 when 14/14 invariants pass, 1 if any invariant fails.
+  0 when 17/17 invariants pass, 1 if any invariant fails.
 """
 
 from __future__ import annotations
@@ -62,8 +74,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ux_writing_labels  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_SRC = REPO_ROOT / "crates" / "designos-app" / "src"
+MCP_SRC = REPO_ROOT / "crates" / "designos-mcp" / "src"
 
 
 def literal_end(src: str, i: int) -> int:
@@ -397,6 +413,9 @@ class SourceSet:
             p.relative_to(APP_SRC).as_posix(): p.read_text(encoding="utf-8", errors="replace")
             for p in sorted(APP_SRC.rglob("*.rs"))
         }
+        if MCP_SRC.exists():
+            for p in sorted(MCP_SRC.rglob("*.rs")):
+                files[f"mcp/{p.relative_to(MCP_SRC).as_posix()}"] = p.read_text(encoding="utf-8", errors="replace")
         return cls(files)
 
     def with_replacement(self, rel_path: str, old: str, new: str) -> "SourceSet":
@@ -470,45 +489,67 @@ def extract_fn_body(src: str, fn_name: str) -> str:
     return src[brace_start:]
 
 
-def check_z01(terminal_rs: str) -> Tuple[bool, str]:
+RETIRED_ONESHOT_CLI_PATTERN = (
+    r"claude\s+--dangerously-skip-permissions\s+-p\b|\bclaude\s+-p\b|"
+    r"codex\s+--dangerously-bypass-approvals-and-sandbox\s+exec\b|\bcodex\s+exec\b|"
+    r"agy\s+--dangerously-skip-permissions\s+-p\b|\bagy\s+-p\b|"
+    r"grok\s+--always-approve\s+-p\b|\bgrok\s+-p\b"
+)
+RETIRED_CHAT_THREAD_PATTERN = (
+    r"\b(?:build_real_cli_command|is_design_creation_prompt|AgentChatTurn|AgentChatRole|"
+    r"chat_turns|chat_scroll|next_turn_id|ensure_shell_for_chat|sync_chat_from_pty|"
+    r"wrap_chat_lines|render_agent_chat_thread)\b"
+)
+
+
+def check_z01(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
+    composer_rs = sources.code("agent_composer.rs")
     has_avail = "fn runtime_binary_available" in terminal_rs
     submit_body = extract_fn_body(terminal_rs, "submit_chat_prompt")
-    helper_body = extract_fn_body(terminal_rs, "build_real_cli_command")
-    combined = submit_body + "\n" + helper_body
-    cli_checks = {
-        "claude": ("claude --dangerously-skip-permissions -p" in combined or "claude -p" in combined),
-        "codex": ("codex --dangerously-bypass-approvals-and-sandbox exec" in combined or "codex exec" in combined),
-        "agy": ("agy --dangerously-skip-permissions -p" in combined or "agy -p" in combined),
-        "grok": ("grok --always-approve -p" in combined or "grok -p" in combined),
-    }
-    missing = [name for name, present in cli_checks.items() if not present]
-    calls_avail = "runtime_binary_available" in submit_body
-    ok = has_avail and calls_avail and not missing
+    send_body = (
+        extract_fn_body(composer_rs, "send_to_agent")
+        + "\n"
+        + extract_fn_body(composer_rs, "write_prompt_to_live_tab")
+    )
+    routes_to_live_send = (
+        "send_to_agent" in submit_body
+        and "try_write_bytes" in send_body
+        and "format_composer_paste_bytes" in send_body
+    )
+    oneshot_hits = sources.code_hits(RETIRED_ONESHOT_CLI_PATTERN)
+    ok = has_avail and routes_to_live_send and not oneshot_hits
     if ok:
-        return True, "runtime_binary_available + real CLI invocations (claude, codex, agy, grok with skip-permissions) verified in submit_chat_prompt"
+        return (
+            True,
+            "`runtime_binary_available` + `submit_chat_prompt` -> `send_to_agent` writes bracketed paste into the live PTY; zero one-shot (`-p` / `exec`) invocations in shipped code",
+        )
     reasons = []
     if not has_avail:
         reasons.append("missing `fn runtime_binary_available`")
-    if not calls_avail:
-        reasons.append("`submit_chat_prompt` does not call `runtime_binary_available`")
-    if missing:
-        reasons.append(f"missing CLI invocations: {missing}")
+    if not routes_to_live_send:
+        reasons.append("`submit_chat_prompt` does not route through `send_to_agent` / `write_prompt_to_live_tab`")
+    if oneshot_hits:
+        reasons.append(f"retired one-shot CLI flags in shipped code: {oneshot_hits}")
     return False, "; ".join(reasons)
 
 
-def check_z02(terminal_rs: str) -> Tuple[bool, str]:
+def check_z02(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
     body = extract_fn_body(terminal_rs, "set_active_runtime")
     has_preset = bool(re.search(r"tab\.preset\s*=\s*runtime", body))
-    # Typing into the tab lands as a chat prompt when the tab hosts an agent TUI.
     no_pty_write = "send_line" not in body and "write_all" not in body
     spawn_env = "DESIGNOS_AGENT_RUNTIME" in extract_fn_body(terminal_rs, "configure_pty_env")
-    cmd_env = "DESIGNOS_AGENT_RUNTIME" in extract_fn_body(terminal_rs, "build_real_cli_command")
-    ok = bool(body) and has_preset and no_pty_write and spawn_env and cmd_env
+    retired_hits = sources.code_hits(RETIRED_CHAT_THREAD_PATTERN)
+    ok = bool(body) and has_preset and no_pty_write and spawn_env and not retired_hits
     if ok:
-        return True, "`set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn + per CLI command"
+        return (
+            True,
+            "`set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn; retired one-shot chat symbols absent from shipped code",
+        )
     return False, (
         f"tab.preset mutation={has_preset}, no PTY write in set_active_runtime={no_pty_write}, "
-        f"env in configure_pty_env={spawn_env}, env in build_real_cli_command={cmd_env}"
+        f"env in configure_pty_env={spawn_env}, retired chat symbols in shipped code={retired_hits}"
     )
 
 
@@ -520,21 +561,21 @@ def check_z03(terminal_rs: str) -> Tuple[bool, str]:
     comment_noop = bool(re.search(r'format!\(\s*"#\s*\[', body)) or bool(
         re.search(r'send_line\(\s*"#', body)
     )
-    has_send = ("send_line" in body) or ("submit_chat_prompt" in body)
+    has_send = ("send_to_agent" in body) or ("send_line" in body) or ("submit_chat_prompt" in body)
     ok = (not comment_noop) and has_send
     if ok:
-        return True, "`dispatch_figma_ai_prompt` dispatches executable PTY/CLI command without `#` comment prefix"
+        return True, "`dispatch_figma_ai_prompt` dispatches through `send_to_agent` without `#` comment prefix"
     return False, f"dispatch_figma_ai_prompt comment_noop={comment_noop}, has_send={has_send}"
 
 
-def check_z04(terminal_rs: str) -> Tuple[bool, str]:
+def check_z04(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
+    composer_rs = sources.code("agent_composer.rs")
+    combined = terminal_rs + "\n" + composer_rs
     required_ids = [
         "agents-header-ai",
-        "agents-header-popout",
-        "agents-header-more",
         "agents-composer-attach",
         "agents-composer-context",
-        "agents-composer-mic",
     ]
     missing = []
     for wid in required_ids:
@@ -542,11 +583,12 @@ def check_z04(terminal_rs: str) -> Tuple[bool, str]:
         pattern = re.compile(
             rf'"{re.escape(wid)}"[\s\S]{{0,520}}?(?:Sense::click\(\)|\.clicked\(\))|Sense::click\(\)[\s\S]{{0,520}}?"{re.escape(wid)}"'
         )
-        if not pattern.search(terminal_rs):
+        if not pattern.search(combined):
             missing.append(wid)
-    if not missing:
-        return True, f"All 6 header/composer controls ({', '.join(required_ids)}) have interactive Sense::click() handlers"
-    return False, f"Missing interactive Sense::click() handler for: {missing}"
+    has_fake_mic = "agents-composer-mic" in combined
+    if not missing and not has_fake_mic:
+        return True, f"All {len(required_ids)} header/composer controls ({', '.join(required_ids)}) have interactive Sense::click() handlers; fake mic removed"
+    return False, f"Missing interactive Sense::click() handler for: {missing}, has_fake_mic={has_fake_mic}"
 
 
 def check_z05(specs_rs: str) -> Tuple[bool, str]:
@@ -618,10 +660,18 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     has_select = "ctx-select-area" in toolbar_rs
     has_edit_img = ("ctx-edit-image" in toolbar_rs) or ("ctx-edit-prompt" in toolbar_rs)
     # Crop / Remove-background had no real implementation (a 5% shrink and "delete first fill").
-    # They may only come back with an honest implementation, which must update this check.
-    # Scan all shipped, non-test sources (not only cmdk.rs / toolbar.rs) and reject concat! / \u{ in UI labels.
+    # E5-10 brings back Remove background as an honest agent-CLI job in image_jobs.rs (request.json + input.png + output.png);
+    # keep scanning all other shipped, non-test sources (including cmdk.rs, panels/toolbar.rs, panels/mod.rs) and reject concat! / \u{ in UI labels.
+    image_jobs_rs = sources.code("image_jobs.rs")
+    honest_e5_10 = (
+        "request.json" in image_jobs_rs
+        and "input.png" in image_jobs_rs
+        and "output.png" in image_jobs_rs
+        and "ImageOp::RemoveBackground" in image_jobs_rs
+    )
+    allowed_e5_10_files = {"image_jobs.rs", "panels/context.rs", "panels/menus.rs"} if honest_e5_10 else set()
     retired_actions = sources.code_hits(RETIRED_ACTION_PATTERN)
-    retired_cmdk = sources.code_hits(RETIRED_CMDK_PATTERN)
+    retired_cmdk = [f for f in sources.code_hits(RETIRED_CMDK_PATTERN) if f not in allowed_e5_10_files]
     cmdk_unnorm = sources.unnormalized_code("cmdk.rs")
     toolbar_unnorm = sources.unnormalized_code("panels/toolbar.rs")
     obfuscated_ui_labels = []
@@ -646,9 +696,12 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
-def check_z09(home_rs: str) -> Tuple[bool, str]:
+def check_z09(home_rs: str, fig_export_rs: str, fallback_save_rs: str) -> Tuple[bool, str]:
     has_export_fig = ("Act::ExportFig" in home_rs) or ("ExportFig" in home_rs)
-    has_fs_write = ("std::fs::write" in home_rs) or ("fs::write" in home_rs)
+    # The Home menu, the File menu and the palette write through `fig_export::export_new`, which hands the bytes to
+    # `io::write_new_in`: that claims a free file name with `create_new` and writes them. The handler holds no `fs::write`.
+    calls_writer = "fig_export::export_new" in home_rs and "write_new_in(" in fig_export_rs
+    has_fs_write = "create_new(true)" in fallback_save_rs and "write_all(" in fallback_save_rs
     collapsed_sections = bool(
         re.search(
             r"Section::Recents\s*\|\s*Section::AllProjects\s*\|\s*Section::Templates\s*\|\s*Section::Resources",
@@ -663,12 +716,12 @@ def check_z09(home_rs: str) -> Tuple[bool, str]:
             and "Section::Resources =>" in home_rs
         )
     )
-    ok = has_export_fig and has_fs_write and has_distinct_nav
+    ok = has_export_fig and calls_writer and has_fs_write and has_distinct_nav
     if ok:
-        return True, "`home/mod.rs` `Act::ExportFig` writes `.fig` bytes (`std::fs::write`) and `AllFolders`/`Templates`/`Libraries` filter distinctly"
+        return True, "`home/mod.rs` `Act::ExportFig` writes `.fig` bytes through `fig_export::export_new` and `io::write_new_in` (`create_new` + `write_all`) and `AllFolders`/`Templates`/`Libraries` filter distinctly"
     return (
         False,
-        f"ExportFig={has_export_fig}, fs::write={has_fs_write}, distinct_nav={has_distinct_nav}",
+        f"ExportFig={has_export_fig}, export_new+write_new_in={calls_writer}, create_new+write_all={has_fs_write}, distinct_nav={has_distinct_nav}",
     )
 
 
@@ -865,12 +918,65 @@ def check_z14(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
+def check_z15(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_code = sources.code("terminal.rs")
+    cmdk_code = sources.code("cmdk.rs")
+    forbidden_terminal = [
+        tok
+        for tok in (
+            "synthesize_spec_from_prompt",
+            "is_design_creation_prompt",
+            "Executed via",
+            "streamed to Canvas",
+            "PRD Context:",
+            "agents-cat-prd",
+            "agents-composer-mic",
+        )
+        if tok in terminal_code
+    ]
+    synth_callers = [
+        rel
+        for rel in sources.code_hits(r"\bsynthesize_spec_from_prompt\b")
+        if rel != "cmdk.rs"
+    ]
+    pub_synth_in_cmdk = bool(
+        re.search(r"\bpub\s+fn\s+synthesize_spec_from_prompt\b", cmdk_code)
+    )
+    ok = not forbidden_terminal and not synth_callers and not pub_synth_in_cmdk
+    if ok:
+        return (
+            True,
+            "`terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` / `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`",
+        )
+    return (
+        False,
+        f"forbidden_terminal={forbidden_terminal}, synth_callers_outside_cmdk={synth_callers}, pub_synth_in_cmdk={pub_synth_in_cmdk}",
+    )
+
+
+def check_z16(sources: "SourceSet") -> Tuple[bool, str]:
+    return ux_writing_labels.check_ux_writing(sources.files, sources.code)
+
+
+RETIRED_GLOBAL_TMP_LIVE_PATTERN = r"/tmp/designos-live-|designos-live-selection\.spec\.json"
+
+
+def check_z17(sources: "SourceSet") -> Tuple[bool, str]:
+    hits = sources.code_hits(RETIRED_GLOBAL_TMP_LIVE_PATTERN)
+    if not hits:
+        return True, "no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`"
+    return False, f"global `/tmp/designos-live-` or `designos-live-selection.spec.json` found in shipped code: {hits}"
+
+
 def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]]:
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
     terminal_rs = read_src("terminal.rs")
+    composer_rs = read_src("agent_composer.rs")
     specs_rs = read_src("specs.rs")
     home_rs = read_src("home/mod.rs")
+    fig_export_rs = read_src("fig_export.rs")
+    fallback_save_rs = read_src("io/fallback_save.rs")
     right_rs = read_src("panels/right.rs")
     inspect_rs = read_src("panels/inspect.rs")
     dev_sections_rs = read_src("dev/sections.rs")
@@ -880,20 +986,23 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
     vars_view_rs = read_src("variables/view.rs")
 
     specs = [
-        ("Z01", "terminal.rs", "Real CLI binary detection & invocation in submit_chat_prompt", lambda: check_z01(terminal_rs)),
-        ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn, never typed", lambda: check_z02(terminal_rs)),
+        ("Z01", "terminal.rs + agent_composer.rs", "Live PTY send_to_agent in submit_chat_prompt; zero one-shot (-p / exec) calls", lambda: check_z01(sources)),
+        ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn; one-shot chat symbols removed", lambda: check_z02(sources)),
         ("Z03", "terminal.rs", "dispatch_figma_ai_prompt sends executable command without # comment prefix", lambda: check_z03(terminal_rs)),
-        ("Z04", "terminal.rs", "All 6 Agents header & composer buttons have Sense::click() handlers", lambda: check_z04(terminal_rs)),
+        ("Z04", "terminal.rs + agent_composer.rs", "All 3 Agents header & composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
         ("Z05", "specs.rs", "specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input)", lambda: check_z05(specs_rs)),
         ("Z06", "specs.rs", "Right Inspector dynamic active_section_toc & interactive SpecComment", lambda: check_z06(specs_rs)),
         ("Z07", "specs.rs", "Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract", lambda: check_z07(specs_rs)),
         ("Z08", "panels/toolbar.rs + cmdk.rs", "Contextual sub-toolbar buttons mutate app.doc / app.tool; ctx-crop / ctx-remove-bg / cmdk Remove background stay removed", lambda: check_z08(sources)),
-        ("Z09", "home/mod.rs", "Act::ExportFig writes .fig to disk & Nav::AllFolders/Templates/Libraries filter distinctly", lambda: check_z09(home_rs)),
+        ("Z09", "home/mod.rs", "Act::ExportFig writes .fig to disk & Nav::AllFolders/Templates/Libraries filter distinctly", lambda: check_z09(home_rs, fig_export_rs, fallback_save_rs)),
         ("Z10", "panels/right.rs", "Share copies to clipboard & Dev Mode 2nd tab renders Dev Plugins inspector", lambda: check_z10(right_rs)),
         ("Z11", "panels/inspect.rs + properties.rs", "Dev Mode Code Connect/MCP/Redlines/Keyframes & Copy to Slides mutate state/clipboard", lambda: check_z11(inspect_rs, properties_rs, dev_sections_rs)),
         ("Z12", "widgets/picker.rs + panels/mod.rs + variables/view.rs", "Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag()", lambda: check_z12(picker_rs, panels_mod_rs, vars_view_rs, properties_rs)),
         ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
         ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(sources)),
+        ("Z15", "terminal.rs + cmdk.rs", "No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs", lambda: check_z15(sources)),
+        ("Z16", "registered label helpers in designos-app/src", "UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json)", lambda: check_z16(sources)),
+        ("Z17", "terminal.rs + mcp/server.rs", "No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code", lambda: check_z17(sources)),
     ]
 
     results: List[Dict[str, Any]] = []
@@ -917,7 +1026,24 @@ def main() -> int:
         description="Zero Fake UI Deterministic Gate (DIR-28 / BR-31 / REQ-25 / D25)"
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON report")
+    parser.add_argument("--write-ux-baseline", action="store_true", help="Rewrite scripts/ux_writing_baseline.json from the current tree; refuses to add or raise an entry (it only shrinks)")
+    parser.add_argument("--allow-grow", action="store_true", help="With --write-ux-baseline: permit new or raised entries. Bootstrap only (a scanner coverage change); needs reviewer sign-off")
     args = parser.parse_args()
+
+    if args.allow_grow and not args.write_ux_baseline:
+        parser.error("--allow-grow only applies to --write-ux-baseline")
+    if args.write_ux_baseline:
+        sources = SourceSet.from_disk()
+        found = ux_writing_labels.scan_labels(sources.files, sources.code)
+        offenders = ux_writing_labels.growth_offenders(found, ux_writing_labels.load_baseline())
+        if offenders and not args.allow_grow:
+            print("refusing to write: the baseline may only shrink. Fix these labels instead of absorbing them:", file=sys.stderr)
+            for line in offenders:
+                print(f"  {line}", file=sys.stderr)
+            return 1
+        ux_writing_labels.BASELINE_PATH.write_text(ux_writing_labels.baseline_json(found), encoding="utf-8")
+        print(f"wrote {ux_writing_labels.BASELINE_PATH.name}: {sum(found.values())} violation(s) in {len(found)} entries")
+        return 0
 
     results = run_all_checks()
     passed_count = sum(1 for r in results if r["passed"])

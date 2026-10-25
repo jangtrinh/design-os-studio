@@ -39,6 +39,7 @@ fn ids_of(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
         | Command::SetVariables { .. }
         | Command::SetGuides { .. }
         | Command::SetPrototypeDevice { .. }
+        | Command::SetCheckDesignsSettings(_)
         | Command::SetComments { .. }
         | Command::SetLibraryState { .. }
         | Command::SetImages { .. }
@@ -98,6 +99,10 @@ pub fn record_overrides(doc: &Document, before: &BTreeMap<NodeId, Node>, cmds: &
                 ov.remove(&OverrideField::Size);
             }
         }
+        let align_ov = record_grid_align_overrides(old, node);
+        node.component.grid_align_overrides[0] |= align_ov[0];
+        node.component.grid_align_overrides[1] |= align_ov[1];
+        clear_stale_pen_override_markers(node, &ov);
         node.component.overrides.extend(ov);
     }
 }
@@ -161,6 +166,13 @@ pub struct AssetEntry {
     pub id: NodeId,
     /// Number of variants when the entry stands for a component set.
     pub variants: usize,
+}
+
+/// True if page point `p` lies inside `id`'s box (honouring rotation and parent transforms).
+fn contains_page_point(doc: &Document, id: NodeId, p: Vec2) -> bool {
+    let (Some(n), Some(inv)) = (doc.get(id), doc.world_transform(id).invert()) else { return false };
+    let l = inv.apply(p);
+    l.x >= 0.0 && l.y >= 0.0 && l.x <= n.size.x && l.y <= n.size.y
 }
 
 impl App {
@@ -330,12 +342,17 @@ impl App {
     pub fn insert_instance(&mut self, comp: NodeId, at: Vec2) -> Option<NodeId> {
         let size = self.doc.get(comp)?.size;
         let target = Vec2::new(at.x - size.x / 2.0, at.y - size.y / 2.0);
-        let mut parent = container_at(&self.doc, self.page, at, &[]);
+        // A selected slot takes the instance only when it is dropped on that slot.
+        let selected_slot = match self.selection.as_slice() {
+            [only] if is_slot_container(&self.doc, *only) && contains_page_point(&self.doc, *only, at) => Some(*only),
+            _ => None,
+        };
+        let mut parent = selected_slot.unwrap_or_else(|| container_at(&self.doc, self.page, at, &[]));
         let mut tx = Tx::new();
         for attempt in 0..2 {
             let inv = self.doc.world_transform(parent).invert()?;
             let local = inv.apply(target);
-            let cmd = create_instance(&mut self.doc, comp, parent, local);
+            let mut cmd = create_instance(&mut self.doc, comp, parent, local);
             if is_noop(&cmd) {
                 // Inside the component itself (or its descendants): fall back to the page.
                 if attempt == 0 {
@@ -344,12 +361,30 @@ impl App {
                 }
                 return None;
             }
+            if is_slot_container(&self.doc, parent) {
+                if let Command::Insert { nodes, .. } = &mut cmd {
+                    if let Some(root) = nodes.first_mut() {
+                        if let Err(err) = check_slot_insert(&self.doc, parent, &[root]) {
+                            self.show_toast(err.to_string(), true);
+                            return None;
+                        }
+                        apply_slot_stretch_on_insert(&self.doc, parent, root);
+                    }
+                }
+            }
             let id = match &cmd {
                 Command::Insert { nodes, .. } => nodes.first().map(|n| n.id),
                 _ => None,
             };
             if !self.push_cmd(&mut tx, cmd) {
                 return None;
+            }
+            let is_inst_slot =
+                is_slot_container(&self.doc, parent) && (self.doc.get(parent).is_some_and(is_linked) || instance_root_of(&self.doc, parent).is_some());
+            if is_inst_slot {
+                if let Some(sn) = tx.ed.node(&mut self.doc, parent) {
+                    sn.component.overrides.insert(OverrideField::SlotContent);
+                }
             }
             layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
             self.run_tx(tx);
@@ -359,6 +394,34 @@ impl App {
             return id;
         }
         None
+    }
+
+    /// Inserts an instance of `comp` at the end of `slot`, enforcing [`SlotPropConfig`]
+    /// constraints, stretching on insert when configured, and keeping the enclosing instance linked.
+    pub fn insert_instance_into_slot(&mut self, slot: NodeId, comp: NodeId) -> Option<NodeId> {
+        if !is_slot_container(&self.doc, slot) {
+            return None;
+        }
+        let cmd = create_instance(&mut self.doc, comp, slot, Vec2::ZERO);
+        let Command::Insert { index, nodes, .. } = cmd else {
+            return None;
+        };
+        let id = nodes.first().map(|n| n.id);
+        let slot_cmd = match insert_into_slot(&mut self.doc, slot, index, nodes) {
+            Ok(c) => c,
+            Err(err) => {
+                self.show_toast(err.to_string(), true);
+                return None;
+            }
+        };
+        let mut tx = Tx::new();
+        if !self.push_cmd(&mut tx, slot_cmd) {
+            return None;
+        }
+        layout::relayout_around(&mut self.doc, &mut tx.ed, slot);
+        self.run_tx(tx);
+        self.selection = vec![slot];
+        id
     }
 
     /// Sets (or with `None` resets) a component property on an instance.
@@ -410,6 +473,16 @@ impl App {
     /// Owner of the property definitions shown for `comp`: its set, else itself.
     pub fn prop_owner(&self, comp: NodeId) -> NodeId {
         self.doc.get(comp).and_then(|n| n.parent).filter(|p| matches!(self.doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp)
+    }
+
+    /// Node that defines property `name` for `comp`: `comp` itself when defined on the variant,
+    /// otherwise `prop_owner(comp)`.
+    pub fn prop_def_owner(&self, comp: NodeId, name: &str) -> NodeId {
+        if self.doc.get(comp).is_some_and(|n| n.component.props.iter().any(|p| p.name == name)) {
+            comp
+        } else {
+            self.prop_owner(comp)
+        }
     }
 
     fn comp_edit(&mut self, f: impl FnOnce(&mut Document) -> Command) {
@@ -472,6 +545,73 @@ impl App {
         self.comp_edit(|d| bind_prop(d, node, field, prop.as_deref()));
     }
 
+    /// Converts a frame inside a main component into a component slot in one undo step.
+    pub fn convert_to_slot(&mut self, frame: NodeId) {
+        let mut tx = Tx::new();
+        let cmd = convert_to_slot(&mut self.doc, frame);
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+            self.show_toast("Converted to slot", false);
+        }
+    }
+
+    /// Converts any selected frames inside a main component into slots in one undo step.
+    pub fn convert_selection_to_slot(&mut self) {
+        let ids = self.selection.clone();
+        let mut tx = Tx::new();
+        let mut count = 0usize;
+        for id in ids {
+            let cmd = convert_to_slot(&mut self.doc, id);
+            if self.push_cmd(&mut tx, cmd) {
+                count += 1;
+            }
+        }
+        if count > 0 {
+            self.run_tx(tx);
+            self.show_toast(if count == 1 { "Converted to slot" } else { "Converted to slots" }, false);
+        }
+    }
+
+    /// Updates the [`SlotPropConfig`] for a slot property on a component or component set.
+    pub fn set_slot_config(&mut self, owner: NodeId, prop_name: &str, config: SlotPropConfig) {
+        let prop_name = prop_name.to_string();
+        self.comp_edit(|d| set_slot_config(d, owner, &prop_name, config));
+    }
+
+    /// Migrates `node` (an instance-swap or boolean container region inside a main component)
+    /// to a component slot in one undo step, or shows an honest toast and returns `Err` on unsupported shapes.
+    pub fn migrate_node_to_slot(&mut self, node: NodeId) -> Result<(), &'static str> {
+        let cmd = match migrate_region_to_slot(&mut self.doc, node) {
+            Ok(cmd) => cmd,
+            Err(msg) => {
+                self.show_toast(msg, true);
+                return Err(msg);
+            }
+        };
+        let mut tx = Tx::new();
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+            self.show_toast("Migrated to slot", false);
+        }
+        Ok(())
+    }
+
+    /// Migrates the currently selected layer to a component slot in one undo step.
+    #[cfg(test)]
+    pub fn migrate_selection_to_slot(&mut self) -> Result<(), &'static str> {
+        let Some(&node) = self.selection.first() else {
+            let msg = "Select a layer inside a main component to migrate to a slot";
+            self.show_toast(msg, true);
+            return Err(msg);
+        };
+        if self.selection.len() > 1 {
+            let msg = "Select a single instance-swap or boolean region to migrate to a slot";
+            self.show_toast(msg, true);
+            return Err(msg);
+        }
+        self.migrate_node_to_slot(node)
+    }
+
     /// Components for the Assets panel, in page order.
     pub fn local_components(&self) -> Vec<AssetEntry> {
         let mut out = Vec::new();
@@ -504,5 +644,50 @@ impl App {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_overrides_clears_stale_pen_partial_override_markers() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let comp_id = doc.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        comp.size = Vec2::new(100.0, 40.0);
+        comp.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        comp.stroke.weight = 1.0;
+        doc.insert(page, comp).unwrap();
+
+        let inst_id = doc.alloc_id();
+        let mut inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        inst.component.source = Some(comp_id);
+        inst.size = Vec2::new(180.0, 40.0);
+        inst.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        inst.stroke.weight = 4.0;
+        inst.component.overrides.insert(OverrideField::Size);
+        inst.component.overrides.insert(OverrideField::Stroke);
+        inst.plugin_data.insert("pen:explicit_width".into(), "true".into());
+        inst.plugin_data.insert("pen:explicit_stroke_fields".into(), "width".into());
+        doc.insert(page, inst).unwrap();
+
+        let mut before = BTreeMap::new();
+        before.insert(inst_id, doc.get(inst_id).unwrap().clone());
+
+        let mut edited = doc.get(inst_id).unwrap().clone();
+        edited.stroke.paints = vec![Paint::solid(Color::rgb(0, 0, 255))];
+        edited.size.y = 64.0;
+        let mut cmds = vec![Command::Update { node: Box::new(edited) }];
+
+        record_overrides(&doc, &before, &mut cmds);
+        let Command::Update { node } = &cmds[0] else { panic!("expected Update") };
+        assert!(!node.plugin_data.contains_key("pen:explicit_stroke_fields"));
+        assert!(!node.plugin_data.contains_key("pen:explicit_width"));
+        assert!(!node.plugin_data.contains_key("pen:explicit_height"));
+        assert!(node.component.overrides.contains(&OverrideField::Stroke));
+        assert!(node.component.overrides.contains(&OverrideField::Size));
     }
 }

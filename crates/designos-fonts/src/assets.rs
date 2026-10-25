@@ -12,7 +12,7 @@ pub struct FontAsset {
     pub data: &'static [u8],
 }
 
-static BUNDLED: [FontAsset; 2] = [
+static BUNDLED: [FontAsset; 3] = [
     FontAsset {
         family: "Inter",
         italic: false,
@@ -28,6 +28,15 @@ static BUNDLED: [FontAsset; 2] = [
         max_weight: 900,
         license: "OFL-1.1",
         data: include_bytes!("../assets/inter/Inter-Italic[opsz,wght].ttf"),
+    },
+    // The UI monospace role (design/principles.md P5). Upstream moved it from Apache-2.0 to OFL-1.1.
+    FontAsset {
+        family: "Roboto Mono",
+        italic: false,
+        min_weight: 100,
+        max_weight: 700,
+        license: "OFL-1.1",
+        data: include_bytes!("../assets/roboto-mono/RobotoMono[wght].ttf"),
     },
 ];
 

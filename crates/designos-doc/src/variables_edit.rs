@@ -141,6 +141,7 @@ impl VariableStore {
                 variables: Vec::new(),
                 key: None,
                 source_library_key: None,
+                extensions: BTreeMap::new(),
             },
         );
         id
@@ -179,6 +180,7 @@ impl VariableStore {
             copy.key = None;
             copy.collection = new_id.clone();
             copy.values = v.values.iter().filter_map(|(m, x)| Some((mode_map.get(m)?.clone(), x.clone()))).collect();
+            copy.mode_extensions = v.mode_extensions.iter().filter_map(|(m, x)| Some((mode_map.get(m)?.clone(), x.clone()))).collect();
             self.variables.insert(nv.clone(), copy);
             id_map.insert(vid.clone(), nv.clone());
             var_ids.push(nv);
@@ -205,6 +207,7 @@ impl VariableStore {
                 variables: var_ids,
                 key: None,
                 source_library_key: None,
+                extensions: src.extensions.clone(),
             },
         );
         Some(new_id)
@@ -269,6 +272,9 @@ impl VariableStore {
                 if let Some(x) = v.values.get(mode).cloned() {
                     v.values.insert(id.clone(), x);
                 }
+                if let Some(ext) = v.mode_extensions.get(mode).cloned() {
+                    v.mode_extensions.insert(id.clone(), ext);
+                }
             }
         }
         let c = self.collections.get_mut(coll)?;
@@ -291,9 +297,10 @@ impl VariableStore {
             c.default_mode = c.modes[0].id.clone();
         }
         let ids = c.variables.clone();
-        for vid in ids {
-            if let Some(v) = self.variables.get_mut(&vid) {
+        for v in self.variables.values_mut() {
+            if v.collection == coll || ids.contains(&v.id) {
                 v.values.remove(mode);
+                v.mode_extensions.remove(mode);
             }
         }
         true
@@ -333,8 +340,9 @@ impl VariableStore {
                 scopes: Vec::new(),
                 hidden_from_publishing: false,
                 key: None,
-
                 code_syntax: Default::default(),
+                extensions: BTreeMap::new(),
+                mode_extensions: BTreeMap::new(),
             },
         );
         Some(id)
@@ -431,6 +439,7 @@ impl VariableStore {
             _ => return false,
         }
         v.values.insert(mode.to_string(), value);
+        v.clear_derived_mode_extensions(mode);
         true
     }
 
@@ -441,6 +450,7 @@ impl VariableStore {
         }
         if let Some(v) = self.variables.get_mut(var) {
             v.values.insert(mode.to_string(), VariableValue::Alias(target.to_string()));
+            v.clear_derived_mode_extensions(mode);
             return true;
         }
         false
@@ -455,6 +465,7 @@ impl VariableStore {
         match self.variables.get_mut(var) {
             Some(v) => {
                 v.values.insert(mode.to_string(), lit);
+                v.clear_derived_mode_extensions(mode);
                 true
             }
             None => false,
@@ -480,6 +491,7 @@ impl VariableStore {
                     }
                     None => {
                         v.values.remove(&mode);
+                        v.mode_extensions.remove(&mode);
                     }
                 }
             }

@@ -1,6 +1,7 @@
 //! SwiftUI output.
 
 use crate::codegen::*;
+use crate::slots::*;
 use crate::util::num;
 use designos_doc::*;
 
@@ -11,8 +12,81 @@ use designos_doc::*;
 /// component properties as arguments; bound variables become `Color("name")` / `Tokens.name`.
 pub fn swiftui_for(doc: &Document, node: NodeId) -> String {
     let mut o = Out::new("    ");
-    view(doc, node, Parent::root(), 0, &mut o);
+    let slots = slot_infos(doc, node);
+    match doc.get(node) {
+        Some(n) if !slots.is_empty() => slot_view(doc, n, &slots, &mut o),
+        _ => view(doc, node, Parent::root(), 0, &mut o),
+    }
     o.finish()
+}
+
+/// Generic type parameter that carries the content of slot `name`.
+fn slot_type(name: &str) -> String {
+    format!("{}Content", pascal(name))
+}
+
+/// `(ident, name: Type = default)` initializer parameters for the non-slot properties of a component.
+fn prop_init_params(props: &[PropParam], taken: &mut Vec<String>) -> Vec<(String, String)> {
+    props
+        .iter()
+        .map(|p| {
+            let name = prop_ident(&p.name, Lang::Swift, taken);
+            let decl = match &p.default {
+                PropDefault::Bool(b) => format!("{name}: Bool = {b}"),
+                PropDefault::Text(t) | PropDefault::Variant { value: t, .. } => format!("{name}: String = {}", quote(t)),
+                PropDefault::Instance(v) => format!("{name}: AnyView = AnyView({})", v.as_ref().map_or("EmptyView()".to_string(), |v| format!("{v}()"))),
+            };
+            (name, decl)
+        })
+        .collect()
+}
+
+/// A component with slots as a generic `View` struct: its properties and one `@ViewBuilder` init
+/// parameter per slot, and an `init` for callers that keep every slot's default content.
+fn slot_view(doc: &Document, n: &Node, slots: &[SlotInfo], o: &mut Out) {
+    let name = view_name(doc, n);
+    let props = prop_params(doc, n.id);
+    let mut taken: Vec<String> = Vec::new();
+    let prop_decls = prop_init_params(&props, &mut taken);
+    let prop_params: Vec<String> = prop_decls.iter().map(|(_, d)| d.clone()).collect();
+    let single = slots.len() == 1;
+    let slot_ids: Vec<String> = slots.iter().map(|s| slot_ident_in(&s.name, single, Lang::Swift, &mut taken)).collect();
+    let generics: Vec<String> = slots.iter().map(|s| format!("{}: View", slot_type(&s.name))).collect();
+    o.line(0, format!("struct {name}<{}>: View {{", generics.join(", ")));
+    for (id, decl) in &prop_decls {
+        let ty = decl.split_once(": ").and_then(|(_, r)| r.split(" = ").next()).unwrap_or("String");
+        o.line(1, format!("private let {id}: {ty}"));
+    }
+    for (s, id) in slots.iter().zip(&slot_ids) {
+        o.line(1, format!("private let {id}: {}?", slot_type(&s.name)));
+    }
+    o.line(0, "");
+    let closures: Vec<String> = slots.iter().zip(&slot_ids).map(|(s, id)| format!("@ViewBuilder {id}: () -> {}", slot_type(&s.name))).collect();
+    o.line(1, format!("init({}) {{", prop_params.iter().chain(&closures).cloned().collect::<Vec<_>>().join(", ")));
+    for (id, _) in &prop_decls {
+        o.line(2, format!("self.{id} = {id}"));
+    }
+    for id in &slot_ids {
+        o.line(2, format!("self.{id} = {id}()"));
+    }
+    o.line(1, "}");
+    o.line(0, "");
+    o.line(1, "var body: some View {");
+    view(doc, n.id, Parent::root(), 2, o);
+    o.line(1, "}");
+    o.line(0, "}");
+    o.line(0, "");
+    let empties: Vec<String> = slots.iter().map(|s| format!("{} == EmptyView", slot_type(&s.name))).collect();
+    o.line(0, format!("extension {name} where {} {{", empties.join(", ")));
+    o.line(1, format!("init({}) {{", prop_params.join(", ")));
+    for (id, _) in &prop_decls {
+        o.line(2, format!("self.{id} = {id}"));
+    }
+    for id in &slot_ids {
+        o.line(2, format!("self.{id} = nil"));
+    }
+    o.line(1, "}");
+    o.line(0, "}");
 }
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
@@ -261,7 +335,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     }
     let sz = sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
-    let kids = visible_children(doc, n);
+    let site = slot_site(doc, id);
+    let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
@@ -270,15 +345,45 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let radius_shape = shape(doc, n);
 
     if let NodeKind::Instance { .. } = n.kind {
-        let args: Vec<String> = instance_args(doc, n)
+        let comp = instance_component(n);
+        let slots = instance_slots(doc, n);
+        let single = slots.single();
+        let args: Vec<String> = instance_args_for(doc, n, Lang::Swift)
             .into_iter()
             .map(|(name, lit)| match lit {
                 PropLit::Bool(b) => format!("{name}: {b}"),
                 PropLit::Text(t) => format!("{name}: {}", quote(&t)),
-                PropLit::Instance(v) => format!("{name}: {v}()"),
+                PropLit::Instance(v) => format!("{name}: AnyView({v}())"),
             })
             .collect();
-        head.push(call(&view_name(doc, n), &args));
+        let vname = view_name(doc, n);
+        if slots.fills.is_empty() {
+            head.push(call(&vname, &args));
+        } else if single {
+            stack = Some(if args.is_empty() { format!("{vname} {{") } else { format!("{} {{", call(&vname, &args)) });
+            body = Some(slots.fills.into_iter().flat_map(|f| f.ids).collect());
+        } else {
+            // The generic view needs a closure for every slot; one the instance leaves out stays empty.
+            let me = Parent::of(n);
+            o.line(depth, format!("{vname}("));
+            let total = args.len() + slots.component.len();
+            let mut written = 0;
+            for a in &args {
+                written += 1;
+                o.line(depth + 1, format!("{a}{}", if written < total { "," } else { "" }));
+            }
+            for info in &slots.component {
+                written += 1;
+                let s_id = slot_ident_for(doc, comp, &info.name, single, Lang::Swift);
+                o.line(depth + 1, format!("{s_id}: {{"));
+                match slots.fills.iter().find(|f| f.name == info.name).filter(|f| !f.ids.is_empty()) {
+                    Some(f) => f.ids.iter().for_each(|c| view(doc, *c, me, depth + 2, o)),
+                    None => o.line(depth + 2, "EmptyView()"),
+                }
+                o.line(depth + 1, format!("}}{}", if written < total { "," } else { "" }));
+            }
+            o.line(depth, ")");
+        }
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
@@ -292,7 +397,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
-    } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
+    } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         let counter = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, _) => "center",
@@ -337,7 +442,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             mods.push(f);
         }
         container_style(doc, n, &radius_shape, &mut mods);
-    } else if n.kind.is_container() && !kids.is_empty() {
+    } else if n.kind.is_container() && (!kids.is_empty() || site.is_some()) {
         stack = Some("ZStack(alignment: .topLeading) {".into());
         body = Some(kids.iter().map(|k| k.id).collect());
         if let Some(f) = frame_args(sz.w, sz.h, Some(".topLeading"), n, doc) {
@@ -404,6 +509,20 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         let me = Parent::of(n);
         if spacers.0 {
             o.line(depth + 1, "Spacer()");
+        }
+        if let Some(site) = &site {
+            let name = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Swift);
+            o.line(depth + 1, format!("if let {name} {{"));
+            o.line(depth + 2, &name);
+            if site.defaults.is_empty() {
+                o.line(depth + 1, "}");
+            } else {
+                o.line(depth + 1, "} else {");
+                for c in &site.defaults {
+                    view(doc, *c, me, depth + 2, o);
+                }
+                o.line(depth + 1, "}");
+            }
         }
         for (i, c) in children.iter().enumerate() {
             if i > 0 && spacers.1 {
@@ -483,5 +602,68 @@ mod tests {
     .clipShape(RoundedRectangle(cornerRadius: 8))
     .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 4)"####;
         assert_eq!(swiftui_for(&d, id), expected);
+    }
+
+    #[test]
+    fn stretch_child_keeps_its_cross_size_when_the_parent_hugs() {
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Hug, &[40.0]);
+        let out = swiftui_for(&d, row);
+        assert!(out.contains("height: 40") && !out.contains("maxHeight"), "{out}");
+
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Fixed, &[40.0]);
+        let out = swiftui_for(&d, row);
+        assert!(out.contains("maxHeight"), "a fixed parent still stretches the child: {out}");
+    }
+
+    #[test]
+    fn swiftui_hugging_row_all_fill_children() {
+        let (d, row, _) = fixture::row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        let out = swiftui_for(&d, row);
+        assert_eq!(out.matches("height: 100").count(), 2, "{out}");
+        assert!(!out.contains("maxHeight"), "{out}");
+    }
+
+    #[test]
+    fn grid_stretch_child_exports_its_solved_size() {
+        // (row track, solved height): an auto row is sized by the child, a taller row is filled.
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            // Export the grid: a node exported on its own has no flow parent.
+            let (d, grid, _) = fixture::grid_stretch_child(track, false);
+            let out = swiftui_for(&d, grid);
+            assert!(out.contains(&format!("width: 30, height: {height}")), "{track:?}: {out}");
+            for banned in ["maxWidth", "maxHeight"] {
+                assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
+            }
+        }
+    }
+
+    #[test]
+    fn swiftui_grid_fill_child_exports_solved_height() {
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            for (d, grid, _) in [fixture::grid_fill_child(track), fixture::grid_stretch_child(track, true), fixture::grid_text_fill_child(track)] {
+                let out = swiftui_for(&d, grid);
+                assert!(out.contains(&format!("width: 30, height: {height}")), "{track:?}: {out}");
+                for banned in ["maxWidth", "maxHeight"] {
+                    assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
+                }
+            }
+        }
+        // A real Hug text child (vertical != Fill, align_self != Stretch) stays on the Hug path.
+        let (mut d, grid, tid) = fixture::grid_text_fill_child(Some(GridTrack::Fixed(100.0)));
+        d.get_mut(tid).unwrap().layout_child.vertical = Sizing::Fixed;
+        d.relayout_subtree(grid);
+        let out = swiftui_for(&d, grid);
+        assert!(out.contains(".frame(width: 30)"), "real Hug text omits height: {out}");
+    }
+
+    #[test]
+    fn grid_child_horizontal_fill_unchanged() {
+        let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(30.0, 20.0));
+        d.get_mut(rect).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(grid);
+        let out = swiftui_for(&d, grid);
+        assert!(out.contains("maxWidth: .infinity"), "horizontal Fill in grid stays maxWidth: .infinity: {out}");
     }
 }

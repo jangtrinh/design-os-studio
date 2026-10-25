@@ -88,3 +88,89 @@ fn suite_writes_report_and_fails() {
     let out = bin().arg("suite").arg(d.join("ok.json")).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
 }
+
+/// Gray pixel at (3,3) whose only lighter neighbour (4,4) lies outside the
+/// 4x4 crop: the anti-aliasing cross-check reaches past the smaller image.
+fn big_and_small_with_edge_candidate() -> (RgbaImage, RgbaImage) {
+    let mut big = RgbaImage::from_pixel(8, 8, Rgba([255, 255, 255, 255]));
+    big.put_pixel(3, 3, Rgba([128, 128, 128, 255]));
+    for (x, y) in [(2, 2), (3, 2), (4, 2), (2, 3), (4, 3), (2, 4), (3, 4)] {
+        big.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+    }
+    let mut small = image::imageops::crop_imm(&big, 0, 0, 4, 4).to_image();
+    small.put_pixel(3, 3, Rgba([255, 255, 255, 255]));
+    (big, small)
+}
+
+#[test]
+fn compare_of_two_sizes_names_both_and_exits_non_zero() {
+    let d = tmp("size-mismatch");
+    let (big, small) = big_and_small_with_edge_candidate();
+    let (a, b) = (save(&d, "big.png", &big), save(&d, "small.png", &small));
+
+    for (x, y, message) in [(&a, &b, "Images differ in size: 8\u{d7}8 vs 4\u{d7}4"), (&b, &a, "Images differ in size: 4\u{d7}4 vs 8\u{d7}8")] {
+        let out = bin().arg("compare").arg(x).arg(y).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
+        assert!(stderr.contains(message), "stderr: {stderr}");
+        assert!(!stderr.contains("panicked"), "stderr: {stderr}");
+        assert!(String::from_utf8_lossy(&out.stdout).starts_with("FAIL"));
+    }
+
+    // A lenient threshold never turns a size mismatch into a pass.
+    let lenient = bin().arg("compare").arg(&a).arg(&b).args(["--threshold", "1"]).output().unwrap();
+    assert_eq!(lenient.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&lenient.stderr).contains("Images differ in size"));
+}
+
+#[test]
+fn compare_of_two_sizes_still_writes_json_and_the_diff_image() {
+    let d = tmp("size-mismatch-outputs");
+    let (big, small) = big_and_small_with_edge_candidate();
+    let (a, b) = (save(&d, "big.png", &big), save(&d, "small.png", &small));
+    let diff = d.join("diff.png");
+
+    let out = bin().arg("compare").arg(&a).arg(&b).arg("--json").arg("--out").arg(&diff).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["size_mismatch"], true);
+    assert_eq!(v["pass"], false);
+    assert_eq!(v["size_a"], serde_json::json!([8, 8]));
+    assert_eq!(v["size_b"], serde_json::json!([4, 4]));
+    assert_eq!(image::open(&diff).unwrap().to_rgba8().dimensions(), (8, 8));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Images differ in size: 8\u{d7}8 vs 4\u{d7}4"));
+}
+
+#[test]
+fn suite_with_two_sizes_reports_the_case_instead_of_panicking() {
+    let d = tmp("suite-size-mismatch");
+    let (big, small) = big_and_small_with_edge_candidate();
+    save(&d, "big.png", &big);
+    save(&d, "small.png", &small);
+    std::fs::write(
+        d.join("manifest.json"),
+        r#"{"cases":[
+            {"name":"mixed sizes","reference":"big.png","actual":"small.png","threshold":0.0},
+            {"name":"mixed sizes, lenient","reference":"big.png","actual":"small.png","threshold":1.0}
+        ]}"#,
+    )
+    .unwrap();
+
+    // Library level: each case carries a report with both sizes, and fails
+    // even when its threshold would let the mismatch ratio through.
+    let results = designos_diff::suite::run(&d.join("manifest.json"), &d.join("lib-report"), 0).unwrap();
+    assert_eq!(results.len(), 2);
+    for r in &results {
+        let report = r.report.as_ref().expect("a report, not an error");
+        assert!(report.size_mismatch && !r.passed, "{}", r.name);
+        assert_eq!((report.size_a, report.size_b), ((8, 8), (4, 4)));
+    }
+    assert!(d.join("lib-report/index.html").exists());
+
+    // CLI level: same verdict, same report on disk, no panic.
+    let out = bin().arg("suite").arg(d.join("manifest.json")).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("size mismatch: 8x8 vs 4x4"));
+    let html = std::fs::read_to_string(d.join("diff-report/index.html")).unwrap();
+    assert!(html.contains("size mismatch (8x8 vs 4x4)"));
+}

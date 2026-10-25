@@ -1,0 +1,168 @@
+name: Release sync pages
+
+# After a release is published, point the README, the GitHub Pages site and the docs at it
+# and open one pull request. `main` is protected, so this workflow never pushes to it.
+# The script is scripts/release-sync-pages.py (see docs/releasing.md, checklist step 5).
+#
+# Triggers: the Release workflow publishes with GITHUB_TOKEN, and GitHub starts no workflow
+# for events that token causes, so `release: published` never fires for a tag-driven release.
+# `workflow_run` on the Release workflow covers that path (its head_branch is the tag).
+# `release: published` still covers a release a person publishes from the UI.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to sync, e.g. 0.4.1 (re-run for a release that is already published)"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-sync-pages
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync pages to the release
+    runs-on: ubuntu-latest
+    env:
+      # A pull request opened with GITHUB_TOKEN does not start CI, and main requires
+      # Test (macos-14), Clippy and Rustfmt. Set the RELEASE_SYNC_TOKEN secret (a PAT or
+      # app token with contents + pull-requests write) so the PR gets its checks. Without
+      # it the PR still opens; close and reopen it once to start CI.
+      GH_TOKEN: ${{ secrets.RELEASE_SYNC_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # A release event runs on the tag; the pages must be edited on main.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Resolve version
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRE: ${{ github.event.release.prerelease }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          JOBS_TOKEN: ${{ github.token }}
+        run: |
+          case "$EVENT" in
+            release) raw="$RELEASE_TAG" ;;
+            workflow_run)
+              # Dry runs (workflow_dispatch on a branch) create no release. On a tag push the run
+              # can end 'failure' (a Windows or Linux leg failed) and still have published, so
+              # ask whether the "Publish release" job succeeded instead of reading the run result.
+              if [ "$RUN_EVENT" != "push" ]; then
+                echo "::notice::Release workflow ran on a '$RUN_EVENT' event; no release to sync."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              # Listing jobs needs Actions: read, which RELEASE_SYNC_TOKEN does not have; this
+              # step uses the built-in token. An unusable answer fails the run, never skips it.
+              if ! jobs="$(GH_TOKEN="$JOBS_TOKEN" gh run view "$RUN_ID" --json jobs)"; then
+                echo "::error::could not read the jobs of Release run $RUN_ID"
+                exit 1
+              fi
+              rc=0
+              printf '%s' "$jobs" | python3 scripts/release-sync-pages.py --publish-job-ok || rc=$?
+              if [ "$rc" -ge 2 ]; then
+                echo "::error::the jobs of Release run $RUN_ID could not be read"
+                exit 1
+              elif [ "$rc" -eq 1 ]; then
+                echo "::notice::The Release workflow's publish job did not succeed; no release to sync."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              raw="$RUN_BRANCH" ;;
+            *) raw="$INPUT_VERSION" ;;
+          esac
+          version="${raw#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::notice::'$raw' is not a stable X.Y.Z release; the pages only follow stable releases."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT" = "release" ] && [ "$RELEASE_PRE" = "true" ]; then
+            echo "::notice::v$version is a pre-release; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The Release workflow creates the release first and uploads the packages after, so
+      # `published` can fire before the assets exist. SHA256SUMS is uploaded last; wait for it
+      # and for the asset count to settle.
+      - name: Wait for the release assets
+        if: steps.v.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          prev=-1
+          for i in $(seq 1 80); do
+            names="$(gh release view "v$VERSION" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            count="$(printf '%s\n' "$names" | grep -c . || true)"
+            if printf '%s\n' "$names" | grep -qx 'SHA256SUMS' && [ "$count" = "$prev" ]; then
+              echo "release v$VERSION lists $count assets"; exit 0
+            fi
+            prev="$count"; sleep 15
+          done
+          echo "::error::release v$VERSION did not finish uploading its assets within 20 minutes"; exit 1
+
+      - name: Rewrite README, pages and docs
+        if: steps.v.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 -m unittest discover -s scripts/tests
+          python3 scripts/release-sync-pages.py "$VERSION" --verify-urls --report "$RUNNER_TEMP/sync-report.md"
+
+      - name: Open the pull request
+        if: steps.v.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "::notice::README, pages and docs already point at v$VERSION; nothing to do."
+            exit 0
+          fi
+          branch="release-sync/v$VERSION"
+          title="docs(pages): point the homepage, README and install guide at $VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -u
+          git commit -m "$title"
+          git push --force origin "HEAD:refs/heads/$branch"
+          {
+            echo "Points the download links, the version headings and the build examples at the published [v$VERSION](https://github.com/$GH_REPO/releases/tag/v$VERSION) release."
+            echo "Every new download URL returned HTTP 200 before this PR was opened."
+            echo
+            cat "$RUNNER_TEMP/sync-report.md"
+            echo
+            echo "Merge after the release is published: GitHub Pages deploys on every push to main."
+            echo "If the required checks never started (the PR was opened with GITHUB_TOKEN), close and reopen the PR once."
+          } > "$RUNNER_TEMP/pr-body.md"
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "updated PR #$existing"
+          else
+            gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi

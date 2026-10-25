@@ -3,6 +3,14 @@
 
 use designos_doc::{BlendMode, Color, Node, NodeKind, Paint};
 
+fn draws_children(n: &Node) -> bool {
+    !n.children.is_empty() && !matches!(n.kind, NodeKind::BooleanOp(_))
+}
+
+fn has_own_fill(n: &Node) -> bool {
+    matches!(n.kind, NodeKind::Text(_) | NodeKind::Group) || n.fills.iter().any(|p| p.visible)
+}
+
 /// The node to draw into the mask layer for `mask`: the mask itself with the
 /// paint it would not contribute to the stencil removed (blend mode, effects,
 /// strokes).
@@ -18,10 +26,21 @@ pub fn mask_stencil(mask: &Node) -> Node {
     n.blend = BlendMode::Normal;
     n.effects.clear();
     n.stroke.paints.clear();
-    let draws_children = !n.children.is_empty() && !matches!(n.kind, NodeKind::BooleanOp(_));
-    let own_alpha = matches!(n.kind, NodeKind::Text(_) | NodeKind::Group) || draws_children || n.fills.iter().any(|p| p.visible);
-    if !own_alpha {
+    if !has_own_fill(&n) && !draws_children(&n) {
         n.fills = vec![Paint::solid(Color::BLACK)];
     }
     n
+}
+
+/// The opaque box of a mask whose stencil takes its alpha from its children
+/// alone (a frame, component or instance with children and no visible fill of
+/// its own), drawn without those children; `None` for any other mask.
+pub fn mask_frame_box(mask: &Node) -> Option<Node> {
+    if has_own_fill(mask) || !draws_children(mask) {
+        return None;
+    }
+    let mut n = mask_stencil(mask);
+    n.children.clear();
+    n.fills = vec![Paint::solid(Color::BLACK)];
+    Some(n)
 }

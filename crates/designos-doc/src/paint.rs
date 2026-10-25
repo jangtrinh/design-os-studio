@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Straight (non-premultiplied) sRGB color, components 0..=1.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -223,6 +224,18 @@ pub struct Paint {
 impl Paint {
     pub fn solid(c: Color) -> Self {
         Self { kind: PaintKind::Solid(c), opacity: 1.0, visible: true, blend: BlendMode::Normal }
+    }
+
+    /// The coverage this paint leaves in an effect silhouette (drop shadow, inner shadow,
+    /// background blur, glass, noise): a solid colour contributes its own alpha, every other
+    /// kind is opaque, and the paint opacity scales either. A colour variable keeps its alpha on
+    /// the colour, so reading only `opacity` would ink the silhouette fully.
+    pub fn silhouette_alpha(&self) -> f32 {
+        let base = match &self.kind {
+            PaintKind::Solid(c) => c.a,
+            _ => 1.0,
+        };
+        base * self.opacity
     }
 }
 
@@ -533,11 +546,89 @@ pub struct TextRun {
     pub style: TextStyle,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+fn is_default_grid_align(a: &LayoutGridAlign) -> bool {
+    *a == LayoutGridAlign::Stretch
+}
+
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LayoutGridAlign {
+    #[default]
+    Stretch,
+    Min,
+    Center,
+    Max,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LayoutGrid {
-    Grid { size: f32, color: Color },
-    Columns { count: u32, gutter: f32, offset: f32, color: Color },
-    Rows { count: u32, gutter: f32, offset: f32, color: Color },
+    Grid {
+        size: f32,
+        color: Color,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        visible: bool,
+    },
+    Columns {
+        count: u32,
+        gutter: f32,
+        offset: f32,
+        #[serde(default, skip_serializing_if = "is_zero_f32")]
+        section_size: f32,
+        #[serde(default, skip_serializing_if = "is_default_grid_align")]
+        alignment: LayoutGridAlign,
+        color: Color,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        visible: bool,
+    },
+    Rows {
+        count: u32,
+        gutter: f32,
+        offset: f32,
+        #[serde(default, skip_serializing_if = "is_zero_f32")]
+        section_size: f32,
+        #[serde(default, skip_serializing_if = "is_default_grid_align")]
+        alignment: LayoutGridAlign,
+        color: Color,
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        visible: bool,
+    },
+}
+
+impl LayoutGrid {
+    pub fn grid(size: f32, color: Color) -> Self {
+        Self::Grid { size, color, visible: true }
+    }
+
+    pub fn columns(count: u32, gutter: f32, offset: f32, color: Color) -> Self {
+        Self::Columns { count, gutter, offset, section_size: 0.0, alignment: LayoutGridAlign::Stretch, color, visible: true }
+    }
+
+    pub fn rows(count: u32, gutter: f32, offset: f32, color: Color) -> Self {
+        Self::Rows { count, gutter, offset, section_size: 0.0, alignment: LayoutGridAlign::Stretch, color, visible: true }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        match self {
+            Self::Grid { visible, .. } | Self::Columns { visible, .. } | Self::Rows { visible, .. } => *visible,
+        }
+    }
+
+    pub fn set_visible(&mut self, v: bool) {
+        match self {
+            Self::Grid { visible, .. } | Self::Columns { visible, .. } | Self::Rows { visible, .. } => *visible = v,
+        }
+    }
 }
 
 #[cfg(test)]

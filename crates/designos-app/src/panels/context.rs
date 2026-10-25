@@ -48,6 +48,19 @@ fn copy_paste_submenu(has: bool, has_clip: bool) -> Entry {
     Entry { item: MenuItem::new("Copy/Paste").sep(), act: None, kids }
 }
 
+/// The "AI image" submenu shown when a layer with a visible image fill is selected (`E5-10`).
+fn ai_image_submenu(app: &App) -> Entry {
+    let available = crate::image_jobs::has_available_agent_cli(app);
+    let tip = if available { "" } else { crate::image_jobs::DISABLED_TOOLTIP };
+    let kids = vec![
+        (MenuItem::new("Remove background").disabled(!available).tooltip(tip), Action::AiRemoveBackground),
+        (MenuItem::new("Isolate subject").disabled(!available).tooltip(tip).sep(), Action::AiIsolateSubject),
+        (MenuItem::new("Expand…").disabled(!available).tooltip(tip), Action::AiExpandImage),
+        (MenuItem::new("Erase…").disabled(!available).tooltip(tip), Action::AiEraseImage),
+    ];
+    Entry { item: MenuItem::new("AI image").sep(), act: None, kids }
+}
+
 /// Entries given the current selection.
 fn entries(app: &App) -> Vec<Entry> {
     let has = !app.selection.is_empty();
@@ -74,6 +87,7 @@ fn entries(app: &App) -> Vec<Entry> {
         .any(|id| app.doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Page { .. })));
     let can_mark = app.selection.iter().any(|id| crate::dev::markable(app, *id));
     let has_status = app.selection.iter().any(|id| app.doc.get(*id).is_some_and(|n| n.dev.status.is_some()));
+    let has_image_fill = crate::image_jobs::selection_target_image_fill(app).is_some();
     let mut list = vec![
         leaf(MenuItem::new("Duplicate").shortcut("Ctrl+D").disabled(!has), Action::Duplicate),
         leaf(MenuItem::new("Group selection").shortcut("Ctrl+G").disabled(!has), Action::Group),
@@ -89,8 +103,11 @@ fn entries(app: &App) -> Vec<Entry> {
         leaf(MenuItem::new("Send to back").shortcut("Ctrl+Shift+[").disabled(!has).sep(), Action::SendToBack),
         select_submenu(has),
         copy_paste_submenu(has, has_clip),
-        leaf(MenuItem::new("Mark as ready for dev").disabled(!can_mark), Action::MarkReadyForDev),
     ];
+    if has_image_fill {
+        list.push(ai_image_submenu(app));
+    }
+    list.push(leaf(MenuItem::new("Ready for dev").disabled(!can_mark), Action::MarkReadyForDev));
     if is_grid_table {
         list.push(leaf(MenuItem::new("Insert row"), Action::InsertTableRow));
         list.push(leaf(MenuItem::new("Delete row"), Action::DeleteTableRow));
@@ -100,6 +117,17 @@ fn entries(app: &App) -> Vec<Entry> {
     if has_status {
         list.push(leaf(MenuItem::new("Mark as completed"), Action::MarkCompleted));
         list.push(leaf(MenuItem::new("Remove dev status"), Action::ClearDevStatus));
+    }
+    let can_convert_to_slot = app.selection.iter().any(|id| {
+        app.doc.get(*id).is_some_and(|n| {
+            matches!(n.kind, NodeKind::Frame(_))
+                && !designos_doc::is_linked(n)
+                && !n.component.is_slot
+                && designos_doc::enclosing_component(&app.doc, *id).is_some_and(|c| c != *id)
+        })
+    });
+    if can_convert_to_slot {
+        list.push(leaf(MenuItem::new("Convert to slot"), Action::ConvertToSlot));
     }
     list.push(leaf(MenuItem::new("Delete").shortcut("Del").disabled(!has), Action::Delete));
     list
@@ -159,14 +187,14 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("layer-picker-menu")).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
         let (_, _) = ui.allocate_exact_size(r.size(), egui::Sense::hover());
         let p = ui.painter();
-        crate::widgets::elevation_shadow(p, r, crate::theme::MENU_RADIUS);
-        p.rect_filled(r, crate::theme::cr(crate::theme::MENU_RADIUS), crate::theme::BG_MENU);
-        p.rect_stroke(r, crate::theme::cr(crate::theme::MENU_RADIUS), egui::Stroke::new(1.0, crate::theme::BORDER_MENU), egui::StrokeKind::Inside);
+        crate::widgets::elevation_shadow(p, r, crate::theme::RADIUS_FRAME);
+        p.rect_filled(r, crate::theme::cr(crate::theme::RADIUS_FRAME), crate::theme::BG_MENU);
+        p.rect_stroke(r, crate::theme::cr(crate::theme::RADIUS_FRAME), egui::Stroke::new(1.0, crate::theme::BORDER_MENU), egui::StrokeKind::Inside);
         p.text(
             egui::Pos2::new(r.left() + 12.0, r.top() + header_h * 0.5),
             egui::Align2::LEFT_CENTER,
             "Select layer",
-            crate::theme::font_small(),
+            crate::theme::font_caption(),
             crate::theme::TEXT_SECONDARY,
         );
         p.hline(r.left() + 1.0..=r.right() - 1.0, r.top() + header_h, egui::Stroke::new(1.0, crate::theme::BORDER_MENU));
@@ -182,7 +210,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
             let sel = app.is_selected(id);
             if hov {
                 hovered_any = Some(id);
-                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_BRAND);
+                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_MENU_SELECTED);
             } else if sel {
                 p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_SELECTED);
             }

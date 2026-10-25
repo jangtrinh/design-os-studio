@@ -10,6 +10,9 @@ use crate::{Color, Document, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Verbatim Figma extension keys (`key -> JSON value`) (`E1-9` §4).
+pub type FigmaExtensions = BTreeMap<String, serde_json::Value>;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VariableMode {
     pub id: String,
@@ -30,6 +33,10 @@ pub struct VariableCollection {
     /// `sourceLibraryKey`). `None` for a collection the file owns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_library_key: Option<String>,
+    /// Collection-level Figma keys (`com.figma.parentVariableSetId`,
+    /// `com.figma.parentVariableSetName`, etc.) (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
 }
 
 impl VariableCollection {
@@ -100,13 +107,19 @@ pub struct Variable {
     /// Value per mode id.
     pub values: BTreeMap<String, VariableValue>,
     pub description: String,
-    /// Figma scopes ("ALL_FILLS", "CORNER_RADIUS", "GAP", ...); empty = all.
+    /// Figma scopes ("ALL_SCOPES", "CORNER_RADIUS", "GAP", ...); empty = all.
     pub scopes: Vec<String>,
     pub hidden_from_publishing: bool,
     pub key: Option<String>,
     /// Code written per platform; an empty string is not stored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub code_syntax: CodeSyntax,
+    /// Variable-level extension keys (e.g. `org.designos.figmaTokenType`: `"easing"` or `"duration"`) (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
+    /// Per-mode Figma extension keys: outer key = mode id, inner map = `com.figma.*` keys for that mode (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mode_extensions: BTreeMap<String, FigmaExtensions>,
 }
 
 impl Variable {
@@ -127,6 +140,21 @@ impl Variable {
 
     pub fn is_publishable(&self) -> bool {
         !self.hidden_from_publishing
+    }
+
+    /// Clears per-mode extension keys that describe how the previous literal value was derived
+    /// (`com.figma.aliasData` and `com.figma.composedColor`), keeping `com.figma.paint`,
+    /// `com.figma.paintAliasData`, `com.figma.isOverride`, and any other keys (`E1-9` §4).
+    pub fn clear_derived_mode_extensions(&mut self, mode: &str) {
+        let mut remove_mode = false;
+        if let Some(ext) = self.mode_extensions.get_mut(mode) {
+            ext.remove("com.figma.aliasData");
+            ext.remove("com.figma.composedColor");
+            remove_mode = ext.is_empty();
+        }
+        if remove_mode {
+            self.mode_extensions.remove(mode);
+        }
     }
 }
 
@@ -175,7 +203,7 @@ impl Document {
             let v = self.variables.get(&id)?;
             let mode = self.variable_mode(node, &v.collection)?;
             let coll = self.variable_collections.get(&v.collection)?;
-            let value = v.values.get(&mode).or_else(|| v.values.get(&coll.default_mode))?;
+            let value = self.resolve_multi_axis_value(node, v, &mode).or_else(|| v.values.get(&mode)).or_else(|| v.values.get(&coll.default_mode))?;
             match value {
                 VariableValue::Alias(next) => id = next.clone(),
                 other => return Some(other.clone()),
@@ -184,9 +212,81 @@ impl Document {
         None
     }
 
+    /// Resolves a variable in its collection's default mode (following aliases in their
+    /// respective collections' default modes), for contexts without a node such as style defaults.
+    pub fn resolve_variable_default(&self, variable: &str) -> Option<VariableValue> {
+        let mut id = variable.to_string();
+        for _ in 0..MAX_ALIAS_DEPTH {
+            let v = self.variables.get(&id)?;
+            let coll = self.variable_collections.get(&v.collection)?;
+            let value = v.values.get(&coll.default_mode).or_else(|| v.values.values().next())?;
+            match value {
+                VariableValue::Alias(next) => id = next.clone(),
+                other => return Some(other.clone()),
+            }
+        }
+        None
+    }
+
+    /// Variable id bound to `property` on `node` directly or through a linked style.
+    /// Direct node bindings take precedence over style bindings.
+    pub fn effective_binding(&self, node: NodeId, property: &str) -> Option<&str> {
+        let n = self.get(node)?;
+        if let Some(v) = n.variables.bindings.get(property) {
+            return Some(v.as_str());
+        }
+        if let Some(rest) = property.strip_prefix("strokes/") {
+            let sk = n.style_refs.get("stroke")?;
+            let bkey = format!("fills/{rest}");
+            return self.style_meta.get(sk)?.bindings.get(&bkey).map(String::as_str);
+        }
+        let slot = if property.starts_with("fills/") {
+            "fill"
+        } else if property.starts_with("effects/") {
+            "effect"
+        } else {
+            "text"
+        };
+        let sk = n.style_refs.get(slot)?;
+        self.style_meta.get(sk)?.bindings.get(property).map(String::as_str)
+    }
+
+    fn resolve_multi_axis_value<'a>(&self, node: NodeId, v: &'a Variable, primary_mode: &str) -> Option<&'a VariableValue> {
+        if !v.values.keys().any(|k| k.contains('+')) {
+            return None;
+        }
+        let active_modes: Vec<String> = self.variable_collections.keys().filter_map(|cid| self.variable_mode(node, cid)).collect();
+        let default_modes: Vec<String> = self.variable_collections.values().map(|c| c.default_mode.clone()).collect();
+
+        let mut best: Option<(usize, bool, &'a VariableValue)> = None;
+        for (k, val) in &v.values {
+            let parts: Vec<&str> = k.split('+').collect();
+            if parts.iter().all(|p| active_modes.iter().any(|am| am == p)) {
+                let has_primary = parts.contains(&primary_mode);
+                let score = (parts.len(), has_primary);
+                if best.as_ref().is_none_or(|(blen, bprim, _)| score > (*blen, *bprim)) {
+                    best = Some((parts.len(), has_primary, val));
+                }
+            }
+        }
+        if let Some((_, _, val)) = best {
+            return Some(val);
+        }
+
+        // Fallback to combination matching default modes across collections.
+        let mut best_def: Option<(usize, &'a VariableValue)> = None;
+        for (k, val) in &v.values {
+            let parts: Vec<&str> = k.split('+').collect();
+            if parts.iter().all(|p| default_modes.iter().any(|dm| dm == p)) && best_def.as_ref().is_none_or(|(blen, _)| parts.len() > *blen) {
+                best_def = Some((parts.len(), val));
+            }
+        }
+        best_def.map(|(_, val)| val)
+    }
+
     /// Resolves the variable bound to `property` on `node`, if any.
     pub fn bound_value(&self, node: NodeId, property: &str) -> Option<VariableValue> {
-        let var = self.get(node)?.variables.bindings.get(property)?;
+        let var = self.effective_binding(node, property)?;
         self.resolve_variable(node, var)
     }
 }
@@ -212,6 +312,7 @@ mod tests {
                 variables: vec!["base".into(), "bg".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let var = |id: &str, values: Vec<(&str, VariableValue)>| Variable {
@@ -224,8 +325,9 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
-
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert("base".into(), var("base", vec![("light", VariableValue::Color(Color::WHITE)), ("dark", VariableValue::Color(Color::BLACK))]));
         d.variables.insert("bg".into(), var("bg", vec![("light", VariableValue::Alias("base".into())), ("dark", VariableValue::Alias("base".into()))]));

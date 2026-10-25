@@ -10,7 +10,7 @@ fn shadow(radius: f32) -> Effect {
 }
 
 fn columns(count: u32) -> LayoutGrid {
-    LayoutGrid::Columns { count, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) }
+    LayoutGrid::columns(count, 20.0, 0.0, Color::rgba(255, 0, 0, 26))
 }
 
 /// Rect of a numeric field whose key is not a plain string (the key's `Debug` text).
@@ -138,6 +138,24 @@ fn editing_a_grid_style_from_the_style_menu_updates_the_linked_frame() {
     s.cmd_key(Key::Z);
     let grids = s.app().doc.get(welcome).unwrap().kind.frame_props().unwrap().grids.clone();
     assert_eq!(grids, vec![columns(12)]);
+}
+
+#[test]
+fn a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing() {
+    use crate::canvas::grids::stripes_aligned;
+    let (mut s, welcome, _card) = welcome_with_styles();
+    let r = s.rect_of("grid-style-button");
+    s.click(r.center());
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
+    s.frame(vec![]);
+    let field = s.field_rect("se-grid-count");
+    // 0 means "auto count", which needs a column width; this popover has no width field
+    type_into(&mut s, field, "0");
+    let grids = s.app().doc.get(welcome).unwrap().kind.frame_props().unwrap().grids.clone();
+    let [LayoutGrid::Columns { count, gutter, offset, section_size, alignment, .. }] = grids.as_slice() else { panic!("{grids:?}") };
+    let drawn = stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, 1440.0);
+    assert!(!drawn.is_empty(), "count {count}, section size {section_size}: the guide disappeared from a 1440px frame");
 }
 
 #[test]
@@ -348,4 +366,38 @@ fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     assert_distinct_icons(&s, &["\"se-grid-count\"", "\"se-grid-gutter\"", "\"se-grid-offset\"", "\"se-grid-opacity\""], "Grid style edit popover (Columns)");
+}
+
+#[test]
+fn deleted_variable_bound_on_a_style_renders_detachable_pill_and_emits_broken_style_binding_lint() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let var_id = s.app().doc.variables.values().find(|v| v.name == "Brand/Primary").unwrap().id.clone();
+    assert!(s.shell.app.bind_style_variable("Brand/Primary", "fills/0", &var_id));
+
+    // Delete the bound variable so the style holds a dangling variable id.
+    s.shell.app.doc.variables.remove(&var_id);
+    assert_eq!(s.app().doc.style_meta["Brand/Primary"].bindings.get("fills/0"), Some(&var_id));
+
+    // Both the document token linter and MCP lint report `broken-style-binding` (category `tokens`).
+    let lint_report = designos_doc::openpencil::lint_document(&s.app().doc, None, "tokens");
+    assert!(
+        lint_report["issues"].as_array().unwrap().iter().any(|i| i["rule"] == "broken-style-binding" && i["category"] == "tokens"),
+        "expected broken-style-binding in tokens lint report: {lint_report}"
+    );
+    let mut eng = designos_mcp::engine::Engine { doc: s.app().doc.clone(), ..Default::default() };
+    let mcp_lint = eng.call("designos_lint", serde_json::json!({})).unwrap();
+    assert!(
+        mcp_lint["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "broken-style-binding" && f["category"] == "tokens"),
+        "expected broken-style-binding in MCP lint findings: {mcp_lint}"
+    );
+
+    // Opening Edit style still renders the detachable broken pill so the user can unbind it.
+    s.shell.app.selection.clear();
+    s.frame(vec![]);
+    edit_from_list(&mut s, "Brand/Primary");
+    let pill = s.rect_of("style-bound:Brand/Primary:fills/0");
+    s.mv(pill.center());
+    s.frame(vec![]);
+    s.click(Pos2::new(pill.right() - 13.0, pill.center().y));
+    assert!(!s.app().doc.style_meta["Brand/Primary"].bindings.contains_key("fills/0"), "clicking detach on the broken style pill unbinds the missing variable");
 }

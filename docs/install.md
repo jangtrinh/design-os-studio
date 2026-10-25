@@ -2,7 +2,7 @@
 
 Download the latest package for your platform from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases) or build a local release package directly from source.
 
-> **Platform support:** releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow and tested by their users. Please report anything that breaks.
+> **Platform support:** releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow but are not verified before release. A failed Windows or Linux build leaves its package out of the release and does not block it. Please report anything that breaks.
 
 Every release ships all **4 binaries**:
 - `designos-studio` — Native GPU (`wgpu`) + CPU (`tiny-skia`) Studio GUI
@@ -69,6 +69,8 @@ sudo apt install ./designos_<version>_amd64.deb
 
 This installs `/usr/bin/{designos-studio,designos,designos-mcp,designos-diff}`, the desktop launcher (`/usr/share/applications/designos.desktop`), hicolor icons, and `.designos` / `.fig` MIME types.
 
+The package recommends `zenity | xdg-desktop-portal` for the file dialog (see [File dialogs](#file-dialogs-on-linux)). A system with neither gets `zenity`; one that already has a portal gets nothing extra.
+
 ### Option B: Universal Linux Tarball (`install.sh`, No Root Required)
 
 ```bash
@@ -85,6 +87,17 @@ By default, `./install.sh` installs under `~/.local/bin` and `~/.local/share` (o
 
 The binaries link the glibc of the build machine, so they run on that Linux distribution or newer.
 
+### File dialogs on Linux
+
+Open, Save As, Import and Export show your system's file dialog. Linux needs one of these installed:
+
+- `xdg-desktop-portal` with a desktop backend, such as `xdg-desktop-portal-gtk` or `xdg-desktop-portal-kde`. Most desktop installs already have them.
+- `zenity`, which Studio uses when the portal is missing or does not answer. It is the smaller install.
+
+On a minimal system, a VM, or a bare window manager, install one: `sudo apt install zenity`.
+
+Without a dialog, Studio says so and cannot browse for a file. An export still saves, to `~/Downloads` (or your home folder when there is no Downloads folder), under a name that is not taken, and the message shows the full path. You can still open a `.designos` or `.fig` file by dragging it onto the window.
+
 ---
 
 ## 4. Building & Packaging Releases Locally (`scripts/build-release.sh`)
@@ -93,13 +106,13 @@ To compile all 4 release binaries (`designos-studio`, `designos`, `designos-mcp`
 
 ```bash
 # Build & package for your current host OS (macOS .dmg + .tar.gz, Linux .deb + .tar.gz, Windows .zip)
-./scripts/build-release.sh 0.3.0 --local-host
+./scripts/build-release.sh 0.6.1 --local-host
 
 # Build & package a Universal (Apple Silicon + Intel) macOS release
-./scripts/build-release.sh 0.3.0 --universal-macos
+./scripts/build-release.sh 0.6.1 --universal-macos
 
 # Package already-built release binaries in target/release without recompiling
-./scripts/build-release.sh 0.3.0 --local-host --skip-build
+./scripts/build-release.sh 0.6.1 --local-host --skip-build
 ```
 
 Outputs are written to `dist/`:
@@ -113,4 +126,4 @@ Outputs are written to `dist/`:
 
 ## 5. GPU Rendering
 
-**design:os studio** renders with `wgpu` (Metal on macOS, Direct3D 12 / Vulkan on Windows, Vulkan / OpenGL ES on Linux) and uses the deterministic `tiny-skia` CPU renderer when the GPU cannot be initialised or when **Use GPU rendering** is off. Only the Metal path on macOS is verified by the maintainers; the other backends are tested by their users. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.
+**design:os studio** renders with `wgpu` (Metal on macOS, Direct3D 12 / Vulkan on Windows, Vulkan / OpenGL ES on Linux) and uses the deterministic `tiny-skia` CPU renderer when the GPU cannot be initialised or when **Use GPU rendering** is off. Only the Metal path on macOS is verified by the maintainers; the other backends are not verified before release. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.

@@ -109,6 +109,36 @@ fn a_file_saved_by_an_older_version_with_null_numbers_opens() {
 }
 
 #[test]
+fn failed_import_rolls_back_stored_file_and_retry_imports_only_one_copy() {
+    let dir = scratch("import-rollback");
+    let lib = Library::open(dir.join("lib")).unwrap();
+    let project = lib.create_project("P").unwrap();
+    let source = dir.join("overflow.json");
+    std::fs::write(&source, OVERFLOWING_REST_FILE).unwrap();
+
+    let manifest_path = lib.path(format!("projects/{}/project.json", project.id));
+    let writable_perms = std::fs::metadata(&manifest_path).unwrap().permissions();
+    let mut readonly_perms = writable_perms.clone();
+    readonly_perms.set_readonly(true);
+    std::fs::set_permissions(&manifest_path, readonly_perms).unwrap();
+
+    let first = lib.import_file_with_doc(&source, &project.id, None);
+    std::fs::set_permissions(&manifest_path, writable_perms).unwrap();
+
+    assert!(first.is_err(), "import must fail when manifest cannot be updated");
+    assert!(lib.all_files().is_empty(), "failed import must not leave a manifest entry");
+    let files_dir = lib.path(format!("projects/{}/files", project.id));
+    let leftover: Vec<_> = std::fs::read_dir(&files_dir).into_iter().flatten().flatten().collect();
+    assert_eq!(leftover.len(), 0, "failed import must not leave an orphan .designos file on disk");
+
+    let (entry, returned) = lib.import_file_with_doc(&source, &project.id, None).unwrap();
+    assert_eq!(lib.all_files().len(), 1, "retry must import only a single copy");
+    let on_disk: Vec<_> = std::fs::read_dir(&files_dir).unwrap().flatten().collect();
+    assert_eq!(on_disk.len(), 1, "exactly one stored file on disk after retry");
+    assert_eq!(returned.to_json().unwrap(), lib.load_file(&entry.id).unwrap().to_json().unwrap());
+}
+
+#[test]
 fn a_counted_save_reports_the_replaced_numbers_from_the_one_serialization_it_performs() {
     let dir = scratch("save-counted");
     let lib = Library::open(dir.join("lib")).unwrap();

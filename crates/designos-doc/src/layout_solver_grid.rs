@@ -4,25 +4,52 @@ use crate::layout_solver_grid_placement::{place_children, Placed, MAX_GRID_TRACK
 use crate::layout_solver_types::{ChildIn, LayoutOut, SizeLimits};
 use crate::{AutoLayout, GridAutoTracks, GridChildAlign, GridTrack, LayoutAlign, Rect, Sizing, Vec2};
 
-/// The width `k` asks of an auto column: its clamped width and margins. A child that fills the width and has margins on it
-/// is stretched to its column minus those margins, so its stored width is that stretched one and counting it would pin the
-/// column to `(column - margin) + margin` for good; it asks for its minimum width and margins only, like a counter-axis
-/// Fill child in a flow line. Without margins the stored width still counts, so a hugging grid keeps the width of its
-/// Fill child.
-fn column_need(k: &ChildIn) -> f32 {
-    let margins = k.margin[1] + k.margin[3];
-    k.limits.clamp_w(if k.main_fill && margins > 0.0 { 0.0 } else { k.size.x }) + margins
-}
-
-/// The height `k` asks of an auto row (see [`column_need`]).
+/// The height `k` asks when spanning multiple rows: its clamped height and margins (or minimum
+/// plus margins when `cross_fill` with vertical margins).
 fn row_need(k: &ChildIn) -> f32 {
     let margins = k.margin[0] + k.margin[2];
     k.limits.clamp_h(if k.cross_fill && margins > 0.0 { 0.0 } else { k.size.y }) + margins
 }
 
-/// Widest child (single-column ones only) in column `c`.
+/// Width that single-column children in column `c` ask of an auto/hug column.
+///
+/// Mirrors the flow solver's `(plain, natural, floor)` rule: non-Fill children set `plain`, while
+/// `main_fill` children always floor the column by `min_w + margins` and only contribute their
+/// stored width plus margins (`natural`, its margin box) when the column has no plain child and `margins <= 0.0`.
 fn widest_in_column(kids: &[ChildIn], placements: &[Placed], c: usize) -> f32 {
-    placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1).map(|(_, k)| column_need(k)).fold(0.0, f32::max)
+    let (mut plain, mut natural, mut floor) = (None::<f32>, 0.0f32, 0.0f32);
+    for (_, k) in placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1) {
+        let margins = k.margin[1] + k.margin[3];
+        if !k.main_fill {
+            let need = k.limits.clamp_w(k.size.x) + margins;
+            plain = Some(plain.map_or(need, |p| p.max(need)));
+        } else {
+            floor = floor.max(k.limits.clamp_w(0.0) + margins);
+            if margins <= 0.0 {
+                natural = natural.max(k.limits.clamp_w(k.size.x) + margins);
+            }
+        }
+    }
+    plain.unwrap_or(natural).max(floor)
+}
+
+/// Height that single-row children in row `r` ask of an auto row (same `(plain, natural, floor)`
+/// rule as [`widest_in_column`] and the flow solver's `line_cross`).
+fn auto_row_height(kids: &[ChildIn], placements: &[Placed], r: usize) -> f32 {
+    let (mut plain, mut natural, mut floor) = (None::<f32>, 0.0f32, 0.0f32);
+    for (_, k) in placements.iter().zip(kids).filter(|(p, _)| p.row == r && p.row_span == 1) {
+        let margins = k.margin[0] + k.margin[2];
+        if !k.cross_fill {
+            let need = k.limits.clamp_h(k.size.y) + margins;
+            plain = Some(plain.map_or(need, |p| p.max(need)));
+        } else {
+            floor = floor.max(k.limits.clamp_h(0.0) + margins);
+            if margins <= 0.0 {
+                natural = natural.max(k.limits.clamp_h(k.size.y) + margins);
+            }
+        }
+    }
+    plain.unwrap_or(natural).max(floor)
 }
 
 /// A child that spans several rows: the rows it covers, its first column and its clamped height.
@@ -174,14 +201,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     };
     let mut row_heights = vec![0.0f32; rows];
     for (r, h) in row_heights.iter_mut().enumerate() {
-        if let Some(fixed) = fixed_row(r) {
-            *h = fixed;
-        }
-    }
-    for (p, k) in placements.iter().zip(kids) {
-        if p.row_span == 1 && p.row < rows && fixed_row(p.row).is_none() {
-            row_heights[p.row] = row_heights[p.row].max(row_need(k));
-        }
+        *h = fixed_row(r).unwrap_or_else(|| auto_row_height(kids, &placements, r));
     }
     // Spans are settled in an order that depends on the spans alone, never on child order (layer order
     // is only z-order): fewer rows first, then the tallest first so the rows it raises already hold the
@@ -198,6 +218,11 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let gaps = row_gap * ((s.end - s.start - 1) as f32);
         let frozen = (s.start..s.end).map(|r| fixed_row(r).is_some()).collect();
         level_span_rows(&mut row_heights[s.start..s.end], frozen, (s.need - gaps).max(0.0));
+    }
+    if al.counter_sizing == Sizing::Fixed && matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0) {
+        let gaps = row_gap * (rows.saturating_sub(1) as f32);
+        let frozen: Vec<bool> = (0..rows).map(|r| r < explicit_rows || fixed_row(r).is_some()).collect();
+        level_span_rows(&mut row_heights, frozen, (frame.y - pt - pb - gaps).max(0.0));
     }
 
     let mut col_x = vec![0.0f32; cols];
@@ -219,9 +244,9 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let [mt, mr, mb, ml] = k.margin;
         let cell_w: f32 = (0..p.col_span).map(|dc| col_widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h: f32 = (0..p.row_span).map(|dr| row_heights[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
-        let (area_w, area_h) = ((cell_w - ml - mr).max(0.0), (cell_h - mt - mb).max(0.0));
-        let w = k.limits.clamp_w(if k.main_fill { area_w } else { k.size.x });
-        let h = k.limits.clamp_h(if k.cross_fill { area_h } else { k.size.y });
+        let (area_w, area_h) = (cell_w - ml - mr, cell_h - mt - mb);
+        let w = k.limits.clamp_w(if k.main_fill { area_w.max(0.0) } else { k.size.x });
+        let h = k.limits.clamp_h(if k.cross_fill { area_h.max(0.0) } else { k.size.y });
         // The child aligns inside its cell inset by its margins, so a centred child centres its margin box.
         let dx = cell_offset(k.cell.align_h, al.primary_align, area_w, w);
         let dy = cell_offset(k.cell.align_v, al.counter_align, area_h, h);
@@ -348,5 +373,131 @@ mod tests {
         assert_eq!(second.frame.x, 60.0);
         assert_eq!(second.rects[0], Rect::new(0.0, 0.0, 40.0, 30.0));
         assert_eq!(second.rects[1], Rect::new(30.0, 30.0, 0.0, 20.0));
+    }
+
+    #[test]
+    fn margin_free_grid_row_and_column_shrink_back_around_a_fill_child_when_plain_sibling_shrinks() {
+        // Auto row with plain A (30x100) and margin-free cross_fill B (20x10):
+        let a = child(30.0, 100.0);
+        let b = ChildIn { cross_fill: true, ..child(20.0, 10.0) };
+        let al = grid(2, Sizing::Fixed, Sizing::Hug);
+        let (first, second) = solve_then_edit_and_solve(&al, Vec2::new(200.0, 1.0), vec![a, b], |kids| kids[0].size.y = 40.0);
+        assert_eq!(first.frame.y, 100.0);
+        assert_eq!(first.rects[1].h, 100.0);
+        assert_eq!(second.frame.y, 40.0, "margin-free auto row must shrink back when plain sibling shrinks");
+        assert_eq!(second.rects[1].h, 40.0);
+
+        // Hugging column with plain A (100x30) and margin-free main_fill B (10x20):
+        let a_col = child(100.0, 30.0);
+        let b_col = ChildIn { main_fill: true, ..child(10.0, 20.0) };
+        let al_col = grid(1, Sizing::Hug, Sizing::Fixed);
+        let (first_c, second_c) = solve_then_edit_and_solve(&al_col, Vec2::new(1.0, 200.0), vec![a_col, b_col], |kids| kids[0].size.x = 40.0);
+        assert_eq!(first_c.frame.x, 100.0);
+        assert_eq!(first_c.rects[1].w, 100.0);
+        assert_eq!(second_c.frame.x, 40.0, "margin-free hugging column must shrink back when plain sibling shrinks");
+        assert_eq!(second_c.rects[1].w, 40.0);
+    }
+
+    #[test]
+    fn margins_on_children_spanning_tracks_beyond_eight_size_and_inset_correctly() {
+        use crate::layout_solver_types::GridCell;
+        // 12-column grid with Fixed(50) columns across 0..12 and 10 rows; child spans cols 8..11 (3 cols = 150)
+        // and rows 8..10 (2 rows) with margins [5, 10, 15, 20] and height 80 (outer need = 100 -> 50 per row).
+        let mut al = grid(12, Sizing::Hug, Sizing::Hug);
+        for c in 0..12 {
+            al.grid_col_tracks[c] = GridTrack::Fixed(50.0);
+        }
+        for cross_fill in [false, true] {
+            let spanned = ChildIn {
+                main_fill: true,
+                cross_fill,
+                limits: SizeLimits { min_h: cross_fill.then_some(80.0), ..Default::default() },
+                margin: [5.0, 10.0, 15.0, 20.0],
+                cell: GridCell { column: Some(8), row: Some(8), col_span: 3, row_span: 2, ..Default::default() },
+                ..child(40.0, 80.0)
+            };
+            let out = compute_grid(&al, Vec2::new(600.0, 100.0), SizeLimits::default(), &[spanned]);
+            // Rows 0..8 are 0 tall, rows 8 and 9 are leveled to (80 + 5 + 15) / 2 = 50 each -> total height 100.
+            // Column 8 starts at 8 * 50 = 400; inset by ml=20 -> x=420, w = 150 - 30 = 120; y = 5, h = 100 - 20 = 80.
+            assert_eq!(out.frame, Vec2::new(600.0, 100.0), "cross_fill {cross_fill}");
+            assert_eq!(out.rects[0], Rect::new(420.0, 5.0, 120.0, 80.0), "cross_fill {cross_fill}");
+        }
+    }
+
+    #[test]
+    fn hugging_grid_raised_by_own_min_width_stretches_margined_fill_child_into_extra_space() {
+        // 1-column hugging grid raised by own min_w = 200 containing a main_fill child with margins [0, 15, 0, 25].
+        let al = grid(1, Sizing::Hug, Sizing::Hug);
+        let k = ChildIn { main_fill: true, margin: [0.0, 15.0, 0.0, 25.0], ..child(50.0, 30.0) };
+        let own = SizeLimits { min_w: Some(200.0), ..Default::default() };
+        let out = compute_grid(&al, Vec2::new(1.0, 1.0), own, &[k]);
+        assert_eq!(out.frame, Vec2::new(200.0, 30.0));
+        assert_eq!(out.rects[0], Rect::new(25.0, 0.0, 160.0, 30.0));
+    }
+
+    /// Solves `times` passes the way a document does: each pass reads the sizes the previous one wrote.
+    fn solve_repeatedly(al: &AutoLayout, frame: Vec2, mut kids: Vec<ChildIn>, times: usize) -> Vec<LayoutOut> {
+        let mut frame = frame;
+        let mut outs = Vec::new();
+        for _ in 0..times {
+            let out = compute_grid(al, frame, SizeLimits::default(), &kids);
+            for (k, r) in kids.iter_mut().zip(&out.rects) {
+                k.size = Vec2::new(r.w, r.h);
+            }
+            frame = out.frame;
+            outs.push(out);
+        }
+        outs
+    }
+
+    #[test]
+    fn hugging_grid_column_measures_a_lone_main_fill_child_by_its_margin_box_across_relayouts() {
+        // One column, one 100 x 20 child that fills the width: the column is the child's margin box (100 + left margin) and
+        // the child stretches back to 100, so a negative margin must not grow the frame on every pass.
+        for (left, frame_w) in [(0.0f32, 100.0f32), (-10.0, 90.0)] {
+            let al = grid(1, Sizing::Hug, Sizing::Hug);
+            let k = ChildIn { main_fill: true, margin: [0.0, 0.0, 0.0, left], ..child(100.0, 20.0) };
+            for (pass, out) in solve_repeatedly(&al, Vec2::new(1.0, 1.0), vec![k], 3).iter().enumerate() {
+                assert_eq!(out.frame.x, frame_w, "left margin {left}, relayout {pass}: frame");
+                assert_eq!(out.rects[0].w, 100.0, "left margin {left}, relayout {pass}: child");
+            }
+        }
+    }
+
+    #[test]
+    fn hugging_grid_row_measures_a_lone_cross_fill_child_by_its_margin_box_across_relayouts() {
+        // One row, one 20 x 40 child that fills the height: the row is the child's margin box (40 + top margin) and the child
+        // stretches back to 40, so a negative margin must not grow the frame on every pass.
+        for (top, frame_h) in [(0.0f32, 40.0f32), (-10.0, 30.0)] {
+            let al = grid(1, Sizing::Hug, Sizing::Hug);
+            let k = ChildIn { cross_fill: true, margin: [top, 0.0, 0.0, 0.0], ..child(20.0, 40.0) };
+            for (pass, out) in solve_repeatedly(&al, Vec2::new(1.0, 1.0), vec![k], 3).iter().enumerate() {
+                assert_eq!(out.frame.y, frame_h, "top margin {top}, relayout {pass}: frame");
+                assert_eq!(out.rects[0].h, 40.0, "top margin {top}, relayout {pass}: child");
+            }
+        }
+    }
+
+    #[test]
+    fn flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid() {
+        let mut al = grid(1, Sizing::Fixed, Sizing::Fixed);
+        al.grid_rows = 1;
+        al.grid_row_tracks[0] = GridTrack::Fixed(40.0);
+        al.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
+        al.counter_spacing = 10.0;
+        let kids = [
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+        ];
+        // Frame height 200, explicit row 0 is 40, two 10px gaps -> 140 left for the two flex auto-rows (70 each).
+        let out = compute_grid(&al, Vec2::new(100.0, 200.0), SizeLimits::default(), &kids);
+        assert_eq!(out.rects[0], Rect::new(0.0, 0.0, 40.0, 40.0));
+        assert_eq!(out.rects[1], Rect::new(0.0, 50.0, 40.0, 70.0));
+        assert_eq!(out.rects[2], Rect::new(0.0, 130.0, 40.0, 70.0));
+
+        // In a hugging grid there is no leftover height, so flex auto-rows stay content-sized.
+        let hug = compute_grid(&AutoLayout { counter_sizing: Sizing::Hug, ..al }, Vec2::new(100.0, 200.0), SizeLimits::default(), &kids);
+        assert_eq!(hug.frame.y, 40.0 + 20.0 + 20.0 + 20.0);
     }
 }

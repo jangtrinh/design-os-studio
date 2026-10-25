@@ -49,6 +49,18 @@ impl View {
         let cy = bounds.y + bounds.h / 2.0;
         View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
     }
+    /// Fits `bounds` (page space) into a canvas of `size` px with a fractional margin on each side.
+    pub fn fit_with_margin(bounds: designos_doc::Rect, size: egui::Vec2, margin_fraction: f32) -> View {
+        let frac = margin_fraction.clamp(0.0, 0.45);
+        let avail_w = (size.x * (1.0 - 2.0 * frac)).max(10.0);
+        let avail_h = (size.y * (1.0 - 2.0 * frac)).max(10.0);
+        let zw = avail_w / bounds.w.max(1.0);
+        let zh = avail_h / bounds.h.max(1.0);
+        let z = zw.min(zh).clamp(theme::ZOOM_MIN, theme::ZOOM_MAX);
+        let cx = bounds.x + bounds.w / 2.0;
+        let cy = bounds.y + bounds.h / 2.0;
+        View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +109,8 @@ pub struct UiState {
     /// Anchor of the instance "more" menu and of the add-property menu in the inspector.
     pub inst_menu: Option<egui::Rect>,
     pub prop_menu: Option<egui::Rect>,
+    /// Active preferred-instance `+` picker for a slot container (`(slot_id, anchor_rect)`).
+    pub slot_picker: Option<(NodeId, egui::Rect)>,
     /// Command palette query and highlighted row.
     pub palette_query: String,
     pub palette_sel: usize,
@@ -107,6 +121,8 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Whether the Preferences -> Agent permissions modal is open (`#656`).
+    pub permissions_modal_open: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +141,8 @@ pub struct Toast {
     pub text: String,
     pub until: f64,
     pub error: bool,
+    /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
+    pub reveal: Option<PathBuf>,
 }
 
 pub struct App {
@@ -157,6 +175,15 @@ pub struct App {
     /// Reads the system clipboard's Figma HTML payload. The seam the paste paths go through: production
     /// reads the OS pasteboard, tests script it (the pasteboard is global and not thread-safe).
     pub system_html: fn() -> Option<String>,
+    /// Shows a file in the system file manager. The seam the "Show in folder" action goes through:
+    /// production launches the file manager, tests record the path (a test never opens a window).
+    pub reveal_file: fn(&std::path::Path) -> Result<(), String>,
+    /// Reads the system clipboard's plain text, for the paste paths that egui-winit sends no text for (Edit > Paste).
+    pub system_text: fn() -> Option<String>,
+    /// Reads the system clipboard's image. Runs on a worker thread, see `system_paste`.
+    pub system_image: fn() -> Option<crate::system_paste::ClipImage>,
+    /// Pastes whose clipboard image is still being read.
+    pub paste_jobs: std::collections::VecDeque<crate::system_paste::PasteJob>,
     pub toast: Option<Toast>,
     pub file_path: Option<PathBuf>,
     pub now: f64,
@@ -165,6 +192,8 @@ pub struct App {
     pub fonts: FontLoader,
     /// Document snapshot while a numeric field is being scrubbed (see `widgets::field::SCRUB_FLAG`).
     pub scrub: Option<std::collections::BTreeMap<NodeId, designos_doc::Node>>,
+    /// `Document::layout_epoch` when the open scrub began; set by `App::begin_scrub` together with `scrub`.
+    pub(crate) scrub_opened_at: u64,
     /// Zoom (as a factor) to apply on the first frame instead of fitting the page (`--zoom`).
     pub startup_zoom: Option<f32>,
     /// The projects library (None until opened; tests run without one).
@@ -175,6 +204,8 @@ pub struct App {
     pub home: Option<crate::home::Home>,
     /// The open modal dialog (prompts, confirmations, shortcuts, About).
     pub dialog: Option<crate::home::Dialog>,
+    /// The questions "Save changes to <name>?" that stand between an action and the unsaved edits it would drop.
+    pub leave: crate::home::LeaveFlow,
     pub autosave: crate::home::Autosave,
     /// The header file name is being renamed (double-click).
     pub renaming_file: bool,
@@ -191,12 +222,30 @@ pub struct App {
     pub specs: crate::specs::SpecsState,
     /// Native Embedded PTY Agent Terminal (Claude CLI, Codex CLI, Grok CLI, $SHELL).
     pub terminal: crate::terminal::TerminalState,
+    /// Screen-reader polite live-region announcer for agent tab transitions (`#687`).
+    pub agent_a11y: crate::agent_a11y::Announcer,
+    /// Per-session agent cursors and write-flash outlines on the canvas (`#682`).
+    pub agent_presence: crate::agent_presence::AgentPresence,
+    /// Edge-anchored "N changes -> Show" chips for off-screen agent turns (`#695`).
+    pub agent_changes_chip: crate::canvas::agent_changes_chip::AgentChangesChips,
+    /// Busy-frame banner, dismissals, free-spot duplicate placement, and concurrent-edit ledger (`#693`).
+    pub agent_busy_frames: crate::agent_busy_frames::AgentBusyFrames,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
+    /// Check designs panel: hard-coded values, contrast and detached instances.
+    pub check_designs: crate::check_designs::CheckDesignsState,
     /// 1:1 Figma UI3 Multi-Tab Project Workspace state (`US-10`).
     pub tabs: crate::tabs::TabsState,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    pub image_jobs: crate::image_jobs::ImageJobsState,
     /// Two-digit rapid opacity keystroke buffer (`(digit, timestamp)` within 400ms).
     pub opacity_buffer: Option<(u8, f64)>,
+    /// Non-finite or save warning produced by `save_library_file` / `flush_autosave` during a document
+    /// switch, carried into an immediate follow-up `show_toast` so `"Opened X"` does not overwrite it.
+    pub(crate) pending_flush_notice: Option<(f64, String)>,
+    /// Last web capture import report (`T8.27`) and whether its `Details` sheet is open.
+    pub web_capture_report: Option<designos_webcapture::ImportReport>,
+    pub web_capture_report_open: bool,
 }
 
 impl App {
@@ -227,6 +276,10 @@ impl App {
             copied_style: None,
             paste_count: 0,
             system_html: crate::clipboard::system_figma_html,
+            reveal_file: crate::fig_export::reveal_file,
+            system_text: crate::system_paste::system_text,
+            system_image: crate::system_paste::system_image,
+            paste_jobs: Default::default(),
             toast: None,
             file_path: None,
             now: 0.0,
@@ -234,11 +287,13 @@ impl App {
             first_fit_done: false,
             fonts: FontLoader::default(),
             scrub: None,
+            scrub_opened_at: 0,
             startup_zoom: None,
             lib: None,
             lib_file: None,
             home: None,
             dialog: None,
+            leave: Default::default(),
             autosave: Default::default(),
             renaming_file: false,
             comments: Default::default(),
@@ -248,32 +303,71 @@ impl App {
             decks: Default::default(),
             specs: Default::default(),
             terminal: Default::default(),
+            agent_a11y: Default::default(),
+            agent_presence: Default::default(),
+            agent_changes_chip: Default::default(),
+            agent_busy_frames: Default::default(),
             cmdk: Default::default(),
+            check_designs: Default::default(),
             tabs: Default::default(),
+            image_jobs: Default::default(),
             opacity_buffer: None,
+            pending_flush_notice: None,
+            web_capture_report: None,
+            web_capture_report_open: false,
         }
     }
 
     /// Registers fonts finished loading in the background and re-renders.
     pub fn poll_fonts(&mut self) {
-        let Some(done) = self.fonts.poll() else { return };
-        if done.loaded > 0 {
-            self.changed();
+        if let Some(done) = self.fonts.poll() {
+            if done.loaded > 0 {
+                self.changed();
+                // text measured with the stand-in keeps its old box until it is fitted to the face that arrived
+                self.start_text_refit(&done.families);
+            }
+            if let Some(first) = done.failed.first() {
+                let more = done.failed.len() - 1;
+                let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+                self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
+            }
         }
-        if let Some(first) = done.failed.first() {
-            let more = done.failed.len() - 1;
-            let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
-            self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
-        }
+        self.step_text_refit();
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, error: bool) {
-        self.toast = Some(Toast { text: text.into(), until: self.now + theme::TOAST_SECONDS, error });
+        let mut text = text.into();
+        let mut error = error;
+        if let Some((at, prev)) = self.pending_flush_notice.take() {
+            if (at - self.now).abs() < f64::EPSILON && self.toast.as_ref().is_some_and(|t| t.text == prev) && text != prev {
+                text = format!("{text} ({prev})");
+                error = true;
+            }
+        }
+        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None });
+    }
+
+    /// A toast that stays long enough to read and offers to show `path` in its folder.
+    pub fn show_toast_with_reveal(&mut self, text: impl Into<String>, path: PathBuf) {
+        self.show_toast(text, false);
+        if let Some(toast) = self.toast.as_mut() {
+            toast.reveal = Some(path);
+            toast.until = self.now + theme::TOAST_REVEAL_SECONDS;
+        }
     }
 
     /// Marks the document as modified so the canvas texture is re-rendered.
     pub fn changed(&mut self) {
         self.canvas.dirty = true;
+    }
+
+    /// Marks transient `in_progress` badge state as updated for session persistence without dirtying
+    /// the canvas tile/GPU scene cache (`TileView::rev`).
+    pub fn in_progress_changed(&mut self) {
+        if self.lib_file.is_some() {
+            self.autosave.changed_at = Some(self.now);
+            self.autosave.confirmed = false;
+        }
     }
 
     /// Runs one bounded step of the auto-layout subtrees a relayout deferred past its budget and
@@ -301,7 +395,7 @@ impl App {
     /// The deferred layout moved nodes behind the canvas's back: bump the revision (the CPU scene
     /// index and the autosave watch it), drop the cached tiles and GPU geometry, and tell the
     /// user how much is still unfinished, or retire that notice once nothing is.
-    fn relayout_moved_geometry(&mut self) {
+    pub(crate) fn relayout_moved_geometry(&mut self) {
         self.changed();
         self.canvas.tiles.invalidate_all();
         match self.doc.relayout_notice() {
@@ -327,8 +421,28 @@ impl App {
         self.selection.clear();
     }
 
+    /// Refreshes the `#693` busy-frame banner state from the current selection and any active canvas edit gesture.
+    pub fn sync_busy_frame_banner(&mut self) {
+        use crate::canvas::{Interaction, ResizeKind};
+        let gesture_node = match &self.canvas.inter {
+            Interaction::Pending(p) => Some(p.node),
+            Interaction::Move(m) => m.ids.first().copied(),
+            Interaction::Resize(r) => match &r.kind {
+                ResizeKind::Single { id, .. } => Some(*id),
+                ResizeKind::Multi { nodes, .. } => nodes.first().map(|n| n.0),
+            },
+            Interaction::Rotate(r) => Some(r.id),
+            Interaction::CornerRadius(c) => Some(c.id),
+            Interaction::AutoLayoutDrag(a) => Some(a.id),
+            Interaction::ShapeControl(s) => Some(s.id),
+            _ => self.canvas.text.as_ref().map(|t| t.id).or_else(|| self.canvas.vedit.as_ref().map(|v| v.id)),
+        };
+        self.agent_busy_frames.sync_banner(&self.doc, &self.agent_presence, &self.selection, gesture_node);
+    }
+
     /// Drops selection/hover entries that no longer exist or left the page.
     pub fn sanitize(&mut self) {
+        self.doc.prune_in_progress();
         let doc = &self.doc;
         let page = self.page;
         self.selection.retain(|id| doc.get(*id).is_some() && doc.page_of(*id) == Some(page));
@@ -338,11 +452,30 @@ impl App {
         if !doc.nodes.contains_key(&self.page) {
             self.page = doc.pages.first().copied().unwrap_or(NodeId(0));
         }
+        self.sync_busy_frame_banner();
     }
 
     #[allow(dead_code)]
     pub fn title(&self) -> String {
         theme::APP_TITLE.to_string()
+    }
+
+    pub fn open_agent_permissions(&mut self) {
+        self.ui.permissions_modal_open = true;
+    }
+
+    pub fn set_agent_permission_mode(&mut self, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
+        if let Some(lib) = &self.lib {
+            // A failed save leaves the older mode on disk. The picked mode keeps applying in this process
+            // (`save_permission_mode`), and the user is told it did not persist.
+            if crate::agent_permissions::save_permission_mode(lib.root(), mode).is_err() {
+                self.terminal.status_msg = Some("Mode not saved. Check folder permissions.".into());
+            }
+        }
     }
 }
 

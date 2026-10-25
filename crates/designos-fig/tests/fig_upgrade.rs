@@ -54,7 +54,13 @@ fn style_nodes_become_style_meta() {
     assert_eq!(fill, "2:100");
     assert_eq!(
         d.style_meta[fill],
-        StyleMeta { name: "Brand/Primary".into(), key: Some("key-primary".into()), description: "Main brand fill".into(), property: StyleProperty::Fill }
+        StyleMeta {
+            name: "Brand/Primary".into(),
+            key: Some("key-primary".into()),
+            description: "Main brand fill".into(),
+            property: StyleProperty::Fill,
+            bindings: Default::default(),
+        }
     );
     // A FILL style used only through styleIdForStrokeFill is a stroke style.
     assert_eq!(d.style_meta[stroke].property, StyleProperty::Stroke);
@@ -99,9 +105,12 @@ fn line_height_semantics() {
 fn layout_grids() {
     let d = doc();
     let g = &find(&d, "Grids").kind.frame_props().unwrap().grids;
-    assert_eq!(g.len(), 2, "the invisible rows grid is dropped");
-    assert!(matches!(&g[0], LayoutGrid::Columns { count: 4, gutter, offset, color } if *gutter == 8.0 && *offset == 2.0 && (color.a - 0.1).abs() < 1e-6));
-    assert!(matches!(&g[1], LayoutGrid::Grid { size, .. } if *size == 10.0));
+    assert_eq!(g.len(), 3, "the invisible rows grid is preserved with visible=false");
+    assert!(
+        matches!(&g[0], LayoutGrid::Columns { count: 4, gutter, offset, color, visible: true, .. } if *gutter == 8.0 && *offset == 2.0 && (color.a - 0.1).abs() < 1e-6)
+    );
+    assert!(matches!(&g[1], LayoutGrid::Grid { size, visible: true, .. } if *size == 10.0));
+    assert!(matches!(&g[2], LayoutGrid::Rows { count: 3, gutter, visible: false, .. } if *gutter == 4.0));
 }
 
 #[test]

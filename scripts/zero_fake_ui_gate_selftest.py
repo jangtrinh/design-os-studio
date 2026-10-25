@@ -12,8 +12,13 @@ Run: python3 scripts/zero_fake_ui_gate_selftest.py   (exit 0 = every regression 
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import shutil
 import sys
+import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -240,11 +245,180 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         'title: "Boost resolution",',
         'title: concat !("Boost ", stringify!(resolution)),',
     ),
+    (
+        "32. synthesize_spec_from_prompt called from terminal.rs",
+        "Z15",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        "fn _fake_synth(p: &str) -> String { crate::cmdk::synthesize_spec_from_prompt(p) }\n        let _ = self.send_to_agent(prompt, file_path);",
+    ),
+    (
+        "33. canned 'Executed via' transcript literal back in terminal.rs",
+        "Z15",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        'const _FAKE_EXEC: &str = "Status: Executed via claude CLI shell & streamed to Canvas";\n        let _ = self.send_to_agent(prompt, file_path);',
+    ),
+    (
+        "34. synthesize_spec_from_prompt exported as pub fn in cmdk.rs",
+        "Z15",
+        "cmdk.rs",
+        "fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {",
+        "pub fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {",
+    ),
+    (
+        "35. fake agents-composer-mic control re-introduced in terminal.rs",
+        "Z04",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        'const _FAKE_MIC: &str = "agents-composer-mic";\n        let _ = self.send_to_agent(prompt, file_path);',
+    ),
+    (
+        '36. retired one-shot "claude -p" command back in terminal.rs',
+        "Z01",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        'let _ = "claude -p";\n        let _ = self.send_to_agent(prompt, file_path);',
+    ),
+    (
+        "37. retired build_real_cli_command helper back in terminal.rs",
+        "Z02",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        "fn build_real_cli_command() {}\n        let _ = self.send_to_agent(prompt, file_path);",
+    ),
+    (
+        "38. fake 5-word text_button label in panels/vertex.rs",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", "Join the two selected points", n_sel == 2)',
+    ),
+    (
+        "39. count in parentheses inside a button label",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", &format!("Join ({})", n_sel), n_sel == 2)',
+    ),
+    (
+        "40. new 4-word menu item through MenuItem::new",
+        "Z16",
+        "panels/context.rs",
+        'leaf(MenuItem::new("Ungroup")',
+        'leaf(MenuItem::new("Ungroup all of these")',
+    ),
+    (
+        "41. baseline entry fixed but not removed from the baseline",
+        "Z16",
+        "history/panel.rs",
+        'MenuItem::new("Duplicate as new file").sep(),',
+        'MenuItem::new("Duplicate file").sep(),',
+    ),
+    (
+        "42. 4-word label through the custom paint_card_button helper",
+        "Z16",
+        "agent_approval_card.rs",
+        '"agent-approval-deny", deny_right, action_r.top(), "Deny", false',
+        '"agent-approval-deny", deny_right, action_r.top(), "Deny this agent request", false',
+    ),
+    (
+        "43. 4-word label returned by a fix_label fn and painted with p.text",
+        "Z16",
+        "agent_start_failure.rs",
+        'FixAction::RunLogin(_) => "Run login".to_string(),',
+        'FixAction::RunLogin(_) => "Run the login command".to_string(),',
+    ),
+    (
+        "44. 4-word label bound to a let, then passed to text_button",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        '{ let lbl = "Join the two points"; text_button(ui, btn(0, pane), "vtx-join", lbl, n_sel == 2) }',
+    ),
+    (
+        "45. digit count inside a short action label",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", "Join 2 points", n_sel == 2)',
+    ),
+    (
+        "46. formatted .len() count inside a short action label",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", &format!("Join {}", pts.len()), n_sel == 2)',
+    ),
+    (
+        "47. global /tmp/designos-live-doc.json fallback reintroduced in terminal.rs",
+        "Z17",
+        "terminal.rs",
+        'cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());',
+        'cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());\n    cmd.env("DESIGNOS_LIVE_DOC", "/tmp/designos-live-doc.json");',
+    ),
+    (
+        "48. global /tmp/designos-live-doc.json fallback reintroduced in mcp/server.rs",
+        "Z17",
+        "mcp/server.rs",
+        'std::env::var_os("DESIGNOS_SESSION_DIR")',
+        'std::env::var_os("DESIGNOS_SESSION_DIR").or_else(|| Some("/tmp/designos-live-doc.json".into()))',
+    ),
+    (
+        "49. obfuscated concat!(\"/tmp/designos-\", \"live-agent-out.spec.json\") in terminal.rs",
+        "Z17",
+        "terminal.rs",
+        'cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());',
+        'cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());\n    let _ = concat!("/tmp/designos-", "live-agent-out.spec.json");',
+    ),
 ]
 
 
 def verdicts(sources: "gate.SourceSet") -> Dict[str, Dict[str, object]]:
     return {r["id"]: r for r in gate.run_all_checks(sources)}
+
+
+def ratchet_checks(base: "gate.SourceSet") -> List[str]:
+    """Baseline-writer guard and move handling; returns failure lines."""
+    ux = gate.ux_writing_labels
+    out: List[str] = []
+
+    def check(label: str, ok: bool, detail: str = "") -> None:
+        print(f"{'OK' if ok else 'WRONG':<7}| ratchet | {label}")
+        if not ok:
+            out.append(f"ratchet: {label} {detail}")
+
+    grown = base.with_replacement("panels/vertex.rs", '"vtx-join", "Join"', '"vtx-join", "Join these two points"')
+    shrunk = base.with_replacement("history/panel.rs", '"Duplicate as new file"', '"Duplicate file"')
+    baseline = ux.load_baseline()
+    check("--write-ux-baseline logic: a new label is growth", bool(ux.growth_offenders(ux.scan_labels(grown.files, grown.code), baseline)))
+    check("--write-ux-baseline logic: a fixed label is not growth", not ux.growth_offenders(ux.scan_labels(shrunk.files, shrunk.code), baseline))
+
+    # End to end through the CLI entry point, against a temp baseline and a mutated tree.
+    tmp = Path(tempfile.mkdtemp(prefix="ux-baseline-"))
+    saved = (ux.BASELINE_PATH, gate.SourceSet.from_disk, sys.argv)
+    try:
+        ux.BASELINE_PATH = tmp / "ux_writing_baseline.json"
+        ux.BASELINE_PATH.write_text(saved[0].read_text(encoding="utf-8"), encoding="utf-8")
+        before = ux.BASELINE_PATH.read_text(encoding="utf-8")
+        gate.SourceSet.from_disk = classmethod(lambda cls: grown)  # type: ignore[method-assign]
+        sys.argv = ["zero_fake_ui_gate.py", "--write-ux-baseline"]
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc = gate.main()
+        check("--write-ux-baseline refuses to add a new violation (exit 1, file untouched)", rc == 1 and ux.BASELINE_PATH.read_text(encoding="utf-8") == before)
+        sys.argv = ["zero_fake_ui_gate.py", "--write-ux-baseline", "--allow-grow"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = gate.main()
+        check("--allow-grow writes the new violation", rc == 0 and "Join these two points" in ux.BASELINE_PATH.read_text(encoding="utf-8"))
+    finally:
+        ux.BASELINE_PATH, gate.SourceSet.from_disk, sys.argv = saved  # type: ignore[method-assign]
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    moved_found = Counter({("b.rs", "words", "Open the new window"): 1})
+    moved_base = Counter({("a.rs", "words", "Open the new window"): 1})
+    new, fixed, moved = ux.compare_to_baseline(moved_found, moved_base)
+    check("a label moved between files reports once and is not growth", not new and not fixed and len(moved) == 1 and not ux.growth_offenders(moved_found, moved_base))
+    return out
 
 
 def main() -> int:
@@ -277,6 +451,20 @@ def main() -> int:
 
     print("-" * 100)
     controls: List[Tuple[str, str, str, str, str]] = [
+        (
+            "a 3-word action label and a product name as one word pass",
+            "Z16",
+            "panels/vertex.rs",
+            'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+            'text_button(ui, btn(0, pane), "vtx-join", "Open DESIGN:OS Studio now", n_sel == 2)',
+        ),
+        (
+            "a long non-label literal next to a short label is ignored",
+            "Z16",
+            "panels/vertex.rs",
+            'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+            'text_button(ui, btn(0, pane), "vtx-join-two-selected-points-key", "Join", n_sel == 2)',
+        ),
         (
             "comment-only mention of every retired name is ignored",
             "Z08",
@@ -319,6 +507,13 @@ def main() -> int:
             "pub mod toolbar;",
             "pub mod toolbar;\npub const QUOTE: char = '\"';\npub const NEXT: &str = \"Boost resolution\";",
         ),
+        (
+            "comment-only mention of /tmp/designos-live- in mcp/server.rs is ignored",
+            "Z17",
+            "mcp/server.rs",
+            'std::env::var_os("DESIGNOS_SESSION_DIR")',
+            '/* retired: /tmp/designos-live-doc.json */ std::env::var_os("DESIGNOS_SESSION_DIR")',
+        ),
     ]
     for label, check_id, rel, anchor, replacement in controls:
         result = verdicts(base.with_replacement(rel, anchor, replacement))
@@ -327,6 +522,8 @@ def main() -> int:
         if not ok:
             failures.append(f"control failed: {label}: {result[check_id]['detail']}")
 
+    print("-" * 100)
+    failures.extend(ratchet_checks(base))
     print("-" * 100)
     if failures:
         print("SELF-TEST FAIL")

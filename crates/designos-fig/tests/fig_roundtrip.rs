@@ -29,6 +29,139 @@ fn commands_blob_roundtrip_preserves_all_verbs_and_winding_rules() {
 }
 
 #[test]
+fn roundtrip_preserves_node_count_across_saves_and_keeps_instance_child_alignment() {
+    let g = |s: u32, l: u32| json!({"sessionID": s, "localID": l});
+    let node = |guid: (u32, u32), parent: (u32, u32), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut m = json!({
+            "guid": g(guid.0, guid.1),
+            "phase": "CREATED",
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 100.0, "y": 40.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        if let (Some(dst), Some(src)) = (m.as_object_mut(), extra.as_object()) {
+            for (k, v) in src {
+                dst.insert(k.clone(), v.clone());
+            }
+        }
+        m
+    };
+
+    // Document with:
+    // - 2 shared styles on Internal Only Canvas (and an external component so library_page exists)
+    // - A main component `Calendar` containing a nested auto-layout child `_Button group base`
+    //   with `stackPrimaryAlignItems: "CENTER"` and `stackCounterAlignItems: "CENTER"`.
+    // - An instance `CalendarInst` whose `symbolOverrides` overrides `stackPrimarySizing: "FIXED"`
+    //   (or `stackChildPrimaryGrow: 1.0`) on `_Button group base` without overriding its alignment.
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "RoundtripDoc", json!({})),
+        node((0, 1), (0, 0), "a", "CANVAS", "↳ Calendars", json!({})),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node((5, 1), (0, 2), "a", "SYMBOL", "LibComp", json!({"componentKey": "LIB_COMP_1", "sourceLibraryKey": "lib_ext"})),
+        node(
+            (7, 1),
+            (0, 2),
+            "b",
+            "RECTANGLE",
+            "Brand/Primary",
+            json!({
+                "styleType": "FILL",
+                "key": "STYLE_FILL_1",
+                "fillPaints": [{"type": "SOLID", "color": {"r": 0.1, "g": 0.2, "b": 0.8, "a": 1.0}, "opacity": 1.0, "visible": true}]
+            })
+        ),
+        node(
+            (7, 2),
+            (0, 2),
+            "c",
+            "RECTANGLE",
+            "Shadow/Sm",
+            json!({
+                "styleType": "EFFECT",
+                "key": "STYLE_FX_1",
+                "effects": [{"type": "DROP_SHADOW", "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.2}, "offset": {"x": 0.0, "y": 2.0}, "radius": 4.0, "spread": 0.0, "visible": true}]
+            })
+        ),
+        node(
+            (1, 10),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "Calendar",
+            json!({
+                "size": {"x": 300.0, "y": 300.0},
+                "stackMode": "VERTICAL",
+                "stackPrimarySizing": "FIXED",
+                "stackCounterSizing": "FIXED"
+            })
+        ),
+        node(
+            (1, 11),
+            (1, 10),
+            "a",
+            "FRAME",
+            "_Button group base",
+            json!({
+                "overrideKey": g(9, 11),
+                "size": {"x": 263.0, "y": 36.0},
+                "styleIdForFill": {"guid": g(7, 1)},
+                "styleIdForEffect": {"guid": g(7, 2)},
+                "stackMode": "HORIZONTAL",
+                "stackPrimaryAlignItems": "CENTER",
+                "stackCounterAlignItems": "CENTER",
+                "stackPrimarySizing": "RESIZE_TO_FIT",
+                "stackCounterSizing": "FIXED"
+            })
+        ),
+        node(
+            (1, 20),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "CalendarInst",
+            json!({
+                "size": {"x": 300.0, "y": 300.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(9, 11)]},
+                            "stackPrimarySizing": "FIXED",
+                            "stackChildPrimaryGrow": 1.0
+                        }
+                    ]
+                }
+            })
+        )
+    ]);
+
+    let doc1 = import_fig_node_changes(&changes, "RoundtripDoc").expect("import 1");
+    let inst_btn_align = |doc: &Document| -> (LayoutAlign, LayoutAlign) {
+        let inst = find(doc, "CalendarInst");
+        let btn_id = inst.children[0];
+        let btn = doc.get(btn_id).expect("_Button group base in instance");
+        let al = btn.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).expect("auto_layout on _Button group base");
+        (al.primary_align, al.counter_align)
+    };
+    assert_eq!(inst_btn_align(&doc1), (LayoutAlign::Center, LayoutAlign::Center));
+    assert_eq!(doc1.styles.len(), 2);
+
+    let bytes1 = export_fig(&doc1).expect("export 1");
+    let doc2 = import_fig(&bytes1).expect("import 2");
+    assert_eq!(doc2.nodes.len(), doc1.nodes.len(), "save-and-reopen cycle 1 must not add extra nodes");
+    assert_eq!(inst_btn_align(&doc2), (LayoutAlign::Center, LayoutAlign::Center), "_Button group base alignment must stay Center/Center after roundtrip 1");
+
+    let bytes2 = export_fig(&doc2).expect("export 2");
+    let doc3 = import_fig(&bytes2).expect("import 3");
+    assert_eq!(doc3.nodes.len(), doc1.nodes.len(), "save-and-reopen cycle 2 must not add extra nodes");
+    assert_eq!(inst_btn_align(&doc3), (LayoutAlign::Center, LayoutAlign::Center), "_Button group base alignment must stay Center/Center after roundtrip 2");
+}
+
+#[test]
 fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     // 1. Roundtrip the canonical sample_fig fixture through export_fig -> import_fig
     let raw = sample_fig(designos_fig::container::Compression::Zstd, true);
@@ -78,6 +211,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             variables: vec!["VariableID:10:10".into(), "VariableID:10:11".into(), "VariableID:10:12".into()],
             key: Some("theme_key".into()),
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let mut bg_vals = BTreeMap::new();
@@ -97,6 +231,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_bg_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut pad_vals = BTreeMap::new();
@@ -116,6 +252,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_pad_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut alias_vals = BTreeMap::new();
@@ -135,6 +273,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_alias_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 
@@ -496,7 +636,8 @@ fn fig_import_resolves_symbol_overrides_bindings_nested_swaps_and_handoff_map() 
     // 2. parameterConsumptionMap resolved STACK_HORIZONTAL_PADDING and FONT_STYLE
     assert_eq!(card_inst.variables.bindings.get("paddingLeft").map(String::as_str), Some("VariableID:1:13"));
     assert_eq!(card_inst.variables.bindings.get("paddingRight").map(String::as_str), Some("VariableID:1:13"));
-    assert_eq!(card_inst.variables.bindings.get("fontWeight").map(String::as_str), Some("VariableID:1:14"));
+    assert_eq!(card_inst.variables.bindings.get("fontStyle").map(String::as_str), Some("VariableID:1:14"));
+    assert!(!card_inst.variables.bindings.contains_key("fontWeight"));
 
     // 3. Surface inside CardInstance:
     // - literal fillPaints override cleared master's fills/0 variable binding
@@ -858,7 +999,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
                 "isSoftDeleted": true
             })
         ),
-        // GAP-01 & GAP-02 & GAP-03: Frame with per-side border weights WITHOUT borderStrokeWeightsIndependent
+        // GAP-01 & GAP-02 & GAP-03: Frame with independent per-side border weights
         // and per-corner radii WITHOUT rectangleCornerRadiiIndependent, plus variableConsumptionMap
         node(
             (1, 10),
@@ -868,10 +1009,8 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
             "HeaderBar",
             json!({
                 "strokeWeight": 1.0,
-                "borderTopWeight": 0.0,
-                "borderRightWeight": 0.0,
+                "borderStrokeWeightsIndependent": true,
                 "borderBottomWeight": 2.0,
-                "borderLeftWeight": 0.0,
                 "rectangleTopLeftCornerRadius": 10.0,
                 "rectangleTopRightCornerRadius": 10.0,
                 "rectangleBottomRightCornerRadius": 0.0,
@@ -1045,12 +1184,12 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
                 "connectorStartStrokeCap": "NONE",
                 "connectorEndStrokeCap": "ARROW_EQUILATERAL",
                 "connectorStart": {
-                    "endpointNodeId": g(1, 41),
+                    "endpointNodeID": g(1, 41),
                     "position": {"x": 100.0, "y": 25.0},
                     "magnet": "RIGHT"
                 },
                 "connectorEnd": {
-                    "endpointNodeId": g(1, 42),
+                    "endpointNodeID": g(1, 42),
                     "position": {"x": 200.0, "y": 25.0},
                     "magnet": "LEFT"
                 },
@@ -1345,8 +1484,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
                 "fillPaints": [{"type": "SOLID", "color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}, "opacity": 1.0, "visible": true}]
             })),
             // 1. BRUSH node with strokeGeometry (no fillGeometry) and brushType
-            node((1, 10), (0, 1), "!", "BRUSH", "CharcoalStroke", json!({
-                "brushType": "CHARCOAL",
+            node((1, 10), (0, 1), "!", "BRUSH", "ScatterBrush", json!({
+                "brushType": "SCATTER",
                 "strokeWeight": 4.0,
                 "strokePaints": [{"type": "SOLID", "color": {"r": 0.1, "g": 0.1, "b": 0.1, "a": 1.0}, "opacity": 1.0, "visible": true}],
                 "strokeGeometry": [{"windingRule": "NONZERO", "commandsBlob": 0}]
@@ -1423,8 +1562,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     assert!(doc.styles.is_empty());
 
     // 1. BRUSH node
-    let brush = find(&doc, "CharcoalStroke");
-    assert_eq!(brush.fig_metadata.get("brushType").map(String::as_str), Some("CHARCOAL"));
+    let brush = find(&doc, "ScatterBrush");
+    assert_eq!(brush.fig_metadata.get("brushType").map(String::as_str), Some("SCATTER"));
     match &brush.kind {
         NodeKind::Vector { paths, .. } => assert_eq!(paths.len(), 1, "BRUSH should populate paths from strokeGeometry fallback"),
         other => panic!("expected Vector for BRUSH, got {other:?}"),
@@ -1477,8 +1616,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     let bytes = export_fig(&doc).expect("export_fig Wave5Doc");
     let rt = import_fig(&bytes).expect("re-import Wave5Doc");
 
-    let rt_brush = find(&rt, "CharcoalStroke");
-    assert_eq!(rt_brush.fig_metadata.get("brushType").map(String::as_str), Some("CHARCOAL"));
+    let rt_brush = find(&rt, "ScatterBrush");
+    assert_eq!(rt_brush.fig_metadata.get("brushType").map(String::as_str), Some("SCATTER"));
 
     let rt_db = find(&rt, "DbNode");
     assert_eq!(rt_db.fig_metadata.get("shapeWithTextType").map(String::as_str), Some("ENG_DATABASE"));
@@ -1663,7 +1802,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                     "strokeOffset": 2.5,
                     "strokeBrushGuid": g(10, 20),
                     "variableWidthPoints": [
-                        {"asymmetricStroke": true, "position": 0.25, "leadingWidth": 3.5, "trailingWidth": 4.25}
+                        {"position": 0.25, "ascent": 3.5, "descent": 4.25, "segmentId": 2}
                     ],
                     "dynamicStrokeSettings": {"frequency": 8.0, "wiggle": 1.5, "smoothen": 0.75},
                     "scatterStrokeSettings": {
@@ -1671,18 +1810,16 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                         "wiggle": 2.0,
                         "angularJitter": 15.0,
                         "sizeJitter": 0.5,
-                        "rotation": "DIRECTION"
+                        "rotation": 15.0
                     },
                     "stretchStrokeSettings": {"orientation": "FORWARD"},
                     "scatterBrushTransforms": [
                         {"m00": 1.0, "m01": 0.0, "m02": 5.0, "m10": 0.0, "m11": 1.0, "m12": 2.0}
                     ],
-                    "pathTrim": {"start": 0.1, "end": 0.9, "offset": 0.05},
+                    "pathTrim": {"value": {"x": 0.1, "y": 0.9}},
                     "strokeData": {
-                        "dynamicStrokeSeed": 77,
-                        "variableWidthPoints": [
-                            {"asymmetricStroke": false, "position": 0.5, "leadingWidth": 2.0, "trailingWidth": 2.0}
-                        ]
+                        "strokes": [{"strokeId": 1, "strokeWeight": 2.0}],
+                        "version": 77
                     }
                 }),
             ),
@@ -1698,8 +1835,9 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                         {
                             "type": "REPEAT",
                             "count": 4,
-                            "countType": "NUMBER",
-                            "unit": "PIXELS",
+                            "repeatType": "RADIAL",
+                            "axis": "X",
+                            "unitType": "PIXELS",
                             "offset": {"x": 16.0, "y": 8.0}
                         }
                     ]
@@ -1713,7 +1851,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "TEXT_PATH",
                 "CurvedBannerPath",
                 json!({
-                    "textPathStart": 12.5
+                    "textPathStart": {"tValue": 12.5, "forward": true}
                 }),
             ),
             // 2. Motion: FRAME with timelineDefinitions & timelineAssignments + KEYFRAME_TRACK + KEYFRAME + ANIMATION_PRESET_INSTANCE
@@ -1724,16 +1862,12 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "FRAME",
                 "MotionStage",
                 json!({
-                    "timelineDefinitions": [
-                        {"id": g(3, 10), "name": "HeroEnter"}
-                    ],
-                    "timelineAssignments": [
-                        {"timelineId": g(3, 10), "targetNodeId": g(1, 20)}
-                    ],
-                    "animationPresets": [
-                        {"presetGuid": g(3, 99), "delay": 0.25, "duration": 0.5}
-                    ],
-                    "textElementDelayBehaviour": "BY_WORD"
+                    "timelineDefinitions": {"entries": [{"id": g(3, 10), "data": {"durationUs": 1500000, "defaultTimeline": true}}]},
+                    "timelineAssignments": {
+                        "entries": [{"key": {"assignedTimelineId": g(3, 10), "containingTimelineId": g(1, 20)}, "value": {"offsetUs": 0, "disabled": false}}]
+                    },
+                    "animationPresets": {"presets": [{"animationPresetId": {"guid": g(3, 99)}, "timelineDefId": g(3, 10), "sortPosition": "!"}]},
+                    "textElementDelayBehaviour": {"enabled": true, "grouping": "WORD", "delayMs": 50.0}
                 }),
             ),
             node(
@@ -1743,13 +1877,13 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "KEYFRAME_TRACK",
                 "OpacityTrack",
                 json!({
-                    "keyframeOperation": "OPACITY",
-                    "trackLoopMode": "PING_PONG",
-                    "timelineDuration": 1.5,
-                    "timelineOffset": 0.25,
+                    "keyframeOperation": "SET",
+                    "trackLoopMode": "LOOP",
+                    "timelineDuration": 1500,
+                    "timelineOffset": 250,
                     "timelineDisabled": false,
                     "styleIdsForAnimation": [
-                        {"guid": g(4, 1)}
+                        {"id": g(4, 1), "timelineDefId": g(3, 10), "sortPosition": "!"}
                     ]
                 }),
             ),
@@ -1760,18 +1894,15 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "KEYFRAME",
                 "MidKeyframe",
                 json!({
-                    "timelinePosition": 0.5,
-                    "keyframeValue": {"floatValue": 0.75},
+                    "timelinePosition": 500,
+                    "keyframeValue": {"value": {"floatValue": 0.75}, "valueType": "FLOAT"},
                     "interpolationType": "BEZIER",
-                    "bezierHandles": {
-                        "inTangent": {"x": -0.25, "y": 0.0},
-                        "outTangent": {"x": 0.25, "y": 1.0}
-                    },
+                    "bezierHandles": {"p1x": -0.25, "p1y": 0.0, "p2x": 0.25, "p2y": 1.0},
                     "easingData": {
-                        "easingType": "CUSTOM_CUBIC_BEZIER",
-                        "easingFunctionCubicBezier": {"x1": 0.5, "y1": 0.0, "x2": 0.25, "y2": 1.0}
+                        "easingType": "CUSTOM_CUBIC",
+                        "easingValue": {"bezierEasing": {"p1x": 0.5, "p1y": 0.0, "p2x": 0.25, "p2y": 1.0}}
                     },
-                    "easingType": "OUT_BACK",
+                    "easingType": "OUT_BACK_CUBIC",
                     "interpolationColorSpace": "OKLCH"
                 }),
             ),
@@ -1782,7 +1913,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "ANIMATION_PRESET_INSTANCE",
                 "PresetBounce",
                 json!({
-                    "timelineDuration": 0.75
+                    "timelineDuration": 750
                 }),
             ),
             // 3. Table: TABLE and TABLE_CELL
@@ -1793,19 +1924,10 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "TABLE",
                 "PricingTable",
                 json!({
-                    "tableRowPositions": [
-                        {"id": g(5, 1), "position": "!"},
-                        {"id": g(5, 2), "position": "\""}
-                    ],
-                    "tableColumnPositions": [
-                        {"id": g(5, 3), "position": "!"}
-                    ],
-                    "tableRowHeights": [
-                        {"id": g(5, 1), "size": 44.0}
-                    ],
-                    "tableColumnWidths": [
-                        {"id": g(5, 3), "size": 180.0}
-                    ],
+                    "tableRowPositions": {"entries": [{"id": g(5, 1), "position": "!"}, {"id": g(5, 2), "position": "\""}]},
+                    "tableColumnPositions": {"entries": [{"id": g(5, 3), "position": "!"}]},
+                    "tableRowHeights": {"entries": [{"id": g(5, 1), "size": 44.0}]},
+                    "tableColumnWidths": {"entries": [{"id": g(5, 3), "size": 180.0}]},
                     "tableMergedCells": {
                         "entries": [
                             {"rowId": g(5, 1), "colId": g(5, 3), "rowSpan": 2, "colSpan": 1}
@@ -1837,16 +1959,13 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 json!({
                     "slideSpeakerNotes": "Highlight typed Kiwi passthrough X1",
                     "isSkippedSlide": false,
-                    "slideNumber": "03",
+                    "slideNumber": "SLIDE",
                     "slideNumberSeparator": "/",
                     "objectAnimations": [
                         {
-                            "target": g(1, 43),
-                            "transitionType": "SMART_ANIMATE",
-                            "transitionDuration": 0.5,
-                            "easingType": "IN_OUT_CUBIC",
-                            "timing": {"type": "ON_CLICK", "delay": 0.0},
-                            "phase": "IN"
+                            "id": g(6, 1),
+                            "event": {"interactionType": "ON_CLICK"},
+                            "actions": [{"transitionNodeID": g(1, 43), "transitionType": "SMART_ANIMATE", "transitionDuration": 0.5, "easingType": "INOUT_CUBIC"}]
                         }
                     ]
                 }),
@@ -1911,11 +2030,12 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
 
         let tpath = find(&rt, "CurvedBannerPath");
         assert_eq!(tpath.kind, NodeKind::Unknown { type_name: "TEXT_PATH".into() });
-        assert_eq!(tpath.fig_metadata.get("textPathStart").map(String::as_str), Some("12.5"));
+        let start: Value = serde_json::from_str(tpath.fig_metadata.get("textPathStart").expect("textPathStart")).expect("textPathStart is JSON");
+        assert_eq!((start["tValue"].as_f64(), start["forward"].as_bool()), (Some(12.5), Some(true)));
 
         let kf = find(&rt, "MidKeyframe");
         assert_eq!(kf.kind, NodeKind::Unknown { type_name: "KEYFRAME".into() });
-        assert_eq!(kf.fig_metadata.get("timelinePosition").map(String::as_str), Some("0.5"));
+        assert_eq!(kf.fig_metadata.get("timelinePosition").map(String::as_str), Some("500"));
         assert_eq!(kf.fig_metadata.get("interpolationType").map(String::as_str), Some("BEZIER"));
         assert_eq!(kf.fig_metadata.get("interpolationColorSpace").map(String::as_str), Some("OKLCH"));
         assert!(kf.fig_metadata.contains_key("bezierHandles"));
@@ -1938,7 +2058,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
         assert_eq!(slide.kind, NodeKind::Unknown { type_name: "SLIDE".into() });
         assert_eq!(slide.fig_metadata.get("slideSpeakerNotes").map(String::as_str), Some("Highlight typed Kiwi passthrough X1"));
         assert_eq!(slide.fig_metadata.get("isSkippedSlide").map(String::as_str), Some("false"));
-        assert_eq!(slide.fig_metadata.get("slideNumber").map(String::as_str), Some("03"));
+        assert_eq!(slide.fig_metadata.get("slideNumber").map(String::as_str), Some("SLIDE"));
         assert!(slide.fig_metadata.contains_key("objectAnimations"));
     };
 
@@ -1987,10 +2107,9 @@ fn typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_tex
             json!({
                 "objectAnimations": [
                     {
-                        "target": g(1, 2),
-                        "transitionType": "SLIDE_OUT_TO_LEFT",
-                        "transitionDuration": 0.4,
-                        "phase": "OUT"
+                        "id": g(6, 1),
+                        "event": {"interactionType": "ON_CLICK"},
+                        "actions": [{"transitionNodeID": g(1, 2), "transitionType": "SLIDE_OUT_TO_LEFT", "transitionDuration": 0.4}]
                     }
                 ]
             }),
@@ -2018,11 +2137,11 @@ fn typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_tex
         serde_json::from_str(raw).unwrap_or_else(|e| panic!("{name} fig_metadata[{key}] is not JSON: {e}"))
     };
 
-    assert_eq!(metadata_json(&doc, "ExitSlide", "objectAnimations")[0]["transitionType"], "SLIDE_OUT_TO_LEFT", "fixture sanity");
+    assert_eq!(metadata_json(&doc, "ExitSlide", "objectAnimations")[0]["actions"][0]["transitionType"], "SLIDE_OUT_TO_LEFT", "fixture sanity");
     assert_eq!(metadata_json(&doc, "LinkedComponent", "symbolLinks")[0]["displayText"], "Read", "fixture sanity");
 
     assert_eq!(
-        metadata_json(&rt, "ExitSlide", "objectAnimations")[0]["transitionType"],
+        metadata_json(&rt, "ExitSlide", "objectAnimations")[0]["actions"][0]["transitionType"],
         "SLIDE_OUT_TO_LEFT",
         "objectAnimations transitionType after round-trip"
     );
@@ -2081,6 +2200,151 @@ fn slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_m
     assert!(!find(&rt, "SlotHost").component.is_slot, "cleared isSlot came back");
     assert!(!find(&rt, "SlotCard").component.is_slot_content, "cleared isSlotContent came back");
     assert!(find(&rt, "SlotCard").component.slot_content_id.is_none(), "cleared slot content id came back");
+}
+
+#[test]
+fn instance_multi_paragraph_and_mixed_style_text_override_resolves_with_null_override_key_and_linked_styles() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let null_g = g(u32::MAX as u64, u32::MAX as u64);
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 520.0, "y": 120.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+
+    let para1 = "We've included a few simple templates to help you get started.\n\n";
+    let para2_prefix = "Check out the ";
+    let para2_link = "Guide to variables in Figma";
+    let para2_suffix = " to learn more.";
+    let overridden_text = format!("{para1}{para2_prefix}{para2_link}{para2_suffix}");
+
+    // Build characterStyleIDs: para1 = 0, para2_prefix = 13 (semibold), para2_link = 12 (semibold + underline + purple), para2_suffix = 13 (semibold).
+    let mut char_ids: Vec<u64> = vec![0; para1.encode_utf16().count()];
+    char_ids.extend(std::iter::repeat_n(13, para2_prefix.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat_n(12, para2_link.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat_n(13, para2_suffix.encode_utf16().count()));
+
+    let mut raw_nodes = vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "NoteDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node((0, 2), (0, 0), "\"", "CANVAS", "Examples", json!({})),
+        // Shared text style 18:2016 ("Text lg/Semibold": Inter Semi Bold 600, 18px)
+        node(
+            (18, 2016),
+            (0, 1),
+            "!",
+            "TEXT",
+            "Text lg/Semibold",
+            json!({
+                "styleType": "TEXT",
+                "fontName": {"family": "Inter", "style": "Semi Bold", "postscript": "Inter-SemiBold"},
+                "fontSize": 18.0,
+                "lineHeight": {"units": "PIXELS", "value": 28.0}
+            }),
+        ),
+        // Component "Design note" (2680:401975) with child "Supporting text" (2680:401977)
+        // carrying the null GUID sentinel overrideKey {4294967295, 4294967295}.
+        node((2680, 401975), (0, 1), "\"", "SYMBOL", "Design note", json!({})),
+        node(
+            (2680, 401977),
+            (2680, 401975),
+            "!",
+            "TEXT",
+            "Supporting text",
+            json!({
+                "overrideKey": null_g,
+                "fontName": {"family": "Inter", "style": "Regular", "postscript": "Inter-Regular"},
+                "fontSize": 18.0,
+                "textData": {
+                    "characters": "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+                }
+            }),
+        ),
+        // Instance "Design note" (11185:8546) on the Examples page overriding 2680:401977
+        // with two paragraphs and mixed character styles referencing shared style 18:2016.
+        node(
+            (11185, 8546),
+            (0, 2),
+            "!",
+            "INSTANCE",
+            "Design note instance",
+            json!({
+                "symbolData": {
+                    "symbolID": g(2680, 401975),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(2680, 401977)]},
+                            "textData": {
+                                "characters": overridden_text,
+                                "characterStyleIDs": char_ids,
+                                "styleOverrideTable": [
+                                    {
+                                        "styleID": 12,
+                                        "styleIdForText": {"guid": g(18, 2016)},
+                                        "textDecoration": "UNDERLINE",
+                                        "fillPaints": [
+                                            {
+                                                "type": "SOLID",
+                                                "visible": true,
+                                                "opacity": 1.0,
+                                                "blendMode": "NORMAL",
+                                                "color": {"r": 0.41, "g": 0.25, "b": 0.78, "a": 1.0}
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "styleID": 13,
+                                        "styleIdForText": {"guid": g(18, 2016)},
+                                        "styleIdForFill": {"guid": null_g},
+                                        "fillPaints": [
+                                            {
+                                                "type": "SOLID",
+                                                "visible": true,
+                                                "opacity": 1.0,
+                                                "blendMode": "NORMAL",
+                                                "color": {"r": 0.09, "g": 0.11, "b": 0.15, "a": 1.0}
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }),
+        ),
+    ];
+
+    // Pad past the 10_000-node fast_clone threshold so expand_instance takes the fast_clone path.
+    for i in 0..10_010u64 {
+        raw_nodes.push(node((5000, i + 1), (0, 2), "z", "RECTANGLE", "Pad", json!({})));
+    }
+
+    let doc = import_fig_node_changes(&Value::Array(raw_nodes), "NoteDoc").expect("import");
+    let inst = find(&doc, "Design note instance");
+    let child_id = *inst.children.first().expect("instance expanded");
+    let child = doc.get(child_id).expect("supporting text child");
+    assert!(child.component.overrides.contains(&OverrideField::Characters), "Characters override recorded");
+    let NodeKind::Text(tp) = &child.kind else { panic!("expected Text child") };
+    assert!(!tp.content.starts_with("Lorem ipsum"), "multi-paragraph override was lost and fell back to component Lorem ipsum: {:?}", tp.content);
+    assert_eq!(tp.content, overridden_text);
+    assert_eq!(tp.runs.len(), 3, "expected 3 styled runs in second paragraph");
+    assert_eq!(tp.runs[0].style.font_weight, 600, "run 0 inherits semibold (600) from linked styleIdForText 18:2016");
+    assert_eq!(tp.runs[1].style.font_weight, 600, "run 1 inherits semibold (600) from linked styleIdForText 18:2016");
+    assert_eq!(tp.runs[1].style.decoration, TextDecoration::Underline, "run 1 keeps inline UNDERLINE override");
+    assert_eq!(tp.runs[2].style.font_weight, 600, "run 2 inherits semibold (600) from linked styleIdForText 18:2016");
 }
 
 #[test]
@@ -2184,6 +2448,237 @@ fn counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_roun
     rt.relayout_subtree(rt_row);
     assert_eq!(find(&rt, "Row").size.y, 40.0, "the round trip must not change the cross size");
     assert_eq!(find(&rt, "FillChild").size.y, 40.0);
+}
+
+#[test]
+fn resized_instance_applies_stretch_and_scale_constraints_to_children_without_derived_data() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 160.0, "y": 160.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "ResizedPieInstance", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node((1, 2), (0, 1), "!", "SYMBOL", "_Pie chart", json!({"size": {"x": 160.0, "y": 160.0}})),
+        node(
+            (1, 3),
+            (1, 2),
+            "!",
+            "ELLIPSE",
+            "Background",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "horizontalConstraint": "STRETCH",
+                "verticalConstraint": "STRETCH",
+            }),
+        ),
+        node(
+            (1, 4),
+            (1, 2),
+            "\"",
+            "ELLIPSE",
+            "Series 2",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "transform": {
+                    "m00": 0.5, "m01": 0.8660254, "m02": -29.282032,
+                    "m10": -0.8660254, "m11": 0.5, "m12": 109.282036
+                },
+                "horizontalConstraint": "STRETCH",
+                "verticalConstraint": "STRETCH",
+                "overrideKey": {"sessionID": 4294967295u64, "localID": 4294967295u64},
+            }),
+        ),
+        node(
+            (1, 5),
+            (1, 2),
+            "#",
+            "RECTANGLE",
+            "ScaledBadge",
+            json!({
+                "size": {"x": 40.0, "y": 40.0},
+                "transform": {
+                    "m00": 1.0, "m01": 0.0, "m02": 20.0,
+                    "m10": 0.0, "m11": 1.0, "m12": 40.0
+                },
+                "horizontalConstraint": "SCALE",
+                "verticalConstraint": "SCALE",
+            }),
+        ),
+        node(
+            (1, 6),
+            (1, 2),
+            "$",
+            "ELLIPSE",
+            "Series 3",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "transform": {
+                    "m00": 0.5, "m01": 0.8660254, "m02": -29.282032,
+                    "m10": -0.8660254, "m11": 0.5, "m12": 109.282036
+                },
+                "horizontalConstraint": "SCALE",
+                "verticalConstraint": "SCALE",
+            }),
+        ),
+        node(
+            (1, 10),
+            (0, 1),
+            "\"",
+            "INSTANCE",
+            "_Pie chart",
+            json!({
+                "size": {"x": 280.0, "y": 280.0},
+                "symbolData": {
+                    "symbolID": {"sessionID": 1, "localID": 2},
+                    "symbolOverrides": []
+                }
+            }),
+        ),
+    ]);
+    let doc = import_fig_node_changes(&changes, "ResizedPieInstance").expect("import ResizedPieInstance");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance exists");
+    assert_eq!(inst.size, Vec2::new(280.0, 280.0));
+    let bg = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Background").expect("Background child");
+    assert_eq!(bg.size, Vec2::new(280.0, 280.0), "160x160 component with Stretch/Stretch child instanced at 280x280 must import child at 280x280");
+    assert_eq!((bg.transform.tx, bg.transform.ty), (0.0, 0.0));
+
+    let series2 = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Series 2").expect("Series 2 child");
+    assert!((series2.size.x - 247.8461).abs() < 1e-3 && (series2.size.y - 247.8461).abs() < 1e-3, "got size={:?}", series2.size);
+    assert!((series2.transform.tx - (-29.282032)).abs() < 1e-3, "got tx={}", series2.transform.tx);
+    assert!((series2.transform.ty - 185.35898).abs() < 1e-3, "got ty={}", series2.transform.ty);
+
+    let series3 = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Series 3").expect("Series 3 child");
+    assert_eq!(series3.size, Vec2::new(280.0, 280.0));
+    assert!((series3.transform.tx - (-51.243556)).abs() < 1e-3, "got tx={}", series3.transform.tx);
+    assert!((series3.transform.ty - 191.24356).abs() < 1e-3, "got ty={}", series3.transform.ty);
+
+    let badge = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "ScaledBadge").expect("ScaledBadge child");
+    assert_eq!(badge.size, Vec2::new(70.0, 70.0));
+    assert_eq!((badge.transform.tx, badge.transform.ty), (35.0, 70.0));
+}
+
+#[test]
+fn derived_entry_overrides_the_pass() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "DerivedOverrideDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 2),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "SYMBOL",
+            "name": "BoxComp",
+            "size": {"x": 100.0, "y": 100.0}
+        },
+        {
+            "guid": g(1, 3),
+            "parentIndex": {"guid": g(1, 2), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "Inner",
+            "size": {"x": 80.0, "y": 80.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 10.0, "m10": 0.0, "m11": 1.0, "m12": 10.0},
+            "horizontalConstraint": "STRETCH",
+            "verticalConstraint": "STRETCH"
+        },
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "\""},
+            "type": "INSTANCE",
+            "name": "BoxComp",
+            "size": {"x": 200.0, "y": 200.0},
+            "symbolData": {
+                "symbolID": g(1, 2),
+                "symbolOverrides": []
+            },
+            "derivedSymbolData": [
+                {
+                    "guidPath": {"guids": [g(1, 3)]},
+                    "size": {"x": 144.0, "y": 155.0},
+                    "transform": {"m00": 1.0, "m01": 0.0, "m02": 22.0, "m10": 0.0, "m11": 1.0, "m12": 33.0}
+                }
+            ]
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "DerivedOverrideDoc").expect("import DerivedOverrideDoc");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance");
+    let inner = doc.get(inst.children[0]).expect("Inner child");
+    assert_eq!(inner.size, Vec2::new(144.0, 155.0), "derivedSymbolData size must override the constraint pass");
+    assert_eq!((inner.transform.tx, inner.transform.ty), (22.0, 33.0));
+}
+
+#[test]
+fn editor_and_importer_call_the_shared_pass() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "SharedPassParity"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 2),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "SYMBOL",
+            "name": "Comp",
+            "size": {"x": 200.0, "y": 200.0}
+        },
+        {
+            "guid": g(1, 3),
+            "parentIndex": {"guid": g(1, 2), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "Rot30Stretch",
+            "size": {"x": 100.0, "y": 40.0},
+            "transform": {
+                "m00": 0.8660254, "m01": -0.5, "m02": 0.0,
+                "m10": 0.5, "m11": 0.8660254, "m12": 0.0
+            },
+            "horizontalConstraint": "STRETCH",
+            "verticalConstraint": "STRETCH"
+        },
+        {
+            "guid": g(1, 4),
+            "parentIndex": {"guid": g(1, 2), "position": "\""},
+            "type": "RECTANGLE",
+            "name": "CenterMax",
+            "size": {"x": 30.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 10.0, "m10": 0.0, "m11": 1.0, "m12": 15.0},
+            "horizontalConstraint": "CENTER",
+            "verticalConstraint": "MAX"
+        },
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "\""},
+            "type": "INSTANCE",
+            "name": "Comp",
+            "size": {"x": 300.0, "y": 200.0},
+            "symbolData": {
+                "symbolID": g(1, 2),
+                "symbolOverrides": []
+            }
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "SharedPassParity").expect("import SharedPassParity");
+    let comp = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_))).expect("component");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance");
+    let planned = designos_doc::plan_constraint_pass(&doc, comp.id, Vec2::new(200.0, 200.0), Vec2::new(300.0, 200.0), 16);
+    assert_eq!(planned.len(), inst.children.len());
+    for ((_, expected_t, expected_sz), &inst_child_id) in planned.into_iter().zip(inst.children.iter()) {
+        let actual = doc.get(inst_child_id).unwrap();
+        assert_eq!(actual.size, expected_sz);
+        assert_eq!(actual.transform, expected_t);
+    }
 }
 
 #[test]
@@ -2304,6 +2799,283 @@ fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
 
     let rt_al2 = find(&rt, "AutoRowsSizedGrid").kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(rt_al2.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Fixed(64.0)));
+}
+
+#[test]
+fn nested_instance_swap_updates_shell_fills_strokes_effects_and_reapplies_props() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 150.0, "y": 36.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let purple_fill = json!([{"type": "SOLID", "visible": true, "opacity": 1.0, "color": {"r": 0.498, "g": 0.337, "b": 0.851, "a": 1.0}}]);
+    let purple_stroke = json!([{"type": "SOLID", "visible": true, "opacity": 1.0, "color": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 0.12}}]);
+    let shadow_effect = json!([{"type": "DROP_SHADOW", "visible": true, "radius": 2.0, "spread": 0.0, "offset": {"x": 0.0, "y": 1.0}, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.05}}]);
+    let prop_defs = json!([{"id": g(100, 1), "name": "Icon leading", "type": "BOOL", "initialValue": {"boolValue": true}}]);
+    let icon_refs = json!([{"componentPropNodeField": "VISIBLE", "defID": g(100, 1)}]);
+
+    let changes = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "ButtonSwapDoc", json!({})),
+        nc((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        nc(
+            (1, 2),
+            (0, 1),
+            "!",
+            "SYMBOL",
+            "Hierarchy=Primary",
+            json!({
+                "size": {"x": 150.0, "y": 36.0},
+                "fillPaints": purple_fill,
+                "strokePaints": purple_stroke,
+                "strokeWeight": 2.0,
+                "effects": shadow_effect,
+                "cornerRadius": 8.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 12.0,
+                "stackVerticalPadding": 8.0,
+                "componentPropDefs": prop_defs,
+            }),
+        ),
+        nc((1, 3), (1, 2), "!", "RECTANGLE", "Icon", json!({"size": {"x": 20.0, "y": 20.0}, "componentPropRefs": icon_refs})),
+        nc((1, 4), (1, 2), "\"", "TEXT", "Text", json!({"textData": {"characters": "Button"}, "size": {"x": 60.0, "y": 20.0}})),
+        nc(
+            (1, 5),
+            (0, 1),
+            "\"",
+            "SYMBOL",
+            "Hierarchy=Link color",
+            json!({
+                "size": {"x": 126.0, "y": 20.0},
+                "fillPaints": [],
+                "strokePaints": [],
+                "strokeWeight": 0.0,
+                "effects": [],
+                "cornerRadius": 0.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 0.0,
+                "stackVerticalPadding": 0.0,
+                "componentPropDefs": prop_defs,
+            }),
+        ),
+        nc((1, 6), (1, 5), "!", "RECTANGLE", "Icon", json!({"size": {"x": 20.0, "y": 20.0}, "componentPropRefs": icon_refs})),
+        nc((1, 7), (1, 5), "\"", "TEXT", "Text", json!({"textData": {"characters": "Button"}, "size": {"x": 60.0, "y": 20.0}})),
+        nc((1, 10), (0, 1), "#", "SYMBOL", "Section footer", json!({"size": {"x": 343.0, "y": 40.0}}),),
+        nc(
+            (1, 11),
+            (1, 10),
+            "!",
+            "INSTANCE",
+            "ActionButton",
+            json!({
+                "size": {"x": 150.0, "y": 36.0},
+                "fillPaints": purple_fill,
+                "strokePaints": purple_stroke,
+                "strokeWeight": 2.0,
+                "effects": shadow_effect,
+                "cornerRadius": 8.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 12.0,
+                "stackVerticalPadding": 8.0,
+                "symbolData": {
+                    "symbolID": g(1, 2),
+                    "symbolOverrides": []
+                },
+                "componentPropAssignments": [
+                    {"defID": g(100, 1), "value": {"boolValue": false}}
+                ],
+            }),
+        ),
+        nc(
+            (1, 20),
+            (0, 1),
+            "$",
+            "INSTANCE",
+            "FooterUse",
+            json!({
+                "size": {"x": 343.0, "y": 40.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(1, 11)]},
+                            "overriddenSymbolID": g(1, 5),
+                        },
+                        {
+                            "guidPath": {"guids": [g(1, 11), g(1, 7)]},
+                            "textData": {"characters": "View integration"},
+                        }
+                    ]
+                }
+            }),
+        ),
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "ButtonSwapDoc").expect("import ButtonSwapDoc");
+    let link_comp = find(&doc, "Hierarchy=Link color").id;
+    let footer_use = find(&doc, "FooterUse");
+    let swapped_btn = footer_use.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "ActionButton").expect("ActionButton inside FooterUse");
+    assert_eq!(instance_component(swapped_btn), Some(link_comp));
+    assert!(swapped_btn.fills.is_empty(), "swapped Link color button must not keep Primary purple fill: {:?}", swapped_btn.fills);
+    assert!(swapped_btn.stroke.paints.is_empty(), "swapped Link color button must not keep Primary stroke");
+    assert!(swapped_btn.effects.is_empty(), "swapped Link color button must not keep Primary shadow");
+    assert_eq!(swapped_btn.corner_radii, [0.0; 4]);
+    assert_eq!(swapped_btn.size, Vec2::new(126.0, 20.0));
+    let al = swapped_btn.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.padding, [0.0, 0.0, 0.0, 0.0]);
+    let icon = swapped_btn.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Icon").expect("Icon inside ActionButton");
+    assert!(!icon.visible, "Icon leading = false assignment on ActionButton must be re-applied after swap");
+    let text = swapped_btn.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Text").expect("Text inside ActionButton");
+    let NodeKind::Text(tp) = &text.kind else { panic!("expected text") };
+    assert_eq!(tp.content, "View integration");
+}
+
+#[test]
+fn layout_guide_alignment_fixed_width_auto_count_and_visibility_roundtrip() {
+    use designos_doc::{Color, Document, LayoutGrid, LayoutGridAlign, Node, NodeKind, Rect, Style};
+
+    // Old serialized LayoutGrid JSON without alignment/section_size/visible must load with Stretch, 0.0, true.
+    let legacy_grid: LayoutGrid =
+        serde_json::from_str(r#"{"Columns":{"count":12,"gutter":20.0,"offset":16.0,"color":{"r":1.0,"g":0.0,"b":0.0,"a":0.1}}}"#).unwrap();
+    assert_eq!(
+        legacy_grid,
+        LayoutGrid::Columns {
+            count: 12,
+            gutter: 20.0,
+            offset: 16.0,
+            section_size: 0.0,
+            alignment: LayoutGridAlign::Stretch,
+            color: Color { r: 1.0, g: 0.0, b: 0.0, a: 0.1 },
+            visible: true,
+        }
+    );
+
+    let mut doc = Document::new("GuideParity");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 1440.0, 900.0));
+    frame.name = "DesktopFrame".into();
+    let g_cols = LayoutGrid::Columns {
+        count: 12,
+        gutter: 20.0,
+        offset: 0.0,
+        section_size: 60.0,
+        alignment: LayoutGridAlign::Center,
+        color: Color::rgba(255, 0, 0, 26),
+        visible: true,
+    };
+    let g_rows = LayoutGrid::Rows {
+        count: 0,
+        gutter: 16.0,
+        offset: 24.0,
+        section_size: 48.0,
+        alignment: LayoutGridAlign::Min,
+        color: Color::rgba(0, 128, 255, 26),
+        visible: true,
+    };
+    let g_hidden = LayoutGrid::Grid { size: 8.0, color: Color::rgba(0, 255, 0, 26), visible: false };
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.grids = vec![g_cols.clone(), g_rows.clone(), g_hidden.clone()];
+    }
+    doc.insert(page, frame).unwrap();
+
+    let style_grid = LayoutGrid::Columns {
+        count: 0,
+        gutter: 12.0,
+        offset: 32.0,
+        section_size: 72.0,
+        alignment: LayoutGridAlign::Max,
+        color: Color::rgba(255, 128, 0, 26),
+        visible: false,
+    };
+    doc.styles.insert("S:grid-auto-max".into(), Style::Grid(vec![style_grid.clone()]));
+
+    let bytes = export_fig(&doc).unwrap();
+    let rt = import_fig(&bytes).unwrap();
+    let rt_frame = find(&rt, "DesktopFrame");
+    let rt_grids = &rt_frame.kind.frame_props().unwrap().grids;
+    assert_eq!(rt_grids.len(), 3);
+    assert!(matches!(
+        &rt_grids[0],
+        LayoutGrid::Columns { count: 12, gutter, offset, section_size, alignment: LayoutGridAlign::Center, visible: true, .. }
+        if (*gutter - 20.0).abs() < 1e-4 && (*offset - 0.0).abs() < 1e-4 && (*section_size - 60.0).abs() < 1e-4
+    ));
+    assert!(matches!(
+        &rt_grids[1],
+        LayoutGrid::Rows { count: 0, gutter, offset, section_size, alignment: LayoutGridAlign::Min, visible: true, .. }
+        if (*gutter - 16.0).abs() < 1e-4 && (*offset - 24.0).abs() < 1e-4 && (*section_size - 48.0).abs() < 1e-4
+    ));
+    assert!(matches!(
+        &rt_grids[2],
+        LayoutGrid::Grid { size, visible: false, .. } if (*size - 8.0).abs() < 1e-4
+    ));
+
+    let has_grid_style = rt.styles.values().any(|s| {
+        matches!(
+            s,
+            Style::Grid(gs)
+            if matches!(
+                gs.as_slice(),
+                [LayoutGrid::Columns { count: 0, gutter, offset, section_size, alignment: LayoutGridAlign::Max, visible: false, .. }]
+                if (*gutter - 12.0).abs() < 1e-4 && (*offset - 32.0).abs() < 1e-4 && (*section_size - 72.0).abs() < 1e-4
+            )
+        )
+    });
+    assert!(has_grid_style, "grid style must round-trip alignment, section_size, auto count, and visible=false");
+}
+
+/// Equal-width columns: aligned but with no fixed width (paint width is (400 - 80) / 5).
+fn equal_width_columns_doc() -> (Document, LayoutGrid) {
+    use designos_doc::{Color, LayoutGridAlign, Node, NodeKind, Rect};
+    let equal = LayoutGrid::Columns {
+        count: 5,
+        gutter: 20.0,
+        offset: 0.0,
+        section_size: 0.0,
+        alignment: LayoutGridAlign::Min,
+        color: Color::rgba(255, 0, 0, 26),
+        visible: true,
+    };
+    let mut doc = Document::new("GuideZero");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0));
+    frame.name = "EqualColumns".into();
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.grids = vec![equal.clone()];
+    }
+    doc.insert(page, frame).unwrap();
+    (doc, equal)
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_fig() {
+    let (doc, equal) = equal_width_columns_doc();
+    let back = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_rest() {
+    let (doc, equal) = equal_width_columns_doc();
+    let json = designos_fig::export_rest_json(&doc);
+    let back = designos_fig::import_rest_json(&json.to_string()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
 }
 
 /// Node name -> (`gridChildHorizontalAlign`, `gridChildVerticalAlign`) as written to the `.fig` message; a key that
@@ -2814,4 +3586,494 @@ fn wire_instance_override(bytes: &[u8], instance_name: &str, main_edit: Option<(
     let encoded = schema.encode_message(root, &msg).expect("encode fig message");
     let version = container::container_version(&archive.canvas).unwrap_or(106);
     (container::write_container(&schema_bytes, &encoded, Compression::Deflate, version), carried)
+}
+
+#[test]
+fn passthrough_color_struct_array_and_quoted_string_roundtrip() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "PassthroughHardeningDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "a"},
+            "type": "SLIDE",
+            "name": "SlideNode",
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 200.0, "y": 100.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
+            "slideSpeakerNotes": "\"quoted\"",
+            "keyframeValue": {
+                "value": {"colorValue": {"r": 1.0, "g": 0.0, "b": 0.0}},
+                "valueType": "COLOR"
+            },
+            "variableWidthPoints": [
+                {"position": 0.25, "ascent": 2.0, "descent": 4.0},
+                {"position": "nope"}
+            ]
+        }
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "PassthroughHardeningDoc").expect("import PassthroughHardeningDoc");
+    let bytes = export_fig(&doc).expect("export_fig PassthroughHardeningDoc");
+    let rt = import_fig(&bytes).expect("re-import PassthroughHardeningDoc");
+    let slide = find(&rt, "SlideNode");
+
+    // 1. A speaker note stored as `"quoted"` must keep its leading and trailing quotes.
+    assert_eq!(slide.fig_metadata.get("slideSpeakerNotes").map(String::as_str), Some("\"quoted\""));
+
+    // 2. A passthrough Color struct without `a` defaults `a` to 1.0 (opaque), not 0.0.
+    let kf_raw = slide.fig_metadata.get("keyframeValue").expect("keyframeValue in fig_metadata");
+    let kf_json: Value = serde_json::from_str(kf_raw).expect("parse keyframeValue JSON");
+    assert_eq!(kf_json["value"]["colorValue"]["r"].as_f64(), Some(1.0));
+    assert_eq!(kf_json["value"]["colorValue"]["a"].as_f64(), Some(1.0), "Color.a must default to 1.0 when omitted: {kf_json}");
+
+    // 3. One malformed element in an array must be skipped without dropping the valid elements.
+    let vwp_raw = slide.fig_metadata.get("variableWidthPoints").expect("variableWidthPoints kept in fig_metadata");
+    let vwp_json: Value = serde_json::from_str(vwp_raw).expect("parse variableWidthPoints JSON");
+    let arr = vwp_json.as_array().expect("variableWidthPoints array");
+    assert_eq!(arr.len(), 1, "valid element must survive when a sibling element is malformed: {arr:?}");
+    assert_eq!(arr[0]["position"].as_f64(), Some(0.25));
+    assert_eq!(arr[0]["ascent"].as_f64(), Some(2.0));
+    assert_eq!(arr[0]["descent"].as_f64(), Some(4.0));
+}
+
+#[test]
+fn per_side_stroke_weights_ignore_stale_borders_and_merge_partial_overrides() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 100.0, "y": 50.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Doc", json!({})),
+        node((1, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        // 1. strokeWeight 1, border*Weight 12, no flag -> side_weights is None.
+        node(
+            (1, 10),
+            (1, 1),
+            "!",
+            "FRAME",
+            "UniformPill",
+            json!({
+                "strokeWeight": 1.0,
+                "borderTopWeight": 12.0,
+                "borderRightWeight": 12.0,
+                "borderBottomWeight": 12.0,
+                "borderLeftWeight": 12.0
+            })
+        ),
+        // 2. flag on, only borderRightWeight 1 -> [0, 1, 0, 0] even if strokeWeight is 1.
+        node(
+            (1, 20),
+            (1, 1),
+            "\"",
+            "FRAME",
+            "RightOnlyDivider",
+            json!({
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0
+            })
+        ),
+        // 3. Component with borderStrokeWeightsIndependent: true, borderRightWeight: 1, borderBottomWeight: 1,
+        // and an instance whose override sets only borderBottomWeight: 0 on that node -> [0, 1, 0, 0].
+        node(
+            (1, 30),
+            (1, 1),
+            "#",
+            "SYMBOL",
+            "CalendarHeader",
+            json!({
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0,
+                "borderBottomWeight": 1.0
+            })
+        ),
+        node(
+            (1, 31),
+            (1, 30),
+            "!",
+            "FRAME",
+            "CellDivider",
+            json!({
+                "overrideKey": g(9, 31),
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0,
+                "borderBottomWeight": 1.0
+            })
+        ),
+        node(
+            (1, 40),
+            (1, 1),
+            "$",
+            "INSTANCE",
+            "CalendarHeaderInst",
+            json!({
+                "symbolData": {
+                    "symbolID": g(1, 30),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(9, 31)]},
+                            "borderBottomWeight": 0.0
+                        }
+                    ]
+                }
+            })
+        )
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "SideWeights515").expect("import_fig_node_changes");
+
+    let pill = find(&doc, "UniformPill");
+    assert_eq!(pill.stroke.weight, 1.0);
+    assert_eq!(pill.stroke.side_weights, None, "stale border*Weight without borderStrokeWeightsIndependent must not set side_weights");
+
+    let right_only = find(&doc, "RightOnlyDivider");
+    assert_eq!(right_only.stroke.side_weights, Some([0.0, 1.0, 0.0, 0.0]), "missing side with flag on must default to 0");
+
+    let inst = find(&doc, "CalendarHeaderInst");
+    let cell = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "CellDivider").expect("CellDivider in CalendarHeaderInst");
+    assert_eq!(cell.stroke.side_weights, Some([0.0, 1.0, 0.0, 0.0]), "partial borderBottomWeight override must preserve borderRightWeight");
+}
+
+#[test]
+fn radial_gradient_transform_imports_centred_handles_and_roundtrips() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    // 90° clockwise gradient-space transform from Untitled UI `_Background mask` (4932:396988):
+    // centered at (0.5, 0.5) with radius 0.5 in normalized node coordinates.
+    let rot90 = json!({"m00": 0.0, "m01": 1.0, "m02": 0.0, "m10": -1.0, "m11": 0.0, "m12": 1.0});
+    let stops = json!([
+        {"position": 0.0, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}},
+        {"position": 1.0, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.0}}
+    ]);
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "RadialDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "BackgroundMask",
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 200.0, "y": 100.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
+            "fillPaints": [
+                {
+                    "type": "GRADIENT_RADIAL",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                },
+                {
+                    "type": "GRADIENT_ANGULAR",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                },
+                {
+                    "type": "GRADIENT_DIAMOND",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                }
+            ]
+        }
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "RadialDoc").expect("import RadialDoc");
+    let check = |doc: &Document| {
+        let mask = find(doc, "BackgroundMask");
+        assert_eq!(mask.fills.len(), 3);
+        let expected = [Vec2::new(0.5, 0.5), Vec2::new(0.5, 1.0), Vec2::new(0.0, 0.5)];
+        for (i, fill) in mask.fills.iter().enumerate() {
+            let handles = match &fill.kind {
+                PaintKind::RadialGradient { handles, .. } | PaintKind::AngularGradient { handles, .. } | PaintKind::DiamondGradient { handles, .. } => handles,
+                other => panic!("fill {i}: expected radial/angular/diamond gradient, got {other:?}"),
+            };
+            for (h, e) in handles.iter().zip(expected.iter()) {
+                assert!((h.x - e.x).abs() < 1e-5 && (h.y - e.y).abs() < 1e-5, "fill {i}: got {handles:?}, expected {expected:?}");
+            }
+        }
+    };
+    check(&doc);
+
+    let bytes = export_fig(&doc).expect("export_fig RadialDoc");
+    let rt = import_fig(&bytes).expect("re-import RadialDoc");
+    check(&rt);
+}
+
+#[test]
+fn resized_instance_scales_rotated_vector_and_boolean_geometry_without_derived_data() {
+    let mut doc = Document::new("RotatedVecInst");
+    let page = doc.add_page("Page 1");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "IconComp".into();
+    comp.size = Vec2::new(200.0, 200.0);
+    doc.insert(page, comp).unwrap();
+
+    let vec_id = doc.alloc_id();
+    let rect_path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(100.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(100.0, 40.0)),
+            PathCmd::LineTo(Vec2::new(0.0, 40.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let net = VectorNetwork::from_paths(std::slice::from_ref(&rect_path));
+    let mut vec_node = Node::new(vec_id, NodeKind::Vector { paths: vec![rect_path.clone()], network: Some(net) });
+    vec_node.name = "RotatedGlyph".into();
+    vec_node.size = Vec2::new(100.0, 40.0);
+    vec_node.transform = Affine::rotate(30.0_f32.to_radians());
+    vec_node.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+    vec_node.fills = vec![Paint::solid(Color::BLACK)];
+    doc.insert(comp_id, vec_node).unwrap();
+
+    let bool_id = doc.alloc_id();
+    let mut bool_node = Node::new(bool_id, NodeKind::BooleanOp(BooleanOp::Union));
+    bool_node.name = "BadgeUnion".into();
+    bool_node.size = Vec2::new(100.0, 40.0);
+    bool_node.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+    bool_node.fill_geometry = Some(vec![rect_path.clone()]);
+    bool_node.fills = vec![Paint::solid(Color::BLACK)];
+    doc.insert(comp_id, bool_node).unwrap();
+
+    let inst_id = doc.alloc_id();
+    let mut inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+    inst.name = "ResizedIconInst".into();
+    inst.size = Vec2::new(300.0, 200.0);
+    inst.transform = Affine::translate(260.0, 0.0);
+    doc.insert(page, inst).unwrap();
+
+    // Export and re-import through .fig (no derivedSymbolData is written by export_fig).
+    let bytes = export_fig(&doc).expect("export_fig RotatedVecInst");
+    let imported = import_fig(&bytes).expect("import_fig RotatedVecInst");
+
+    let imp_inst = find(&imported, "ResizedIconInst");
+    let glyph = imp_inst.children.iter().filter_map(|&cid| imported.get(cid)).find(|n| n.name == "RotatedGlyph").expect("RotatedGlyph child");
+    assert!((glyph.size.x - 175.130).abs() < 1e-2, "expected glyph w≈175.130, got {}", glyph.size.x);
+    assert!((glyph.size.y - 44.266).abs() < 1e-2, "expected glyph h≈44.266, got {}", glyph.size.y);
+
+    let NodeKind::Vector { paths, .. } = &glyph.kind else { panic!("expected Vector") };
+    let max_pt = paths[0]
+        .cmds
+        .iter()
+        .filter_map(|c| match *c {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p),
+            _ => None,
+        })
+        .fold(Vec2::ZERO, |acc, p| Vec2::new(acc.x.max(p.x), acc.y.max(p.y)));
+    assert!((max_pt.x - glyph.size.x).abs() < 1e-2, "vector path max_x={} vs glyph.size.x={}", max_pt.x, glyph.size.x);
+    assert!((max_pt.y - glyph.size.y).abs() < 1e-2, "vector path max_y={} vs glyph.size.y={}", max_pt.y, glyph.size.y);
+
+    let badge = imp_inst.children.iter().filter_map(|&cid| imported.get(cid)).find(|n| n.name == "BadgeUnion").expect("BadgeUnion child");
+    assert!((badge.size.x - 200.0).abs() < 1e-2);
+    if let Some(fg) = &badge.fill_geometry {
+        let bmax = fg[0]
+            .cmds
+            .iter()
+            .filter_map(|c| match *c {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p),
+                _ => None,
+            })
+            .fold(Vec2::ZERO, |acc, p| Vec2::new(acc.x.max(p.x), acc.y.max(p.y)));
+        assert!((bmax.x - badge.size.x).abs() < 1e-2, "boolean fill_geometry max_x={} vs size.x={}", bmax.x, badge.size.x);
+    }
+}
+
+fn make_comp_node(doc: &mut Document, page: NodeId, name: &str, guid: (u32, u32), explicit_key: Option<&str>) -> NodeId {
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Component(FrameProps::default()));
+    n.name = name.into();
+    n.size = Vec2::new(40.0, 40.0);
+    n.source_id = Some(format!("{}:{}", guid.0, guid.1));
+    if let Some(k) = explicit_key {
+        n.fig_metadata.insert("componentKey".into(), k.into());
+    }
+    doc.insert(page, n).unwrap()
+}
+
+fn swap_preferred(doc: &Document, comp_name: &str, prop_name: &str) -> Vec<NodeId> {
+    let comp = find(doc, comp_name);
+    let def = comp.component.props.iter().find(|p| p.name == prop_name).expect("prop exists");
+    match &def.kind {
+        PropKind::InstanceSwap { preferred } => preferred.clone(),
+        other => panic!("expected InstanceSwap, got {other:?}"),
+    }
+}
+
+#[test]
+fn keyless_component_guid_colliding_with_explicit_key_stays_distinct() {
+    let mut doc = Document::new("CompKeyCollision");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "CompA").id;
+    let rt_b = find(&rt, "CompB").id;
+    assert_ne!(rt_a, rt_b);
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b]);
+}
+
+#[test]
+fn explicit_key_takes_precedence_over_comp_prefix_fallback() {
+    let mut doc = Document::new("CompKeyPrecedence");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("comp:1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let comp_c = make_comp_node(&mut doc, page, "CompC", (3, 4), Some("1:2"));
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b, comp_c] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "CompA").id;
+    let rt_b = find(&rt, "CompB").id;
+    let rt_c = find(&rt, "CompC").id;
+    assert_ne!(rt_a, rt_b);
+    assert_ne!(rt_b, rt_c);
+    assert_ne!(rt_a, rt_c);
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b, rt_c]);
+}
+
+fn decode_exported_message(bytes: &[u8]) -> designos_fig::kiwi::KiwiValue {
+    use designos_fig::{container, kiwi::Schema};
+    let archive = container::open(bytes).expect("open .fig container");
+    let (schema_bin, msg_bin) = container::read_archive_chunks(&archive).expect("read archive chunks");
+    let schema = Schema::decode(&schema_bin).expect("decode embedded Kiwi schema");
+    let root = schema.root_message().expect("root message");
+    schema.decode_message_for_import(root, &msg_bin).expect("decode message")
+}
+
+fn kstr<'a>(v: &'a designos_fig::kiwi::KiwiValue, field: &str) -> Option<&'a str> {
+    match v.get(field) {
+        Some(designos_fig::kiwi::KiwiValue::String(s)) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn both_fallback_call_sites_agree() {
+    use designos_fig::kiwi::KiwiValue;
+    let mut doc = Document::new("CompKeySitesAgree");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("comp:1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let comp_c = make_comp_node(&mut doc, page, "CompC", (3, 4), Some("1:2"));
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b, comp_c, host] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let msg = decode_exported_message(&bytes);
+    let changes = msg.get("nodeChanges").and_then(KiwiValue::as_array).expect("nodeChanges array");
+    let symbol_key = |name: &str| -> String {
+        changes.iter().find(|nc| kstr(nc, "name") == Some(name)).and_then(|nc| kstr(nc, "componentKey")).expect("componentKey on SYMBOL").to_string()
+    };
+    let host_nc = changes.iter().find(|nc| kstr(nc, "name") == Some("Host")).expect("Host SYMBOL");
+    let defs = host_nc.get("componentPropDefs").and_then(KiwiValue::as_array).expect("componentPropDefs");
+    let swap_vals = defs[0].get("preferredValues").and_then(|pv| pv.get("instanceSwapValues")).and_then(KiwiValue::as_array).expect("instanceSwapValues");
+    let pref_keys: Vec<String> = swap_vals.iter().map(|v| kstr(v, "key").expect("key").to_string()).collect();
+    assert_eq!(
+        pref_keys,
+        vec![symbol_key("CompA"), symbol_key("CompB"), symbol_key("CompC"), symbol_key("Host")],
+        "ExportCtx::new and encode_preferred_values must emit identical keys for every component"
+    );
+}
+
+#[test]
+fn uncollided_keyless_component_still_round_trips() {
+    use designos_fig::kiwi::KiwiValue;
+    let mut doc = Document::new("UncollidedKeyless");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "KeylessA", (5, 10), None);
+    let comp_b = make_comp_node(&mut doc, page, "KeylessB", (5, 11), None);
+    let host = make_comp_node(&mut doc, page, "Host", (5, 12), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let msg = decode_exported_message(&bytes);
+    let changes = msg.get("nodeChanges").and_then(KiwiValue::as_array).expect("nodeChanges");
+    let key_a = changes.iter().find(|nc| kstr(nc, "name") == Some("KeylessA")).and_then(|nc| kstr(nc, "componentKey")).expect("KeylessA componentKey");
+    assert_eq!(key_a, "5:10", "uncollided keyless component keeps bare s:l key");
+
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "KeylessA").id;
+    let rt_b = find(&rt, "KeylessB").id;
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b]);
+}
+
+/// A weight edit on text with a `wght` axis leaves the weight and the axis in step (700 and 700).
+/// The pair, on the base style and on a run, must survive a save and a reopen.
+#[test]
+fn bold_text_with_a_wght_axis_keeps_weight_and_axis_through_fig_export_and_import() {
+    let mut doc = Document::new("BoldAxis");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut base = TextStyle { font_family: "Inter".into(), font_size: 24.0, font_weight: 400, ..TextStyle::default() };
+    base.set_axis("wght", 400.0);
+    let mut bold = base.clone();
+    bold.font_weight = 700;
+    bold.set_axis("wght", 700.0);
+    let text = TextProps { content: "Bold word here".into(), style: base, runs: vec![TextRun { start: 0, end: 4, style: bold }], ..TextProps::default() };
+    let mut node = Node::new(id, NodeKind::Text(text));
+    node.name = "BoldAxisLabel".into();
+    node.size = Vec2::new(220.0, 32.0);
+    doc.insert(page, node).unwrap();
+
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    let NodeKind::Text(tp) = &find(&rt, "BoldAxisLabel").kind else { panic!("expected a text node") };
+    assert_eq!((tp.style.font_weight, tp.style.get_axis("wght")), (400, Some(400.0)), "base");
+    assert_eq!(tp.runs.len(), 1);
+    assert_eq!((tp.runs[0].start, tp.runs[0].end), (0, 4));
+    assert_eq!((tp.runs[0].style.font_weight, tp.runs[0].style.get_axis("wght")), (700, Some(700.0)), "bold run");
 }

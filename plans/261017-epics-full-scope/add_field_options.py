@@ -10,7 +10,7 @@ import json, subprocess, sys, time, pathlib
 
 HERE = pathlib.Path(__file__).parent
 DRY = "--dry-run" in sys.argv
-NEW_EPICS = ["E11 Prototyping", "E12 Canvas, accessibility & text", "E13 Sites & code layers", "E14 iPad / mobile"]
+NEW_EPICS = ["E11 Prototyping", "E12 Canvas, accessibility & text", "E13 Sites & code layers", "E14 iPad / mobile", "E15 AI design"]
 
 
 def gql(query, retries=30):
@@ -105,7 +105,7 @@ def main():
     snap = snapshot({"Pack", "Epic"})
     print(f"snapshot: {len(snap)} items with Pack/Epic values -> field-values-snapshot.json")
     # Any option-list update wipes item values on GitHub, even when ids are kept (verified on a scratch project).
-    update(field("Pack"), [p["title"] for p in d["packs"]], "BLUE")
+    update(field("Pack"), [p["title"] for p in d["packs"]] + ["v0.6 AI design"], "BLUE")
     update(field("Epic"), NEW_EPICS, "PURPLE")
     if DRY:
         return

@@ -204,11 +204,11 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
     let labels = label_rects(app, rect);
     for f in app.doc.flows.iter().filter(|f| f.page == app.page) {
         let Some((_, lr)) = labels.iter().find(|(id, _)| *id == f.start) else { continue };
-        let font = theme::font_small_strong();
+        let font = theme::font_canvas_strong();
         let w = widgets::text_width(&p, &f.name, &font) + 30.0;
         let r =
             ERect::from_min_size(Pos2::new(lr.left(), lr.top() - theme::PROTO_FLAG_GAP - theme::PROTO_FLAG_HEIGHT), egui::vec2(w, theme::PROTO_FLAG_HEIGHT));
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::PROTO_BLUE);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::PROTO_BLUE);
         crate::icons::paint(&p, crate::icons::Icon::Flag, Pos2::new(r.left() + 11.0, r.center().y), 12.0, Color32::WHITE);
         p.text(Pos2::new(r.left() + 21.0, r.center().y), Align2::LEFT_CENTER, &f.name, font, Color32::WHITE);
     }

@@ -52,6 +52,22 @@ fn saved_file_roundtrip_and_unsaved_changes_guard() {
 }
 
 #[test]
+fn exporting_a_fig_reports_the_comment_threads_it_leaves_out() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let none = s.call("designos_export_fig_file", json!({"output_path":"none.fig"})).unwrap();
+    assert_eq!(none["omitted_comment_threads"], 0);
+    s.call("designos_add_comment", json!({"text":"Make this bigger"})).unwrap();
+    s.call("designos_add_comment", json!({"text":"And this one"})).unwrap();
+    let two = s.call("designos_export_fig_file", json!({"output_path":"two.fig"})).unwrap();
+    assert_eq!(two["saved"], true);
+    assert_eq!(two["omitted_comment_threads"], 2);
+    // the native format keeps what the .fig could not
+    s.call("designos_save_file", json!({"path":"kept.designos"})).unwrap();
+    assert!(fs::read_to_string(dir.0.join("kept.designos")).unwrap().contains("Make this bigger"));
+}
+
+#[test]
 fn paths_and_bad_imports_cannot_replace_the_session() {
     let dir = Workspace::new();
     let outside = Workspace::new();
@@ -206,4 +222,61 @@ fn session_writes_and_exports_only_a_finished_layout() {
             assert_eq!(saved.get(leaf).unwrap().transform.tx, 590.0, "the saved file holds the finished layout, not the queued one");
         }
     }
+}
+
+fn unsaved_session(dir: &Workspace) -> Session {
+    let mut s = Session::new(&dir.0).unwrap();
+    s.call("designos_save_file", json!({"path":"first.designos"})).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+    s.call("designos_create_node", json!({"parent_id":page,"kind":"frame","name":"Unsaved"})).unwrap();
+    s
+}
+
+#[test]
+fn open_file_refuses_a_path_outside_the_workspace_before_it_looks_at_unsaved_changes() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+
+    for outside in ["/etc/passwd", "../escape.designos"] {
+        let err = s.call("designos_open_file", json!({"path": outside})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{outside}: {err}");
+        assert_eq!(err["path"], "/path", "{outside}: {err}");
+    }
+    let err = s.call("designos_open_file", json!({"path": "/etc/passwd", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{err}");
+}
+
+#[test]
+fn the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+
+    let err = s.call("designos_open_file", json!({"path": "first.designos"})).unwrap_err().to_json_value();
+
+    assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
+    assert_eq!(err["path"], "/discard_changes", "{err}");
+    let message = err["message"].as_str().unwrap();
+    let next_step = err["next_step"].as_str().unwrap();
+    for text in [message, next_step] {
+        assert!(text.contains("designos_save_file"), "names the tool that saves: {text}");
+        assert!(text.contains("discard_changes=true"), "names the parameter that exists: {text}");
+        assert!(!text.contains("force"), "no parameter that does not exist: {text}");
+        assert!(!text.contains(".designos/.designos"), "no doubled extension: {text}");
+    }
+    assert_eq!(err["corrected_example"], json!({"path": "first.designos", "discard_changes": true}), "{err}");
+
+    let new_doc = s.call("designos_new_document", json!({"name": "Fresh"})).unwrap_err().to_json_value();
+    assert_eq!(new_doc["code"], "UNSAVED_CHANGES", "{new_doc}");
+    assert!(!new_doc["next_step"].as_str().unwrap().contains("force"), "{new_doc}");
+    assert!(new_doc["next_step"].as_str().unwrap().contains("discard_changes=true"), "{new_doc}");
+}
+
+#[test]
+fn a_missing_file_inside_the_workspace_is_reported_as_missing_not_as_unsaved_changes() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+
+    let err = s.call("designos_open_file", json!({"path": "nothing-here.designos"})).unwrap_err().to_json_value();
+
+    assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
 }

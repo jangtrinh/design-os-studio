@@ -28,6 +28,10 @@ pub enum Intent {
     OpenDevLink(String),
     Shortcuts,
     About,
+    /// The file of the open document changed on disk while it has unsaved edits: use the file, or keep mine.
+    DiskChanged,
+    /// A document with edits no save has written is about to be closed or replaced: Save, Don't save or Cancel.
+    SaveChanges,
 }
 
 /// One row of the project picker: a project or one of its folders.
@@ -53,6 +57,11 @@ pub struct Dialog {
     pub danger: bool,
     /// No Cancel button (information only).
     pub info: bool,
+    /// The label of the safe answer, shown where Cancel would be. Enter and Escape give it, so only a click
+    /// on the main button does the thing that cannot be undone.
+    pub safe_label: Option<String>,
+    /// A third answer, between Cancel and the main button.
+    pub alt_label: Option<String>,
     fresh: bool,
     scroll: f32,
 }
@@ -75,6 +84,8 @@ impl Dialog {
             ok: ok.into(),
             danger: false,
             info: false,
+            safe_label: None,
+            alt_label: None,
             fresh: true,
             scroll: 0.0,
         }
@@ -86,6 +97,26 @@ impl Dialog {
 
     pub fn confirm(intent: Intent, title: &str, body: &[&str], ok: &str) -> Self {
         Self { lines: body.iter().map(|l| (l.to_string(), String::new())).collect(), ..Self::base(intent, title, ok) }
+    }
+
+    /// A document outside the library has edits no save has written, and an action would drop them. Enter means Save
+    /// (the default button: saving loses nothing); Esc and a click outside mean Cancel; only a click on Don't save
+    /// drops the edits.
+    pub fn save_changes(name: &str) -> Self {
+        let name = if name.chars().count() > 28 { format!("{}\u{2026}", name.chars().take(27).collect::<String>()) } else { name.to_string() };
+        Self {
+            alt_label: Some("Don't save".into()),
+            ..Self::confirm(Intent::SaveChanges, &format!("Save changes to {name}?"), &["Your changes are lost if you don't save."], "Save")
+        }
+    }
+
+    /// The open document's file changed on disk under unsaved edits.
+    pub fn disk_changed() -> Self {
+        Self {
+            danger: true,
+            safe_label: Some("Keep mine".into()),
+            ..Self::confirm(Intent::DiskChanged, "File changed on disk", &["Another program changed this file.", "Use file replaces your edits."], "Use file")
+        }
     }
 
     pub fn info(intent: Intent, title: &str, lines: Vec<(String, String)>) -> Self {
@@ -159,10 +190,13 @@ impl App {
             ("Ctrl+D", "Duplicate"),
             ("Ctrl+G / Ctrl+Shift+G", "Group / ungroup"),
             ("Shift+A", "Add auto layout"),
+            ("Shift+D", "Toggle dev mode"),
             ("Shift+1 / Shift+2", "Zoom to fit / selection"),
             ("Shift+0", "Zoom to 100%"),
             ("Ctrl+\\", "Show or hide the UI"),
             ("Ctrl+Alt+Enter", "Present"),
+            (crate::agent_a11y::FOCUS_SHORTCUT_LABEL, crate::agent_a11y::FOCUS_SHORTCUT_ACTION),
+            ("Undo / Redo work while an agent terminal has focus (macOS; Windows and Linux for agent tabs)", ""),
         ];
         let lines = rows.iter().map(|(k, a)| (k.to_string(), a.to_string())).collect();
         self.dialog = Some(Dialog::info(Intent::Shortcuts, "Keyboard shortcuts", lines));
@@ -215,8 +249,9 @@ pub fn show(app: &mut App, ctx: &Context) {
     h += BTN_H + PAD;
     let rect = Rect::from_center_size(screen.center() - Vec2::new(0.0, 24.0), Vec2::new(W, h));
 
-    let mut submit = enter && d.can_submit();
-    let mut cancel = esc;
+    let mut submit = enter && d.can_submit() && d.safe_label.is_none();
+    let mut cancel = esc || (enter && d.safe_label.is_some());
+    let mut alt = false;
     egui::Area::new(Id::new("dialog")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
@@ -224,11 +259,12 @@ pub fn show(app: &mut App, ctx: &Context) {
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(Pos2::ZERO)) {
             cancel = true;
         }
-        menu_panel(&p, rect, theme::MENU_RADIUS);
+        menu_panel(&p, rect, theme::RADIUS_FRAME);
         let x0 = rect.left() + PAD;
         let mut y = rect.top() + PAD;
         p.text(Pos2::new(x0, y + 12.0), Align2::LEFT_CENTER, &d.title, theme::font_large_strong(), theme::TEXT);
         y += 24.0 + 12.0;
+        let key_font = if matches!(d.intent, Intent::Shortcuts) { theme::font_mono() } else { font.clone() };
         for (a, b) in &d.lines {
             if b.is_empty() {
                 let galley = p.layout(a.clone(), font.clone(), theme::TEXT_SECONDARY, text_w);
@@ -236,14 +272,14 @@ pub fn show(app: &mut App, ctx: &Context) {
                 p.galley(Pos2::new(x0, y), galley, theme::TEXT_SECONDARY);
                 y += hh + 8.0;
             } else {
-                p.text(Pos2::new(x0, y + 11.0), Align2::LEFT_CENTER, a, font.clone(), theme::TEXT);
+                p.text(Pos2::new(x0, y + 11.0), Align2::LEFT_CENTER, a, key_font.clone(), theme::TEXT);
                 p.text(Pos2::new(x0 + 190.0, y + 11.0), Align2::LEFT_CENTER, b, font.clone(), theme::TEXT_SECONDARY);
                 y += 22.0;
             }
         }
         if let Some(text) = d.input.as_mut() {
             let r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, 32.0));
-            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             let id = Id::new("dialog-input");
             let te = egui::TextEdit::singleline(text)
                 .id(id)
@@ -267,7 +303,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         }
         if !d.choices.is_empty() {
             let list = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, visible_choices as f32 * ROW_H));
-            p.rect_filled(list, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(list, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             let content = d.choices.len() as f32 * ROW_H;
             crate::panels::wheel_scroll(ui, list, &mut d.scroll, content);
             let scroll = d.scroll;
@@ -282,9 +318,9 @@ pub fn show(app: &mut App, ctx: &Context) {
                     }
                     let r = ui.interact(row, Id::new(("dialog-choice", i)), Sense::click());
                     if picked == Some(i) {
-                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_BRAND);
+                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
                     } else if r.hovered() {
-                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     let ix = row.left() + 12.0 + c.depth as f32 * 16.0;
                     crate::icons::paint(
@@ -325,18 +361,32 @@ pub fn show(app: &mut App, ctx: &Context) {
         } else {
             base
         };
-        p.rect_filled(ok_r, theme::cr(theme::RADIUS_MEDIUM), bg);
+        p.rect_filled(ok_r, theme::cr_pill(ok_r.height()), bg);
         p.text(ok_r.center(), Align2::CENTER_CENTER, &d.ok, theme::font_body_strong(), if enabled { Color32::WHITE } else { theme::TEXT_DISABLED });
         widgets::record(ui, "dialog-ok", ok_r);
         if resp.clicked() {
             submit = true;
         }
+        let mut left_of = ok_r.left();
+        if let Some(alt_label) = d.alt_label.as_deref() {
+            let aw = widgets::text_width(&p, alt_label, &font) + 32.0;
+            let ar = Rect::from_min_size(Pos2::new(left_of - 8.0 - aw, y), Vec2::new(aw, BTN_H));
+            let aresp = ui.interact(ar, Id::new("dialog-alt"), Sense::click());
+            widgets::button_bg(&p, ar, &aresp, false, theme::cr(theme::RADIUS_CONTROL));
+            p.text(ar.center(), Align2::CENTER_CENTER, alt_label, font.clone(), theme::TEXT);
+            widgets::record(ui, "dialog-alt", ar);
+            if aresp.clicked() {
+                alt = true;
+            }
+            left_of = ar.left();
+        }
         if !d.info {
-            let cw = widgets::text_width(&p, "Cancel", &font) + 32.0;
-            let cr = Rect::from_min_size(Pos2::new(ok_r.left() - 8.0 - cw, y), Vec2::new(cw, BTN_H));
+            let cancel_label = d.safe_label.as_deref().unwrap_or("Cancel");
+            let cw = widgets::text_width(&p, cancel_label, &font) + 32.0;
+            let cr = Rect::from_min_size(Pos2::new(left_of - 8.0 - cw, y), Vec2::new(cw, BTN_H));
             let cresp = ui.interact(cr, Id::new("dialog-cancel"), Sense::click());
-            widgets::button_bg(&p, cr, &cresp, false, theme::cr(theme::RADIUS_MEDIUM));
-            p.text(cr.center(), Align2::CENTER_CENTER, "Cancel", font.clone(), theme::TEXT);
+            widgets::button_bg(&p, cr, &cresp, false, theme::cr(theme::RADIUS_CONTROL));
+            p.text(cr.center(), Align2::CENTER_CENTER, cancel_label, font.clone(), theme::TEXT);
             widgets::record(ui, "dialog-cancel", cr);
             if cresp.clicked() {
                 cancel = true;
@@ -344,6 +394,23 @@ pub fn show(app: &mut App, ctx: &Context) {
         }
     });
 
+    if d.intent == Intent::SaveChanges {
+        // Three answers; the question is answered by exactly one of them, and Cancel is the quiet default.
+        let answer = if alt {
+            Some(super::leave::Answer::DontSave)
+        } else if cancel {
+            Some(super::leave::Answer::Cancel)
+        } else if submit {
+            Some(super::leave::Answer::Save)
+        } else {
+            None
+        };
+        match answer {
+            Some(a) => app.answer_save_changes(ctx, a),
+            None => app.dialog = Some(d),
+        }
+        return;
+    }
     if d.info && (submit || cancel) {
         return;
     }
@@ -351,7 +418,11 @@ pub fn show(app: &mut App, ctx: &Context) {
         return;
     }
     if submit && d.can_submit() {
-        finish(app, d);
+        if d.intent == Intent::DiskChanged {
+            app.use_disk_version(ctx);
+        } else {
+            finish(app, d);
+        }
         return;
     }
     app.dialog = Some(d);
@@ -414,7 +485,13 @@ pub fn finish(app: &mut App, d: Dialog) {
             }
             Ok(())
         }
-        Intent::Shortcuts | Intent::About | Intent::AuthorName | Intent::NameVersion(_) | Intent::OpenDevLink(_) => {
+        Intent::Shortcuts
+        | Intent::About
+        | Intent::AuthorName
+        | Intent::NameVersion(_)
+        | Intent::OpenDevLink(_)
+        | Intent::DiskChanged
+        | Intent::SaveChanges => {
             dirty = false;
             Ok(())
         }

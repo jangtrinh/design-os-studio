@@ -226,7 +226,8 @@ pub struct SlotPropConfig {
     /// `stretchChildOnInsert`: inserted content stretches to the slot's width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stretch_child_on_insert: Option<bool>,
-    /// `displayByDefault`: the slot shows its content before anything is inserted.
+    /// `displayByDefault`: Figma's `displayEmptyByDefault` in `SlotSettings`. When set, empty instances of
+    /// the slot keep the slot highlight visible ("Show empty by default").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_by_default: Option<bool>,
     /// `minChildren`.
@@ -241,6 +242,9 @@ pub struct SlotPropConfig {
     /// Components offered for this slot (`preferredValues`), as local node ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred: Vec<NodeId>,
+    /// Unmapped keys from `slotPropConfig` preserved across REST import and native JSON save/load.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -267,10 +271,15 @@ pub struct ComponentLink {
     /// The node is content placed in a slot (`isSlotContent`, tag=495).
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_slot_content: bool,
-    /// Guid (`session:local`) a node carries as `slot-content-id`. Kept opaque: it names
-    /// slot content that need not be a node of this document.
+    /// Guid (`session:local`) a node carries as its own `slot-content-id` (`jsonSerialized`).
+    /// Kept opaque: it names slot content that need not be a node of this document. It is not a
+    /// per-property value and is never derived from or turned into `slot_content_ids`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot_content_id: Option<String>,
+    /// Per-property slot content guid (`session:local`), keyed by slot property name. Read from
+    /// the `SLOT_CONTENT_ID` value of a property definition or assignment, and only from there.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slot_content_ids: BTreeMap<String, String>,
     /// Binds a node property to a component property, e.g.
     /// `Visible -> "Show icon"`, `Characters -> "Label"`, `MainComponent -> "Icon"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -290,6 +299,19 @@ pub struct ComponentLink {
     /// Detached symbol provenance (`detachedSymbolId`, tag=342).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_symbol_id: Option<String>,
+    /// Which axes (`[horizontal, vertical]`) of [`LayoutChild::grid_align_h`] / [`LayoutChild::grid_align_v`]
+    /// are overridden on this instance node, tracked independently so a margin/span/sizing `Layout`
+    /// override does not freeze unoverridden grid alignment axes during component sync.
+    #[serde(default, skip_serializing_if = "is_false_pair")]
+    pub grid_align_overrides: [bool; 2],
+    /// The node's auto layout was removed on purpose (`stackMode: NONE`), so it must not inherit the
+    /// layout of its main component. A node that merely lacks auto layout does not set it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub layout_cleared: bool,
+}
+
+fn is_false_pair(pair: &[bool; 2]) -> bool {
+    *pair == [false, false]
 }
 
 impl ComponentLink {
@@ -302,12 +324,15 @@ impl ComponentLink {
             && !self.is_slot
             && !self.is_slot_content
             && self.slot_content_id.is_none()
+            && self.slot_content_ids.is_empty()
             && self.bindings.is_empty()
             && self.description.is_empty()
             && !self.expose_nested_instances
             && self.variant_props.is_empty()
             && self.override_level.is_none()
             && self.detached_symbol_id.is_none()
+            && self.grid_align_overrides == [false, false]
+            && !self.layout_cleared
     }
 }
 
@@ -392,6 +417,36 @@ impl Node {
     pub fn local_bounds(&self) -> Rect {
         Rect::new(0.0, 0.0, self.size.x, self.size.y)
     }
+
+    /// Children in bottom-to-top paint order: reversed when an auto-layout
+    /// frame sets `reverse_z` ("First on top"), otherwise `self.children`.
+    pub fn paint_children(&self) -> std::borrow::Cow<'_, [NodeId]> {
+        if self.paints_children_reversed() && self.children.len() > 1 {
+            std::borrow::Cow::Owned(self.children.iter().copied().rev().collect())
+        } else {
+            std::borrow::Cow::Borrowed(&self.children)
+        }
+    }
+
+    /// True when `children` is stored top-to-bottom instead of bottom-to-top:
+    /// an auto-layout frame with `reverse_z` ("First on top").
+    pub fn paints_children_reversed(&self) -> bool {
+        self.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|al| al.reverse_z)
+    }
+
+    /// Children in top-most-first order (the reverse of [`Node::paint_children`]),
+    /// for picking. Allocation-free.
+    pub fn children_front_to_back(&self) -> impl Iterator<Item = &NodeId> + '_ {
+        front_to_back(&self.children, self.paints_children_reversed())
+    }
+}
+
+/// Iterates `ids` (a child list stored in document order) from the top-most
+/// paint position down. `reversed` is [`Node::paints_children_reversed`]; pass
+/// `false` for a candidate list that is already in document order.
+pub fn front_to_back(ids: &[NodeId], reversed: bool) -> impl Iterator<Item = &NodeId> + '_ {
+    let (stored, flipped): (&[NodeId], &[NodeId]) = if reversed { (ids, &[]) } else { (&[], ids) };
+    stored.iter().chain(flipped.iter().rev())
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -937,6 +992,40 @@ pub enum GridChildAlign {
     Auto,
 }
 
+impl GridChildAlign {
+    /// Parses a Figma `GridChildAlign` enum name (`MIN` -> `Start`, `CENTER` -> `Center`,
+    /// `MAX` / `END` -> `End`, `AUTO` -> `Auto`).
+    pub fn from_figma_name(s: &str) -> Option<Self> {
+        match s {
+            "MIN" => Some(Self::Start),
+            "CENTER" => Some(Self::Center),
+            "MAX" | "END" => Some(Self::End),
+            "AUTO" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
+
+impl Node {
+    /// Migrates `gridChildHorizontalAlign` and `gridChildVerticalAlign` stored in `fig_metadata`
+    /// by earlier `.designos` files (between #461 and #479) onto `layout_child.grid_align_h/v` and
+    /// removes the migrated keys from `fig_metadata`.
+    pub fn migrate_grid_child_align_metadata(&mut self) {
+        if let Some(a) = self.fig_metadata.get("gridChildHorizontalAlign").and_then(|s| GridChildAlign::from_figma_name(s)) {
+            if self.layout_child.grid_align_h == GridChildAlign::Start {
+                self.layout_child.grid_align_h = a;
+            }
+            self.fig_metadata.remove("gridChildHorizontalAlign");
+        }
+        if let Some(a) = self.fig_metadata.get("gridChildVerticalAlign").and_then(|s| GridChildAlign::from_figma_name(s)) {
+            if self.layout_child.grid_align_v == GridChildAlign::Start {
+                self.layout_child.grid_align_v = a;
+            }
+            self.fig_metadata.remove("gridChildVerticalAlign");
+        }
+    }
+}
+
 fn is_default_grid_child_align(a: &GridChildAlign) -> bool {
     *a == GridChildAlign::Start
 }
@@ -955,6 +1044,24 @@ pub enum AlignSelf {
 
 fn is_default_align_self(a: &AlignSelf) -> bool {
     *a == AlignSelf::default()
+}
+
+/// Persisted record of `(natural_size, solved_size)` along an axis that was last stretched by the
+/// auto-layout solver, plus the last parent primary axis when duplicate stretch signals exist.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StretchedAxes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<(f32, f32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<(f32, f32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_parent_horiz: Option<bool>,
+}
+
+impl StretchedAxes {
+    pub fn is_empty(&self) -> bool {
+        self.w.is_none() && self.h.is_none() && self.last_parent_horiz.is_none()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -984,6 +1091,10 @@ pub struct LayoutChild {
     /// Per-child margins `[top, right, bottom, left]` in an auto-layout parent (`stackChildMarginTop/Right/Bottom/Left`, Kiwi 606..609).
     #[serde(default, skip_serializing_if = "is_zero_radii")]
     pub margin: [f32; 4],
+    /// Pre-stretch and solved dimensions so all-stretching lines can shrink back when a
+    /// sibling shrinks or is edited, including across save/reopen and direction flips.
+    #[serde(default, skip_serializing_if = "StretchedAxes::is_empty")]
+    pub stretched: StretchedAxes,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

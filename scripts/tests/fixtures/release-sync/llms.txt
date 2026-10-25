@@ -1,0 +1,1 @@
+- **Release packages**: macOS .dmg and Windows .zip, no version here.

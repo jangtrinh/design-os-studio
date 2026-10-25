@@ -291,7 +291,7 @@ struct Outcome {
 }
 
 fn paint_thumb(p: &egui::Painter, thumbs: &mut Thumbs, ctx: &Context, doc: &Document, e: &AssetEntry, boxr: Rect, now: f64) {
-    p.rect_filled(boxr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(boxr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let inner = boxr.shrink(4.0);
     match thumbs.get(ctx, doc, e.id, inner.size(), now) {
         Some((tex, size)) => {
@@ -300,7 +300,7 @@ fn paint_thumb(p: &egui::Painter, thumbs: &mut Thumbs, ctx: &Context, doc: &Docu
         }
         None => icons::paint(p, Icon::Component, boxr.center(), 16.0, theme::CANVAS_COMPONENT),
     }
-    p.rect_stroke(boxr, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_TRANSLUCENT), StrokeKind::Inside);
+    p.rect_stroke(boxr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_TRANSLUCENT), StrokeKind::Inside);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -318,17 +318,17 @@ fn list_item(
 ) {
     let r = ui.interact(row, ui.id().with(("asset", src, e.id.0)), Sense::click_and_drag());
     widgets::record(ui, &format!("asset:{}", e.name), row);
-    let inset = row.shrink2(Vec2::new(8.0, 0.0));
+    let inset = row.shrink2(Vec2::new(theme::INSET_FRAME, 0.0));
     if r.hovered() || dragging {
-        p.rect_filled(inset, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(inset, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
-    let boxr = Rect::from_min_size(Pos2::new(inset.left() + 4.0, row.center().y - THUMB / 2.0), Vec2::splat(THUMB));
+    let boxr = Rect::from_min_size(Pos2::new(inset.left() + theme::INSET_CONTROL, row.center().y - THUMB / 2.0), Vec2::splat(THUMB));
     if row.intersects(ui.clip_rect()) {
         paint_thumb(p, thumbs, ui.ctx(), doc, e, boxr, now);
     }
     let label = if e.variants > 0 { format!("{} ({})", e.name, e.variants) } else { e.name.clone() };
     let s = widgets::elide(p, &label, &theme::font_body(), inset.right() - boxr.right() - 20.0);
-    p.text(Pos2::new(boxr.right() + 12.0, row.center().y), Align2::LEFT_CENTER, s, theme::font_body(), theme::TEXT);
+    p.text(Pos2::new(boxr.right() + theme::SPACE_GROUP, row.center().y), Align2::LEFT_CENTER, s, theme::font_body(), theme::TEXT);
     row_events(&r, e, src, out);
 }
 
@@ -362,23 +362,23 @@ fn grid_cell(
     let preview = Rect::from_min_size(cell.min, Vec2::new(cell.width(), GRID_PREVIEW_H));
     widgets::record(ui, &format!("asset:{}", e.name), preview);
     if r.hovered() || dragging {
-        p.rect_filled(cell.expand(2.0), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(cell.expand(2.0), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     if cell.intersects(ui.clip_rect()) {
         paint_thumb(p, thumbs, ui.ctx(), doc, e, preview, now);
         if e.variants > 0 {
             let badge_txt = format!("{}", e.variants);
-            let bfont = theme::font_small_strong();
+            let bfont = theme::font_caption_strong();
             let bw = (widgets::text_width(p, &badge_txt, &bfont) + 20.0).max(26.0);
             let badge_r = Rect::from_min_size(Pos2::new(preview.right() - bw - 4.0, preview.top() + 4.0), Vec2::new(bw, 16.0));
-            p.rect_filled(badge_r, theme::cr(8), theme::CANVAS_COMPONENT);
+            p.rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::CANVAS_COMPONENT);
             icons::paint(p, Icon::Component, Pos2::new(badge_r.left() + 8.0, badge_r.center().y), 10.0, Color32::WHITE);
             p.text(Pos2::new(badge_r.left() + 15.0, badge_r.center().y), Align2::LEFT_CENTER, badge_txt, bfont, Color32::WHITE);
         }
     }
     let label = if e.variants > 0 { format!("{} ({})", e.name, e.variants) } else { e.name.clone() };
-    let s = widgets::elide(p, &label, &theme::font_small(), cell.width() - 4.0);
-    p.text(Pos2::new(cell.left() + 2.0, preview.bottom() + GRID_LABEL_H / 2.0), Align2::LEFT_CENTER, s, theme::font_small(), theme::TEXT_SECONDARY);
+    let s = widgets::elide(p, &label, &theme::font_caption(), cell.width() - 4.0);
+    p.text(Pos2::new(cell.left() + 2.0, preview.bottom() + GRID_LABEL_H / 2.0), Align2::LEFT_CENTER, s, theme::font_caption(), theme::TEXT_SECONDARY);
     row_events(&r, e, src, out);
 }
 
@@ -388,7 +388,7 @@ fn view_toggle(ui: &mut Ui, at: Pos2, grid: &mut bool) {
         let rect = Rect::from_min_size(Pos2::new(at.x + i as f32 * (VIEW_BTN + 2.0), at.y), Vec2::splat(VIEW_BTN));
         let r = ui.interact(rect, ui.id().with(("assets-view", is_grid)), Sense::click());
         let selected = *grid == is_grid;
-        widgets::button_bg(ui.painter(), rect, &r, selected, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(ui.painter(), rect, &r, selected, theme::cr(theme::RADIUS_CONTROL));
         widgets::record(ui, if is_grid { "assets-view-grid" } else { "assets-view-list" }, rect);
         let col = if selected {
             theme::ICON_SELECTED
@@ -410,7 +410,13 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let p = ui.painter().clone();
     // ---- 1. Figma UI3 40px Header Row: "Assets" + Libraries book icon button
     let hdr_h = SEARCH_H;
-    p.text(Pos2::new(region.left() + 12.0, region.top() + hdr_h * 0.5), Align2::LEFT_CENTER, "Assets", theme::font_large_strong(), Color32::WHITE);
+    p.text(
+        Pos2::new(region.left() + theme::INSET_PANEL, region.top() + hdr_h * 0.5),
+        Align2::LEFT_CENTER,
+        "Assets",
+        theme::font_large_strong(),
+        Color32::WHITE,
+    );
     let libs_btn = Rect::from_min_size(Pos2::new(region.right() - 8.0 - VIEW_BTN, region.top() + (hdr_h - VIEW_BTN) * 0.5), Vec2::splat(VIEW_BTN));
     widgets::record(ui, "assets-libraries", libs_btn);
     if widgets::icon_button(ui, libs_btn, "assets-libraries", Icon::BookOpen, app.libs.open, "Libraries").clicked() {
@@ -419,12 +425,15 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     widgets::hline(&p, region.left(), region.right(), region.top() + hdr_h, theme::BORDER);
 
     // ---- 2. Search Bar Row: "Search all libraries" (#0D99FF 1px border) + Filter/Sliders + View Toggle
-    let search_y = region.top() + hdr_h + 8.0;
+    let search_y = region.top() + hdr_h + theme::SPACE_INLINE;
     let toggle_w = VIEW_BTN * 2.0 + 2.0;
     let filter_btn_w = VIEW_BTN + 4.0;
-    let sr = Rect::from_min_size(Pos2::new(region.left() + 8.0, search_y), Vec2::new((region.width() - 16.0 - filter_btn_w - toggle_w - 4.0).max(80.0), 28.0));
-    p.rect_filled(sr, theme::cr(6), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    p.rect_stroke(sr, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
+    let sr = Rect::from_min_size(
+        Pos2::new(region.left() + theme::INSET_PANEL, search_y),
+        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL - filter_btn_w - toggle_w - theme::SPACE_FACT).max(80.0), theme::CONTROL_STANDARD),
+    );
+    p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+    p.rect_stroke(sr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
     icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 14.0, theme::ICON_SECONDARY);
     let mut q = std::mem::take(&mut app.assets.query);
     let te = TextEdit::singleline(&mut q)
@@ -461,17 +470,17 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 
     // ---- 3. UI3 Category Filter Pills: All | Local | Used in file
     let pill_y = search_y + 34.0;
-    let mut pill_x = region.left() + 8.0;
+    let mut pill_x = region.left() + theme::INSET_PANEL;
     for (idx, label) in [(0u8, "All"), (1u8, "Local"), (2u8, "Used in file")] {
-        let pfont = if cat == idx { theme::font_small_strong() } else { theme::font_small() };
+        let pfont = if cat == idx { theme::font_caption_strong() } else { theme::font_caption() };
         let pw = widgets::text_width(&p, label, &pfont) + 14.0;
         let pr = Rect::from_min_size(Pos2::new(pill_x, pill_y), Vec2::new(pw, 20.0));
         widgets::record(ui, &format!("assets-filter:{label}"), pr);
         let presp = ui.interact(pr, ui.id().with(("assets-cat", idx)), Sense::click());
         if cat == idx {
-            p.rect_filled(pr, theme::cr(10), theme::BG_SECONDARY);
+            p.rect_filled(pr, theme::cr_pill(pr.height()), theme::BG_SECONDARY);
         } else if presp.hovered() {
-            p.rect_filled(pr, theme::cr(10), theme::BG_HOVER);
+            p.rect_filled(pr, theme::cr_pill(pr.height()), theme::BG_HOVER);
         }
         p.text(pr.center(), Align2::CENTER_CENTER, label, pfont, if cat == idx { theme::TEXT } else { theme::TEXT_SECONDARY });
         if presp.clicked() && cat != idx {
@@ -484,7 +493,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 
     // ---- 4. "All libraries" section + vertical "Created in this file" card + "Add more libraries" button
     let sec_top = pill_y + 26.0;
-    p.text(Pos2::new(region.left() + 12.0, sec_top + 8.0), Align2::LEFT_CENTER, "All libraries", theme::font_body_strong(), Color32::WHITE);
+    p.text(Pos2::new(region.left() + theme::INSET_PANEL, sec_top + 8.0), Align2::LEFT_CENTER, "All libraries", theme::font_body_strong(), Color32::WHITE);
 
     type AssetsDocCacheVal = (Vec<AssetEntry>, Vec<AssetEntry>, usize, std::collections::HashSet<NodeId>);
     type AssetsDocCacheEntry = ((u64, u64, usize, u8), AssetsDocCacheVal);
@@ -519,20 +528,27 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         *cache.borrow_mut() = Some((assets_key, val.clone()));
         val
     });
-    let card_r = Rect::from_min_size(Pos2::new(region.left() + 12.0, sec_top + 22.0), Vec2::new((region.width() - 24.0).max(80.0), 86.0));
+    let card_r = Rect::from_min_size(
+        Pos2::new(region.left() + theme::INSET_PANEL, sec_top + 22.0),
+        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL).max(80.0), 86.0),
+    );
     widgets::record(ui, "assets-created-in-file", card_r);
     widgets::record(ui, "assets-created-in-file-card", card_r);
     let card_resp = ui.interact(card_r, ui.id().with("assets-created-in-file-card"), Sense::click());
     let preview_r = Rect::from_min_size(card_r.min, Vec2::new(card_r.width(), 52.0));
-    p.rect_filled(preview_r, theme::cr(8), if card_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) });
-    p.rect_stroke(preview_r, theme::cr(8), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+    p.rect_filled(
+        preview_r,
+        theme::cr(theme::RADIUS_CONTROL),
+        if card_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) },
+    );
+    p.rect_stroke(preview_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
     icons::paint(&p, Icon::Component, preview_r.center(), 18.0, Color32::from_rgb(0x8C, 0x8C, 0x8C));
     p.text(Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 11.0), Align2::LEFT_CENTER, "Created in this file", theme::font_body_strong(), Color32::WHITE);
     p.text(
         Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 26.0),
         Align2::LEFT_CENTER,
         format!("{real_count} component{}", if real_count == 1 { "" } else { "s" }),
-        theme::font_small(),
+        theme::font_caption(),
         Color32::from_rgb(0x8C, 0x8C, 0x8C),
     );
     if card_resp.on_hover_text("Filter to local components & focus first component").clicked() {
@@ -545,11 +561,18 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         }
     }
 
-    let add_libs_r = Rect::from_min_size(Pos2::new(region.left() + 12.0, card_r.bottom() + 6.0), Vec2::new((region.width() - 24.0).max(80.0), 28.0));
+    let add_libs_r = Rect::from_min_size(
+        Pos2::new(region.left() + theme::INSET_PANEL, card_r.bottom() + 6.0),
+        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL).max(80.0), theme::CONTROL_STANDARD),
+    );
     widgets::record(ui, "assets-add-more-libraries", add_libs_r);
     let add_libs_resp = ui.interact(add_libs_r, ui.id().with("assets-add-more-libs"), Sense::click());
-    p.rect_filled(add_libs_r, theme::cr(6), if add_libs_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) });
-    p.rect_stroke(add_libs_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+    p.rect_filled(
+        add_libs_r,
+        theme::cr(theme::RADIUS_CONTROL),
+        if add_libs_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) },
+    );
+    p.rect_stroke(add_libs_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
     p.text(add_libs_r.center(), Align2::CENTER_CENTER, "Add more libraries", theme::font_body_strong(), Color32::WHITE);
     if add_libs_resp.clicked() {
         app.open_libraries();
@@ -579,7 +602,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     }
     let shown: Vec<usize> =
         filtered(&entries, &app.assets.query).into_iter().filter(|&i| cat != 2 || (srcs[i].is_none() && used_components.contains(&entries[i].id))).collect();
-    let cols = app.assets.grid.then(|| grid_cols(list.width() - 16.0));
+    let cols = app.assets.grid.then(|| grid_cols(list.width() - 2.0 * theme::INSET_PANEL));
     let ls = lines(&entries, &shown, cols);
     let content_h: f32 = ls.iter().map(line_h).sum::<f32>() + 8.0;
     let mut scroll = app.assets.scroll;
@@ -591,7 +614,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             Pos2::new(list.center().x, list.top() + 38.0),
             Align2::CENTER_CENTER,
             "Select a frame and press Ctrl+Alt+K",
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
         );
     } else if shown.is_empty() {
@@ -651,10 +674,10 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     }
                     Line::Cells(ix) => {
                         let n = cols.unwrap_or(1) as f32;
-                        let cw = (list.width() - 16.0 - GRID_GAP * (n - 1.0)) / n;
+                        let cw = (list.width() - 2.0 * theme::INSET_PANEL - GRID_GAP * (n - 1.0)) / n;
                         for (k, i) in ix.iter().enumerate() {
                             let cell = Rect::from_min_size(
-                                Pos2::new(list.left() + 8.0 + k as f32 * (cw + GRID_GAP), row.top()),
+                                Pos2::new(list.left() + theme::INSET_PANEL + k as f32 * (cw + GRID_GAP), row.top()),
                                 Vec2::new(cw, GRID_PREVIEW_H + GRID_LABEL_H),
                             );
                             let src = srcs[*i];
@@ -732,7 +755,7 @@ fn drag(app: &mut App, ui: &mut Ui) {
             let font = theme::font_body();
             let w = widgets::text_width(&p, &name, &font) + 24.0;
             let r = Rect::from_min_size(pos + Vec2::new(12.0, 12.0), Vec2::new(w, 24.0));
-            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_MENU);
+            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU);
             p.text(r.center(), Align2::CENTER_CENTER, &name, font, Color32::WHITE);
         }
     }

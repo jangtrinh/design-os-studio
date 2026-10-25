@@ -6,6 +6,7 @@
 //! fields are ignored.
 
 use crate::container::{self, Archive};
+use crate::fig_export::{CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY};
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::svgpath::write_path;
@@ -17,6 +18,31 @@ use std::collections::{HashMap, HashSet};
 struct Decoded {
     archive: Archive,
     message: KiwiValue,
+    /// Written by Studio's own old exporter: its schema numbers `Message.nodeChanges` 1 (Figma's id is 4) and its
+    /// `StrokeCap` has no `CIRCLE_FILLED`.
+    studio_connector_caps: bool,
+}
+
+/// Studio's own export used to write a circle cap as `ROUND` and a diamond cap as `SQUARE`. Figma's `ROUND` and
+/// `SQUARE` are plain stroke ends, so they are read as circle and diamond only in a file that carries Studio's own
+/// old schema.
+fn remap_studio_connector_caps(change: &mut KiwiValue) {
+    let KiwiValue::Message(fields) = change else { return };
+    if !fields.iter().any(|(k, v)| &**k == "type" && matches!(v, KiwiValue::Enum(t) if &**t == "CONNECTOR")) {
+        return;
+    }
+    for (name, value) in fields.iter_mut() {
+        if !matches!(&**name, "connectorStartCap" | "connectorEndCap" | "connectorStartStrokeCap" | "connectorEndStrokeCap") {
+            continue;
+        }
+        if let KiwiValue::Enum(cap) = value {
+            match &**cap {
+                "ROUND" => *cap = "CIRCLE_FILLED".into(),
+                "SQUARE" => *cap = "DIAMOND_FILLED".into(),
+                _ => {}
+            }
+        }
+    }
 }
 
 #[inline]
@@ -40,7 +66,9 @@ fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
     let message = if for_import { schema.decode_message_for_import(root, &msg_bin) } else { schema.decode_message(root, &msg_bin) }
         .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
     drop(msg_bin);
-    Ok(Decoded { archive, message })
+    let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
+    let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
+    Ok(Decoded { archive, message, studio_connector_caps })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -59,6 +87,63 @@ pub fn decode_fig_to_json(bytes: &[u8]) -> Result<Value, FigError> {
     Ok(Value::Object(out))
 }
 
+/// Pre-decoded `derivedSymbolData` entry and instance scale metadata for corpus verification.
+#[derive(Debug, Clone)]
+pub struct FigDerivedSymbolEntry {
+    pub path: Vec<String>,
+    pub size: Option<Vec2>,
+    pub transform: Option<Affine>,
+}
+
+/// Extracted `derivedSymbolData` and `uniformScaleFactor` for an `INSTANCE` node in a `.fig` file.
+#[derive(Debug, Clone, Default)]
+pub struct FigInstanceDerivedData {
+    pub uniform_scale: f32,
+    pub entries: Vec<FigDerivedSymbolEntry>,
+}
+
+/// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
+pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
+    let mut d = decode_inner(bytes, true)?;
+    let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
+        Some(KiwiValue::Array(arr)) => arr,
+        _ => Vec::new(),
+    };
+    let mut map = HashMap::new();
+    for nc in &raw_changes {
+        if nc.get("type").and_then(kiwi_str) != Some("INSTANCE") {
+            continue;
+        }
+        let Some(id) = nc.get("guid").and_then(kiwi_guid_str) else { continue };
+        let sd = nc.get("symbolData");
+        let uniform_scale = sd.and_then(|s| kiwi_f32(s, "uniformScaleFactor")).unwrap_or(1.0);
+        let derived_val = nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData")));
+        let Some(KiwiValue::Array(arr)) = derived_val else { continue };
+        let mut entries = Vec::new();
+        for o in arr {
+            let p = o.get("guidPath");
+            let list = p.and_then(|p| p.get("guids")).or(p).and_then(KiwiValue::as_array);
+            let path: Vec<String> = list.map(|a| a.iter().filter_map(kiwi_guid_str).collect()).unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            let size = o.get("size").and_then(|s| Some(Vec2::new(kiwi_f32(s, "x")?, kiwi_f32(s, "y")?)));
+            let transform = o.get("transform").map(|t| {
+                let g = |k: &str, d: f32| kiwi_f32(t, k).unwrap_or(d);
+                Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) }
+            });
+            if size.is_none() && transform.is_none() {
+                continue;
+            }
+            entries.push(FigDerivedSymbolEntry { path, size, transform });
+        }
+        if !entries.is_empty() {
+            map.insert(id, FigInstanceDerivedData { uniform_scale, entries });
+        }
+    }
+    Ok(map)
+}
+
 /// Pre-decoded `derivedSymbolData` entry for fast `.fig` import without JSON intermediate.
 #[derive(Debug, Clone)]
 pub(crate) struct FastDerivedEntry {
@@ -73,11 +158,16 @@ fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
     let u64_of = |v: &KiwiValue| match v {
         KiwiValue::Uint(u) => Some(*u as u64),
         KiwiValue::Uint64(u) => Some(*u),
-        KiwiValue::Int(i) => Some(*i as u64),
-        KiwiValue::Int64(i) => Some(*i as u64),
+        KiwiValue::Int(i) if *i >= 0 => Some(*i as u64),
+        KiwiValue::Int64(i) if *i >= 0 => Some(*i as u64),
         _ => None,
     };
-    Some(format!("{}:{}", u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?))
+    let (s, l) = (u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?);
+    // Only the null GUID sentinel is unset; session `u32::MAX` is a real id (paste uses it for its synthetic page).
+    if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
+        return None;
+    }
+    Some(format!("{s}:{l}"))
 }
 
 /// A kiwi float field as `f32`. A NaN or infinity is treated as absent, the way the JSON path does
@@ -171,6 +261,17 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
 pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
+    import_fig_with_report(bytes).map(|(doc, _)| doc)
+}
+
+/// Imports a `.fig` file and returns an [`rest_import::ImportReport`] describing any instances left unexpanded by
+/// [`rest_import::CLONE_BUDGET_TOTAL`].
+pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_fig_with_budget(bytes, rest_import::CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
     let mut d = decode_inner(bytes, true)?;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
@@ -196,7 +297,10 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     }
     let into_j: fn(KiwiValue) -> Value = if large { kiwi::into_json_fast } else { kiwi::into_json };
     let mut entries: Vec<Entry> = Vec::with_capacity(raw_changes.len());
-    for kc in raw_changes {
+    for mut kc in raw_changes {
+        if d.studio_connector_caps {
+            remap_studio_connector_caps(&mut kc);
+        }
         let j = into_j(kc);
         if let Some(entry) = entry_from_json(j) {
             entries.push(entry);
@@ -210,7 +314,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    let mut doc = rest_import::import_rest_value_owned(rest, true, &blob_refs, fast_derived.as_mut())?;
+    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
     drop(fast_derived);
     drop(blob_refs);
     drop(owned_blobs);
@@ -218,7 +322,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 // ------------------------------------------------------------------ tree
@@ -230,7 +334,42 @@ struct Entry {
     json: Value,
 }
 
+/// The legacy-typed fields a Studio export carried in `pluginData` as `field:<name>` entries (see
+/// `fig_export::grid`). Only the names in [`CARRIED_FIELDS`] are restored.
+fn field_carriers(nc: &Value) -> Vec<(&'static str, Value)> {
+    let Some(entries) = nc.get("pluginData").and_then(Value::as_array) else { return Vec::new() };
+    entries
+        .iter()
+        .filter(|e| fstr(e, "pluginID") == Some(STUDIO_PLUGIN_ID))
+        .filter_map(|e| {
+            let name = fstr(e, "key")?.strip_prefix(CARRIER_KEY_PREFIX)?;
+            let field = CARRIED_FIELDS.iter().copied().find(|f| *f == name)?;
+            Some((field, serde_json::from_str::<Value>(fstr(e, "value")?).ok()?))
+        })
+        .collect()
+}
+
+/// `nc` with its carried fields put back. The carried value replaces what the real field holds, so the legacy
+/// readers below take it as they take a file written before the real shapes.
+fn with_field_carriers(nc: &Value) -> std::borrow::Cow<'_, Value> {
+    let restored = field_carriers(nc);
+    if restored.is_empty() {
+        return std::borrow::Cow::Borrowed(nc);
+    }
+    let mut copy = nc.clone();
+    if let Some(obj) = copy.as_object_mut() {
+        for (field, value) in restored {
+            obj.insert(field.into(), value);
+        }
+    }
+    std::borrow::Cow::Owned(copy)
+}
+
 fn entry_from_json(j: Value) -> Option<Entry> {
+    let j = match with_field_carriers(&j) {
+        std::borrow::Cow::Borrowed(_) => j,
+        std::borrow::Cow::Owned(restored) => restored,
+    };
     if fstr(&j, "phase") == Some("REMOVED") || rest_import::fbool(&j, "isSoftDeleted") == Some(true) {
         return None;
     }
@@ -241,7 +380,27 @@ fn entry_from_json(j: Value) -> Option<Entry> {
 }
 
 fn guid_str(g: &Value) -> Option<String> {
-    Some(format!("{}:{}", g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?))
+    let (s, l) = (g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?);
+    // Only the null GUID sentinel is unset; session `u32::MAX` is a real id (paste uses it for its synthetic page).
+    if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
+        return None;
+    }
+    Some(format!("{s}:{l}"))
+}
+
+/// Strips a disambiguated fallback component key (`"comp:s:l"` or `"comp:s:l:n"`) back to `"s:l"`.
+pub(crate) fn strip_fallback_comp_key(k: &str) -> Option<String> {
+    let rest = k.strip_prefix("comp:")?;
+    let mut parts = rest.split(':');
+    let s: u32 = parts.next()?.parse().ok()?;
+    let l: u32 = parts.next()?.parse().ok()?;
+    if let Some(n) = parts.next() {
+        let _: u32 = n.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+    }
+    Some(format!("{s}:{l}"))
 }
 
 /// Library asset key of an `{assetRef: {key, version}}` reference.
@@ -273,6 +432,9 @@ struct Lk<'a> {
     /// Property definition id (including the `parentPropDefId` aliases that
     /// variants carry) -> (`Name#s:l`, REST type).
     prop_defs: HashMap<String, (String, &'static str)>,
+    /// Component or state-group key (`componentKey` / `key`) -> node guid (`s:l`). Only masters
+    /// are indexed; an instance contributes a key no master carries, mapped to the master it instances.
+    comp_by_key: HashMap<String, String>,
     /// Node guid (`s:l`) -> Dev Mode handoff status (`READY_FOR_DEV` / `COMPLETED`)
     /// from `CANVAS.handoffStatusMap`.
     handoff_status: HashMap<String, &'static str>,
@@ -297,11 +459,13 @@ impl<'a> Lk<'a> {
             style_by_id: HashMap::new(),
             deleted_styles: std::collections::HashSet::new(),
             prop_defs: HashMap::new(),
+            comp_by_key: HashMap::new(),
             handoff_status: HashMap::new(),
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
+        let mut instance_keys: Vec<(String, String)> = Vec::new();
         for e in entries {
             let j = &e.json;
             let key = fstr(j, "key").filter(|k| !k.is_empty());
@@ -332,6 +496,17 @@ impl<'a> Lk<'a> {
                 };
                 if let Some(st) = mapped {
                     lk.handoff_status.insert(gid, st);
+                }
+            }
+            if matches!(fstr(j, "type"), Some("SYMBOL")) || rest_import::fbool(j, "isStateGroup") == Some(true) {
+                if let Some(ck) = fstr(j, "componentKey").filter(|k| !k.is_empty()).or(key) {
+                    lk.comp_by_key.insert(ck.to_string(), e.id.clone());
+                }
+            } else if let Some(ck) = fstr(j, "componentKey").filter(|k| !k.is_empty()) {
+                // An instance repeats its master's key. It only stands in for the master when
+                // nothing else carries the key, and then it points at the master it instances.
+                if let Some(master) = j.get("symbolData").and_then(|s| s.get("symbolID")).and_then(guid_str) {
+                    instance_keys.push((ck.to_string(), master));
                 }
             }
             match (fstr(j, "type"), key) {
@@ -371,12 +546,27 @@ impl<'a> Lk<'a> {
                 }
             }
         }
+        for (ck, master) in instance_keys {
+            lk.comp_by_key.entry(ck).or_insert(master);
+        }
         for (id, parent) in aliases {
             if let Some(def) = lk.prop_defs.get(&parent).cloned() {
                 lk.prop_defs.entry(id).or_insert(def);
             }
         }
         lk
+    }
+
+    /// Resolves a preferred-value component key: literal `comp_by_key` match wins first; otherwise
+    /// strips a disambiguated `"comp:s:l"` / `"comp:s:l:n"` fallback back to the `"s:l"` GUID.
+    fn resolve_comp_key(&self, k: &str) -> String {
+        if let Some(id) = self.comp_by_key.get(k) {
+            return id.clone();
+        }
+        if let Some(guid) = strip_fallback_comp_key(k) {
+            return guid;
+        }
+        k.to_string()
     }
 
     /// Variable id for an alias value (`{assetRef}` or a local `{guid}`).
@@ -523,7 +713,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         canvases.into_iter().map(|i| (i, entries[i].json.get("internalOnly").and_then(Value::as_bool) == Some(true))).collect();
 
     let lk = Lk::new(&entries, blobs);
-    let styles = style_table(&entries);
+    let styles = style_table(&entries, &lk);
     let variables = {
         let var_entries: Vec<&Value> = entries.iter().map(|e| &e.json).filter(|j| matches!(fstr(j, "type"), Some("VARIABLE_SET" | "VARIABLE"))).collect();
         crate::variables::from_fig_entries(&var_entries)
@@ -550,6 +740,19 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         .filter(|p| p.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
         .collect();
 
+    let doc_plugin_data: Option<Value> = doc_idx.and_then(|d| {
+        let pd_arr = entries[d].json.get("pluginData")?.as_array()?;
+        let mut pd_map = Map::new();
+        for entry in pd_arr {
+            let Some(k) = fstr(entry, "key") else { continue };
+            let val = fstr(entry, "value").unwrap_or("");
+            let pid = fstr(entry, "pluginID").unwrap_or("");
+            let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
+            pd_map.insert(full_key, Value::String(val.to_string()));
+        }
+        (!pd_map.is_empty()).then_some(Value::Object(pd_map))
+    });
+
     drop(entries);
     drop(children);
     drop(visited);
@@ -560,6 +763,9 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": pages},
         "styles": styles,
     });
+    if let Some(pd) = doc_plugin_data {
+        out["document"]["pluginData"] = pd;
+    }
     if let (Some(v), Some(o)) = (variables, out.as_object_mut()) {
         o.insert("variables".into(), v);
     }
@@ -572,7 +778,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
 /// REST-style `styles` map from shared-style nodes (nodes carrying `styleType`
 /// FILL/TEXT/EFFECT/GRID; they normally live on the internal-only canvas). The
 /// library key is the node's `key`, the description its `styleDescription`.
-fn style_table(entries: &[Entry]) -> Value {
+fn style_table(entries: &[Entry], lk: &Lk) -> Value {
     let mut out = Map::new();
     for e in entries {
         let j = &e.json;
@@ -590,6 +796,18 @@ fn style_table(entries: &[Entry]) -> Value {
         m.insert("styleType".into(), ty.into());
         // The style node is the source of truth for the values it shares.
         match ty {
+            "FILL" | "STROKE" => {
+                let fills: Vec<Value> = rest_import::farr(j, "fillPaints").iter().filter_map(convert_paint).collect();
+                if !fills.is_empty() {
+                    m.insert("fills".into(), Value::Array(fills));
+                }
+            }
+            "TEXT" => {
+                let ts = convert_type_style(j, None);
+                if !ts.is_empty() {
+                    m.insert("style".into(), Value::Object(ts));
+                }
+            }
             "EFFECT" => {
                 m.insert("effects".into(), Value::Array(rest_import::farr(j, "effects").iter().filter_map(convert_effect).collect()));
             }
@@ -597,6 +815,9 @@ fn style_table(entries: &[Entry]) -> Value {
                 m.insert("layoutGrids".into(), convert_grids(j).unwrap_or_else(|| Value::Array(Vec::new())));
             }
             _ => {}
+        }
+        if let Some(bv) = bound_variables(j, lk) {
+            m.insert("boundVariables".into(), bv);
         }
         out.insert(e.id.clone(), Value::Object(m));
     }
@@ -814,6 +1035,8 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "connectorType",
     "connectorStartStrokeCap",
     "connectorEndStrokeCap",
+    "connectorStartCap",
+    "connectorEndCap",
     "prototypeInteractions",
     "overflowDirection",
     "scrollBehavior",
@@ -896,9 +1119,7 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "lockMode"
             | "codeExportName"
             | "documentColorProfile"
-            | "codeObjectType"
-            | "connectorStartCap"
-            | "connectorEndCap" => {
+            | "codeObjectType" => {
                 if let Some(s) = val.as_str().filter(|s| !s.is_empty()) {
                     meta.insert(k.clone(), Value::String(s.to_string()));
                 }
@@ -1034,10 +1255,12 @@ fn format_v106_track_size(ts: &Value) -> Option<String> {
 }
 
 fn convert_grid_track_fields(m: &mut Map<String, Value>, nc: &Value) {
-    for (count_key, sizing_key) in [("gridColumns", "gridColumnsSizing"), ("gridRows", "gridRowsSizing")] {
+    for (count_key, sizing_key, guids_key) in [("gridColumns", "gridColumnsSizing", "_gridColumnTrackIds"), ("gridRows", "gridRowsSizing", "_gridRowTrackIds")]
+    {
         let ordered_guids = grid_position_guids(nc, count_key);
         if !ordered_guids.is_empty() {
             m.insert(count_key.into(), json!(ordered_guids.len()));
+            m.insert(guids_key.into(), json!(ordered_guids));
         } else {
             copy(m, nc, count_key, count_key);
         }
@@ -1158,6 +1381,9 @@ fn convert_guides(nc: &Value) -> Option<Value> {
 
 fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     let blobs = lk.blobs;
+    if fstr(nc, "styleType").is_some() {
+        return None;
+    }
     let orig_ty = fstr(nc, "type")?;
     let ty = match orig_ty {
         // Variables are mapped separately (`variables::from_fig_entries`); they are not canvas content.
@@ -1177,6 +1403,13 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "name", "name");
     copy(&mut m, nc, "componentKey", "componentKey");
+    // A symbol or state group indexed by its publish `key` (see `Lk::new`) keeps that key the way
+    // `componentKey` is kept, so export writes it back. An explicit `componentKey` wins.
+    if !m.contains_key("componentKey") && matches!(ty, "COMPONENT" | "COMPONENT_SET") {
+        if let Some(k) = fstr(nc, "key").filter(|k| !k.is_empty()) {
+            m.insert("componentKey".into(), Value::String(k.to_string()));
+        }
+    }
     copy(&mut m, nc, "sourceLibraryKey", "sourceLibraryKey");
     if let Some(desc) = fstr(nc, "symbolDescription").or_else(|| fstr(nc, "description")).filter(|s| !s.is_empty()) {
         m.insert("symbolDescription".into(), Value::String(desc.to_string()));
@@ -1230,6 +1463,25 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             let Some(k) = fstr(entry, "key") else { continue };
             let val = fstr(entry, "value").unwrap_or("");
             let pid = fstr(entry, "pluginID").unwrap_or("");
+            // Studio's reserved carrier entries become typed node data, not plugin data.
+            if pid == STUDIO_PLUGIN_ID {
+                if k.starts_with(CARRIER_KEY_PREFIX) {
+                    continue;
+                }
+                match k {
+                    STUDIO_SLOT_CONTENT_ID_KEY => {
+                        if !val.is_empty() {
+                            m.insert("slotContentId".into(), Value::String(val.to_string()));
+                        }
+                        continue;
+                    }
+                    STUDIO_AUTHOR_VISIBLE_KEY => {
+                        m.insert("authorVisible".into(), Value::Bool(val == "true"));
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
             pd_map.insert(full_key, Value::String(val.to_string()));
         }
@@ -1286,10 +1538,8 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     copy(&mut m, nc, "dashPattern", "strokeDashes");
     copy(&mut m, nc, "strokeMiterAngle", "strokeMiterAngle");
     copy(&mut m, nc, "miterLimit", "strokeMiterLimit");
-    let indep_borders = nc.get("borderStrokeWeightsIndependent").and_then(Value::as_bool) == Some(true);
-    if indep_borders || ["borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight"].iter().any(|k| nc.get(*k).is_some()) {
-        let w = if indep_borders { fnum(nc, "strokeWeight").unwrap_or(1.0) } else { fnum(nc, "strokeWeight").unwrap_or(0.0) };
-        let g = |k: &str| fnum(nc, k).unwrap_or(w);
+    if nc.get("borderStrokeWeightsIndependent").and_then(Value::as_bool) == Some(true) {
+        let g = |k: &str| fnum(nc, k).unwrap_or(0.0);
         m.insert(
             "individualStrokeWeights".into(),
             json!({"top": g("borderTopWeight"), "right": g("borderRightWeight"), "bottom": g("borderBottomWeight"), "left": g("borderLeftWeight")}),
@@ -1371,18 +1621,26 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         copy(&mut m, nc, k, k);
     }
     if let Some(c) = nc.get("gridColumnAnchor").or_else(|| nc.get("gridColumnAnchorIndex")) {
+        if let Some(g) = guid_str(c) {
+            m.insert("_gridColumnAnchorGuid".into(), g.into());
+        }
         m.insert("gridColumnAnchorIndex".into(), c.clone());
     }
     if let Some(r) = nc.get("gridRowAnchor").or_else(|| nc.get("gridRowAnchorIndex")) {
+        if let Some(g) = guid_str(r) {
+            m.insert("_gridRowAnchorGuid".into(), g.into());
+        }
         m.insert("gridRowAnchorIndex".into(), r.clone());
     }
     for (src, dst_x, dst_y) in [("minSize", "minWidth", "minHeight"), ("maxSize", "maxWidth", "maxHeight")] {
         if let Some(s) = nc.get(src) {
             let s = s.get("value").unwrap_or(s);
-            if let Some(x) = fnum(s, "x") {
+            // Figma writes 0 for a minimum that is not set and infinity (no number here) for a maximum that is not.
+            let unset = |v: f32| src == "minSize" && v == 0.0;
+            if let Some(x) = fnum(s, "x").filter(|v| !unset(*v)) {
                 m.insert(dst_x.into(), x.into());
             }
-            if let Some(y) = fnum(s, "y") {
+            if let Some(y) = fnum(s, "y").filter(|v| !unset(*v)) {
                 m.insert(dst_y.into(), y.into());
             }
         }
@@ -1462,7 +1720,8 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         "CONNECTOR" => {
             let conv_ep = |ep: &Value| -> Value {
                 let mut o = ep.as_object().cloned().unwrap_or_default();
-                if let Some(id_val) = ep.get("endpointNodeId") {
+                // Figma's field is `endpointNodeID`; files Studio wrote before that carry `endpointNodeId`.
+                if let Some(id_val) = ep.get("endpointNodeID").or_else(|| ep.get("endpointNodeId")) {
                     if let Some(gs) = guid_str(id_val) {
                         o.insert("endpointNodeId".into(), Value::String(gs));
                     }
@@ -1531,7 +1790,20 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
     let var_entries = nc.get("variableConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
     let param_entries = nc.get("parameterConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
     for e in var_entries.iter().chain(param_entries.iter()) {
-        let (Some(field), Some(a)) = (fstr(e, "variableField"), e.get("variableData").and_then(alias)) else { continue };
+        let Some(field) = fstr(e, "variableField") else { continue };
+        let Some(vdata) = e.get("variableData") else { continue };
+        if field == "FONT_STYLE" {
+            if let Some(fs) = vdata.get("value").and_then(|v| v.get("fontStyleValue")) {
+                if let Some(a) = fs.get("asFloat").and_then(alias) {
+                    out.insert("fontWeight".into(), a);
+                }
+                if let Some(a) = fs.get("asString").and_then(alias) {
+                    out.insert("fontStyle".into(), a);
+                }
+                continue;
+            }
+        }
+        let Some(a) = alias(vdata) else { continue };
         let keys: &[&str] = match field {
             "STACK_PADDING_LEFT" => &["paddingLeft"],
             "STACK_PADDING_RIGHT" => &["paddingRight"],
@@ -1575,7 +1847,9 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst, opacity_dst) in [("fillPaints", "fills", "fillOpacities"), ("strokePaints", "strokes", "strokeOpacities")] {
+    for (src, dst, opacity_dst, stops_dst) in
+        [("fillPaints", "fills", "fillOpacities", "fillStops"), ("strokePaints", "strokes", "strokeOpacities", "strokeStops")]
+    {
         let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
@@ -1585,17 +1859,36 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
         if opacities.iter().any(|v| !v.is_null()) {
             out.insert(opacity_dst.into(), Value::Array(opacities));
         }
+        let stops_list: Vec<Value> = rest_import::farr(nc, src)
+            .iter()
+            .map(|p| {
+                let sv: Vec<Value> = rest_import::farr(p, "stopsVar").iter().map(|st| st.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
+                if sv.iter().any(|v| !v.is_null()) {
+                    Value::Array(sv)
+                } else {
+                    Value::Null
+                }
+            })
+            .collect();
+        if stops_list.iter().any(|v| !v.is_null()) {
+            out.insert(stops_dst.into(), Value::Array(stops_list));
+        }
     }
     let fx: Vec<Value> = rest_import::farr(nc, "effects")
         .iter()
         .map(|e| {
             let mut bound = Map::new();
-            if let Some(a) = e.get("colorVar").and_then(alias) {
-                bound.insert("color".into(), a);
-            }
-            // `Effect.effectOpacityVar`
-            if let Some(a) = e.get("effectOpacityVar").and_then(alias) {
-                bound.insert("opacity".into(), a);
+            for (kiwi_key, rest_key) in [
+                ("colorVar", "color"),
+                ("effectOpacityVar", "opacity"),
+                ("radiusVar", "radius"),
+                ("spreadVar", "spread"),
+                ("xVar", "offsetX"),
+                ("yVar", "offsetY"),
+            ] {
+                if let Some(a) = e.get(kiwi_key).and_then(alias) {
+                    bound.insert(rest_key.into(), a);
+                }
             }
             if bound.is_empty() {
                 Value::Null
@@ -1640,6 +1933,15 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let held = |holder: &Value, plain: &str| -> Option<Value> {
         holder.get(plain).and_then(value_of).or_else(|| holder.get("varValue").and_then(|v| v.get("value")).and_then(value_of))
     };
+    let slot_content_id_of = |holder: &Value, plain: &str| -> Option<String> {
+        holder
+            .get("varValue")
+            .and_then(|v| v.get("value"))
+            .or_else(|| holder.get(plain))
+            .and_then(|v| v.get("slotContentIdValue"))
+            .and_then(|s| s.get("guid").or(Some(s)))
+            .and_then(guid_str)
+    };
     let mut defs = Map::new();
     for d in rest_import::farr(nc, "componentPropDefs") {
         let (Some(id), Some(_)) = (d.get("id").and_then(guid_str), fstr(d, "name")) else { continue };
@@ -1657,13 +1959,42 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
                 .unwrap_or_default();
             def.insert("variantOptions".into(), Value::Array(options));
         } else if *ty == "INSTANCE_SWAP" || *ty == "SLOT" {
-            let prefs: Vec<Value> = rest_import::farr(d, "preferredValues").iter().filter_map(|p| guid_str(p).map(Value::String)).collect();
+            let mut prefs: Vec<Value> = Vec::new();
+            if let Some(pv) = d.get("preferredValues") {
+                if pv.is_object() {
+                    for entry in rest_import::farr(pv, "instanceSwapValues") {
+                        if let Some(k) = fstr(entry, "key") {
+                            let resolved = lk.resolve_comp_key(k);
+                            prefs.push(Value::String(resolved));
+                        }
+                    }
+                    for s in rest_import::farr(pv, "stringValues") {
+                        if let Some(k) = s.as_str() {
+                            let resolved = lk.resolve_comp_key(k);
+                            prefs.push(Value::String(resolved));
+                        }
+                    }
+                } else {
+                    for p in rest_import::farr(d, "preferredValues") {
+                        if let Some(id_or_key) =
+                            guid_str(p).or_else(|| p.as_str().map(|k| lk.resolve_comp_key(k))).or_else(|| fstr(p, "key").map(|k| lk.resolve_comp_key(k)))
+                        {
+                            prefs.push(Value::String(id_or_key));
+                        }
+                    }
+                }
+            }
             if !prefs.is_empty() {
                 def.insert("preferredValues".into(), Value::Array(prefs));
             }
             // Only the keys the file wrote are carried; an empty object still marks "settings present".
             if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object).filter(|_| *ty == "SLOT") {
                 def.insert("slotPropConfig".into(), Value::Object(cfg.clone()));
+            }
+            if *ty == "SLOT" {
+                if let Some(scid) = slot_content_id_of(d, "initialValue") {
+                    def.insert("slotContentId".into(), Value::String(scid));
+                }
             }
         }
         defs.insert(key.clone(), Value::Object(def));
@@ -1674,8 +2005,20 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let mut vals = Map::new();
     for a in rest_import::farr(nc, "componentPropAssignments") {
         let Some((key, ty)) = a.get("defID").and_then(guid_str).and_then(|id| lk.prop_defs.get(&id)) else { continue };
-        let Some(v) = held(a, "value") else { continue };
-        vals.insert(key.clone(), json!({"type": ty, "value": v}));
+        let scid = (*ty == "SLOT").then(|| slot_content_id_of(a, "value")).flatten();
+        let v = held(a, "value");
+        if v.is_none() && scid.is_none() {
+            continue;
+        }
+        let mut entry = Map::new();
+        entry.insert("type".into(), (*ty).into());
+        if let Some(v) = v {
+            entry.insert("value".into(), v);
+        }
+        if let Some(scid) = scid {
+            entry.insert("slotContentId".into(), Value::String(scid));
+        }
+        vals.insert(key.clone(), Value::Object(entry));
     }
     if !vals.is_empty() {
         m.insert("componentProperties".into(), Value::Object(vals));
@@ -1754,7 +2097,10 @@ fn convert_grids(nc: &Value) -> Option<Value> {
             copy(&mut m, g, "offset", "offset");
             copy(&mut m, g, "color", "color");
             copy(&mut m, g, "visible", "visible");
-            if let Some(c) = g.get("count").or_else(|| g.get("numSections")) {
+            if let Some(a) = fstr(g, "alignment").or_else(|| fstr(g, "type").filter(|s| matches!(*s, "MIN" | "CENTER" | "STRETCH" | "MAX"))) {
+                m.insert("alignment".into(), a.into());
+            }
+            if let Some(c) = g.get("numSections").or_else(|| g.get("count")) {
                 m.insert("count".into(), c.clone());
             }
             Some(Value::Object(m))
@@ -1822,7 +2168,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut has_text = false;
     for (k, val) in obj {
         match k.as_str() {
-            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" => {
+            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
             }
             "mask" => {
@@ -1902,6 +2248,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "stackPaddingBottom"
             | "stackPrimaryAlignItems"
             | "stackCounterAlignItems"
+            | "stackCounterAlignContent"
+            | "stackLayoutVersion"
             | "stackPrimarySizing"
             | "stackCounterSizing"
             | "stackWrap"
@@ -1959,6 +2307,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "textAutoResize"
             | "textTruncation"
             | "maxLines"
+            | "styleIdForText"
             | "textData" => {
                 has_text = true;
             }
@@ -1974,13 +2323,17 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
     }
     if has_borders {
-        let indep_borders = obj.get("borderStrokeWeightsIndependent").and_then(Value::as_bool) == Some(true);
-        let w = if indep_borders { fnum(o, "strokeWeight").unwrap_or(1.0) } else { fnum(o, "strokeWeight").unwrap_or(0.0) };
-        let g = |k: &str| fnum(o, k).unwrap_or(w);
-        m.insert(
-            "individualStrokeWeights".into(),
-            json!({"top": g("borderTopWeight"), "right": g("borderRightWeight"), "bottom": g("borderBottomWeight"), "left": g("borderLeftWeight")}),
-        );
+        let mut iw = Map::new();
+        iw.insert("fromFig".into(), Value::Bool(true));
+        if let Some(indep) = obj.get("borderStrokeWeightsIndependent").and_then(Value::as_bool) {
+            iw.insert("independent".into(), Value::Bool(indep));
+        }
+        for (src, dst) in [("borderTopWeight", "top"), ("borderRightWeight", "right"), ("borderBottomWeight", "bottom"), ("borderLeftWeight", "left")] {
+            if let Some(v) = obj.get(src) {
+                iw.insert(dst.into(), v.clone());
+            }
+        }
+        m.insert("individualStrokeWeights".into(), Value::Object(iw));
     }
     if has_corners {
         let base = fnum(o, "cornerRadius").unwrap_or(0.0);
@@ -2006,12 +2359,19 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     if has_comp_props {
         component_props(&mut m, o, lk);
     }
-    // Auto-layout overrides: full stack when `stackMode` is present, plus individual
-    // overridden stack / child-layout fields when `stackMode` is inherited from the master.
+    // Auto-layout overrides: emit only keys explicitly present on the override entry so
+    // inherited main-component alignment and sizing are not overwritten with defaults.
     if has_layout {
-        if obj.contains_key("stackMode") {
-            convert_stack(&mut m, o);
+        if let Some(mode) = match fstr(o, "stackMode") {
+            Some("HORIZONTAL") => Some("HORIZONTAL"),
+            Some("VERTICAL") => Some("VERTICAL"),
+            Some("GRID") => Some("GRID"),
+            Some("NONE") => Some("NONE"),
+            _ => None,
+        } {
+            m.insert("layoutMode".into(), mode.into());
         }
+        convert_stack_extras(&mut m, o);
         if let Some(x) = fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing")) {
             m.insert("itemSpacing".into(), x.into());
         }
@@ -2036,6 +2396,12 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         if let Some(s) = fstr(o, "stackCounterAlignItems") {
             m.insert("counterAxisAlignItems".into(), stack_align(Some(s)).into());
+        }
+        if let Some(s) = fstr(o, "stackCounterAlignContent") {
+            m.insert("counterAxisAlignContent".into(), (if s == "SPACE_BETWEEN" { "SPACE_BETWEEN" } else { "AUTO" }).into());
+        }
+        if let Some(n) = fnum(o, "stackLayoutVersion") {
+            m.insert("stackLayoutVersion".into(), n.into());
         }
         if let Some(s) = fstr(o, "stackPrimarySizing") {
             m.insert("primaryAxisSizingMode".into(), stack_sizing(Some(s)).into());
@@ -2082,10 +2448,23 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
     }
     if has_text {
-        let mut st = convert_type_style(o, None);
-        st.remove("fills");
+        let mut st = Map::new();
+        if let Some(shared) = obj.get("styleIdForText").and_then(|r| lk.style_node(r)) {
+            let mut linked = convert_type_style(shared, None);
+            for (key, default) in [("textCase", "ORIGINAL"), ("textDecoration", "NONE")] {
+                linked.entry(key.to_string()).or_insert_with(|| default.into());
+            }
+            for key in ["fills", "textAlignHorizontal", "textAlignVertical"] {
+                linked.remove(key);
+            }
+            st.extend(linked);
+        }
+        let base_sz = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32));
+        let mut inline_st = convert_type_style(o, base_sz);
+        inline_st.remove("fills");
+        st.extend(inline_st);
         if let Some(ls) = obj.get("letterSpacing") {
-            if fstr(ls, "units") == Some("PERCENT") && fnum(o, "fontSize").is_none() {
+            if fstr(ls, "units") == Some("PERCENT") && base_sz.is_none() {
                 // Resolved against the target node's own font size when applied.
                 st.remove("letterSpacing");
                 st.insert("letterSpacingPercent".into(), kiwi::clean_f32(fnum(ls, "value").unwrap_or(0.0)));
@@ -2108,7 +2487,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
                     m.insert("style".into(), Value::Object(st));
                 }
             }
-            text_overrides(&mut m, td, fnum(o, "fontSize"));
+            text_overrides(&mut m, td, base_sz, lk);
         }
     }
     m
@@ -2135,11 +2514,21 @@ type RestatedTracks = HashMap<Vec<String>, (Vec<String>, Vec<String>)>;
 /// the instance restates for the parent grid (`restated`) win over the file-wide map, since an
 /// instance that restates the tracks can shift them. An anchor that matches no track, or an id that
 /// two grids place differently, is left as it is: a wrong cell is worse than the component's cell.
-fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restated: Option<&[String]>, file_wide: &HashMap<String, Option<usize>>) {
+fn resolve_override_grid_anchor(
+    set: &mut Map<String, Value>,
+    key: &str,
+    guid_key: &str,
+    restated: Option<&[String]>,
+    file_wide: &HashMap<String, Option<usize>>,
+) {
     let Some(id) = set.get(key).and_then(guid_str) else { return };
-    let index = restated.and_then(|ids| ids.iter().position(|t| *t == id)).or_else(|| file_wide.get(&id).copied().flatten());
+    let index = match restated.filter(|ids| !ids.is_empty()) {
+        Some(ids) => ids.iter().position(|t| *t == id),
+        None => file_wide.get(&id).copied().flatten(),
+    };
     if let Some(i) = index {
         set.insert(key.into(), json!(i));
+        set.insert(guid_key.into(), Value::String(id));
     }
 }
 
@@ -2147,31 +2536,55 @@ fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restate
 /// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
 /// an entry restates for the parent.
 fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
-    let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
+    let Some(raw) = list.and_then(Value::as_array) else { return Vec::new() };
+    let carried: Vec<std::borrow::Cow<'_, Value>> = raw.iter().map(with_field_carriers).collect();
+    let a: Vec<&Value> = carried.iter().map(|c| &**c).collect();
     let mut restated = RestatedTracks::new();
+    let mut out = Vec::new();
     if !derived {
-        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|o| (guid_path(o), o))) {
+        let sym_id = instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str);
+        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|&o| (guid_path(o), o))) {
             let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
             if !cols.is_empty() || !rows.is_empty() {
-                restated.insert(path, (cols, rows));
+                let is_root_sym = path.len() == 1 && sym_id.as_deref() == Some(path[0].as_str());
+                let entry = restated.entry(path).or_default();
+                if !cols.is_empty() {
+                    entry.0 = cols.clone();
+                }
+                if !rows.is_empty() {
+                    entry.1 = rows.clone();
+                }
+                if is_root_sym {
+                    let root_entry = restated.entry(Vec::new()).or_default();
+                    if !cols.is_empty() {
+                        root_entry.0 = cols;
+                    }
+                    if !rows.is_empty() {
+                        root_entry.1 = rows;
+                    }
+                }
             }
         }
+        let mut inst_grid = Map::new();
+        convert_grid_track_fields(&mut inst_grid, instance);
+        if !inst_grid.is_empty() {
+            out.push(json!({"path": Vec::<String>::new(), "set": Value::Object(inst_grid)}));
+        }
     }
-    a.iter()
-        .filter_map(|o| {
-            let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
-            if set.is_empty() {
-                return None;
-            }
-            let path = guid_path(o);
-            if !derived {
-                let parent = path.split_last().and_then(|(_, up)| restated.get(up));
-                resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
-                resolve_override_grid_anchor(&mut set, "gridRowAnchorIndex", parent.map(|p| p.1.as_slice()), &lk.grid_row_index);
-            }
-            Some(json!({"path": path, "set": Value::Object(set)}))
-        })
-        .collect()
+    out.extend(a.iter().filter_map(|o| {
+        let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
+        if set.is_empty() {
+            return None;
+        }
+        let path = guid_path(o);
+        if !derived {
+            let parent = path.split_last().and_then(|(_, up)| restated.get(up));
+            resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", "_gridColumnAnchorGuid", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
+            resolve_override_grid_anchor(&mut set, "gridRowAnchorIndex", "_gridRowAnchorGuid", parent.map(|p| p.1.as_slice()), &lk.grid_row_index);
+        }
+        Some(json!({"path": path, "set": Value::Object(set)}))
+    }));
+    out
 }
 
 fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
@@ -2179,6 +2592,10 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
         Some("HORIZONTAL") => "HORIZONTAL",
         Some("VERTICAL") => "VERTICAL",
         Some("GRID") => "GRID",
+        Some("NONE") => {
+            m.insert("layoutMode".into(), "NONE".into());
+            return;
+        }
         _ => return,
     };
     m.insert("layoutMode".into(), mode.into());
@@ -2232,20 +2649,38 @@ fn convert_paint(p: &Value) -> Option<Value> {
     match ty {
         "SOLID" => copy(&mut m, p, "color", "color"),
         t if t.starts_with("GRADIENT") => {
-            let stops: Vec<Value> = rest_import::farr(p, "stops").iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
+            let stops_src = {
+                let s = rest_import::farr(p, "stops");
+                if s.is_empty() {
+                    rest_import::farr(p, "stopsVar")
+                } else {
+                    s
+                }
+            };
+            let stops: Vec<Value> = stops_src.iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
             m.insert("gradientStops".into(), Value::Array(stops));
             let t = p.get("transform");
             let g = |k: &str, d: f32| t.and_then(|t| fnum(t, k)).unwrap_or(d);
             let xf = Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) };
             let inv = xf.invert().unwrap_or(Affine::IDENTITY);
-            let h = [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)].map(|q| {
+            let pts = if ty == "GRADIENT_LINEAR" {
+                [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)]
+            } else {
+                [Vec2::new(0.5, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.5, 1.0)]
+            };
+            let h = pts.map(|q| {
                 let r = inv.apply(q);
                 json!({"x": kiwi::clean_f32(r.x), "y": kiwi::clean_f32(r.y)})
             });
             m.insert("gradientHandlePositions".into(), Value::Array(h.to_vec()));
         }
         "IMAGE" => {
-            let hash = p.get("image").and_then(|i| fstr(i, "hash")).or_else(|| fstr(p, "imageHash"))?;
+            let image = p.get("image");
+            let hash = image
+                .and_then(|i| fstr(i, "hash"))
+                .filter(|h| !h.is_empty())
+                .or_else(|| fstr(p, "imageHash"))
+                .or_else(|| image.and_then(|i| fstr(i, "name")))?;
             m.insert("imageRef".into(), hash.into());
             enum_map(&mut m, p, "imageScaleMode", "scaleMode", &[]);
         }
@@ -2431,18 +2866,36 @@ fn convert_text(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let base_size = style.get("fontSize").and_then(Value::as_f64).map(|n| n as f32);
     m.insert("style".into(), Value::Object(style));
     if let Some(td) = td {
-        text_overrides(m, td, base_size);
+        text_overrides(m, td, base_size, lk);
     }
 }
 
 /// Per-character style ids and the override table from kiwi `textData`.
-fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>) {
+fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>, lk: &Lk) {
     if let Some(ids) = td.get("characterStyleIDs").and_then(Value::as_array) {
         m.insert("characterStyleOverrides".into(), Value::Array(ids.clone()));
         let mut table = Map::new();
         for o in rest_import::farr(td, "styleOverrideTable") {
             if let Some(sid) = o.get("styleID").and_then(Value::as_u64) {
-                table.insert(sid.to_string(), Value::Object(convert_type_style(o, base_size)));
+                let mut st = Map::new();
+                if let Some(shared) = o.get("styleIdForText").and_then(|r| lk.style_node(r)) {
+                    let mut linked = convert_type_style(shared, base_size);
+                    for key in ["fills", "textAlignHorizontal", "textAlignVertical"] {
+                        linked.remove(key);
+                    }
+                    st.extend(linked);
+                }
+                let eff_base = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32)).or(base_size);
+                st.extend(convert_type_style(o, eff_base));
+                if !st.contains_key("fills") {
+                    if let Some(sn) = o.get("styleIdForFill").and_then(|r| lk.style_node(r)) {
+                        let fills: Vec<Value> = rest_import::farr(sn, "fillPaints").iter().filter_map(convert_paint).collect();
+                        if !fills.is_empty() {
+                            st.insert("fills".into(), Value::Array(fills));
+                        }
+                    }
+                }
+                table.insert(sid.to_string(), Value::Object(st));
             }
         }
         m.insert("styleOverrideTable".into(), Value::Object(table));
@@ -2533,5 +2986,67 @@ mod tests {
         let p = commands_blob_to_path(&b, false);
         assert_eq!(p.cmds, vec![PathCmd::MoveTo(Vec2::new(1.0, 2.0))]);
         assert!(commands_blob_to_path(&[9, 9, 9], false).cmds.is_empty());
+    }
+
+    fn kiwi_guid(s: u32, l: u32) -> kiwi::KiwiValue {
+        crate::testkit::guid(s, l)
+    }
+
+    #[test]
+    fn guid_pair_max_max_is_unset() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, u32::MAX)), None);
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": u32::MAX})), None);
+    }
+
+    #[test]
+    fn guid_session_max_local_5_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX, 5)).as_deref(), Some("4294967295:5"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX, "localID": 5})).as_deref(), Some("4294967295:5"));
+    }
+
+    #[test]
+    fn guid_session_5_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(5, u32::MAX)).as_deref(), Some("5:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": 5, "localID": u32::MAX})).as_deref(), Some("5:4294967295"));
+    }
+
+    #[test]
+    fn guid_session_max_minus_one_local_max_is_a_real_id() {
+        assert_eq!(kiwi_guid_str(&kiwi_guid(u32::MAX - 1, u32::MAX)).as_deref(), Some("4294967294:4294967295"));
+        assert_eq!(guid_str(&json!({"sessionID": u32::MAX - 1, "localID": u32::MAX})).as_deref(), Some("4294967294:4294967295"));
+    }
+
+    #[test]
+    fn half_null_guid_round_trips_through_fig_export() {
+        use designos_doc::{Node, Rect};
+        let mut doc = Document::new("HalfNullGuid");
+        let page = doc.add_page("Page 1");
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 200.0, 100.0));
+        parent.name = "HalfNullParent".into();
+        parent.source_id = Some(format!("{}:5", u32::MAX));
+        doc.insert(page, parent).unwrap();
+
+        let child_id = doc.alloc_id();
+        let mut child = Node::rectangle(child_id, Rect::new(10.0, 10.0, 50.0, 50.0));
+        child.name = "HalfNullChild".into();
+        child.source_id = Some(format!("5:{}", u32::MAX));
+        doc.insert(parent_id, child).unwrap();
+
+        let sibling_id = doc.alloc_id();
+        let mut sibling = Node::rectangle(sibling_id, Rect::new(70.0, 10.0, 40.0, 40.0));
+        sibling.name = "FreshSibling".into();
+        doc.insert(parent_id, sibling).unwrap();
+
+        let bytes = crate::fig_export::export_fig(&doc).expect("export_fig");
+        let rt = import_fig(&bytes).expect("import_fig");
+        let rt_parent = rt.nodes.values().find(|n| n.name == "HalfNullParent").expect("HalfNullParent preserved");
+        assert_eq!(rt_parent.source_id.as_deref(), Some("4294967295:5"));
+        let rt_child = rt.nodes.values().find(|n| n.name == "HalfNullChild").expect("HalfNullChild preserved");
+        assert_eq!(rt_child.source_id.as_deref(), Some("5:4294967295"));
+        assert_eq!(rt_child.parent, Some(rt_parent.id));
+        assert!(rt_parent.children.contains(&rt_child.id));
+        let rt_sibling = rt.nodes.values().find(|n| n.name == "FreshSibling").expect("FreshSibling preserved");
+        assert_eq!(rt_sibling.parent, Some(rt_parent.id));
     }
 }

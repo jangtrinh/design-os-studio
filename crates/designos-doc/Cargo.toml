@@ -3,10 +3,14 @@ name = "designos-doc"
 description = "Document model: scene graph, styles, undo/redo"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+
+[features]
+schema = ["dep:schemars"]
 
 [dependencies]
 regex = "1"
+schemars = { version = "1", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

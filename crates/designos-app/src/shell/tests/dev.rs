@@ -55,7 +55,7 @@ fn context_menu_marks_frames_ready_for_dev() {
     s.right_click(p);
     assert!(s.app().ui.ctx_menu.is_some());
     let labels = crate::panels::context::labels(s.app());
-    assert!(labels.contains(&"Mark as ready for dev".to_string()), "{labels:?}");
+    assert!(labels.contains(&"Ready for dev".to_string()), "{labels:?}");
     assert!(!labels.contains(&"Mark as completed".to_string()), "no status yet");
     s.shell.app.ui.ctx_menu = None;
     s.shell.app.select_only(card);
@@ -460,4 +460,223 @@ fn library_files_store_the_snapshot_as_a_named_version() {
     assert_eq!(old.get(card).unwrap().size.x, w0);
     let diff = diff_subtree(&nodes, &s.app().doc, card);
     assert!(diff.iter().any(|c| c.id == card), "{diff:?}");
+}
+
+#[test]
+fn dev_mode_inspect_shows_slot_for_component_slot_frame_and_instance() {
+    use designos_doc::{
+        create_instance, instances_of, ComponentPropDef, FrameProps, Node, OverrideField, PropKind, PropValue, Rect as DocRect, TextStyle, Vec2 as DocVec2,
+    };
+    let (mut s, _) = dev_sim();
+    let page = s.app().page;
+    let comp_id = s.shell.app.doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Dialog".into();
+    comp.size = DocVec2::new(240.0, 120.0);
+    comp.component.props.push(ComponentPropDef { name: "Body#1:0".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) });
+    let comp_id = s.shell.app.doc.insert(page, comp).unwrap();
+
+    let slot_id = s.shell.app.doc.alloc_id();
+    let mut slot = Node::frame(slot_id, DocRect::new(0.0, 0.0, 216.0, 96.0));
+    slot.name = "Body".into();
+    slot.component.is_slot = true;
+    slot.component.bindings.insert(OverrideField::SlotContent, "Body#1:0".into());
+    let slot_id = s.shell.app.doc.insert(comp_id, slot).unwrap();
+
+    create_instance(&mut s.shell.app.doc, comp_id, page, DocVec2::new(300.0, 0.0)).apply(&mut s.shell.app.doc).unwrap();
+    let inst_id = instances_of(&s.shell.app.doc, comp_id)[0];
+    let inst_slot = s.shell.app.doc.get(inst_id).unwrap().children[0];
+    let txt_id = s.shell.app.doc.alloc_id();
+    let mut txt = Node::text(txt_id, DocRect::new(0.0, 0.0, 100.0, 20.0), "Hello slot", TextStyle::default());
+    txt.name = "Greeting".into();
+    txt.component.is_slot_content = true;
+    s.shell.app.doc.insert(inst_slot, txt).unwrap();
+
+    let comp_rows = crate::dev::data::component_rows(&s.app().doc, comp_id);
+    assert!(comp_rows.iter().any(|(k, v)| k == "Body" && v.contains("Slot")), "component rows must list the slot: {comp_rows:?}");
+
+    let slot_rows = crate::dev::data::component_rows(&s.app().doc, slot_id);
+    assert!(slot_rows.iter().any(|(k, v)| k == "Slot" && v == "Body"), "slot frame rows must identify the slot: {slot_rows:?}");
+
+    let inst_rows = crate::dev::data::component_rows(&s.app().doc, inst_id);
+    assert!(
+        inst_rows.iter().any(|(k, v)| k == "Body" && v.contains("Slot") && v.contains("Greeting")),
+        "instance rows must show the slot and its child content: {inst_rows:?}"
+    );
+}
+
+#[test]
+fn dev_mode_component_playground_toggles_props_without_mutating_doc_and_updates_codegen_live() {
+    let mut s = Sim::with(Options { select: Some("Get started".into()), dev: Some("react".into()), ..Default::default() });
+    let inst = s.by_name("Get started");
+    assert!(s.app().doc.get(inst).is_some());
+    frames(&mut s, 2);
+
+    let before_hash = crate::home::doc_hash(&s.app().doc);
+    let before_epoch = s.app().doc.mutation_epoch();
+
+    let copy_code = |s: &mut Sim| -> String {
+        let p = s.rect_of("dev-inspect-code").center();
+        let mut copied = String::new();
+        for pressed in [true, false] {
+            s.t += 0.05;
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
+                time: Some(s.t),
+                events: vec![Event::PointerMoved(p), Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }],
+                ..Default::default()
+            };
+            let ctx = s.ctx.clone();
+            let out = ctx.run_ui(raw, |ui| s.shell.draw(ui));
+            for cmd in out.platform_output.commands {
+                if let egui::OutputCommand::CopyText(text) = cmd {
+                    copied = text;
+                }
+            }
+        }
+        copied
+    };
+
+    // Baseline React snippet has `label="Get started"` and default `Show icon = true` (omitted).
+    let initial_code = copy_code(&mut s);
+    assert!(initial_code.contains("label=\"Get started\""), "initial code: {initial_code}");
+    assert!(!initial_code.contains("showIcon={false}"), "initial code should not have showIcon={{false}}: {initial_code}");
+
+    // Toggle `Show icon` in the Dev Mode Component Playground.
+    let show_icon_toggle = s.rect_of("dev-playground-prop-Show icon");
+    s.click(show_icon_toggle.center());
+    frames(&mut s, 2);
+
+    // Document hash and mutation epoch must remain 100% unchanged!
+    assert_eq!(crate::home::doc_hash(&s.app().doc), before_hash, "playground prop toggle must never mutate the document");
+    assert_eq!(s.app().doc.mutation_epoch(), before_epoch, "playground prop toggle must not advance mutation_epoch");
+
+    // Live codegen must immediately reflect `showIcon={false}`.
+    let toggled_code = copy_code(&mut s);
+    assert!(toggled_code.contains("showIcon={false}"), "live codegen should include showIcon={{false}}: {toggled_code}");
+
+    // Edit the `Label` text property in the playground.
+    let label_field = s.rect_of("dev-playground-prop-Label");
+    s.click(label_field.center());
+    s.type_text(" now");
+    frames(&mut s, 2);
+
+    assert_eq!(crate::home::doc_hash(&s.app().doc), before_hash, "playground text edit must never mutate the document");
+    let edited_code = copy_code(&mut s);
+    assert!(edited_code.contains("Get started now"), "live codegen should reflect edited label: {edited_code}");
+
+    // Reset button restores baseline props and codegen without touching the document.
+    let reset_btn = s.rect_of("dev-playground-reset");
+    s.click(reset_btn.center());
+    frames(&mut s, 2);
+    assert_eq!(crate::home::doc_hash(&s.app().doc), before_hash);
+    let reset_code = copy_code(&mut s);
+    assert_eq!(reset_code, initial_code, "resetting playground restores initial codegen");
+}
+
+/// The showcase `List row` instance with its `Icon` swap prop's `preferred` list emptied.
+fn list_row_without_preferred() -> (Sim, NodeId, NodeId) {
+    let mut s = Sim::with(Options { fixture: Some("showcase".into()), select: Some("List row".into()), dev: Some("react".into()), ..Default::default() });
+    let set = s.app().doc.nodes.values().find(|n| n.name == "List row" && matches!(n.kind, NodeKind::ComponentSet(_))).map(|n| n.id).unwrap();
+    let doc = &mut s.shell.app.doc;
+    let props = &mut doc.get_mut(set).unwrap().component.props;
+    for def in props.iter_mut() {
+        if let designos_doc::PropKind::InstanceSwap { preferred } = &mut def.kind {
+            preferred.clear();
+        }
+    }
+    doc.bump_mutation_epoch();
+    let (inst, comp) = list_row_instance_of(&s);
+    frames(&mut s, 2);
+    (s, inst, comp)
+}
+
+fn list_row_instance_of(s: &Sim) -> (NodeId, NodeId) {
+    let doc = &s.app().doc;
+    let inst = doc.nodes.values().find(|n| n.name == "List row" && matches!(n.kind, NodeKind::Instance { .. })).map(|n| n.id).expect("a List row instance");
+    (inst, designos_doc::instance_component(doc.get(inst).unwrap()).unwrap())
+}
+
+fn list_row_instance() -> (Sim, NodeId, NodeId) {
+    let s = Sim::with(Options { fixture: Some("showcase".into()), select: Some("List row".into()), dev: Some("react".into()), ..Default::default() });
+    let (inst, comp) = list_row_instance_of(&s);
+    (s, inst, comp)
+}
+
+#[test]
+fn playground_swap_menu_lists_the_files_components_when_there_are_no_preferred_values() {
+    use crate::dev::playground::{swap_choices, swap_list_builds};
+    let (mut s, _inst, comp) = list_row_without_preferred();
+    let family = designos_doc::components_of(&s.app().doc, s.app().doc.get(comp).unwrap().parent.unwrap());
+    let components: Vec<NodeId> = s.app().doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
+
+    let closed = swap_choices(&mut s.shell.app, false, &[], comp);
+    assert!(closed.is_empty(), "a closed menu builds nothing");
+
+    let open = swap_choices(&mut s.shell.app, true, &[], comp);
+    assert!(open.len() > 20, "the file's components are listed, got {}", open.len());
+    assert!(open.iter().all(|c| components.contains(c)), "every choice is a main component");
+    assert!(open.iter().all(|c| !family.contains(c)), "the component being edited is not a choice");
+    let icon = components.iter().copied().find(|c| s.app().doc.get(*c).unwrap().name.starts_with("Icon/")).unwrap();
+    assert!(open.contains(&icon), "icons are choices");
+    let _ = swap_list_builds();
+}
+
+#[test]
+fn playground_swap_list_is_cached_per_revision() {
+    use crate::dev::playground::{swap_choices, swap_list_builds};
+    let (mut s, _inst, comp) = list_row_without_preferred();
+    let base = swap_list_builds();
+    for _ in 0..6 {
+        swap_choices(&mut s.shell.app, true, &[], comp);
+    }
+    assert_eq!(swap_list_builds(), base + 1, "an unchanged revision reuses the list");
+    s.shell.app.doc.bump_mutation_epoch();
+    swap_choices(&mut s.shell.app, true, &[], comp);
+    assert_eq!(swap_list_builds(), base + 2, "a new revision rebuilds it");
+    swap_choices(&mut s.shell.app, false, &[], comp);
+    assert_eq!(swap_list_builds(), base + 2, "a closed menu never builds");
+}
+
+#[test]
+fn playground_swap_menu_opens_from_the_control_and_builds_the_list_only_then() {
+    use crate::dev::playground::swap_list_builds;
+    let (mut s, _inst, _comp) = list_row_without_preferred();
+    frames(&mut s, 3);
+    let base = swap_list_builds();
+    frames(&mut s, 3);
+    assert_eq!(swap_list_builds(), base, "no list while the menu is closed");
+    let ctl = s.rect_of("dev-playground-prop-Icon");
+    s.click(ctl.center());
+    frames(&mut s, 3);
+    assert!(swap_list_builds() > base, "opening the menu builds the list");
+    assert_eq!(swap_list_builds(), base + 1, "and only once while it stays open");
+}
+
+#[test]
+fn playground_swap_with_preferred_values_stays_preferred_only() {
+    use crate::dev::playground::{swap_choices, swap_list_builds};
+    let (s, _inst, comp) = list_row_instance();
+    let mut s = s;
+    let preferred: Vec<NodeId> = s.app().doc.nodes.values().filter(|n| n.name.starts_with("Icon/")).map(|n| n.id).take(3).collect();
+    assert_eq!(preferred.len(), 3);
+    let base = swap_list_builds();
+    let got = swap_choices(&mut s.shell.app, true, &preferred, comp);
+    assert_eq!(got, preferred);
+    assert_eq!(swap_list_builds(), base, "nothing is scanned when the prop names its choices");
+}
+
+#[test]
+fn playground_swap_control_is_disabled_when_the_file_has_no_swap_target() {
+    use crate::dev::playground::swap_target_exists;
+    let (mut s, _inst, comp) = list_row_without_preferred();
+    assert!(swap_target_exists(s.app(), comp));
+    let others: Vec<NodeId> = s.app().doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect();
+    let family = designos_doc::components_of(&s.app().doc, s.app().doc.get(comp).unwrap().parent.unwrap());
+    for id in others.into_iter().filter(|c| !family.contains(c)) {
+        let n = s.shell.app.doc.get_mut(id).unwrap();
+        n.kind = NodeKind::Frame(n.kind.frame_props().cloned().unwrap_or_default());
+    }
+    s.shell.app.doc.bump_mutation_epoch();
+    assert!(!swap_target_exists(s.app(), comp), "only the edited component's own family is left");
 }

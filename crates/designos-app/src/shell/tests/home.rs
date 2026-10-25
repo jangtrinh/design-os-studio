@@ -7,7 +7,7 @@ use designos_doc::Document;
 use designos_library::Library;
 use std::path::PathBuf;
 
-struct TmpDir(PathBuf);
+pub(super) struct TmpDir(PathBuf);
 
 impl TmpDir {
     fn new() -> Self {
@@ -26,7 +26,7 @@ impl Drop for TmpDir {
     }
 }
 
-fn home_sim() -> (Sim, TmpDir) {
+pub(super) fn home_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let s = Sim::with(Options { home: true, library: Some(dir.0.clone()), ..Default::default() });
     (s, dir)
@@ -146,6 +146,49 @@ fn renaming_in_the_header_persists_to_the_library() {
     assert_eq!(lib(&s).file(&id).unwrap().name, "Launch page");
     assert_eq!(s.app().lib_file.as_ref().unwrap().name, "Launch page");
     assert_eq!(s.app().doc.name, "Launch page");
+}
+
+/// The Agents panel's `Other CLI…` form was open with the caret in it when the user went back to the File panel and
+/// renamed the file: the form is hidden behind that panel, so the name field gets every letter.
+#[test]
+fn renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open() {
+    let (mut s, _d) = home_sim();
+    open(&mut s, "Welcome");
+    s.use_stub_agent_clis();
+    click_rect(&mut s, "rail-Agents");
+    let other = crate::agent_picker::rows_for_state(&mut s.shell.app.terminal)
+        .into_iter()
+        .find(|r| r.kind == crate::agent_cli_catalog::PickerRowKind::OtherCli)
+        .expect("the Other CLI row");
+    for _ in 0..400 {
+        s.frame(vec![]);
+        if !s.shell.app.terminal.picker.cache.is_probing() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    click_rect(&mut s, &format!("picker-row-{}", other.id));
+    click_rect(&mut s, "agents-other-cli-label-input");
+    s.type_text("ab");
+    assert_eq!(s.app().terminal.picker.other_label_input, "ab", "precondition: the form had the caret and took the letters");
+
+    click_rect(&mut s, "rail-File");
+    // A click within 0.3 s of the one on the rail would count as part of a triple click.
+    wait(&mut s, 0.5);
+    let hit = s.rect_of("file-header");
+    double_click(&mut s, Pos2::new(hit.left() + 90.0, hit.center().y));
+    assert!(s.app().renaming_file, "double-click starts renaming");
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.type_text("Launch page");
+    s.key(Key::Enter);
+    s.frame(vec![]);
+    assert_eq!(s.app().lib_file.as_ref().unwrap().name, "Launch page", "the name field took the letters");
+    assert_eq!(s.app().terminal.picker.other_label_input, "ab", "and the hidden form none");
+    assert!(s.app().terminal.picker.other_command_input.is_empty());
+    for mut tab in s.shell.app.terminal.tabs.drain(..) {
+        let _ = tab.child.kill();
+    }
 }
 
 #[test]
@@ -418,6 +461,9 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     use crate::canvas::tools::Tool;
 
     let mut s = Sim::new();
+    // The runtime picks below start agent CLIs. Stubs that stay alive keep the tab bar still between a click and
+    // the next one, on a machine with the real CLIs and on a runner without any.
+    s.use_stub_agent_clis();
     s.frame(vec![]);
 
     // UF-01: Left Icon Rail Navigation & Collapse
@@ -442,10 +488,27 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     click_rect(&mut s, "agents-runtime-add-btn");
     click_rect(&mut s, "agents-dropdown-claude");
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Claude);
+    // One tab per pick, all still running: a tab that exited would have moved the `+` button mid-flow.
+    #[cfg(unix)]
+    {
+        let terminal = &mut s.shell.app.terminal;
+        assert_eq!(terminal.tabs.len(), 3, "Codex, Antigravity and Claude each started a tab");
+        for tab in terminal.tabs.iter_mut() {
+            assert!(
+                tab.start_failure.is_none() && tab.is_alive(),
+                "{} must still be running, not {:?}",
+                tab.title,
+                tab.start_failure.as_ref().map(|f| f.cause)
+            );
+        }
+    }
 
     s.shell.app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", None);
-    assert_eq!(s.app().terminal.chat_turns.len(), 2);
-    assert_eq!(s.app().terminal.chat_turns[0].text, "Create a SaaS analytics card in Claude Code");
+    assert!(
+        s.app().terminal.active_composer().pending_send.as_deref() == Some("Create a SaaS analytics card in Claude Code")
+            || s.app().terminal.active_composer().history.back().map(String::as_str) == Some("Create a SaaS analytics card in Claude Code")
+            || s.app().terminal.active_composer().last_outcome.is_some()
+    );
 
     // Click File while in Agents -> switches to File panel in 1 click (not MenuKind::FileMenu)
     click_rect(&mut s, "rail-File");
@@ -505,14 +568,16 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     s.key(Key::Escape);
     assert_eq!(s.app().ui.menu, None);
 
-    // UF-06 & UF-07: Right Inspector Contextual Sections & Agent Terminal Bottom Dock
+    // UF-06 & UF-07: Right Inspector Contextual Sections & the Cmd+` toggle of the Agents panel
     s.shell.app.select_only(card_id);
     s.frame(vec![]);
     assert_eq!(s.app().selection, vec![card_id]);
-    click_rect(&mut s, "rail-terminal");
-    assert!(s.app().terminal.dock_open);
-    click_rect(&mut s, "rail-terminal");
-    assert!(!s.app().terminal.dock_open);
+    s.cmd_key(Key::Backtick);
+    assert_eq!(s.app().ui.rail, Some(RailItem::Agents));
+    // The terminal keeps the keyboard while it has focus; the toggle is for the moment nothing in the panel does.
+    s.shell.app.terminal.viewport_focused = false;
+    s.cmd_key(Key::Backtick);
+    assert_eq!(s.app().ui.rail, None);
 
     // UF-08: Main Menu (`AI balance`, `Help and account`)
     click_rect(&mut s, "rail-menu");

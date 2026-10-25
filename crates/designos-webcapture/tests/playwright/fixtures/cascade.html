@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cascade Fixture</title>
+  <style>
+    @layer base, theme;
+    :root {
+      --brand: #0d99ff;
+      --brand-mobile: #ff00aa;
+      --other: #00aa44;
+      --a: #111111;
+      --b: #222222;
+      --theme: #333333;
+      --base: #444444;
+      --shadow-brand: #123456;
+      --frame-brand: #abcdef;
+      --space: 0.5rem;
+      --radius: 0.75rem;
+      --gap: 1rem;
+    }
+    .m { background: var(--brand); }
+    @media (max-width: 600px) { .m { background: var(--brand-mobile); } }
+
+    .u { background: var(--brand); }
+    @layer theme { .u { background: var(--other); } }
+
+    @layer theme { .lyr { background: var(--theme); } }
+    @layer base { .lyr { background: var(--base); } }
+
+    @layer base { .lyr-imp { background: var(--base) !important; } }
+    @layer theme { .lyr-imp { background: var(--theme) !important; } }
+    .lyr, .lyr-imp, .cp-use { color: #ffffff; }
+
+    .lit { background-color: var(--brand); }
+    .lit { background-color: #ff0000; }
+
+    div.spec { background-color: var(--other); }
+    .spec { background-color: var(--a); }
+
+    .u2 { background-color: var(--brand); }
+
+    #cp-el { --x: var(--b); }
+    .cp { --x: var(--a); }
+    .cp-use { background-color: var(--x); }
+
+    .imp { --y: var(--a) !important; }
+    #imp-el { --y: var(--b); }
+    .imp-use { color: var(--y); }
+
+    .cq-wrap { container-type: inline-size; width: 300px; }
+    .cq { background-color: var(--brand); }
+    @container (min-width: 100px) { .cq { background-color: #ff0000; } }
+
+    .inner { background-color: var(--other); }
+
+    .sup { background-color: var(--brand); }
+    @supports (display: grid) { .sup { background-color: var(--other); } }
+    @supports (not-a-property: nonsense) { .sup { background-color: var(--a); } }
+
+    .bd { border: 1px solid var(--brand); }
+
+    .tok { padding: var(--space); border-radius: var(--radius); gap: var(--gap); }
+  </style>
+</head>
+<body>
+  <div id="m" class="m">media</div>
+  <div id="u" class="u">layer vs unlayered</div>
+  <div id="lyr" class="lyr">later layer wins</div>
+  <div id="lyr-imp" class="lyr-imp">important reverses layers</div>
+  <div id="lit" class="lit">later literal</div>
+  <div id="spec" class="spec">specificity</div>
+  <div id="inline-lit" class="u2" style="background-color: red">inline literal</div>
+  <div id="cp-el" class="cp cp-use">custom property specificity</div>
+  <div id="imp-el" class="imp imp-use">custom property important</div>
+  <div class="cq-wrap"><div id="cq" class="cq">container override</div></div>
+  <div id="sup" class="sup">supports</div>
+  <div id="bd" class="bd">shorthand border</div>
+  <div id="tok" class="tok" style="display:flex">relative-unit tokens</div>
+  <div id="host"></div>
+  <iframe id="frame" title="Cascade frame" width="400" height="120" srcdoc="<!DOCTYPE html><html><head><style>:root{--narrow:#555555;--frame-brand:#abcdef} body{margin:0} .ibtn{background:var(--frame-brand)} .m{background:#ffffff} @media (max-width:500px){.imed{background:var(--narrow);color:#fff}}</style></head><body><button class='ibtn' id='ibtn'>x</button><div class='m' id='im'>m</div><div class='imed' id='imed'>narrow</div></body></html>"></iframe>
+  <script>
+    const host = document.getElementById("host");
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML =
+      '<style>.inner{background:var(--shadow-brand);color:#fff}</style><button class="inner" id="inner-btn">inner</button>';
+  </script>
+</body>
+</html>

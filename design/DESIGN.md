@@ -102,7 +102,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `radius.radius-pill` → 13px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
-  - `typography.font-family-mono` → JetBrains Mono, SFMono-Regular, Menlo, monospace
+  - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-size-small` → 9px
 
 ## form
@@ -124,7 +124,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `radius.radius-sm` → 4px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
-  - `typography.font-family-mono` → JetBrains Mono, SFMono-Regular, Menlo, monospace
+  - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-size-body` → 11px
 
 ## layout
@@ -147,7 +147,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `radius.radius-sm` → 4px
   - `spacing.ai-panel-width` → 400px
   - `spacing.space-2` → 8px
-  - `typography.font-family-mono` → JetBrains Mono, SFMono-Regular, Menlo, monospace
+  - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-size-body` → 11px
 
 ### Panel/RightInspector
@@ -168,7 +168,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `spacing.panel-width` → 240px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
-  - `typography.font-family-mono` → JetBrains Mono, SFMono-Regular, Menlo, monospace
+  - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
   - `typography.font-size-body` → 11px
 
@@ -251,7 +251,7 @@ Modal Cmd+K command palette overlay with fuzzy action search, keyboard shortcut 
   - `radius.radius-xl` → 10px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
-  - `typography.font-family-mono` → JetBrains Mono, SFMono-Regular, Menlo, monospace
+  - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
   - `typography.font-size-title` → 12px
 

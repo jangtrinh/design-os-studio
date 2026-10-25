@@ -8,7 +8,7 @@
 
 use crate::geom::{to_sk_transform, transformed_bounds};
 use designos_doc::{Document, Effect, Node, NodeId, NodeKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use tiny_skia as sk;
 
@@ -124,9 +124,11 @@ fn is_chrome_node(doc: &Document, n: &Node, id: NodeId) -> bool {
     {
         return true;
     }
-    let has_own = n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
+    let has_own = n.component.is_slot || n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
     let has_src = n.component.source.is_some_and(|s| {
-        doc.get(s).is_some_and(|sn| sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty())
+        doc.get(s).is_some_and(|sn| {
+            sn.component.is_slot || sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty()
+        })
     });
     (has_own || has_src) && designos_doc::is_slot_container(doc, id)
 }
@@ -141,7 +143,7 @@ fn paint_path(doc: &Document, id: NodeId) -> Vec<usize> {
     let mut path = Vec::new();
     let mut cur = id;
     while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
-        path.push(doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == cur)).unwrap_or(usize::MAX));
+        path.push(doc.get(parent).and_then(|p| p.paint_children().iter().position(|&c| c == cur)).unwrap_or(usize::MAX));
         cur = parent;
     }
     path.reverse();
@@ -188,6 +190,9 @@ pub struct SceneIndex {
     pub(crate) grid_nodes: Vec<NodeId>,
     /// An edit of a built index may have broken the paint order of `grid_nodes`.
     grid_order_stale: bool,
+    /// Frames that paint their children in reverse document order (`reverse_z`), as of the last
+    /// build or edit. Their `grid_nodes` are not in document order, and toggling the flag moves them.
+    reverse_z_frames: HashSet<NodeId>,
     /// Child ids of the page as of the last build; the page has no `Entry` to remember them in.
     page_children: Box<[NodeId]>,
     top_has_mask: bool,
@@ -212,6 +217,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -225,8 +231,10 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
-        // A front-to-back build lists the grid nodes in paint order.
-        self.grid_order_stale = false;
+        // The build lists the grid nodes in document order, which is paint order unless a
+        // `reverse_z` frame reverses its children.
+        self.grid_order_stale = !self.reverse_z_frames.is_empty();
+        self.restore_grid_order(doc);
         self.rebuild_top_grid(doc, page);
         Some(prev)
     }
@@ -339,6 +347,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -352,7 +361,8 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
-        self.grid_order_stale = false;
+        self.grid_order_stale = !self.reverse_z_frames.is_empty();
+        self.restore_grid_order(doc);
         self.rebuild_top_grid(doc, page);
     }
 
@@ -365,15 +375,14 @@ impl SceneIndex {
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
         self.grid_order_stale = false;
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
     }
 
-    /// True unless the subtree of `id` is known to miss `win`.
-    pub(crate) fn may_touch(&self, id: NodeId, win: B) -> bool {
-        match self.entries.get(&id) {
-            Some(e) => overlaps(e.bounds, win),
-            None => true,
-        }
+    /// True when `id` is indexed, is not a mask (a mask acts on its later siblings wherever it is)
+    /// and its subtree is known to miss `win`: the layer need not be looked at to be skipped.
+    pub(crate) fn culls(&self, id: NodeId, win: B) -> bool {
+        self.entries.get(&id).is_some_and(|e| !e.mask && !overlaps(e.bounds, win))
     }
 
     /// Page-space bounds (x0, y0, x1, y1) of a node's drawn subtree, if indexed and visible.
@@ -423,16 +432,24 @@ impl SceneIndex {
     /// than the build saw: every grid node beneath it then paints at a different position.
     /// Must run before the dirty nodes are re-indexed, which overwrite the remembered child lists.
     fn note_child_order_changes(&mut self, doc: &Document, page: NodeId, dirty: &[NodeId]) {
+        // Flipping `reverse_z` on a frame reverses the paint order of everything beneath it.
+        // Track the flag first: it must stay current even when no re-sort is needed yet.
+        let mut flipped = false;
+        for &id in dirty {
+            let now = doc.get(id).is_some_and(|n| n.paints_children_reversed());
+            flipped |= if now { self.reverse_z_frames.insert(id) } else { self.reverse_z_frames.remove(&id) };
+        }
         if self.grid_order_stale || self.grid_nodes.len() < 2 {
             return;
         }
-        self.grid_order_stale = dirty.iter().any(|&id| {
-            let Some(n) = doc.get(id) else { return false };
-            if id == page {
-                return *self.page_children != *n.children;
-            }
-            n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
-        });
+        self.grid_order_stale = flipped
+            || dirty.iter().any(|&id| {
+                let Some(n) = doc.get(id) else { return false };
+                if id == page {
+                    return *self.page_children != *n.children;
+                }
+                n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
+            });
     }
 
     /// Re-sorts `grid_nodes` into paint order after an edit listed nodes out of order.
@@ -586,7 +603,7 @@ impl SceneIndex {
                 return false;
             };
             let an = &*designos_doc::resolve_node(doc, an);
-            let drawn = an.visible && !matches!(an.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+            let drawn = an.visible && (!matches!(an.kind, NodeKind::Unknown { .. }) || !an.children.is_empty()) && !matches!(an.kind, NodeKind::Page { .. });
             if !drawn {
                 // Under a hidden ancestor nothing of this subtree is drawn, whatever its own flags say.
                 self.forget_grid_nodes_under(doc, dirty_id);
@@ -603,7 +620,8 @@ impl SceneIndex {
         let mut fast_done = false;
         if let Some(raw_n) = doc.get(dirty_id) {
             let n = &*designos_doc::resolve_node(doc, raw_n);
-            let drawn = n.visible && !matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+            let unknown = matches!(n.kind, NodeKind::Unknown { .. });
+            let drawn = n.visible && (!unknown || !n.children.is_empty()) && !matches!(n.kind, NodeKind::Page { .. });
             let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
             if drawn && !boolean {
                 if let Some(old_e) = self.entries.get(&dirty_id).cloned() {
@@ -640,8 +658,12 @@ impl SceneIndex {
                                     }
                                     n.children.as_slice().into()
                                 };
-                                let m = node_margin(n);
-                                let mut sub = transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m);
+                                let mut sub = if unknown {
+                                    EMPTY
+                                } else {
+                                    let m = node_margin(n);
+                                    transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m)
+                                };
                                 if !n.children.is_empty() {
                                     let mut kids = EMPTY;
                                     for c in &n.children {
@@ -657,7 +679,8 @@ impl SceneIndex {
                                         }
                                     }
                                 }
-                                let layer_blur = n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
+                                let layer_blur =
+                                    !unknown && n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
                                 let chrome = is_chrome_node(doc, n, dirty_id);
                                 if chrome {
                                     if !self.chrome_nodes.contains(&dirty_id) {
@@ -709,9 +732,14 @@ impl SceneIndex {
                 break;
             };
             let an = &*designos_doc::resolve_node(doc, an);
+            let unknown = matches!(an.kind, NodeKind::Unknown { .. });
             let boolean = matches!(an.kind, NodeKind::BooleanOp(_));
-            let m = node_margin(an);
-            let mut sub = transformed_bounds(&ts, -m, -m, an.size.x + 2.0 * m, an.size.y + 2.0 * m);
+            let mut sub = if unknown {
+                EMPTY
+            } else {
+                let m = node_margin(an);
+                transformed_bounds(&ts, -m, -m, an.size.x + 2.0 * m, an.size.y + 2.0 * m)
+            };
             let draws_kids = !an.children.is_empty() && !boolean;
             let mut kids = EMPTY;
             if draws_kids {
@@ -769,7 +797,8 @@ impl SceneIndex {
     fn build(&mut self, doc: &Document, id: NodeId, parent_ts: sk::Transform, parent: Option<NodeId>) -> B {
         let Some(n) = doc.get(id) else { return EMPTY };
         let n = &*designos_doc::resolve_node(doc, n);
-        let drawn = n.visible && !matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+        let unknown = matches!(n.kind, NodeKind::Unknown { .. });
+        let drawn = n.visible && (!unknown || !n.children.is_empty()) && !matches!(n.kind, NodeKind::Page { .. });
         let chrome = n.visible && is_chrome_node(doc, n, id);
         if chrome {
             if !self.chrome_nodes.contains(&id) {
@@ -786,6 +815,9 @@ impl SceneIndex {
         }
         let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
         let children_len = n.children.len() as u32;
+        if drawn && n.paints_children_reversed() {
+            self.reverse_z_frames.insert(id);
+        }
         let ts = parent_ts.pre_concat(to_sk_transform(&n.transform));
         let world_ts = [ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty];
         let size = (n.size.x, n.size.y);
@@ -814,8 +846,12 @@ impl SceneIndex {
             );
             return EMPTY;
         }
-        let m = node_margin(n);
-        let mut sub = transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m);
+        let mut sub = if unknown {
+            EMPTY
+        } else {
+            let m = node_margin(n);
+            transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m)
+        };
         let draws_kids = !n.children.is_empty() && !boolean;
         let mut kids = EMPTY;
         for c in &n.children {
@@ -832,8 +868,8 @@ impl SceneIndex {
                 sub = union(sub, kids);
             }
         }
-        let layer_blur = n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
-        if !is_empty(sub) {
+        let layer_blur = !unknown && n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
+        if !unknown && !is_empty(sub) {
             let reach = blur_reach(n);
             if reach > 0.0 {
                 // `ts` is a pure scale/rotation here; take its uniform scale
@@ -979,7 +1015,8 @@ impl Differ {
                 let Some(e) = new.entries.get(&id).or_else(|| old.get(&id)) else { continue };
                 if e.mask {
                     // a mask clips every sibling that follows it
-                    if let Some(sibs) = e.parent.and_then(|p| doc.get(p)).map(|p| &p.children) {
+                    if let Some(pnode) = e.parent.and_then(|p| doc.get(p)) {
+                        let sibs = pnode.paint_children();
                         if let Some(pos) = sibs.iter().position(|c| *c == id) {
                             for c in &sibs[pos + 1..] {
                                 extra.push(obounds(c));
@@ -1206,7 +1243,7 @@ mod tests {
         let mut doc = Document::new("grid-index-test");
         let page = doc.add_page("page-1");
 
-        let sample_grid = designos_doc::LayoutGrid::Grid { size: 8.0, color: designos_doc::Color::rgba(255, 0, 0, 26) };
+        let sample_grid = designos_doc::LayoutGrid::grid(8.0, designos_doc::Color::rgba(255, 0, 0, 26));
 
         let plain_id = doc.alloc_id();
         doc.insert(page, Node::frame(plain_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
@@ -1237,7 +1274,7 @@ mod tests {
     }
 
     fn column_grid() -> designos_doc::LayoutGrid {
-        designos_doc::LayoutGrid::Columns { count: 4, gutter: 8.0, offset: 0.0, color: designos_doc::Color::rgba(255, 0, 0, 26) }
+        designos_doc::LayoutGrid::columns(4, 8.0, 0.0, designos_doc::Color::rgba(255, 0, 0, 26))
     }
 
     fn insert_frame(doc: &mut Document, parent: NodeId, rect: Rect, grid: bool) -> NodeId {
@@ -1457,6 +1494,40 @@ mod tests {
         doc.reparent(a, group, 0).unwrap();
         idx.ensure(&doc, page, 3);
         assert_eq!(idx.grid_nodes(), &[a, b]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
+    }
+
+    fn set_reverse_z(doc: &mut Document, frame: NodeId, on: bool) {
+        if let NodeKind::Frame(fp) = &mut doc.get_mut(frame).unwrap().kind {
+            fp.auto_layout = on.then(|| designos_doc::AutoLayout { reverse_z: true, ..Default::default() });
+        }
+    }
+
+    #[test]
+    fn grid_nodes_follow_paint_order_in_reverse_z_frames_on_open_and_after_a_toggle() {
+        let mut doc = Document::new("grid-reverse-z");
+        let page = doc.add_page("page-1");
+        let host = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 400.0, 400.0), false);
+        let first = insert_frame(&mut doc, host, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+        let second = insert_frame(&mut doc, host, Rect::new(100.0, 10.0, 200.0, 200.0), true);
+        set_reverse_z(&mut doc, host, true);
+
+        // Opened with first-on-top: the first child paints last, so it is listed last.
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[second, first]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 1));
+
+        // Toggling reverse_z off on an open index restores document order.
+        set_reverse_z(&mut doc, host, false);
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[first, second]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+
+        // And toggling it on again re-sorts.
+        set_reverse_z(&mut doc, host, true);
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.grid_nodes(), &[second, first]);
         assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
     }
 }

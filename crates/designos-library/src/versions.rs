@@ -232,6 +232,43 @@ impl Library {
         entries.remove(i);
         self.write_index(file_id, &entries)
     }
+
+    /// Version storage key for a branch (`<file-id>~<branch-id>`), keeping branch history
+    /// under `versions/<file-id>~<branch-id>/` separate from main's version index.
+    pub fn branch_version_key(file_id: &str, branch_id: &str) -> String {
+        format!("{file_id}~{branch_id}")
+    }
+
+    /// Saves a snapshot of `doc` as a new version on `branch_id` under `versions/<file-id>~<branch-id>/`.
+    pub fn save_branch_version(&self, file_id: &str, branch_id: &str, doc: &Document, label: Option<String>, auto: bool) -> Result<FileVersion> {
+        self.save_branch_version_described(file_id, branch_id, doc, label, None, auto)
+    }
+
+    /// [`Self::save_branch_version`] with a description.
+    pub fn save_branch_version_described(
+        &self,
+        file_id: &str,
+        branch_id: &str,
+        doc: &Document,
+        label: Option<String>,
+        description: Option<String>,
+        auto: bool,
+    ) -> Result<FileVersion> {
+        let key = Self::branch_version_key(file_id, branch_id);
+        self.save_version_described(&key, doc, label, description, auto)
+    }
+
+    /// Versions saved on `branch_id`, newest first.
+    pub fn list_branch_versions(&self, file_id: &str, branch_id: &str) -> Vec<FileVersion> {
+        let key = Self::branch_version_key(file_id, branch_id);
+        self.list_versions(&key)
+    }
+
+    /// Loads version `n` of `branch_id`.
+    pub fn load_branch_version(&self, file_id: &str, branch_id: &str, n: u32) -> Result<Document> {
+        let key = Self::branch_version_key(file_id, branch_id);
+        self.load_version(&key, n)
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! Canvas hit testing and marquee selection.
 
-use designos_doc::{Affine, Document, NodeId, NodeKind, Rect, Vec2};
+use designos_doc::{front_to_back, Affine, Document, NodeId, NodeKind, Rect, Vec2};
 
 fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
     match kind {
@@ -24,6 +24,13 @@ fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
 /// selects the child directly (frames, sections, pages).
 fn selects_through(kind: &NodeKind) -> bool {
     matches!(kind, NodeKind::Page { .. } | NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_))
+}
+
+/// True if a marquee that only partly covers a container of this kind selects the layers inside it
+/// instead of the container. Main components and component sets are selected whole by a marquee,
+/// like instances; their layers stay reachable by click, Cmd+click and double-click.
+fn marquee_enters(kind: &NodeKind) -> bool {
+    selects_through(kind) && !matches!(kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
 }
 
 /// Finds the node under `p` (page space).
@@ -107,7 +114,7 @@ fn hit_in(
     } else {
         &pn.children
     };
-    for &cid in iter_slice.iter().rev() {
+    for &cid in front_to_back(iter_slice, pn.paints_children_reversed()) {
         let Some(n) = doc.get(cid) else { continue };
         if !n.visible || n.locked || exclude.contains(&cid) {
             continue;
@@ -164,7 +171,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
         return;
     }
     let Some(pn) = doc.get(parent) else { return };
-    for &cid in pn.children.iter().rev() {
+    for &cid in pn.children_front_to_back() {
         if out.len() >= 32 {
             return;
         }
@@ -202,7 +209,8 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
 }
 
 /// Nodes selected by a marquee (page space). Fully-enclosed top-level objects
-/// are selected as a whole; frames only partly covered are entered.
+/// are selected as a whole; frames only partly covered are entered. Main
+/// components and component sets are always selected as a whole.
 #[allow(dead_code)]
 pub fn marquee_select(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
     marquee_select_with_index(doc, root, r, None)
@@ -236,7 +244,7 @@ pub fn marquee_select_with_index(doc: &Document, root: NodeId, r: &Rect, index: 
                 continue;
             }
             let contained = bb.x >= r.x && bb.y >= r.y && bb.x + bb.w <= r.x + r.w && bb.y + bb.h <= r.y + r.h;
-            if n.kind.is_container() && selects_through(&n.kind) && !contained && !n.children.is_empty() {
+            if n.kind.is_container() && marquee_enters(&n.kind) && !contained && !n.children.is_empty() {
                 marquee_in(doc, cid, r, index, 1, large_doc, &mut out);
             } else {
                 out.push(cid);
@@ -269,7 +277,7 @@ fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_
         } else {
             true
         };
-        if n.kind.is_container() && selects_through(&n.kind) && !contained && !n.children.is_empty() && can_descend {
+        if n.kind.is_container() && marquee_enters(&n.kind) && !contained && !n.children.is_empty() && can_descend {
             marquee_in(doc, cid, r, index, depth + 1, large_doc, out);
         } else {
             out.push(cid);
@@ -392,5 +400,164 @@ mod tests {
         assert_eq!(hits, vec![top_rect, rect, frame]);
         let group_hits = hit_all_under(&d, page, v2(120.0, 120.0), None);
         assert_eq!(group_hits, vec![rg, group, frame]);
+    }
+
+    /// Horizontal auto-layout row with two overlapping squares (x 0..20 and 8..28).
+    fn overlapping_row(reverse_z: bool) -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        use designos_doc::{AutoLayout, LayoutDirection};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let rid = d.alloc_id();
+        let mut row = Node::frame(rid, Rect::new(0.0, 0.0, 40.0, 20.0));
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: -12.0, reverse_z, ..Default::default() });
+        }
+        let row = d.insert(page, row).unwrap();
+        let rid = d.alloc_id();
+        let red = d.insert(row, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        let bid = d.alloc_id();
+        let blue = d.insert(row, Node::rectangle(bid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        d.relayout_subtree(row);
+        (d, page, row, red, blue)
+    }
+
+    #[test]
+    fn reverse_z_click_on_overlap_selects_first_child() {
+        let (d, page, _row, red, blue) = overlapping_row(true);
+        assert_eq!(d.get(blue).unwrap().transform.apply(v2(0.0, 0.0)).x, 8.0, "children must overlap at x 8..20");
+        let overlap = v2(14.0, 10.0);
+        assert_eq!(hit_test(&d, page, overlap, 0.0, false, &[]), Some(red));
+        assert_eq!(hit_test(&d, page, overlap, 0.0, true, &[]), Some(red));
+        // outside the overlap each child is still reachable
+        assert_eq!(hit_test(&d, page, v2(4.0, 10.0), 0.0, false, &[]), Some(red));
+        assert_eq!(hit_test(&d, page, v2(24.0, 10.0), 0.0, false, &[]), Some(blue));
+        // excluding the front-most child falls through to the one painted underneath
+        assert_eq!(hit_test_excluding(&d, page, overlap, 0.0, false, &[], &[red]), Some(blue));
+    }
+
+    #[test]
+    fn reverse_z_under_cursor_stack_lists_first_child_first() {
+        let (d, page, row, red, blue) = overlapping_row(true);
+        assert_eq!(hit_all_under(&d, page, v2(14.0, 10.0), None), vec![red, blue, row]);
+    }
+
+    #[test]
+    fn reverse_z_hit_matches_scene_index_path() {
+        let (d, page, _row, red, blue) = overlapping_row(true);
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        assert_eq!(hit_test_with_index(&d, page, v2(14.0, 10.0), 0.0, false, &[], Some(&idx)), Some(red));
+        assert_eq!(hit_test_with_index(&d, page, v2(24.0, 10.0), 0.0, false, &[], Some(&idx)), Some(blue));
+        assert_eq!(hit_all_under(&d, page, v2(14.0, 10.0), Some(&idx))[..2], [red, blue]);
+    }
+
+    #[test]
+    fn non_reverse_z_overlap_selects_last_child() {
+        let (d, page, row, red, blue) = overlapping_row(false);
+        let overlap = v2(14.0, 10.0);
+        assert_eq!(hit_test(&d, page, overlap, 0.0, false, &[]), Some(blue));
+        assert_eq!(hit_all_under(&d, page, overlap, None), vec![blue, red, row]);
+    }
+
+    /// A container of `kind` at `r` under `parent`.
+    fn container_at(d: &mut Document, parent: NodeId, kind: NodeKind, r: Rect) -> NodeId {
+        let id = d.alloc_id();
+        let mut n = Node::frame(id, r);
+        n.kind = kind;
+        d.insert(parent, n).unwrap()
+    }
+
+    fn rect_at(d: &mut Document, parent: NodeId, r: Rect) -> NodeId {
+        let id = d.alloc_id();
+        d.insert(parent, Node::rectangle(id, r)).unwrap()
+    }
+
+    /// Page with a 200x200 main component at the origin holding a layer at (10,10) 30x30 and one at (120,120) 60x60.
+    fn main_component_sample() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let comp = container_at(&mut d, page, NodeKind::Component(FrameProps::default()), Rect::new(0.0, 0.0, 200.0, 200.0));
+        let near = rect_at(&mut d, comp, Rect::new(10.0, 10.0, 30.0, 30.0));
+        let far = rect_at(&mut d, comp, Rect::new(120.0, 120.0, 60.0, 60.0));
+        (d, page, comp, near, far)
+    }
+
+    /// Page with a component set holding two 200x200 variants (x 0 and x 240), each with one layer near its top-left corner.
+    fn component_set_sample() -> (Document, NodeId, NodeId, [NodeId; 2], [NodeId; 2]) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let set = container_at(&mut d, page, NodeKind::ComponentSet(FrameProps::default()), Rect::new(0.0, 0.0, 440.0, 200.0));
+        let v1 = container_at(&mut d, set, NodeKind::Component(FrameProps::default()), Rect::new(0.0, 0.0, 200.0, 200.0));
+        let var2 = container_at(&mut d, set, NodeKind::Component(FrameProps::default()), Rect::new(240.0, 0.0, 200.0, 200.0));
+        let l1 = rect_at(&mut d, v1, Rect::new(10.0, 10.0, 30.0, 30.0));
+        let l2 = rect_at(&mut d, var2, Rect::new(10.0, 10.0, 30.0, 30.0));
+        (d, page, set, [v1, var2], [l1, l2])
+    }
+
+    /// Marquee results with and without a scene index, which must agree.
+    fn marquee_both_ways(d: &Document, page: NodeId, r: &Rect) -> Vec<NodeId> {
+        let plain = marquee_select(d, page, r);
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(d, page, 1);
+        assert_eq!(marquee_select_with_index(d, page, r, Some(&idx)), plain, "indexed and plain marquee must agree");
+        plain
+    }
+
+    #[test]
+    fn partial_marquee_selects_a_main_component_as_a_whole() {
+        let (d, page, comp, _near, _far) = main_component_sample();
+        // covers only the layer at (10,10)
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 60.0, 60.0)), vec![comp]);
+        // covers only empty component area
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(60.0, 60.0, 30.0, 30.0)), vec![comp]);
+        // fully enclosing it selects it as well
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 400.0, 400.0)), vec![comp]);
+        // missing it selects nothing
+        assert!(marquee_both_ways(&d, page, &Rect::new(300.0, 300.0, 40.0, 40.0)).is_empty());
+    }
+
+    #[test]
+    fn partial_marquee_selects_a_component_set_as_a_whole() {
+        let (d, page, set, _variants, _layers) = component_set_sample();
+        // crosses both variants and their layers
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 300.0, 60.0)), vec![set]);
+        // touches only the second variant's layer
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(240.0, 0.0, 60.0, 60.0)), vec![set]);
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 600.0, 400.0)), vec![set]);
+    }
+
+    #[test]
+    fn marquee_over_a_frame_and_a_main_component_enters_only_the_frame() {
+        let (mut d, page, comp, _near, _far) = main_component_sample();
+        let frame = container_at(&mut d, page, NodeKind::Frame(FrameProps::default()), Rect::new(300.0, 0.0, 200.0, 200.0));
+        let inner = rect_at(&mut d, frame, Rect::new(10.0, 10.0, 30.0, 30.0));
+        // partly covers the component and, by its layer, the frame
+        let hits = marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 330.0, 60.0));
+        assert_eq!(hits, vec![comp, inner]);
+    }
+
+    #[test]
+    fn partial_marquee_selects_a_main_component_inside_a_frame_as_a_whole() {
+        let (mut d, page, ..) = main_component_sample();
+        let frame = container_at(&mut d, page, NodeKind::Frame(FrameProps::default()), Rect::new(0.0, 400.0, 400.0, 300.0));
+        let nested = container_at(&mut d, frame, NodeKind::Component(FrameProps::default()), Rect::new(20.0, 20.0, 200.0, 200.0));
+        let _layer = rect_at(&mut d, nested, Rect::new(10.0, 10.0, 30.0, 30.0));
+        // enters the partly covered frame, then takes the partly covered component whole
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 400.0, 60.0, 60.0)), vec![nested]);
+    }
+
+    #[test]
+    fn clicks_still_reach_the_layers_of_a_main_component() {
+        let (d, page, comp, near, far) = main_component_sample();
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        for index in [None, Some(&idx)] {
+            // plain click, deep (Cmd+click) and a double-click (descend through the entered main) all land on the layer
+            assert_eq!(hit_test_with_index(&d, page, v2(20.0, 20.0), 0.0, false, &[], index), Some(near));
+            assert_eq!(hit_test_with_index(&d, page, v2(20.0, 20.0), 0.0, true, &[], index), Some(near));
+            assert_eq!(hit_test_with_index(&d, page, v2(150.0, 150.0), 0.0, false, &[comp], index), Some(far));
+            // empty component area is the component itself
+            assert_eq!(hit_test_with_index(&d, page, v2(80.0, 80.0), 0.0, false, &[], index), Some(comp));
+        }
     }
 }

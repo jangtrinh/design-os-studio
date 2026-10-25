@@ -44,7 +44,7 @@ pub fn show(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {
 }
 
 fn pop_frame(p: &egui::Painter, rect: Rect) {
-    widgets::menu_panel(p, rect, theme::RADIUS_LARGE);
+    widgets::menu_panel(p, rect, theme::RADIUS_FRAME);
 }
 
 // ------------------------------------------------------------------ composer
@@ -82,7 +82,7 @@ fn composer(app: &mut App, ctx: &Context, canvas: Rect) -> Option<Shown> {
         y += box_h + ROW_GAP;
         let bw = ui::button_width(&p, "Post").max(56.0);
         let br = Rect::from_min_size(Pos2::new(rect.right() - theme::COMMENT_PAD - bw, y), Vec2::new(bw, theme::COMMENT_BTN_H));
-        p.text(Pos2::new(x, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_small(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(x, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
         let enabled = !text.trim().is_empty();
         if ui::button(ui, br, "composer-post", "Post", true, enabled).clicked() {
             post = true;
@@ -194,8 +194,8 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
             let stamp = if m.edited.is_some() { format!("{when} (edited)") } else { when };
             let dots = Rect::from_min_size(Pos2::new(rect.right() - pad - theme::COMMENT_ICON_BTN, y), Vec2::splat(theme::COMMENT_ICON_BTN));
             let avail = (dots.left() - 4.0 - (name_r.right() + 6.0)).max(0.0);
-            let stamp = widgets::elide(&p, &stamp, &theme::font_small(), avail);
-            widgets::text_on_baseline(&p, name_r.right() + 6.0, y + 12.0, &stamp, theme::font_small(), theme::TEXT_TERTIARY);
+            let stamp = widgets::elide(&p, &stamp, &theme::font_caption(), avail);
+            widgets::text_on_baseline(&p, name_r.right() + 6.0, y + 12.0, &stamp, theme::font_caption(), theme::TEXT_TERTIARY);
             if editing.as_ref().is_none_or(|(c, _)| *c != m.id) && ui::dots_button(ui, dots, ("msg-dots", i), "").clicked() {
                 acts.push(Act::OpenMenu(m.id.clone(), dots));
             }
@@ -236,7 +236,7 @@ fn open_thread(app: &mut App, ctx: &Context, canvas: Rect, id: &str) -> Option<S
         y += reply_box_h + ROW_GAP;
         let bw = ui::button_width(&p, "Post").max(56.0);
         let br = Rect::from_min_size(Pos2::new(rect.right() - pad - bw, y), Vec2::new(bw, theme::COMMENT_BTN_H));
-        p.text(Pos2::new(left, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_small(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(left, y + theme::COMMENT_BTN_H / 2.0), Align2::LEFT_CENTER, "Ctrl+Enter to post", theme::font_caption(), theme::TEXT_TERTIARY);
         let can_reply = !reply.trim().is_empty();
         if ui::button(ui, br, "reply-post", "Reply", true, can_reply).clicked() || (post_key && edit_text.is_none() && can_reply) {
             acts.push(Act::Reply(reply.clone()));

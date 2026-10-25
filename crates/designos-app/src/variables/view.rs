@@ -245,6 +245,10 @@ fn build_rows(app: &App, ctx: &Context, view: &VariableStore, coll: &VariableCol
 /// of the rail, used by the full view; the floating panel positions itself on the screen.
 pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
     let ctx = ui.ctx().clone();
+    app.poll_variables_io();
+    if app.vars.pending_io.is_some() {
+        ctx.request_repaint();
+    }
     if !app.vars.open {
         crate::panels::var_bind::bind_picker(app, &ctx);
         return;
@@ -274,9 +278,9 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
         let (_, _) = ui.allocate_exact_size(g.panel.size(), Sense::hover());
         let p = ui.painter().clone();
         if g.floating {
-            widgets::elevation_400(&p, g.panel, theme::MENU_RADIUS);
+            widgets::elevation_400(&p, g.panel, theme::RADIUS_FRAME);
         }
-        let radius = if g.floating { theme::cr_each(0, theme::MENU_RADIUS, theme::MENU_RADIUS, 0) } else { theme::cr(0) };
+        let radius = if g.floating { theme::cr_each(0, theme::RADIUS_FRAME, theme::RADIUS_FRAME, 0) } else { theme::cr(0) };
         p.rect_filled(g.panel, radius, theme::BG);
         if g.floating {
             p.rect_stroke(g.panel, radius, Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
@@ -377,7 +381,7 @@ fn swatch(p: &egui::Painter, rect: Rect, color: Color32) {
 fn text_button(ui: &mut Ui, rect: Rect, id: Id, hovered_bg: bool) -> egui::Response {
     let r = ui.interact(rect, id, Sense::click());
     if hovered_bg && (r.hovered() || r.is_pointer_button_down_on()) {
-        ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() { theme::BG_PRESSED } else { theme::BG_HOVER });
+        ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), if r.is_pointer_button_down_on() { theme::BG_PRESSED } else { theme::BG_HOVER });
     }
     r
 }
@@ -400,8 +404,8 @@ fn rename_field(app: &mut App, ui: &mut Ui, rect: Rect, eid: Id, cur: &str, font
         ui.ctx().memory_mut(|m| m.request_focus(eid));
     }
     app.vars.rename_frames += 1;
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
-    ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+    ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     let r = field::edit_text(ui, rect, eid, cur, font, theme::TEXT, pad);
     if r.is_some() || (app.vars.rename_frames > 2 && !ui.memory(|m| m.has_focus(eid))) {
         app.vars.renaming = None;
@@ -425,10 +429,10 @@ fn cell_chrome(ui: &Ui, rect: Rect, id: Id) {
     let hovered = ui.rect_contains_pointer(rect);
     let p = ui.painter();
     if focused {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     } else if hovered {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     }
 }
 
@@ -447,11 +451,11 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     // ---- header: file name (full view) or "Variables" (floating panel), sidebar toggle
     let cy = g.bar_cy();
     if g.floating {
-        p.text(Pos2::new(left + 14.0, cy), Align2::LEFT_CENTER, "Variables", theme::font_body_strong(), theme::TEXT);
+        p.text(Pos2::new(left + theme::INSET_PANEL, cy), Align2::LEFT_CENTER, "Variables", theme::font_body_strong(), theme::TEXT);
     } else {
         let name = if app.doc.name.is_empty() { "Untitled".to_string() } else { app.doc.name.clone() };
         let shown = widgets::elide(&p, &name, &theme::font_large_strong(), inner_w - 16.0 - 49.0);
-        p.text(Pos2::new(left + 16.0, cy), Align2::LEFT_CENTER, shown, theme::font_large_strong(), theme::TEXT);
+        p.text(Pos2::new(left + theme::INSET_PANEL, cy), Align2::LEFT_CENTER, shown, theme::font_large_strong(), theme::TEXT);
     }
     let tg = Pos2::new(left + inner_w - if g.floating { 20.0 } else { 24.0 }, cy);
     let r = glyph_button(ui, tg, "vars-sidebar-toggle", |p, c, col| icons::paint(p, Icon::Sidebar, c, 16.0, col), "Hide sidebar");
@@ -461,7 +465,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
 
     // ---- collections
     let ty = base + 20.0;
-    p.text(Pos2::new(left + 15.0, ty), Align2::LEFT_CENTER, "Collections", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(left + theme::INSET_PANEL, ty), Align2::LEFT_CENTER, "Collections", theme::font_body_strong(), theme::TEXT);
     let plus = Pos2::new(left + inner_w - 20.0, ty);
     let slid = Pos2::new(left + inner_w - 47.0, ty);
     let r = glyph_button(ui, slid, "vars-settings", sliders_glyph, "Collection settings");
@@ -485,14 +489,13 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     let heading_rows = usize::from(!from_library.is_empty());
     for (n, id) in ids.iter().enumerate() {
         if n == own.len() && !from_library.is_empty() {
-            let row = Rect::from_min_size(Pos2::new(left + if g.floating { 8.0 } else { 10.0 }, y), Vec2::new(224.0, theme::VAR_PILL_H));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             library::paint_heading(ui, row);
         }
         let c = &fr.view.collections[id];
         let read_only = c.is_library();
-        let inset = if g.floating { 8.0 } else { 10.0 };
-        let row = Rect::from_min_size(Pos2::new(left + inset, y), Vec2::new(224.0, theme::VAR_PILL_H));
+        let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
         y += theme::VAR_SIDE_ROW;
         widgets::record(ui, &format!("vars-coll:{}", c.name), row);
         let mut resp = ui.interact(row, Id::new(("vars-coll", id)), Sense::click());
@@ -501,11 +504,11 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         }
         let selected = app.vars.collection.as_deref() == Some(id.as_str());
         if selected {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         } else if resp.hovered() {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        let name_rect = Rect::from_min_max(Pos2::new(left + 15.0, row.top()), Pos2::new(left + 190.0, row.bottom()));
+        let name_rect = Rect::from_min_max(Pos2::new(row.left() + theme::INSET_CONTROL, row.top()), Pos2::new(left + 190.0, row.bottom()));
         if app.vars.renaming == Some(('c', id.clone())) && !read_only {
             let eid = Id::new(("vars-coll-name", id));
             if let Some(s) = rename_field(app, ui, name_rect.expand2(Vec2::new(4.0, 0.0)), eid, &c.name, theme::font_body_strong(), 4.0) {
@@ -514,10 +517,15 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                 }
             }
         } else {
-            let nm = widgets::elide(&p, &c.name, &theme::font_body_semibold(), name_rect.width());
-            p.text(Pos2::new(name_rect.left(), row.center().y), Align2::LEFT_CENTER, nm, theme::font_body_semibold(), theme::TEXT);
-            let count =
-                p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, c.variables.len().to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            let nm = widgets::elide(&p, &c.name, &theme::font_body_strong(), name_rect.width());
+            p.text(Pos2::new(name_rect.left(), row.center().y), Align2::LEFT_CENTER, nm, theme::font_body_strong(), theme::TEXT);
+            let count = p.text(
+                Pos2::new(row.right() - theme::INSET_CONTROL, row.center().y),
+                Align2::RIGHT_CENTER,
+                c.variables.len().to_string(),
+                theme::font_body(),
+                theme::TEXT_SECONDARY,
+            );
             if read_only {
                 library::paint_lock(ui, Pos2::new(count.left() - 10.0, row.center().y), 12.0);
             }
@@ -539,7 +547,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         }
     }
     if ids.is_empty() {
-        p.text(Pos2::new(left + 15.0, y + 12.0), Align2::LEFT_CENTER, "No collections yet", theme::font_body(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(left + theme::INSET_PANEL, y + 12.0), Align2::LEFT_CENTER, "No collections yet", theme::font_body(), theme::TEXT_TERTIARY);
     }
 
     // ---- groups
@@ -547,7 +555,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     widgets::hline(&p, left, left + inner_w, sep_y, theme::BORDER);
     let Some(cid) = app.vars.collection.clone() else { return };
     let Some(coll) = fr.view.collections.get(&cid) else { return };
-    p.text(Pos2::new(left + 16.0, sep_y + 21.0), Align2::LEFT_CENTER, "Groups", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(left + theme::INSET_PANEL, sep_y + 21.0), Align2::LEFT_CENTER, "Groups", theme::font_body_strong(), theme::TEXT);
     let mut y = sep_y + 45.0;
     let mut entries: Vec<(Option<String>, usize, bool)> = vec![(None, 0, false)];
     let paths = group_paths(fr.view, coll);
@@ -566,7 +574,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                 }
                 hidden_below = None;
             }
-            let row = Rect::from_min_size(Pos2::new(left + 8.0, y), Vec2::new(224.0, theme::VAR_PILL_H));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             let key = path.clone().unwrap_or_default();
             let fkey = format!("sg\0{}", folded_key(&cid, &key));
@@ -584,22 +592,28 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             let selected = app.vars.group == path;
             let drop_hot = app.vars.drag.is_some() && ui.rect_contains_pointer(row);
             if selected {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
             } else if resp.hovered() || drop_hot {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             if drop_hot {
-                p.rect_stroke(row, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                p.rect_stroke(row, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             }
-            let tx = row.left() + 8.0 + depth as f32 * 16.0;
+            let tx = row.left() + theme::INSET_CONTROL + depth as f32 * 16.0;
             if has_kids {
                 icons::paint(&p, if folded { Icon::ChevronRight } else { Icon::ChevronDown }, Pos2::new(tx - 8.0, row.center().y), 12.0, theme::ICON_TERTIARY);
             }
             let w = (row.right() - 40.0 - tx).max(20.0);
-            let shown = widgets::elide(&p, &label, &theme::font_body_semibold(), w);
-            p.text(Pos2::new(tx, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body_semibold(), theme::TEXT);
+            let shown = widgets::elide(&p, &label, &theme::font_body_strong(), w);
+            p.text(Pos2::new(tx, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT);
             let n = count_in(fr.view, coll, path.as_deref());
-            p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, n.to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            p.text(
+                Pos2::new(row.right() - theme::INSET_CONTROL, row.center().y),
+                Align2::RIGHT_CENTER,
+                n.to_string(),
+                theme::font_body(),
+                theme::TEXT_SECONDARY,
+            );
             if resp.clicked() {
                 let chev = Rect::from_center_size(Pos2::new(tx - 8.0, row.center().y), Vec2::splat(16.0));
                 let pos = ui.input(|i| i.pointer.interact_pos());
@@ -660,7 +674,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     }
     search_left = search_left.max(x0 + 100.0);
     let search = Rect::from_min_size(Pos2::new(search_left, cy - 12.0), Vec2::new(theme::VAR_SEARCH_W, 24.0));
-    let sr = theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM);
+    let sr = theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL);
     p.rect_filled(search, sr, theme::BG_SECONDARY);
     icons::paint(&p, Icon::Search, Pos2::new(search.left() + 11.0, cy), 16.0, theme::ICON_SECONDARY);
     let te = egui::TextEdit::singleline(&mut app.vars.search)
@@ -677,7 +691,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     let fr_resp = ui.interact(filt, Id::new("vars-filter"), Sense::click());
     p.rect_filled(
         filt,
-        theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+        theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
         if fr_resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY },
     );
     let active = !app.vars.hidden_kinds.is_empty();
@@ -745,7 +759,7 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
         let open = app.vars.menu.as_ref().is_some_and(|m| m.kind == VarMenuKind::Create);
         let r = ui.interact(b, Id::new("vars-create"), Sense::click());
         if open || r.hovered() {
-            p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
+            p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
         }
         icons::paint(&p, Icon::Plus, Pos2::new(b.left() + 14.0, b.center().y), 16.0, theme::ICON);
         p.text(Pos2::new(b.left() + 34.0, b.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
@@ -762,7 +776,7 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let mut sx = b.right() + 16.0;
     let cy = b.center().y;
     for (idx, (label, _)) in SCOPE_FILTERS.iter().enumerate() {
-        let cw = widgets::text_width(&p, label, &theme::font_small_medium()) + 16.0;
+        let cw = widgets::text_width(&p, label, &theme::font_caption_medium()) + 16.0;
         if sx + cw > g.panel.right() - 8.0 {
             break;
         }
@@ -771,11 +785,11 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
         let cresp = ui.interact(chip_r, Id::new(("vars-scope-chip", idx)), Sense::click());
         let is_act = active_scope == idx;
         if is_act {
-            p.rect_filled(chip_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TERTIARY);
+            p.rect_filled(chip_r, theme::cr_pill(chip_r.height()), theme::BG_TERTIARY);
         } else if cresp.hovered() {
-            p.rect_filled(chip_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(chip_r, theme::cr_pill(chip_r.height()), theme::BG_HOVER);
         }
-        p.text(chip_r.center(), Align2::CENTER_CENTER, *label, theme::font_small_medium(), if is_act { theme::TEXT } else { theme::TEXT_SECONDARY });
+        p.text(chip_r.center(), Align2::CENTER_CENTER, *label, theme::font_caption_medium(), if is_act { theme::TEXT } else { theme::TEXT_SECONDARY });
         if cresp.clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(scope_id, idx));
             app.vars.scroll = 0.0;
@@ -872,7 +886,7 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
     widgets::hline(&p, x0, right, hy + theme::VAR_HEAD_H, theme::BORDER);
     widgets::vline(&p, x0 + theme::VAR_NAME_COL, hy, hy + theme::VAR_HEAD_H, theme::BORDER);
     let hcy = hy + theme::VAR_HEAD_H / 2.0;
-    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_strong(), theme::TEXT);
     clipped(ui, Rect::from_min_max(Pos2::new(modes_left, hy), Pos2::new(right, hy + theme::VAR_HEAD_H + 1.0)), |ui| {
         let p = ui.painter().clone();
         for (i, mode) in coll.modes.iter().enumerate() {
@@ -891,12 +905,12 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
                     }
                 }
             } else {
-                let shown = widgets::elide(&p, &label, &theme::font_body_semibold(), mw - 32.0);
-                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_semibold(), theme::TEXT);
+                let shown = widgets::elide(&p, &label, &theme::font_body_strong(), mw - 32.0);
+                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT);
                 if coll.default_mode == mode.id && coll.modes.len() > 1 {
                     let w = widgets::text_width(&p, &label, &theme::font_body_strong());
                     if w + 80.0 < mw {
-                        p.text(Pos2::new(cl + 16.0 + w + 6.0, hcy), Align2::LEFT_CENTER, "default", theme::font_small(), theme::TEXT_TERTIARY);
+                        p.text(Pos2::new(cl + 16.0 + w + 6.0, hcy), Align2::LEFT_CENTER, "default", theme::font_caption(), theme::TEXT_TERTIARY);
                     }
                 }
             }
@@ -1075,7 +1089,7 @@ fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCo
             let shown = widgets::elide(&p, &leaf, &theme::font_body(), (text_rect.width() - reserve_w).max(24.0));
             p.text(Pos2::new(name_cell.left() + theme::VAR_NAME_X, r.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT);
             if let Some(bt) = badge_txt {
-                p.text(Pos2::new(name_cell.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, bt, theme::font_small(), theme::TEXT_TERTIARY);
+                p.text(Pos2::new(name_cell.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, bt, theme::font_caption(), theme::TEXT_TERTIARY);
             }
         }
         // selection
@@ -1327,9 +1341,9 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             }
             if op_shown {
                 let op_r = Rect::from_min_size(Pos2::new(field_right - theme::VAR_OPACITY_W, op_r.top()), op_r.size());
-                p.rect_filled(op_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                p.rect_filled(op_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
                 if ui.memory(|m| m.has_focus(oid)) {
-                    p.rect_stroke(op_r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                    p.rect_stroke(op_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
                 }
                 widgets::record(ui, &format!("vars-opacity:{}:{}", v.name, mode), op_r);
                 let shown = format!("{}%", fmt_num((c.a * 100.0).round()));
@@ -1383,7 +1397,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
     if hot && opacity && !ro {
         let br = ui.interact(bind_rect, id.with("bind"), Sense::click());
         if br.hovered() {
-            p.rect_filled(bind_rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_PRESSED);
+            p.rect_filled(bind_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRESSED);
         }
         hexagon(&p, bind_rect.center(), 5.0, theme::ICON_SECONDARY, false);
         widgets::record(ui, &format!("vars-bind:{}:{}", v.name, mode), bind_rect);
@@ -1400,6 +1414,7 @@ fn run_popups(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     run_menu(app, ctx, fr);
     run_alias_picker(app, ctx, fr);
     run_cell_picker(app, ctx);
+    run_skipped_details_popover(app, ctx, *g);
     super::popover::show(app, ctx, g, fr);
     crate::panels::var_bind::bind_picker(app, ctx);
 }
@@ -1419,6 +1434,7 @@ fn unique_group_name(fr: &Frame, coll: &str, parent: &str) -> String {
 fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
     let Some(menu) = app.vars.menu.clone() else { return };
     let cid = app.vars.collection.clone().unwrap_or_default();
+    let has_skipped = app.vars.last_import_report.as_ref().is_some_and(|r| !r.skipped.is_empty());
     let items: Vec<MenuItem> = match &menu.kind {
         VarMenuKind::Create => ["Color", "Number", "String", "Boolean"].iter().map(|s| MenuItem::new(*s)).collect(),
         VarMenuKind::Row(_) => {
@@ -1445,13 +1461,32 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
             vec![MenuItem::new("Rename").disabled(read_only), MenuItem::new("Duplicate"), MenuItem::new("Delete").disabled(read_only)]
         }
         VarMenuKind::Folder(..) => vec![MenuItem::new("Rename group")],
-        VarMenuKind::Settings => vec![MenuItem::new("Import variables..."), MenuItem::new("Export variables...")],
+        VarMenuKind::Settings => {
+            let io_busy = app.vars.pending_io.is_some();
+            let mut list = vec![
+                MenuItem::new("Import Figma variables…").disabled(io_busy),
+                MenuItem::new("Import DTCG tokens…").disabled(io_busy),
+                MenuItem::new("Import Figma REST…").disabled(io_busy).sep(),
+                MenuItem::new("Export Figma variables…").disabled(io_busy),
+                MenuItem::new("Export DTCG tokens…").disabled(io_busy),
+                if has_skipped {
+                    MenuItem::new("Export Figma REST…").disabled(io_busy).sep()
+                } else {
+                    MenuItem::new("Export Figma REST…").disabled(io_busy)
+                },
+            ];
+            if has_skipped {
+                list.push(MenuItem::new("Show skipped variables…"));
+            }
+            list
+        }
         VarMenuKind::Filter => [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean]
             .iter()
             .map(|k| MenuItem::new(kind_name(*k)).checked(!app.vars.hidden_kinds.contains(k)))
             .collect(),
     };
-    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, 168.0, &items, Some(menu.anchor)) {
+    let menu_w = if matches!(menu.kind, VarMenuKind::Settings) { 248.0 } else { 168.0 };
+    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, menu_w, &items, Some(menu.anchor)) {
         MenuResult::Open => {}
         MenuResult::Closed => app.vars.menu = None,
         MenuResult::Picked(i) => {
@@ -1538,15 +1573,24 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                     app.vars.renaming = Some(('f', folded_key(c, f)));
                     app.vars.rename_frames = 0;
                 }
-                (VarMenuKind::Settings, 0) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).pick_file() {
-                        app.import_variables_file(&path);
-                    }
+                (VarMenuKind::Settings, 0..=2) => {
+                    let fmt = match i {
+                        0 => designos_fig::VariablesFormat::FigmaNative,
+                        1 => designos_fig::VariablesFormat::Dtcg,
+                        _ => designos_fig::VariablesFormat::FigmaRest,
+                    };
+                    import_variables_dialog(app, fmt, &crate::io::SystemDialogs);
+                }
+                (VarMenuKind::Settings, 3..=5) => {
+                    let (fmt, default_name, exts) = match i {
+                        3 => (designos_fig::VariablesFormat::FigmaNative, "tokens.zip", &["zip", "json"][..]),
+                        4 => (designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"][..]),
+                        _ => (designos_fig::VariablesFormat::FigmaRest, "variables.json", &["json"][..]),
+                    };
+                    export_variables_dialog(app, fmt, default_name, exts, &crate::io::SystemDialogs);
                 }
                 (VarMenuKind::Settings, _) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).set_file_name("variables.json").save_file() {
-                        app.export_variables_file(&path);
-                    }
+                    app.vars.show_skipped_details = true;
                 }
                 (VarMenuKind::Filter, i) => {
                     let k = [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean][i];
@@ -1560,6 +1604,99 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 }
             }
         }
+    }
+}
+
+pub(crate) fn import_variables_dialog(app: &mut App, fmt: designos_fig::VariablesFormat, dialogs: &dyn crate::io::FileDialogs) {
+    let outcome = dialogs.pick_many(&crate::io::FileRequest::open().filter("Variables / Design Tokens", &["json", "zip"]));
+    if let Some(paths) = app.picked_paths(outcome) {
+        app.spawn_import_variables_files_with_format(paths, fmt);
+    }
+}
+
+pub(crate) fn export_variables_dialog(
+    app: &mut App,
+    fmt: designos_fig::VariablesFormat,
+    default_name: &str,
+    exts: &[&str],
+    dialogs: &dyn crate::io::FileDialogs,
+) {
+    let outcome = dialogs.pick(&crate::io::FileRequest::save(default_name).filter("Variables / Design Tokens", exts));
+    if let Some(path) = app.picked_path(outcome) {
+        app.spawn_export_variables_with_format(path, fmt);
+    }
+}
+
+fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
+    if !app.vars.show_skipped_details {
+        return;
+    }
+    let Some(rep) = app.vars.last_import_report.clone() else {
+        app.vars.show_skipped_details = false;
+        return;
+    };
+    if rep.skipped.is_empty() {
+        app.vars.show_skipped_details = false;
+        return;
+    }
+    let size = Vec2::new(360.0, 260.0);
+    let pos = Pos2::new((g.panel.right() - size.x - theme::INSET_POPOVER).max(g.panel.left() + theme::INSET_CONTROL), g.head_top() + theme::SPACE_INLINE);
+    let mut close = false;
+    let area = egui::Area::new(Id::new("vars-skipped-details")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(size, Sense::click());
+        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
+        let p = ui.painter();
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
+        let title_r = p.text(
+            Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
+            Align2::LEFT_CENTER,
+            "Skipped variables",
+            egui::FontId::proportional(theme::FONT_SIZE_BODY),
+            theme::TEXT,
+        );
+        crate::skills::pills::paint_pill(
+            p,
+            title_r.right() + theme::SPACE_INLINE,
+            head.center().y,
+            &rep.skipped.len().to_string(),
+            theme::BG_TERTIARY,
+            theme::TEXT_SECONDARY,
+        );
+        let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_DENSE));
+        let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());
+        cross_glyph(p, close_rect.center(), 4.5, if close_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        if close_resp.clicked() {
+            close = true;
+        }
+        p.hline(rect.x_range(), head.bottom(), Stroke::new(1.0, theme::BORDER));
+        let body = Rect::from_min_max(
+            Pos2::new(rect.left() + theme::SPACE_GROUP, head.bottom() + theme::SPACE_INLINE),
+            Pos2::new(rect.right() - theme::SPACE_GROUP, rect.bottom() - theme::SPACE_INLINE),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| {
+            egui::ScrollArea::vertical().id_salt("vars-skipped-scroll").max_height(220.0).show(ui, |ui| {
+                for item in &rep.skipped {
+                    let (row_r, _) = ui.allocate_exact_size(Vec2::new(body.width(), theme::CONTROL_DENSE), Sense::hover());
+                    widgets::record(ui, &format!("vars-skipped-item:{}", item.path), row_r);
+                    ui.painter().text(
+                        Pos2::new(row_r.left(), row_r.center().y),
+                        Align2::LEFT_CENTER,
+                        format!("{}: {}", item.path, item.reason),
+                        egui::FontId::proportional(theme::FONT_SIZE_BODY),
+                        theme::TEXT_SECONDARY,
+                    );
+                }
+            });
+        });
+        rect
+    });
+    let esc = ctx.input(|i| i.key_pressed(Key::Escape));
+    let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|pt| !area.inner.contains(pt)));
+    if close || esc || outside {
+        app.vars.show_skipped_details = false;
+    } else {
+        // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(ctx);
     }
 }
 
@@ -1623,7 +1760,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
     let mut changed = false;
     let area = egui::Area::new(Id::new("vars-color-picker")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-        widgets::menu_panel(ui.painter(), rect, theme::MENU_RADIUS);
+        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(8.0)), |ui| {
             ui.spacing_mut().slider_width = 180.0;
             changed = egui::color_picker::color_picker_color32(ui, &mut pk.color, egui::color_picker::Alpha::OnlyBlend);
@@ -1634,6 +1771,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
         let c = from_c32(pk.color);
         if let Some(v) = app.doc.variables.get_mut(&pk.var) {
             v.values.insert(pk.mode.clone(), VariableValue::Color(c));
+            v.clear_derived_mode_extensions(&pk.mode);
         }
         app.changed();
     }
@@ -1642,6 +1780,8 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
     if outside || esc {
         app.finish_cell_picker(pk);
     } else {
+        // Open: the Agents panel draws before this picker and must leave it `Esc` and `Enter`.
+        crate::widgets::popup_open::mark_open(ctx);
         app.vars.cell_picker = Some(pk);
     }
 }
@@ -1663,8 +1803,9 @@ mod tests {
             description: String::new(),
             scopes: vec!["CORNER_RADIUS".into()],
             hidden_from_publishing: false,
-
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         assert!(matches_scope_filter(&var, 0)); // All
         assert!(!matches_scope_filter(&var, 1)); // Fills
@@ -1677,5 +1818,28 @@ mod tests {
         for idx in 0..SCOPE_FILTERS.len() {
             assert!(matches_scope_filter(&var, idx));
         }
+    }
+
+    #[test]
+    fn skipped_details_popover_renders_beyond_eight_items() {
+        let doc = Document::new("d");
+        let mut app = App::new(doc);
+        let skipped: Vec<designos_fig::SkippedVariable> = (1..=12)
+            .map(|i| designos_fig::SkippedVariable { path: format!("Token/Item{i}"), reason: "cross-collection-alias-kept-as-literal".into() })
+            .collect();
+        app.vars.last_import_report =
+            Some(designos_fig::ImportReport { format: designos_fig::VariablesFormat::FigmaNative, added: 12, updated: 0, unchanged: 0, skipped });
+        app.vars.show_skipped_details = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let g = Geom { panel: Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)), floating: false, sidebar: true };
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            run_skipped_details_popover(&mut app, ui.ctx(), g);
+        });
+        let has_item = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some();
+        assert!(has_item("vars-skipped-item:Token/Item9"), "expected 9th skipped item to be rendered in ScrollArea");
+        assert!(has_item("vars-skipped-item:Token/Item12"), "expected 12th skipped item to be rendered in ScrollArea");
     }
 }

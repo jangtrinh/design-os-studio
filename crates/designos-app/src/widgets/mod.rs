@@ -5,9 +5,11 @@ pub trait Key: std::hash::Hash + std::fmt::Debug {}
 impl<T: std::hash::Hash + std::fmt::Debug> Key for T {}
 
 pub mod field;
+pub mod field_tab;
 pub mod menu;
 pub mod picker;
 pub mod popover;
+pub mod popup_open;
 
 use crate::icons::{self, Icon};
 use crate::theme;
@@ -16,6 +18,15 @@ use egui::{Align2, Color32, CornerRadius, FontId, Id, Painter, Pos2, Rect, Respo
 /// True while the pointer is over a popup or menu (anything drawn as a foreground area).
 pub fn pointer_over_popup(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| ctx.layer_id_at(p).is_some_and(|l| l.order == egui::Order::Foreground))
+}
+
+/// `one` when `n == 1`, `many` otherwise, so a count never reads `1 layers`.
+pub fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+    if n == 1 {
+        one
+    } else {
+        many
+    }
 }
 
 /// Width of a string in the given font.
@@ -158,7 +169,7 @@ pub fn field_text(p: &Painter, rect: Rect, dx: f32, pad_r: f32, s: &str, font: F
 pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: Icon, selected: bool, tip: &str) -> Response {
     let r = ui.interact(rect, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    button_bg(p, rect, &r, selected, theme::cr(theme::RADIUS_MEDIUM));
+    button_bg(p, rect, &r, selected, theme::cr(theme::RADIUS_CONTROL));
     let col = if selected {
         theme::ICON_SELECTED
     } else if r.hovered() {
@@ -217,24 +228,61 @@ pub fn swatch_circle(p: &Painter, c: Pos2, r: f32, colors: &[Color32]) {
     p.circle_stroke(c, r - 0.5, Stroke::new(1.0, theme::BORDER_TRANSLUCENT));
 }
 
+/// Sets the AccessKit role and accessible name on `id` when AccessKit is active.
+///
+/// Returns immediately without locking `Context` when AccessKit is disabled.
+#[inline]
+pub fn labelled(ui: &Ui, id: Id, role: egui::accesskit::Role, name: &str) {
+    if !crate::agent_a11y::is_accesskit_active() {
+        return;
+    }
+    ui.ctx().accesskit_node_builder(id, |node| {
+        node.set_role(role);
+        node.set_label(name);
+    });
+}
+
 /// Test hook: remembers where a named widget was drawn so UI tests can find it.
 #[cfg(test)]
 pub fn record(ui: &Ui, name: &str, rect: Rect) {
+    if RECORD_DISABLED.with(std::cell::Cell::get) {
+        return;
+    }
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", name.to_string())), rect));
+}
+
+#[cfg(test)]
+thread_local! {
+    static RECORD_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test support: makes [`record`] store nothing on this thread while the guard lives, as it does in a release
+/// build. A test that reads a widget's rect first, then drops the stored rects and holds this guard, runs the
+/// widget code the way a release build runs it: any production code that still reads a recorded rect finds none.
+/// Per thread, so parallel tests keep their own `record` calls; the setting is restored when the guard drops,
+/// also on a panic.
+#[cfg(test)]
+pub struct RecordDisabled(());
+
+#[cfg(test)]
+impl RecordDisabled {
+    pub fn begin() -> Self {
+        RECORD_DISABLED.with(|d| d.set(true));
+        Self(())
+    }
+}
+
+#[cfg(test)]
+impl Drop for RecordDisabled {
+    fn drop(&mut self) {
+        RECORD_DISABLED.with(|d| d.set(false));
+    }
 }
 #[cfg(not(test))]
 #[inline]
 pub fn record(_ui: &Ui, _name: &str, _rect: Rect) {}
 
-pub fn fmt_num(v: f32) -> String {
-    let s = format!("{:.2}", v);
-    let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
-    if s == "-0" || s.is_empty() {
-        "0".into()
-    } else {
-        s
-    }
-}
+pub use designos_export::util::fmt_num;
 
 #[cfg(test)]
 mod tests {

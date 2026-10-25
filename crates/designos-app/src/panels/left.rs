@@ -15,9 +15,29 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::vline(&p, rect.right() - theme::BORDER_WIDTH, rect.top(), rect.bottom(), theme::BORDER);
     let inner = Rect::from_min_max(rect.min, Pos2::new(rect.right() - theme::BORDER_WIDTH, rect.bottom()));
     if matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools)) {
+        app.terminal.prompt_context = crate::agent_sample_prompts::prompt_context(&app.doc, app.page, &app.selection);
         let fp = app.file_path.clone();
-        let actions = crate::terminal::show_left(&mut app.terminal, ui, inner, fp.as_deref());
-        crate::shell::execute_terminal_actions(app, actions);
+        let tab_idx = app.terminal.active_tab;
+        let card_h = crate::agent_turn_card::desired_card_height(app, tab_idx);
+        let term_rect = if card_h > 0.0 {
+            let reserve = (card_h + theme::INSET_FRAME * 2.0).min(inner.height() * 0.5);
+            Rect::from_min_max(inner.min, Pos2::new(inner.right(), inner.bottom() - reserve))
+        } else {
+            inner
+        };
+        let actions = crate::agent_selection_chip::with_selection_summary(&app.doc, app.page, &app.selection, |summary| {
+            crate::terminal::show_left_with_doc(&mut app.terminal, ui, term_rect, fp.as_deref(), summary, &app.doc, app.page)
+        });
+        crate::shell::execute_terminal_actions_with_ctx(app, actions, Some(ui.ctx()));
+        let tab_idx = app.terminal.active_tab;
+        let card_h = crate::agent_turn_card::desired_card_height(app, tab_idx);
+        if card_h > 0.0 {
+            let reserve = (card_h + theme::INSET_FRAME * 2.0).min(inner.height() * 0.5);
+            let card_outer = Rect::from_min_max(Pos2::new(inner.left(), inner.bottom() - reserve), inner.max);
+            p.rect_filled(card_outer, 0.0, theme::BG);
+            widgets::hline(&p, card_outer.left(), card_outer.right(), card_outer.top(), theme::BORDER);
+            crate::agent_turn_card::show_in_rect(ui, app, tab_idx, card_outer);
+        }
         return;
     }
     if app.ui.rail == Some(crate::app::RailItem::Assets) {
@@ -83,12 +103,12 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             })
             .unwrap_or(0);
         icons::paint(&p, Icon::Dev, Pos2::new(x0 + 18.0, y + 14.0), 13.0, dev_green);
-        p.text(Pos2::new(x0 + 30.0, y + 14.0), Align2::LEFT_CENTER, "Ready for development", theme::font_small_strong(), theme::TEXT);
+        p.text(Pos2::new(x0 + 30.0, y + 14.0), Align2::LEFT_CENTER, "Ready for development", theme::font_caption_strong(), theme::TEXT);
         p.text(
             Pos2::new(inner.right() - theme::PANEL_PADDING_X, y + 14.0),
             Align2::RIGHT_CENTER,
             ready_on_page.to_string(),
-            theme::font_small_strong(),
+            theme::font_caption_strong(),
             if ready_on_page > 0 { dev_green } else { theme::TEXT_TERTIARY },
         );
 
@@ -97,7 +117,11 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         widgets::record(ui, "left-dev-mark-ready", btn_r);
         let btn_resp = ui.interact(btn_r, ui.id().with("left-dev-mark-ready"), Sense::click());
         let can_mark = !markable_ids.is_empty();
-        p.rect_filled(btn_r, theme::cr(5), if can_mark { dev_green.gamma_multiply(if btn_resp.hovered() { 0.24 } else { 0.16 }) } else { theme::BG_SECONDARY });
+        p.rect_filled(
+            btn_r,
+            theme::cr(theme::RADIUS_CONTROL),
+            if can_mark { dev_green.gamma_multiply(if btn_resp.hovered() { 0.24 } else { 0.16 }) } else { theme::BG_SECONDARY },
+        );
         let btn_label = if can_mark {
             "</> Mark selection ready for dev"
         } else if ready_on_page > 0 {
@@ -105,7 +129,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         } else {
             "Select a frame or section to mark ready"
         };
-        p.text(btn_r.center(), Align2::CENTER_CENTER, btn_label, theme::font_small_medium(), if can_mark { dev_green } else { theme::TEXT_SECONDARY });
+        p.text(btn_r.center(), Align2::CENTER_CENTER, btn_label, theme::font_caption_medium(), if can_mark { dev_green } else { theme::TEXT_SECONDARY });
         if btn_resp.clicked() {
             if can_mark {
                 app.dev_mark_ready(&markable_ids);
@@ -203,7 +227,7 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
             if app.layers.renaming_page == Some(*pid) {
                 let id = ui.id().with(("page-rename", pid.0));
                 let txt_rect = Rect::from_min_max(row.min + Vec2::new(theme::PAGE_ROW_TEXT_PAD, 0.0), row.max);
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
                 if !app.layers.rename_started {
                     ui.memory_mut(|m| m.request_focus(id));
                     app.layers.rename_started = true;
@@ -246,14 +270,14 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
                 continue;
             }
             if selected {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             } else if r.hovered() && app.layers.page_drag.is_none() && !is_hdr_div {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             let ready_count = ready_pages.get(pid).copied().unwrap_or(0);
             let right_reserve = if ready_count > 0 { 26.0 } else { 0.0 };
             if is_hdr_div && !selected {
-                let font = theme::font_small_strong();
+                let font = theme::font_caption_strong();
                 let shown = widgets::elide(&p, trimmed, &font, row.width() - theme::PAGE_ROW_TEXT_PAD * 2.0 - right_reserve);
                 p.text(Pos2::new(row.left() + theme::PAGE_ROW_TEXT_PAD, row.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT_TERTIARY);
             } else {
@@ -366,7 +390,7 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
             ui.data_mut(|d| d.insert_temp(seen_id, true));
         }
         let field_rect = Rect::from_min_max(Pos2::new(name_x - 4.0, y + 10.0), Pos2::new(inner.left() + 8.0 + HEADER_NAME_W + 16.0, y + 30.0));
-        p.rect_filled(field_rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(field_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         if let Some(t) = &prefix {
             p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), theme::TEXT_SECONDARY);
         }
@@ -382,7 +406,7 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
     } else {
         let hr = ui.interact(hit, ui.id().with("file-name"), Sense::click());
         if hr.hovered() {
-            p.rect_filled(hit, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(hit, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         if let Some(t) = &prefix {
             p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), theme::TEXT_SECONDARY);

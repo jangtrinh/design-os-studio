@@ -3,6 +3,53 @@
 
 use crate::NodeId;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+/// WCAG contrast threshold level for Check designs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContrastLevel {
+    #[default]
+    AA,
+    AAA,
+}
+
+impl ContrastLevel {
+    pub fn is_aa(&self) -> bool {
+        matches!(self, ContrastLevel::AA)
+    }
+}
+
+/// Persistent key for an ignored Check designs finding.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct IgnoreKey {
+    pub node: NodeId,
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub property: String,
+}
+
+impl IgnoreKey {
+    pub fn new(rule: impl Into<String>, node: NodeId) -> Self {
+        Self { node, rule: rule.into(), property: String::new() }
+    }
+}
+
+/// Per-document Check designs configuration: disabled rules, contrast level, and ignored findings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckDesignsSettings {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub disabled_rules: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "ContrastLevel::is_aa")]
+    pub contrast_level: ContrastLevel,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub ignored: BTreeSet<IgnoreKey>,
+}
+
+impl CheckDesignsSettings {
+    pub fn is_empty(&self) -> bool {
+        self.disabled_rules.is_empty() && self.contrast_level.is_aa() && self.ignored.is_empty()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GuideAxis {
@@ -94,5 +141,45 @@ mod tests {
         let back = Document::from_json(&d.to_json().unwrap()).unwrap();
         assert_eq!(back.get(id).unwrap().export_settings, d.get(id).unwrap().export_settings);
         assert!(!serde_json::to_string(back.get(page).unwrap()).unwrap().contains("export_settings"));
+    }
+
+    #[test]
+    fn settings_round_trip_and_old_files_load() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let default_json = d.to_json().unwrap();
+        assert!(!default_json.contains("check_designs"), "empty settings write no key: {default_json}");
+        let loaded_old = Document::from_json(&default_json).unwrap();
+        assert!(loaded_old.check_designs.is_empty());
+
+        let mut h = History::default();
+        let mut next = CheckDesignsSettings { contrast_level: ContrastLevel::AAA, ..Default::default() };
+        next.disabled_rules.insert("REQUIRE_TEXT_STYLES".into());
+        next.ignored.insert(IgnoreKey { node: id, rule: "RECOMMEND_VARIABLES".into(), property: "fills/0".into() });
+        h.exec(&mut d, Command::SetCheckDesignsSettings(next.clone())).unwrap();
+        assert_eq!(d.check_designs, next);
+
+        let with_settings_json = d.to_json().unwrap();
+        assert!(with_settings_json.contains("\"check_designs\""));
+        let round = Document::from_json(&with_settings_json).unwrap();
+        assert_eq!(round.check_designs, next);
+
+        h.undo(&mut d).unwrap();
+        assert!(d.check_designs.is_empty());
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.check_designs, next);
+
+        // Deleting a node via History and undoing the delete must preserve its ignored keys.
+        h.exec(&mut d, Command::Remove { id }).unwrap();
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.check_designs, next, "undoing node delete must preserve its ignored check-designs keys");
+
+        // Deleting the node drops its keys when the saved file is read back (garbage collection).
+        d.remove(id).unwrap();
+        let after_delete_json = d.to_json().unwrap();
+        let after_delete = Document::from_json(&after_delete_json).unwrap();
+        assert!(after_delete.check_designs.ignored.is_empty());
     }
 }

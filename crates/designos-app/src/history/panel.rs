@@ -15,6 +15,7 @@ const SIDE: f32 = 8.0;
 enum Row<'a> {
     Day(String),
     Current,
+    UndoStep(usize, &'a str),
     Version(&'a designos_library::FileVersion),
 }
 
@@ -56,7 +57,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if ui::button(ui, br, "history-save", "Save to version history\u{2026}", false, !viewing).clicked() {
         app.begin_save_version();
     }
-    p.rect_stroke(br, theme::cr(theme::RADIUS_MEDIUM), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    p.rect_stroke(br, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
     widgets::record(ui, "history-save-button", br);
     y += 28.0 + 8.0;
     hline(&p, rect.left() + 1.0, rect.right(), y, theme::BORDER);
@@ -66,6 +67,11 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let now = crate::comments::time::now_ms();
     let versions = app.history.list.clone();
     let mut rows: Vec<Row> = vec![Row::Current];
+    for (idx, label) in app.hist.undo_labels().enumerate().rev() {
+        if let Some(lbl) = label.filter(|s| !s.is_empty()) {
+            rows.push(Row::UndoStep(idx, lbl));
+        }
+    }
     let mut last_day: Option<String> = None;
     for v in &versions {
         let d = day_label(now, v.created);
@@ -99,16 +105,40 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             }
             match row {
                 Row::Day(label) => {
-                    p.text(Pos2::new(r.left() + 8.0, r.center().y + 2.0), Align2::LEFT_CENTER, label, theme::font_small_strong(), theme::TEXT_TERTIARY);
+                    p.text(Pos2::new(r.left() + 8.0, r.center().y + 2.0), Align2::LEFT_CENTER, label, theme::font_caption_strong(), theme::TEXT_TERTIARY);
                 }
-                Row::Current => {
-                    let resp = ui.interact(r, ui.id().with("hist-current"), Sense::click());
-                    let sel = viewing_n.is_none();
+                Row::Current | Row::UndoStep(_, _) => {
+                    let is_current = matches!(row, Row::Current);
+                    let id_key = match row {
+                        Row::UndoStep(idx, _) => ("hist-undo", *idx),
+                        _ => ("hist-current", usize::MAX),
+                    };
+                    let resp = ui.interact(r, ui.id().with(id_key), Sense::click());
+                    let sel = is_current && viewing_n.is_none();
                     paint_row_bg(&p, r, sel, resp.hovered());
-                    p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if sel { theme::BG_BRAND } else { theme::ICON_TERTIARY });
-                    p.text(Pos2::new(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, "Current version", theme::font_body_strong(), theme::TEXT);
-                    widgets::record(ui, "history-current", r);
-                    if resp.clicked() && viewing_n.is_some() {
+                    let dot_color = match row {
+                        Row::UndoStep(_, _) => theme::TEXT_BRAND,
+                        _ if sel => theme::BG_BRAND,
+                        _ => theme::ICON_TERTIARY,
+                    };
+                    p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, dot_color);
+                    let (title, font) = match row {
+                        Row::UndoStep(_, lbl) => ((*lbl).to_string(), theme::font_body()),
+                        _ => {
+                            let text = match app.hist.peek_undo_label() {
+                                Some(lbl) if !lbl.is_empty() => format!("Current version ({lbl})"),
+                                _ => "Current version".to_string(),
+                            };
+                            (text, theme::font_body_strong())
+                        }
+                    };
+                    p.text(Pos2::new(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, title, font, theme::TEXT);
+                    let widget_id = match row {
+                        Row::UndoStep(idx, _) => format!("history-undo-{idx}"),
+                        _ => "history-current".to_string(),
+                    };
+                    widgets::record(ui, &widget_id, r);
+                    if is_current && resp.clicked() && viewing_n.is_some() {
                         back = true;
                     }
                 }
@@ -129,9 +159,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                         }
                     };
                     let l1 = widgets::elide(&p, &l1, &theme::font_body_strong(), avail);
-                    let l2 = widgets::elide(&p, &l2.replace('\n', " "), &theme::font_small(), avail);
+                    let l2 = widgets::elide(&p, &l2.replace('\n', " "), &theme::font_caption(), avail);
                     p.text(Pos2::new(tx, r.top() + 14.0), Align2::LEFT_CENTER, l1, theme::font_body_strong(), theme::TEXT);
-                    p.text(Pos2::new(tx, r.top() + 30.0), Align2::LEFT_CENTER, l2, theme::font_small(), theme::TEXT_SECONDARY);
+                    p.text(Pos2::new(tx, r.top() + 30.0), Align2::LEFT_CENTER, l2, theme::font_caption(), theme::TEXT_SECONDARY);
                     widgets::record(ui, &format!("history-version-{}", v.n), r);
                     if resp.clicked() {
                         view = Some(v.n);
@@ -144,10 +174,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     });
     crate::panels::scrollbar(ui, list, scroll, content_h);
-    if versions.is_empty() {
+    if versions.is_empty() && rows.len() == 1 {
         let g = p.layout(
             "No saved versions yet. They are added while you edit, and when you save one yourself.".to_string(),
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
             w - 16.0,
         );
@@ -168,9 +198,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
 
 fn paint_row_bg(p: &egui::Painter, r: Rect, selected: bool, hovered: bool) {
     if selected {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if hovered {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
 }
 

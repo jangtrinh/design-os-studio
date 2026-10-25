@@ -1,0 +1,1 @@
+Error: Rate limit reached for gpt-5-codex (429 Too Many Requests). Limit resets at 15:30.

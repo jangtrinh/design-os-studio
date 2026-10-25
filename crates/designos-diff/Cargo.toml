@@ -3,7 +3,7 @@ name = "designos-diff"
 description = "Pixel diff harness: compare renders against reference screenshots"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 image.workspace = true

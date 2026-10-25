@@ -55,6 +55,9 @@ pub struct FileEntry {
     /// PNG thumbnail, relative to the library root (resolve with [`Library::thumbnail_path`]).
     #[serde(default)]
     pub thumbnail: Option<PathBuf>,
+    /// Branches belonging to this file (`branches/<file-id>/<branch-id>.designos`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branches: Vec<crate::BranchMeta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,11 +81,11 @@ pub struct TrashItem {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Manifest {
+pub(crate) struct Manifest {
     #[serde(flatten)]
-    project: Project,
+    pub(crate) project: Project,
     #[serde(default)]
-    files: Vec<FileEntry>,
+    pub(crate) files: Vec<FileEntry>,
 }
 
 /// Milliseconds since the epoch, strictly increasing within the process so
@@ -104,7 +107,7 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialises manifest read-modify-write cycles within the process (the app saves
 /// thumbnails on a background thread while the UI thread keeps editing the index).
-fn write_lock() -> MutexGuard<'static, ()> {
+pub(crate) fn write_lock() -> MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -142,18 +145,22 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
             designos_svg::import_svg_named(&text, name, &mut doc, page, Vec2::ZERO).map_err(|e| invalid(format!("Cannot import SVG: {e}")))?;
             doc
         }
-        "json" => {
+        "json" | "webcapture" => {
             let text = std::fs::read_to_string(path)?;
-            match designos_fig::import_rest_json(&text) {
-                Ok(d) => d,
-                Err(fig) => {
-                    let (d, report) =
-                        Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
-                    if !report.is_clean() {
-                        eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+            if designos_fig::looks_like_web_capture_json(&text) {
+                designos_fig::import_web_capture_json(&text).map_err(|e| invalid(format!("Cannot import web capture: {e}")))?
+            } else {
+                match designos_fig::import_rest_json(&text) {
+                    Ok(d) => d,
+                    Err(fig) => {
+                        let (d, report) =
+                            Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
+                        if !report.is_clean() {
+                            eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+                        }
+                        replaced_on_read = report.non_finite_numbers;
+                        d
                     }
-                    replaced_on_read = report.non_finite_numbers;
-                    d
                 }
             }
         }
@@ -182,6 +189,264 @@ fn clean_name(name: &str, what: &str) -> Result<String> {
         return Err(LibraryError::Invalid(format!("The {what} name cannot be empty")));
     }
     Ok(n.to_string())
+}
+
+#[derive(Debug)]
+struct NonFiniteFound;
+
+impl std::fmt::Display for NonFiniteFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("non-finite float")
+    }
+}
+
+impl std::error::Error for NonFiniteFound {}
+
+impl serde::ser::Error for NonFiniteFound {
+    fn custom<T: std::fmt::Display>(_: T) -> Self {
+        NonFiniteFound
+    }
+}
+
+/// Zero-allocation `Serializer` that short-circuits as soon as any `f32` or `f64` is not finite.
+struct NonFiniteProbe;
+
+impl serde::Serializer for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    type SerializeSeq = Self;
+    type SerializeTuple = Self;
+    type SerializeTupleStruct = Self;
+    type SerializeTupleVariant = Self;
+    type SerializeMap = Self;
+    type SerializeStruct = Self;
+    type SerializeStructVariant = Self;
+
+    fn serialize_bool(self, _: bool) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i8(self, _: i8) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i16(self, _: i16) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i32(self, _: i32) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i64(self, _: i64) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i128(self, _: i128) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u8(self, _: u8) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u16(self, _: u16) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u32(self, _: u32) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u64(self, _: u64) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u128(self, _: u128) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_f32(self, v: f32) -> std::result::Result<(), Self::Error> {
+        if v.is_finite() {
+            Ok(())
+        } else {
+            Err(NonFiniteFound)
+        }
+    }
+    fn serialize_f64(self, v: f64) -> std::result::Result<(), Self::Error> {
+        if v.is_finite() {
+            Ok(())
+        } else {
+            Err(NonFiniteFound)
+        }
+    }
+    fn serialize_char(self, _: char) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_str(self, _: &str) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_bytes(self, _: &[u8]) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_none(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_some<T: Serialize + ?Sized>(self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_unit(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_unit_variant(self, _: &'static str, _: u32, _: &'static str) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_newtype_struct<T: Serialize + ?Sized>(self, _: &'static str, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_newtype_variant<T: Serialize + ?Sized>(self, _: &'static str, _: u32, _: &'static str, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_seq(self, _: Option<usize>) -> std::result::Result<Self::SerializeSeq, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple(self, _: usize) -> std::result::Result<Self::SerializeTuple, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple_struct(self, _: &'static str, _: usize) -> std::result::Result<Self::SerializeTupleStruct, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> std::result::Result<Self::SerializeTupleVariant, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_map(self, _: Option<usize>) -> std::result::Result<Self::SerializeMap, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_struct(self, _: &'static str, _: usize) -> std::result::Result<Self::SerializeStruct, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_struct_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> std::result::Result<Self::SerializeStructVariant, Self::Error> {
+        Ok(Self)
+    }
+}
+
+impl serde::ser::SerializeSeq for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_element<T: Serialize + ?Sized>(&mut self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTuple for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_element<T: Serialize + ?Sized>(&mut self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTupleStruct for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTupleVariant for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeMap for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_key<T: Serialize + ?Sized>(&mut self, key: &T) -> std::result::Result<(), Self::Error> {
+        key.serialize(Self)
+    }
+    fn serialize_value<T: Serialize + ?Sized>(&mut self, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeStruct for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, _: &'static str, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeStructVariant for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, _: &'static str, value: &T) -> std::result::Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+fn has_non_finite<T: Serialize + ?Sized>(value: &T) -> bool {
+    value.serialize(NonFiniteProbe).is_err()
+}
+
+fn sanitize_entry<T: Serialize + for<'de> Deserialize<'de>>(value: &mut T) -> Result<()> {
+    if has_non_finite(value) {
+        let (json, _) = designos_doc::finite_json::to_string_finite(value)?;
+        *value = serde_json::from_str(&json)?;
+    }
+    Ok(())
+}
+
+/// Replaces non-finite numbers in `doc` with their neutral values in place by round-tripping only
+/// the individual entries that carry a non-finite float, without re-parsing unaffected nodes or
+/// image blobs.
+fn sanitize_document_in_memory(doc: &mut Document) -> Result<()> {
+    for node in doc.nodes.values_mut() {
+        sanitize_entry(node)?;
+    }
+    for style in doc.styles.values_mut() {
+        sanitize_entry(style)?;
+    }
+    for meta in doc.style_meta.values_mut() {
+        sanitize_entry(meta)?;
+    }
+    for flow in &mut doc.flows {
+        sanitize_entry(flow)?;
+    }
+    for var in doc.variables.values_mut() {
+        sanitize_entry(var)?;
+    }
+    for col in doc.variable_collections.values_mut() {
+        sanitize_entry(col)?;
+    }
+    for guides in doc.guides.values_mut() {
+        sanitize_entry(guides)?;
+    }
+    sanitize_entry(&mut doc.prototype_device)?;
+    for comment in &mut doc.comments {
+        sanitize_entry(comment)?;
+    }
+    sanitize_entry(&mut doc.library)?;
+    doc.validate_and_repair();
+    doc.migrate_text();
+    Ok(())
 }
 
 impl Library {
@@ -221,13 +486,13 @@ impl Library {
         Ok(serde_json::from_str(&text)?)
     }
 
-    fn save_manifest(&self, m: &Manifest) -> Result<()> {
+    pub(crate) fn save_manifest(&self, m: &Manifest) -> Result<()> {
         let p = self.project_dir(&m.project.id).join(MANIFEST);
         write_atomic(&p, serde_json::to_string_pretty(m)?.as_bytes())
     }
 
     /// Finds the manifest holding `file` and the file's index in it.
-    fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
+    pub(crate) fn find_file(&self, file: &str) -> Result<(Manifest, usize)> {
         for p in self.list_projects() {
             if let Ok(m) = self.load_manifest(&p.id) {
                 if let Some(i) = m.files.iter().position(|f| f.id == file) {
@@ -388,13 +653,27 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
         };
         let (json, replaced) = doc.to_json_counted()?;
-        write_atomic(&self.file_path(project, &entry.id), json.as_bytes())?;
+        let file_path = self.file_path(project, &entry.id);
+        write_atomic(&file_path, json.as_bytes())?;
         m.files.push(entry.clone());
         m.project.modified = now;
-        self.save_manifest(&m)?;
+        if let Err(err) = self.save_manifest(&m) {
+            self.rollback_unlisted_file(project, &entry.id, &file_path);
+            return Err(err);
+        }
         Ok((entry, replaced))
+    }
+
+    /// Removes `file_path` after a failed manifest save only when the on-disk manifest does not
+    /// already list `file_id` (so a post-rename `sync_dir` failure never deletes a listed file).
+    fn rollback_unlisted_file(&self, project: &str, file_id: &str, file_path: &Path) {
+        let listed_on_disk = self.load_manifest(project).is_ok_and(|disk| disk.files.iter().any(|f| f.id == file_id));
+        if !listed_on_disk {
+            let _ = std::fs::remove_file(file_path);
+        }
     }
 
     /// Overwrites the file's contents atomically and bumps its modified time.
@@ -492,6 +771,7 @@ impl Library {
             opened: now,
             starred: false,
             thumbnail: None,
+            branches: vec![],
             ..src.clone()
         };
         std::fs::copy(self.file_path(&src.project, &src.id), self.file_path(&src.project, &new.id))?;
@@ -580,7 +860,7 @@ impl Library {
     /// Like [`Self::import_file_with_doc`], also returning how many non-finite numbers were
     /// replaced by their neutral value on read or write.
     pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize)> {
-        let (doc, replaced_on_read) = load_external_counted(path)?;
+        let (mut doc, replaced_on_read) = load_external_counted(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
         let (entry, replaced_on_write) = self.create_file_counted(project, folder, &name, &doc)?;
@@ -589,10 +869,11 @@ impl Library {
             return Ok((entry, doc, total_replaced));
         }
         // The import produced NaN or infinity and the stored file holds neutral values instead.
-        // Return what is stored, so the editor and the file agree from the first open.
+        // Sanitise only the affected items in memory so the editor and the file agree without
+        // re-reading or re-parsing the whole stored file.
         eprintln!("designos-library: imported \"{name}\" with {replaced_on_write} non-finite numbers replaced by their neutral value");
-        let stored = self.load_file(&entry.id)?;
-        Ok((entry, stored, total_replaced))
+        sanitize_document_in_memory(&mut doc)?;
+        Ok((entry, doc, total_replaced))
     }
 
     // ------------------------------------------------------------ recents / search
@@ -645,6 +926,11 @@ impl Library {
         if let Some(t) = &entry.thumbnail {
             let _ = std::fs::rename(self.path(t), dir.join("thumb.png"));
         }
+        let branches_dir = self.path("branches").join(id);
+        if branches_dir.exists() {
+            let _ = std::fs::remove_dir_all(dir.join("branches"));
+            let _ = std::fs::rename(branches_dir, dir.join("branches"));
+        }
         m.files.remove(i);
         m.project.modified = now_ms();
         self.save_manifest(&m)
@@ -688,6 +974,13 @@ impl Library {
                 entry.thumbnail = Some(rel);
             }
         }
+        if dir.join("branches").exists() {
+            let branches_root = self.path("branches");
+            std::fs::create_dir_all(&branches_root)?;
+            let dst_branches = branches_root.join(id);
+            let _ = std::fs::remove_dir_all(&dst_branches);
+            std::fs::rename(dir.join("branches"), dst_branches)?;
+        }
         m.files.push(entry.clone());
         m.project.modified = now_ms();
         self.save_manifest(&m)?;
@@ -718,11 +1011,43 @@ impl Library {
         }
     }
 
+    /// Stable agent-session folder for library file `file_id`: `<library root>/agent-sessions/<file_id>`.
+    pub fn agent_session_dir(&self, file_id: &str) -> PathBuf {
+        self.path("agent-sessions").join(file_id)
+    }
+
+    /// Deletes `<library root>/agent-sessions/<file_id>` if it exists.
+    pub fn remove_agent_sessions(&self, file_id: &str) {
+        let dir = self.agent_session_dir(file_id);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
     /// Permanently deletes everything in the trash. This is the only hard delete in the library.
     pub fn empty_trash(&self) -> Result<()> {
         let dir = self.path("trash");
         if dir.exists() {
+            let mut session_file_ids: Vec<String> = Vec::new();
+            for item in self.list_trash() {
+                match item.kind {
+                    TrashKind::File => session_file_ids.push(item.id),
+                    TrashKind::Project => {
+                        let proj_manifest = self.trash_dir(&item.id).join("project").join(MANIFEST);
+                        if let Ok(text) = std::fs::read_to_string(proj_manifest) {
+                            if let Ok(m) = serde_json::from_str::<Manifest>(&text) {
+                                for f in m.files {
+                                    session_file_ids.push(f.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             std::fs::remove_dir_all(&dir)?;
+            for file_id in session_file_ids {
+                self.remove_agent_sessions(&file_id);
+            }
         }
         Ok(())
     }
@@ -990,5 +1315,70 @@ mod tests {
         let a = now_ms();
         let b = now_ms();
         assert!(b > a);
+    }
+
+    #[test]
+    fn sanitize_in_memory_touches_only_affected_entries() {
+        let mut d = Document::new("mixed");
+        let page = d.add_page("P");
+        let clean_id = d.alloc_id();
+        let mut clean = Node::rectangle(clean_id, Rect::new(1.0, 2.0, 30.0, 40.0));
+        clean.name = "clean-rectangle-on-heap".to_string();
+        let clean_id = d.insert(page, clean).unwrap();
+
+        let bad_id = d.alloc_id();
+        let mut bad = Node::rectangle(bad_id, Rect::new(5.0, 6.0, 10.0, 20.0));
+        bad.size.x = f32::NAN;
+        bad.opacity = f32::NAN;
+        let bad_id = d.insert(page, bad).unwrap();
+
+        let clean_name_ptr = d.get(clean_id).unwrap().name.as_ptr();
+        let (stored_json, replaced) = d.to_json_counted().unwrap();
+        assert_eq!(replaced, 2);
+
+        sanitize_document_in_memory(&mut d).unwrap();
+
+        assert_eq!(d.get(clean_id).unwrap().name.as_ptr(), clean_name_ptr, "unaffected nodes are not re-serialized and re-parsed");
+        let sanitized_bad = d.get(bad_id).unwrap();
+        assert_eq!((sanitized_bad.size.x, sanitized_bad.opacity), (0.0, 1.0));
+        assert_eq!(d.to_json().unwrap(), Document::from_json(&stored_json).unwrap().to_json().unwrap());
+    }
+
+    #[test]
+    fn rollback_unlisted_file_keeps_stored_file_when_manifest_already_lists_it() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let listed = lib.create_file(&p.id, None, "Listed", &doc("Listed", 1)).unwrap();
+        let listed_path = lib.file_path(&p.id, &listed.id);
+        assert!(listed_path.exists());
+
+        // Simulates a post-rename `sync_dir` error: the on-disk manifest already contains `listed.id`.
+        lib.rollback_unlisted_file(&p.id, &listed.id, &listed_path);
+        assert!(listed_path.exists(), "must not unlink a file that the on-disk manifest already lists");
+
+        // When the on-disk manifest does not contain the id, the orphan file is unlinked.
+        let orphan_path = lib.file_path(&p.id, "unlisted-id");
+        std::fs::write(&orphan_path, "{}").unwrap();
+        lib.rollback_unlisted_file(&p.id, "unlisted-id", &orphan_path);
+        assert!(!orphan_path.exists(), "must unlink an orphan file not listed in the on-disk manifest");
+    }
+
+    #[test]
+    fn trash_empty_removes_the_session_folder() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let f = lib.create_file(&p.id, None, "Design A", &doc("Design A", 1)).unwrap();
+        let sess_dir = lib.agent_session_dir(&f.id);
+        std::fs::create_dir_all(&sess_dir).unwrap();
+        std::fs::write(sess_dir.join("sessions.json"), r#"{"version":1,"entries":[]}"#).unwrap();
+        assert!(sess_dir.exists());
+
+        // Moving to trash keeps the session folder so a restore keeps the conversation.
+        lib.trash_file(&f.id).unwrap();
+        assert!(sess_dir.exists(), "trashing alone keeps the session folder until trash is emptied");
+
+        // Emptying the trash removes the file's agent-sessions/<id> folder.
+        lib.empty_trash().unwrap();
+        assert!(!sess_dir.exists(), "empty_trash must remove agent-sessions/<id>");
     }
 }

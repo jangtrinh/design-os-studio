@@ -1,0 +1,1 @@
+Error: connection error: dns error: failed to lookup address information (ENOTFOUND api.openai.com)

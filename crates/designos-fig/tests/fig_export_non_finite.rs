@@ -163,8 +163,23 @@ fn non_finite_grid_tracks_export_and_reimport_as_finite_defaults() {
     let bytes = export_fig(&d).unwrap();
     let decoded = decode_fig_to_json(&bytes).unwrap();
     let node = named(&decoded, "GridFrame").expect("the exported grid frame");
-    assert_eq!(node["gridColumnsSizing"].as_str(), Some("1fr 1fr 0px 0px auto"));
-    assert_eq!(node["gridRowsSizing"].as_str(), Some("1fr 0px"));
+    // Figma's track map: one entry per track, the same sizing as minimum and maximum; every number is finite.
+    let sizes = |key: &str| -> Vec<(String, f64, String, f64)> {
+        node[key]["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} is a track map"))
+            .iter()
+            .map(|e| {
+                let t = &e["trackSize"];
+                let f = |side: &str| (t[side]["type"].as_str().unwrap().to_string(), t[side]["value"].as_f64().unwrap());
+                let (min, max) = (f("minSizing"), f("maxSizing"));
+                (min.0, min.1, max.0, max.1)
+            })
+            .collect()
+    };
+    let same = |ty: &str, v: f64| (ty.to_string(), v, ty.to_string(), v);
+    assert_eq!(sizes("gridColumnsSizing"), vec![same("FLEX", 1.0), same("FLEX", 1.0), same("FIXED", 0.0), same("FIXED", 0.0), same("HUG", 1.0)]);
+    assert_eq!(sizes("gridRowsSizing"), vec![same("FLEX", 1.0), same("FIXED", 0.0)]);
 
     let back = import_fig(&bytes).unwrap();
     assert_eq!(back.to_json_counted().unwrap().1, 0, "no non-finite numbers after re-import");

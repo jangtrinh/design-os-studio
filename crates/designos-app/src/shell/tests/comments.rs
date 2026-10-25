@@ -93,6 +93,34 @@ fn a_click_on_empty_canvas_pins_to_the_page() {
     assert!((t.anchor.offset.x - page.x).abs() < 2.0 && (t.anchor.offset.y - page.y).abs() < 2.0);
 }
 
+/// A press with the Comment tool on, on empty canvas or on a layer, opens the composer at that point
+/// and says nothing: the click is the whole interaction.
+fn assert_comment_click_opens_composer_silently(click_at: impl Fn(&Sim) -> Pos2, hits_layer: bool) {
+    let mut s = sim();
+    s.key(Key::C);
+    let at = click_at(&s);
+    let page = s.app().view.to_page(s.app().canvas_rect.min, at);
+    assert_eq!(crate::canvas::interact::hit_under(s.app(), page, false).is_some(), hits_layer, "precondition: what is under the click");
+    s.shell.app.toast = None;
+    s.click(at);
+    let app = s.app();
+    let composer = app.comments.composer.as_ref().expect("the click opened the composer");
+    let pinned = model::pin_point(&app.doc, &composer.anchor).expect("the draft has a position");
+    assert!((pinned.x - page.x).abs() < 2.0 && (pinned.y - page.y).abs() < 2.0, "the draft sits at the click: {pinned:?} vs {page:?}");
+    assert_eq!(app.tool, Tool::Comment, "comment mode stays on");
+    assert!(app.toast.is_none(), "no message for a Comment-tool click: {:?}", app.toast.as_ref().map(|t| &t.text));
+}
+
+#[test]
+fn a_comment_tool_click_on_empty_canvas_opens_the_composer_and_shows_no_toast() {
+    assert_comment_click_opens_composer_silently(|s| s.app().canvas_rect.min + egui::vec2(12.0, 12.0), false);
+}
+
+#[test]
+fn a_comment_tool_click_on_a_layer_opens_the_composer_and_shows_no_toast() {
+    assert_comment_click_opens_composer_silently(|s| inside(s, "Welcome"), true);
+}
+
 #[test]
 fn escape_cancels_the_composer_and_empty_text_cannot_be_posted() {
     let mut s = sim();

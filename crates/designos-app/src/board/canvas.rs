@@ -89,9 +89,9 @@ pub fn zoom_pill(app: &mut App, ui: &mut Ui, canvas: ERect) {
     let resp = ui.interact(r, ui.id().with("board-zoom"), egui::Sense::click());
     let open = app.ui.menu == Some(MenuKind::Zoom);
     let p = ui.painter().clone();
-    p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG);
-    crate::widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_MEDIUM));
-    p.rect_stroke(r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::INNER_HIGHLIGHT), egui::StrokeKind::Inside);
+    p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG);
+    crate::widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_CONTROL));
+    p.rect_stroke(r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::INNER_HIGHLIGHT), egui::StrokeKind::Inside);
     p.text(
         Pos2::new(r.left() + 10.0, r.center().y),
         egui::Align2::LEFT_CENTER,

@@ -8,7 +8,7 @@ use crate::{
 };
 use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, TextEdit, Vec2};
 
-const PAD: f32 = 24.0;
+const PAD: f32 = theme::INSET_MODAL;
 
 pub fn show(app: &mut App, ctx: &Context) {
     if !app.plugins.open {
@@ -38,7 +38,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
         p.rect_filled(screen, 0.0, Color32::from_black_alpha(140));
-        widgets::menu_panel(&p, rect, theme::MENU_RADIUS);
+        widgets::menu_panel(&p, rect, theme::RADIUS_FRAME);
         let left = rect.left() + PAD;
         let width = rect.width() - PAD * 2.0;
         let title = if app.plugins.install_form { "Install plugin" } else { "Plugins" };
@@ -59,7 +59,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 ui.add_space(4.0);
                 paragraph(ui, "Plugin URL", theme::TEXT);
                 let (field, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.0), Sense::hover());
-                ui.painter().rect_filled(field, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                ui.painter().rect_filled(field, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
                 let output = ui
                     .add_enabled_ui(!app.plugins.pending, |ui| {
                         ui.put(
@@ -108,7 +108,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 for (index, plugin) in app.plugins.installed.iter().enumerate() {
                     let (card, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 132.0), Sense::hover());
                     let p = ui.painter();
-                    p.rect_filled(card, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                    p.rect_filled(card, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
                     icons::paint(p, Icon::Tools, Pos2::new(card.left() + 26.0, card.top() + 27.0), 20.0, theme::ICON_SECONDARY);
                     let name = widgets::elide(p, &format!("{} {}", plugin.name, plugin.version), &theme::font_body_strong(), card.width() - 150.0);
                     p.text(Pos2::new(card.left() + 48.0, card.top() + 26.0), Align2::LEFT_CENTER, name, theme::font_body_strong(), theme::TEXT);
@@ -119,23 +119,23 @@ pub fn show(app: &mut App, ctx: &Context) {
                         theme::font_body(),
                         theme::TEXT_SECONDARY,
                     );
-                    let source = widgets::elide(p, &plugin.source_url, &theme::font_small(), card.width() - 28.0);
-                    p.text(Pos2::new(card.left() + 14.0, card.top() + 75.0), Align2::LEFT_CENTER, source, theme::font_small(), theme::TEXT_TERTIARY);
+                    let source = widgets::elide(p, &plugin.source_url, &theme::font_caption(), card.width() - 28.0);
+                    p.text(Pos2::new(card.left() + 14.0, card.top() + 75.0), Align2::LEFT_CENTER, source, theme::font_caption(), theme::TEXT_TERTIARY);
                     ui.interact(card, ui.id().with(("plugin-card", index)), Sense::hover()).on_hover_text(&plugin.source_url);
                     widgets::record(ui, &format!("plugin-card-{index}"), card);
                     let permissions = if plugin.permissions.is_empty() { "No document permissions".to_string() } else { plugin.permissions.join(", ") };
                     p.text(
                         Pos2::new(card.left() + 14.0, card.top() + 98.0),
                         Align2::LEFT_CENTER,
-                        widgets::elide(p, &permissions, &theme::font_small(), card.width() - 28.0),
-                        theme::font_small(),
+                        widgets::elide(p, &permissions, &theme::font_caption(), card.width() - 28.0),
+                        theme::font_caption(),
                         theme::TEXT_SECONDARY,
                     );
                     p.text(
                         Pos2::new(card.left() + 14.0, card.top() + 117.0),
                         Align2::LEFT_CENTER,
-                        widgets::elide(p, &plugin.network.join(", "), &theme::font_small(), card.width() - 28.0),
-                        theme::font_small(),
+                        widgets::elide(p, &plugin.network.join(", "), &theme::font_caption(), card.width() - 28.0),
+                        theme::font_caption(),
                         theme::TEXT_TERTIARY,
                     );
                     let running = app.plugins.running_id.as_deref() == Some(plugin.id.as_str());

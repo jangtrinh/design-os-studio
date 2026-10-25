@@ -1,0 +1,30 @@
+[package]
+name = "designos-eval"
+description = "Offline reproducible evaluation harness for DESIGN:OS Studio agents"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+default-run = "designos-eval"
+
+[[bin]]
+name = "designos-eval"
+path = "src/main.rs"
+
+[features]
+default = []
+aesthetic = []
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+designos-doc.workspace = true
+designos-export.workspace = true
+designos-fig.workspace = true
+designos-library.workspace = true
+designos-render.workspace = true
+dirs = "5"
+image.workspace = true
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml = "1"

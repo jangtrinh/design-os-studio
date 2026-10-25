@@ -181,7 +181,7 @@ pub fn default_root() -> Option<PathBuf> {
     Some(Library::default_root())
 }
 
-fn is_noop(c: &Command) -> bool {
+pub(crate) fn is_noop(c: &Command) -> bool {
     matches!(c, Command::Batch(v) if v.is_empty())
 }
 
@@ -598,15 +598,30 @@ impl App {
         let target = Vec2::new(at.x - size.x / 2.0, at.y - size.y / 2.0);
         let parent = container_at(&self.doc, self.page, at, &[]);
         let local = self.doc.world_transform(parent).invert()?.apply(target);
+        // `import_asset` copies the component's images into the file before it returns the command (outside
+        // undo), so a drop that is refused afterwards has to take them out again.
+        let images_before: BTreeSet<String> = self.doc.images.keys().cloned().collect();
         let cmd = import_asset(&mut self.doc, &snap, key, Some(Placement { parent, at: local }));
         if is_noop(&cmd) {
             return None;
         }
+        // Judge the drop as the insert it is, before anything is applied.
+        if let Some(root) = inserted_under(&cmd, parent) {
+            if !self.slot_insert_allowed(parent, &[root]) {
+                self.doc.images.retain(|k, _| images_before.contains(k));
+                return None;
+            }
+        }
         let mut tx = Tx::new();
         if let Err(e) = tx.cmd(&mut self.doc, cmd) {
+            self.doc.images.retain(|k, _| images_before.contains(k));
             self.show_toast(format!("Edit failed: {e}"), true);
             return None;
         }
+        if let Some(id) = self.doc.get(parent).and_then(|p| p.children.last().copied()) {
+            App::stretch_into_slot_if_configured(&mut self.doc, &mut tx.ed, parent, id);
+        }
+        App::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         if !self.run_tx(tx) {
             return None;
@@ -711,6 +726,35 @@ impl App {
         self.libs.invalidate();
     }
 
+    /// Binds `property` of style `style_key` to a library variable, copying it
+    /// into the file first. The copy and the style binding are one undo step.
+    pub fn bind_style_library_variable(&mut self, style_key: &str, property: &str, library_id: &str, key: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == style_key {
+                st.pending = None;
+            }
+        }
+        let mut tx = Tx::new();
+        let res = match self.import_asset_in(&mut tx, library_id, key) {
+            Some(local) => match self.bind_style_variable_in(&mut tx, style_key, property, &local) {
+                Ok(()) => self.run_tx(tx),
+                Err(e) => {
+                    tx.cancel(&mut self.doc);
+                    self.show_toast(format!("Style not changed: {e}"), true);
+                    false
+                }
+            },
+            None => {
+                tx.cancel(&mut self.doc);
+                self.show_toast("Library variable could not be loaded", true);
+                false
+            }
+        };
+        self.libs.invalidate();
+        res
+    }
+
     /// Applies a library style to `sel`, copying it into the file first, in
     /// `tx` (which may already hold the caller's edits) as one undo step.
     pub fn apply_library_style(&mut self, mut tx: Tx, sel: &[NodeId], library_id: &str, key: &str) {
@@ -749,6 +793,11 @@ impl App {
                     Ok(file_id) => self.open_library_file(&file_id),
                     Err(path) => self.open_path(path),
                 }
+                // The open waits for the answer to "Save changes": the shown document is still this one, and the
+                // main component is not in it. The file opens without the navigation once it is answered.
+                if self.leave.is_asking() {
+                    return;
+                }
                 let found = self.doc.pages.iter().find_map(|p| {
                     let mut hit = None;
                     self.doc.walk(*p, |n, _| {
@@ -785,4 +834,13 @@ pub fn instance_library_row(ui: &mut egui::Ui, row: egui::Rect, info: &LibraryIn
     let text = crate::widgets::elide(&p, &text, &crate::theme::font_body(), row.width() - 24.0);
     p.text(egui::pos2(row.left() + 22.0, row.center().y), egui::Align2::LEFT_CENTER, text, crate::theme::font_body(), crate::theme::TEXT_SECONDARY);
     crate::widgets::record(ui, "instance-library", row);
+}
+
+/// Root of the subtree `cmd` inserts under `parent` (the dropped instance), looking inside batches.
+fn inserted_under(cmd: &Command, parent: NodeId) -> Option<&Node> {
+    match cmd {
+        Command::Insert { parent: p, nodes, .. } if *p == parent => nodes.first(),
+        Command::Batch(cmds) => cmds.iter().rev().find_map(|c| inserted_under(c, parent)),
+        _ => None,
+    }
 }

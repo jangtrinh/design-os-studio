@@ -13,10 +13,31 @@ use designos_doc::*;
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 
+mod carrier;
+mod grid;
+pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
+
+/// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
+/// as ordinary `pluginData` entries, which Figma keeps for any plugin id and ignores when it does not know the
+/// plugin. [`crate::fig`] reads these entries back into typed node data and never into `Node::plugin_data`.
+pub(crate) const STUDIO_PLUGIN_ID: &str = "designos-studio";
+/// Carrier key: an instance's slot content id, as written (`"7:42"`).
+pub(crate) const STUDIO_SLOT_CONTENT_ID_KEY: &str = "slot-content-id";
+/// Carrier key: `"true"` for a sticky that shows its author; absent means hidden.
+pub(crate) const STUDIO_AUTHOR_VISIBLE_KEY: &str = "author-visible";
+
+fn is_studio_carrier_key(full_key: &str) -> bool {
+    full_key
+        .strip_prefix(STUDIO_PLUGIN_ID)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|key| key == STUDIO_SLOT_CONTENT_ID_KEY || key == STUDIO_AUTHOR_VISIBLE_KEY || key.starts_with(carrier::CARRIER_KEY_PREFIX))
+}
+
 // The kiwi encoder writes whatever float bits it is given, and a reader treats a NaN or an infinity
 // as an absent field, so a single bad number would drop a whole `size` or transform on the way back.
 // The exporter therefore never hands the encoder a non-finite float: it writes the neutral value of
 // the slot instead, one for opacity, alpha and the diagonal of a matrix, zero for every other number.
+// The one exception is the unset side of `maxSize`, which Figma's own files write as infinity (see `size_limit`).
 fn finite_or(x: f32, neutral: f32) -> f32 {
     if x.is_finite() {
         x
@@ -32,6 +53,12 @@ fn fl(x: f32) -> V {
 /// [`fl`] for a number whose neutral value is one: opacity, alpha, the diagonal of a matrix.
 fn fl_one(x: f32) -> V {
     testkit::fl(finite_or(x, 1.0))
+}
+
+/// `minSize` / `maxSize`: an `OptionalVector` whose unset side holds `unset`.
+fn size_limit(x: Option<f32>, y: Option<f32>, unset: f32) -> V {
+    let side = |v: Option<f32>| v.map_or_else(|| testkit::fl(unset), fl);
+    msg(vec![("value", st(vec![("x", side(x)), ("y", side(y))]))])
 }
 
 fn vec2(x: f32, y: f32) -> V {
@@ -102,6 +129,14 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     Ok(container::write_zip(&canvas, &doc.images, Some(&meta)))
 }
 
+/// Serializes `doc` into a `.fig` binary archive and returns a sibling report of any variable or
+/// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
+pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
+    let bytes = export_fig(doc)?;
+    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    Ok((bytes, omitted))
+}
+
 // ------------------------------------------------------------------ state & IDs
 
 struct ExportCtx<'a> {
@@ -116,6 +151,8 @@ struct ExportCtx<'a> {
     var_guids: BTreeMap<String, (u32, u32)>,
     style_guids: BTreeMap<String, (u32, u32)>,
     prop_guids: BTreeMap<(NodeId, String), (u32, u32)>,
+    comp_keys: BTreeMap<NodeId, String>,
+    grid_tracks: BTreeMap<NodeId, grid::GridTrackIds>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
 }
@@ -128,10 +165,37 @@ fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
     }
     let session = a.parse::<u32>().ok()?;
     let local = b.parse::<u32>().ok()?;
-    if session == 0 && (local == 0 || local == 999_999) {
+    if (session == 0 && (local == 0 || local == 999_999)) || (session == u32::MAX && local == u32::MAX) {
         return None;
     }
     Some((session, local))
+}
+
+/// Fallback component key for `id` when no explicit `componentKey` or library key is present.
+/// Uses the bare `"{s}:{l}"` GUID string unless another component already owns that string, in
+/// which case it disambiguates as `"comp:{s}:{l}"`, `"comp:{s}:{l}:2"`, `"comp:{s}:{l}:3"`, …
+fn fallback_component_key(cx: &ExportCtx<'_>, id: NodeId) -> Option<String> {
+    if let Some(k) = cx.comp_keys.get(&id) {
+        return Some(k.clone());
+    }
+    let g = cx.node_guids.get(&id)?;
+    let taken_by_other = |candidate: &str| cx.comp_keys.iter().any(|(&other_id, k)| other_id != id && k == candidate);
+    let bare = format!("{}:{}", g.0, g.1);
+    if !taken_by_other(&bare) {
+        return Some(bare);
+    }
+    let prefixed = format!("comp:{}:{}", g.0, g.1);
+    if !taken_by_other(&prefixed) {
+        return Some(prefixed);
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("comp:{}:{}:{n}", g.0, g.1);
+        if !taken_by_other(&candidate) {
+            return Some(candidate);
+        }
+        n += 1;
+    }
 }
 
 impl<'a> ExportCtx<'a> {
@@ -139,6 +203,7 @@ impl<'a> ExportCtx<'a> {
         let mut used = HashSet::new();
         used.insert((0, 0));
         used.insert((0, 999_999));
+        used.insert((u32::MAX, u32::MAX));
         let nc_def = schema.find("NodeChange").unwrap_or(0);
         let mut cx = Self {
             doc,
@@ -152,14 +217,24 @@ impl<'a> ExportCtx<'a> {
             var_guids: BTreeMap::new(),
             style_guids: BTreeMap::new(),
             prop_guids: BTreeMap::new(),
+            comp_keys: BTreeMap::new(),
+            grid_tracks: BTreeMap::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
         };
+        let bump_next_local = |next_local: &mut u32, local: u32| {
+            if let Some(next) = local.checked_add(1) {
+                *next_local = (*next_local).max(next);
+            }
+        };
         // First pass: reserve explicit `s:l` GUIDs so generated ones never collide.
         for (&id, n) in &doc.nodes {
+            if doc.library_page.is_some_and(|lp| n.parent == Some(lp)) && n.source_id.as_deref().is_some_and(|sid| doc.styles.contains_key(sid)) {
+                continue;
+            }
             if let Some(g) = n.source_id.as_deref().and_then(parse_guid_pair) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.node_guids.insert(id, g);
                 }
             }
@@ -167,7 +242,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variable_collections.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.coll_guids.insert(id.clone(), g);
                 }
             }
@@ -176,7 +251,7 @@ impl<'a> ExportCtx<'a> {
             for m in &c.modes {
                 if let Some(g) = parse_guid_pair(&m.id) {
                     if cx.used_guids.insert(g) {
-                        cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                        bump_next_local(&mut cx.next_local, g.1);
                         cx.mode_guids.insert(m.id.clone(), g);
                     }
                 }
@@ -185,7 +260,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.variables.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.var_guids.insert(id.clone(), g);
                 }
             }
@@ -193,7 +268,7 @@ impl<'a> ExportCtx<'a> {
         for id in doc.styles.keys() {
             if let Some(g) = parse_guid_pair(id) {
                 if cx.used_guids.insert(g) {
-                    cx.next_local = cx.next_local.max(g.1.saturating_add(1));
+                    bump_next_local(&mut cx.next_local, g.1);
                     cx.style_guids.insert(id.clone(), g);
                 }
             }
@@ -237,13 +312,53 @@ impl<'a> ExportCtx<'a> {
                 cx.prop_guids.insert((id, p.name.clone()), g);
             }
         }
+        for (ext_key, asset) in &doc.library.external {
+            if let Some(nid) = asset.node {
+                let prefix = format!("{}:", asset.library_id);
+                let raw_key = ext_key.strip_prefix(&prefix).unwrap_or(ext_key);
+                if !raw_key.is_empty() {
+                    cx.comp_keys.insert(nid, raw_key.to_string());
+                }
+            }
+        }
+        // Keys flow from a component to its instances, never the other way. Owners first: the
+        // component's stored key (`componentKey` metadata) and the library assets that point at it.
+        for (&id, n) in &doc.nodes {
+            if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+                if let Some(ck) = n.fig_metadata.get("componentKey").filter(|s| !s.is_empty()) {
+                    cx.comp_keys.insert(id, ck.clone());
+                }
+            }
+        }
+        // An instance only names a component that has no key yet, and only with a key no other
+        // component owns. Otherwise its key would make a second component claim the same key.
+        let mut owned: std::collections::HashSet<String> = cx.comp_keys.values().cloned().collect();
+        for n in doc.nodes.values() {
+            if let NodeKind::Instance { component: Some(cid), component_key: Some(ck), .. } = &n.kind {
+                if !ck.is_empty() && !cx.comp_keys.contains_key(cid) && !owned.contains(ck) {
+                    cx.comp_keys.insert(*cid, ck.clone());
+                    owned.insert(ck.clone());
+                }
+            }
+        }
+        let mut comp_ids: Vec<NodeId> =
+            doc.nodes.iter().filter_map(|(&id, n)| matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)).then_some(id)).collect();
+        comp_ids.sort_by_key(|id| id.0);
+        for id in comp_ids {
+            if !cx.comp_keys.contains_key(&id) {
+                if let Some(key) = fallback_component_key(&cx, id) {
+                    cx.comp_keys.insert(id, key);
+                }
+            }
+        }
+        grid::allocate(&mut cx);
         cx
     }
 
     fn alloc_guid(&mut self, session: u32) -> (u32, u32) {
         loop {
             let g = (session, self.next_local);
-            self.next_local += 1;
+            self.next_local = self.next_local.wrapping_add(1).max(1);
             if self.used_guids.insert(g) {
                 return g;
             }
@@ -317,7 +432,34 @@ fn pos_str(idx: usize) -> String {
 fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
     let mut cx = ExportCtx::new(doc, schema);
     // 1. Root DOCUMENT record.
-    cx.changes.push(msg(vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))]));
+    let mut doc_fields = vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))];
+    if !doc.check_designs.ignored.is_empty() {
+        let ignores: Vec<serde_json::Value> = doc
+            .check_designs
+            .ignored
+            .iter()
+            .map(|key| {
+                let guid_str = cx.node_guids.get(&key.node).map(|&(s, l)| format!("{s}:{l}"));
+                json!({
+                    "rule": key.rule,
+                    "node": key.node.0,
+                    "guid": guid_str,
+                    "property": key.property,
+                })
+            })
+            .collect();
+        if let Ok(serialized) = serde_json::to_string(&ignores) {
+            doc_fields.push((
+                "pluginData",
+                V::Array(vec![msg(vec![
+                    ("pluginID", V::String("designos".into())),
+                    ("key", V::String("lint_ignores".into())),
+                    ("value", V::String(serialized)),
+                ])]),
+            ));
+        }
+    }
+    cx.changes.push(msg(doc_fields));
 
     // 2. User pages (CANVAS records) and their subtrees.
     for (pidx, &pid) in doc.pages.iter().enumerate() {
@@ -375,6 +517,9 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
             if let Some(lib_page) = doc.get(lp) {
                 let kids = lib_page.children.clone();
                 for cid in kids {
+                    if doc.get(cid).and_then(|n| n.source_id.as_deref()).is_some_and(|sid| doc.styles.contains_key(sid)) {
+                        continue;
+                    }
                     export_node_rec(&mut cx, cid, iguid, internal_idx, None, false);
                     internal_idx += 1;
                 }
@@ -382,7 +527,7 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
         }
     }
 
-    let blobs: Vec<V> = cx.blobs.into_iter().map(|b| msg(vec![("bytes", V::Bytes(b))])).collect();
+    let blobs: Vec<V> = cx.blobs.into_iter().map(|b| st(vec![("bytes", V::Bytes(b))])).collect();
     msg(vec![("type", en("NODE_CHANGES")), ("sessionID", V::Uint(0)), ("ackID", V::Uint(0)), ("nodeChanges", V::Array(cx.changes)), ("blobs", V::Array(blobs))])
 }
 
@@ -392,7 +537,7 @@ fn collect_page_handoff(cx: &ExportCtx, page: NodeId) -> Vec<V> {
     while let Some(id) = stack.pop() {
         let Some(n) = cx.doc.get(id) else { continue };
         let status = match n.dev.status {
-            Some(DevStatus::ReadyForDev | DevStatus::Changed) => Some("READY_FOR_DEV"),
+            Some(DevStatus::ReadyForDev | DevStatus::Changed) => Some("BUILD"),
             Some(DevStatus::Completed) => Some("COMPLETED"),
             None => None,
         };
@@ -468,7 +613,7 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
-        let scopes: Vec<V> = v.scopes.iter().map(|s| V::String(s.clone())).collect();
+        let scopes: Vec<V> = v.scopes.iter().filter(|s| cx.schema.has_enum_variant("VariableScope", s)).map(|s| en(s)).collect();
         let mut fields = vec![
             ("guid", guid(vguid.0, vguid.1)),
             ("phase", en("CREATED")),
@@ -503,9 +648,11 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
 
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
     let styles: Vec<(String, Style)> = cx.doc.styles.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let empty_bindings = BTreeMap::new();
     for (sid, style) in styles {
         let sguid = cx.style_guids[&sid];
         let meta = cx.doc.style_meta.get(&sid);
+        let bindings = meta.map(|m| &m.bindings).unwrap_or(&empty_bindings);
         let name = cx.doc.style_name(&sid).to_string();
         let desc = meta.map(|m| m.description.clone()).unwrap_or_default();
         let (node_ty, style_ty) = match &style {
@@ -529,13 +676,18 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         }
         match &style {
             Style::Fill(paints) => {
-                fields.push(("fillPaints", V::Array(paints.iter().map(|p| encode_paint(p, None, None)).collect())));
+                fields
+                    .push(("fillPaints", V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect())));
             }
             Style::Text(ts) => {
                 append_text_style_fields(&mut fields, ts);
+                let var_entries = encode_var_entries_from_bindings(cx, bindings);
+                if !var_entries.is_empty() {
+                    fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
+                }
             }
             Style::Effect(effects) => {
-                fields.push(("effects", V::Array(effects.iter().map(|e| encode_effect(e, None, None)).collect())));
+                fields.push(("effects", V::Array(effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, bindings)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -544,6 +696,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         cx.changes.push(msg(fields));
         *idx += 1;
     }
+}
+
+/// Slot content id written on the definition of slot property `prop_name`. It comes from the
+/// per-property map only: the node's own `slot_content_id` is a different field (carried in the
+/// plugin data entry `slot-content-id`) and is never turned into a property assignment.
+fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&'a str> {
+    link.slot_content_ids.get(prop_name).map(String::as_str)
 }
 
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
@@ -606,25 +765,40 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         };
         fields.push(("hyperlink", hl_msg));
     }
-    if !node.plugin_data.is_empty() {
-        let pd_entries: Vec<V> = node
-            .plugin_data
-            .iter()
-            .map(|(full_key, val)| {
-                let mut m = Vec::with_capacity(3);
-                if let Some((pid, key)) = full_key.split_once(':') {
-                    if !pid.is_empty() {
-                        m.push(("pluginID", V::String(pid.to_string())));
-                    }
-                    m.push(("key", V::String(key.to_string())));
-                } else {
-                    m.push(("key", V::String(full_key.clone())));
+    // A node's own plugin data goes out unchanged; the reserved carrier keys are rebuilt below from typed
+    // data, so a stale copy of one in `plugin_data` is not written twice.
+    let mut carried: carrier::Carried = Vec::new();
+    let studio_entry =
+        |key: &str, value: String| msg(vec![("pluginID", V::String(STUDIO_PLUGIN_ID.into())), ("key", V::String(key.into())), ("value", V::String(value))]);
+    let mut pd_entries: Vec<V> = node
+        .plugin_data
+        .iter()
+        .filter(|(full_key, _)| !is_studio_carrier_key(full_key) && *full_key != "designos:in_progress")
+        .map(|(full_key, val)| {
+            let mut m = Vec::with_capacity(3);
+            if let Some((pid, key)) = full_key.split_once(':') {
+                if !pid.is_empty() {
+                    m.push(("pluginID", V::String(pid.to_string())));
                 }
-                m.push(("value", V::String(val.clone())));
-                msg(m)
-            })
-            .collect();
-        fields.push(("pluginData", V::Array(pd_entries)));
+                m.push(("key", V::String(key.to_string())));
+            } else {
+                m.push(("key", V::String(full_key.clone())));
+            }
+            m.push(("value", V::String(val.clone())));
+            msg(m)
+        })
+        .collect();
+    // Figma's NodeChange has no field for either value, so they ride in plugin data under the reserved id.
+    if matches!(&node.kind, NodeKind::Sticky(sp) if sp.show_author) {
+        pd_entries.push(studio_entry(STUDIO_AUTHOR_VISIBLE_KEY, "true".into()));
+    }
+    if let Some(id) = node.component.slot_content_id.as_deref().filter(|s| !s.is_empty()) {
+        pd_entries.push(studio_entry(STUDIO_SLOT_CONTENT_ID_KEY, id.to_string()));
+    }
+    if let Some(ip) = cx.doc.in_progress.get(&id) {
+        if let Ok(val) = serde_json::to_string(ip) {
+            pd_entries.push(msg(vec![("pluginID", V::String("designos".into())), ("key", V::String("in_progress".into())), ("value", V::String(val))]));
+        }
     }
     if !node.component.description.is_empty() {
         fields.push(("symbolDescription", V::String(node.component.description.clone())));
@@ -633,7 +807,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("propsAreBubbled", V::Bool(true)));
     }
     if let Some(lvl) = node.component.override_level {
-        fields.push(("overrideLevel", V::Uint(lvl.max(0) as u32)));
+        fields.push(("overrideLevel", V::Int(lvl)));
     }
     if let Some(ds) = node.detached_symbol_id.as_deref().or(node.component.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
         fields.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
@@ -644,9 +818,6 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(g) = node.component.slot_content_id.as_deref().and_then(parse_guid_pair) {
-        fields.push(("jsonSerialized", msg(vec![("slot-content-id", msg(vec![("guid", guid(g.0, g.1))]))])));
-    }
     if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
@@ -655,24 +826,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
 
     if let Some(ds) = node.dev.status {
         let st_name = match ds {
-            DevStatus::ReadyForDev | DevStatus::Changed => "READY_FOR_DEV",
+            DevStatus::ReadyForDev | DevStatus::Changed => "BUILD",
             DevStatus::Completed => "COMPLETED",
         };
         fields.push(("sectionStatusInfo", msg(vec![("status", en(st_name))])));
     }
 
-    // Fills & strokes (with bound colorVar when present).
-    let fill_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("fills/{i}"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let stroke_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("strokes/{i}"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let opacity_var = |list: &str, i: usize| -> Option<V> { cx.opacity_var_data(&node.variables, &format!("{list}/{i}/opacity")) };
+    // Fills & strokes (with bound colorVar / stopsVar / opacityVar when present).
     let sticky_fill_buf;
     let fills_slice: &[Paint] = match &node.kind {
         NodeKind::Text(t) => &t.style.fills,
@@ -682,10 +842,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         _ => &node.fills,
     };
-    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint(p, fill_color_var(i), opacity_var("fills", i))).collect();
+    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings)).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> = node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint(p, stroke_color_var(i), opacity_var("strokes", i))).collect();
+    let stroke_paints: Vec<V> =
+        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
     fields.push(("strokePaints", V::Array(stroke_paints)));
     fields.push(("strokeWeight", fl(node.stroke.weight)));
     fields.push((
@@ -727,12 +888,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     // Effects.
-    let effect_color_var = |i: usize| -> Option<V> {
-        let vid = node.variables.bindings.get(&format!("effects/{i}/color"))?;
-        let vg = cx.resolve_var_guid(vid)?;
-        Some(alias_var_data(vg))
-    };
-    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, &node.variables.bindings)).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -780,29 +936,18 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 LayoutDirection::Grid => "GRID",
             };
             fields.push(("stackMode", en(sm)));
-            if al.grid_columns > 0 {
-                fields.push(("gridColumns", V::Uint(al.grid_columns)));
-                fields.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
-            }
-            if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, &node, al) {
-                fields.push(("gridRows", V::Uint(rows)));
-                fields.push(("gridRowsSizing", V::String(sizing)));
-            }
-            if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
-                fields.push(("gridAutoTracks", V::String(gat)));
-            }
+            grid::push_frame_fields(cx, id, &node, al, &mut fields, &mut carried);
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
                 fields.push(("gridRowGap", fl(al.counter_spacing)));
             }
             fields.push(("stackSpacing", fl(al.item_spacing)));
             fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
-            fields.push(("stackPaddingTop", fl(al.padding[0])));
+            // Figma stores top and left padding on the vertical and horizontal padding fields.
+            fields.push(("stackVerticalPadding", fl(al.padding[0])));
             fields.push(("stackPaddingRight", fl(al.padding[1])));
             fields.push(("stackPaddingBottom", fl(al.padding[2])));
-            fields.push(("stackPaddingLeft", fl(al.padding[3])));
             fields.push(("stackHorizontalPadding", fl(al.padding[3])));
-            fields.push(("stackVerticalPadding", fl(al.padding[0])));
             let align_name = |a: LayoutAlign| match a {
                 LayoutAlign::Start => "MIN",
                 LayoutAlign::Center => "CENTER",
@@ -833,6 +978,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
             fields.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
             fields.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
+        } else if clears_inherited_auto_layout(&node) {
+            // An instance without auto layout over a component that has it must say so, or an importer
+            // would hand the component's layout back to it.
+            fields.push(("stackMode", en("NONE")));
         }
     }
 
@@ -870,44 +1019,19 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push((key, fl(val)));
         }
     }
-    if let Some(c) = lc.grid_column {
-        fields.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
-        fields.push(("gridColumnAnchor", V::Uint(u32::from(c))));
-    }
-    if let Some(r) = lc.grid_row {
-        fields.push(("gridRowAnchorIndex", V::Uint(u32::from(r))));
-        fields.push(("gridRowAnchor", V::Uint(u32::from(r))));
-    }
-    if lc.col_span > 1 {
-        fields.push(("gridColumnSpan", V::Uint(u32::from(lc.col_span))));
-    }
-    if lc.row_span > 1 {
-        fields.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
-    }
+    grid::push_child_fields(grid::parent_ids(cx, &node), lc, &mut fields, &mut carried);
     for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-        if writes_grid_child_align(a, parent_dir) {
-            fields.push((k, en(grid_child_align_name(a))));
+        let eff = if a == GridChildAlign::Start { node.fig_metadata.get(k).and_then(|s| GridChildAlign::from_figma_name(s)).unwrap_or(a) } else { a };
+        if writes_grid_child_align(eff, parent_dir) {
+            fields.push((k, en(grid_child_align_name(eff))));
         }
     }
+    // Figma writes both components of a size limit: an unset minimum is 0 and an unset maximum is infinite.
     if lc.min_w.is_some() || lc.min_h.is_some() {
-        let mut s = Vec::new();
-        if let Some(x) = lc.min_w {
-            s.push(("x", fl(x)));
-        }
-        if let Some(y) = lc.min_h {
-            s.push(("y", fl(y)));
-        }
-        fields.push(("minSize", msg(s)));
+        fields.push(("minSize", size_limit(lc.min_w, lc.min_h, 0.0)));
     }
     if lc.max_w.is_some() || lc.max_h.is_some() {
-        let mut s = Vec::new();
-        if let Some(x) = lc.max_w {
-            s.push(("x", fl(x)));
-        }
-        if let Some(y) = lc.max_h {
-            s.push(("y", fl(y)));
-        }
-        fields.push(("maxSize", msg(s)));
+        fields.push(("maxSize", size_limit(lc.max_w, lc.max_h, f32::INFINITY)));
     }
 
     // Export settings & frame guides.
@@ -927,7 +1051,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     ExportConstraint::Width(v) => ("CONTENT_WIDTH", v),
                     ExportConstraint::Height(v) => ("CONTENT_HEIGHT", v),
                 };
-                msg(vec![("suffix", V::String(e.suffix.clone())), ("imageType", en(img_ty)), ("constraint", msg(vec![("type", en(cty)), ("value", fl(cval))]))])
+                msg(vec![("suffix", V::String(e.suffix.clone())), ("imageType", en(img_ty)), ("constraint", st(vec![("type", en(cty)), ("value", fl(cval))]))])
             })
             .collect();
         fields.push(("exportSettings", V::Array(exs)));
@@ -1000,11 +1124,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         _ => (0, 0),
                     };
                     df.push(("initialValue", msg(vec![("guidValue", guid(tg.0, tg.1))])));
-                    if !preferred.is_empty() {
-                        let prefs: Vec<V> = preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
-                        if !prefs.is_empty() {
-                            df.push(("preferredValues", V::Array(prefs)));
-                        }
+                    if let Some(pv) = encode_preferred_values(cx, preferred) {
+                        df.push(("preferredValues", pv));
                     }
                 }
                 PropKind::Variant { options } => {
@@ -1021,10 +1142,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     df.push(("initialValue", msg(vec![("textValue", msg(vec![("characters", V::String(String::new()))]))])));
                     if let Some(cfg) = node.component.slot_configs.get(&p.name) {
                         df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
-                        let prefs: Vec<V> = cfg.preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
-                        if !prefs.is_empty() {
-                            df.push(("preferredValues", V::Array(prefs)));
+                        if let Some(pv) = encode_preferred_values(cx, &cfg.preferred) {
+                            df.push(("preferredValues", pv));
                         }
+                    }
+                    if let Some(g) = def_slot_content_id(&node.component, &p.name).and_then(parse_guid_pair) {
+                        df.push((
+                            "varValue",
+                            msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                        ));
                     }
                 }
             }
@@ -1035,7 +1161,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stateGroupPropertyValueOrders", V::Array(variant_orders)));
         }
     }
-    if !node.component.values.is_empty() {
+    if !node.component.values.is_empty() || (!node.component.slot_content_ids.is_empty() && node.component.props.is_empty()) {
         let mut prop_assigns = Vec::new();
         for (prop_name, pval) in &node.component.values {
             let def_g = cx.resolve_prop_guid(id, prop_name);
@@ -1047,17 +1173,38 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     msg(vec![("guidValue", guid(tg.0, tg.1))])
                 }
                 PropValue::Slot(ids) => {
-                    let s = ids
-                        .iter()
-                        .map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1)).unwrap_or_else(|| i.0.to_string()))
-                        .collect::<Vec<_>>()
-                        .join(",");
+                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
                     msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
                 }
             };
-            prop_assigns.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)]));
+            let mut assign = vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)];
+            if let Some(g) = node.component.slot_content_ids.get(prop_name).and_then(|s| parse_guid_pair(s)) {
+                assign.push((
+                    "varValue",
+                    msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                ));
+            }
+            prop_assigns.push(msg(assign));
         }
-        fields.push(("componentPropAssignments", V::Array(prop_assigns)));
+        if node.component.props.is_empty() {
+            for (prop_name, scid) in &node.component.slot_content_ids {
+                if node.component.values.contains_key(prop_name) {
+                    continue;
+                }
+                let Some(g) = parse_guid_pair(scid) else { continue };
+                let def_g = cx.resolve_prop_guid(id, prop_name);
+                prop_assigns.push(msg(vec![
+                    ("defID", guid(def_g.0, def_g.1)),
+                    (
+                        "varValue",
+                        msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                    ),
+                ]));
+            }
+        }
+        if !prop_assigns.is_empty() {
+            fields.push(("componentPropAssignments", V::Array(prop_assigns)));
+        }
     }
     if !node.component.bindings.is_empty() {
         let mut prop_refs = Vec::new();
@@ -1080,15 +1227,24 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if !node.component.variant_props.is_empty() {
         let mut vspecs = Vec::new();
+        // Figma's spec holds the property's id and the value; the name is found through the id. A property with no
+        // definition in this file has no name to find, so the specs travel once more in the legacy shape with it.
+        let mut legacy = Vec::new();
+        let mut name_lost = false;
         for (prop_name, val) in &node.component.variant_props {
             let def_g = cx.resolve_prop_guid(id, prop_name);
             let bare_name =
                 prop_name.strip_prefix("propDefId:").map(|_| String::new()).unwrap_or_else(|| prop_name.split('#').next().unwrap_or(prop_name).to_string());
-            let mut vspec = vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))];
+            vspecs.push(msg(vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))]));
+            let mut spec = serde_json::json!({"propDefId": {"sessionID": def_g.0, "localID": def_g.1}, "value": val});
             if !bare_name.is_empty() {
-                vspec.push(("propertyName", V::String(bare_name)));
+                name_lost |= !cx.prop_guids.values().any(|g| *g == def_g);
+                spec["propertyName"] = bare_name.into();
             }
-            vspecs.push(msg(vspec));
+            legacy.push(spec);
+        }
+        if name_lost {
+            carried.push(("variantPropSpecs", serde_json::Value::Array(legacy)));
         }
         fields.push(("variantPropSpecs", V::Array(vspecs)));
     }
@@ -1116,7 +1272,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // Kind-specific fields.
     match &node.kind {
         NodeKind::Ellipse(arc) => {
-            fields.push(("arcData", st(vec![("startingAngle", fl(arc.start)), ("endingAngle", fl(arc.end)), ("innerRadius", fl(arc.inner_radius))])));
+            fields.push(("arcData", msg(vec![("startingAngle", fl(arc.start)), ("endingAngle", fl(arc.end)), ("innerRadius", fl(arc.inner_radius))])));
         }
         NodeKind::Polygon { count } => {
             fields.push(("count", V::Uint(*count)));
@@ -1133,6 +1289,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 BooleanOp::Exclude => "XOR",
             };
             fields.push(("booleanOperation", en(op_name)));
+        }
+        NodeKind::Component(_) | NodeKind::ComponentSet(_) => {
+            if let Some(ck) = cx.comp_keys.get(&id) {
+                fields.push(("componentKey", V::String(ck.clone())));
+            }
         }
         NodeKind::Instance { component, component_key, .. } => {
             let mut sd = Vec::new();
@@ -1163,7 +1324,6 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             encode_text_node(&mut fields, tp);
         }
         NodeKind::Sticky(sp) => {
-            fields.push(("authorVisible", V::Bool(sp.show_author)));
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::ShapeWithText(sp) => {
@@ -1179,7 +1339,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ShapeKind::Hexagon => "HEXAGON",
                 ShapeKind::Pentagon => "PENTAGON",
             });
-            fields.push(("shapeWithTextType", V::String(st_name.into())));
+            let st_name = if cx.schema.has_enum_variant("ShapeWithTextType", st_name) { st_name } else { "SQUARE" };
+            fields.push(("shapeWithTextType", en(st_name)));
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::Connector(cp) => {
@@ -1188,16 +1349,16 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ConnectorLine::Straight => "STRAIGHT",
                 ConnectorLine::Curved => "CURVED",
             };
-            fields.push(("connectorLineStyle", V::String(line_style.into())));
+            fields.push(("connectorLineStyle", en(line_style)));
             let cap_name = |c: ConnectorCap| match c {
                 ConnectorCap::None => "NONE",
                 ConnectorCap::Arrow => "ARROW_LINES",
                 ConnectorCap::Triangle => "ARROW_EQUILATERAL",
-                ConnectorCap::Circle => "ROUND",
-                ConnectorCap::Diamond => "SQUARE",
+                ConnectorCap::Circle => "CIRCLE_FILLED",
+                ConnectorCap::Diamond => "DIAMOND_FILLED",
             };
-            fields.push(("connectorStartStrokeCap", en(cap_name(cp.start_cap))));
-            fields.push(("connectorEndStrokeCap", en(cap_name(cp.end_cap))));
+            fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
+            fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
             let mag_name = |m: Magnet| match m {
                 Magnet::Auto => "AUTO",
                 Magnet::Top => "TOP",
@@ -1207,9 +1368,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 Magnet::Center => "CENTER",
             };
             let end_msg = |ep: &ConnectorEnd| {
-                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", V::String(mag_name(ep.magnet).into()))];
+                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag_name(ep.magnet)))];
                 if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
-                    ef.push(("endpointNodeId", guid(tg.0, tg.1)));
+                    ef.push(("endpointNodeID", guid(tg.0, tg.1)));
                 }
                 msg(ef)
             };
@@ -1222,6 +1383,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => {}
     }
 
+    pd_entries.extend(carrier::carrier_entries(&carried));
+    if !pd_entries.is_empty() {
+        fields.push(("pluginData", V::Array(pd_entries)));
+    }
     let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
     cx.changes.push(V::Message(msg_fields));
@@ -1263,8 +1428,13 @@ pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
 /// Only slots inside the rows the children fill ([`placed_grid_rows`]) are written: a slot past them is unused,
 /// and as a real row it would add an empty row and a gap.
 pub(crate) fn grid_rows_for_export(doc: &Document, node: &Node, al: &AutoLayout) -> Option<(u32, String)> {
+    grid_row_tracks_for_export(doc, node, al).map(|(count, tracks)| (count, format_grid_tracks(count, &tracks)))
+}
+
+/// The tracks behind [`grid_rows_for_export`]: the row count and the size of every row up to it.
+pub(crate) fn grid_row_tracks_for_export(doc: &Document, node: &Node, al: &AutoLayout) -> Option<(u32, Vec<GridTrack>)> {
     if al.grid_rows > 0 {
-        return Some((al.grid_rows, format_grid_tracks(al.grid_rows, &al.grid_row_tracks)));
+        return Some((al.grid_rows, al.grid_row_tracks.as_slice().to_vec()));
     }
     if al.direction != LayoutDirection::Grid || !al.grid_row_tracks.iter().any(|t| matches!(t, GridTrack::Fixed(_))) {
         return None;
@@ -1277,7 +1447,7 @@ pub(crate) fn grid_rows_for_export(doc: &Document, node: &Node, al: &AutoLayout)
         _ => None,
     };
     let tracks: Vec<GridTrack> = al.grid_row_tracks[..count].iter().map(|&t| if matches!(t, GridTrack::Fixed(_)) { t } else { auto.unwrap_or(t) }).collect();
-    Some((count as u32, format_grid_tracks(count as u32, &tracks)))
+    Some((count as u32, tracks))
 }
 
 pub(crate) fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
@@ -1292,10 +1462,42 @@ pub(crate) fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
     }
 }
 
+/// True for a frame or instance whose auto layout was removed on purpose (`layout_cleared`): the file needs
+/// an explicit `stackMode: NONE` to keep it that way. A node that merely lacks auto layout, or only has
+/// some other layout field overridden, must not be written with it.
+fn clears_inherited_auto_layout(n: &Node) -> bool {
+    n.component.layout_cleared && n.kind.frame_props().is_some_and(|fp| fp.auto_layout.is_none())
+}
+
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
+    encode_var_entries_from_bindings(cx, &vars.bindings)
+}
+
+fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, String>) -> Vec<V> {
     let mut var_entries = Vec::new();
-    for (k, vid) in &vars.bindings {
+    let mut font_style_done = false;
+    for (k, vid) in bindings {
         if k.starts_with("fills/") || k.starts_with("strokes/") || k.starts_with("effects/") {
+            continue;
+        }
+        if k == "fontWeight" || k == "fontStyle" {
+            if font_style_done {
+                continue;
+            }
+            font_style_done = true;
+            let mut fs_fields = Vec::new();
+            if let Some(vg) = bindings.get("fontStyle").and_then(|v| cx.resolve_var_guid(v)) {
+                fs_fields.push(("asString", alias_var_data(vg)));
+            }
+            if let Some(vg) = bindings.get("fontWeight").and_then(|v| cx.resolve_var_guid(v)) {
+                fs_fields.push(("asFloat", alias_var_data(vg)));
+            }
+            if !fs_fields.is_empty() {
+                var_entries.push(msg(vec![
+                    ("variableField", en("FONT_STYLE")),
+                    ("variableData", msg(vec![("dataType", en("FONT_STYLE")), ("value", msg(vec![("fontStyleValue", msg(fs_fields))]))])),
+                ]));
+            }
             continue;
         }
         let Some(vg) = cx.resolve_var_guid(vid) else { continue };
@@ -1327,14 +1529,13 @@ fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
             "strokeLeftWeight" => "BORDER_LEFT_WEIGHT",
             "fontSize" => "FONT_SIZE",
             "fontFamily" => "FONT_FAMILY",
-            "fontWeight" => "FONT_WEIGHT",
             "lineHeight" => "LINE_HEIGHT",
             "letterSpacing" => "LETTER_SPACING",
             "paragraphSpacing" => "PARAGRAPH_SPACING",
             "paragraphIndent" => "PARAGRAPH_INDENT",
             _ => continue,
         };
-        var_entries.push(msg(vec![("variableField", V::String(vfield.into())), ("variableData", alias_var_data(vg))]));
+        var_entries.push(msg(vec![("variableField", en(vfield)), ("variableData", alias_var_data(vg))]));
     }
     var_entries
 }
@@ -1365,11 +1566,12 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             || n.component.override_level.is_some()
             || n.component.detached_symbol_id.is_some()
         {
-            let mut ov = Vec::new();
+            let mut ov: Vec<(&'static str, V)> = Vec::new();
+            let mut carried: carrier::Carried = Vec::new();
             let guids: Vec<V> = path.iter().map(|&(s, l)| guid(s, l)).collect();
             ov.push(("guidPath", msg(vec![("guids", V::Array(guids))])));
             if let Some(lvl) = n.component.override_level {
-                ov.push(("overrideLevel", V::Uint(lvl.max(0) as u32)));
+                ov.push(("overrideLevel", V::Int(lvl)));
             }
             if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
@@ -1478,29 +1680,46 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                             LayoutDirection::Grid => "GRID",
                         };
                         ov.push(("stackMode", en(sm)));
-                        if al.grid_columns > 0 {
-                            ov.push(("gridColumns", V::Uint(al.grid_columns)));
-                            ov.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
-                        }
-                        if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, n, al) {
-                            ov.push(("gridRows", V::Uint(rows)));
-                            ov.push(("gridRowsSizing", V::String(sizing)));
-                        }
-                        if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
-                            ov.push(("gridAutoTracks", V::String(gat)));
-                        }
+                        grid::push_frame_fields(cx, cid, n, al, &mut ov, &mut carried);
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));
                             ov.push(("gridRowGap", fl(al.counter_spacing)));
                         }
                         ov.push(("stackSpacing", fl(al.item_spacing)));
                         ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
-                        ov.push(("stackPaddingTop", fl(al.padding[0])));
+                        ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));
-                        ov.push(("stackPaddingLeft", fl(al.padding[3])));
+                        ov.push(("stackHorizontalPadding", fl(al.padding[3])));
+                        let align_name = |a: LayoutAlign| match a {
+                            LayoutAlign::Start => "MIN",
+                            LayoutAlign::Center => "CENTER",
+                            LayoutAlign::End => "MAX",
+                            LayoutAlign::SpaceBetween => "SPACE_BETWEEN",
+                            LayoutAlign::Baseline => "BASELINE",
+                            LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => "SPACE_BETWEEN",
+                        };
+                        let justify_name = match al.primary_align {
+                            LayoutAlign::SpaceAround => "SPACE_AROUND",
+                            LayoutAlign::SpaceEvenly => "SPACE_EVENLY_CSS",
+                            LayoutAlign::Baseline => "MIN",
+                            other => align_name(other),
+                        };
+                        ov.push(("stackPrimaryAlignItems", en(justify_name)));
+                        ov.push(("stackCounterAlignItems", en(align_name(al.counter_align))));
+                        if al.counter_align_content == CounterAlignContent::SpaceBetween {
+                            ov.push(("stackCounterAlignContent", en("SPACE_BETWEEN")));
+                        }
+                        if al.layout_version > 0 {
+                            ov.push(("stackLayoutVersion", V::Uint(al.layout_version as u32)));
+                        }
                         ov.push(("stackPrimarySizing", en(if al.primary_sizing == Sizing::Hug { "RESIZE_TO_FIT" } else { "FIXED" })));
                         ov.push(("stackCounterSizing", en(if al.counter_sizing == Sizing::Hug { "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" } else { "FIXED" })));
+                        ov.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
+                        ov.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
+                        ov.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
+                    } else if clears_inherited_auto_layout(n) {
+                        ov.push(("stackMode", en("NONE")));
                     }
                 }
                 let parent_dir =
@@ -1529,20 +1748,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if let Some(a) = align_self_ov {
                     ov.push(("stackChildAlignSelf", en(a)));
                 }
-                if let Some(c) = lc.grid_column {
-                    ov.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
-                    ov.push(("gridColumnAnchor", V::Uint(u32::from(c))));
-                }
-                if let Some(r) = lc.grid_row {
-                    ov.push(("gridRowAnchorIndex", V::Uint(u32::from(r))));
-                    ov.push(("gridRowAnchor", V::Uint(u32::from(r))));
-                }
-                if lc.col_span > 1 {
-                    ov.push(("gridColumnSpan", V::Uint(u32::from(lc.col_span))));
-                }
-                if lc.row_span > 1 {
-                    ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
-                }
+                grid::push_child_fields(grid::override_parent_ids(cx, inst_id, n), lc, &mut ov, &mut carried);
                 // An alignment key is written only for an axis that differs from the main component's child: a reader
                 // keeps the main's value for any key the override does not name, so naming one that still matches
                 // would freeze it (a margin, span or sizing override takes this same Layout flag). A reset to Start
@@ -1550,11 +1756,11 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 // both axes are written.
                 let main_lc = n.component.source.and_then(|s| cx.doc.get(s)).map(|s| s.layout_child);
                 let axes = [
-                    ("gridChildHorizontalAlign", lc.grid_align_h, main_lc.map(|m| m.grid_align_h)),
-                    ("gridChildVerticalAlign", lc.grid_align_v, main_lc.map(|m| m.grid_align_v)),
+                    ("gridChildHorizontalAlign", lc.grid_align_h, main_lc.map(|m| m.grid_align_h), n.component.grid_align_overrides[0]),
+                    ("gridChildVerticalAlign", lc.grid_align_v, main_lc.map(|m| m.grid_align_v), n.component.grid_align_overrides[1]),
                 ];
-                for (k, a, main) in axes {
-                    if main != Some(a) {
+                for (k, a, main, axis_overridden) in axes {
+                    if axis_overridden || main != Some(a) {
                         ov.push((k, en(grid_child_align_name(a))));
                     }
                 }
@@ -1572,6 +1778,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     }
                 }
             }
+            if ovs.contains(&OverrideField::SlotContent) {
+                carried.push(("slotContent", serde_json::Value::Bool(true)));
+            }
             let ve = encode_node_var_entries(cx, &n.variables);
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
@@ -1579,6 +1788,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             let me = encode_node_mode_entries(cx, &n.variables);
             if !me.is_empty() {
                 ov.push(("variableModeBySetMap", msg(vec![("entries", V::Array(me))])));
+            }
+            if !carried.is_empty() {
+                ov.push(("pluginData", V::Array(carrier::carrier_entries(&carried))));
             }
             if ov.len() > 1 {
                 out.push(msg(ov));
@@ -1592,6 +1804,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
     out
 }
 
+/// Preferred components of an instance-swap or slot property: Figma lists them as `COMPONENT` entries keyed by
+/// the component's library key. A component of this file has no library key, so its key is its GUID as `"s:l"`.
 fn alias_var_data(vg: (u32, u32)) -> V {
     msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))])
 }
@@ -1647,7 +1861,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
                     HandleMirror::Angle => "ANGLE",
                     HandleMirror::AngleAndLength => "ANGLE_AND_LENGTH",
                 };
-                so.push(("handleMirroring", V::String(m.into())));
+                so.push(("handleMirroring", en(m)));
             }
             style_table.push(msg(so));
             id
@@ -1686,15 +1900,28 @@ fn encode_matrix(xf: &Affine) -> V {
     st(vec![("m00", fl_one(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl_one(xf.d)), ("m12", fl(xf.ty))])
 }
 
-fn gradient_matrix_from_handles(h: &[Vec2; 3]) -> V {
-    // Inverse of `fig.rs` `convert_paint`: `inv` maps `(0, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0, 1.0) -> h[2]`.
-    let inv = Affine {
-        a: h[1].x - h[0].x,
-        b: h[1].y - h[0].y,
-        c: 2.0 * (h[2].x - h[0].x),
-        d: 2.0 * (h[2].y - h[0].y),
-        tx: 2.0 * h[0].x - h[2].x,
-        ty: 2.0 * h[0].y - h[2].y,
+fn gradient_matrix_from_handles(ty: &str, h: &[Vec2; 3]) -> V {
+    // Inverse of `fig.rs` `convert_paint`:
+    // - `GRADIENT_LINEAR`: `inv` maps `(0, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0, 1.0) -> h[2]`.
+    // - `GRADIENT_RADIAL` / `GRADIENT_ANGULAR` / `GRADIENT_DIAMOND`: `inv` maps `(0.5, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0.5, 1.0) -> h[2]`.
+    let inv = if ty == "GRADIENT_LINEAR" {
+        Affine {
+            a: h[1].x - h[0].x,
+            b: h[1].y - h[0].y,
+            c: 2.0 * (h[2].x - h[0].x),
+            d: 2.0 * (h[2].y - h[0].y),
+            tx: 2.0 * h[0].x - h[2].x,
+            ty: 2.0 * h[0].y - h[2].y,
+        }
+    } else {
+        Affine {
+            a: 2.0 * (h[1].x - h[0].x),
+            b: 2.0 * (h[1].y - h[0].y),
+            c: 2.0 * (h[2].x - h[0].x),
+            d: 2.0 * (h[2].y - h[0].y),
+            tx: 3.0 * h[0].x - h[1].x - h[2].x,
+            ty: 3.0 * h[0].y - h[1].y - h[2].y,
+        }
     };
     let xf = inv.invert().unwrap_or(Affine::IDENTITY);
     encode_matrix(&xf)
@@ -1708,12 +1935,47 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 }
 
 fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
+    encode_paint_full(p, color_var, opacity_var, None)
+}
+
+fn encode_paint_with_bindings(cx: &ExportCtx, p: &Paint, prefix: &str, idx: usize, bindings: &BTreeMap<String, String>) -> V {
+    let color_var = bindings.get(&format!("{prefix}/{idx}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
+    let opacity_var = bindings.get(&format!("{prefix}/{idx}/opacity")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
+    let stops_slice = match &p.kind {
+        PaintKind::LinearGradient { stops, .. }
+        | PaintKind::RadialGradient { stops, .. }
+        | PaintKind::AngularGradient { stops, .. }
+        | PaintKind::DiamondGradient { stops, .. } => Some(stops.as_slice()),
+        _ => None,
+    };
+    let stops_var = stops_slice.and_then(|stops| {
+        let has_any = (0..stops.len()).any(|j| bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)).is_some());
+        if !has_any {
+            return None;
+        }
+        let sv: Vec<V> = stops
+            .iter()
+            .enumerate()
+            .map(|(j, s)| {
+                let mut f = vec![("color", color(s.color.r, s.color.g, s.color.b, s.color.a)), ("position", fl(s.pos))];
+                if let Some(vg) = bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)) {
+                    f.push(("colorVar", alias_var_data(vg)));
+                }
+                msg(f)
+            })
+            .collect();
+        Some(V::Array(sv))
+    });
+    encode_paint_full(p, color_var, opacity_var, stops_var)
+}
+
+fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, stops_var: Option<V>) -> V {
     let mut fields = Vec::new();
     let push_grad = |fields: &mut Vec<(&str, V)>, ty: &str, handles: &[Vec2; 3], stops: &[GradientStop]| {
         fields.push(("type", en(ty)));
         let st_list: Vec<V> = stops.iter().map(|s| st(vec![("color", color(s.color.r, s.color.g, s.color.b, s.color.a)), ("position", fl(s.pos))])).collect();
         fields.push(("stops", V::Array(st_list)));
-        fields.push(("transform", gradient_matrix_from_handles(handles)));
+        fields.push(("transform", gradient_matrix_from_handles(ty, handles)));
     };
     match &p.kind {
         PaintKind::Solid(c) => {
@@ -1729,7 +1991,8 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
             if let Some(raw) = unhex(image_ref) {
                 fields.push(("image", msg(vec![("hash", V::Bytes(raw))])));
             } else {
-                fields.push(("imageHash", V::String(image_ref.clone())));
+                // Not a hash: the reference rides in the image's name, with an empty hash.
+                fields.push(("image", msg(vec![("hash", V::Bytes(Vec::new())), ("name", V::String(image_ref.clone()))])));
             }
             let sm = match scale_mode {
                 ImageScaleMode::Fill => "FILL",
@@ -1749,10 +2012,34 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     if let Some(ov) = opacity_var {
         fields.push(("opacityVar", ov));
     }
+    if let Some(sv) = stops_var {
+        fields.push(("stopsVar", sv));
+    }
     msg(fields)
 }
 
 fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
+    encode_effect_full(e, color_var, opacity_var, None, None, None, None)
+}
+
+fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings: &BTreeMap<String, String>) -> V {
+    let var_data = |prop: &str| -> Option<V> {
+        let vid = bindings.get(&format!("effects/{idx}/{prop}"))?;
+        let vg = cx.resolve_var_guid(vid)?;
+        Some(alias_var_data(vg))
+    };
+    encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
+}
+
+fn encode_effect_full(
+    e: &Effect,
+    color_var: Option<V>,
+    opacity_var: Option<V>,
+    radius_var: Option<V>,
+    spread_var: Option<V>,
+    x_var: Option<V>,
+    y_var: Option<V>,
+) -> V {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
             ("type", en("DROP_SHADOW")),
@@ -1824,30 +2111,56 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V 
     if let Some(ov) = opacity_var {
         fields.push(("effectOpacityVar", ov));
     }
+    if let Some(rv) = radius_var {
+        fields.push(("radiusVar", rv));
+    }
+    if let Some(sv) = spread_var {
+        fields.push(("spreadVar", sv));
+    }
+    if let Some(xv) = x_var {
+        fields.push(("xVar", xv));
+    }
+    if let Some(yv) = y_var {
+        fields.push(("yVar", yv));
+    }
     msg(fields)
 }
 
+/// A layout guide in Figma's own shape: a square grid is `pattern: GRID`, columns and rows are `pattern: STRIPES` on
+/// axis X or Y, with `type` as the alignment and `numSections` as the count (negative for an automatic count).
 fn encode_grid(g: &LayoutGrid) -> V {
     match g {
-        LayoutGrid::Grid { size, color: c } => {
-            msg(vec![("pattern", en("GRID")), ("sectionSize", fl(*size)), ("color", color(c.r, c.g, c.b, c.a)), ("visible", V::Bool(true))])
+        LayoutGrid::Grid { size, color: c, visible } => msg(vec![
+            ("type", en("STRETCH")),
+            ("axis", en("X")),
+            ("visible", V::Bool(*visible)),
+            ("sectionSize", fl(*size)),
+            ("color", color(c.r, c.g, c.b, c.a)),
+            ("pattern", en("GRID")),
+        ]),
+        LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color: c, visible }
+        | LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color: c, visible } => {
+            let axis = if matches!(g, LayoutGrid::Columns { .. }) { "X" } else { "Y" };
+            let align = match alignment {
+                LayoutGridAlign::Min => "MIN",
+                LayoutGridAlign::Center => "CENTER",
+                LayoutGridAlign::Stretch => "STRETCH",
+                LayoutGridAlign::Max => "MAX",
+            };
+            let num_sections = if *count == 0 { -1 } else { i32::try_from(*count).unwrap_or(-1) };
+            msg(vec![
+                ("type", en(align)),
+                ("axis", en(axis)),
+                ("visible", V::Bool(*visible)),
+                ("numSections", V::Int(num_sections)),
+                ("offset", fl(*offset)),
+                // 0 is a real mode (equal-width stripes), so it is written like any other width
+                ("sectionSize", fl(*section_size)),
+                ("gutterSize", fl(*gutter)),
+                ("color", color(c.r, c.g, c.b, c.a)),
+                ("pattern", en("STRIPES")),
+            ])
         }
-        LayoutGrid::Columns { count, gutter, offset, color: c } => msg(vec![
-            ("pattern", en("COLUMNS")),
-            ("count", V::Uint(*count)),
-            ("gutterSize", fl(*gutter)),
-            ("offset", fl(*offset)),
-            ("color", color(c.r, c.g, c.b, c.a)),
-            ("visible", V::Bool(true)),
-        ]),
-        LayoutGrid::Rows { count, gutter, offset, color: c } => msg(vec![
-            ("pattern", en("ROWS")),
-            ("count", V::Uint(*count)),
-            ("gutterSize", fl(*gutter)),
-            ("offset", fl(*offset)),
-            ("color", color(c.r, c.g, c.b, c.a)),
-            ("visible", V::Bool(true)),
-        ]),
     }
 }
 
@@ -1874,9 +2187,12 @@ fn style_name_from_weight(weight: u16, italic: bool) -> String {
     }
 }
 
+/// OpenType features Figma lists in `toggledOnOTFeatures` / `toggledOffOTFeatures`. The others Studio knows (`tnum`,
+/// `onum`, `lnum`, `pnum`, `frac`, `smcp`, `c2sc`, `sups`, `subs`) are not features of that list in Figma: they ride
+/// in the `fontVariant*` fields written beside it.
 const KNOWN_OT_FEATURES: &[&str] = &[
-    "LIGA", "DLIG", "CLIG", "CALT", "KERN", "SS01", "SS02", "SS03", "SS04", "SS05", "SS06", "SS07", "SS08", "SS09", "SS10", "TNUM", "ONUM", "LNUM", "PNUM",
-    "FRAC", "AFRC", "ZERO", "SMCP", "C2SC", "PCAP", "C2PC", "UNIC", "TITL", "ORDN", "SWSH", "SALT", "SUPS", "SUBS", "CASE",
+    "LIGA", "DLIG", "CLIG", "CALT", "KERN", "SS01", "SS02", "SS03", "SS04", "SS05", "SS06", "SS07", "SS08", "SS09", "SS10", "AFRC", "ZERO", "PCAP", "C2PC",
+    "UNIC", "TITL", "ORDN", "SWSH", "SALT", "CASE",
 ];
 
 fn encode_detached_symbol_id(ds: &str) -> V {
@@ -1893,6 +2209,24 @@ fn encode_detached_symbol_id(ds: &str) -> V {
         return msg(vec![("guid", guid(g.0, g.1))]);
     }
     msg(vec![("assetRef", msg(vec![("key", V::String(ds.to_string()))]))])
+}
+
+/// Encodes preferred component/component-set `NodeId`s as a real `ComponentPropPreferredValues` message.
+fn encode_preferred_values(cx: &ExportCtx, preferred: &[NodeId]) -> Option<V> {
+    let mut swap_vals = Vec::new();
+    for pid in preferred {
+        let Some(target) = cx.doc.get(*pid) else { continue };
+        let ty = match target.kind {
+            NodeKind::ComponentSet(_) => "STATE_GROUP",
+            _ => "COMPONENT",
+        };
+        let key = fallback_component_key(cx, *pid)?;
+        swap_vals.push(msg(vec![("type", en(ty)), ("key", V::String(key))]));
+    }
+    if swap_vals.is_empty() {
+        return None;
+    }
+    Some(msg(vec![("stringValues", V::Array(Vec::new())), ("instanceSwapValues", V::Array(swap_vals)), ("parameterValues", V::Array(Vec::new()))]))
 }
 
 /// `SlotPropConfig`: only the fields the document holds are written.
@@ -2069,14 +2403,15 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
             TextAutoResize::None => "NONE",
             TextAutoResize::WidthAndHeight => "WIDTH_AND_HEIGHT",
             TextAutoResize::Height => "HEIGHT",
-            TextAutoResize::Truncate => "TRUNCATE",
+            // Figma has no `TRUNCATE` resize mode: a truncating text is fixed in size and says so in `textTruncation`.
+            TextAutoResize::Truncate => "NONE",
         }),
     ));
     if tp.auto_resize == TextAutoResize::Truncate {
         fields.push(("textTruncation", en("ENDING")));
     }
     if let Some(m) = tp.max_lines {
-        fields.push(("maxLines", V::Uint(m)));
+        fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
     }
     if tp.paragraph.indent != 0.0 {
         fields.push(("paragraphIndent", fl(tp.paragraph.indent)));
@@ -2163,7 +2498,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
                     Some(ListItem { kind: ListKind::Numbered, level }) => ("ORDERED_LIST", *level as u32 + 1),
                     Some(ListItem { kind: ListKind::Bullet, level }) => ("UNORDERED_LIST", *level as u32 + 1),
                 };
-                msg(vec![("lineType", en(lty)), ("indentationLevel", V::Uint(indent)), ("sourceDirectionality", en(dir))])
+                msg(vec![("lineType", en(lty)), ("indentationLevel", V::Int(indent as i32)), ("sourceDirectionality", en(dir))])
             })
             .collect();
         if !lines.is_empty() {

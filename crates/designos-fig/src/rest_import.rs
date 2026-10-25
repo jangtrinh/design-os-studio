@@ -197,17 +197,31 @@ fn parse_guides(v: &Value, frame: Option<NodeId>) -> Vec<Guide> {
 }
 
 fn parse_grid(v: &Value) -> Option<LayoutGrid> {
-    if fbool(v, "visible") == Some(false) {
-        return None; // the model has no per-grid visibility flag
-    }
+    let visible = fbool(v, "visible").unwrap_or(true);
     let col = v.get("color").and_then(color).unwrap_or(Color::rgba(255, 0, 0, 25));
-    let count = v.get("count").and_then(Value::as_u64).unwrap_or(5) as u32;
+    let count = match v.get("count") {
+        Some(c) => match c.as_i64() {
+            Some(n) if n < 0 || n >= i64::from(i32::MAX) => 0,
+            Some(n) => n as u32,
+            None => c.as_u64().map(|n| if n >= i32::MAX as u64 { 0 } else { n as u32 }).unwrap_or(5),
+        },
+        None => 5,
+    };
     let gutter = fnum(v, "gutterSize").unwrap_or(0.0);
     let offset = fnum(v, "offset").unwrap_or(0.0);
+    let alignment = match fstr(v, "alignment") {
+        Some("MIN") | Some("LEFT") | Some("TOP") => LayoutGridAlign::Min,
+        Some("CENTER") => LayoutGridAlign::Center,
+        Some("MAX") | Some("RIGHT") | Some("BOTTOM") => LayoutGridAlign::Max,
+        _ => LayoutGridAlign::Stretch,
+    };
+    // a missing width is 0 (equal-width stripes), as the exporters write it; only the inspector
+    // gives a new non-stretch guide a starting width
+    let section_size = fnum(v, "sectionSize").unwrap_or(0.0);
     match fstr(v, "pattern")? {
-        "GRID" => Some(LayoutGrid::Grid { size: fnum(v, "sectionSize").unwrap_or(10.0), color: col }),
-        "COLUMNS" => Some(LayoutGrid::Columns { count, gutter, offset, color: col }),
-        "ROWS" => Some(LayoutGrid::Rows { count, gutter, offset, color: col }),
+        "GRID" => Some(LayoutGrid::Grid { size: fnum(v, "sectionSize").unwrap_or(10.0), color: col, visible }),
+        "COLUMNS" => Some(LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color: col, visible }),
+        "ROWS" => Some(LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color: col, visible }),
         _ => None,
     }
 }
@@ -341,6 +355,25 @@ fn auto_resize(s: &str) -> TextAutoResize {
 
 // ------------------------------------------------------------ importer
 
+/// Document-wide cap on cloned nodes created while expanding component instances during a single import.
+///
+/// Kept well above any real design kit (`Simple Design System`, `Polaris`, `Material 3`, `iOS 26`, and `VSF - PCP.fig`
+/// stay under 450,000 cloned nodes) while bounding a 5,000-link chain to a deterministic ceiling.
+pub const MAX_IMPORT_CLONES: usize = 8_000_000;
+
+/// Alias for [`MAX_IMPORT_CLONES`].
+pub const CLONE_BUDGET_TOTAL: usize = MAX_IMPORT_CLONES;
+
+/// Per-instance cap on cloned nodes so a single runaway component still stops early even when the global budget has room.
+pub const PER_INSTANCE_CLONE_BUDGET: usize = 50_000;
+
+/// Non-fatal summary reported alongside an imported [`Document`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImportReport {
+    /// How many component instances were left unexpanded because expanding them would exceed [`CLONE_BUDGET_TOTAL`].
+    pub instances_left_unexpanded: usize,
+}
+
 struct Ctx<'a> {
     doc: Document,
     blobs: &'a [&'a [u8]],
@@ -356,9 +389,18 @@ struct Ctx<'a> {
     /// `.fig` instance overrides / derived data, keyed by instance.
     overrides: BTreeMap<NodeId, Overrides>,
     next_clone: u64,
+    clone_budget_total: usize,
+    cloned_nodes: usize,
+    budget_exhausted: bool,
+    unexpanded_instances: BTreeSet<NodeId>,
     /// `.fig` override keys (`_overrideKey`): the id override paths use for a
     /// node. Clones inherit the key of the node they copy.
     override_keys: HashMap<NodeId, std::sync::Arc<str>>,
+    col_anchor_guids: HashMap<NodeId, String>,
+    row_anchor_guids: HashMap<NodeId, String>,
+    grid_col_track_ids: HashMap<NodeId, Vec<String>>,
+    grid_row_track_ids: HashMap<NodeId, Vec<String>>,
+    no_auto_layout: HashSet<NodeId>,
     /// `.fig` `uniformScaleFactor` of instances made with the scale tool.
     scales: BTreeMap<NodeId, f32>,
     /// Library components and sets of `.fig` internal canvases: node ->
@@ -484,8 +526,19 @@ pub(crate) fn parse_json_text(json: &str) -> Result<Value, FigError> {
 }
 
 pub fn import_rest_json(json: &str) -> Result<Document, FigError> {
+    import_rest_json_with_report(json).map(|(doc, _)| doc)
+}
+
+/// Imports a Figma REST JSON document and returns an [`ImportReport`] describing any instances left unexpanded by
+/// [`CLONE_BUDGET_TOTAL`].
+pub fn import_rest_json_with_report(json: &str) -> Result<(Document, ImportReport), FigError> {
+    import_rest_json_with_budget(json, CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_rest_json_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_rest_json_with_budget(json: &str, clone_budget_total: usize) -> Result<(Document, ImportReport), FigError> {
     let v = parse_json_text(json)?;
-    import_rest_value(&v, false)
+    import_rest_value_with_blobs_and_budget(&v, true, &[], None, clone_budget_total)
 }
 
 /// Maps an already-parsed REST-shaped value. `expand_instances` clones the
@@ -495,14 +548,15 @@ pub(crate) fn import_rest_value(v: &Value, expand_instances: bool) -> Result<Doc
     import_rest_value_with_blobs(v, expand_instances, &[], None)
 }
 
-pub(crate) fn import_rest_value_owned<'a>(
+pub(crate) fn import_rest_value_owned_with_budget<'a>(
     mut v: Value,
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
-) -> Result<Document, FigError> {
+    clone_budget_total: usize,
+) -> Result<(Document, ImportReport), FigError> {
     if crate::board::is_figjam(&v) {
-        return import_rest_value_with_blobs(&v, expand_instances, blobs, fast_derived_map);
+        return import_rest_value_with_blobs_and_budget(&v, expand_instances, blobs, fast_derived_map, clone_budget_total);
     }
     let has_doc = v.get("document").is_some();
     if !has_doc && fstr(&v, "type").is_none() {
@@ -521,7 +575,16 @@ pub(crate) fn import_rest_value_owned<'a>(
         component_keys: BTreeMap::new(),
         overrides: BTreeMap::new(),
         next_clone: 0,
+        clone_budget_total,
+        cloned_nodes: 0,
+        budget_exhausted: false,
+        unexpanded_instances: BTreeSet::new(),
         override_keys: HashMap::new(),
+        col_anchor_guids: HashMap::new(),
+        row_anchor_guids: HashMap::new(),
+        grid_col_track_ids: HashMap::new(),
+        grid_row_track_ids: HashMap::new(),
+        no_auto_layout: HashSet::new(),
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -537,13 +600,17 @@ pub(crate) fn import_rest_value_owned<'a>(
         connectors: Vec::new(),
         deferred_pending: None,
     };
-    if let Some(comps) = v.get("components").and_then(Value::as_object) {
-        for (id, c) in comps {
-            if let Some(k) = fstr(c, "key") {
-                cx.component_keys.insert(id.clone(), k.to_string());
+    for section in ["components", "componentSets"] {
+        if let Some(comps) = v.get(section).and_then(Value::as_object) {
+            for (id, c) in comps {
+                if let Some(k) = fstr(c, "key") {
+                    cx.component_keys.insert(id.clone(), k.to_string());
+                }
             }
         }
     }
+    let doc_lint_ignores =
+        v.get("document").and_then(|d| d.get("pluginData")).and_then(|pd| pd.get("designos:lint_ignores")).and_then(Value::as_str).map(str::to_string);
     let pages: Vec<Value> = if has_doc {
         let root = v.get_mut("document").unwrap();
         if fstr(root, "type") == Some("CANVAS") {
@@ -580,7 +647,8 @@ pub(crate) fn import_rest_value_owned<'a>(
     if cx.doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    cx.finish(expand_instances);
+    cx.finish(expand_instances)?;
+    restore_lint_ignores(&mut cx.doc, &cx.ids, doc_lint_ignores.as_deref());
     cx.register_library_assets();
     cx.doc.kind = DocumentKind::Design;
     if !cx.connectors.is_empty() {
@@ -591,6 +659,7 @@ pub(crate) fn import_rest_value_owned<'a>(
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     drop(v);
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -601,7 +670,21 @@ pub(crate) fn import_rest_value_owned<'a>(
     if doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
+}
+
+fn restore_lint_ignores(doc: &mut Document, ids: &BTreeMap<String, NodeId>, raw_ignores: Option<&str>) {
+    let Some(raw) = raw_ignores else { return };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(raw) else { return };
+    for item in items {
+        let Some(rule) = fstr(&item, "rule") else { continue };
+        let node = fstr(&item, "guid")
+            .and_then(|g| ids.get(g).copied())
+            .or_else(|| item.get("node").and_then(Value::as_u64).map(NodeId).filter(|&nid| doc.get(nid).is_some()));
+        let Some(node) = node else { continue };
+        let property = fstr(&item, "property").unwrap_or("").to_string();
+        doc.check_designs.ignored.insert(designos_doc::IgnoreKey { node, rule: rule.to_string(), property });
+    }
 }
 
 pub(crate) fn import_rest_value_with_blobs<'a>(
@@ -610,11 +693,22 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
 ) -> Result<Document, FigError> {
+    import_rest_value_with_blobs_and_budget(v, expand_instances, blobs, fast_derived_map, CLONE_BUDGET_TOTAL).map(|(doc, _)| doc)
+}
+
+pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
+    v: &'a Value,
+    expand_instances: bool,
+    blobs: &'a [&'a [u8]],
+    fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
+    clone_budget_total: usize,
+) -> Result<(Document, ImportReport), FigError> {
     let root = match v.get("document") {
         Some(d) => d,
         None if fstr(v, "type").is_some() => v,
         None => return Err(FigError::Format("REST JSON has no `document`".into())),
     };
+    let doc_lint_ignores = root.get("pluginData").and_then(|pd| pd.get("designos:lint_ignores")).and_then(Value::as_str);
     let large_file = fast_derived_map.is_some();
     let mut cx = Ctx {
         doc: Document::new(fstr(v, "name").unwrap_or("Untitled")),
@@ -627,7 +721,16 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         component_keys: BTreeMap::new(),
         overrides: BTreeMap::new(),
         next_clone: 0,
+        clone_budget_total,
+        cloned_nodes: 0,
+        budget_exhausted: false,
+        unexpanded_instances: BTreeSet::new(),
         override_keys: HashMap::new(),
+        col_anchor_guids: HashMap::new(),
+        row_anchor_guids: HashMap::new(),
+        grid_col_track_ids: HashMap::new(),
+        grid_row_track_ids: HashMap::new(),
+        no_auto_layout: HashSet::new(),
         scales: BTreeMap::new(),
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
@@ -643,10 +746,12 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         connectors: Vec::new(),
         deferred_pending: None,
     };
-    if let Some(comps) = v.get("components").and_then(Value::as_object) {
-        for (id, c) in comps {
-            if let Some(k) = fstr(c, "key") {
-                cx.component_keys.insert(id.clone(), k.to_string());
+    for section in ["components", "componentSets"] {
+        if let Some(comps) = v.get(section).and_then(Value::as_object) {
+            for (id, c) in comps {
+                if let Some(k) = fstr(c, "key") {
+                    cx.component_keys.insert(id.clone(), k.to_string());
+                }
             }
         }
     }
@@ -668,7 +773,8 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
             }
         }
     }
-    cx.finish(expand_instances);
+    cx.finish(expand_instances)?;
+    restore_lint_ignores(&mut cx.doc, &cx.ids, doc_lint_ignores);
     cx.register_library_assets();
     cx.doc.kind = if crate::board::is_figjam(v) { DocumentKind::Board } else { DocumentKind::Design };
     if cx.doc.kind == DocumentKind::Board {
@@ -686,6 +792,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -696,7 +803,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     if doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 impl<'a> Ctx<'a> {
@@ -742,17 +849,24 @@ impl<'a> Ctx<'a> {
             self.ids.insert(src.clone(), id);
         }
         crate::proto::apply_scroll(&mut node, &v);
-        if let Some(k) = fstr(&v, "_overrideKey") {
+        if let Some(k) = fstr(&v, "_overrideKey").filter(|k| *k != "4294967295:4294967295") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
-        if let (Some(k), true) = (fstr(&v, "componentKey"), matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))) {
-            self.library_keys.insert(id, (k.to_string(), fstr(&v, "sourceLibraryKey").map(String::from)));
+        if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+            // The file's `components` / `componentSets` maps carry the publish key of a component
+            // that has no `componentKey` field of its own; keep it the same way.
+            let map_key = node.source_id.as_deref().and_then(|s| self.component_keys.get(s)).map(String::as_str);
+            if let Some(k) = fstr(&v, "componentKey").or(map_key) {
+                node.fig_metadata.entry("componentKey".into()).or_insert_with(|| k.to_string());
+                self.library_keys.insert(id, (k.to_string(), fstr(&v, "sourceLibraryKey").map(String::from)));
+            }
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(&v).unwrap_or(pinfo.origin);
         let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
+            self.doc.in_progress.remove(&id);
             return;
         }
         if is_frame {
@@ -840,17 +954,24 @@ impl<'a> Ctx<'a> {
             self.ids.insert(src.clone(), id);
         }
         crate::proto::apply_scroll(&mut node, v);
-        if let Some(k) = fstr(v, "_overrideKey") {
+        if let Some(k) = fstr(v, "_overrideKey").filter(|k| *k != "4294967295:4294967295") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
-        if let (Some(k), true) = (fstr(v, "componentKey"), matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))) {
-            self.library_keys.insert(id, (k.to_string(), fstr(v, "sourceLibraryKey").map(String::from)));
+        if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+            // The file's `components` / `componentSets` maps carry the publish key of a component
+            // that has no `componentKey` field of its own; keep it the same way.
+            let map_key = node.source_id.as_deref().and_then(|s| self.component_keys.get(s)).map(String::as_str);
+            if let Some(k) = fstr(v, "componentKey").or(map_key) {
+                node.fig_metadata.entry("componentKey".into()).or_insert_with(|| k.to_string());
+                self.library_keys.insert(id, (k.to_string(), fstr(v, "sourceLibraryKey").map(String::from)));
+            }
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(v).unwrap_or(pinfo.origin);
         let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
+            self.doc.in_progress.remove(&id);
             return;
         }
         if is_frame {
@@ -989,6 +1110,12 @@ impl<'a> Ctx<'a> {
         if let Some(pd) = v.get("pluginData").and_then(Value::as_object) {
             for (k, val) in pd {
                 if let Some(s) = val.as_str() {
+                    if k == "designos:in_progress" || k == "in_progress" {
+                        if let Ok(ip) = serde_json::from_str::<InProgress>(s) {
+                            self.doc.in_progress.insert(id, ip);
+                            continue;
+                        }
+                    }
                     n.plugin_data.insert(k.clone(), s.to_string());
                 }
             }
@@ -1114,6 +1241,27 @@ impl<'a> Ctx<'a> {
         }
 
         n.layout_child = layout_child(v, pinfo.layout, &n.kind);
+        if let Some(g) = fstr(v, "_gridColumnAnchorGuid") {
+            self.col_anchor_guids.insert(id, g.to_string());
+        }
+        if let Some(g) = fstr(v, "_gridRowAnchorGuid") {
+            self.row_anchor_guids.insert(id, g.to_string());
+        }
+        let col_tracks: Vec<String> = farr(v, "_gridColumnTrackIds").iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        if !col_tracks.is_empty() {
+            self.grid_col_track_ids.insert(id, col_tracks);
+        }
+        let row_tracks: Vec<String> = farr(v, "_gridRowTrackIds").iter().filter_map(|x| x.as_str().map(String::from)).collect();
+        if !row_tracks.is_empty() {
+            self.grid_row_track_ids.insert(id, row_tracks);
+        }
+        if fstr(v, "layoutMode") == Some("NONE") {
+            self.no_auto_layout.insert(id);
+            if ty == "INSTANCE" {
+                n.component.overrides.insert(OverrideField::Layout);
+                n.component.layout_cleared = true;
+            }
+        }
 
         // Style references and library style definitions.
         if let Some(styles) = v.get("styles").and_then(Value::as_object) {
@@ -1164,6 +1312,30 @@ impl<'a> Ctx<'a> {
                 let name = prop_name(key);
                 let dv = d.get("defaultValue");
                 let text = || dv.and_then(Value::as_str).unwrap_or("").to_string();
+                let extract_prefs = |d: &Value| -> Vec<String> {
+                    let mut out = Vec::new();
+                    if let Some(pv) = d.get("preferredValues") {
+                        if pv.is_object() {
+                            for entry in farr(pv, "instanceSwapValues") {
+                                if let Some(k) = fstr(entry, "key") {
+                                    out.push(k.to_string());
+                                }
+                            }
+                            for s in farr(pv, "stringValues") {
+                                if let Some(k) = s.as_str() {
+                                    out.push(k.to_string());
+                                }
+                            }
+                        } else {
+                            for p in farr(d, "preferredValues") {
+                                if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
+                                    out.push(ps.to_string());
+                                }
+                            }
+                        }
+                    }
+                    out
+                };
                 let (kind, default) = match fstr(d, "type") {
                     Some("BOOLEAN") => (PropKind::Boolean, PropValue::Bool(dv.and_then(Value::as_bool).unwrap_or(true))),
                     Some("TEXT") => (PropKind::Text, PropValue::Text(text())),
@@ -1173,16 +1345,24 @@ impl<'a> Ctx<'a> {
                     ),
                     Some("INSTANCE_SWAP") => {
                         self.pending_swaps.push((id, name.clone(), text(), true));
-                        for p in farr(d, "preferredValues") {
-                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
-                                self.pending_swaps.push((id, name.clone(), format!("PREF:{ps}"), true));
-                            }
+                        for ps in extract_prefs(d) {
+                            self.pending_swaps.push((id, name.clone(), format!("PREF:{ps}"), true));
                         }
                         (PropKind::InstanceSwap { preferred: Vec::new() }, PropValue::Instance(NodeId(0)))
                     }
                     Some("SLOT") => {
                         if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object) {
                             let opt_u32 = |k: &str| cfg.get(k).and_then(Value::as_u64).map(|x| x.min(u64::from(u32::MAX)) as u32);
+                            let extra = cfg
+                                .iter()
+                                .filter(|(k, _)| {
+                                    !matches!(
+                                        k.as_str(),
+                                        "stretchChildOnInsert" | "displayByDefault" | "minChildren" | "maxChildren" | "allowPreferredValuesOnly"
+                                    )
+                                })
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
                             n.component.slot_configs.insert(
                                 name.clone(),
                                 SlotPropConfig {
@@ -1192,13 +1372,15 @@ impl<'a> Ctx<'a> {
                                     max_children: opt_u32("maxChildren"),
                                     allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
                                     preferred: Vec::new(),
+                                    extra,
                                 },
                             );
                         }
-                        for p in farr(d, "preferredValues") {
-                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
-                                self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
-                            }
+                        for ps in extract_prefs(d) {
+                            self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
+                        }
+                        if let Some(scid) = fstr(d, "slotContentId").filter(|s| !s.is_empty()) {
+                            n.component.slot_content_ids.insert(name.clone(), scid.to_string());
                         }
                         (PropKind::Slot, PropValue::Slot(Vec::new()))
                     }
@@ -1221,9 +1403,16 @@ impl<'a> Ctx<'a> {
                         PropValue::Instance(NodeId(0))
                     }
                     Some("SLOT") => {
-                        let s = text();
-                        self.pending_swaps.push((id, name.clone(), format!("SLOT:{s}"), false));
-                        PropValue::Slot(Vec::new())
+                        if let Some(scid) = fstr(d, "slotContentId").filter(|s| !s.is_empty()) {
+                            n.component.slot_content_ids.insert(name.clone(), scid.to_string());
+                        }
+                        if val.is_some() {
+                            let s = text();
+                            self.pending_swaps.push((id, name.clone(), format!("SLOT:{s}"), false));
+                            PropValue::Slot(Vec::new())
+                        } else {
+                            continue;
+                        }
                     }
                     _ => continue,
                 };
@@ -1261,7 +1450,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(&mut self, expand_instances: bool) {
+    fn finish(&mut self, expand_instances: bool) -> Result<(), FigError> {
         let links = std::mem::take(&mut self.instances);
         let mut targets: BTreeMap<NodeId, NodeId> = BTreeMap::new();
         for (inst, cid) in links {
@@ -1278,12 +1467,14 @@ impl<'a> Ctx<'a> {
         self.resolve_swaps();
         if !expand_instances {
             self.apply_rest_overrides();
+            self.mark_custom_instance_slots();
             self.resolve_proto();
-            return;
+            return Ok(());
         }
         // Clone ids are handed out sequentially above every imported id, in
         // instance order, so the same input always yields the same ids.
-        self.next_clone = self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0) + 1;
+        let max_id = self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0);
+        self.next_clone = max_id.checked_add(1).ok_or_else(|| FigError::Format("node id space exhausted".into()))?;
         self.has_instance_swap_values = self.doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
         let mut done = BTreeSet::new();
         let defer_inactive = self.large_file && self.doc.nodes.len() > 25_000 && self.doc.pages.len() > 2;
@@ -1318,7 +1509,7 @@ impl<'a> Ctx<'a> {
             }
             let all_comps: BTreeSet<NodeId> = targets.values().copied().collect();
             for comp in all_comps {
-                self.expand_nested(comp, &targets, &mut done);
+                self.expand_nested(comp, &targets, &mut done)?;
             }
             let mut pending_by_page: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
             let order: Vec<NodeId> = targets.keys().copied().collect();
@@ -1327,25 +1518,55 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 match node_page.get(&inst).copied() {
-                    Some(p) if !initial_pages.contains(&p) => {
+                    Some(p) if !initial_pages.contains(&p) && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total => {
                         pending_by_page.entry(p).or_default().push(inst);
                     }
                     _ => {
-                        self.expand_rec(inst, &targets, &mut done);
+                        self.expand_rec(inst, &targets, &mut done)?;
                     }
+                }
+            }
+            let pending_exceeds_budget = if self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total {
+                true
+            } else if pending_by_page.is_empty() {
+                false
+            } else {
+                let mut comp_sizes: HashMap<NodeId, usize> = HashMap::new();
+                let mut pending_clones = 0usize;
+                for insts in pending_by_page.values() {
+                    for &inst in insts {
+                        if let Some(&comp) = targets.get(&inst) {
+                            let sz = self.component_clone_count(comp, &mut comp_sizes);
+                            pending_clones = pending_clones.saturating_add(sz);
+                        }
+                        for swap_comp in self.swap_target_components(inst) {
+                            let sz = self.component_clone_count(swap_comp, &mut comp_sizes);
+                            pending_clones = pending_clones.saturating_add(sz);
+                        }
+                    }
+                }
+                self.cloned_nodes.saturating_add(pending_clones) > self.clone_budget_total || self.next_clone.checked_add(pending_clones as u64).is_none()
+            };
+            if pending_exceeds_budget {
+                let mut deferred: Vec<NodeId> = pending_by_page.drain().flat_map(|(_, v)| v).collect();
+                deferred.sort();
+                for inst in deferred {
+                    self.expand_rec(inst, &targets, &mut done)?;
                 }
             }
             let rest: Vec<NodeId> = self.overrides.keys().copied().filter(|i| !done.contains(i)).collect();
             for inst in rest {
                 match node_page.get(&inst).copied() {
-                    Some(p) if !initial_pages.contains(&p) => {
+                    Some(p)
+                        if !initial_pages.contains(&p) && !pending_exceeds_budget && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total =>
+                    {
                         let list = pending_by_page.entry(p).or_default();
                         if !list.contains(&inst) {
                             list.push(inst);
                         }
                     }
                     _ => {
-                        self.apply_overrides(inst, &targets, &mut done);
+                        self.apply_overrides(inst, &targets, &mut done)?;
                     }
                 }
             }
@@ -1355,19 +1576,41 @@ impl<'a> Ctx<'a> {
         } else {
             let order: Vec<NodeId> = targets.keys().copied().collect();
             for inst in order {
-                self.expand_rec(inst, &targets, &mut done);
+                self.expand_rec(inst, &targets, &mut done)?;
             }
             // Instances whose component is unknown still honour their own overrides.
             let rest: Vec<NodeId> = self.overrides.keys().copied().filter(|i| !done.contains(i)).collect();
             for inst in rest {
-                self.apply_overrides(inst, &targets, &mut done);
+                self.apply_overrides(inst, &targets, &mut done)?;
             }
         }
         if self.next_clone > 1 {
             self.doc.reserve_ids(NodeId(self.next_clone - 1));
         }
         self.apply_rest_overrides();
+        self.mark_custom_instance_slots();
         self.resolve_proto();
+        Ok(())
+    }
+
+    fn component_clone_count(&self, comp: NodeId, cache: &mut HashMap<NodeId, usize>) -> usize {
+        if let Some(&cached) = cache.get(&comp) {
+            return cached;
+        }
+        let mut count = 0usize;
+        let mut stack: Vec<NodeId> = self.doc.get(comp).map(|n| n.children.iter().rev().copied().collect()).unwrap_or_default();
+        while let Some(id) = stack.pop() {
+            if count >= PER_INSTANCE_CLONE_BUDGET {
+                break;
+            }
+            let Some(n) = self.doc.get(id) else { continue };
+            count += 1;
+            if n.kind.is_container() {
+                stack.extend(n.children.iter().rev().copied());
+            }
+        }
+        cache.insert(comp, count);
+        count
     }
 
     fn install_deferred_hydrator(&mut self) {
@@ -1407,11 +1650,21 @@ impl<'a> Ctx<'a> {
             ids: std::mem::take(&mut self.ids),
             overrides: std::mem::take(&mut self.overrides),
             override_keys: std::mem::take(&mut self.override_keys),
+            col_anchor_guids: std::mem::take(&mut self.col_anchor_guids),
+            row_anchor_guids: std::mem::take(&mut self.row_anchor_guids),
+            grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
+            grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
+            no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             scales: std::mem::take(&mut self.scales),
             path_cache: std::mem::take(&mut self.path_cache),
             blob_cache: std::mem::take(&mut self.blob_cache),
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone: self.next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -1502,10 +1755,19 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn resolve_pref_target(&self, pref_key: &str) -> Option<NodeId> {
+        self.ids
+            .get(pref_key)
+            .copied()
+            .or_else(|| self.library_keys.iter().find_map(|(&nid, (k, _))| (k == pref_key).then_some(nid)))
+            .or_else(|| self.component_keys.iter().find_map(|(sid, k)| (k == pref_key).then(|| self.ids.get(sid).copied()).flatten()))
+            .or_else(|| crate::fig::strip_fallback_comp_key(pref_key).and_then(|g| self.ids.get(&g).copied()))
+    }
+
     fn resolve_swaps(&mut self) {
         for (node, name, rest_id, is_def) in std::mem::take(&mut self.pending_swaps) {
             if let Some(pref_key) = rest_id.strip_prefix("PREF:") {
-                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(target) = self.resolve_pref_target(pref_key) else { continue };
                 let Some(n) = self.doc.get_mut(node) else { continue };
                 if let Some(d) = n.component.props.iter_mut().find(|d| d.name == name) {
                     if let PropKind::InstanceSwap { preferred } = &mut d.kind {
@@ -1517,7 +1779,7 @@ impl<'a> Ctx<'a> {
                 continue;
             }
             if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
-                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(target) = self.resolve_pref_target(pref_key) else { continue };
                 let Some(n) = self.doc.get_mut(node) else { continue };
                 // A slot may list preferred components without ever writing a `slotPropConfig`.
                 let cfg = n.component.slot_configs.entry(name).or_default();
@@ -1534,7 +1796,10 @@ impl<'a> Ctx<'a> {
                         .split(',')
                         .filter_map(|part| {
                             let part = part.trim();
-                            self.ids.get(part).copied().or_else(|| part.parse::<u64>().ok().map(NodeId))
+                            if part.parse::<u64>().is_ok() {
+                                return None;
+                            }
+                            self.ids.get(part).copied()
                         })
                         .collect()
                 };
@@ -1567,14 +1832,48 @@ impl<'a> Ctx<'a> {
                 if let Some(of) = override_field(f, is_text) {
                     n.component.overrides.insert(of);
                 }
+                // Sync keeps a grid alignment axis only when that axis is flagged, so name the axis here too.
+                match f.as_str() {
+                    "gridChildHorizontalAlign" => n.component.grid_align_overrides[0] = true,
+                    "gridChildVerticalAlign" => n.component.grid_align_overrides[1] = true,
+                    _ => {}
+                }
             }
         }
     }
 
-    fn fresh_id(&mut self) -> NodeId {
+    /// Marks every instance slot whose direct children are not pure mirrors of its main component
+    /// slot (including component instance children and emptied slots) with
+    /// `OverrideField::SlotContent` so a subsequent `sync_component_instances` preserves them.
+    fn mark_custom_instance_slots(&mut self) {
+        let to_mark: Vec<NodeId> = self
+            .doc
+            .nodes
+            .values()
+            .filter(|slot| {
+                if !designos_doc::is_instance_slot(&self.doc, slot.id) {
+                    return false;
+                }
+                if let Some(main_slot) = slot.component.source.and_then(|s| self.doc.get(s)) {
+                    slot.children.len() != main_slot.children.len()
+                        || slot.children.iter().zip(&main_slot.children).any(|(&ic, &rc)| self.doc.get(ic).and_then(|ch| ch.component.source) != Some(rc))
+                } else {
+                    slot.children.iter().any(|&c| self.doc.get(c).is_some_and(|ch| ch.component.source.is_none()))
+                }
+            })
+            .map(|slot| slot.id)
+            .collect();
+        for id in to_mark {
+            if let Some(slot) = self.doc.get_mut(id) {
+                slot.component.overrides.insert(OverrideField::SlotContent);
+            }
+        }
+    }
+
+    fn fresh_id(&mut self) -> Result<NodeId, FigError> {
         let id = NodeId(self.next_clone);
-        self.next_clone += 1;
-        id
+        self.next_clone = self.next_clone.checked_add(1).ok_or_else(|| FigError::Format("node id space exhausted".into()))?;
+        Ok(id)
     }
 
     /// Expands `inst`, first expanding instances nested inside its component so
@@ -1589,7 +1888,7 @@ impl<'a> Ctx<'a> {
     /// Those components are known before the swap runs (see [`Self::swap_target_components`]), so their nested
     /// instances are scheduled on the same stack ahead of the step that applies the swap, instead of being
     /// expanded from inside it, which would grow the call stack with the length of a swap chain.
-    fn expand_rec(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn expand_rec(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         enum Step {
             Enter(NodeId),
             Finish(NodeId, NodeId),
@@ -1608,7 +1907,10 @@ impl<'a> Ctx<'a> {
                     stack.extend(self.take_nested_instances(comp, targets).into_iter().rev().map(Step::Enter));
                 }
                 Step::Finish(inst, comp) => {
-                    self.expand_instance(inst, comp);
+                    self.expand_instance(inst, comp)?;
+                    if self.unexpanded_instances.contains(&inst) {
+                        continue;
+                    }
                     if let Some(s) = self.scales.get(&inst).copied() {
                         self.scale_contents(inst, s);
                     }
@@ -1619,11 +1921,12 @@ impl<'a> Ctx<'a> {
                 }
                 Step::Apply(inst) => {
                     // Property values first: an instance swap changes which nodes the overrides address.
-                    self.apply_props(inst, targets, done);
-                    self.apply_overrides(inst, targets, done);
+                    self.apply_props(inst, targets, done)?;
+                    self.apply_overrides(inst, targets, done)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Scales the copied children of an instance made with the scale tool
@@ -1716,10 +2019,11 @@ impl<'a> Ctx<'a> {
     }
 
     /// Expands the instances inside `comp` (innermost first).
-    fn expand_nested(&mut self, comp: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn expand_nested(&mut self, comp: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         for n in self.take_nested_instances(comp, targets) {
-            self.expand_rec(n, targets, done);
+            self.expand_rec(n, targets, done)?;
         }
+        Ok(())
     }
 
     /// Instances inside `comp` that still have to be expanded, lowest id first; empty once `comp` was listed.
@@ -1743,10 +2047,10 @@ impl<'a> Ctx<'a> {
 
     /// Applies the instance's component property values to the nodes of its
     /// copy that are bound to them: visibility, text, and instance swaps.
-    fn apply_props(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn apply_props(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         let values = match self.doc.get(inst) {
             Some(n) if !n.component.values.is_empty() => n.component.values.clone(),
-            _ => return,
+            _ => return Ok(()),
         };
         let mut stack: Vec<NodeId> = self.doc.get(inst).map(|n| n.children.clone()).unwrap_or_default();
         while let Some(d) = stack.pop() {
@@ -1767,31 +2071,57 @@ impl<'a> Ctx<'a> {
                             t.lists.clear();
                         }
                     }
-                    (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done),
+                    (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done)?,
                     _ => {}
                 }
             }
         }
+        Ok(())
     }
 
-    /// Points the nested instance `d` at `target` and rebuilds its children.
-    fn swap_nested(&mut self, d: NodeId, target: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    /// Points the nested instance `d` at `target`, updates its component shell
+    /// properties to `target`'s defaults, rebuilds its children, and re-applies
+    /// `d`'s own component property values.
+    fn swap_nested(&mut self, d: NodeId, target: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         let current = match self.doc.get(d).map(|n| &n.kind) {
             Some(NodeKind::Instance { component, .. }) => *component,
-            _ => return,
+            _ => return Ok(()),
         };
-        if current == Some(target) || !matches!(self.doc.get(target).map(|n| &n.kind), Some(NodeKind::Component(_))) {
-            return;
+        if current == Some(target) {
+            return Ok(());
         }
-        self.expand_nested(target, targets, done);
+        let Some(target_node) = self.doc.get(target).cloned() else {
+            return Ok(());
+        };
+        let NodeKind::Component(target_fp) = &target_node.kind else {
+            return Ok(());
+        };
+        self.expand_nested(target, targets, done)?;
         for k in self.doc.get(d).map(|n| n.children.clone()).unwrap_or_default() {
             let _ = self.doc.remove(k);
         }
-        if let Some(NodeKind::Instance { component, component_key, .. }) = self.doc.get_mut(d).map(|n| &mut n.kind) {
-            *component = Some(target);
-            *component_key = None;
+        if let Some(dn) = self.doc.get_mut(d) {
+            dn.kind = NodeKind::Instance { frame: target_fp.clone(), component: Some(target), component_key: None };
+            dn.size = target_node.size;
+            dn.fills = target_node.fills;
+            dn.stroke = target_node.stroke;
+            dn.effects = target_node.effects;
+            dn.opacity = target_node.opacity;
+            dn.blend = target_node.blend;
+            dn.is_mask = target_node.is_mask;
+            dn.corner_radii = target_node.corner_radii;
+            dn.corner_smoothing = target_node.corner_smoothing;
+            dn.fill_geometry = target_node.fill_geometry;
+            dn.stroke_geometry = target_node.stroke_geometry;
+            dn.style_refs = target_node.style_refs;
+            dn.variables.bindings = target_node.variables.bindings;
+            dn.component.variant_props = target_node.component.variant_props;
         }
-        self.expand_instance(d, target);
+        self.expand_instance(d, target)?;
+        if !self.unexpanded_instances.contains(&d) {
+            self.apply_props(d, targets, done)?;
+        }
+        Ok(())
     }
 
     /// `.fig` library components of internal-only canvases become external
@@ -1803,10 +2133,15 @@ impl<'a> Ctx<'a> {
             return;
         }
         let keys = std::mem::take(&mut self.library_keys);
+        let mut lib_comp_keys: HashMap<NodeId, String> = HashMap::new();
         for (node, (key, lib)) in &keys {
             let Some(n) = self.doc.get(*node) else { continue };
+            if !self.doc.is_ancestor(lp, *node) {
+                continue;
+            }
+            lib_comp_keys.insert(*node, key.clone());
             let in_set = n.parent.and_then(|p| self.doc.get(p)).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet(_)));
-            if in_set || !self.doc.is_ancestor(lp, *node) {
+            if in_set {
                 continue;
             }
             let kind = if matches!(n.kind, NodeKind::ComponentSet(_)) { LibraryAssetKind::ComponentSet } else { LibraryAssetKind::Component };
@@ -1816,7 +2151,7 @@ impl<'a> Ctx<'a> {
         for n in self.doc.nodes.values_mut() {
             if let NodeKind::Instance { component: Some(comp), component_key, .. } = &mut n.kind {
                 if component_key.is_none() {
-                    if let Some((key, _)) = keys.get(comp) {
+                    if let Some(key) = lib_comp_keys.get(comp) {
                         *component_key = Some(key.clone());
                     }
                 }
@@ -1825,27 +2160,117 @@ impl<'a> Ctx<'a> {
         self.library_keys = keys;
     }
 
-    /// Deep-copies the component's children under an empty instance.
-    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) {
-        if !self.doc.get(inst).map(|n| n.children.is_empty()).unwrap_or(false) || self.doc.is_ancestor(comp, inst) || comp == inst {
+    /// An override that sets some layout field (padding, spacing, sizing, clipping ...) without restating
+    /// `layoutMode` changes only that field: the node keeps the auto layout of the component it mirrors.
+    /// An instance root does not carry that layout yet unless it is a grid, so copy it before the fields apply.
+    fn inherit_auto_layout_for_partial_override(&mut self, id: NodeId, set: &Value) {
+        let Some(obj) = set.as_object() else { return };
+        if !obj.keys().any(|k| override_field(k, false) == Some(OverrideField::Layout)) {
             return;
+        }
+        let Some(n) = self.doc.get(id) else { return };
+        if n.kind.frame_props().is_none_or(|fp| fp.auto_layout.is_some()) {
+            return;
+        }
+        let master = match &n.kind {
+            NodeKind::Instance { component: Some(c), .. } => Some(*c),
+            _ => n.component.source,
+        };
+        let inherited = master.and_then(|m| self.doc.get(m)).and_then(|m| m.kind.frame_props()).and_then(|fp| fp.auto_layout.clone());
+        if let Some(fp) = self.doc.get_mut(id).and_then(|n| n.kind.frame_props_mut()) {
+            fp.auto_layout = inherited;
+        }
+    }
+
+    /// Deep-copies the component's children under an empty instance.
+    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) -> Result<(), FigError> {
+        if !self.doc.get(inst).map(|n| n.children.is_empty()).unwrap_or(false) || self.doc.is_ancestor(comp, inst) || comp == inst {
+            return Ok(());
+        }
+        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
+        if !kids.is_empty() && (self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total) {
+            self.budget_exhausted = true;
+            self.unexpanded_instances.insert(inst);
+            return Ok(());
+        }
+        if !self.no_auto_layout.contains(&inst) {
+            let comp_grid_al =
+                self.doc.get(comp).and_then(|n| n.kind.frame_props()).and_then(|fp| fp.auto_layout.clone()).filter(|al| al.direction == LayoutDirection::Grid);
+            if let Some(comp_al) = comp_grid_al {
+                let comp_ids = (self.grid_col_track_ids.get(&comp), self.grid_row_track_ids.get(&comp));
+                let inst_ids = (self.grid_col_track_ids.get(&inst), self.grid_row_track_ids.get(&inst));
+                if let Some(fp) = self.doc.get_mut(inst).and_then(|n| n.kind.frame_props_mut()) {
+                    // An instance without a grid of its own takes the component grid with unsized tracks, so
+                    // both cases below fill the sizes the same way.
+                    let own = fp.auto_layout.get_or_insert_with(|| AutoLayout {
+                        grid_col_tracks: GridTracks::default(),
+                        grid_row_tracks: GridTracks::default(),
+                        ..comp_al.clone()
+                    });
+                    if own.direction == LayoutDirection::Grid {
+                        inherit_track_sizes(&mut own.grid_col_tracks, &comp_al.grid_col_tracks, comp_ids.0, inst_ids.0);
+                        inherit_track_sizes(&mut own.grid_row_tracks, &comp_al.grid_row_tracks, comp_ids.1, inst_ids.1);
+                    }
+                }
+            }
+            if let Some(ids) = self.grid_col_track_ids.get(&comp).cloned() {
+                self.grid_col_track_ids.entry(inst).or_insert(ids);
+            }
+            if let Some(ids) = self.grid_row_track_ids.get(&comp).cloned() {
+                self.grid_row_track_ids.entry(inst).or_insert(ids);
+            }
         }
         let fast_clone = self.rest_overrides.is_empty() && self.doc.nodes.len() >= 10_000;
         let prefix = if fast_clone { String::new() } else { self.doc.get(inst).and_then(|n| n.source_id.clone()).unwrap_or_default() };
-        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
-        let mut budget = 50_000usize;
+        let has_col_anchors = !self.col_anchor_guids.is_empty();
+        let has_row_anchors = !self.row_anchor_guids.is_empty();
+        let has_col_tracks = !self.grid_col_track_ids.is_empty();
+        let has_row_tracks = !self.grid_row_track_ids.is_empty();
+        let has_no_auto_layout = !self.no_auto_layout.is_empty();
+        let mut budget = PER_INSTANCE_CLONE_BUDGET;
+        let mut inst_children: Vec<NodeId> = Vec::with_capacity(kids.len());
+        let mut staged: Vec<Node> = Vec::new();
         // Pre-order on an explicit stack: a component of any depth is copied completely without recursion.
-        let mut stack: Vec<(NodeId, NodeId)> = kids.into_iter().rev().map(|k| (k, inst)).collect();
-        while let Some((src, parent)) = stack.pop() {
+        let mut stack: Vec<(NodeId, Option<usize>)> = kids.into_iter().rev().map(|k| (k, None)).collect();
+        while let Some((src, parent_idx)) = stack.pop() {
+            if self.cloned_nodes >= self.clone_budget_total {
+                self.budget_exhausted = true;
+                for p_idx in std::iter::once(parent_idx).chain(stack.iter().map(|&(_, p)| p)).flatten() {
+                    let p_node = &staged[p_idx];
+                    if matches!(p_node.kind, NodeKind::Instance { component: Some(_), .. }) && p_node.children.is_empty() {
+                        self.unexpanded_instances.insert(p_node.id);
+                    }
+                }
+                break;
+            }
             if budget == 0 {
-                return;
+                break;
             }
             budget -= 1;
             let Some(mut n) = self.doc.get(src).cloned() else { continue };
             let orig_children = std::mem::take(&mut n.children);
-            let id = self.fresh_id();
+            let id = match self.fresh_id() {
+                Ok(id) => id,
+                Err(e) => {
+                    if let Some(p) = self.doc.nodes.get_mut(&inst) {
+                        p.children.extend(inst_children);
+                    }
+                    for node in staged {
+                        self.doc.nodes.insert(node.id, node);
+                    }
+                    return Err(e);
+                }
+            };
+            self.cloned_nodes += 1;
+            let parent = match parent_idx {
+                Some(idx) => staged[idx].id,
+                None => inst,
+            };
             n.id = id;
             n.parent = Some(parent);
+            if !self.unexpanded_instances.is_empty() && self.unexpanded_instances.contains(&src) {
+                self.unexpanded_instances.insert(id);
+            }
             if fast_clone {
                 n.fig_metadata.clear();
                 if let Some(sid) = n.source_id.take() {
@@ -1857,16 +2282,68 @@ impl<'a> Ctx<'a> {
                     self.override_keys.insert(id, k);
                 }
             }
+            if has_col_anchors {
+                if let Some(g) = self.col_anchor_guids.get(&src).cloned() {
+                    self.col_anchor_guids.insert(id, g);
+                }
+            }
+            if has_row_anchors {
+                if let Some(g) = self.row_anchor_guids.get(&src).cloned() {
+                    self.row_anchor_guids.insert(id, g);
+                }
+            }
+            if has_col_tracks {
+                if let Some(ids) = self.grid_col_track_ids.get(&src).cloned() {
+                    self.grid_col_track_ids.insert(id, ids);
+                }
+            }
+            if has_row_tracks {
+                if let Some(ids) = self.grid_row_track_ids.get(&src).cloned() {
+                    self.grid_row_track_ids.insert(id, ids);
+                }
+            }
+            if has_no_auto_layout && self.no_auto_layout.contains(&src) {
+                self.no_auto_layout.insert(id);
+            }
             n.component.source = Some(src);
             n.component.overrides.clear();
+            n.component.grid_align_overrides = [false, false];
+            n.component.layout_cleared = false;
             n.component.props.clear();
             let container = n.kind.is_container();
-            self.doc.nodes.insert(id, n);
-            if let Some(p) = self.doc.nodes.get_mut(&parent) {
-                p.children.push(id);
+            match parent_idx {
+                Some(idx) => staged[idx].children.push(id),
+                None => inst_children.push(id),
             }
+            let my_idx = staged.len();
+            staged.push(n);
             if container {
-                stack.extend(orig_children.into_iter().rev().map(|c| (c, id)));
+                stack.extend(orig_children.into_iter().rev().map(|c| (c, Some(my_idx))));
+            }
+        }
+        if let Some(p) = self.doc.nodes.get_mut(&inst) {
+            p.children.extend(inst_children);
+        }
+        for node in staged {
+            self.doc.nodes.insert(node.id, node);
+        }
+        if !self.scales.contains_key(&inst) {
+            let old = self.doc.get(comp).map(|n| n.size).unwrap_or_default();
+            let new = self.doc.get(inst).map(|n| n.size).unwrap_or_default();
+            if (new.x - old.x).abs() > 1e-4 || (new.y - old.y).abs() > 1e-4 {
+                self.apply_instance_constraints(inst, old, new, MAX_TREE_DEPTH);
+            }
+        }
+        Ok(())
+    }
+
+    /// Applies horizontal and vertical [`Constraint`]s to the children of a
+    /// resized instance container (`old` -> `new`) before instance overrides
+    /// and `derivedSymbolData` run.
+    fn apply_instance_constraints(&mut self, parent: NodeId, old: Vec2, new: Vec2, depth: usize) {
+        for (c, new_transform, new_size) in designos_doc::plan_constraint_pass(&self.doc, parent, old, new, depth) {
+            if let Some(km) = self.doc.get_mut(c) {
+                designos_doc::apply_constrained_geometry(km, new_transform, new_size);
             }
         }
     }
@@ -1887,12 +2364,12 @@ impl<'a> Ctx<'a> {
 
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
-    fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
-        let Some(ov) = self.overrides.remove(&inst) else { return };
+    fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
+        let Some(ov) = self.overrides.remove(&inst) else { return Ok(()) };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
         for e in &ov.set {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                if self.apply_override(t, &e.set, false, targets, done) {
+                if self.apply_override(t, &e.set, false, targets, done)? {
                     subtree_maps.clear();
                 }
             }
@@ -1900,7 +2377,7 @@ impl<'a> Ctx<'a> {
         // Figma's computed results for resized instances win over the raw overrides.
         for e in &ov.derived {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                self.apply_override(t, &e.set, true, targets, done);
+                let _ = self.apply_override(t, &e.set, true, targets, done)?;
             }
         }
         for d in &ov.fast_derived {
@@ -1908,6 +2385,7 @@ impl<'a> Ctx<'a> {
                 self.apply_fast_derived(t, d);
             }
         }
+        Ok(())
     }
 
     fn apply_fast_derived(&mut self, id: NodeId, d: &crate::fig::FastDerivedEntry) {
@@ -2000,16 +2478,31 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn source_tail_of(&self, mut id: NodeId) -> Option<&str> {
+        for _ in 0..8 {
+            let n = self.doc.get(id)?;
+            if let Some(s) = n.source_id.as_deref() {
+                let tail = s.rsplit(';').next().unwrap_or(s);
+                if !tail.is_empty() {
+                    return Some(tail);
+                }
+            }
+            let src = n.component.source?;
+            if src == id {
+                return None;
+            }
+            id = src;
+        }
+        None
+    }
+
     fn node_matches(&self, c: NodeId, g: &str) -> bool {
         if let Some(k) = self.override_key_of(c) {
             if &**k == g {
                 return true;
             }
         }
-        self.doc.get(c).is_some_and(|n| {
-            let s = n.source_id.as_deref().unwrap_or("");
-            s.rsplit(';').next().unwrap_or(s) == g
-        })
+        self.source_tail_of(c) == Some(g)
     }
 
     fn build_subtree_lookup(&self, root: NodeId) -> HashMap<String, NodeId> {
@@ -2022,12 +2515,9 @@ impl<'a> Ctx<'a> {
                     map.insert(k.to_string(), c);
                 }
             }
-            if let Some(cn) = self.doc.get(c) {
-                if let Some(s) = cn.source_id.as_deref() {
-                    let tail = s.rsplit(';').next().unwrap_or(s);
-                    if !tail.is_empty() && ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
-                        map.insert(tail.to_string(), c);
-                    }
+            if let Some(tail) = self.source_tail_of(c) {
+                if ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
+                    map.insert(tail.to_string(), c);
                 }
             }
         }
@@ -2045,9 +2535,8 @@ impl<'a> Ctx<'a> {
                     map.insert(k.to_string(), n);
                 }
             }
-            if let Some(s) = nn.source_id.as_deref() {
-                let tail = s.rsplit(';').next().unwrap_or(s);
-                if !tail.is_empty() && ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
+            if let Some(tail) = self.source_tail_of(n) {
+                if ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
                     map.insert(tail.to_string(), n);
                 }
             }
@@ -2085,12 +2574,19 @@ impl<'a> Ctx<'a> {
     /// Applies partial REST node fields to an existing node. `derived_only`
     /// restricts to size, transform and geometry. Returns true if a nested
     /// instance swap took place.
-    fn apply_override(&mut self, id: NodeId, set: &Value, derived_only: bool, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> bool {
+    fn apply_override(
+        &mut self,
+        id: NodeId,
+        set: &Value,
+        derived_only: bool,
+        targets: &BTreeMap<NodeId, NodeId>,
+        done: &mut BTreeSet<NodeId>,
+    ) -> Result<bool, FigError> {
         let mut swapped = false;
         if !derived_only {
             if let Some(cid) = fstr(set, "componentId") {
                 if let Some(&target_comp) = self.ids.get(cid) {
-                    self.swap_nested(id, target_comp, targets, done);
+                    self.swap_nested(id, target_comp, targets, done)?;
                     swapped = true;
                 }
             }
@@ -2103,7 +2599,10 @@ impl<'a> Ctx<'a> {
             .and_then(|p| p.kind.frame_props())
             .and_then(|f| f.auto_layout.as_ref())
             .map(|a| a.direction);
-        let Some(n) = self.doc.get_mut(id) else { return swapped };
+        if !derived_only && set.get("layoutMode").is_none() && !self.no_auto_layout.contains(&id) {
+            self.inherit_auto_layout_for_partial_override(id, set);
+        }
+        let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let keep = |k: &str| !derived_only || matches!(k, "size" | "relativeTransform" | "fillGeometry" | "strokeGeometry");
         let has = |k: &str| keep(k) && set.get(k).is_some();
         let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
@@ -2158,7 +2657,7 @@ impl<'a> Ctx<'a> {
                 Some(parse_geometry_cached(farr(set, "strokeGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs)).filter(|g| !g.is_empty());
         }
         if derived_only {
-            return swapped;
+            return Ok(swapped);
         }
         let is_text = matches!(n.kind, NodeKind::Text(_));
         if let Some(obj) = set.as_object() {
@@ -2217,9 +2716,34 @@ impl<'a> Ctx<'a> {
             }
         }
         if let Some(iw) = set.get("individualStrokeWeights") {
-            let g = |k: &str| fnum(iw, k).unwrap_or(0.0);
-            n.stroke.side_weights = Some([g("top"), g("right"), g("bottom"), g("left")]);
-            if !has("strokeGeometry") {
+            let prev = n.stroke.side_weights;
+            let from_fig = fbool(iw, "fromFig") == Some(true);
+            match fbool(iw, "independent") {
+                Some(false) => {
+                    n.stroke.side_weights = None;
+                }
+                Some(true) => {
+                    let sw = n.stroke.side_weights.get_or_insert([0.0; 4]);
+                    for (i, k) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                        if let Some(v) = fnum(iw, k) {
+                            sw[i] = v;
+                        }
+                    }
+                }
+                None => {
+                    if !from_fig {
+                        n.stroke.side_weights.get_or_insert([0.0; 4]);
+                    }
+                    if let Some(sw) = n.stroke.side_weights.as_mut() {
+                        for (i, k) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                            if let Some(v) = fnum(iw, k) {
+                                sw[i] = v;
+                            }
+                        }
+                    }
+                }
+            }
+            if n.stroke.side_weights != prev && !has("strokeGeometry") {
                 n.stroke_geometry = None;
             }
         }
@@ -2247,19 +2771,48 @@ impl<'a> Ctx<'a> {
             }
         }
         if let Some(fp) = n.kind.frame_props_mut() {
+            let prev_tracks = (set.get("_gridColumnTrackIds").is_some() || set.get("_gridRowTrackIds").is_some())
+                .then(|| fp.auto_layout.as_ref().map(|al| (al.grid_col_tracks.clone(), al.grid_row_tracks.clone())))
+                .flatten();
             if let Some(c) = fbool(set, "clipsContent") {
                 fp.clips_content = c;
             }
             if set.get("layoutGrids").is_some() {
                 fp.grids = farr(set, "layoutGrids").iter().filter_map(parse_grid).collect();
             }
-            if set.get("layoutMode").is_some() {
+            if fstr(set, "layoutMode") == Some("NONE") {
+                fp.auto_layout = None;
+                n.component.layout_cleared = true;
+                self.no_auto_layout.insert(id);
+                self.grid_col_track_ids.remove(&id);
+                self.grid_row_track_ids.remove(&id);
+            } else if fp.auto_layout.is_none() && set.get("layoutMode").is_some() {
                 fp.auto_layout = frame_props(set).auto_layout;
+                n.component.layout_cleared = fp.auto_layout.is_none();
+                if fp.auto_layout.is_none() {
+                    self.no_auto_layout.insert(id);
+                    self.grid_col_track_ids.remove(&id);
+                    self.grid_row_track_ids.remove(&id);
+                } else {
+                    self.no_auto_layout.remove(&id);
+                }
             } else if let Some(al) = fp.auto_layout.as_mut() {
+                if set.get("layoutMode").is_some() {
+                    n.component.layout_cleared = false;
+                    self.no_auto_layout.remove(&id);
+                }
+                match fstr(set, "layoutMode") {
+                    Some("HORIZONTAL") => al.direction = LayoutDirection::Horizontal,
+                    Some("VERTICAL") => al.direction = LayoutDirection::Vertical,
+                    Some("GRID") => al.direction = LayoutDirection::Grid,
+                    _ => {}
+                }
                 let align = |s: &str| match s {
                     "CENTER" => LayoutAlign::Center,
                     "MAX" => LayoutAlign::End,
                     "SPACE_BETWEEN" => LayoutAlign::SpaceBetween,
+                    "SPACE_AROUND" => LayoutAlign::SpaceAround,
+                    "SPACE_EVENLY" => LayoutAlign::SpaceEvenly,
                     "BASELINE" => LayoutAlign::Baseline,
                     _ => LayoutAlign::Start,
                 };
@@ -2280,6 +2833,12 @@ impl<'a> Ctx<'a> {
                 }
                 if let Some(s) = fstr(set, "counterAxisAlignItems") {
                     al.counter_align = align(s);
+                }
+                if let Some(s) = fstr(set, "counterAxisAlignContent") {
+                    al.counter_align_content = if s == "SPACE_BETWEEN" { CounterAlignContent::SpaceBetween } else { CounterAlignContent::Auto };
+                }
+                if let Some(n) = fnum(set, "stackLayoutVersion") {
+                    al.layout_version = n.clamp(0.0, u8::MAX as f32) as u8;
                 }
                 if let Some(s) = fstr(set, "primaryAxisSizingMode") {
                     al.primary_sizing = sizing(s);
@@ -2318,6 +2877,26 @@ impl<'a> Ctx<'a> {
                 }
                 if let Some(s) = fstr(set, "gridAutoTracks") {
                     al.grid_auto_tracks = parse_grid_auto_tracks(s);
+                }
+            }
+            if let Some(al) = fp.auto_layout.as_mut() {
+                let col_tracks: Vec<&str> = farr(set, "_gridColumnTrackIds").iter().filter_map(Value::as_str).collect();
+                if !col_tracks.is_empty() {
+                    if set.get("gridColumnsSizing").is_none() {
+                        if let (Some((old_tracks, _)), Some(old_ids)) = (&prev_tracks, self.grid_col_track_ids.get(&id)) {
+                            al.grid_col_tracks = permute_tracks_by_ids(old_tracks, old_ids, &col_tracks);
+                        }
+                    }
+                    self.grid_col_track_ids.insert(id, col_tracks.into_iter().map(String::from).collect());
+                }
+                let row_tracks: Vec<&str> = farr(set, "_gridRowTrackIds").iter().filter_map(Value::as_str).collect();
+                if !row_tracks.is_empty() {
+                    if set.get("gridRowsSizing").is_none() {
+                        if let (Some((_, old_tracks)), Some(old_ids)) = (&prev_tracks, self.grid_row_track_ids.get(&id)) {
+                            al.grid_row_tracks = permute_tracks_by_ids(old_tracks, old_ids, &row_tracks);
+                        }
+                    }
+                    self.grid_row_track_ids.insert(id, row_tracks.into_iter().map(String::from).collect());
                 }
             }
         }
@@ -2397,9 +2976,19 @@ impl<'a> Ctx<'a> {
         }
         if let Some(c) = set.get("gridColumnAnchorIndex").and_then(Value::as_u64) {
             n.layout_child.grid_column = Some(c as u16);
+            if let Some(g) = fstr(set, "_gridColumnAnchorGuid") {
+                self.col_anchor_guids.insert(id, g.to_string());
+            } else {
+                self.col_anchor_guids.remove(&id);
+            }
         }
         if let Some(r) = set.get("gridRowAnchorIndex").and_then(Value::as_u64) {
             n.layout_child.grid_row = Some(r as u16);
+            if let Some(g) = fstr(set, "_gridRowAnchorGuid") {
+                self.row_anchor_guids.insert(id, g.to_string());
+            } else {
+                self.row_anchor_guids.remove(&id);
+            }
         }
         if let Some(c) = set.get("gridColumnSpan").and_then(Value::as_u64) {
             n.layout_child.col_span = (c as u16).max(1);
@@ -2409,9 +2998,11 @@ impl<'a> Ctx<'a> {
         }
         if let Some(a) = fstr(set, "gridChildHorizontalAlign").and_then(parse_grid_child_align) {
             n.layout_child.grid_align_h = a;
+            n.component.grid_align_overrides[0] = true;
         }
         if let Some(a) = fstr(set, "gridChildVerticalAlign").and_then(parse_grid_child_align) {
             n.layout_child.grid_align_v = a;
+            n.component.grid_align_overrides[1] = true;
         }
         if let Some(h) = fstr(set, "layoutSizingHorizontal") {
             n.layout_child.horizontal = match h {
@@ -2468,6 +3059,33 @@ impl<'a> Ctx<'a> {
                 t.runs = build_runs(&t.content, &t.style, &ids, set.get("styleOverrideTable"));
             }
         }
+        let col_tracks: Vec<&str> = farr(set, "_gridColumnTrackIds").iter().filter_map(Value::as_str).collect();
+        let row_tracks: Vec<&str> = farr(set, "_gridRowTrackIds").iter().filter_map(Value::as_str).collect();
+        if !col_tracks.is_empty() || !row_tracks.is_empty() {
+            let children = self.doc.get(id).map(|n| n.children.clone()).unwrap_or_default();
+            for child_id in children {
+                let new_col = if !col_tracks.is_empty() {
+                    self.col_anchor_guids.get(&child_id).and_then(|g| col_tracks.iter().position(|t| *t == g.as_str())).map(|idx| idx as u16)
+                } else {
+                    None
+                };
+                let new_row = if !row_tracks.is_empty() {
+                    self.row_anchor_guids.get(&child_id).and_then(|g| row_tracks.iter().position(|t| *t == g.as_str())).map(|idx| idx as u16)
+                } else {
+                    None
+                };
+                if new_col.is_some() || new_row.is_some() {
+                    if let Some(child) = self.doc.get_mut(child_id) {
+                        if let Some(c) = new_col {
+                            child.layout_child.grid_column = Some(c);
+                        }
+                        if let Some(r) = new_row {
+                            child.layout_child.grid_row = Some(r);
+                        }
+                    }
+                }
+            }
+        }
         if set.get("componentProperties").is_some() || set.get("componentPropertyReferences").is_some() || set.get("variantPropSpecs").is_some() {
             if let Some(mut node_copy) = self.doc.get(id).cloned() {
                 self.parse_component_props(&mut node_copy, set);
@@ -2475,11 +3093,11 @@ impl<'a> Ctx<'a> {
                     n.component = node_copy.component;
                 }
                 self.resolve_swaps();
-                self.apply_props(id, targets, done);
+                self.apply_props(id, targets, done)?;
                 swapped = true;
             }
         }
-        swapped
+        Ok(swapped)
     }
 }
 
@@ -2491,11 +3109,21 @@ struct DeferredFigHydrator {
     ids: BTreeMap<String, NodeId>,
     overrides: BTreeMap<NodeId, Overrides>,
     override_keys: HashMap<NodeId, std::sync::Arc<str>>,
+    col_anchor_guids: HashMap<NodeId, String>,
+    row_anchor_guids: HashMap<NodeId, String>,
+    grid_col_track_ids: HashMap<NodeId, Vec<String>>,
+    grid_row_track_ids: HashMap<NodeId, Vec<String>>,
+    no_auto_layout: HashSet<NodeId>,
     scales: BTreeMap<NodeId, f32>,
     path_cache: HashMap<String, Path>,
     blob_cache: HashMap<(usize, bool), Path>,
     expanded_comps: HashSet<NodeId>,
     next_clone: u64,
+    clone_budget_total: usize,
+    cloned_nodes: usize,
+    budget_exhausted: bool,
+    unexpanded_instances: BTreeSet<NodeId>,
+    last_error: Option<String>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -2516,6 +3144,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             return false;
         }
         let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let saved_insts: Vec<(NodeId, Node)> = insts.iter().filter_map(|&id| doc.get(id).cloned().map(|n| (id, n))).collect();
+        let saved_done = self.done.clone();
         let taken_doc = std::mem::take(doc);
         let has_instance_swap_values = taken_doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
         let mut cx = Ctx {
@@ -2526,6 +3156,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             overrides: std::mem::take(&mut self.overrides),
             rest_overrides: Vec::new(),
             override_keys: std::mem::take(&mut self.override_keys),
+            col_anchor_guids: std::mem::take(&mut self.col_anchor_guids),
+            row_anchor_guids: std::mem::take(&mut self.row_anchor_guids),
+            grid_col_track_ids: std::mem::take(&mut self.grid_col_track_ids),
+            grid_row_track_ids: std::mem::take(&mut self.grid_row_track_ids),
+            no_auto_layout: std::mem::take(&mut self.no_auto_layout),
             scales: std::mem::take(&mut self.scales),
             pending_swaps: Vec::new(),
             component_keys: BTreeMap::new(),
@@ -2540,27 +3175,74 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             large_file: true,
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
             connectors: Vec::new(),
             deferred_pending: None,
         };
-        for inst in insts {
-            if self.targets.contains_key(&inst) {
-                cx.expand_rec(inst, &self.targets, &mut self.done);
+        let mut hydration_err: Option<FigError> = None;
+        for &inst in &insts {
+            let res = if self.targets.contains_key(&inst) {
+                cx.expand_rec(inst, &self.targets, &mut self.done)
             } else if !self.done.contains(&inst) {
-                cx.apply_overrides(inst, &self.targets, &mut self.done);
+                cx.apply_overrides(inst, &self.targets, &mut self.done)
+            } else {
+                Ok(())
+            };
+            if let Err(e) = res {
+                hydration_err = Some(e);
+                break;
             }
         }
+        if let Some(err) = hydration_err {
+            cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
+            for (id, node) in saved_insts {
+                cx.doc.nodes.insert(id, node);
+            }
+            self.done = saved_done;
+            self.last_error = Some(err.to_string());
+            *doc = cx.doc;
+            if !self.pending_by_page.is_empty() {
+                self.ids = cx.ids;
+                self.overrides = cx.overrides;
+                self.override_keys = cx.override_keys;
+                self.col_anchor_guids = cx.col_anchor_guids;
+                self.row_anchor_guids = cx.row_anchor_guids;
+                self.grid_col_track_ids = cx.grid_col_track_ids;
+                self.grid_row_track_ids = cx.grid_row_track_ids;
+                self.no_auto_layout = cx.no_auto_layout;
+                self.scales = cx.scales;
+                self.path_cache = cx.path_cache;
+                self.blob_cache = cx.blob_cache;
+                self.expanded_comps = cx.expanded_comps;
+            } else {
+                self.targets.clear();
+                self.done.clear();
+            }
+            return false;
+        }
+        cx.mark_custom_instance_slots();
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
         }
         self.next_clone = cx.next_clone;
+        self.cloned_nodes = cx.cloned_nodes;
+        self.budget_exhausted = cx.budget_exhausted;
+        self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
         if !self.pending_by_page.is_empty() {
             self.ids = cx.ids;
             self.overrides = cx.overrides;
             self.override_keys = cx.override_keys;
+            self.col_anchor_guids = cx.col_anchor_guids;
+            self.row_anchor_guids = cx.row_anchor_guids;
+            self.grid_col_track_ids = cx.grid_col_track_ids;
+            self.grid_row_track_ids = cx.grid_row_track_ids;
+            self.no_auto_layout = cx.no_auto_layout;
             self.scales = cx.scales;
             self.path_cache = cx.path_cache;
             self.blob_cache = cx.blob_cache;
@@ -2573,7 +3255,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 
     fn hydrate_all(&mut self, doc: &mut Document) -> bool {
-        let pages: Vec<NodeId> = self.pending_by_page.keys().copied().collect();
+        let mut pages: Vec<NodeId> = self.pending_by_page.keys().copied().collect();
+        pages.sort();
         let mut any = false;
         for page in pages {
             if self.hydrate_page(doc, page) {
@@ -2586,16 +3269,50 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     fn is_hydrated(&self, page: NodeId) -> bool {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
     }
+
+    fn unexpanded_instances(&self) -> usize {
+        self.unexpanded_instances.len()
+    }
+
+    fn take_unexpanded_instances(&mut self) -> usize {
+        let n = self.unexpanded_instances.len();
+        self.unexpanded_instances.clear();
+        n
+    }
+
+    fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    fn take_last_error(&mut self) -> Option<String> {
+        self.last_error.take()
+    }
 }
 
-/// Effect and grid styles whose values the file states on the style node (`.fig` imports put them
-/// in the `styles` map): the node's values replace the copy seeded from the first consumer, and a
-/// style no node uses is kept too. REST JSON carries no values there, so it is left as seeded.
+/// Style values that the file states on the style node (`.fig` imports put them in the `styles`
+/// map): the node's values replace the copy seeded from the first consumer, and a style no node
+/// uses is kept too. REST JSON carries no values there, so it is left as seeded.
 fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
     let Some(map) = styles.and_then(Value::as_object) else { return };
     for (id, m) in map {
         let style = match fstr(m, "styleType") {
+            Some("FILL" | "STROKE") if m.get("fills").is_some() => Style::Fill(parse_paints(m.get("fills"))),
+            Some("FILL" | "STROKE") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Fill(Vec::new()),
+            Some("TEXT") if m.get("style").is_some() || m.get("fills").is_some() || (!doc.styles.contains_key(id) && m.get("boundVariables").is_some()) => {
+                let mut ts = match doc.styles.get(id) {
+                    Some(Style::Text(existing)) => existing.clone(),
+                    _ => TextStyle::default(),
+                };
+                if let Some(st) = m.get("style") {
+                    apply_type_style(&mut ts, st);
+                }
+                if m.get("fills").is_some() {
+                    ts.fills = parse_paints(m.get("fills"));
+                }
+                Style::Text(ts)
+            }
             Some("EFFECT") if m.get("effects").is_some() => Style::Effect(farr(m, "effects").iter().filter_map(parse_effect).collect()),
+            Some("EFFECT") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Effect(Vec::new()),
             Some("GRID") if m.get("layoutGrids").is_some() => Style::Grid(farr(m, "layoutGrids").iter().filter_map(parse_grid).collect()),
             _ => continue,
         };
@@ -2637,6 +3354,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,
         };
+        let bindings = crate::variables::parse_node_variables(m).bindings;
         out.insert(
             id.clone(),
             StyleMeta {
@@ -2644,6 +3362,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
                 key: fstr(m, "key").map(String::from).filter(|k| !k.is_empty()),
                 description: fstr(m, "description").unwrap_or("").to_string(),
                 property,
+                bindings,
             },
         );
     }
@@ -2698,6 +3417,7 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "lineIndentations"
         | "opentypeFlags"
         | "fontVariations"
+        | "textWrapStyle"
         | "maxLines" => OverrideField::TextStyle,
         "layoutMode"
         | "itemSpacing"
@@ -2708,9 +3428,13 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "paddingBottom"
         | "primaryAxisAlignItems"
         | "counterAxisAlignItems"
+        | "counterAxisAlignContent"
+        | "stackLayoutVersion"
         | "primaryAxisSizingMode"
         | "counterAxisSizingMode"
         | "layoutWrap"
+        | "strokesIncludedInLayout"
+        | "itemReverseZIndex"
         | "clipsContent"
         | "layoutGrids"
         | "layoutAlign"
@@ -2916,6 +3640,30 @@ fn parse_grid_auto_tracks(s: &str) -> GridAutoTracks {
             GridAutoTracks::Rows
         }
     }
+}
+
+/// Re-orders `old_tracks`, which follow the track ids `old_ids`, to follow `new_ids`. A new id the old list
+/// lacks keeps an unsized slot.
+fn permute_tracks_by_ids<S: AsRef<str>, T: AsRef<str>>(old_tracks: &GridTracks, old_ids: &[S], new_ids: &[T]) -> GridTracks {
+    let mut permuted = GridTracks::default();
+    for (new_idx, tid) in new_ids.iter().take(MAX_GRID_TRACKS).enumerate() {
+        if let Some(old_idx) = old_ids.iter().position(|old| old.as_ref() == tid.as_ref()).filter(|&i| i < MAX_GRID_TRACKS) {
+            permuted[new_idx] = old_tracks[old_idx];
+        }
+    }
+    permuted
+}
+
+/// Gives an instance axis the component's track sizes when the instance sized none of its own, in the order of
+/// the track ids the instance lists, so those ids keep describing the size slots.
+fn inherit_track_sizes(own: &mut GridTracks, comp: &GridTracks, comp_ids: Option<&Vec<String>>, own_ids: Option<&Vec<String>>) {
+    if !own.is_default() || comp.is_default() {
+        return;
+    }
+    *own = match (comp_ids, own_ids) {
+        (Some(c), Some(o)) if c != o => permute_tracks_by_ids(comp, c, o),
+        _ => comp.clone(),
+    };
 }
 
 fn frame_props(v: &Value) -> FrameProps {
@@ -3343,6 +4091,359 @@ mod expand_depth_tests {
             })
             .unwrap();
         handle.join().expect("import must not overflow the stack");
+    }
+
+    #[test]
+    fn chained_links_stop_at_the_global_clone_budget() {
+        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with MAX_IMPORT_CLONES (8,000,000)
+        // it stops at 8,000,000 cloned nodes (never exceeding MAX_IMPORT_CLONES) and leaves 1,001 instances empty.
+        let chain = component_chain(5_000);
+        let base_nodes = 1 + 2 * 5_000 + 1; // page + 5000*(comp + inner) + Use
+        let started = std::time::Instant::now();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, MAX_IMPORT_CLONES).unwrap();
+        let elapsed = started.elapsed();
+        let cloned = doc.nodes.len().saturating_sub(base_nodes);
+        assert!(cloned <= MAX_IMPORT_CLONES, "cloned {cloned} > MAX_IMPORT_CLONES");
+        assert_eq!(cloned, MAX_IMPORT_CLONES);
+        assert_eq!(report.instances_left_unexpanded, 1_001);
+        // The count asserts above prove the budget stops cloning; wall time is bounded in release builds only.
+        if !cfg!(debug_assertions) {
+            assert!(elapsed.as_secs() < 15, "5,000-link chain took {elapsed:?}");
+        }
+    }
+
+    #[test]
+    fn a_budgeted_import_is_deterministic() {
+        let json = component_chain(120).to_string();
+        let (doc_a, rep_a) = import_rest_json_with_budget(&json, 1_000).unwrap();
+        let (doc_b, rep_b) = import_rest_json_with_budget(&json, 1_000).unwrap();
+        assert_eq!(rep_a, rep_b);
+        assert!(rep_a.instances_left_unexpanded > 0);
+        assert_eq!(doc_a.nodes, doc_b.nodes);
+        assert_eq!(doc_a.pages, doc_b.pages);
+        assert_eq!(doc_a.peek_next_id(), doc_b.peek_next_id());
+
+        // Exact boundary (edge case 2): budget reached right at the end of an instance (1 + 2 + 3 = 6).
+        // The 3rd instance completes; the 4th does not start.
+        let json10 = component_chain(10).to_string();
+        let (_doc_exact, rep_exact) = import_rest_json_with_budget(&json10, 6).unwrap();
+        assert_eq!(rep_exact.instances_left_unexpanded, 7);
+
+        // Mid-instance boundary: when budget stops cloning inside an instance whose child is a nested instance,
+        // total cloned nodes never exceed budget and the cloned empty nested instance is also counted in report.
+        let (mut doc_mid, rep_mid) = import_rest_json_with_budget(&json10, 5).unwrap();
+        let base_10 = 1 + 2 * 10 + 1;
+        assert_eq!(doc_mid.nodes.len().saturating_sub(base_10), 5);
+        let empty_instances =
+            doc_mid.nodes.values().filter(|n| matches!(n.kind, NodeKind::Instance { component: Some(_), .. }) && n.children.is_empty()).count();
+        assert_eq!(rep_mid.instances_left_unexpanded, empty_instances);
+        assert!(doc_mid.validate_and_repair().is_clean());
+    }
+
+    #[test]
+    fn deferred_page_hydration_counts_skipped_instances_and_propagates_id_exhaustion() {
+        // Multi-page .fig import (!blobs.is_empty() && pages.len() > 1):
+        // Page 1 has >= 50 nodes (and is largest) with a single leaf component C0 (1 child, 0 nested instances, so
+        // expand_nested clones 0 nodes). Page 2 has 10 instances of C0 (10 clones needed > budget 6).
+        let mut p1_children: Vec<Value> =
+            (0..55).map(|i| json!({"id": format!("1:{i}"), "name": format!("R{i}"), "type": "RECTANGLE", "size": {"x": 4, "y": 4}})).collect();
+        p1_children.push(json!({
+            "id": "10:1", "name": "C0", "type": "COMPONENT", "size": {"x": 4, "y": 4},
+            "children": [{"id": "10:2", "name": "Dot", "type": "RECTANGLE", "size": {"x": 4, "y": 4}}]
+        }));
+        let p2_children: Vec<Value> = (0..10)
+            .map(|i| json!({"id": format!("2:{i}"), "name": format!("Use{i}"), "type": "INSTANCE", "componentId": "10:1", "size": {"x": 4, "y": 4}}))
+            .collect();
+        let multi_page = json!({
+            "document": {
+                "type": "DOCUMENT",
+                "children": [
+                    {"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": p1_children},
+                    {"id": "0:2", "name": "Page 2", "type": "CANVAS", "children": p2_children}
+                ]
+            }
+        });
+        let (mut doc, rep) = import_rest_value_with_blobs_and_budget(&multi_page, true, &[&[0u8][..]], None, 6).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 4, "deferred page instances exceeding budget must be reported in ImportReport");
+        assert!(doc.validate_and_repair().is_clean());
+
+        // Also test DeferredFigHydrator::hydrate_page directly when node IDs exhaust mid-page:
+        // The first instance on the page would succeed (u64::MAX - 1 -> u64::MAX), and the second instance
+        // hits u64::MAX overflow. hydrate_page must roll back the partial mutation and record the error.
+        let mut doc_h = Document::new("deferred_overflow");
+        let p1 = doc_h.add_page("Page 1");
+        let p2 = doc_h.add_page("Page 2");
+        let comp_id = NodeId(10);
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        let child_id = NodeId(11);
+        let mut child = Node::new(child_id, NodeKind::Rectangle);
+        child.parent = Some(comp_id);
+        comp.children.push(child_id);
+        comp.parent = Some(p1);
+        let inst1 = NodeId(20);
+        let mut i1 = Node::new(inst1, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        i1.parent = Some(p2);
+        let inst2 = NodeId(21);
+        let mut i2 = Node::new(inst2, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        i2.parent = Some(p2);
+        doc_h.get_mut(p1).unwrap().children.push(comp_id);
+        doc_h.get_mut(p2).unwrap().children.extend([inst1, inst2]);
+        doc_h.nodes.insert(comp_id, comp);
+        doc_h.nodes.insert(child_id, child);
+        doc_h.nodes.insert(inst1, i1);
+        doc_h.nodes.insert(inst2, i2);
+        doc_h.reserve_ids(inst2);
+
+        let mut pending_by_page = HashMap::new();
+        pending_by_page.insert(p2, vec![inst1, inst2]);
+        let mut hydrated_pages = HashSet::new();
+        hydrated_pages.insert(p1);
+        let mut targets = BTreeMap::new();
+        targets.insert(inst1, comp_id);
+        targets.insert(inst2, comp_id);
+        let hydrator = DeferredFigHydrator {
+            pending_by_page,
+            hydrated_pages,
+            targets,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            next_clone: u64::MAX - 1,
+            clone_budget_total: MAX_IMPORT_CLONES,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+        };
+        doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+        assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
+        assert!(doc_h.get(inst1).unwrap().children.is_empty(), "partial expansion on inst1 must be rolled back on error");
+        assert!(doc_h.get(inst2).unwrap().children.is_empty());
+        assert!(doc_h.validate_and_repair().is_clean());
+        let err = doc_h.hydration_error().expect("hydration error must be recorded");
+        assert!(err.contains("node id space exhausted"), "{err}");
+
+        // Also verify DeferredFigHydrator::hydrate_page records unexpanded_instances when clone_budget_total is hit.
+        let mut pending_b = HashMap::new();
+        pending_b.insert(p2, vec![inst1, inst2]);
+        let mut hydrated_b = HashSet::new();
+        hydrated_b.insert(p1);
+        let mut targets_b = BTreeMap::new();
+        targets_b.insert(inst1, comp_id);
+        targets_b.insert(inst2, comp_id);
+        let hydrator_b = DeferredFigHydrator {
+            pending_by_page: pending_b,
+            hydrated_pages: hydrated_b,
+            targets: targets_b,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            next_clone: 100,
+            clone_budget_total: 1,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+        };
+        doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
+        assert!(doc_h.ensure_page_hydrated(p2));
+        assert_eq!(doc_h.get(inst1).unwrap().children.len(), 1);
+        assert!(doc_h.get(inst2).unwrap().children.is_empty());
+        assert_eq!(doc_h.hydration_unexpanded_instances(), 1);
+        assert_eq!(doc_h.take_hydration_unexpanded_instances(), 1);
+        assert_eq!(doc_h.hydration_unexpanded_instances(), 0);
+    }
+
+    #[test]
+    fn an_unexpanded_instance_survives_a_fig_round_trip() {
+        let json = component_chain(10).to_string();
+        let (doc, rep) = import_rest_json_with_budget(&json, 6).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 7);
+        let use_node = doc.nodes.values().find(|n| n.name == "Use").unwrap();
+        assert!(use_node.children.is_empty(), "outer instance must remain unexpanded");
+        let c0_id = doc.nodes.values().find(|n| n.name == "C0").unwrap().id;
+        assert!(matches!(use_node.kind, NodeKind::Instance { component: Some(c), .. } if c == c0_id));
+
+        let fig_bytes = crate::export_fig(&doc).unwrap();
+        let (reimported, _rep2) = crate::import_fig_with_budget(&fig_bytes, 0).unwrap();
+        let use_after = reimported.nodes.values().find(|n| n.name == "Use").unwrap();
+        let c0_after = reimported.nodes.values().find(|n| n.name == "C0").unwrap().id;
+        assert!(matches!(use_after.kind, NodeKind::Instance { component: Some(c), .. } if c == c0_after));
+    }
+
+    #[test]
+    fn per_instance_budget_still_applies() {
+        let leaves: Vec<Value> = (0..50_020).map(|i| json!({"id": format!("2:{i}"), "name": "L", "type": "RECTANGLE", "size": {"x": 2, "y": 2}})).collect();
+        let doc_json = json!({"document": {"type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "children": [
+            {"id": "1:1", "name": "HugeComp", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "children": leaves},
+            {"id": "1:2", "name": "HugeInst", "type": "INSTANCE", "componentId": "1:1", "size": {"x": 10, "y": 10}}
+        ]}]}});
+        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, MAX_IMPORT_CLONES).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 0);
+        let inst = doc.nodes.values().find(|n| n.name == "HugeInst").unwrap();
+        assert_eq!(inst.children.len(), PER_INSTANCE_CLONE_BUDGET);
+    }
+
+    #[test]
+    fn max_id_overflow_is_an_error_in_import() {
+        let mut cx = Ctx {
+            doc: Document::new("overflow"),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: false,
+            ids: BTreeMap::new(),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            component_keys: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            next_clone: 0,
+            clone_budget_total: MAX_IMPORT_CLONES,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            pending_swaps: Vec::new(),
+            rest_overrides: Vec::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            has_instance_swap_values: false,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        cx.doc.nodes.insert(NodeId(u64::MAX), Node::new(NodeId(u64::MAX), NodeKind::Rectangle));
+        let err = cx.finish(true).unwrap_err();
+        assert!(err.to_string().contains("node id space exhausted"), "{err}");
+    }
+
+    #[test]
+    fn fresh_id_is_checked() {
+        let mut cx = Ctx {
+            doc: Document::new("fresh"),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: false,
+            ids: BTreeMap::new(),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            component_keys: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            next_clone: 0,
+            clone_budget_total: MAX_IMPORT_CLONES,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            pending_swaps: Vec::new(),
+            rest_overrides: Vec::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            has_instance_swap_values: false,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        // Edge case 4: highest id is u64::MAX - 1 -> first clone id (u64::MAX) works, second reports exhaustion.
+        let page = cx.doc.add_page("P");
+        let comp_id = NodeId(10);
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        let child_id = NodeId(11);
+        let mut child = Node::new(child_id, NodeKind::Rectangle);
+        child.parent = Some(comp_id);
+        comp.children.push(child_id);
+        comp.parent = Some(page);
+        let inst1 = NodeId(12);
+        let mut i1 = Node::new(inst1, NodeKind::Instance { frame: FrameProps::default(), component: None, component_key: None });
+        i1.parent = Some(page);
+        let inst2 = NodeId(u64::MAX - 2);
+        let mut i2 = Node::new(inst2, NodeKind::Instance { frame: FrameProps::default(), component: None, component_key: None });
+        i2.parent = Some(page);
+        cx.doc.get_mut(page).unwrap().children.extend([comp_id, inst1, inst2]);
+        cx.doc.nodes.insert(comp_id, comp);
+        cx.doc.nodes.insert(child_id, child);
+        cx.doc.nodes.insert(inst1, i1);
+        cx.doc.nodes.insert(inst2, i2);
+        cx.ids.insert("10:1".into(), comp_id);
+        cx.instances.push((inst1, "10:1".into()));
+        cx.instances.push((inst2, "10:1".into()));
+        let err = cx.finish(true).unwrap_err();
+        assert!(err.to_string().contains("node id space exhausted"), "{err}");
+        // First instance got u64::MAX - 1; second instance overflowed when advancing past u64::MAX.
+        assert_eq!(cx.doc.get(inst1).unwrap().children, vec![NodeId(u64::MAX - 1)]);
+    }
+
+    #[test]
+    fn nan_round_trip_import_save_reopen() {
+        let mut doc = import_rest_value(&component_chain(4), true).unwrap();
+        let rect_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle) && n.component.source.is_none()).unwrap().id;
+        doc.get_mut(rect_id).unwrap().size.x = f32::NAN;
+        doc.get_mut(rect_id).unwrap().transform.tx = f32::INFINITY;
+
+        let (native_json, replaced) = doc.to_json_counted().unwrap();
+        assert!(replaced >= 2, "expected non-finite numbers to be replaced on save, got {replaced}");
+        assert_eq!(doc.to_json().unwrap(), native_json);
+        let (reopened_native, native_report) = Document::from_json_with_report(&native_json).unwrap();
+        assert!(native_report.is_clean());
+        assert_eq!(reopened_native.get(rect_id).unwrap().size.x, 0.0);
+        assert_eq!(reopened_native.get(rect_id).unwrap().transform.tx, 0.0);
+
+        let legacy_json = serde_json::to_string(&doc).unwrap();
+        let (reopened_legacy, legacy_report) = Document::from_json_with_report(&legacy_json).unwrap();
+        assert!(legacy_report.non_finite_numbers > 0);
+        assert_eq!(reopened_legacy.get(rect_id).unwrap().size.x, 0.0);
+        assert_eq!(reopened_legacy.get(rect_id).unwrap().transform.tx, 0.0);
+
+        let bytes = crate::export_fig(&doc).unwrap();
+        let fig_imported = crate::import_fig(&bytes).unwrap();
+        for n in fig_imported.nodes.values() {
+            assert!(n.size.x.is_finite() && n.size.y.is_finite());
+            assert!(n.transform.tx.is_finite() && n.transform.ty.is_finite());
+        }
+        let fig_rect = fig_imported.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle) && n.component.source.is_none()).unwrap();
+        assert_eq!(fig_rect.size.x, 0.0);
+        assert_eq!(fig_rect.transform.tx, 0.0);
     }
 }
 

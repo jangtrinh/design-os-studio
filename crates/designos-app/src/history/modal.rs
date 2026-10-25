@@ -33,7 +33,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(Pos2::ZERO)) {
             cancel = true;
         }
-        menu_panel(&p, rect, theme::MENU_RADIUS);
+        menu_panel(&p, rect, theme::RADIUS_FRAME);
         let x0 = rect.left() + PAD;
         let w = W - PAD * 2.0;
         let mut y = rect.top() + PAD;
@@ -42,7 +42,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         p.text(Pos2::new(x0, y + LABEL_H / 2.0), Align2::LEFT_CENTER, "Version name", font.clone(), theme::TEXT_SECONDARY);
         y += LABEL_H + 4.0;
         let nr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(w, FIELD_H));
-        p.rect_filled(nr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(nr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         let te = TextEdit::singleline(&mut m.name)
             .id(name_id)
             .font(font.clone())

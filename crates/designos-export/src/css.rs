@@ -45,23 +45,28 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     // never Hug here: it prints the size the solver gave it.
     let sz = web_sizes(n, Parent { al: parent_al, root: false });
     let row_parent = sz.row_parent;
-    let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill);
-    let fill_h = in_flow && (n.layout_child.vertical == Sizing::Fill);
+    let fill_w = in_flow && sz.w == Dim::Fill;
+    let fill_h = in_flow && sz.h == Dim::Fill;
     let grows = in_flow && n.layout_child.grow > 0.0;
     let mut flex_done = false;
     let mut stretch = false;
     if in_flow && grid_parent {
-        if let Some(col) = crate::codegen::grid_placement_css(n.layout_child.grid_column, n.layout_child.col_span) {
-            push("grid-column", col);
-        }
-        if let Some(row) = crate::codegen::grid_placement_css(n.layout_child.grid_row, n.layout_child.row_span) {
-            push("grid-row", row);
+        if let Some(al) = parent_al {
+            let placement = crate::codegen::normalise_grid_placement(&n.layout_child, al);
+            if let Some(col) = crate::codegen::grid_placement_css(placement.column, placement.col_span) {
+                push("grid-column", col);
+            }
+            if let Some(row) = crate::codegen::grid_placement_css(placement.row, placement.row_span) {
+                push("grid-row", row);
+            }
         }
         // An item sized by its own content keeps that size instead of stretching across its cell.
         if sz.w == Dim::Hug {
             push("justify-self", "start".into());
         }
-        if sz.h == Dim::Hug {
+        if n.layout_child.align_self == AlignSelf::Stretch {
+            push("align-self", "stretch".into());
+        } else if sz.h == Dim::Hug {
             push("align-self", "start".into());
         }
     } else {
@@ -79,6 +84,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             }
         }
     }
+    if sz.cross_stretch {
+        stretch = true;
+    }
     let width_skipped = !matches!(sz.w, Dim::Fixed(_));
     let height_skipped = !matches!(sz.h, Dim::Fixed(_));
     if !width_skipped {
@@ -87,8 +95,18 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     if !height_skipped || matches!(n.kind, NodeKind::Line) {
         push("height", format!("{}px", num(if matches!(n.kind, NodeKind::Line) { 0.0 } else { n.size.y })));
     }
-    if stretch {
-        push("align-self", "stretch".into());
+    if in_flow && !grid_parent {
+        let align_self_css = match n.layout_child.align_self {
+            AlignSelf::Start => Some("flex-start"),
+            AlignSelf::Center => Some("center"),
+            AlignSelf::End => Some("flex-end"),
+            AlignSelf::Baseline => Some("baseline"),
+            AlignSelf::Stretch | AlignSelf::Auto if stretch => Some("stretch"),
+            AlignSelf::Stretch | AlignSelf::Auto => None,
+        };
+        if let Some(a) = align_self_css {
+            push("align-self", a.into());
+        }
     }
     if in_flow && !grid_parent && !flex_done && (!width_skipped || !height_skipped) {
         push("flex-shrink", "0".into());
@@ -749,7 +767,7 @@ mod tests {
             fixed_span.layout_child.row_span = 2;
             d.insert(gid, fixed_span).unwrap();
 
-            // 2. Fill child skips width and height so the grid stretches it
+            // 2. Fill child skips width so the grid stretches it horizontally and exports solved height
             let c2 = d.alloc_id();
             let mut fill_child = Node::rectangle(c2, Rect::new(0.0, 0.0, 80.0, 40.0));
             fill_child.layout_child.horizontal = Sizing::Fill;
@@ -780,7 +798,7 @@ mod tests {
         assert!(fixed_css.contains("width: 80px;") && fixed_css.contains("height: 40px;"), "spanning Fixed child in grid must keep its size: {fixed_css}");
 
         let fill_css = css_for(&d, children[1]);
-        assert!(!fill_css.contains("width:") && !fill_css.contains("height:"), "Fill child in grid must skip width/height: {fill_css}");
+        assert!(!fill_css.contains("width:") && fill_css.contains("height: 40px;"), "Fill child in grid skips width and exports solved height: {fill_css}");
 
         let hug_css = css_for(&d, children[2]);
         assert!(!hug_css.contains("width:") && !hug_css.contains("height:"), "Hug child in grid must skip width/height: {hug_css}");
@@ -914,5 +932,249 @@ mod tests {
         let css = css_for(&d, rect);
         assert!(css.contains("width: 80px;") && css.contains("height: 40px;"), "a rectangle has no intrinsic size to fall back on: {css}");
         assert!(!css.contains("justify-self") && !css.contains("align-self"), "only content-sized items align to the start: {css}");
+    }
+
+    #[test]
+    fn flex_child_align_self_exports_css_align_self_for_all_variants() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        row.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let fid = d.insert(page, row).unwrap();
+
+        for (align, expected) in [
+            (AlignSelf::Start, Some("align-self: flex-start;")),
+            (AlignSelf::Center, Some("align-self: center;")),
+            (AlignSelf::End, Some("align-self: flex-end;")),
+            (AlignSelf::Stretch, Some("align-self: stretch;")),
+            (AlignSelf::Baseline, Some("align-self: baseline;")),
+            (AlignSelf::Auto, None),
+        ] {
+            let cid = d.alloc_id();
+            let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 30.0, 20.0));
+            child.layout_child.align_self = align;
+            let cid = d.insert(fid, child).unwrap();
+            d.relayout_subtree(fid);
+            let css = css_for(&d, cid);
+            match expected {
+                Some(decl) => assert!(css.contains(decl), "{align:?} missing {decl:?} in:\n{css}"),
+                None => assert!(!css.contains("align-self:"), "Auto should not emit align-self in:\n{css}"),
+            }
+            if align == AlignSelf::Stretch {
+                assert!(!css.contains("height:"), "Stretch child should omit fixed height in:\n{css}");
+            } else {
+                assert!(css.contains("height: 20px;"), "{align:?} child should keep height: 20px in:\n{css}");
+            }
+        }
+    }
+
+    #[test]
+    fn stretch_child_keeps_its_cross_size_when_the_parent_hugs() {
+        use crate::codegen::fixture::row_with_stretch_children;
+        let (d, row, kids) = row_with_stretch_children(Sizing::Hug, &[40.0]);
+        assert_eq!(d.get(row).unwrap().size.y, 40.0, "the solver hugs the row around the stretch child");
+        let css = css_for(&d, kids[0]);
+        assert!(css.contains("height: 40px;") && css.contains("align-self: stretch;"), "{css}");
+
+        let (d, row, kids) = row_with_stretch_children(Sizing::Hug, &[20.0, 100.0]);
+        assert_eq!(d.get(row).unwrap().size.y, 100.0);
+        for k in kids {
+            let css = css_for(&d, k);
+            assert!(css.contains("height: 100px;") && css.contains("align-self: stretch;"), "all-stretch row must not collapse: {css}");
+        }
+    }
+
+    #[test]
+    fn css_hugging_row_all_fill_children_print_the_solved_height() {
+        use crate::codegen::fixture::row_with_counter_children;
+        let (d, row, kids) = row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        assert_eq!(d.get(row).unwrap().size.y, 100.0);
+        for k in &kids {
+            let css = css_for(&d, *k);
+            assert!(css.contains("height: 100px;") && css.contains("align-self: stretch;"), "all-fill row must not collapse: {css}");
+        }
+    }
+
+    #[test]
+    fn imported_fill_plus_stretch_same_output() {
+        use crate::codegen::fixture::row_with_counter_children;
+        let (d_fill, _, kids_fill) = row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        let (d_both, _, kids_both) = row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, true);
+        for (kf, kb) in kids_fill.into_iter().zip(kids_both) {
+            assert_eq!(css_for(&d_fill, kf), css_for(&d_both, kb));
+        }
+    }
+
+    #[test]
+    fn fixed_parent_stays_fill_only() {
+        use crate::codegen::fixture::row_with_counter_children;
+        let (d, _, kids) = row_with_counter_children(Sizing::Fixed, &[40.0], true, false);
+        let css = css_for(&d, kids[0]);
+        assert!(css.contains("align-self: stretch;") && !css.contains("height:"), "{css}");
+    }
+
+    #[test]
+    fn plain_sibling_sets_the_line() {
+        use crate::codegen::fixture::add_rect;
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        row.fills.clear();
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                ..Default::default()
+            });
+        }
+        let fid = d.insert(page, row).unwrap();
+        let _plain = add_rect(&mut d, fid, Vec2::new(30.0, 60.0));
+        let fill_kid = add_rect(&mut d, fid, Vec2::new(30.0, 20.0));
+        d.get_mut(fill_kid).unwrap().layout_child.vertical = Sizing::Fill;
+        d.relayout_subtree(fid);
+        let css = css_for(&d, fill_kid);
+        assert!(css.contains("height: 60px;") && css.contains("align-self: stretch;"), "{css}");
+    }
+
+    #[test]
+    fn vertical_stack_symmetric() {
+        use crate::codegen::fixture::add_rect;
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut col = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0));
+        col.fills.clear();
+        if let NodeKind::Frame(fp) = &mut col.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                ..Default::default()
+            });
+        }
+        let fid = d.insert(page, col).unwrap();
+        let k1 = add_rect(&mut d, fid, Vec2::new(20.0, 30.0));
+        let k2 = add_rect(&mut d, fid, Vec2::new(100.0, 30.0));
+        d.get_mut(k1).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.get_mut(k2).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(fid);
+        for k in [k1, k2] {
+            let css = css_for(&d, k);
+            assert!(css.contains("width: 100px;") && css.contains("align-self: stretch;"), "{css}");
+        }
+    }
+
+    #[test]
+    fn stretch_child_leaves_the_cross_size_to_a_fixed_parent() {
+        use crate::codegen::fixture::row_with_stretch_children;
+        let (d, _, kids) = row_with_stretch_children(Sizing::Fixed, &[40.0]);
+        let css = css_for(&d, kids[0]);
+        assert!(css.contains("align-self: stretch;") && !css.contains("height:"), "{css}");
+    }
+
+    #[test]
+    fn grid_stretch_child_exports_its_solved_size() {
+        use crate::codegen::fixture;
+        // (row track, solved height): an auto row is sized by the child, a taller row is filled.
+        for (track, height) in [(None, "20px"), (Some(GridTrack::Fixed(100.0)), "100px")] {
+            let (d, _, rect) = fixture::grid_stretch_child(track, false);
+            let css = css_for(&d, rect);
+            assert!(css.contains("width: 30px;") && css.contains(&format!("height: {height};")), "{track:?}: {css}");
+            assert!(css.contains("align-self: stretch;"), "{track:?}: {css}");
+            assert!(!css.contains("flex"), "{track:?}: {css}");
+        }
+    }
+
+    #[test]
+    fn css_grid_fill_child_exports_solved_height() {
+        use crate::codegen::fixture;
+        for (track, height) in [(None, "20px"), (Some(GridTrack::Fixed(100.0)), "100px")] {
+            for (d, _, kid) in [fixture::grid_fill_child(track), fixture::grid_text_fill_child(track)] {
+                let css = css_for(&d, kid);
+                assert!(css.contains("width: 30px;") && css.contains(&format!("height: {height};")), "{track:?}: {css}");
+                assert!(!css.contains("align-self:"), "{track:?}: {css}");
+                assert!(!css.contains("flex"), "{track:?}: {css}");
+            }
+        }
+        // A real Hug text child (vertical != Fill, align_self != Stretch) stays on the Hug path.
+        let (mut d, grid, tid) = fixture::grid_text_fill_child(Some(GridTrack::Fixed(100.0)));
+        d.get_mut(tid).unwrap().layout_child.vertical = Sizing::Fixed;
+        d.relayout_subtree(grid);
+        let css = css_for(&d, tid);
+        assert!(css.contains("width: 30px;") && !css.lines().any(|l| l.starts_with("height:")), "real Hug text omits height: {css}");
+        assert!(css.contains("align-self: start;"), "real Hug text emits align-self: start: {css}");
+    }
+
+    #[test]
+    fn css_hugging_row_fill_text_children_print_the_solved_height() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        row.fills.clear();
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Hug,
+                ..Default::default()
+            });
+        }
+        let fid = d.insert(page, row).unwrap();
+        let mut kids = Vec::new();
+        for h in [20.0, 100.0] {
+            let tid = d.alloc_id();
+            let mut txt = Node::text(tid, Rect::new(0.0, 0.0, 30.0, h), "Label", TextStyle::default());
+            if let NodeKind::Text(t) = &mut txt.kind {
+                t.auto_resize = TextAutoResize::Height;
+            }
+            txt.layout_child.vertical = Sizing::Fill;
+            kids.push(d.insert(fid, txt).unwrap());
+        }
+        d.relayout_subtree(fid);
+        for k in kids {
+            let css = css_for(&d, k);
+            assert!(css.contains("height: 100px;") && css.contains("align-self: stretch;"), "fill text in hugging row must keep solved height: {css}");
+        }
+    }
+
+    #[test]
+    fn css_grid_imported_fill_plus_stretch() {
+        use crate::codegen::fixture;
+        for (track, height) in [(None, "20px"), (Some(GridTrack::Fixed(100.0)), "100px")] {
+            let (d, _, rect) = fixture::grid_stretch_child(track, true);
+            let css = css_for(&d, rect);
+            assert!(css.contains("width: 30px;") && css.contains(&format!("height: {height};")), "{track:?}: {css}");
+            assert!(css.contains("align-self: stretch;"), "{track:?}: {css}");
+            assert!(!css.contains("flex"), "{track:?}: {css}");
+        }
+    }
+
+    #[test]
+    fn grid_child_horizontal_fill_unchanged() {
+        use crate::codegen::fixture;
+        let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(30.0, 20.0));
+        d.get_mut(rect).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.relayout_subtree(grid);
+        let css = css_for(&d, rect);
+        assert!(!css.contains("width:"), "horizontal Fill in grid omits width: {css}");
+        assert!(css.contains("height: 20px;"), "{css}");
     }
 }

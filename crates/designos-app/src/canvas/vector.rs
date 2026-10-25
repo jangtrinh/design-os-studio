@@ -1116,7 +1116,7 @@ pub fn toolbar(app: &mut App, ui: &mut egui::Ui, rect: ERect) {
         Pos2::new(rect.center().x, rect.bottom() - theme::TOOLBELT_BOTTOM_MARGIN - theme::TOOLBELT_HEIGHT - 26.0),
         egui::vec2(total, 36.0),
     );
-    ui.painter().rect_filled(bar, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TOOLBAR);
+    ui.painter().rect_filled(bar, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR);
     let mut picked = None;
     for (i, t) in VTool::ALL.iter().enumerate() {
         let r = ERect::from_min_size(Pos2::new(bar.left() + 4.0 + i as f32 * w, bar.top() + 4.0), egui::vec2(w, 28.0));
@@ -1131,7 +1131,7 @@ pub fn toolbar(app: &mut App, ui: &mut egui::Ui, rect: ERect) {
         } else {
             egui::Color32::TRANSPARENT
         };
-        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), bg);
+        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), bg);
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, t.label(), font.clone(), theme::TEXT);
         if resp.clicked() {
             picked = Some(*t);

@@ -7,11 +7,13 @@ use designos_doc::*;
 pub(crate) struct Out {
     unit: &'static str,
     lines: Vec<String>,
+    /// The exported root is a function that takes a `modifier` parameter (Compose).
+    pub root_takes_modifier: bool,
 }
 
 impl Out {
     pub fn new(unit: &'static str) -> Self {
-        Self { unit, lines: Vec::new() }
+        Self { unit, lines: Vec::new(), root_takes_modifier: false }
     }
 
     pub fn line(&mut self, depth: usize, s: impl AsRef<str>) {
@@ -20,6 +22,15 @@ impl Out {
 
     pub fn finish(self) -> String {
         self.lines.join("\n")
+    }
+
+    /// An empty writer with the same indent unit, for rendering a nested block.
+    pub fn sub(&self) -> Self {
+        Self { unit: self.unit, lines: Vec::new(), root_takes_modifier: self.root_takes_modifier }
+    }
+
+    pub fn into_lines(self) -> Vec<String> {
+        self.lines
     }
 }
 
@@ -88,11 +99,16 @@ pub(crate) fn snake(s: &str) -> String {
 }
 
 /// Name of the view/component a node becomes: the component for instances (the set for
-/// variants), else the node's own name.
+/// variants), the set for variant components, else the node's own name.
 pub(crate) fn view_name(doc: &Document, n: &Node) -> String {
     if let Some(c) = instance_component(n).and_then(|c| doc.get(c)) {
         let set = c.parent.and_then(|p| doc.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)));
         return pascal(&set.unwrap_or(c).name);
+    }
+    if matches!(n.kind, NodeKind::Component(_)) {
+        if let Some(set) = n.parent.and_then(|p| doc.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
+            return pascal(&set.name);
+        }
     }
     pascal(&n.name)
 }
@@ -116,7 +132,7 @@ fn segments(v: &Variable) -> Vec<String> {
 /// 3. a result made only of `[-A-Za-z0-9_]` keeps its case;
 /// 4. anything else becomes lower kebab-case (camelCase split) without leading non-alphanumerics;
 /// 5. an empty result is `unnamed`.
-pub(crate) fn css_var_name(name: &str) -> String {
+pub fn css_var_name(name: &str) -> String {
     let stripped: String = name.chars().filter(|c| c.is_ascii() && !matches!(c, '"' | '\'' | '\n' | '\r')).collect();
     let mut joined = String::new();
     let mut in_run = false;
@@ -280,21 +296,85 @@ pub(crate) enum PropLit {
     Instance(String),
 }
 
-/// Component properties of an instance worth passing as arguments: values that differ from the
-/// default, plus variant selections. Names are camelCased without Figma's `#id` suffix.
-pub(crate) fn instance_args(doc: &Document, n: &Node) -> Vec<(String, PropLit)> {
+/// Property definitions of `comp` in declaration order (for a component set or one of its
+/// variants, the union by cleaned name of the set's own properties and its variants' properties).
+pub(crate) fn ordered_prop_defs(doc: &Document, comp: NodeId) -> Vec<ComponentPropDef> {
+    let Some(n) = doc.get(comp) else { return Vec::new() };
+    let set = if matches!(n.kind, NodeKind::ComponentSet(_)) {
+        Some(n)
+    } else {
+        n.parent.and_then(|p| doc.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))
+    };
+    let Some(set) = set else {
+        return n.component.props.clone();
+    };
+    let clean = |s: &str| camel(s.split('#').next().unwrap_or(s).trim());
+    let mut out = set.component.props.clone();
+    for cid in &set.children {
+        let Some(c) = doc.get(*cid).filter(|c| matches!(c.kind, NodeKind::Component(_))) else { continue };
+        for d in &c.component.props {
+            let k = clean(&d.name);
+            if !k.is_empty() && !out.iter().any(|o| clean(&o.name) == k) {
+                out.push(d.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Component properties of an instance worth passing as arguments in `lang`: values that differ
+/// from the default, plus variant selections, renamed through `prop_ident`.
+pub(crate) fn instance_args_for(doc: &Document, n: &Node, lang: crate::slots::Lang) -> Vec<(String, PropLit)> {
     let Some(comp) = instance_component(n) else { return Vec::new() };
-    let mut out = Vec::new();
-    for def in prop_defs(doc, comp) {
+    let mut out: Vec<(String, PropLit)> = Vec::new();
+    let mut taken: Vec<String> = Vec::new();
+    for def in ordered_prop_defs(doc, comp) {
+        if matches!(def.kind, PropKind::Slot) {
+            continue;
+        }
+        let raw = camel(def.name.split('#').next().unwrap_or(&def.name).trim());
+        if raw.is_empty() {
+            continue;
+        }
+        let name = crate::slots::prop_ident(&raw, lang, &mut taken);
         let value = prop_value(doc, n.id, &def);
-        let name = camel(def.name.split('#').next().unwrap_or(&def.name));
         let lit = match (&def.kind, &value) {
             (PropKind::Variant { .. }, PropValue::Variant(v)) => PropLit::Text(v.clone()),
             _ if value == def.default => continue,
             (_, PropValue::Bool(b)) => PropLit::Bool(*b),
             (_, PropValue::Text(t)) => PropLit::Text(t.clone()),
             (_, PropValue::Variant(v)) => PropLit::Text(v.clone()),
-            (_, PropValue::Instance(c)) => PropLit::Instance(doc.get(*c).map(|c| pascal(&c.name)).unwrap_or_else(|| "Icon".into())),
+            (_, PropValue::Instance(c)) => PropLit::Instance(doc.get(*c).map(|c| view_name(doc, c)).unwrap_or_else(|| "Icon".into())),
+            (_, PropValue::Slot(_)) => continue,
+        };
+        out.push((name, lit));
+    }
+    out
+}
+
+/// Component properties of an instance worth passing as arguments: values that differ from the
+/// default, plus variant selections. Names are camelCased without Figma's `#id` suffix.
+pub(crate) fn instance_args(doc: &Document, n: &Node) -> Vec<(String, PropLit)> {
+    let Some(comp) = instance_component(n) else { return Vec::new() };
+    let mut out: Vec<(String, PropLit)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for def in ordered_prop_defs(doc, comp) {
+        if matches!(def.kind, PropKind::Slot) {
+            continue;
+        }
+        let name = camel(def.name.split('#').next().unwrap_or(&def.name).trim());
+        if name.is_empty() || seen.contains(&name) {
+            continue;
+        }
+        seen.push(name.clone());
+        let value = prop_value(doc, n.id, &def);
+        let lit = match (&def.kind, &value) {
+            (PropKind::Variant { .. }, PropValue::Variant(v)) => PropLit::Text(v.clone()),
+            _ if value == def.default => continue,
+            (_, PropValue::Bool(b)) => PropLit::Bool(*b),
+            (_, PropValue::Text(t)) => PropLit::Text(t.clone()),
+            (_, PropValue::Variant(v)) => PropLit::Text(v.clone()),
+            (_, PropValue::Instance(c)) => PropLit::Instance(doc.get(*c).map(|c| view_name(doc, c)).unwrap_or_else(|| "Icon".into())),
             (_, PropValue::Slot(_)) => continue,
         };
         out.push((name, lit));
@@ -334,6 +414,10 @@ pub(crate) struct Sizes {
     pub in_flow: bool,
     /// Whether the parent lays out in a row (main axis horizontal).
     pub row_parent: bool,
+    /// A stretching child of a hugging flex parent (`Sizing::Fill` or `AlignSelf::Stretch` on the
+    /// counter axis). The parent has nothing to stretch against, so the cross axis keeps the child's
+    /// solved size (`w`/`h` are never `Fill` there); web output also keeps the stretch declaration.
+    pub cross_stretch: bool,
 }
 
 /// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
@@ -370,10 +454,28 @@ fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;
-    let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill || (grows && row_parent));
-    let fill_h = in_flow && (n.layout_child.vertical == Sizing::Fill || (grows && !row_parent));
+    // A flow parent stretches its children along its counter axis; `AlignSelf::Stretch` and counter
+    // `Sizing::Fill` are the same stretch there. A grid is different: its auto row sizes from the
+    // child, so a stretch or vertical-Fill child only fills that row and solves to its own size. Codegen
+    // therefore never turns `AlignSelf::Stretch` or vertical `Sizing::Fill` into a fill for a grid child
+    // and exports the solved pixels, as it does for a hug flex parent (`keeps_h`). `row_parent` only
+    // picks `grow` and the emitted stack kind.
+    let grid_parent = parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid);
+    let counter_horiz = parent.al.filter(|_| in_flow && !grid_parent).map(|a| !a.primary_is_horizontal());
+    let lc = &n.layout_child;
+    // The solver sizes a stretch child to the line, and a hugging counter axis derives that line from
+    // the children, so the child's solved size is what keeps the frame from collapsing.
+    let cross_stretch = in_flow
+        && parent.al.is_some_and(|a| a.direction != LayoutDirection::Grid && a.counter_sizing == Sizing::Hug)
+        && lc.effective_sizing(!row_parent, counter_horiz) == Sizing::Fill;
+    let keeps_w = cross_stretch && !row_parent;
+    let keeps_h = (cross_stretch && row_parent) || (in_flow && grid_parent && lc.effective_sizing(false, Some(false)) == Sizing::Fill);
+    let fill_w = in_flow && ((lc.effective_sizing(true, counter_horiz) == Sizing::Fill && !keeps_w) || (grows && row_parent));
+    let fill_h = in_flow && ((lc.effective_sizing(false, counter_horiz) == Sizing::Fill && !keeps_h) || (grows && !row_parent));
     let w = if fill_w {
         Dim::Fill
+    } else if keeps_w {
+        Dim::Fixed(n.size.x)
     } else if hug_w || text_w {
         Dim::Hug
     } else {
@@ -381,14 +483,16 @@ fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
     };
     let h = if fill_h {
         Dim::Fill
-    } else if hug_h || text_h {
-        Dim::Hug
     } else if matches!(n.kind, NodeKind::Line) {
         Dim::Fixed(0.0)
+    } else if keeps_h {
+        Dim::Fixed(n.size.y)
+    } else if hug_h || text_h {
+        Dim::Hug
     } else {
         Dim::Fixed(n.size.y)
     };
-    Sizes { w, h, in_flow, row_parent }
+    Sizes { w, h, in_flow, row_parent, cross_stretch }
 }
 
 /// Position offset for children that are not placed by auto layout.
@@ -522,6 +626,26 @@ pub(crate) fn grid_tracks_css(tracks: &[GridTrack], count: usize) -> String {
 /// A track list as one Tailwind arbitrary value: no spaces, `_` between tracks.
 pub(crate) fn tailwind_tracks_value(tracks_css: &str) -> String {
     tracks_css.replace(", ", ",").replace(' ', "_")
+}
+
+/// A child's grid placement after running the same normalisation as `Want::of` in the grid solver:
+/// a column pin at or past the column count is dropped, `col_span` is clamped to `cols`, a pinned
+/// column whose span would overflow `cols` is pulled back to `cols - col_span`, and `row_span` is
+/// clamped to `MAX_GRID_TRACKS`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GridPlacement {
+    pub column: Option<u16>,
+    pub col_span: u16,
+    pub row: Option<u16>,
+    pub row_span: u16,
+}
+
+pub(crate) fn normalise_grid_placement(lc: &LayoutChild, al: &AutoLayout) -> GridPlacement {
+    let cols = grid_column_count(al);
+    let col_span = (lc.col_span.max(1) as usize).min(cols) as u16;
+    let row_span = (lc.row_span.max(1) as usize).min(MAX_GRID_TRACKS) as u16;
+    let column = lc.grid_column.map(usize::from).filter(|c| *c < cols).map(|c| c.min(cols - usize::from(col_span)) as u16);
+    GridPlacement { column, col_span, row: lc.grid_row, row_span }
 }
 
 pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {
@@ -689,9 +813,108 @@ pub(crate) mod fixture {
         (d, id)
     }
 
+    /// A fixed 400x300 two-column grid holding one 30x20 `AlignSelf::Stretch` rectangle, already solved.
+    /// `row_tracks` is the stored row track (`None` keeps the default auto row, which the child sizes).
+    /// `imported_fill` also stores `Sizing::Fill` on the height, as an imported `.fig` STRETCH child does.
+    /// Returns `(document, grid, child)`.
+    pub fn grid_stretch_child(row_track: Option<GridTrack>, imported_fill: bool) -> (Document, NodeId, NodeId) {
+        let mut al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        if let Some(track) = row_track {
+            al.grid_rows = 1;
+            al.grid_row_tracks.0[0] = track;
+        }
+        let (mut d, grid) = grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = add_rect(&mut d, grid, Vec2::new(30.0, 20.0));
+        let lc = &mut d.get_mut(rect).unwrap().layout_child;
+        lc.align_self = AlignSelf::Stretch;
+        if imported_fill {
+            lc.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(grid);
+        (d, grid, rect)
+    }
+
+    /// A fixed 400x300 two-column grid holding one 30x20 rectangle with `vertical = Sizing::Fill`
+    /// and default `AlignSelf::Auto`, already solved.
+    pub fn grid_fill_child(row_track: Option<GridTrack>) -> (Document, NodeId, NodeId) {
+        let mut al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        if let Some(track) = row_track {
+            al.grid_rows = 1;
+            al.grid_row_tracks.0[0] = track;
+        }
+        let (mut d, grid) = grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = add_rect(&mut d, grid, Vec2::new(30.0, 20.0));
+        d.get_mut(rect).unwrap().layout_child.vertical = Sizing::Fill;
+        d.relayout_subtree(grid);
+        (d, grid, rect)
+    }
+
+    /// A fixed 400x300 two-column grid holding one 30x20 `TextAutoResize::Height` text child with
+    /// `vertical = Sizing::Fill`, already solved.
+    pub fn grid_text_fill_child(row_track: Option<GridTrack>) -> (Document, NodeId, NodeId) {
+        let mut al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        if let Some(track) = row_track {
+            al.grid_rows = 1;
+            al.grid_row_tracks.0[0] = track;
+        }
+        let (mut d, grid) = grid_frame(al, Vec2::new(400.0, 300.0));
+        let tid = d.alloc_id();
+        let mut txt = Node::text(tid, Rect::new(0.0, 0.0, 30.0, 20.0), "Label", TextStyle::default());
+        if let NodeKind::Text(t) = &mut txt.kind {
+            t.auto_resize = TextAutoResize::Height;
+        }
+        txt.layout_child.vertical = Sizing::Fill;
+        let tid = d.insert(grid, txt).unwrap();
+        d.relayout_subtree(grid);
+        (d, grid, tid)
+    }
+
     pub fn add_rect(d: &mut Document, parent: NodeId, size: Vec2) -> NodeId {
         let id = d.alloc_id();
         d.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, size.x, size.y))).unwrap()
+    }
+
+    /// A horizontal 200x100 auto-layout row whose counter axis is `counter_sizing`, holding one
+    /// `AlignSelf::Stretch` rectangle per entry of `heights` (each 30 wide, fixed height), already solved.
+    pub fn row_with_stretch_children(counter_sizing: Sizing, heights: &[f32]) -> (Document, NodeId, Vec<NodeId>) {
+        row_with_counter_children(counter_sizing, heights, false, true)
+    }
+
+    /// A horizontal 200x100 auto-layout row whose counter axis is `counter_sizing`, holding one
+    /// rectangle per entry of `heights` (each 30 wide) with `vertical = Sizing::Fill` when
+    /// `counter_fill` is true and/or `align_self = AlignSelf::Stretch` when `stretch` is true, already solved.
+    pub fn row_with_counter_children(counter_sizing: Sizing, heights: &[f32], counter_fill: bool, stretch: bool) -> (Document, NodeId, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        row.fills.clear();
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing,
+                ..Default::default()
+            });
+        }
+        let fid = d.insert(page, row).unwrap();
+        let kids = heights
+            .iter()
+            .map(|h| {
+                let id = add_rect(&mut d, fid, Vec2::new(30.0, *h));
+                let lc = &mut d.get_mut(id).unwrap().layout_child;
+                if counter_fill {
+                    lc.vertical = Sizing::Fill;
+                }
+                if stretch {
+                    lc.align_self = AlignSelf::Stretch;
+                }
+                id
+            })
+            .collect();
+        d.relayout_subtree(fid);
+        (d, fid, kids)
     }
 
     pub fn card() -> (Document, NodeId) {
@@ -707,6 +930,7 @@ pub(crate) mod fixture {
                 variables: vec!["primary".into(), "muted".into(), "md".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let var = |id: &str, name: &str, kind, values: Vec<(&str, VariableValue)>| Variable {
@@ -721,6 +945,8 @@ pub(crate) mod fixture {
             key: None,
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert(
             "primary".into(),
@@ -898,6 +1124,8 @@ mod tests {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         }
     }
 
@@ -1006,5 +1234,15 @@ mod tests {
         }
         assert_eq!((sizes(&grid, Parent::root()).w, sizes(&grid, Parent::root()).h), (Dim::Hug, Dim::Hug));
         assert_eq!((web_sizes(&grid, Parent::root()).w, web_sizes(&grid, Parent::root()).h), (Dim::Fixed(120.0), Dim::Fixed(30.0)));
+    }
+
+    #[test]
+    fn grid_stretch_child_solved_sizes() {
+        // The auto row sizes from the child, so stretching fills only that row.
+        let (d, _, rect) = fixture::grid_stretch_child(None, false);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(30.0, 20.0));
+        // A row taller than the child is where a stretch changes the height.
+        let (d, _, rect) = fixture::grid_stretch_child(Some(GridTrack::Fixed(100.0)), false);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(30.0, 100.0));
     }
 }

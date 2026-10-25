@@ -188,3 +188,53 @@ fn pen_format_roundtrips_the_new_alignments() {
         assert_eq!(auto_layout(&rt).primary_align, align);
     }
 }
+
+#[test]
+fn partial_override_without_layout_mode_patches_stack_layout_version_and_align() {
+    let changes = json!([
+        {"guid": {"sessionID": 0, "localID": 0}, "type": "DOCUMENT", "name": "d"},
+        {"guid": {"sessionID": 0, "localID": 1}, "parentIndex": {"guid": {"sessionID": 0, "localID": 0}, "position": "!"}, "type": "CANVAS", "name": "p"},
+        {
+            "guid": {"sessionID": 1, "localID": 2},
+            "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "!"},
+            "type": "SYMBOL",
+            "name": "Master",
+            "size": {"x": 100.0, "y": 100.0}
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 10},
+            "parentIndex": {"guid": {"sessionID": 1, "localID": 2}, "position": "!"},
+            "type": "FRAME",
+            "name": "InnerStack",
+            "size": {"x": 100.0, "y": 100.0},
+            "stackMode": "HORIZONTAL",
+            "stackWrap": "WRAP",
+            "stackPrimaryAlignItems": "MIN",
+            "stackCounterAlignContent": "AUTO",
+            "bordersTakeSpace": true
+        },
+        {
+            "guid": {"sessionID": 1, "localID": 3},
+            "parentIndex": {"guid": {"sessionID": 0, "localID": 1}, "position": "\""},
+            "type": "INSTANCE",
+            "name": "Inst",
+            "size": {"x": 100.0, "y": 100.0},
+            "symbolData": {
+                "symbolID": {"sessionID": 1, "localID": 2},
+                "symbolOverrides": [{
+                    "guidPath": {"guids": [{"sessionID": 1, "localID": 10}]},
+                    "stackPrimaryAlignItems": "SPACE_EVENLY_CSS",
+                    "stackCounterAlignContent": "SPACE_BETWEEN",
+                    "stackLayoutVersion": 1
+                }]
+            }
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "d").unwrap();
+    let inst = doc.nodes.values().find(|n| n.name == "Inst").unwrap();
+    let inner = doc.get(inst.children[0]).unwrap();
+    let al = inner.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.layout_version, 1);
+    assert_eq!(al.primary_align, LayoutAlign::SpaceEvenly);
+    assert_eq!(al.counter_align_content, CounterAlignContent::SpaceBetween);
+}

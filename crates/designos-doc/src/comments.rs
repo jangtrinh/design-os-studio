@@ -176,6 +176,7 @@ pub struct CommentAnchor {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Comment {
     pub id: String,
     /// Display name chosen in the app's settings. Saved as a plain string, and editing it never

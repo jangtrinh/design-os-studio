@@ -18,6 +18,7 @@ pub struct MenuItem {
     pub disabled: bool,
     pub separator_after: bool,
     pub icon: Option<Icon>,
+    pub tooltip: String,
     pub children: Vec<MenuItem>,
 }
 
@@ -44,6 +45,10 @@ impl MenuItem {
     }
     pub fn icon(mut self, i: Icon) -> Self {
         self.icon = Some(i);
+        self
+    }
+    pub fn tooltip(mut self, t: impl Into<String>) -> Self {
+        self.tooltip = t.into();
         self
     }
     fn has_sub(&self) -> bool {
@@ -80,6 +85,12 @@ struct MenuState {
     scroll: Vec<f32>,
     /// Level whose highlighted row has to be brought into view this frame.
     reveal: Option<usize>,
+    /// The primary button went down while this menu was up and has not come up yet. Only a release that ends such
+    /// a press picks a row, so the release of the click that opened the menu never does.
+    armed: bool,
+    /// The menu is being shown for the first time (or again after it was gone): what opened it, a key press included,
+    /// has not been handled by it yet.
+    fresh: bool,
     seen: u64,
 }
 
@@ -89,6 +100,7 @@ fn load_state(ctx: &egui::Context, id: Id, items: &[MenuItem]) -> MenuState {
     let stored = ctx.data(|d| d.get_temp::<MenuState>(id)).filter(|s| now <= s.seen + 3);
     let fresh = stored.is_none();
     let mut st = stored.unwrap_or_default();
+    st.fresh = fresh;
     if st.hl.is_empty() {
         st.hl.push(if fresh { items.iter().position(|i| i.checked && !i.disabled) } else { None });
         st.reveal = st.hl[0].map(|_| 0);
@@ -108,6 +120,34 @@ pub fn preset_path(ctx: &egui::Context, id: Id, path: &[usize]) {
         st.hl.push(None);
     }
     store_state(ctx, id, st);
+}
+
+/// Walks the frame's button events in arrival order and returns where the last press (of any button) went down and
+/// where the primary button went up to end a press the menu saw. `armed` carries "a primary press is still down"
+/// from frame to frame. A press or release that `covered` says a higher layer (a toast with an action, say) took does
+/// not count: that layer's gesture is not the menu's.
+///
+/// egui's own click needs the release within 6 px and 0.8 s of the press and on the widget that took the press, and
+/// it resolves widgets with the pointer position at the END of the frame. A menu that picked on that click dropped
+/// picks after a small move or a slow frame, and never saw a press on the opening button slide onto a row. The raw
+/// events know each position, whatever the window batched into one frame.
+fn primary_gesture(events: &[egui::Event], armed: &mut bool, covered: impl Fn(Pos2) -> bool) -> (Option<Pos2>, Option<Pos2>) {
+    let (mut press, mut release) = (None, None);
+    for ev in events {
+        if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
+            if *pressed {
+                press = Some(*pos);
+            }
+            if *button == egui::PointerButton::Primary {
+                if *pressed {
+                    *armed = !covered(*pos);
+                } else if std::mem::take(armed) && !covered(*pos) {
+                    release = Some(*pos);
+                }
+            }
+        }
+    }
+    (press, release)
 }
 
 /// The panel of one menu level: size, per-row tops (relative to the panel top).
@@ -274,6 +314,9 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
             i.consume_key(n, Key::Escape),
         )
     });
+    // The Enter or Space that opened the menu (on a focused toolbar chevron) is the opener's, not a pick of the
+    // highlighted row.
+    let enter = enter && !st.fresh;
     {
         let lv = levels(items, &mut st);
         let d = st.hl.len() - 1;
@@ -321,6 +364,13 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
 
     // ---- layout of every open level
     let lv = levels(items, &mut st);
+    // What the buttons did this frame. A press or release that landed on a layer above this menu's own levels (a toast)
+    // belongs to that layer; the app's own background ui and the panels under the menu do not cover it. The events are
+    // copied out first: `layer_id_at` takes the context lock.
+    let events = ctx.input(|i| i.events.clone());
+    let own_layers: Vec<egui::LayerId> = (0..lv.len()).map(|k| egui::LayerId::new(Order::Foreground, id.with(("lvl", k)))).collect();
+    let covered = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l.order >= Order::Foreground && !own_layers.contains(&l));
+    let (press_pos, release_pos) = primary_gesture(&events, &mut st.armed, covered);
     let lays: Vec<Layout> = lv.iter().enumerate().map(|(k, list)| Layout::new(ctx, list, if k == 0 { min_w } else { SUBMENU_MIN_W })).collect();
     let limit = screen.height() - 4.0;
     st.scroll.resize(lays.len(), 0.0);
@@ -354,6 +404,11 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
 
     // ---- paint + interaction
     let moved = wheeled || ctx.input(|i| i.pointer.delta() != Vec2::ZERO || i.pointer.any_pressed());
+    // A press of any button outside every level (and off the button that opened the menu) closes it, and the gesture
+    // it starts picks nothing, wherever it is released.
+    let press_outside = press_pos.is_some_and(|p| !rects.iter().any(|r| r.contains(p)) && !anchor.is_some_and(|a| a.contains(p)));
+    let release_pos = release_pos.filter(|_| !press_outside);
+    let release_owner = release_pos.and_then(|p| level_under(Some(p), &rects));
     let font = theme::font_menu();
     let mut hover_hit: Option<(usize, usize)> = None;
     let mut clicked: Option<(usize, usize)> = None;
@@ -371,13 +426,15 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
             #[cfg(test)]
             record(ui, &format!("menu-level-{k}"), rect);
             let p = ui.painter().clone();
-            menu_panel(&p, rect, theme::MENU_RADIUS);
+            menu_panel(&p, rect, theme::RADIUS_FRAME);
             let p = if capped { p.with_clip_rect(band) } else { p };
             for (i, it) in list.iter().enumerate() {
                 let top = rect.top() + lay.tops[i] - scroll;
                 let row = Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(rect.width(), theme::MENU_ITEM_HEIGHT));
                 #[cfg(test)]
                 record(ui, &format!("menu-row-{k}-{i}"), row);
+                #[cfg(test)]
+                record(ui, &format!("menu-check-{k}-{i}"), if it.checked { row } else { Rect::NOTHING });
                 let hit = if capped { row.intersect(band) } else { row };
                 if !hit.is_positive() {
                     if it.separator_after {
@@ -390,15 +447,23 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                     Vec2::new(rect.width() - theme::MENU_PILL_INSET * 2.0, theme::MENU_ITEM_HEIGHT),
                 );
                 let resp = ui.interact(hit, id.with(("row", k, i)), if it.disabled { Sense::hover() } else { Sense::click() });
+                if !it.tooltip.is_empty() {
+                    let _ = resp.clone().on_hover_text(&it.tooltip);
+                }
                 let lit = st.hl.get(k).copied().flatten() == Some(i) && !it.disabled;
                 if owner == Some(k) && ptr.is_some_and(|p| hit.contains(p)) {
                     hover_hit = Some((k, i));
                 }
-                if resp.clicked() && !it.disabled {
+                // A release over the row picks it, however far or long the pointer travelled since the press. egui gives a
+                // click within 6 px to the row that was PRESSED, which can be the neighbour of the one released on, so
+                // a pointer click is not taken from `clicked`; Space, Enter and a screen reader's activation still are.
+                let released_here = release_owner == Some(k) && release_pos.is_some_and(|p| hit.contains(p));
+                let activated = resp.clicked() && !resp.clicked_by(egui::PointerButton::Primary);
+                if (released_here || activated) && !it.disabled {
                     clicked = Some((k, i));
                 }
                 if lit {
-                    p.rect_filled(pill, theme::cr(theme::MENU_PILL_RADIUS), theme::BG_MENU_SELECTED);
+                    p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
                 }
                 let col = if it.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
                 let cy = row.center().y;
@@ -445,8 +510,9 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
         });
     }
 
-    // ---- hover follows the mouse (only when it moved, so the keyboard can take over)
-    if moved {
+    // ---- hover follows the mouse (only when it moved, so the keyboard can take over). Not on a frame with a pick: the
+    // pick reads the highlight path to name the row it ran, and the pointer may already be over another parent.
+    if moved && clicked.is_none() {
         if let Some((k, i)) = hover_hit {
             let it = &lv[k][i];
             st.hl.truncate(k + 1);
@@ -476,20 +542,20 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
     }
 
     // ---- outside press closes
-    if result == TreeResult::Open {
-        let pressed = ctx.input(|i| i.pointer.any_pressed());
-        if pressed {
-            if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !rects.iter().any(|r| r.contains(p)) && !anchor.is_some_and(|a| a.contains(p)) {
-                    result = TreeResult::Closed;
-                }
-            }
-        }
+    if result == TreeResult::Open && press_outside {
+        result = TreeResult::Closed;
+    }
+    if result != TreeResult::Open {
+        st.armed = false;
     }
     if st.hl != before {
         ctx.request_repaint();
     }
     store_state(ctx, id, st);
+    // An open menu holds the keys from a surface that draws before it (`widgets::popup_open`); one that closed here does not.
+    if result == TreeResult::Open {
+        super::popup_open::mark_open(ctx);
+    }
     result
 }
 
@@ -501,15 +567,22 @@ fn scroll_thumb(p: &egui::Painter, band: Rect, content_h: f32, scroll: f32, max_
     p.rect_filled(Rect::from_min_size(Pos2::new(band.right() - 6.0, y), Vec2::new(4.0, h)), theme::cr(2), theme::TEXT_TERTIARY);
 }
 
-/// A dropdown field: shows `label` with a chevron; returns the picked option.
+/// A dropdown field: shows `label` with a chevron; returns the picked option. The option equal to `label` is checked.
 pub fn dropdown(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String]) -> Option<usize> {
+    let checked: Vec<bool> = options.iter().map(|o| o == label).collect();
+    dropdown_checked(ui, rect, key, label, options, &checked)
+}
+
+/// Like `dropdown`, but `checked[i]` decides whether option `i` shows a check mark, so a multi-select
+/// list marks every selected row regardless of what the closed field shows.
+pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String], checked: &[bool]) -> Option<usize> {
     let id = ui.id().with(("dd", key));
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
     }
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);
@@ -520,7 +593,8 @@ pub fn dropdown(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &
     }
     let mut picked = None;
     if open {
-        let items: Vec<MenuItem> = options.iter().map(|o| MenuItem::new(o.clone()).checked(o == label)).collect();
+        let items: Vec<MenuItem> =
+            options.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone()).checked(checked.get(i).copied().unwrap_or(false))).collect();
         match popup_menu(ui.ctx(), id.with("menu"), rect.left_bottom() + Vec2::new(0.0, 2.0), rect.width(), &items, Some(rect)) {
             MenuResult::Picked(i) => {
                 picked = Some(i);
@@ -550,13 +624,18 @@ mod tests {
         items: Vec<MenuItem>,
         t: f64,
         picked: Option<usize>,
+        /// The full index path of the last pick (`picked` is its first index).
+        path: Option<Vec<usize>>,
+        closed: bool,
+        /// A layer above the menu, like a toast with an action, drawn over this rect on every frame.
+        cover: Option<Rect>,
     }
 
     impl Popup {
         fn new(items: Vec<MenuItem>, pos: Pos2) -> Self {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
-            let mut p = Self { ctx, id: Id::new("test-menu"), pos, items, t: 0.0, picked: None };
+            let mut p = Self { ctx, id: Id::new("test-menu"), pos, items, t: 0.0, picked: None, path: None, closed: false, cover: None };
             p.frame(vec![]);
             p.frame(vec![]);
             p
@@ -577,12 +656,28 @@ mod tests {
         fn frame(&mut self, events: Vec<egui::Event>) {
             self.t += 0.05;
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), time: Some(self.t), events, ..Default::default() };
-            let (ctx, id, pos, items) = (self.ctx.clone(), self.id, self.pos, &self.items);
-            let mut result = MenuResult::Open;
-            let _ = self.ctx.run_ui(raw, |_| result = popup_menu(&ctx, id, pos, 160.0, items, None));
-            if let MenuResult::Picked(i) = result {
-                self.picked = Some(i);
+            let (ctx, id, pos, items, cover) = (self.ctx.clone(), self.id, self.pos, &self.items, self.cover);
+            let mut result = TreeResult::Open;
+            let _ = self.ctx.run_ui(raw, |_| {
+                result = popup_tree(&ctx, id, pos, 160.0, items, None);
+                if let Some(c) = cover {
+                    Area::new(Id::new("test-cover")).order(Order::Tooltip).fixed_pos(c.min).show(&ctx, |ui| {
+                        ui.allocate_exact_size(c.size(), Sense::click());
+                    });
+                }
+            });
+            match result {
+                TreeResult::Picked(path) => {
+                    self.picked = Some(path[0]);
+                    self.path = Some(path);
+                }
+                TreeResult::Closed => self.closed = true,
+                TreeResult::Open => {}
             }
+        }
+
+        fn button(at: Pos2, pressed: bool) -> egui::Event {
+            egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }
         }
 
         fn rect(&self, name: &str) -> Rect {
@@ -631,12 +726,33 @@ mod tests {
             }
         }
 
+        /// A bare pass that draws nothing, like the Agents panel asking before the popups of the same frame draw: does an open
+        /// popup hold the keys from it?
+        fn holds_the_keys_in_the_next_pass(&mut self) -> bool {
+            self.t += 0.05;
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), time: Some(self.t), ..Default::default() };
+            let mut held = false;
+            let _ = self.ctx.run_ui(raw, |ui| held = crate::widgets::popup_open::open_recently(ui.ctx()));
+            held
+        }
+
         fn click(&mut self, at: Pos2) {
             self.frame(vec![egui::Event::PointerMoved(at)]);
             for pressed in [true, false] {
                 self.frame(vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }]);
             }
         }
+    }
+
+    #[test]
+    fn a_menu_that_closed_in_a_frame_stops_holding_the_keys_from_the_next_frame() {
+        let mut m = Popup::new(vec![MenuItem::new("One"), MenuItem::new("Two")], Pos2::new(100.0, 100.0));
+        assert!(m.holds_the_keys_in_the_next_pass(), "an open menu holds the keys: without this the check below proves nothing");
+        // The press frame alone: `key` spends a second frame that draws the closed menu again.
+        let press = egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        m.frame(vec![press]);
+        assert!(m.closed, "Esc closes the menu");
+        assert!(!m.holds_the_keys_in_the_next_pass(), "the menu closed in the last frame, so it must not hold the keys in this one");
     }
 
     #[test]
@@ -747,5 +863,136 @@ mod tests {
         m.picked = None;
         m.click(m.row(3).center());
         assert_eq!(m.picked, None, "a disabled row stays unclickable");
+    }
+
+    #[test]
+    fn a_release_over_a_row_picks_it_whatever_happened_since_the_press() {
+        // Press on one row, wait 1.25 s, release 40 px away on another: far past egui's 6 px and 0.8 s click.
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (from, to) = (m.row(0).center(), m.row(1).center() + Vec2::new(40.0, 0.0));
+        m.frame(vec![egui::Event::PointerMoved(from), Popup::button(from, true)]);
+        for _ in 0..25 {
+            m.frame(vec![]);
+        }
+        m.frame(vec![egui::Event::PointerMoved(to), Popup::button(to, false)]);
+        assert_eq!(m.picked, Some(1));
+        // The same gesture inside one frame.
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        m.frame(vec![egui::Event::PointerMoved(from), Popup::button(from, true), egui::Event::PointerMoved(to), Popup::button(to, false)]);
+        assert_eq!(m.picked, Some(1));
+    }
+
+    #[test]
+    fn a_release_over_a_disabled_row_or_off_the_rows_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let on = m.row(0).center();
+        let disabled = m.row(3).center();
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, true), egui::Event::PointerMoved(disabled), Popup::button(disabled, false)]);
+        assert_eq!(m.picked, None, "row 3 is disabled");
+        let off = Pos2::new(400.0, 400.0);
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, true), egui::Event::PointerMoved(off), Popup::button(off, false)]);
+        assert_eq!((m.picked, m.closed), (None, false), "a press inside the menu that ends outside leaves it open");
+    }
+
+    #[test]
+    fn a_release_whose_press_the_menu_never_saw_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let on = m.row(1).center();
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, false)]);
+        assert_eq!(m.picked, None);
+    }
+
+    #[test]
+    fn a_press_outside_closes_the_menu_and_its_release_over_a_row_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (outside, on) = (Pos2::new(600.0, 500.0), m.row(1).center());
+        m.frame(vec![egui::Event::PointerMoved(outside), Popup::button(outside, true), egui::Event::PointerMoved(on), Popup::button(on, false)]);
+        assert!(m.closed);
+        assert_eq!(m.picked, None);
+    }
+
+    #[test]
+    fn primary_gesture_pairs_each_release_with_the_press_before_it() {
+        let (a, b) = (Pos2::new(1.0, 1.0), Pos2::new(2.0, 2.0));
+        let secondary = |pressed| egui::Event::PointerButton { pos: a, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE };
+        let mut armed = false;
+        assert_eq!(primary_gesture(&[Popup::button(b, false), secondary(false)], &mut armed, |_| false), (None, None), "no press, no pick");
+        assert!(!armed);
+        assert_eq!(primary_gesture(&[secondary(true), secondary(false)], &mut armed, |_| false), (Some(a), None), "another button arms nothing");
+        assert!(!armed);
+        assert_eq!(primary_gesture(&[Popup::button(a, true), Popup::button(b, false)], &mut armed, |_| false), (Some(a), Some(b)));
+        assert!(!armed, "the release ends the press");
+        assert_eq!(primary_gesture(&[Popup::button(a, true)], &mut armed, |_| false), (Some(a), None));
+        assert!(armed, "the press is still down at the end of the frame");
+        // A release at the start of the next frame ends that press; the press after it starts a new one.
+        assert_eq!(primary_gesture(&[Popup::button(b, false), Popup::button(a, true), secondary(true)], &mut armed, |_| false), (Some(a), Some(b)));
+        assert!(armed);
+        // A press a higher layer took arms nothing, and a release over it is not the menu's.
+        let over = |p: Pos2| p == a;
+        assert_eq!(primary_gesture(&[Popup::button(a, true), Popup::button(b, false)], &mut armed, over), (Some(a), None));
+        assert!(!armed);
+        assert_eq!(primary_gesture(&[Popup::button(b, true), Popup::button(a, false)], &mut armed, over), (Some(b), None));
+        assert!(!armed, "the release ends the press even when it lands on the higher layer");
+    }
+
+    #[test]
+    fn a_secondary_press_outside_closes_the_menu() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let outside = Pos2::new(600.0, 500.0);
+        m.frame(vec![egui::Event::PointerButton { pos: outside, button: egui::PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE }]);
+        assert!(m.closed);
+    }
+
+    /// Two parents, each with three leaves: `A > a0..a2` and `B > b0..b2`.
+    fn two_submenus() -> Vec<MenuItem> {
+        let leaves = |p: &str| (0..3).map(|i| MenuItem::new(format!("{p}{i}"))).collect::<Vec<_>>();
+        let parent = |name: &str, kids: Vec<MenuItem>| MenuItem { children: kids, ..MenuItem::new(name) };
+        vec![parent("A", leaves("a")), parent("B", leaves("b"))]
+    }
+
+    #[test]
+    fn a_release_in_a_submenu_picks_that_row_even_when_the_pointer_drifts_to_another_parent_in_the_same_frame() {
+        let mut m = Popup::new(two_submenus(), Pos2::new(100.0, 100.0));
+        let (a, b) = (m.row(0).center(), m.row(1).center());
+        // Hover A so its submenu opens (the first move only places the pointer), press on a0, then release on a1 as
+        // the pointer carries on over B.
+        m.frame(vec![egui::Event::PointerMoved(a + Vec2::new(-3.0, 0.0))]);
+        m.frame(vec![egui::Event::PointerMoved(a)]);
+        m.frame(vec![]);
+        let (a0, a1) = (m.rect("menu-row-1-0").center(), m.rect("menu-row-1-1").center());
+        m.frame(vec![egui::Event::PointerMoved(a0), Popup::button(a0, true)]);
+        m.frame(vec![egui::Event::PointerMoved(a1), Popup::button(a1, false), egui::Event::PointerMoved(b)]);
+        assert_eq!(m.path, Some(vec![0, 1]), "the row under the release runs, not one of B's");
+    }
+
+    #[test]
+    fn a_release_over_a_row_covered_by_a_higher_layer_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (row0, row2) = (m.row(0).center(), m.row(2).center());
+        // A toast with an action, drawn above the menu, over row 2.
+        m.cover = Some(m.row(2).shrink2(Vec2::new(-20.0, 0.0)));
+        m.frame(vec![]);
+        m.frame(vec![]);
+        m.frame(vec![egui::Event::PointerMoved(row2), Popup::button(row2, true), Popup::button(row2, false)]);
+        assert_eq!(m.picked, None, "the toast takes the click, the hidden row stays unpicked");
+        // A press on the toast arms nothing: dragging off it onto a visible row picks nothing either.
+        m.frame(vec![egui::Event::PointerMoved(row2), Popup::button(row2, true), egui::Event::PointerMoved(row0), Popup::button(row0, false)]);
+        assert_eq!(m.picked, None);
+        // Without the toast the same gesture picks row 2.
+        m.cover = None;
+        m.frame(vec![]);
+        m.frame(vec![egui::Event::PointerMoved(row2), Popup::button(row2, true), Popup::button(row2, false)]);
+        assert_eq!(m.picked, Some(2));
+    }
+
+    #[test]
+    fn a_slip_across_a_row_border_picks_the_row_under_the_release() {
+        // Press 2 px inside the top of Copy and release 2 px up in Cut: egui calls it a click on Copy (within 6 px),
+        // but the highlight and the release are on Cut.
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (border, x) = (m.row(1).top(), m.row(1).center().x);
+        m.frame(vec![egui::Event::PointerMoved(Pos2::new(x, border + 2.0)), Popup::button(Pos2::new(x, border + 2.0), true)]);
+        m.frame(vec![egui::Event::PointerMoved(Pos2::new(x, border - 2.0)), Popup::button(Pos2::new(x, border - 2.0), false)]);
+        assert_eq!(m.picked, Some(0));
     }
 }

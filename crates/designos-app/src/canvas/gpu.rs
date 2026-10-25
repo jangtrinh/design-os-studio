@@ -28,8 +28,11 @@ pub struct GpuView {
     pub pref: bool,
     /// The device and renderer initialised.
     pub available: bool,
+    /// The canvas started on the CPU tiles because the adapter is a software renderer and the
+    /// user had not chosen: Preferences says why. Cleared once the user picks either way.
+    pub off_for_software: bool,
     max_texture: u32,
-    compiler: SceneCompiler,
+    pub(crate) compiler: SceneCompiler,
     last_key: Option<FrameKey>,
     /// The frame for `last_key` was compiled with the offscreen-program cap
     /// lifted (the idle full-quality pass), so there is nothing left to refine.
@@ -52,6 +55,7 @@ impl Default for GpuView {
         Self {
             pref: true,
             available: false,
+            off_for_software: false,
             max_texture: 0,
             compiler,
             last_key: None,
@@ -206,6 +210,7 @@ impl App {
             return;
         }
         self.canvas.gpu.pref = !self.canvas.gpu.pref;
+        self.canvas.gpu.off_for_software = false;
         self.canvas.gpu.last_key = None;
         let on = self.canvas.gpu.pref;
         if let Some(lib) = &self.lib {
@@ -247,11 +252,18 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
     }
     app.canvas.gpu.painting = true;
     let rev = super::tiles::take_rev(app);
+    let runtime_opacities =
+        if app.canvas.tiles.unlimited_budget { Vec::new() } else { app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, app.now) };
     let vp = Viewport { offset: app.view.offset, zoom: app.view.zoom, dpr: ppp };
     let key: FrameKey =
         (app.page, rev, [vp.offset.x.to_bits(), vp.offset.y.to_bits()], vp.zoom.to_bits(), vp.dpr.to_bits(), size, designos_render::font_generation());
     let (doc, page) = (&app.doc, app.page);
     let g = &mut app.canvas.gpu;
+    if g.compiler.opts.runtime_node_opacities != runtime_opacities {
+        g.compiler.opts.runtime_node_opacities = runtime_opacities;
+        g.last_key = None;
+        g.refined = false;
+    }
     let (now, pointer_down, view_input) =
         ui.input(|i| (i.time, i.pointer.any_down(), i.smooth_scroll_delta != egui::Vec2::ZERO || (i.zoom_delta() - 1.0).abs() > 1e-4));
     let plan = g.plan(key, now, pointer_down, view_input);

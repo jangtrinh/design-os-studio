@@ -28,7 +28,7 @@ struct Fonts {
 
 thread_local! {
     static FONTS: RefCell<Option<Fonts>> = const { RefCell::new(None) };
-    static LAYOUTS: RefCell<HashMap<u64, Rc<TextLayout>>> = RefCell::new(HashMap::new());
+    static LAYOUTS: RefCell<TextCache<TextLayout>> = RefCell::new(TextCache::default());
     /// How many entries of [`EXTRA_FONTS`] this thread's font system has loaded.
     static REPLAYED: Cell<usize> = const { Cell::new(0) };
 }
@@ -120,11 +120,23 @@ fn with_fonts<R>(f: impl FnOnce(&mut Fonts) -> R) -> R {
                 }
                 fonts.families = family_names(&fonts.fs);
                 REPLAYED.with(|r| r.set(done + pending.len()));
+                // Shaped text depends on the fonts: neither the outlines nor the measured geometry of the old set stand.
                 LAYOUTS.with(|l| l.borrow_mut().clear());
+                GEOMS.with(|g| g.borrow_mut().clear());
             }
         }
         f(fonts)
     })
+}
+
+/// Loads the fonts registered since this thread last looked, before a cache is read. A cache hit
+/// never reaches [`with_fonts`], so a thread that only hits its caches (a tile worker redrawing
+/// unchanged text) would otherwise keep the shapes of the old font set for as long as it lives.
+#[inline]
+fn sync_fonts() {
+    if REPLAYED.with(|r| r.get()) < font_generation() {
+        with_fonts(|_| ());
+    }
 }
 
 /// Registers extra font data (e.g. a font fetched by `designos-fonts`) with the
@@ -323,37 +335,89 @@ fn truncated_segments(segs: &[Segment], mut cut: usize) -> Vec<Segment> {
     out
 }
 
-fn style_hash(props: &TextProps, size: Vec2) -> u64 {
-    use std::fmt::Write;
-    use std::hash::{Hash, Hasher};
-    struct HashWriter(std::collections::hash_map::DefaultHasher);
-    impl Write for HashWriter {
-        fn write_str(&mut self, s: &str) -> std::fmt::Result {
-            self.0.write(s.as_bytes());
-            Ok(())
-        }
+/// A cached result with the exact inputs it was computed from. The map key is only a cheap bucket
+/// hash of the inputs; a hit also needs the inputs to be equal, so two inputs that share a bucket
+/// never share a result.
+struct Cached<T> {
+    props: TextProps,
+    size: Vec2,
+    value: Rc<T>,
+}
+
+impl<T> Cached<T> {
+    fn matches(&self, props: &TextProps, size: Vec2) -> bool {
+        self.size.x.to_bits() == size.x.to_bits() && self.size.y.to_bits() == size.y.to_bits() && self.props == *props
     }
-    let mut hw = HashWriter(std::collections::hash_map::DefaultHasher::new());
-    let _ = write!(&mut hw, "{:?}", props);
-    size.x.to_bits().hash(&mut hw.0);
-    size.y.to_bits().hash(&mut hw.0);
-    hw.0.finish()
+}
+
+/// Cached results grouped by bucket hash. A bucket keeps every result whose inputs hash to it, so
+/// texts that differ only in a field the hash leaves out (fills, letter spacing, ...) never evict
+/// each other. The memory bound is on the total entry count: past the limit the cache is emptied.
+struct TextCache<T> {
+    buckets: HashMap<u64, Vec<Cached<T>>>,
+    entries: usize,
+}
+
+impl<T> Default for TextCache<T> {
+    fn default() -> Self {
+        Self { buckets: HashMap::new(), entries: 0 }
+    }
+}
+
+impl<T> TextCache<T> {
+    fn get(&self, key: u64, props: &TextProps, size: Vec2) -> Option<Rc<T>> {
+        self.buckets.get(&key)?.iter().find(|c| c.matches(props, size)).map(|c| Rc::clone(&c.value))
+    }
+
+    /// Stores `value`, first emptying the cache when it already holds more than `limit` entries.
+    fn insert(&mut self, key: u64, props: &TextProps, size: Vec2, value: Rc<T>, limit: usize) {
+        if self.entries > limit {
+            self.clear();
+        }
+        self.buckets.entry(key).or_default().push(Cached { props: props.clone(), size, value });
+        self.entries += 1;
+    }
+
+    fn clear(&mut self) {
+        self.buckets.clear();
+        self.entries = 0;
+    }
+
+    #[cfg(test)]
+    fn entries(&self) -> usize {
+        self.entries
+    }
+}
+
+/// Bucket hash of a text's inputs (FNV-1a over the content's ends and the common style fields). It is
+/// not a fingerprint of the whole style: fields it leaves out only share a bucket, see [`Cached`].
+fn bucket_key(props: &TextProps, size: Vec2) -> u64 {
+    const EDGE: usize = 32;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+    let bytes = props.content.as_bytes();
+    mix(bytes.len() as u64);
+    for &b in bytes.iter().take(EDGE).chain(bytes.iter().skip(EDGE.max(bytes.len().saturating_sub(EDGE)))) {
+        mix(u64::from(b));
+    }
+    mix(u64::from(props.style.font_size.to_bits()));
+    mix(u64::from(props.style.font_weight));
+    mix(props.style.font_family.len() as u64);
+    mix(props.runs.len() as u64);
+    mix(u64::from(size.x.to_bits()));
+    mix(u64::from(size.y.to_bits()));
+    h
 }
 
 /// Lays out `props` inside a box of `size`; cached per content/style/size.
 pub fn layout(props: &TextProps, size: Vec2) -> Rc<TextLayout> {
-    let key = style_hash(props, size);
-    if let Some(hit) = LAYOUTS.with(|l| l.borrow().get(&key).cloned()) {
+    sync_fonts();
+    let key = bucket_key(props, size);
+    if let Some(hit) = LAYOUTS.with(|l| l.borrow().get(key, props, size)) {
         return hit;
     }
     let lay = Rc::new(with_fonts(|f| compute_layout(f, props, size)));
-    LAYOUTS.with(|l| {
-        let mut l = l.borrow_mut();
-        if l.len() > 8192 {
-            l.clear();
-        }
-        l.insert(key, lay.clone());
-    });
+    LAYOUTS.with(|l| l.borrow_mut().insert(key, props, size, lay.clone(), 8192));
     lay
 }
 
@@ -702,24 +766,19 @@ pub struct TextGeometry {
 }
 
 thread_local! {
-    static GEOMS: RefCell<HashMap<u64, Rc<TextGeometry>>> = RefCell::new(HashMap::new());
+    static GEOMS: RefCell<TextCache<TextGeometry>> = RefCell::new(TextCache::default());
 }
 
 /// Lines and glyph positions of `props` laid out in a box of `size`. Positions
 /// match the glyph outlines drawn by the renderer exactly.
 pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
-    let key = style_hash(props, size);
-    if let Some(hit) = GEOMS.with(|g| g.borrow().get(&key).cloned()) {
+    sync_fonts();
+    let key = bucket_key(props, size);
+    if let Some(hit) = GEOMS.with(|g| g.borrow().get(key, props, size)) {
         return hit;
     }
     let geom = Rc::new(with_fonts(|f| compute_geometry(f, props, size)));
-    GEOMS.with(|g| {
-        let mut g = g.borrow_mut();
-        if g.len() > 256 {
-            g.clear();
-        }
-        g.insert(key, geom.clone());
-    });
+    GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom.clone(), 256));
     geom
 }
 
@@ -737,7 +796,11 @@ fn compute_geometry(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGeo
         glyphs.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
         let (start, end) = match (glyphs.iter().map(|g| g.start).min(), glyphs.iter().map(|g| g.end).max()) {
             (Some(a), Some(b)) => (a, b),
-            _ => (para.start, para.start),
+            // a line without glyphs (empty paragraph, blank line after a soft break) sits where its text would start
+            _ => {
+                let a = at(pl.cut).max(para.start);
+                (a, a)
+            }
         };
         lines.push(LineGeom {
             para: pl.para,
@@ -804,6 +867,73 @@ mod tests {
         assert!(g.lines[0].height >= 48.0);
     }
 
+    #[test]
+    fn cached_layout_needs_equal_inputs_not_just_an_equal_bucket() {
+        let size = Vec2::ZERO;
+        let base = props("Design system", TextAutoResize::WidthAndHeight, None);
+        // Each variant leaves every field of the bucket hash alone, so it shares the base text's bucket.
+        let mut spaced = base.clone();
+        spaced.style.letter_spacing = 6.0;
+        let mut upper = base.clone();
+        upper.style.case = d::TextCase::Upper;
+        let mut tall = base.clone();
+        tall.style.line_height = d::LineHeight::Pixels(44.0);
+        for other in [&spaced, &upper, &tall] {
+            assert_eq!(bucket_key(&base, size), bucket_key(other, size));
+        }
+        let first = layout(&base, size);
+        for other in [&spaced, &upper, &tall] {
+            assert!(!Rc::ptr_eq(&first, &layout(other, size)), "a style that differs must not reuse the cached layout");
+        }
+        assert!(ink(&layout(&spaced, size)).bounds().right() > ink(&first).bounds().right() + 20.0, "letter spacing is laid out");
+        assert!(ink(&layout(&tall, size)).bounds().bottom() > ink(&first).bounds().bottom() + 10.0, "line height is laid out");
+        assert!(Rc::ptr_eq(&first, &layout(&base.clone(), size)), "equal inputs hit the cache");
+        let geometry = text_geometry(&base, size);
+        assert!(text_geometry(&spaced, size).width > geometry.width + 20.0, "geometry is keyed by the same exact inputs");
+        assert!(Rc::ptr_eq(&geometry, &text_geometry(&base.clone(), size)));
+    }
+
+    #[test]
+    fn many_variants_sharing_a_bucket_all_stay_cached() {
+        let size = Vec2::ZERO;
+        let base = props("Button label", TextAutoResize::WidthAndHeight, None);
+        // Letter spacing is not in the bucket hash, so every variant lands in one bucket.
+        let variants: Vec<TextProps> = (0..12)
+            .map(|i| {
+                let mut p = base.clone();
+                p.style.letter_spacing = i as f32 * 0.5;
+                p
+            })
+            .collect();
+        assert!(variants.windows(2).all(|w| bucket_key(&w[0], size) == bucket_key(&w[1], size)));
+        let first: Vec<_> = variants.iter().map(|p| layout(p, size)).collect();
+        let second: Vec<_> = variants.iter().map(|p| layout(p, size)).collect();
+        let third: Vec<_> = variants.iter().map(|p| layout(p, size)).collect();
+        for (i, (b, c)) in second.iter().zip(&third).enumerate() {
+            assert!(Rc::ptr_eq(b, c), "layout variant {i} is re-shaped on every pass");
+        }
+        assert_eq!(first.len(), variants.len());
+        let geoms: Vec<_> = variants.iter().map(|p| text_geometry(p, size)).collect();
+        let again: Vec<_> = variants.iter().map(|p| text_geometry(p, size)).collect();
+        for (i, (a, b)) in geoms.iter().zip(&again).enumerate() {
+            assert!(Rc::ptr_eq(a, b), "geometry variant {i} is recomputed on every pass");
+        }
+    }
+
+    #[test]
+    fn cache_clears_by_total_entries_not_by_bucket() {
+        let mut c: TextCache<u32> = TextCache::default();
+        let p = props("x", TextAutoResize::WidthAndHeight, None);
+        for i in 0..6u32 {
+            c.insert(7, &p, Vec2::new(i as f32, 0.0), Rc::new(i), 4);
+        }
+        assert_eq!(c.entries(), 1, "past the limit the whole cache is dropped, then the new entry stays");
+        c.clear();
+        assert_eq!(c.entries(), 0, "clear resets the entry count");
+        c.insert(7, &p, Vec2::ZERO, Rc::new(0), 4);
+        assert_eq!(c.entries(), 1);
+    }
+
     const LONG: &str = "The quick brown fox jumps over the lazy dog and keeps running far away";
 
     fn props(content: &str, auto_resize: TextAutoResize, max_lines: Option<u32>) -> TextProps {
@@ -860,5 +990,37 @@ mod tests {
         let a = ink(&layout(&props("short", TextAutoResize::Truncate, Some(3)), size));
         let b = ink(&layout(&props("short", TextAutoResize::Height, None), size));
         assert_eq!(a.points(), b.points(), "no ellipsis when everything fits");
+    }
+
+    #[test]
+    fn soft_line_break_u2028_breaks_line_without_paragraph_spacing() {
+        let mut p = props("Still thinking\u{2028}about it?", TextAutoResize::WidthAndHeight, None);
+        p.style.paragraph_spacing = 30.0;
+        let g = text_geometry(&p, Vec2::ZERO);
+        assert_eq!(g.lines.len(), 2, "U+2028 must break into two lines");
+        assert_eq!(g.lines[0].para, 0);
+        assert_eq!(g.lines[1].para, 0);
+        assert_eq!(&p.content[g.lines[0].start..g.lines[0].end], "Still thinking");
+        assert_eq!(&p.content[g.lines[1].start..g.lines[1].end], "about it?");
+        assert!((g.lines[1].top - g.lines[0].top - 20.0).abs() < 0.5, "no paragraph spacing added at U+2028: {}", g.lines[1].top - g.lines[0].top);
+        let bounds = ink(&layout(&p, Vec2::ZERO)).bounds();
+        assert!(bounds.bottom() > 25.0 && bounds.bottom() <= 40.5, "two 20px lines without 30px paragraph gap: {:?}", bounds);
+    }
+
+    #[test]
+    fn empty_soft_break_lines_start_after_their_separator() {
+        const LS: usize = '\u{2028}'.len_utf8();
+        // trailing soft break, and a blank line between two breaks
+        for (content, starts) in [("Hello\u{2028}", vec![0, 5 + LS]), ("Hello\u{2028}\u{2028}World", vec![0, 5 + LS, 5 + 2 * LS])] {
+            let p = props(content, TextAutoResize::WidthAndHeight, None);
+            let g = text_geometry(&p, Vec2::ZERO);
+            assert_eq!(g.lines.len(), starts.len(), "{content:?}: one visual line per piece");
+            let got: Vec<usize> = g.lines.iter().map(|l| l.start).collect();
+            assert_eq!(got, starts, "{content:?}: line starts follow the separators");
+            assert_eq!((g.lines[0].start, g.lines[0].end), (0, 5), "{content:?}: first line owns Hello");
+            let blank = &g.lines[1];
+            assert!(blank.glyphs.is_empty() && blank.start == blank.end, "{content:?}: blank line has no extent");
+            assert!(g.lines.windows(2).all(|w| w[0].start < w[1].start), "{content:?}: starts strictly increase");
+        }
     }
 }

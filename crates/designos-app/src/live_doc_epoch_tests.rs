@@ -123,6 +123,35 @@ fn append_unsupported_switch(l: &Live) {
     writeln!(log, "{}", serde_json::to_string(&switch).unwrap()).unwrap();
 }
 
+/// A line from a build newer than this one, as its writer would append it.
+fn append_newer_edit(l: &Live) {
+    use std::io::Write;
+    let line = format!(r#"{{"v":{},"ops":[{{"from_the_future":{{"id":1}}}}]}}"#, LIVE_PATCH_VERSION + 1);
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&l.app.terminal.live_patch.path).unwrap();
+    writeln!(log, "{line}").unwrap();
+}
+
+#[test]
+fn a_newer_edit_stops_what_follows_it_until_the_agent_opens_another_document() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.agent_renames(hero, "Before the newer edit");
+    append_newer_edit(&l);
+    // The newer edit may have removed or reshaped the hero layer; this later rename must not land on it.
+    l.agent_renames(hero, "After the newer edit");
+    l.deliver();
+    assert_eq!(name_of(&l, hero), "Before the newer edit", "the edit before the newer one applies, the one after it does not");
+    assert_eq!(toast(&l), "Agent edit not applied. Update Studio and designos-mcp to the same version.");
+    // A document switch ends the fence.
+    agent_opens(&mut l, &other);
+    l.agent_renames(theirs, "Fresh agent");
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Other");
+    assert_eq!(name_of(&l, theirs), "Fresh agent", "edits on the new document apply again");
+    l.finish();
+}
+
 #[test]
 fn edits_dropped_on_a_failed_switch_are_still_reported_when_a_later_switch_in_the_same_poll_loads() {
     let mut l = live();

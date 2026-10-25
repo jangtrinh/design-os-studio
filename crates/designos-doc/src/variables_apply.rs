@@ -21,12 +21,24 @@ use std::borrow::Cow;
 pub fn property_kind(key: &str) -> Option<VariableKind> {
     Some(match key {
         k if paint_opacity_key(k).is_some() => VariableKind::Number,
-        k if k.starts_with("fills/") || k.starts_with("strokes/") => VariableKind::Color,
+        k if paint_stop_key(k).is_some() => VariableKind::Color,
+        k if k.starts_with("fills/") || k.starts_with("strokes/") => {
+            let rest = k.strip_prefix("fills/").or_else(|| k.strip_prefix("strokes/"))?;
+            let _: usize = rest.parse().ok()?;
+            VariableKind::Color
+        }
+        k if effect_field_key(k).is_some() => match effect_field_key(k)?.1 {
+            "color" => VariableKind::Color,
+            "radius" | "spread" | "offsetX" | "offsetY" => VariableKind::Number,
+            _ => return None,
+        },
         "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
         | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing"
-        | "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => VariableKind::Number,
+        | "paragraphSpacing" | "paragraphIndent" | "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => {
+            VariableKind::Number
+        }
         "visible" => VariableKind::Boolean,
-        "characters" => VariableKind::String,
+        "characters" | "fontFamily" | "fontStyle" => VariableKind::String,
         _ => return None,
     })
 }
@@ -49,6 +61,11 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
             has(&["ALL_FILLS", specific])
         }
         k if k.starts_with("strokes/") => has(&["STROKE_COLOR"]),
+        k if effect_field_key(k).is_some() => match effect_field_key(k).map(|(_, f)| f) {
+            Some("color") => has(&["EFFECT_COLOR"]),
+            Some("radius" | "spread" | "offsetX" | "offsetY") => has(&["EFFECT_FLOAT"]),
+            _ => false,
+        },
         "width" | "height" => has(&["WIDTH_HEIGHT"]),
         "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" => has(&["CORNER_RADIUS"]),
         "itemSpacing" | "counterAxisSpacing" | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" => has(&["GAP"]),
@@ -58,6 +75,10 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
         "fontWeight" => has(&["FONT_WEIGHT"]),
         "lineHeight" => has(&["LINE_HEIGHT"]),
         "letterSpacing" => has(&["LETTER_SPACING"]),
+        "paragraphSpacing" => has(&["PARAGRAPH_SPACING"]),
+        "paragraphIndent" => has(&["PARAGRAPH_INDENT"]),
+        "fontFamily" => has(&["FONT_FAMILY"]),
+        "fontStyle" => has(&["FONT_STYLE"]),
         "characters" => has(&["TEXT_CONTENT"]),
         "visible" => true,
         _ => false,
@@ -95,6 +116,110 @@ fn paint_opacity_key(key: &str) -> Option<OpacityTarget> {
         "strokes" => Some(OpacityTarget::Stroke(index)),
         "effects" => Some(OpacityTarget::Effect(index)),
         _ => None,
+    }
+}
+
+fn paint_stop_key(key: &str) -> Option<(bool, usize, usize)> {
+    let (is_stroke, rest) = if let Some(r) = key.strip_prefix("fills/") {
+        (false, r)
+    } else if let Some(r) = key.strip_prefix("strokes/") {
+        (true, r)
+    } else {
+        return None;
+    };
+    let (pi, si) = rest.split_once("/stops/")?;
+    Some((is_stroke, pi.parse().ok()?, si.parse().ok()?))
+}
+
+fn effect_field_key(key: &str) -> Option<(usize, &str)> {
+    let rest = key.strip_prefix("effects/")?;
+    let (i, field) = rest.split_once('/')?;
+    if !matches!(field, "color" | "radius" | "spread" | "offsetX" | "offsetY") {
+        return None;
+    }
+    Some((i.parse().ok()?, field))
+}
+
+fn set_paint_stop(p: &mut Paint, stop_idx: usize, c: Color) {
+    match &mut p.kind {
+        PaintKind::LinearGradient { stops, .. }
+        | PaintKind::RadialGradient { stops, .. }
+        | PaintKind::AngularGradient { stops, .. }
+        | PaintKind::DiamondGradient { stops, .. } => {
+            if let Some(st) = stops.get_mut(stop_idx) {
+                st.color = c;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn set_effect_field(fx: &mut Effect, field: &str, value: &VariableValue) {
+    match field {
+        "color" => {
+            let Some(c) = color_of(value) else { return };
+            if let Effect::DropShadow { color, .. } | Effect::InnerShadow { color, .. } = fx {
+                *color = c;
+            }
+        }
+        "radius" => {
+            let Some(x) = number_of(value) else { return };
+            match fx {
+                Effect::DropShadow { radius, .. }
+                | Effect::InnerShadow { radius, .. }
+                | Effect::LayerBlur { radius, .. }
+                | Effect::BackgroundBlur { radius, .. } => *radius = x.max(0.0),
+                _ => {}
+            }
+        }
+        "spread" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::DropShadow { spread, .. } | Effect::InnerShadow { spread, .. } = fx {
+                *spread = x;
+            }
+        }
+        "offsetX" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::DropShadow { offset, .. } | Effect::InnerShadow { offset, .. } = fx {
+                offset.x = x;
+            }
+        }
+        "offsetY" => {
+            let Some(x) = number_of(value) else { return };
+            if let Effect::DropShadow { offset, .. } | Effect::InnerShadow { offset, .. } = fx {
+                offset.y = x;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn apply_font_style_str(s: &mut TextStyle, val: &str) {
+    let low = val.to_ascii_lowercase();
+    s.italic = low.contains("italic") || low.contains("oblique");
+    let weight = if low.contains("thin") || low.contains("hairline") {
+        Some(100)
+    } else if low.contains("extralight") || low.contains("extra light") || low.contains("ultralight") {
+        Some(200)
+    } else if low.contains("light") {
+        Some(300)
+    } else if low.contains("semibold") || low.contains("semi bold") || low.contains("demibold") {
+        Some(600)
+    } else if low.contains("extrabold") || low.contains("extra bold") || low.contains("ultrabold") {
+        Some(800)
+    } else if low.contains("bold") {
+        Some(700)
+    } else if low.contains("black") || low.contains("heavy") {
+        Some(900)
+    } else if low.contains("medium") {
+        Some(500)
+    } else if low.contains("regular") || low.contains("normal") || low.contains("book") || low.contains("roman") {
+        Some(400)
+    } else {
+        None
+    };
+    if let Some(w) = weight {
+        s.font_weight = w;
     }
 }
 
@@ -157,14 +282,56 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         }
         return;
     }
+    if let Some((is_stroke, pi, si)) = paint_stop_key(key) {
+        let Some(c) = color_of(value) else { return };
+        if is_stroke {
+            if let Some(p) = n.stroke.paints.get_mut(pi) {
+                set_paint_stop(p, si, c);
+            }
+        } else if let NodeKind::Text(t) = &mut n.kind {
+            if let Some(p) = t.style.fills.get_mut(pi) {
+                set_paint_stop(p, si, c);
+            }
+            for r in &mut t.runs {
+                if let Some(p) = r.style.fills.get_mut(pi) {
+                    set_paint_stop(p, si, c);
+                }
+            }
+        } else if let Some(p) = n.fills.get_mut(pi) {
+            set_paint_stop(p, si, c);
+        }
+        return;
+    }
+    if let Some((i, field)) = effect_field_key(key) {
+        if let Some(fx) = n.effects.get_mut(i) {
+            set_effect_field(fx, field, value);
+        }
+        return;
+    }
     if key.starts_with("fills/") {
         let Some(c) = color_of(value) else { return };
+        // Text is painted from its runs: the bytes a run covers take the run's fills, not the
+        // base's. A run follows the binding while it still has the base's colour; a run the author
+        // coloured differently (a highlighted word) keeps its own.
+        if let (NodeKind::Text(t), Some(i)) = (&mut n.kind, key.strip_prefix("fills/").and_then(|s| s.parse::<usize>().ok())) {
+            if let Some(old) = t.style.fills.get(i).map(|p| p.kind.clone()) {
+                for p in t.runs.iter_mut().filter_map(|r| r.style.fills.get_mut(i)).filter(|p| p.kind == old) {
+                    p.kind = PaintKind::Solid(c);
+                    if c.a < 1.0 {
+                        p.opacity = 1.0;
+                    }
+                }
+            }
+        }
         let paints = match &mut n.kind {
             NodeKind::Text(t) => &mut t.style.fills,
             _ => &mut n.fills,
         };
         if let Some(p) = paint_at(paints, key, "fills/") {
             p.kind = PaintKind::Solid(c);
+            if c.a < 1.0 {
+                p.opacity = 1.0;
+            }
         }
         return;
     }
@@ -172,6 +339,9 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         let Some(c) = color_of(value) else { return };
         if let Some(p) = paint_at(&mut n.stroke.paints, key, "strokes/") {
             p.kind = PaintKind::Solid(c);
+            if c.a < 1.0 {
+                p.opacity = 1.0;
+            }
         }
         return;
     }
@@ -185,6 +355,26 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         if let (VariableValue::String(s), NodeKind::Text(t)) = (value, &mut n.kind) {
             t.content = s.clone();
             t.runs.clear();
+        }
+        return;
+    }
+    if key == "fontFamily" {
+        if let (VariableValue::String(s), NodeKind::Text(t)) = (value, &mut n.kind) {
+            if !s.is_empty() {
+                t.style.font_family = s.clone();
+                for r in &mut t.runs {
+                    r.style.font_family = s.clone();
+                }
+            }
+        }
+        return;
+    }
+    if key == "fontStyle" {
+        if let (VariableValue::String(s), NodeKind::Text(t)) = (value, &mut n.kind) {
+            apply_font_style_str(&mut t.style, s);
+            for r in &mut t.runs {
+                apply_font_style_str(&mut r.style, s);
+            }
         }
         return;
     }
@@ -251,12 +441,13 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 }
             }
         }
-        "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" => {
+        "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" => {
             if let NodeKind::Text(t) = &mut n.kind {
                 let apply = |s: &mut TextStyle| match key {
                     "fontSize" => s.font_size = x.max(1.0),
                     "fontWeight" => s.font_weight = x.round().clamp(1.0, 1000.0) as u16,
                     "lineHeight" => s.line_height = LineHeight::Pixels(x.max(0.0)),
+                    "paragraphSpacing" => s.paragraph_spacing = x.max(0.0),
                     _ => s.letter_spacing = x,
                 };
                 apply(&mut t.style);
@@ -265,16 +456,110 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 }
             }
         }
+        "paragraphIndent" => {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.paragraph.indent = x.max(0.0);
+            }
+        }
         _ => {}
     }
 }
 
-/// The node with its variable bindings applied. Borrowed when it has none.
+/// Applies `value` to `key` on a shared [`Style`] (for updating its default-mode fallback).
+pub fn set_bound_style_property(style: &mut Style, key: &str, value: &VariableValue) {
+    match style {
+        Style::Fill(paints) => {
+            if let Some(OpacityTarget::Fill(i)) = paint_opacity_key(key) {
+                if let (Some(x), Some(p)) = (number_of(value), paints.get_mut(i)) {
+                    p.opacity = (x / 100.0).clamp(0.0, 1.0);
+                }
+            } else if let Some((false, pi, si)) = paint_stop_key(key) {
+                if let (Some(c), Some(p)) = (color_of(value), paints.get_mut(pi)) {
+                    set_paint_stop(p, si, c);
+                }
+            } else if let Some(c) = color_of(value) {
+                if let Some(p) = paint_at(paints, key, "fills/") {
+                    p.kind = PaintKind::Solid(c);
+                    if c.a < 1.0 {
+                        p.opacity = 1.0;
+                    }
+                }
+            }
+        }
+        Style::Text(ts) => match (key, value) {
+            ("fontFamily", VariableValue::String(s)) if !s.is_empty() => ts.font_family = s.clone(),
+            ("fontStyle", VariableValue::String(s)) => apply_font_style_str(ts, s),
+            ("fontSize", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.font_size = x.max(1.0);
+                }
+            }
+            ("fontWeight", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.font_weight = x.round().clamp(1.0, 1000.0) as u16;
+                }
+            }
+            ("lineHeight", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.line_height = LineHeight::Pixels(x.max(0.0));
+                }
+            }
+            ("letterSpacing", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.letter_spacing = x;
+                }
+            }
+            ("paragraphSpacing", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.paragraph_spacing = x.max(0.0);
+                }
+            }
+            _ => {}
+        },
+        Style::Effect(effects) => {
+            if let Some(OpacityTarget::Effect(i)) = paint_opacity_key(key) {
+                if let (Some(x), Some(Effect::DropShadow { color, .. } | Effect::InnerShadow { color, .. })) = (number_of(value), effects.get_mut(i)) {
+                    color.a = (x / 100.0).clamp(0.0, 1.0);
+                }
+            } else if let Some((i, field)) = effect_field_key(key) {
+                if let Some(fx) = effects.get_mut(i) {
+                    set_effect_field(fx, field, value);
+                }
+            }
+        }
+        Style::Grid(_) => {}
+    }
+}
+
+/// Whether `node` is linked to a style that holds at least one variable binding.
+pub fn node_has_style_bindings(doc: &Document, node: &Node) -> bool {
+    !node.style_refs.is_empty() && node.style_refs.values().any(|k| doc.style_meta.get(k).is_some_and(|m| !m.bindings.is_empty()))
+}
+
+/// The node with its variable bindings (and linked style bindings) applied. Borrowed when it has none.
 pub fn resolve_node<'a>(doc: &Document, node: &'a Node) -> Cow<'a, Node> {
-    if node.variables.bindings.is_empty() || doc.variables.is_empty() {
+    if doc.variables.is_empty() || (node.variables.bindings.is_empty() && !node_has_style_bindings(doc, node)) {
         return Cow::Borrowed(node);
     }
     let mut out: Option<Node> = None;
+    for slot in ["fill", "stroke", "text", "effect"] {
+        let Some(sk) = node.style_refs.get(slot) else { continue };
+        let Some(meta) = doc.style_meta.get(sk) else { continue };
+        for (bkey, var) in &meta.bindings {
+            let node_key: Cow<'_, str> = if slot == "stroke" {
+                let Some(rest) = bkey.strip_prefix("fills/") else { continue };
+                Cow::Owned(format!("strokes/{rest}"))
+            } else {
+                Cow::Borrowed(bkey.as_str())
+            };
+            if node.variables.bindings.contains_key(node_key.as_ref()) {
+                continue;
+            }
+            if let Some(v) = doc.resolve_variable(node.id, var) {
+                set_bound_property(out.get_or_insert_with(|| node.clone()), &node_key, &v);
+            }
+        }
+    }
     for (key, var) in &node.variables.bindings {
         if let Some(v) = doc.resolve_variable(node.id, var) {
             set_bound_property(out.get_or_insert_with(|| node.clone()), key, &v);
@@ -296,10 +581,8 @@ pub fn resolved_node(doc: &Document, id: NodeId) -> Option<Cow<'_, Node>> {
 pub fn apply_bound_variables(doc: &Document) -> Document {
     let mut out = doc.clone();
     for (id, n) in &doc.nodes {
-        if !n.variables.bindings.is_empty() {
-            if let Cow::Owned(r) = resolve_node(doc, n) {
-                out.nodes.insert(*id, r);
-            }
+        if let Cow::Owned(r) = resolve_node(doc, n) {
+            out.nodes.insert(*id, r);
         }
     }
     out
@@ -321,6 +604,8 @@ mod tests {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         }
     }
 
@@ -343,6 +628,7 @@ mod tests {
                 variables: vec![],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let n = |x: f32| VariableValue::Number(x);
@@ -552,5 +838,150 @@ mod tests {
         assert!(!scope_allows(&["FRAME_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["TEXT_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["ALL_FILLS".into()], "fills/0", &text));
+    }
+
+    #[test]
+    fn color_variable_with_alpha_does_not_multiply_stored_paint_opacity() {
+        let (mut d, _, frame, _) = setup();
+        let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
+        d.variables.insert(
+            "alpha-white-20".into(),
+            var("alpha-white-20", VariableKind::Color, VariableValue::Color(alpha_white_20), VariableValue::Color(alpha_white_20)),
+        );
+        let n = d.get_mut(frame).unwrap();
+        n.variables.bindings.clear();
+        n.fills = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.stroke.paints = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n.variables.bindings.insert("strokes/0".into(), "alpha-white-20".into());
+
+        let r = resolved_node(&d, frame).unwrap();
+        let PaintKind::Solid(fc) = r.fills[0].kind else { panic!() };
+        assert!((fc.a * r.fills[0].opacity - 0.2).abs() < 1e-6, "fill effective alpha was {}", fc.a * r.fills[0].opacity);
+        let PaintKind::Solid(sc) = r.stroke.paints[0].kind else { panic!() };
+        assert!((sc.a * r.stroke.paints[0].opacity - 0.2).abs() < 1e-6, "stroke effective alpha was {}", sc.a * r.stroke.paints[0].opacity);
+    }
+
+    fn text_with_runs(base: Color, runs: &[Color]) -> Node {
+        let style = |c| TextStyle { fills: vec![Paint::solid(c)], ..TextStyle::default() };
+        let mut n = Node::text(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0), "abc", style(base));
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.runs = runs.iter().enumerate().map(|(i, c)| TextRun { start: i, end: i + 1, style: style(*c) }).collect();
+        }
+        n
+    }
+
+    /// The base fill, then the fill of each run, as the renderer would read them.
+    fn fills(n: &Node) -> Vec<Color> {
+        let NodeKind::Text(t) = &n.kind else { return vec![] };
+        let solid = |ps: &[Paint]| match ps.first().map(|p| &p.kind) {
+            Some(PaintKind::Solid(c)) => *c,
+            _ => Color::BLACK,
+        };
+        std::iter::once(solid(&t.style.fills)).chain(t.runs.iter().map(|r| solid(&r.style.fills))).collect()
+    }
+
+    #[test]
+    fn text_fill_binding_reaches_the_runs_that_match_the_base_and_keeps_the_others() {
+        let (blue, red) = (Color::rgb(26, 115, 232), Color::rgb(229, 72, 77));
+        let mut n = text_with_runs(blue, &[blue, red, blue]);
+        set_bound_property(&mut n, "fills/0", &VariableValue::Color(Color::WHITE));
+        assert_eq!(fills(&n), vec![Color::WHITE, Color::WHITE, red, Color::WHITE], "the highlighted run keeps its colour");
+        // A paint index the base lacks changes nothing.
+        let mut n = text_with_runs(blue, &[blue, red]);
+        set_bound_property(&mut n, "fills/1", &VariableValue::Color(Color::WHITE));
+        assert_eq!(fills(&n), vec![blue, blue, red]);
+    }
+
+    #[test]
+    fn mode_switch_recolours_style_linked_layer() {
+        let (mut d, _, frame, _) = setup();
+        let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+        let dark_c = Color::rgb(0x11, 0x11, 0x11);
+        d.variables.insert("surface".into(), var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)));
+        d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
+        d.style_meta.insert(
+            "Card".into(),
+            StyleMeta { name: "Card".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
+        );
+        let cmd = crate::styles_ops::bind_style_property(&d, "Card", "fills/0", "surface").unwrap();
+        cmd.apply(&mut d).unwrap();
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 40.0, 40.0));
+        r.fills = vec![Paint::solid(light_c)];
+        r.style_refs.insert("fill".into(), "Card".into());
+        let rect = d.insert(frame, r).unwrap();
+
+        d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
+        let resolved = resolve_node(&d, d.get(rect).unwrap());
+        assert_eq!(resolved.fills[0].kind, PaintKind::Solid(dark_c));
+    }
+
+    #[test]
+    fn node_binding_wins() {
+        let (mut d, _, frame, _) = setup();
+        let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+        let dark_c = Color::rgb(0x11, 0x11, 0x11);
+        let red_c = Color::rgb(0xFF, 0x00, 0x00);
+        d.variables.insert("surface".into(), var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)));
+        d.variables.insert("accent".into(), var("accent", VariableKind::Color, VariableValue::Color(red_c), VariableValue::Color(red_c)));
+        d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
+        d.style_meta.insert(
+            "Card".into(),
+            StyleMeta {
+                name: "Card".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0".to_string(), "surface".to_string())].into_iter().collect(),
+            },
+        );
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 40.0, 40.0));
+        r.fills = vec![Paint::solid(light_c)];
+        r.style_refs.insert("fill".into(), "Card".into());
+        r.variables.bindings.insert("fills/0".into(), "accent".into());
+        let rect = d.insert(frame, r).unwrap();
+
+        d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
+        let resolved = resolve_node(&d, d.get(rect).unwrap());
+        assert_eq!(resolved.fills[0].kind, PaintKind::Solid(red_c));
+    }
+
+    #[test]
+    fn old_file_byte_identical() {
+        let mut d = Document::new("Compat");
+        d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+        d.style_meta.insert(
+            "Card".into(),
+            StyleMeta { name: "Card".into(), key: Some("k-card".into()), description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
+        );
+        let json = serde_json::to_string_pretty(&d).unwrap();
+        assert!(!json.contains("\"bindings\""), "empty bindings map must be omitted from JSON: {json}");
+        let round: Document = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string_pretty(&round).unwrap(), json);
+    }
+
+    #[test]
+    fn text_style_size_binding() {
+        let (mut d, _, frame, text) = setup();
+        d.variables.insert("size-body".into(), var("size-body", VariableKind::Number, VariableValue::Number(16.0), VariableValue::Number(24.0)));
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..TextStyle::default() }));
+        d.style_meta.insert(
+            "Body".into(),
+            StyleMeta { name: "Body".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: BTreeMap::new() },
+        );
+        let cmd = crate::styles_ops::bind_style_property(&d, "Body", "fontSize", "size-body").unwrap();
+        cmd.apply(&mut d).unwrap();
+        let tn = d.get_mut(text).unwrap();
+        tn.variables.bindings.clear();
+        tn.style_refs.insert("text".into(), "Body".into());
+
+        d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
+        let resolved = resolve_node(&d, d.get(text).unwrap());
+        let NodeKind::Text(tp) = &resolved.kind else { panic!("expected text") };
+        assert_eq!(tp.style.font_size, 24.0);
     }
 }

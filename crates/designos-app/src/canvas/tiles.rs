@@ -31,7 +31,7 @@ struct TexEntry {
 
 #[derive(Default)]
 pub struct TileView {
-    cache: TileCache,
+    pub(crate) cache: TileCache,
     /// Document revision handed to the cache; bumped when `dirty` is consumed.
     rev: u64,
     textures: HashMap<TileKey, TexEntry>,
@@ -127,6 +127,8 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
     let (page, offset, zoom) = (app.page, app.view.offset, app.view.zoom);
     let now = ctx.input(|i| i.time);
     take_rev(app);
+    let runtime_opacities =
+        if app.canvas.tiles.unlimited_budget { Vec::new() } else { app.agent_presence.active_top_level_insert_opacities(&app.doc, page, app.now) };
     let c = &mut app.canvas;
     let tv = &mut c.tiles;
     tv.frame_no += 1;
@@ -154,6 +156,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
     let vp = Viewport { offset, zoom: rz, dpr: ppp };
     let size = ((w * ratio).ceil().max(1.0) as u32, (h * ratio).ceil().max(1.0) as u32);
     let budget = if tv.unlimited_budget { TileBudget::unlimited() } else { TileBudget::time(RENDER_BUDGET) };
+    tv.cache.set_runtime_opacities(&app.doc, page, runtime_opacities);
     let frame = tv.cache.render_tiles(&app.doc, page, &vp, size, tv.rev, budget);
     let pending = frame.pending() > 0 || frame.prefetch_pending > 0;
 
@@ -187,4 +190,40 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
         tv.textures.retain(|k, _| cache.contains(k));
     }
     c.last_render_ms = start.elapsed().as_secs_f32() * 1000.0;
+}
+
+/// What the window shows for the page, checked against the document (tests only). Empty when the picture is
+/// right: no change waits for a paint, every visible tile is rendered from the current document (not stale,
+/// not missing), has the pixels of a render from scratch, and is the version uploaded as its texture.
+#[cfg(test)]
+pub(crate) fn picture_errors(app: &mut App, ppp: f32) -> Vec<String> {
+    let mut errors = Vec::new();
+    if app.canvas.dirty {
+        errors.push("the document changed after the last paint and nothing has painted it".to_string());
+    }
+    let (page, offset, view_zoom, rect) = (app.page, app.view.offset, app.view.zoom, app.canvas_rect);
+    let tv = &mut app.canvas.tiles;
+    let zoom = tv.settled_zoom;
+    let ratio = zoom / view_zoom;
+    let side = |len: f32| ((len * ppp).round().max(1.0) * ratio).ceil().max(1.0) as u32;
+    let size = (side(rect.width()), side(rect.height()));
+    let vp = Viewport { offset, zoom, dpr: ppp };
+    // Zero tiles may render: the cache hands out what it holds, flagged stale where the document moved on.
+    let shown = tv.cache.render_tiles(&app.doc, page, &vp, size, tv.rev, TileBudget::tiles(0));
+    if shown.stale > 0 || shown.missing > 0 {
+        errors.push(format!("{} stale and {} missing visible tiles", shown.stale, shown.missing));
+    }
+    let mut fresh = TileCache::new();
+    fresh.prefetch_ring = 0;
+    let want = fresh.render_tiles(&app.doc, page, &vp, size, 1, TileBudget::unlimited());
+    for w in &want.tiles {
+        let Some(s) = shown.tiles.iter().find(|t| t.key == w.key) else { continue };
+        if s.pixmap.data() != w.pixmap.data() {
+            errors.push(format!("tile {:?} does not show the document", s.key));
+        }
+        if tv.textures.get(&s.key).map(|e| e.version) != Some(s.version) {
+            errors.push(format!("tile {:?} was not uploaded at version {}", s.key, s.version));
+        }
+    }
+    errors
 }

@@ -1,0 +1,44 @@
+name: Design gates
+
+# Advisory: reports drift in the chrome standard without blocking a merge. It is not a required
+# check, and `continue-on-error` keeps a failure from turning the run red. No Rust build.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: design-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  design-gates:
+    name: Design gates
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Spacing, radius and type ratchet
+        run: python3 -B scripts/check_spacing_relationships.py
+
+      - name: Ratchet and token parity unit tests
+        run: python3 -B -m unittest discover -s scripts/tests -p "test_*.py" -v
+
+      - name: Zero fake UI gate
+        run: python3 -B scripts/zero_fake_ui_gate.py
+
+      - name: Token parity (G01, read-only)
+        run: |
+          python3 -B - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          import design_os_self_evolve as gates
+          ok, summary, _ = gates.check_rust_token_parity(record_gaps=False)
+          print(summary)
+          sys.exit(0 if ok else 1)
+          PY

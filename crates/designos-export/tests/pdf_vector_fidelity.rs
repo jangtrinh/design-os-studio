@@ -177,6 +177,8 @@ fn variable(id: &str, kind: VariableKind, light: VariableValue, dark: VariableVa
         hidden_from_publishing: false,
         key: None,
         code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
     }
 }
 
@@ -193,6 +195,7 @@ fn variable_doc() -> (Document, NodeId) {
             variables: vec![],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let teal = Color::rgb(20, 120, 140);
@@ -704,7 +707,7 @@ fn non_latin_text_is_extractable_as_written() {
     // a real extractor agrees when one is installed (hosted runners do not ship poppler)
     let tmp = std::env::temp_dir().join(format!("designos-vector-pdf-text-{}.pdf", std::process::id()));
     std::fs::write(&tmp, &bytes).unwrap();
-    let extractor = std::process::Command::new("pdftotext").arg(&tmp).arg("-").output();
+    let extractor = std::process::Command::new("pdftotext").args(["-enc", "UTF-8"]).arg(&tmp).arg("-").output();
     let _ = std::fs::remove_file(&tmp);
     if let Ok(output) = extractor {
         let extracted = String::from_utf8_lossy(&output.stdout);

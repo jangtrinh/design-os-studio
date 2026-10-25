@@ -6,6 +6,7 @@ pub mod compare;
 pub mod data;
 pub mod highlight;
 pub mod list;
+pub mod playground;
 pub mod preset;
 pub mod sections;
 
@@ -13,49 +14,8 @@ use crate::app::App;
 use crate::home::dialog::{Dialog, Intent};
 use designos_doc::*;
 
-/// Code languages of the Inspect panel.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Language {
-    #[default]
-    Css,
-    Tailwind,
-    SwiftUi,
-    UiKit,
-    Compose,
-    AndroidXml,
-    React,
-}
-
-impl Language {
-    /// Dropdown order: Figma's groups (CSS, iOS: SwiftUI + UIKit, Android: Compose + XML), then the web frameworks.
-    pub const ALL: [Language; 7] =
-        [Language::Css, Language::Tailwind, Language::SwiftUi, Language::UiKit, Language::Compose, Language::AndroidXml, Language::React];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Css => "CSS",
-            Self::Tailwind => "Tailwind",
-            Self::SwiftUi => "SwiftUI",
-            Self::UiKit => "UIKit",
-            Self::Compose => "Compose",
-            Self::AndroidXml => "Android XML",
-            Self::React => "React",
-        }
-    }
-
-    /// Code for `node`. `react_tailwind` switches React from inline styles to Tailwind classes.
-    pub fn generate(self, doc: &Document, node: NodeId, react_tailwind: bool) -> String {
-        match self {
-            Self::Css => designos_export::css_for(doc, node),
-            Self::Tailwind => designos_export::tailwind_for(doc, node),
-            Self::SwiftUi => designos_export::swiftui_for(doc, node),
-            Self::UiKit => designos_export::uikit_for(doc, node),
-            Self::Compose => designos_export::compose_for(doc, node),
-            Self::AndroidXml => designos_export::android_xml_for(doc, node),
-            Self::React => designos_export::react_with(doc, node, &designos_export::ReactOptions { tailwind: react_tailwind }),
-        }
-    }
-}
+/// Code languages of the Inspect panel (re-exported from `designos-export`).
+pub use designos_export::CodeLanguage as Language;
 
 /// Which list the Dev mode left panel shows under the pages.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,6 +52,7 @@ pub struct DevState {
     pub annot: Option<AnnotEdit>,
     pub link: Option<LinkEdit>,
     pub compare: Option<compare::CompareView>,
+    pub playground: playground::PlaygroundState,
     pub show_redlines: bool,
     /// Time of the last status refresh (seconds), to throttle fingerprinting while dragging.
     pub last_refresh: f64,
@@ -142,6 +103,24 @@ pub fn markable(app: &App, id: NodeId) -> bool {
 }
 
 impl App {
+    /// Switches Dev Mode on or off and brings the right panel back to its first tab (Design, which Dev Mode labels
+    /// Inspect). The `</>` segment of the mode switch, the Exit Dev Mode button and `Shift+D` all do this.
+    pub fn set_dev_mode(&mut self, on: bool) {
+        self.ui.dev_mode = on;
+        self.ui.right_tab = Some(crate::app::RightTab::Design);
+    }
+
+    /// Generates code for `id` in `lang`, reflecting any active scratch overrides in the Dev Mode Component Playground.
+    pub fn dev_code_for(&self, id: NodeId, lang: Language, react_tailwind: bool) -> String {
+        if self.dev.playground.has_overrides_for(id) {
+            if let Some((scratch_doc, code_id, _)) = playground::build_scratch_doc(&self.doc, id, &self.dev.playground) {
+                return lang.generate(&scratch_doc, code_id, react_tailwind);
+            }
+        }
+        let base_doc = if self.doc.nodes.len() <= 2_000 && !self.doc.variables.is_empty() { self.export_doc() } else { std::borrow::Cow::Borrowed(&self.doc) };
+        lang.generate(&base_doc, id, react_tailwind)
+    }
+
     /// Re-evaluates the Ready for dev / Changed statuses after edits (throttled to 4 per second
     /// unless `force`).
     pub fn dev_refresh(&mut self, force: bool) {

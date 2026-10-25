@@ -929,7 +929,7 @@ mod vector_page {
             }
             let doc = self.doc;
             let mut open_masks = 0;
-            for cid in &n.children {
+            for cid in n.paint_children().iter() {
                 let Some(raw) = doc.get(*cid) else { continue };
                 let child = resolve_node(doc, raw);
                 if child.is_mask {
@@ -1498,7 +1498,7 @@ mod tests {
         // Cross-check with a real extractor when poppler is installed; hosted runners do not ship it.
         let tmp = std::env::temp_dir().join(format!("designos-vector-pdf-{}.pdf", std::process::id()));
         std::fs::write(&tmp, &pdf).unwrap();
-        let extractor = std::process::Command::new("pdftotext").arg(&tmp).arg("-").output();
+        let extractor = std::process::Command::new("pdftotext").args(["-enc", "UTF-8"]).arg(&tmp).arg("-").output();
         let _ = std::fs::remove_file(&tmp);
         if let Ok(output) = extractor {
             assert!(output.status.success(), "pdftotext failed: {}", String::from_utf8_lossy(&output.stderr));

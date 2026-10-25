@@ -590,8 +590,8 @@ pub fn show_sidebar_card_in_rect(ui: &mut Ui, rect: Rect, state: &mut UpdaterSta
     p.text(
         Pos2::new(rect.left() + 22.0, rect.top() + 13.0),
         Align2::LEFT_CENTER,
-        widgets::elide(&p, &status_text, &theme::font_small_strong(), rect.width() - 52.0),
-        theme::font_small_strong(),
+        widgets::elide(&p, &status_text, &theme::font_caption_strong(), rect.width() - 52.0),
+        theme::font_caption_strong(),
         theme::TEXT,
     );
 
@@ -605,8 +605,8 @@ pub fn show_sidebar_card_in_rect(ui: &mut Ui, rect: Rect, state: &mut UpdaterSta
     p.text(
         Pos2::new(rect.left() + 12.0, rect.top() + 29.0),
         Align2::LEFT_CENTER,
-        widgets::elide(&p, &sync_line, &theme::font_small(), rect.width() - 20.0),
-        theme::font_small(),
+        widgets::elide(&p, &sync_line, &theme::font_caption(), rect.width() - 20.0),
+        theme::font_caption(),
         theme::TEXT_SECONDARY,
     );
 
@@ -727,7 +727,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     UI3_BG_CARD
                 },
             );
-            p.text(pill_r.center(), Align2::CENTER_CENTER, ch.label(), theme::font_small_strong(), if active { Color32::WHITE } else { theme::TEXT });
+            p.text(pill_r.center(), Align2::CENTER_CENTER, ch.label(), theme::font_caption_strong(), if active { Color32::WHITE } else { theme::TEXT });
             if resp.clicked() {
                 state.channel = ch;
                 state.check_for_updates();
@@ -751,8 +751,8 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
         p.text(
             Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 34.0),
             Align2::LEFT_CENTER,
-            widgets::elide(&p, &format!("Feed: {}", state.channel.feed_url()), &theme::font_small(), w - 28.0),
-            theme::font_small(),
+            widgets::elide(&p, &format!("Feed: {}", state.channel.feed_url()), &theme::font_caption(), w - 28.0),
+            theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
 
@@ -762,15 +762,15 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0),
                     Align2::LEFT_CENTER,
                     format!("New release v{} available \u{b7} SHA-256: {}…", m.version, &m.sha256[..12]),
-                    theme::font_small_strong(),
+                    theme::font_caption_strong(),
                     UI3_BLUE,
                 );
                 if let Some(note) = m.release_notes.first() {
                     p.text(
                         Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 74.0),
                         Align2::LEFT_CENTER,
-                        widgets::elide(&p, note, &theme::font_small(), w - 28.0),
-                        theme::font_small(),
+                        widgets::elide(&p, note, &theme::font_caption(), w - 28.0),
+                        theme::font_caption(),
                         theme::TEXT_SECONDARY,
                     );
                 }
@@ -780,26 +780,26 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0),
                     Align2::LEFT_CENTER,
                     format!("Verified SHA-256 & staged v{} (.bak backup ready)", manifest.version),
-                    theme::font_small_strong(),
+                    theme::font_caption_strong(),
                     UI3_EMERALD,
                 );
                 p.text(
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 74.0),
                     Align2::LEFT_CENTER,
-                    widgets::elide(&p, &format!("Staged: {}", staged_path.display()), &theme::font_small(), w - 28.0),
-                    theme::font_small(),
+                    widgets::elide(&p, &format!("Staged: {}", staged_path.display()), &theme::font_caption(), w - 28.0),
+                    theme::font_caption(),
                     theme::TEXT_SECONDARY,
                 );
             }
             UpdatePhase::RolledBack { reason, .. } => {
-                p.text(Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0), Align2::LEFT_CENTER, reason, theme::font_small_strong(), UI3_AMBER);
+                p.text(Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0), Align2::LEFT_CENTER, reason, theme::font_caption_strong(), UI3_AMBER);
             }
             UpdatePhase::Failed(err) => {
                 p.text(
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0),
                     Align2::LEFT_CENTER,
-                    widgets::elide(&p, err, &theme::font_small_strong(), w - 28.0),
-                    theme::font_small_strong(),
+                    widgets::elide(&p, err, &theme::font_caption_strong(), w - 28.0),
+                    theme::font_caption_strong(),
                     UI3_RED,
                 );
             }
@@ -808,7 +808,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                     Pos2::new(l1_rect.left() + 14.0, l1_rect.top() + 56.0),
                     Align2::LEFT_CENTER,
                     "Binary is up to date \u{b7} Atomic staging & .bak rollback active",
-                    theme::font_small(),
+                    theme::font_caption(),
                     UI3_EMERALD,
                 );
             }
@@ -820,7 +820,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
         let check_resp = ui.interact(check_r, Id::new("updater-btn-check"), Sense::click());
         p.rect_filled(check_r, CornerRadius::same(6), if check_resp.hovered() { UI3_BG_HOVER } else { UI3_BG_PANEL });
         p.rect_stroke(check_r, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
-        p.text(check_r.center(), Align2::CENTER_CENTER, "Check for Updates", theme::font_small_strong(), theme::TEXT);
+        p.text(check_r.center(), Align2::CENTER_CENTER, "Check for Updates", theme::font_caption_strong(), theme::TEXT);
         if check_resp.clicked() {
             state.check_for_updates();
         }
@@ -828,7 +828,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
         let stage_r = Rect::from_min_size(Pos2::new(check_r.right() + 8.0, btn_y), Vec2::new(154.0, 26.0));
         let stage_resp = ui.interact(stage_r, Id::new("updater-btn-stage"), Sense::click());
         p.rect_filled(stage_r, CornerRadius::same(6), UI3_BLUE);
-        p.text(stage_r.center(), Align2::CENTER_CENTER, "Stage Atomic Update", theme::font_small_strong(), Color32::WHITE);
+        p.text(stage_r.center(), Align2::CENTER_CENTER, "Stage Atomic Update", theme::font_caption_strong(), Color32::WHITE);
         if stage_resp.clicked() {
             state.stage_available_update();
         }
@@ -837,7 +837,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
         let rb_resp = ui.interact(rb_r, Id::new("updater-btn-rollback"), Sense::click());
         p.rect_filled(rb_r, CornerRadius::same(6), if rb_resp.hovered() { UI3_BG_HOVER } else { UI3_BG_PANEL });
         p.rect_stroke(rb_r, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
-        p.text(rb_r.center(), Align2::CENTER_CENTER, "Rollback (.bak)", theme::font_small_strong(), theme::TEXT);
+        p.text(rb_r.center(), Align2::CENTER_CENTER, "Rollback (.bak)", theme::font_caption_strong(), theme::TEXT);
         if rb_resp.clicked() {
             state.trigger_rollback();
         }
@@ -861,7 +861,7 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
             Pos2::new(l2_rect.left() + 14.0, l2_rect.top() + 40.0),
             Align2::LEFT_CENTER,
             format!("Local Figma.app Version: {fig_ver} (probed via Info.plist without app launch)"),
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
         p.text(
@@ -871,14 +871,14 @@ pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
                 "Supported .fig Kiwi Container Schema: v{} \u{b7} 1:1 UI3 Parity Score: {:.1}%",
                 state.upstream.supported_kiwi_version, state.upstream.parity_score_pct
             ),
-            theme::font_small_strong(),
+            theme::font_caption_strong(),
             UI3_EMERALD,
         );
         p.text(
             Pos2::new(l2_rect.left() + 14.0, l2_rect.top() + 86.0),
             Align2::LEFT_CENTER,
             "CLI: `designos update --check` \u{b7} `designos update --apply` \u{b7} `designos update --rollback`",
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
     });
