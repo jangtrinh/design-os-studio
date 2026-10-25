@@ -8,30 +8,26 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Barrier, RwLock, RwLockReadGuard,
+        Arc, Barrier,
     },
 };
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
-/// Keeps concurrent tests from writing files while the RLIMIT_FSIZE test lowers the process file-size limit.
-static RLIMIT_LOCK: RwLock<()> = RwLock::new(());
 
-struct TempDir(PathBuf, RwLockReadGuard<'static, ()>);
+struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(tag: &str) -> Self {
-        let guard = RLIMIT_LOCK.read().unwrap_or_else(|e| e.into_inner());
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let p = std::env::temp_dir().join(format!("designos-mcp-paths-{tag}-{}-{nonce}-{seq}", std::process::id()));
         fs::create_dir_all(&p).unwrap();
-        Self(p, guard)
+        Self(p)
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = &self.1;
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -537,49 +533,69 @@ fn file_planted_during_no_overwrite_export_is_never_overwritten() {
 }
 
 #[test]
-fn partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry() {
-    let _exclusive = RLIMIT_LOCK.write().unwrap_or_else(|e| e.into_inner());
-    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let ws_path = std::env::temp_dir().join(format!("designos-mcp-paths-efbig-{}-{nonce}", std::process::id()));
-    fs::create_dir_all(&ws_path).unwrap();
+fn render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint() {
+    let ws = TempDir::new("ws-r3-png-race");
+    let rounds = 100;
+    let mut both_ok = 0usize;
+    let mut one_exists = 0usize;
 
-    let mut s = Session::new(&ws_path).unwrap();
-    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
-    for _ in 0..200 {
-        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap();
+    for i in 0..rounds {
+        let name = format!("png-race-{i}.png");
+        let barrier = Arc::new(Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let ws_path = ws.0.clone();
+                let b = barrier.clone();
+                let name = name.clone();
+                std::thread::spawn(move || {
+                    let mut s = Session::new(&ws_path).unwrap();
+                    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+                    let rect_id = s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap()
+                        ["node"]["id"]
+                        .as_u64()
+                        .unwrap();
+                    b.wait();
+                    s.call("designos_render_png", json!({"path": name, "node_id": rect_id}))
+                })
+            })
+            .collect();
+        let res: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let oks = res.iter().filter(|r| r.is_ok()).count();
+        let errs: Vec<_> = res.into_iter().filter_map(|r| r.err()).collect();
+        if oks == 2 {
+            both_ok += 1;
+        } else if oks == 1 && errs.len() == 1 {
+            let err = &errs[0];
+            assert_eq!(err.code, ErrorCode::FileExists, "round {i}: {err}");
+            assert!(!err.message.contains("overwrite"), "render_png has no overwrite option and must never tell the caller to pass overwrite: {}", err.message);
+            assert!(
+                err.message.starts_with("Cannot create PNG file (choose an unused .png filename):"),
+                "render_png FILE_EXISTS message must use base wording asking for a new .png name, got: {}",
+                err.message
+            );
+            assert!(err.corrected_example.is_none(), "render_png FILE_EXISTS must not emit an overwrite corrected_example: {:?}", err.corrected_example);
+            one_exists += 1;
+        } else {
+            panic!("round {i}: unexpected outcomes oks={oks} errs={errs:?}");
+        }
     }
-    s.call("designos_save_file", json!({"path": "size.designos"})).unwrap();
-    let full = fs::metadata(ws_path.join("size.designos")).unwrap().len();
-    let original_bytes = b"PRECIOUS-ORIGINAL";
-    fs::write(ws_path.join("precious.designos"), original_bytes).unwrap();
 
-    let mut old = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-    // SAFETY: ignoring SIGXFSZ and lowering the soft RLIMIT_FSIZE limit while holding RLIMIT_LOCK.write()
-    // affects only this process while no sibling test in this binary is running, and is immediately restored.
-    unsafe {
-        libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
-        libc::getrlimit(libc::RLIMIT_FSIZE, &mut old);
-        let lim = libc::rlimit { rlim_cur: full / 2, rlim_max: old.rlim_max };
-        libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
-    }
-    let new_res = s.call("designos_save_file", json!({"path": "new.designos"}));
-    let ow_res = s.call("designos_save_file", json!({"path": "precious.designos", "overwrite": true}));
-    unsafe {
-        libc::setrlimit(libc::RLIMIT_FSIZE, &old);
-    }
+    assert_eq!(both_ok, 0, "concurrent render_png calls to the same path must never both succeed");
+    assert_eq!(one_exists, rounds, "every round must have one winner and one FILE_EXISTS loser");
 
-    let new_err = new_res.expect_err("partial write to new.designos must fail");
-    let ow_err = ow_res.expect_err("partial overwrite of precious.designos must fail");
-    let new_exists = ws_path.join("new.designos").exists();
-    let precious_after = fs::read(ws_path.join("precious.designos")).unwrap_or_default();
-    let retry_res = s.call("designos_save_file", json!({"path": "new.designos"}));
-    let _ = fs::remove_dir_all(&ws_path);
+    // Tools that DO have the overwrite option (save_file, export_fig_file) keep the overwrite hint on race / existing file.
+    let mut s = Session::new(&ws.0).unwrap();
+    fs::write(ws.0.join("taken.designos"), b"x").unwrap();
+    let save_err = s.call("designos_save_file", json!({"path": "taken.designos"})).expect_err("existing .designos without overwrite must fail");
+    assert_eq!(save_err.code, ErrorCode::FileExists);
+    assert_eq!(save_err.message, "taken.designos already exists. Pass overwrite: true to replace it.");
+    assert_eq!(save_err.corrected_example, Some(json!({"path": "taken.designos", "overwrite": true})));
 
-    assert!(!new_exists, "failed write must not leave a partial new.designos on disk");
-    assert_eq!(precious_after, original_bytes, "failed overwrite must preserve precious.designos intact");
-    assert!(new_err.safe_to_retry, "new_err must report safe_to_retry: true when nothing changed on disk");
-    assert!(ow_err.safe_to_retry, "ow_err must report safe_to_retry: true when original is intact");
-    assert!(retry_res.is_ok(), "retrying new.designos without overwrite after failed write must succeed: {retry_res:?}");
+    fs::write(ws.0.join("taken.fig"), b"x").unwrap();
+    let fig_err = s.call("designos_export_fig_file", json!({"output_path": "taken.fig"})).expect_err("existing .fig without overwrite must fail");
+    assert_eq!(fig_err.code, ErrorCode::FileExists);
+    assert_eq!(fig_err.message, "taken.fig already exists. Pass overwrite: true to replace it.");
+    assert_eq!(fig_err.corrected_example, Some(json!({"output_path": "taken.fig", "overwrite": true})));
 }
 
 #[test]

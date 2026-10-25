@@ -1602,8 +1602,7 @@ pub(crate) fn validate_existing_output_target(
                     .with_received(json!(display_path))
                     .with_corrected_example(json!({ field_name: display_path, "overwrite": true })));
             }
-            return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
-                .with_received(json!(display_path)));
+            return Ok(());
         }
         if second_name {
             return Err(ToolError::new(
@@ -1654,10 +1653,18 @@ pub(crate) fn write_checked_output_file(resolved: &std::path::Path, display_path
             use std::os::unix::fs::OpenOptionsExt;
             opts.custom_flags(libc::O_NOFOLLOW);
         }
+        let field_name = ptr.trim_start_matches('/');
+        let supports_overwrite = !std::path::Path::new(display_path).extension().and_then(|x| x.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
         let mut file = opts.open(resolved).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
-                ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
-                    .with_received(json!(display_path))
+                if supports_overwrite {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                        .with_received(json!(display_path))
+                        .with_corrected_example(json!({ field_name: display_path, "overwrite": true }))
+                } else {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("Cannot create PNG file (choose an unused .png filename): {e}"))
+                        .with_received(json!(display_path))
+                }
             } else {
                 map_io_err(e)
             }
