@@ -7802,6 +7802,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn agent_that_exits_within_the_window_reports_a_start_failure_with_its_last_output() {
         let mut st = exited_stub_state();
         // A loaded CI runner can take longer than the window to start the shell; the window itself
@@ -7823,6 +7824,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn agent_that_exits_after_the_window_is_not_a_start_failure() {
         let mut st = exited_stub_state();
         st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
@@ -7856,6 +7858,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
@@ -8652,6 +8655,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn non_zero_exit_after_start_window_records_session_failure_and_zero_exit_does_not() {
         let mut st = exited_stub_state();
         st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
@@ -11880,6 +11884,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_exit_scan() {
         let mut st = exited_stub_state();
         kill_tabs_after(&mut st, |st| {
@@ -11895,6 +11900,7 @@ mod tests {
     /// The reader trims the front of the log past `MAX_RAW_LOG_BYTES` while a turn is open. The turn start that was
     /// recorded before the trim must still point at the turn's own first byte, not at whatever now sits there.
     #[test]
+    #[cfg_attr(windows, ignore = "runs POSIX sh script reading /dev/zero via single-quoted path")]
     fn a_log_trim_inside_an_open_turn_keeps_the_scan_on_that_turns_output() {
         let script = pty_fixture_path(&format!("dos-686-open-turn-trim-{}.sh", std::process::id()));
         std::fs::write(
@@ -11937,6 +11943,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "uses exited_stub_state which spawns POSIX sh and waits on POSIX PTY master reader_eof")]
     fn retry_does_nothing_on_an_exited_tab() {
         let mut st = exited_stub_state();
         let failure = agent_session_failure::classify_session_failure(AgentCliPreset::Claude, None, "API Error: 529 overloaded_error\n").expect("classified");

@@ -1,0 +1,111 @@
+2026-10-25T20:25:58.0140032Z running 2880 tests
+2026-10-25T20:25:58.8079237Z test agent_composer::tests::a_custom_cli_tab_gets_the_skills_pasted_and_is_not_recorded_as_claude ... ignored, spawns #!/bin/sh custom CLI stub via unquoted POSIX path
+2026-10-25T20:26:14.9964259Z test agent_session_files::tests::no_global_tmp_path_in_shipped_code ... FAILED
+2026-10-25T20:26:17.5916091Z test agent_stop::tests::a_chatty_cli_stays_pending_across_the_real_quiet_window ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5917712Z test agent_stop::tests::a_cli_that_prints_nothing_after_the_key_is_not_closed_by_quiet_and_ends_in_the_still_running_notice ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5919342Z test agent_stop::tests::a_new_prompt_closes_the_pending_stop_so_the_next_turn_never_folds_with_it ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5920789Z test agent_stop::tests::a_receipt_of_a_turn_that_started_after_the_stop_is_not_adopted ... ok
+2026-10-25T20:26:17.5922134Z test agent_stop::tests::applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_stop_leaves_it ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5923833Z test agent_stop::tests::applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_turn_end_leaves_it ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5925452Z test agent_stop::tests::codex_heuristic_stop_folds_all_patches_and_preserves_elapsed_receipt ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5926477Z test agent_stop::tests::completed_receipt_that_raced_the_stop_becomes_stopped ... ok
+2026-10-25T20:26:17.5927428Z test agent_stop::tests::esc_in_the_chrome_stops ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5928504Z test agent_stop::tests::esc_in_the_terminal_reaches_the_cli_unchanged ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5929408Z test agent_stop::tests::fold_since_makes_the_tail_one_undo_step ... ok
+2026-10-25T20:26:17.5930046Z test agent_stop::tests::fold_stops_at_a_user_step ... ok
+2026-10-25T20:26:17.5930983Z test agent_stop::tests::folding_a_stopped_turn_remaps_the_ledger_of_every_tab ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5935268Z test agent_stop::tests::in_progress_flags_clear_on_stop ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5936615Z test agent_stop::tests::live_spec_flag_without_run_id_clears_on_stop_of_the_writing_tab ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5938160Z test agent_stop::tests::nested_spec_flags_without_a_run_id_get_the_agent_tab_run_id_and_explicit_ones_keep_theirs ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5939490Z test agent_stop::tests::no_key_is_sent_after_the_turn_ended ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5940795Z test agent_stop::tests::osc_status_in_pty_does_not_erase_stopped_until_new_working_turn ... ignored, needs POSIX sh PTY stub
+2026-10-25T20:26:17.5941785Z test agent_stop::tests::receipt_says_stopped_by_you ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5942830Z test agent_stop::tests::second_key_is_sent_only_if_still_running ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5944247Z test agent_stop::tests::stop_after_user_shapes_and_earlier_turn_only_folds_active_turn_and_resets_receipt_clock ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5946458Z test agent_stop::tests::stop_all_stops_every_running_tab ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.5947848Z test agent_stop::tests::stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.6438291Z test agent_stop::tests::held_patches_apply_before_the_fold ... ok
+2026-10-25T20:26:17.6439696Z test agent_stop::tests::stop_ends_a_looping_stub_within_three_seconds ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.6442573Z test agent_stop::tests::stop_preserves_user_redo_while_dropping_agent_redo ... ok
+2026-10-25T20:26:17.6443978Z test agent_stop::tests::stopped_turn_closes_its_ledger_turn_and_revert_after_a_user_undo_still_covers_every_step ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.6446014Z test agent_stop::tests::stopped_turn_reads_as_stopped_in_the_receipt_row_and_header_status ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.6447914Z test agent_stop::tests::stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent ... ignored, needs POSIX sh and python tty/termios PTY stub
+2026-10-25T20:26:17.6463989Z test agent_stop::tests::stop_during_drag_clears_in_progress_from_held_patches_and_keeps_post_close_patches_separate ... ok
+2026-10-25T20:26:25.1368984Z test agent_usage::tests::claude_clear_rotates_session_id_and_restarts_tab_usage_reading ... ignored, runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON
+2026-10-25T20:26:25.1394739Z test agent_usage::tests::claude_transcript_missing_hides_the_field ... ok
+2026-10-25T20:26:25.1449084Z test agent_usage::tests::claude_transcript_tokens_are_deduplicated_by_message_id ... ok
+2026-10-25T20:26:25.1455815Z test agent_usage::tests::codex_and_agy_show_nothing ... ok
+2026-10-25T20:26:25.1809966Z test agent_usage::tests::failed_usage_probe_preserves_previous_reading_until_source_is_gone ... ok
+2026-10-25T20:26:25.1814531Z test agent_usage::tests::grok_usage_json_parses_tokens_and_cost ... ok
+2026-10-25T20:26:25.1820248Z test agent_usage::tests::grok_without_a_cost_shows_tokens_only ... ok
+2026-10-25T20:26:25.2078470Z test agent_usage::tests::grok_call_runs_off_the_ui_thread_with_a_timeout ... ok
+2026-10-25T20:26:25.2121872Z test agent_usage::tests::no_estimates ... ok
+2026-10-25T20:26:25.2194051Z test agent_usage::tests::reader_tails_incrementally ... ok
+2026-10-25T20:26:25.2205490Z test agent_usage::tests::sources_document_matches_code ... ok
+2026-10-25T20:26:25.2207337Z test agent_usage::tests::two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings ... ignored, runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON
+2026-10-25T20:26:26.5527695Z test agent_usage::tests::hook_capture_writes_session_and_transcript_path_once ... ok
+2026-10-25T20:26:45.8441061Z test io::dialog_probe::tests::the_environment_falls_back_to_the_standard_data_dirs ... ignored, splits colon-separated Unix PATH and XDG_DATA_DIRS
+2026-10-25T20:27:19.5209361Z test shell::tests::check_designs::one_fix_click_fixes_one_finding_and_undoes_in_one_step ... FAILED
+2026-10-25T20:29:01.2306775Z test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast has been running for over 60 seconds
+2026-10-25T20:29:01.2431098Z test shell::tests::click_selects_child_and_drag_moves_it has been running for over 60 seconds
+2026-10-25T20:29:01.2539396Z test shell::tests::clicking_a_color_style_applies_it_to_the_selection has been running for over 60 seconds
+2026-10-25T20:29:01.2697413Z test shell::tests::clicking_a_segment_adds_a_point_and_delete_removes_it has been running for over 60 seconds
+2026-10-25T20:31:35.8314143Z test shell::tests::leave_prompt::a_close_request_while_a_question_is_open_changes_nothing ... ok
+2026-10-25T20:31:36.2298216Z test shell::tests::leave_prompt::a_document_with_nothing_unsaved_never_asks ... ok
+2026-10-25T20:31:36.7967257Z test shell::tests::leave_prompt::a_drag_in_progress_is_ended_where_it_is_as_one_undo_step_before_the_question_and_save_writes_it ... ok
+2026-10-25T20:31:37.3831936Z test shell::tests::leave_prompt::a_library_file_never_asks ... ok
+2026-10-25T20:31:37.8468804Z test shell::tests::leave_prompt::a_press_that_has_not_become_a_drag_is_not_made_into_an_edit_by_the_question ... ok
+2026-10-25T20:31:38.2829211Z test shell::tests::leave_prompt::a_property_scrub_in_progress_is_ended_as_one_undo_step_before_the_question ... ok
+2026-10-25T20:31:39.5427911Z test shell::tests::leave_prompt::an_edit_in_progress_counts_as_unsaved ... ok
+2026-10-25T20:31:40.0340882Z test shell::tests::leave_prompt::a_new_file_or_a_library_file_opened_over_unsaved_edits_asks_first ... ok
+2026-10-25T20:31:41.3274784Z test shell::tests::leave_prompt::an_open_question_asks_for_no_repaint ... ok
+2026-10-25T20:31:42.5337304Z test shell::tests::leave_prompt::an_open_text_session_is_committed_and_counted ... ok
+2026-10-25T20:31:43.4061698Z test shell::tests::leave_prompt::closing_a_tab_with_unsaved_edits_asks_and_leaves_the_tab_open ... ok
+2026-10-25T20:31:45.7664789Z test shell::tests::leave_prompt::dont_save_closes_the_tab_and_drops_the_edits ... ok
+2026-10-25T20:31:45.9265151Z test shell::tests::leave_prompt::closing_the_other_tabs_asks_for_each_unsaved_one_in_tab_order ... ok
+2026-10-25T20:31:46.4058310Z test shell::tests::leave_prompt::cancel_escape_and_a_click_outside_leave_everything_as_it_was ... ok
+2026-10-25T20:31:49.9681546Z test shell::tests::leave_prompt::quitting_asks_cancels_the_close_and_lets_it_through_once_answered ... ok
+2026-10-25T20:31:51.0345430Z test shell::tests::leave_prompt::enter_means_save_and_the_action_goes_on ... ok
+2026-10-25T20:31:52.6517803Z test shell::tests::leave_prompt::quitting_asks_once_per_unsaved_document_in_tab_order_and_cancel_stops_the_quit ... ok
+2026-10-25T20:31:52.9977093Z test shell::tests::leave_prompt::opening_a_file_over_unsaved_edits_asks_and_each_answer_does_what_it_says ... ok
+2026-10-25T20:31:52.9981839Z test shell::tests::leave_prompt::quitting_from_home_asks_about_the_parked_tabs_and_cancel_leaves_home_as_it_was ... ok
+2026-10-25T20:31:54.0914708Z test shell::tests::leave_prompt::save_writes_the_file_then_closes_the_tab ... ok
+2026-10-25T20:31:54.0915424Z test shell::tests::leave_prompt::save_on_an_untitled_document_opens_the_save_dialog_and_cancelling_it_cancels_the_close ... ok
+2026-10-25T20:31:56.1425036Z test shell::tests::leave_prompt_edges::a_dragged_sticky_has_no_text_session_open_when_the_question_opens ... ok
+2026-10-25T20:31:56.4883863Z test shell::tests::leave_prompt_edges::a_file_dropped_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+2026-10-25T20:31:56.6805454Z test shell::tests::leave_prompt::reopening_an_open_file_from_home_asks_and_each_answer_does_what_it_says ... ok
+2026-10-25T20:31:57.5267330Z test shell::tests::leave_prompt_edges::a_press_on_an_auto_layout_bar_that_has_not_moved_opens_no_inline_editor_behind_the_question ... ok
+2026-10-25T20:31:57.7236676Z test shell::tests::leave_prompt_edges::a_press_on_a_vector_segment_that_has_not_moved_adds_no_point_when_the_question_opens ... ok
+2026-10-25T20:31:58.4525848Z test shell::tests::leave_prompt_edges::a_window_close_while_presenting_leaves_the_present_view_and_asks_over_the_editor ... ok
+2026-10-25T20:31:59.7630285Z test shell::tests::leave_prompt_edges::an_open_request_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+2026-10-25T20:31:59.7706542Z test shell::tests::leave_prompt_edges::another_leave_request_while_a_question_is_open_is_ignored_and_the_pending_action_stays ... ok
+2026-10-25T20:32:00.4023248Z test shell::tests::leave_prompt_edges::ending_a_viewport_gesture_for_the_question_leaves_the_render_revision_alone_and_a_drag_bumps_it ... ok
+2026-10-25T20:32:01.3366717Z test shell::tests::leave_prompt_edges::opening_a_file_over_a_flagged_document_leaves_the_new_one_without_a_dot ... ok
+2026-10-25T20:32:01.6998405Z test shell::tests::leave_prompt_edges::quitting_while_presenting_a_clean_tab_asks_about_the_other_tabs_over_the_editor ... ok
+2026-10-25T20:32:02.6226733Z test shell::tests::leave_prompt_edges::speaker_notes_typed_in_a_new_deck_are_asked_about_when_its_tab_closes_and_save_writes_them ... ok
+2026-10-25T20:32:02.7305736Z test shell::tests::leave_prompt_edges::the_tab_menus_close_other_tabs_asks_for_each_unsaved_tab_and_closes_nothing_before_the_answer ... ok
+2026-10-25T20:32:03.0704022Z test shell::tests::leave_prompt_edges::speaker_notes_typed_in_a_new_deck_are_asked_about_when_the_window_closes ... ok
+2026-10-25T20:32:33.4696400Z test shell::tests::palette_autofix_undo::a_fix_that_changes_nothing_adds_no_undo_step_and_no_applied_toast ... FAILED
+2026-10-25T20:32:35.4856132Z test shell::tests::palette_autofix_undo::every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection ... FAILED
+2026-10-25T20:32:35.9322714Z test shell::tests::palette_autofix_undo::every_operation_names_what_it_did_in_its_toast ... FAILED
+2026-10-25T20:32:36.1979823Z test shell::tests::palette_autofix_undo::on_a_page_the_solver_would_move_one_cmd_z_restores_it_exactly_and_redo_replays_the_fix ... FAILED
+2026-10-25T20:32:36.4293458Z test shell::tests::palette_autofix_undo::the_design_gate_fix_is_one_undo_step_and_undo_puts_everything_back ... FAILED
+2026-10-25T20:32:38.8337987Z test shell::tests::palette_autofix_undo::the_palette_button_fix_closes_the_palette_so_cmd_z_undoes_it ... FAILED
+2026-10-25T20:32:39.9761925Z test shell::tests::palette_autofix_undo::the_toast_follows_the_ux_writing_rules_and_promises_only_what_works ... FAILED
+2026-10-25T20:32:40.9616655Z test shell::tests::palette_autofix_undo::wiring_two_selected_frames_links_only_those_and_one_cmd_z_restores_the_page ... FAILED
+2026-10-25T20:34:14.0528497Z test terminal::tests::a_log_trim_inside_an_open_turn_keeps_the_scan_on_that_turns_output ... FAILED
+2026-10-25T20:35:13.9003338Z test terminal::tests::a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_exit_scan has been running for over 60 seconds
+2026-10-25T20:35:13.9490892Z test terminal::tests::a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_exit_scan ... FAILED
+2026-10-25T20:35:14.5412691Z test terminal::tests::agent_that_exits_after_the_window_is_not_a_start_failure has been running for over 60 seconds
+2026-10-25T20:35:14.6355266Z test terminal::tests::agent_that_exits_within_the_window_reports_a_start_failure_with_its_last_output has been running for over 60 seconds
+2026-10-25T20:35:14.6436751Z test terminal::tests::agent_that_exits_after_the_window_is_not_a_start_failure ... FAILED
+2026-10-25T20:35:14.7099423Z test terminal::tests::agent_that_exits_within_the_window_reports_a_start_failure_with_its_last_output ... FAILED
+2026-10-25T20:35:14.9602400Z test terminal::tests::bootstrap::app_state_tool_matches_studio_block ... FAILED
+2026-10-25T20:35:16.2595015Z test terminal::tests::bootstrap::first_turn_rules_are_the_generated_pack_for_the_default_tools ... FAILED
+2026-10-25T20:35:28.6783165Z test terminal::tests::design_words_do_not_apply_a_template ... FAILED
+2026-10-25T20:36:18.6440747Z test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab has been running for over 60 seconds
+2026-10-25T20:36:18.6467916Z test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab ... FAILED
+2026-10-25T20:36:32.3450909Z test terminal::tests::non_zero_exit_after_start_window_records_session_failure_and_zero_exit_does_not has been running for over 60 seconds
+2026-10-25T20:36:32.7163078Z test terminal::tests::non_zero_exit_after_start_window_records_session_failure_and_zero_exit_does_not ... FAILED
+2026-10-25T20:36:48.1028442Z test terminal::tests::retry_does_nothing_on_an_exited_tab has been running for over 60 seconds
+2026-10-25T20:36:48.1982594Z test terminal::tests::retry_does_nothing_on_an_exited_tab ... FAILED
