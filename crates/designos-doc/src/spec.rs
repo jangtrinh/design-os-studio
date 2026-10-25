@@ -1326,14 +1326,16 @@ impl Document {
         }
 
         // Re-estimate intrinsic text bounds after text_style / font_size / line_height application,
-        // and align the glyph box with any centring on the parent auto-layout frame.
+        // and align the glyph box with any centring on the parent auto-layout frame when the text hugs that axis.
         let (parent_centre_h, parent_centre_v) = self.parent_centres_children(parent);
+        let hugs_h = spec.width.is_none() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
+        let hugs_v = spec.height.is_none() && spec.height_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
         if let Some(n) = self.get_mut(id) {
             if let NodeKind::Text(tp) = &mut n.kind {
-                if parent_centre_h {
+                if parent_centre_h && spec.text_style.is_none() && tp.style.align_h == TextAlignH::Left && hugs_h {
                     tp.style.align_h = TextAlignH::Center;
                 }
-                if parent_centre_v {
+                if parent_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top && hugs_v {
                     tp.style.align_v = TextAlignV::Center;
                 }
                 let est = estimate_intrinsic_text_size(tp);
@@ -1373,12 +1375,6 @@ impl Document {
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(13.0);
                 style.font_weight = spec.font_weight.unwrap_or(500);
                 style.fills = vec![Paint::solid(crate::default_text_colour(self, id))];
-                if self_centre_h {
-                    style.align_h = TextAlignH::Center;
-                }
-                if self_centre_v {
-                    style.align_v = TextAlignV::Center;
-                }
                 let initial = if text_var.is_some() { String::new() } else { label.clone() };
                 let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), initial, style);
                 if text_var.is_none() {
@@ -1447,10 +1443,10 @@ impl Document {
                 }
                 if let Some(tn) = self.get_mut(tid) {
                     if let NodeKind::Text(tp) = &mut tn.kind {
-                        if self_centre_h {
+                        if self_centre_h && spec.text_style.is_none() && tp.style.align_h == TextAlignH::Left {
                             tp.style.align_h = TextAlignH::Center;
                         }
-                        if self_centre_v {
+                        if self_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top {
                             tp.style.align_v = TextAlignV::Center;
                         }
                         tn.size = estimate_intrinsic_text_size(tp);

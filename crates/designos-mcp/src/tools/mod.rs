@@ -135,18 +135,12 @@ pub(crate) fn build_created_node(
     let constructor = validate_create_fields(kind, name.as_deref(), text.as_deref(), x, y, width, height)?;
     let rect = Rect::new(x, y, width, height);
     let id = doc.try_alloc_id().ok_or_else(|| ToolError::new(ErrorCode::IdExhausted, "", "Document has exhausted node IDs"))?;
-    let (centre_h, centre_v) = doc.parent_centres_children(parent_id);
     let mut node = constructor(id, rect);
     if let Some(name) = name {
         node.name = name;
     }
     if let NodeKind::Text(props) = &mut node.kind {
-        if centre_h {
-            props.style.align_h = designos_doc::TextAlignH::Center;
-        }
-        if centre_v {
-            props.style.align_v = designos_doc::TextAlignV::Center;
-        }
+        props.auto_resize = designos_doc::TextAutoResize::None;
         if let Some(text) = text {
             props.content = text;
         }
@@ -238,12 +232,20 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if let Some(y) = u.y {
         node.transform.ty = y;
     }
-    let size_overridden = u.width.is_some() || u.height.is_some();
     if let Some(width) = u.width {
         node.size.x = width;
     }
     if let Some(height) = u.height {
         node.size.y = height;
+    }
+    if let NodeKind::Text(props) = &mut node.kind {
+        if u.height.is_some() {
+            if matches!(props.auto_resize, designos_doc::TextAutoResize::WidthAndHeight | designos_doc::TextAutoResize::Height) {
+                props.auto_resize = designos_doc::TextAutoResize::None;
+            }
+        } else if u.width.is_some() && props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+            props.auto_resize = designos_doc::TextAutoResize::Height;
+        }
     }
     geometry(node.transform.tx, node.transform.ty, node.size.x, node.size.y)?;
     if let Some(visible) = u.visible {
@@ -262,7 +264,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.content = text;
             props.runs.clear();
             props.lists.clear();
-            if !size_overridden && props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+            if props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
                 node.size = designos_doc::spec::estimate_intrinsic_text_size(props);
             }
         }

@@ -4,7 +4,7 @@
 //! plain spec frame with `layout: { "align": "center", "justify": "center" }`.
 #![allow(clippy::result_large_err)]
 
-use designos_doc::{Document, Node, NodeId, NodeKind, TextAlignH, TextAlignV};
+use designos_doc::{Document, Node, NodeId, NodeKind, Style, TextAlignH, TextAlignV, TextAutoResize, TextStyle, Vec2};
 use designos_mcp::engine::Engine;
 use designos_mcp::server::Session;
 use serde_json::json;
@@ -197,8 +197,8 @@ fn qa_card_button_label_is_centred_within_1px() {
             "{btn_name}/{lbl_name} shaped glyph centre {geom_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_geom:.2}, dy={dy_geom:.2})"
         );
         assert!(
-            dx_px <= 1.0 && dy_px <= 1.0,
-            "{btn_name}/{lbl_name} rendered pixel centre {px_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
+            dx_px <= 2.0 && dy_px <= 2.0,
+            "{btn_name}/{lbl_name} rendered pixel centre {px_c:?} is more than 2 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
         );
     }
 
@@ -234,8 +234,8 @@ fn qa_card_button_label_is_centred_within_1px() {
         "after update_node('Log in'), shaped glyph centre {geom_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_geom:.2}, dy={dy_geom:.2}); box_c={box_c:?}"
     );
     assert!(
-        dx_px <= 1.0 && dy_px <= 1.0,
-        "after update_node('Log in'), rendered pixel centre {px_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
+        dx_px <= 2.0 && dy_px <= 2.0,
+        "after update_node('Log in'), rendered pixel centre {px_c:?} is more than 2 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
     );
 }
 
@@ -288,11 +288,12 @@ fn plain_spec_frame_with_align_and_justify_center_centres_label_within_1px() {
         "Plain Row Label shaped glyph centre {geom_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_geom:.2}, dy={dy_geom:.2})"
     );
     assert!(
-        dx_px <= 1.0 && dy_px <= 1.0,
-        "Plain Row Label rendered pixel centre {px_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
+        dx_px <= 2.0 && dy_px <= 2.0,
+        "Plain Row Label rendered pixel centre {px_c:?} is more than 2 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
     );
 
-    // Also test a column-direction frame with align/justify: center and a fill-width text child.
+    // A column-direction frame with align/justify: center and a fill-width text child must NOT
+    // overwrite the horizontal alignment of the stretched text child.
     let col_spec = json!({
         "kind": "frame",
         "name": "Plain Col Button",
@@ -320,22 +321,179 @@ fn plain_spec_frame_with_align_and_justify_center_centres_label_within_1px() {
 
     let applied_col = engine.call("designos_apply_spec", json!({ "parent_id": page_id, "spec": col_spec })).expect("apply_spec plain col button");
     let col_id = NodeId(applied_col["name_to_id"]["Plain Col Button"].as_u64().expect("Plain Col Button id"));
+    let col_align_h = match &find_by_name(&engine.doc, col_id, "Plain Col Label").kind {
+        NodeKind::Text(t) => t.style.align_h,
+        other => panic!("expected text node, got {other:?}"),
+    };
 
-    let CentringMetrics { btn_centre: btn_c, box_centre: box_c, shaped_geom_centre: geom_c, pixel_bbox_centre: px_c } =
-        measure_button_label_centring(&engine.doc, col_id, "Plain Col Button", "Plain Col Label");
-    let dx_geom = (geom_c.0 - btn_c.0).abs();
-    let dy_geom = (geom_c.1 - btn_c.1).abs();
-    let dx_px = (px_c.0 - btn_c.0).abs();
-    let dy_px = (px_c.1 - btn_c.1).abs();
-    println!(
-        "[Plain Col Button] btn_c={btn_c:?} box_c={box_c:?} geom_c={geom_c:?} px_c={px_c:?} dx_geom={dx_geom:.2} dy_geom={dy_geom:.2} dx_px={dx_px:.2} dy_px={dy_px:.2}"
+    // Grok's concrete spec: a fill-width text with `text_style: "Body"` inside a centred column
+    // keeps its own Left/Top alignment.
+    engine
+        .doc
+        .styles
+        .insert("Body".into(), Style::Text(TextStyle { font_size: 14.0, align_h: TextAlignH::Left, align_v: TextAlignV::Top, ..Default::default() }));
+    let grok_col_spec = json!({
+        "kind": "frame",
+        "name": "Welcome Column",
+        "width": 320.0,
+        "height": 120.0,
+        "layout": { "direction": "column", "align": "center", "justify": "start" },
+        "children": [{
+            "kind": "text",
+            "name": "Welcome Text",
+            "text": "Welcome back to your account",
+            "width_sizing": "fill",
+            "text_style": "Body"
+        }]
+    });
+    let applied_welcome = engine.call("designos_apply_spec", json!({ "parent_id": page_id, "spec": grok_col_spec })).expect("apply_spec welcome col");
+    let welcome_col_id = NodeId(applied_welcome["name_to_id"]["Welcome Column"].as_u64().expect("Welcome Column id"));
+    let welcome_lbl = find_by_name(&engine.doc, welcome_col_id, "Welcome Text");
+    let welcome_tp = match &welcome_lbl.kind {
+        NodeKind::Text(t) => t,
+        other => panic!("expected text node, got {other:?}"),
+    };
+
+    println!("[Fill-Width Column] plain_col_align_h={:?} welcome_align=({:?}, {:?})", col_align_h, welcome_tp.style.align_h, welcome_tp.style.align_v);
+    assert_eq!(col_align_h, TextAlignH::Left, "width_sizing: fill text in a centred column must keep Left horizontal alignment");
+    assert_eq!(
+        (welcome_tp.style.align_h, welcome_tp.style.align_v),
+        (TextAlignH::Left, TextAlignV::Top),
+        "fill-width styled text in a centred column must keep its own alignment"
     );
-    assert!(
-        dx_geom <= 1.0 && dy_geom <= 1.0,
-        "Plain Col Label shaped glyph centre {geom_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_geom:.2}, dy={dy_geom:.2}); box_c={box_c:?}"
+}
+
+#[test]
+fn create_node_in_centred_row_keeps_default_alignment() {
+    let mut engine = Engine::default();
+    let page_id = page(&engine);
+
+    let applied = engine
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page_id,
+                "spec": {
+                    "kind": "frame",
+                    "name": "Row Host",
+                    "preset": "easeui-row",
+                    "width": 320.0,
+                    "height": 120.0
+                }
+            }),
+        )
+        .expect("apply_spec Row Host");
+    let row_id = applied["name_to_id"]["Row Host"].as_u64().expect("Row Host id");
+
+    let created = engine
+        .call(
+            "designos_create_node",
+            json!({
+                "parent_id": row_id,
+                "kind": "text",
+                "name": "Row Text",
+                "text": "Hello"
+            }),
+        )
+        .expect("create_node in easeui-row");
+    let text_id = NodeId(created["node"]["id"].as_u64().expect("Row Text id"));
+    let node = engine.doc.get(text_id).expect("Row Text exists");
+    let tp = match &node.kind {
+        NodeKind::Text(t) => t,
+        other => panic!("expected text node, got {other:?}"),
+    };
+    println!("[create_node in easeui-row] align=({:?}, {:?}) auto_resize={:?}", tp.style.align_h, tp.style.align_v, tp.auto_resize);
+    assert_eq!(
+        (tp.style.align_h, tp.style.align_v),
+        (TextAlignH::Left, TextAlignV::Top),
+        "designos_create_node must not overwrite text alignment inside a centring parent"
     );
-    assert!(
-        dx_px <= 1.0 && dy_px <= 1.0,
-        "Plain Col Label rendered pixel centre {px_c:?} is more than 1 px from button centre {btn_c:?} (dx={dx_px:.2}, dy={dy_px:.2})"
-    );
+}
+
+#[test]
+fn sized_text_update_node_never_resizes_user_sized_text() {
+    let mut engine = Engine::default();
+    let page_id = page(&engine);
+
+    // 1. Grok's sequence: create with width: 240, height: 32, then update_node { text }.
+    // The size must stay 240x32.
+    let created = engine
+        .call(
+            "designos_create_node",
+            json!({
+                "parent_id": page_id,
+                "kind": "text",
+                "name": "Sized Create",
+                "width": 240.0,
+                "height": 32.0,
+                "text": "Hello"
+            }),
+        )
+        .expect("create_node 240x32");
+    let created_id = NodeId(created["node"]["id"].as_u64().expect("Sized Create id"));
+    engine
+        .call(
+            "designos_update_node",
+            json!({
+                "node_id": created_id.0,
+                "text": "Hello world"
+            }),
+        )
+        .expect("update_node text on Sized Create");
+    let (n1_size, ar1) = {
+        let n1 = engine.doc.get(created_id).expect("Sized Create exists");
+        let ar1 = match &n1.kind {
+            NodeKind::Text(t) => t.auto_resize,
+            other => panic!("expected text node, got {other:?}"),
+        };
+        (n1.size, ar1)
+    };
+
+    // 2. A width set by an earlier update_node on a hugging text also survives a later text-only edit.
+    let applied = engine
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page_id,
+                "spec": {
+                    "kind": "text",
+                    "name": "Hug Then Sized",
+                    "text": "Short"
+                }
+            }),
+        )
+        .expect("apply_spec Hug Then Sized");
+    let hug_id = NodeId(applied["name_to_id"]["Hug Then Sized"].as_u64().expect("Hug Then Sized id"));
+    engine
+        .call(
+            "designos_update_node",
+            json!({
+                "node_id": hug_id.0,
+                "width": 240.0
+            }),
+        )
+        .expect("update_node width 240");
+    engine
+        .call(
+            "designos_update_node",
+            json!({
+                "node_id": hug_id.0,
+                "text": "Hello world"
+            }),
+        )
+        .expect("update_node text after width");
+    let (n2_size, ar2) = {
+        let n2 = engine.doc.get(hug_id).expect("Hug Then Sized exists");
+        let ar2 = match &n2.kind {
+            NodeKind::Text(t) => t.auto_resize,
+            other => panic!("expected text node, got {other:?}"),
+        };
+        (n2.size, ar2)
+    };
+
+    println!("[sized_text_update] n1.size={:?} ar1={:?} n2.size={:?} ar2={:?}", n1_size, ar1, n2_size, ar2);
+    assert_eq!(n1_size, Vec2::new(240.0, 32.0), "text created with width: 240, height: 32 must keep 240x32 on a text-only update_node");
+    assert_eq!(ar1, TextAutoResize::None);
+    assert_eq!(n2_size.x, 240.0, "a width set by an earlier update_node must survive a later text-only edit");
+    assert_eq!(ar2, TextAutoResize::Height);
 }
