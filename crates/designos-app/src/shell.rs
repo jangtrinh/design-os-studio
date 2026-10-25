@@ -175,13 +175,9 @@ impl Shell {
         }
         let mut shot_open_failed = false;
         if let Some(f) = &opts.file {
-            let prev_dirty = std::mem::replace(&mut app.canvas.dirty, false);
-            app.open_path(f.clone());
-            let opened = app.canvas.dirty;
-            app.canvas.dirty |= prev_dirty;
-            if !opened && opts.screenshot.is_some() {
-                if let Some(err) = app.toast.as_ref().filter(|t| t.error).map(|t| t.text.as_str()) {
-                    let reason = err.lines().next().unwrap_or(err).trim().trim_end_matches('.');
+            if let Err(err) = app.try_open_path(f.clone()) {
+                if opts.screenshot.is_some() {
+                    let reason = err.lines().next().unwrap_or(&err).trim().trim_end_matches('.');
                     let _ = SHOT_OPEN_ERROR.set(format!("{} could not be opened: {reason}. Check the file, then try again.", f.display()));
                     shot_open_failed = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);

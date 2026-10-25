@@ -2141,31 +2141,46 @@ impl App {
     }
 
     pub fn open_path(&mut self, p: PathBuf) {
+        let _ = self.try_open_path(p);
+    }
+
+    pub fn try_open_path(&mut self, p: PathBuf) -> Result<(), String> {
         if io::is_web_capture_path(&p) {
-            self.import_web_capture_path(p);
-            return;
+            let raw = std::fs::read_to_string(&p).map_err(|e| {
+                let msg = format!("Cannot read {}: {e}", p.display());
+                self.show_toast(msg.clone(), true);
+                msg
+            })?;
+            self.import_web_capture_json_into_page_at(&raw, None)?;
+            return Ok(());
         }
         // A variables-only JSON opened alongside a design merges into it.
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
             if let Ok(text) = std::fs::read_to_string(&p) {
                 if designos_fig::looks_like_web_capture_json(&text) {
-                    let _ = self.import_web_capture_json_into_page(&text);
-                    return;
+                    self.import_web_capture_json_into_page(&text)?;
+                    return Ok(());
                 }
                 // Figma REST comments (`/v1/files/:key/comments`) are merged the same way.
                 if crate::comments::import::is_comments_payload(&text) {
                     self.import_comments_file(&p);
-                    return;
+                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
+                        return Err(t.text.clone());
+                    }
+                    return Ok(());
                 }
                 if crate::variables::is_variables_payload(&text) {
                     self.import_variables_file(&p);
-                    return;
+                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
+                        return Err(t.text.clone());
+                    }
+                    return Ok(());
                 }
             }
         }
         // The document on screen (or, from Home, the open tab of this same file) is replaced: unsaved edits are asked about first.
         if self.ask_before_open(&p) {
-            return;
+            return Ok(());
         }
         match io::load_path_with_warning(&p) {
             Ok((doc, warning)) => {
@@ -2176,8 +2191,12 @@ impl App {
                 // What the replaced document left (a change no history holds) is not this one's.
                 self.autosave.dot.adopt(false);
                 self.show_toast(io::opened_toast_text(&name, warning.as_deref()), warning.is_some());
+                Ok(())
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.clone(), true);
+                Err(e)
+            }
         }
     }
 

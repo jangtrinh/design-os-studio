@@ -54,32 +54,7 @@ mod history;
 mod home;
 mod icons;
 mod image_jobs;
-#[path = "."]
-mod io_raw {
-    pub mod io;
-}
-mod io {
-    pub use super::io_raw::io::*;
-
-    #[cfg(test)]
-    fn load_counts() -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>> {
-        static COUNTS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>>> = std::sync::OnceLock::new();
-        COUNTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-    }
-
-    #[cfg(test)]
-    pub fn load_call_count(path: &std::path::Path) -> usize {
-        load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
-    }
-
-    #[cfg(test)]
-    pub fn load_path_with_warning(path: &std::path::Path) -> Result<(designos_doc::Document, Option<String>), String> {
-        if let Ok(mut m) = load_counts().lock() {
-            *m.entry(path.to_path_buf()).or_insert(0) += 1;
-        }
-        super::io_raw::io::load_path_with_warning(path)
-    }
-}
+mod io;
 mod layout;
 mod libraries;
 #[cfg(test)]
@@ -731,6 +706,74 @@ mod icon_tests {
     }
 
     #[test]
+    fn round3_cli_apply_spec_reports_nested_path() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_nested_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"Root","children":[{"kind":"frame","name":"Child","layout":{"padding":16}}]}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_nested = super::run_agent_cli(&opts).expect_err("nested padding must fail");
+        assert!(
+            err_nested.contains("children/0/layout/padding must be an array of 4 numbers or \"var:...\" strings"),
+            "expected nested path in {err_nested:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_refuses_duplicate_keys() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_dup_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"A","name":"B"}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_dup = super::run_agent_cli(&opts).expect_err("duplicate JSON keys must be refused");
+        assert!(err_dup.contains("duplicate field `name`"), "expected duplicate field error in {err_dup:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_unknown_field_omits_code_prefix() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_unk_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r##"{"kind":"frame","name":"Card","colour":"#fff"}"##).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_unk = super::run_agent_cli(&opts).expect_err("unknown field must be refused");
+        assert!(!err_unk.contains("UNKNOWN_FIELD:"), "user-facing CLI error must not include internal code prefix: {err_unk:?}");
+        assert!(err_unk.contains("Unknown field `colour`"), "expected Unknown field `colour` in {err_unk:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_rejects_f32_overflow_with_clear_message() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_ovf_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"Big","x":1e40}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_overflow = super::run_agent_cli(&opts).expect_err("f32 overflow must be refused");
+        assert!(err_overflow.contains("x must be a finite number"), "expected finite-number message in {err_overflow:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn cli_screenshot_loads_good_file_once() {
         let dir = std::env::temp_dir().join(format!("designos_rt04_load_once_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -766,6 +809,14 @@ mod icon_tests {
         let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.as_slice()).unwrap_or(&[]);
         assert!(cmds.contains(&egui::ViewportCommand::Close), "broken screenshot must close viewport");
         assert!(!broken_png.exists(), "broken screenshot must not write PNG");
+
+        let mut app = super::app::App::new(designos_doc::Document::new("Test"));
+        assert!(app.try_open_path(good_path.clone()).is_ok());
+        assert!(app.try_open_path(broken_path).is_err());
+        assert!(app.try_open_path(dir.join("missing.webcapture.json")).is_err());
+        let bad_wc = dir.join("bad.webcapture.json");
+        std::fs::write(&bad_wc, "{not valid json").unwrap();
+        assert!(app.try_open_path(bad_wc).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -380,4 +380,342 @@ test icon_tests::web_capture_cli_import_and_out_roundtrip ... ok
 test result: ok. 291 passed; 0 failed; 0 ignored; 0 measured; 2990 filtered out; finished in 22.60s
 ```
 
+---
+
+## Round 3
+
+### 1) What could NOT be verified
+- **Non-macOS window server behavior under `--screenshot` (`Ubuntu` / `Windows`)**: All headless MCP, CLI, and screenshot tests were executed on macOS (`aarch64-apple-darwin`).
+
+### Conclusion & Epistemic Ledger
+- **Conclusion (FACT)**: Addressed all Round 3 rulings (`F1`–`F7`, real open result `App::try_open_path`, and `io::load_call_count` test seam):
+  1. **F1 (`set_slot` errors name real cause)**: `describe_spec_args_error` in `crates/designos-mcp/src/tools/errors.rs` no longer falls back to `describe_spec_value_error(raw_args)`. When `op == "set_slot"`, it validates `node`/`node_id`/`instance`, `slot`, `as`, and walks `fill`/`value` via `describe_slot_fill_error`, reporting `"slot must be a string. Pass a slot name string."` on `slot: 5`, `"fill/0 must be a NodeSpec object. Pass each slot child as a JSON object."` on `fill: [[...]]`, and `"fill/0/width must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."` on a bad child field inside `fill`.
+  2. **F2 (say where)**: Threaded `prefix: &str` (`join_spec_path`) through `describe_spec_value_error_at`, `describe_layout_spec_error`, `describe_slot_fill_error`, `describe_slots_error`, `describe_override_spec_error`, `describe_in_progress_error`, and `describe_comments_error` so nested errors carry the full path from the spec root (e.g. `children/0/layout/padding must be ...`).
+  3. **F3 (one parser)**: Deleted the duplicated spec-error walk (~378 lines) from `crates/designos-app/src/cli.rs` and delegated `cli::parse_spec_json` to `designos_mcp::tools::errors::parse_spec_json`.
+  4. **F4 (never refuse what serde accepts, with two stated exceptions)**:
+     - Exception (a) (positional array where an object is expected: `children: [[...]]`, `layout: []`, `overrides: [[]]`, `in_progress: []`, `comments: [[]]`) and Exception (b) (number that becomes non-finite as `f32`, e.g. `x: 1e40` or `width: 1e40`, checked via `is_non_finite_f32_number`) are both refused with clear messages (`"{field_path} must be a finite number. Pass a smaller number."` / `"{field_path} must contain finite numbers. Pass smaller numbers."`).
+     - Removed the false rejects on structured `Comment` `author` (`RawAuthor::Structured` in `crates/designos-doc/src/comments.rs:137`) and the invented `created_at` check; added full path-prefixed validation for `Comment` message sub-fields (`id`, `author`, `author_id`, `author_color`, `text`, `created`, `edited` in `RawComment`, `crates/designos-doc/src/comments.rs:213`) and `Color` (`crates/designos-doc/src/paint.rs:7`) without leaking Rust type names.
+  5. **F5**: Batch `apply_spec` and `set_slot` in `crates/designos-mcp/src/tools/batch.rs` run `describe_spec_args_error(&raw_op)` both on `serde` error and after `serde_json::from_value` succeeds.
+  6. **F6**: `designos_mcp::tools::errors::parse_spec_json` deserializes `designos_doc::NodeSpec` directly from `raw: &str` via `serde_json::from_str::<designos_doc::NodeSpec>(raw)` so duplicate JSON keys are refused on the CLI just as on base, and strips internal error-code prefixes (`UNKNOWN_FIELD: `, `INVALID_SLOT_VALUE: `) from user-facing messages while keeping `ErrorCode::UnknownField` and `ErrorCode::InvalidSlotValue` on `ToolError.code`.
+  7. **Real open result (`App::try_open_path`)**: Added `App::try_open_path(&mut self, p: PathBuf) -> Result<(), String>` next to `App::open_path` in `crates/designos-app/src/ops.rs`. `open_path` calls `let _ = self.try_open_path(p);`, and `Shell::build` (`crates/designos-app/src/shell.rs`) calls `app.try_open_path(f.clone())` directly instead of inferring failure from `app.canvas.dirty` and `app.toast`.
+  8. **Simple test seam**: Deleted the `#[path = "."] mod io_raw` shim from `crates/designos-app/src/main.rs` and placed the `#[cfg(test)]` `load_call_count` counter directly inside `io::load_path_with_warning` in `crates/designos-app/src/io.rs`.
+- **Epistemic Ledger**:
+  - **FACT**: All 6 new `designos-mcp` tests and all 4 new `designos-app` CLI tests failed on `994b1f05` (`plans/reports/agy-e-cli-spec-errors-evidence/r3-red.log`) and pass on the new head (`plans/reports/agy-e-cli-spec-errors-evidence/r3-green.log`).
+  - **FACT**: Across the 455-combination differential matrix (`35` `NodeSpec` fields × `13` sample values in `round3_f32_overflow_and_comments_parity_with_serde`), the only inputs accepted by `serde_json::from_str::<designos_doc::NodeSpec>` that `parse_spec_json` rejects are Exception (a) (positional arrays where an object is expected) and Exception (b) (`1e40` on `#[serde(untagged)]` `NumberOrVar` fields where `serde`'s internal `ContentDeserializer` casts `1e40_f64 as f32` to `f32::INFINITY`), and zero error messages leak Rust type names or internal error-code prefixes.
+  - **FACT**: `git diff --stat 994b1f05..HEAD -- crates/designos-app/src/cli.rs` shows `1 insertion(+), 378 deletions(-)`.
+  - **INFERENCE**: None required; all acceptance checks were executed directly.
+  - **ASSUMPTION**: None.
+- **Unresolved questions**: None.
+
+### 2) Acceptance Table (Round 3)
+
+| # | Acceptance Check | Status | Command & Evidence |
+|---|---|---|---|
+| 1 | `r3-red.log`: every new test fails on `994b1f05`. `r3-green.log`: they pass on your head. | PASS | `plans/reports/agy-e-cli-spec-errors-evidence/r3-red.log` (6 failed in `designos-mcp`, 4 failed in `designos-app`) and `plans/reports/agy-e-cli-spec-errors-evidence/r3-green.log` (all passed). |
+| 2 | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` exit 0. | PASS | Both exited `0` (`plans/reports/agy-e-cli-spec-errors-evidence/r3-lint.log`). |
+| 3 | `cargo test -p designos-mcp --locked`, `cargo test -p designos-eval --locked`, `cargo test -p designos-app --bin designos --locked cli`, and `cargo test -p designos-app --test cli_screenshot --locked` pass under the harness. | PASS | All 4 test commands exited `0` (`plans/reports/agy-e-cli-spec-errors-evidence/r3-tests.log`). |
+| 4 | Show `git diff --stat 994b1f05..HEAD -- crates/designos-app/src/cli.rs`: the duplicate is gone. | PASS | `crates/designos-app/src/cli.rs \| 379 +----------------------------------------` (`1 insertion(+), 378 deletions(-)`). |
+| 5 | Commit as `fix(mcp): …` / `fix(cli): …` (no AI or tool names), push, and add a "Round 3" line to the PR body. Keep the PR a draft, never merge, and delete `out/`. | PASS | Committed, pushed, PR #1117 body updated with Round 3 line, `out/` deleted. |
+
+### 3) Changes per file (Round 3)
+
+#### Skills Loaded & Changes Because of Them
+- **Skills loaded**:
+  - `es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`)
+  - `es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`)
+  - `es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`)
+  - `es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`)
+  - `es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`)
+  - `es:astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`)
+- **What changed because of the loaded skills**:
+  - Per `es:fable-thinking` falsification-first discipline, reproduced all reviewer probes (`set_slot` error misattribution, nested path loss, `f32` overflow vs non-numeric type error, structured comment `author` false reject, batch `apply_spec` bypass, duplicate JSON key acceptance on CLI, and `UNKNOWN_FIELD:` prefix leak) in `r3-red.log` before editing production code, and added a 455-case differential matrix test in `crates/designos-mcp/tests/spec_errors.rs` that caught `#[serde(untagged)]` `NumberOrVar` accepting `1e40` as `f32::INFINITY`.
+  - Per `es:rust` single-source-of-truth and API design rules, consolidated spec parsing into `designos_mcp::tools::errors::parse_spec_json`, added `App::try_open_path(&mut self, p: PathBuf) -> Result<(), String>` in `crates/designos-app/src/ops.rs`, and moved the `#[cfg(test)]` load counter into `crates/designos-app/src/io.rs`.
+
+#### Per-File Summary
+- **`crates/designos-mcp/src/tools/errors.rs`**:
+  - Stripped `"INVALID_SLOT_VALUE: "` from `ToolError.message` when constructing `ErrorCode::InvalidSlotValue` in `from_serde_error_with_args`.
+  - Added `join_spec_path`, `is_non_finite_f32_number`, `is_valid_color`, `is_valid_comment_author`, `describe_comments_error`, `describe_slot_fill_error`, `describe_spec_value_error_at`, and `pub fn parse_spec_json`.
+  - Updated `describe_layout_spec_error`, `describe_slots_error`, `describe_override_spec_error`, `describe_in_progress_error`, and `describe_spec_value_error_at` to carry the full slash-separated path from the spec root and distinguish non-finite `f32` numbers (`1e40`) from non-numeric values.
+  - Updated `describe_spec_args_error` to validate `set_slot` (`node`/`node_id`/`instance`, `slot`, `as`, `fill`/`value`) and `apply_spec` (`parent_id`, `parent`, `index`, `as`, `diff_image`, `idempotency_key`, `spec`), returning `None` at the end instead of treating arbitrary batch ops as a `NodeSpec`.
+  - Added `.replace("struct Color", "an RGBA color object")` in `humanize_spec_serde_message`.
+- **`crates/designos-mcp/src/tools/batch.rs`**:
+  - Added `describe_spec_args_error(&raw_op)` check after `serde_json::from_value` in both `"apply_spec"` and `"set_slot"`.
+- **`crates/designos-mcp/tests/spec_errors.rs`**:
+  - Added `round3_set_slot_bad_slot_reports_slot_field`, `round3_set_slot_bad_child_item_in_fill_reports_child_path`, `round3_set_slot_bad_child_field_in_fill_reports_nested_path`, `round3_nested_spec_errors_carry_path_from_root`, `round3_f32_overflow_and_comments_parity_with_serde` (including the 455-combination differential matrix), and `round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec`.
+- **`crates/designos-app/src/cli.rs`**:
+  - Deleted the duplicate `describe_spec_value_error` walk and helpers (`-378` lines) and delegated `cli::parse_spec_json` to `designos_mcp::tools::errors::parse_spec_json`.
+- **`crates/designos-app/src/ops.rs`**:
+  - Added `pub fn try_open_path(&mut self, p: PathBuf) -> Result<(), String>` next to `pub fn open_path(&mut self, p: PathBuf)` so every open failure path returns `Err(String)` while `open_path` calls `let _ = self.try_open_path(p);`.
+- **`crates/designos-app/src/shell.rs`**:
+  - Updated `Shell::build` to call `if let Err(err) = app.try_open_path(f.clone())` in screenshot mode instead of inferring open failure from `app.canvas.dirty` and `app.toast`.
+- **`crates/designos-app/src/io.rs` & `crates/designos-app/src/main.rs`**:
+  - Moved `#[cfg(test)] fn load_counts` and `#[cfg(test)] pub fn load_call_count` into `crates/designos-app/src/io.rs` inside `load_path_with_warning`, deleted `#[path = "."] mod io_raw` from `crates/designos-app/src/main.rs`, and added `round3_cli_apply_spec_reports_nested_path`, `round3_cli_apply_spec_refuses_duplicate_keys`, `round3_cli_apply_spec_unknown_field_omits_code_prefix`, `round3_cli_apply_spec_rejects_f32_overflow_with_clear_message`, plus direct `App::try_open_path` assertions in `cli_screenshot_loads_good_file_once`.
+
+### 4) Every user-facing string in `crates/designos-mcp/src/tools/errors.rs` (and `crates/designos-app/src/shell.rs`), verbatim
+
+#### Spec & `set_slot` validation strings (`crates/designos-mcp/src/tools/errors.rs`)
+- `"{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."`
+- `"{msg_path}/id must be a string. Pass a string value."`
+- `"{msg_path}/author must be a string or an author object. Pass a display name string or an object such as {{\"id\": \"...\", \"name\": \"...\"}}."`
+- `"{msg_path}/author_id must be a string. Pass a string value."`
+- `"{msg_path}/author_color must be an RGBA color object with numeric r, g, b, and a fields between 0 and 1."`
+- `"{msg_path}/text must be a string. Pass a string value."`
+- `"{msg_path}/created must be a string. Pass an RFC 3339 timestamp string."`
+- `"{msg_path}/edited must be a string. Pass an RFC 3339 timestamp string or null."`
+- `"{prefix} must be a LayoutSpec object. Pass a JSON object such as {{\"direction\": \"row\", \"gap\": 8}}."`
+- `"{field_path} must be a string. Pass a string value."`
+- `"{field_path} must be a boolean. Pass true or false."`
+- `"{field_path} must be a finite number. Pass a smaller number."`
+- `"{field_path} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."`
+- `"{field_path} must contain finite numbers. Pass smaller numbers."`
+- `"{field_path} must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."`
+- `"{field_path} must be a positive integer. Pass a whole number of grid tracks."`
+- `"{item_path} must be a NodeSpec object. Pass each slot child as a JSON object."`
+- `"{slot_path} must be false or an array of NodeSpec objects. Pass false or [NodeSpec] for the slot."`
+- `"{path} must be an object mapping slot names to false or an array of NodeSpec objects. Pass false or [NodeSpec] for each slot."`
+- `"{prefix} must be an OverrideSpec object. Pass each override as a JSON object."`
+- `"{field_path} must be a non-negative integer. Pass a numeric node ID."`
+- `"{field_path} must be a number between 0 and 1. Pass a numeric opacity such as 0.8."`
+- `"{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."`
+- `"{field_path} must be an object mapping component property names to values. Pass a JSON object."`
+- `"{prefix} must be a boolean or an in_progress object. Pass true, false, or an object such as {{\"agent\": \"...\"}}."`
+- `"{field_path} must be a non-negative integer. Pass a whole number."`
+- `"{label} must be a NodeSpec object. Pass a JSON object with node fields such as kind, name, and children."`
+- `"{field_path} must be an object mapping variable collection names to mode names. Pass an object such as {{\"Theme\": \"Dark\"}}."`
+- `"{field_path} must be an array of OverrideSpec objects. Pass each override as a JSON object."`
+- `"{field_path} must be a number. Pass a numeric coordinate in pixels."`
+- `"{field_path} must be a number. Pass a numeric size in pixels."`
+- `"{field_path} must be a number between 0 and 1 or a \"var:...\" string. Pass a number such as 0.8 or a variable reference."`
+- `"{field_path} must be an array of 4 numbers or \"var:...\" strings ([tl, tr, br, bl]). Pass 4 values such as [8, 8, 8, 8]."`
+- `"{field_path} must be a number between 100 and 900 (for example 400, 500, 600, or 700). Pass an integer weight."`
+- `"{field_path} must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference."`
+- `"{field_path} must be an array of strings. Pass an array such as [\"Note\"]."`
+- `"{field_path} must be an array of NodeSpec objects. Pass each child as a JSON object."`
+- `"node must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference."`
+- `"slot must be a string. Pass a slot name string."`
+- `"as must be a string. Pass an alias name string."`
+- `"parent_id must be a non-negative integer. Pass a numeric node ID."`
+- `"parent must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference."`
+- `"index must be a non-negative integer. Pass a zero-based child index."`
+- `"diff_image must be a boolean. Pass true or false."`
+- `"idempotency_key must be a string. Pass a string key."`
+- `"Unknown field \`{bad}\`."`
+- `"Unknown field \`{bad}\` (valid options: {})"`
+- `"value must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."`
+- `"visible must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference."`
+- `"in_progress must be a boolean or an in_progress object. Pass true, false, or an object such as {\"agent\": \"...\"}."`
+
+#### Screenshot open-failure string (`crates/designos-app/src/shell.rs`)
+- `"{} could not be opened: {reason}. Check the file, then try again."`
+
+### 5) Coverage & fields not covered by custom per-field messages
+- **All 35 `NodeSpec` fields** (`id`, `kind`, `name`, `component`, `variant`, `props`, `overrides`, `slots`, `preset`, `x`, `y`, `width`, `height`, `width_sizing`, `height_sizing`, `min_width`, `max_width`, `min_height`, `max_height`, `col_span`, `row_span`, `fill`, `stroke`, `stroke_weight`/`stroke_width`, `corner_radius`/`radius`, `corner_radii`, `opacity`, `clips_content`, `visible`, `text`, `font_size`, `line_height`, `font_weight`, `text_color`/`color`, `text_style`, `effect_style`, `grid_style`, `mode`, `layout`, `dev_status`, `annotation`, `annotations`, `in_progress`, `comments`, `children`), **all 9 `LayoutSpec` fields** (`direction`/`dir`, `wrap`, `gap`, `counter_gap`, `padding`, `primary_align`/`justify`, `counter_align`/`align`, `grid_columns`, `grid_rows`), **all 11 `OverrideSpec` fields** (`path`, `id`, `text`, `fill`, `stroke`, `visible`, `opacity`, `swap`, `variant`, `props`, `slots`), **all 6 `InProgressWire` fields** (`run_id`, `agent`/`agent_name`, `status`, `started_at_ms`, `since_ms`, `stale_after_s`), and **all 7 `RawComment` message fields** (`id`, `author`, `author_id`, `author_color`, `text`, `created`, `edited`) are covered.
+- **Fields without dedicated per-field messages**:
+  - Top-level `ResolvedCommentThread` metadata fields (`id`, `resolved`, `page_id`, `page_name`, `world_x`, `world_y`, `target_node_id`, `target_node_name`, `target_node_kind`, `target_frame_id`, `target_frame_name`, `messages` in `crates/designos-doc/src/spec.rs:406-418`) are validated together and report the thread-level message `"{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."` rather than individual per-field messages.
+  - Arbitrary JSON values inside `props: BTreeMap<String, serde_json::Value>` (`NodeSpec.props` and `OverrideSpec.props`) have no inner schema restrictions in `NodeSpec` / `OverrideSpec` (any JSON value is accepted by `serde` once `props` is a JSON object).
+
+### 6) Exact Commands & Pasted Output (Round 3)
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r3-red.log`
+```text
+$ cargo test -p designos-mcp --test spec_errors --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.96s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 6 tests
+test round3_nested_spec_errors_carry_path_from_root ... FAILED
+test round3_f32_overflow_and_comments_parity_with_serde ... FAILED
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... FAILED
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... FAILED
+test round3_set_slot_bad_slot_reports_slot_field ... FAILED
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... FAILED
+
+failures:
+
+---- round3_nested_spec_errors_carry_path_from_root stdout ----
+
+thread 'round3_nested_spec_errors_carry_path_from_root' (52381226) panicked at crates/designos-mcp/tests/spec_errors.rs:160:5:
+expected nested path in "Invalid arguments: padding must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- round3_f32_overflow_and_comments_parity_with_serde stdout ----
+
+thread 'round3_f32_overflow_and_comments_parity_with_serde' (52381225) panicked at crates/designos-mcp/tests/spec_errors.rs:175:5:
+expected 'x must be a finite number' in "Invalid arguments: x must be a number. Pass a numeric coordinate in pixels."
+
+---- round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec stdout ----
+
+thread 'round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec' (52381224) panicked at crates/designos-mcp/tests/spec_errors.rs:265:10:
+batch apply_spec with layout: [] must fail: Object {"changed": Object {"deleted": Number(0), "inserted": Number(1), "moved": Number(0), "styles": Number(0), "updated": Number(0), "variables": Number(0)}, "created": Array [Number(2)], "created_count": Number(1), "dry_run": Bool(false), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "name_to_id": Object {"Hero": Number(2)}, "touched_bounds": Object {"height": Number(100.0), "width": Number(200.0), "x": Number(0.0), "y": Number(0.0)}, "touched_roots": Array [Object {"bounds": Object {"height": Number(100.0), "width": Number(200.0), "x": Number(0.0), "y": Number(0.0)}, "node_id": Number(2), "op": Number(0)}], "undo_label": String("Agent: designos-mcp")}
+
+---- round3_set_slot_bad_child_field_in_fill_reports_nested_path stdout ----
+
+thread 'round3_set_slot_bad_child_field_in_fill_reports_nested_path' (52381227) panicked at crates/designos-mcp/tests/spec_errors.rs:135:5:
+expected 'fill/0/width must be a number or a "var:..." string' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+---- round3_set_slot_bad_slot_reports_slot_field stdout ----
+
+thread 'round3_set_slot_bad_slot_reports_slot_field' (52381229) panicked at crates/designos-mcp/tests/spec_errors.rs:83:9:
+for {"fill":[{"kind":"text","text":"Body"}],"node":2,"op":"set_slot","slot":5}, expected 'slot must be a string' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+---- round3_set_slot_bad_child_item_in_fill_reports_child_path stdout ----
+
+thread 'round3_set_slot_bad_child_item_in_fill_reports_child_path' (52381228) panicked at crates/designos-mcp/tests/spec_errors.rs:112:5:
+expected 'fill/0 must be a NodeSpec object' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+
+failures:
+    round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec
+    round3_f32_overflow_and_comments_parity_with_serde
+    round3_nested_spec_errors_carry_path_from_root
+    round3_set_slot_bad_child_field_in_fill_reports_nested_path
+    round3_set_slot_bad_child_item_in_fill_reports_child_path
+    round3_set_slot_bad_slot_reports_slot_field
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --test spec_errors`
+
+$ cargo test -p designos-app --bin designos --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.70s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... FAILED
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... FAILED
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... FAILED
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... FAILED
+
+failures:
+
+---- icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix' (52386431) panicked at crates/designos-app/src/main.rs:783:9:
+user-facing CLI error must not include internal code prefix: "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_unk_12100/spec.json: UNKNOWN_FIELD: unknown field `colour` (valid_options: slots, layout, props, col_span, fill)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- icon_tests::round3_cli_apply_spec_reports_nested_path stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_reports_nested_path' (52386430) panicked at crates/designos-app/src/main.rs:748:9:
+expected nested path in "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_nested_12100/spec.json: padding must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+
+---- icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message' (52386429) panicked at crates/designos-app/src/main.rs:800:9:
+expected finite-number message in "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_ovf_12100/spec.json: x must be a number. Pass a numeric coordinate in pixels."
+
+---- icon_tests::round3_cli_apply_spec_refuses_duplicate_keys stdout ----
+{
+  "root_node_id": 2,
+  "saved": true
+}
+
+thread 'icon_tests::round3_cli_apply_spec_refuses_duplicate_keys' (52386428) panicked at crates/designos-app/src/main.rs:766:51:
+duplicate JSON keys must be refused: ()
+
+
+failures:
+    icon_tests::round3_cli_apply_spec_refuses_duplicate_keys
+    icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message
+    icon_tests::round3_cli_apply_spec_reports_nested_path
+    icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+```
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r3-green.log`
+```text
+$ cargo test -p designos-mcp --test spec_errors --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.32s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 6 tests
+test round3_nested_spec_errors_carry_path_from_root ... ok
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... ok
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... ok
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... ok
+test round3_set_slot_bad_slot_reports_slot_field ... ok
+test round3_f32_overflow_and_comments_parity_with_serde ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+
+$ cargo test -p designos-app --bin designos --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.73s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.01s
+
+
+$ cargo test -p designos-app --bin designos --locked cli_screenshot_loads_good_file_once
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.55s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test icon_tests::cli_screenshot_loads_good_file_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3284 filtered out; finished in 0.15s
+```
+
+#### Acceptance 2, 3, & 4 Commands & Output
+```text
+$ cargo fmt --all -- --check
+EXIT=0
+
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.28s
+EXIT=0
+
+$ cargo test -p designos-mcp --locked
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s
+     Running tests/spec_errors.rs
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+$ cargo test -p designos-eval --locked
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+$ cargo test -p designos-app --bin designos --locked cli
+test result: ok. 295 passed; 0 failed; 0 ignored; 0 measured; 2990 filtered out; finished in 73.91s
+
+$ cargo test -p designos-app --test cli_screenshot --locked
+running 1 test
+test cli_screenshot_refuses_broken_files_and_captures_good_file ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.63s
+
+$ git diff --stat 994b1f05..HEAD -- crates/designos-app/src/cli.rs
+ crates/designos-app/src/cli.rs | 379 +----------------------------------------
+ 1 file changed, 1 insertion(+), 378 deletions(-)
+```
+
 Status: DONE

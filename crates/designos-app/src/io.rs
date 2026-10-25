@@ -145,7 +145,22 @@ pub fn is_web_capture_path(path: &Path) -> bool {
 /// Like [`load_path`], but also returns the non-fatal import or repair warning, if any: a `.pen`
 /// file whose `ref` expansion hit the clone budget or a native `.designos` file whose node graph
 /// needed structural repair on load still opens, and reports what changed.
+#[cfg(test)]
+fn load_counts() -> &'static Mutex<HashMap<PathBuf, usize>> {
+    static COUNTS: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+    COUNTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+pub fn load_call_count(path: &Path) -> usize {
+    load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
+}
+
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
+    #[cfg(test)]
+    if let Ok(mut m) = load_counts().lock() {
+        *m.entry(path.to_path_buf()).or_insert(0) += 1;
+    }
     load_path_importing_pen_with(path, import_pen_with_options)
 }
 
