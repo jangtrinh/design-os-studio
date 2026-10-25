@@ -1314,13 +1314,15 @@ fn summary(doc: &Document, n: &Node) -> Value {
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&raw)))
+    T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&args)))
 }
 
 pub(crate) fn parse_spec<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&raw)))
+    let parsed = T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&args)))?;
+    if let Some(spec_msg) = crate::tools::errors::describe_spec_args_error(&args) {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, "", format!("Invalid arguments: {spec_msg}")));
+    }
+    Ok(parsed)
 }
 
 use crate::tools::bounded_text;

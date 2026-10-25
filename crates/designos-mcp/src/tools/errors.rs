@@ -884,7 +884,399 @@ pub fn from_serde_error_with_args(err: &serde_json::Error, pointer_prefix: &str,
         }
     }
 
+    if is_spec || raw_args.is_some_and(|r| r.get("spec").is_some()) {
+        if let Some(spec_msg) = raw_args.and_then(describe_spec_args_error).or_else(|| humanize_spec_serde_message(&msg)) {
+            return ToolError::new(ErrorCode::InvalidArguments, pointer_prefix, format!("Invalid arguments: {spec_msg}"));
+        }
+    }
+
     ToolError::new(ErrorCode::InvalidArguments, pointer_prefix, format!("Invalid arguments: {msg}"))
+}
+
+fn is_finite_f32(v: &Value) -> bool {
+    v.as_f64().is_some_and(|n| (n as f32).is_finite())
+}
+
+fn is_num_or_var(v: &Value) -> bool {
+    is_finite_f32(v) || v.is_string()
+}
+
+fn is_u16(v: &Value) -> bool {
+    v.as_u64().is_some_and(|n| u16::try_from(n).is_ok())
+}
+
+fn is_u32(v: &Value) -> bool {
+    v.as_u64().is_some_and(|n| u32::try_from(n).is_ok())
+}
+
+fn is_valid_comment_thread(v: &Value) -> bool {
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
+    obj.get("id").is_some_and(Value::is_string)
+        && obj.get("resolved").is_some_and(Value::is_boolean)
+        && obj.get("page_id").and_then(Value::as_u64).is_some()
+        && obj.get("page_name").is_some_and(Value::is_string)
+        && obj.get("world_x").is_some_and(is_finite_f32)
+        && obj.get("world_y").is_some_and(is_finite_f32)
+        && obj.get("target_node_id").is_none_or(|x| x.is_null() || x.as_u64().is_some())
+        && obj.get("target_node_name").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("target_node_kind").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("target_frame_id").is_none_or(|x| x.is_null() || x.as_u64().is_some())
+        && obj.get("target_frame_name").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("messages").and_then(Value::as_array).is_some_and(|msgs| {
+            msgs.iter().all(|m| {
+                m.as_object().is_some_and(|mo| {
+                    mo.get("id").is_some_and(Value::is_string)
+                        && mo.get("author").is_some_and(Value::is_string)
+                        && mo.get("text").is_some_and(Value::is_string)
+                        && mo.get("created_at").is_none_or(Value::is_string)
+                })
+            })
+        })
+}
+
+fn describe_layout_spec_error(val: &Value) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        return Some("layout must be a LayoutSpec object. Pass a JSON object such as {\"direction\": \"row\", \"gap\": 8}.".into());
+    };
+    for (k, v) in obj {
+        match k.as_str() {
+            "direction" | "dir" | "primary_align" | "justify" | "counter_align" | "align" => {
+                if !v.is_string() {
+                    return Some(format!("{k} must be a string. Pass a string value."));
+                }
+            }
+            "wrap" => {
+                if !v.is_boolean() {
+                    return Some("wrap must be a boolean. Pass true or false.".into());
+                }
+            }
+            "gap" | "counter_gap" => {
+                if !is_num_or_var(v) {
+                    return Some(format!("{k} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
+                }
+            }
+            "padding" => {
+                if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
+                    return Some(
+                        "padding must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+                            .into(),
+                    );
+                }
+            }
+            "grid_columns" | "grid_rows" => {
+                if !v.is_null() && !is_u32(v) {
+                    return Some(format!("{k} must be a positive integer. Pass a whole number of grid tracks."));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn describe_slots_error(val: &Value) -> Option<String> {
+    let Some(map) = val.as_object() else {
+        return Some("slots must be an object mapping slot names to false or an array of NodeSpec objects. Pass false or [NodeSpec] for each slot.".into());
+    };
+    for (slot_name, slot_val) in map {
+        match slot_val {
+            Value::Bool(false) => {}
+            Value::Array(items) => {
+                for item in items {
+                    if !item.is_object() {
+                        return Some(format!(
+                            "slots.{slot_name} must be false or an array of NodeSpec objects. Pass false or each slot child as a JSON object."
+                        ));
+                    }
+                    if let Some(err) = describe_spec_value_error(item) {
+                        return Some(err);
+                    }
+                }
+            }
+            _ => {
+                return Some(format!("slots.{slot_name} must be false or an array of NodeSpec objects. Pass false or [NodeSpec] for the slot."));
+            }
+        }
+    }
+    None
+}
+
+fn describe_override_spec_error(val: &Value) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        return Some("overrides must be an array of OverrideSpec objects. Pass each override as a JSON object.".into());
+    };
+    for (k, v) in obj {
+        match k.as_str() {
+            "path" | "text" | "fill" | "stroke" | "swap" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{k} must be a string. Pass a string value."));
+                }
+            }
+            "id" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some("id must be a non-negative integer. Pass a numeric node ID.".into());
+                }
+            }
+            "visible" => {
+                if !v.is_null() && !v.is_boolean() {
+                    return Some("visible must be a boolean. Pass true or false.".into());
+                }
+            }
+            "opacity" => {
+                if !v.is_null() && !is_finite_f32(v) {
+                    return Some("opacity must be a number between 0 and 1. Pass a numeric opacity such as 0.8.".into());
+                }
+            }
+            "variant" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(
+                        "variant must be an object mapping variant property names to string values. Pass an object such as {\"Size\": \"md\"}.".into(),
+                    );
+                }
+            }
+            "props" => {
+                if !v.is_object() {
+                    return Some("props must be an object mapping component property names to values. Pass a JSON object.".into());
+                }
+            }
+            "slots" => {
+                if let Some(err) = describe_slots_error(v) {
+                    return Some(err);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn describe_in_progress_error(val: &Value) -> Option<String> {
+    if val.is_null() || val.is_boolean() {
+        return None;
+    }
+    let Some(obj) = val.as_object() else {
+        return Some("in_progress must be a boolean or an in_progress object. Pass true, false, or an object such as {\"agent\": \"...\"}.".into());
+    };
+    for (k, v) in obj {
+        match k.as_str() {
+            "run_id" | "agent" | "agent_name" | "status" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{k} in in_progress must be a string. Pass a string value."));
+                }
+            }
+            "started_at_ms" | "since_ms" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some(format!("{k} in in_progress must be a non-negative integer. Pass a whole number."));
+                }
+            }
+            "stale_after_s" => {
+                if !v.is_null() && !is_u32(v) {
+                    return Some("stale_after_s in in_progress must be a non-negative integer. Pass a whole number.".into());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Inspects a raw `NodeSpec` JSON value and returns a plain-words error message naming the first
+/// field whose value has the wrong JSON type.
+pub fn describe_spec_value_error(val: &Value) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        return Some("spec must be a NodeSpec object. Pass a JSON object with node fields such as kind, name, and children.".into());
+    };
+    for (k, v) in obj {
+        match k.as_str() {
+            "id" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some("id must be a non-negative integer. Pass a numeric node ID.".into());
+                }
+            }
+            "kind" | "name" => {
+                if !v.is_string() {
+                    return Some(format!("{k} must be a string. Pass a string value."));
+                }
+            }
+            "component" | "preset" | "width_sizing" | "height_sizing" | "fill" | "stroke" | "text" | "text_color" | "color" | "text_style" | "effect_style"
+            | "grid_style" | "dev_status" | "annotation" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{k} must be a string. Pass a string value."));
+                }
+            }
+            "variant" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(
+                        "variant must be an object mapping variant property names to string values. Pass an object such as {\"Size\": \"md\"}.".into(),
+                    );
+                }
+            }
+            "mode" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(
+                        "mode must be an object mapping variable collection names to mode names. Pass an object such as {\"Theme\": \"Dark\"}.".into(),
+                    );
+                }
+            }
+            "props" => {
+                if !v.is_object() {
+                    return Some("props must be an object mapping component property names to values. Pass a JSON object.".into());
+                }
+            }
+            "overrides" => {
+                let Some(arr) = v.as_array() else {
+                    return Some("overrides must be an array of OverrideSpec objects. Pass each override as a JSON object.".into());
+                };
+                for item in arr {
+                    if let Some(err) = describe_override_spec_error(item) {
+                        return Some(err);
+                    }
+                }
+            }
+            "slots" => {
+                if let Some(err) = describe_slots_error(v) {
+                    return Some(err);
+                }
+            }
+            "x" | "y" => {
+                if !is_finite_f32(v) {
+                    return Some(format!("{k} must be a number. Pass a numeric coordinate in pixels."));
+                }
+            }
+            "min_width" | "max_width" | "min_height" | "max_height" => {
+                if !v.is_null() && !is_finite_f32(v) {
+                    return Some(format!("{k} must be a number. Pass a numeric size in pixels."));
+                }
+            }
+            "width" | "height" | "stroke_weight" | "stroke_width" | "corner_radius" | "radius" | "font_size" | "line_height" => {
+                if !v.is_null() && !is_num_or_var(v) {
+                    return Some(format!("{k} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
+                }
+            }
+            "opacity" => {
+                if !is_num_or_var(v) {
+                    return Some("opacity must be a number between 0 and 1 or a \"var:...\" string. Pass a number such as 0.8 or a variable reference.".into());
+                }
+            }
+            "corner_radii" => {
+                if !v.is_null() && !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
+                    return Some(
+                        "corner_radii must be an array of 4 numbers or \"var:...\" strings ([tl, tr, br, bl]). Pass 4 values such as [8, 8, 8, 8].".into(),
+                    );
+                }
+            }
+            "col_span" | "row_span" => {
+                if !v.is_null() && !is_u16(v) {
+                    return Some(format!("{k} must be a positive integer. Pass a whole number of grid tracks."));
+                }
+            }
+            "font_weight" => {
+                if !v.is_null() && !is_u16(v) {
+                    return Some("font_weight must be a number between 100 and 900 (for example 400, 500, 600, or 700). Pass an integer weight.".into());
+                }
+            }
+            "clips_content" => {
+                if !v.is_null() && !v.is_boolean() {
+                    return Some("clips_content must be a boolean. Pass true or false.".into());
+                }
+            }
+            "visible" => {
+                if !v.is_null() && !v.is_boolean() && !v.is_string() {
+                    return Some("visible must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference.".into());
+                }
+            }
+            "layout" => {
+                if !v.is_null() {
+                    if let Some(err) = describe_layout_spec_error(v) {
+                        return Some(err);
+                    }
+                }
+            }
+            "annotations" => {
+                if !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) {
+                    return Some("annotations must be an array of strings. Pass an array such as [\"Note\"].".into());
+                }
+            }
+            "in_progress" => {
+                if let Some(err) = describe_in_progress_error(v) {
+                    return Some(err);
+                }
+            }
+            "comments" => {
+                if !v.as_array().is_some_and(|a| a.iter().all(is_valid_comment_thread)) {
+                    return Some(
+                        "comments must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects.".into(),
+                    );
+                }
+            }
+            "children" => {
+                let Some(arr) = v.as_array() else {
+                    return Some("children must be an array of NodeSpec objects. Pass each child as a JSON object.".into());
+                };
+                for child in arr {
+                    if !child.is_object() {
+                        return Some("children must be an array of NodeSpec objects. Pass each child as a JSON object.".into());
+                    }
+                    if let Some(err) = describe_spec_value_error(child) {
+                        return Some(err);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Inspects raw `designos_apply_spec` (or batch `apply_spec`) arguments for spec field type errors.
+pub fn describe_spec_args_error(raw_args: &Value) -> Option<String> {
+    if let Some(obj) = raw_args.as_object() {
+        if let Some(pid) = obj.get("parent_id") {
+            if !pid.is_null() && pid.as_u64().is_none() {
+                return Some("parent_id must be a non-negative integer. Pass a numeric node ID.".into());
+            }
+        }
+        if let Some(di) = obj.get("diff_image") {
+            if !di.is_boolean() {
+                return Some("diff_image must be a boolean. Pass true or false.".into());
+            }
+        }
+        if let Some(ik) = obj.get("idempotency_key") {
+            if !ik.is_null() && !ik.is_string() {
+                return Some("idempotency_key must be a string. Pass a string key.".into());
+            }
+        }
+        if let Some(spec) = obj.get("spec") {
+            return describe_spec_value_error(spec);
+        }
+    }
+    describe_spec_value_error(raw_args)
+}
+
+/// Replaces Rust type names in a raw `serde_json` error string with plain spec wording.
+pub fn humanize_spec_serde_message(msg: &str) -> Option<String> {
+    if msg.contains("untagged enum NumberOrVar") {
+        return Some("value must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference.".into());
+    }
+    if msg.contains("untagged enum BoolOrVar") {
+        return Some("visible must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference.".into());
+    }
+    if msg.contains("untagged enum InProgressSpec") {
+        return Some("in_progress must be a boolean or an in_progress object. Pass true, false, or an object such as {\"agent\": \"...\"}.".into());
+    }
+    let replaced = msg
+        .replace("struct NodeSpec", "a NodeSpec object")
+        .replace("struct LayoutSpec", "a LayoutSpec object")
+        .replace("struct OverrideSpec", "an OverrideSpec object")
+        .replace("struct ResolvedCommentThread", "a comment thread object")
+        .replace("a tuple of size 4", "an array of 4 numbers or \"var:...\" strings")
+        .replace("expected u64", "expected a non-negative integer")
+        .replace("expected u32", "expected a non-negative integer")
+        .replace("expected u16", "expected a non-negative integer")
+        .replace("expected f32", "expected a number");
+    (replaced != msg).then_some(replaced)
 }
 
 fn fix_invalid_slot_in_args(root: &Value) -> Option<Value> {
