@@ -6,9 +6,9 @@
 | Size | M. About two to three days: 6 owned files, 39 chrome colour sites, the R5 type swap on four bars, the menu row height from spec C. No new behaviour. |
 | Depends on | A (colour roles and the `theme.rs` colour constants), B (type, spacing, radius and control-size scale), C (widget anatomy and states, `specs/C-widget-kit-untitled-anatomy.md`) and L (layout-unchanged gate and the baseline captures). Also #1106 (icon-only rail, in flight), see section 12 and Open question 2. |
 | Unblocks | M (docs and screenshot refresh). J reads section 5: the command palette inside `panels/menus.rs` is restyled here, not in J. |
-| Touches | `crates/designos-app/src/tabs.rs` (`:19-29`, `:48-54`, `:895-1212`); `crates/designos-app/src/shell.rs` (`:71`, `:989-1016`, `:1180-1182`, `:1319-1345`, `:1382`, `:1457-1509`, `:3403-3490`); `crates/designos-app/src/panels/rail.rs` (`:36-212`); `crates/designos-app/src/panels/toolbar.rs` (`:109-444`); `crates/designos-app/src/panels/menus.rs` (`:417-842`, `:879-1057`); `crates/designos-app/src/canvas/rulers.rs` (`:373-498`). Reads only (owned by A and B): the shell constants in `crates/designos-app/src/theme.rs` (`:22-47`, `:263-277`, `:398-455`, `:524-541`). |
+| Touches | `crates/designos-app/src/tabs.rs` (`:21-31`, `:50-56`, `:936-1265`); `crates/designos-app/src/shell.rs` (`:76`, `:993-1034`, `:1201-1203`, `:1401-1427`, `:1464`, `:1532-1569`, `:3451-3556`); `crates/designos-app/src/panels/rail.rs` (`:36-182`); `crates/designos-app/src/panels/toolbar.rs` (`:131-470`); `crates/designos-app/src/panels/menus.rs` (`:428-864`, `:901-1079`); `crates/designos-app/src/canvas/rulers.rs` (`:373-498`). Reads only (owned by A and B): the shell constants in `crates/designos-app/src/theme.rs` (`:22-47`, `:263-277`, `:398-455`, `:526-543`). |
 
-Code baseline: HEAD `ec47da26` (the local `main` this spec was written on). `origin/main` is `35a65796`, four commits ahead (release 0.6.1). It changes five of this spec's files: `shell.rs` 308, `panels/menus.rs` 104, `tabs.rs` 93, `panels/toolbar.rs` 82 and `panels/rail.rs` 34 changed lines (`git diff --stat ec47da26 35a65796 -- <files>`; `canvas/rulers.rs` unchanged). The colour-site counts in section 2 are identical at `35a65796` (re-measured on a `git archive` export); only line numbers move. Re-anchor every cited line against the HEAD you branch from and report drift before writing code.
+Code baseline: `origin/main` `35a65796` (release 0.6.1). The spec was written on `ec47da26`; every cited line was then re-anchored to `35a65796` (diff-hunk mapping with a content check per line; lines inside changed hunks placed by hand) and the census in section 2 was re-measured there (same site counts). Changed files of this spec between the two: `shell.rs` 308, `panels/menus.rs` 104, `tabs.rs` 93, `panels/toolbar.rs` 82 and `panels/rail.rs` 34 changed lines (`git diff --stat ec47da26 35a65796 -- <files>`; `canvas/rulers.rs` unchanged); at `35a65796` the rail has no Agent Terminal button and the shell no terminal dock. Re-anchor again against the HEAD you branch from and report drift before writing code.
 
 Colour names follow the plan's naming contract: Untitled token name plus the dark-mode hex, resolved this session from the kit export (`--export-variables --format dtcg`, then `evidence/resolve-untitled-tokens.py`). Brand roles carry the R4 remap. Where spec A or C is not yet written, a role is marked provisional and A's token contract wins on conflict. Names that Untitled does not have are marked "new name".
 
@@ -18,27 +18,27 @@ As a designer working in Studio, I see the window chrome (title bar, file tabs, 
 
 ## 2. Current state (FACT unless labelled)
 
-Inventory of the surface (HEAD `ec47da26`):
+Inventory of the surface (lines at `origin/main` `35a65796`):
 
-- **Title bar** (`shell.rs:1319-1345`). Height `TOP_TITLE_BAR_HEIGHT` 28 (`shell.rs:71`). Fill `#18181B` and bottom hairline `#27272A` are colour literals (`:1324`, `:1325`). Logo in `theme::BG_BRAND` (`:1334`), wordmark "design" strong + ":os studio" regular, 11 px (`:1328-1337`). It is not drawn in `--screenshot` mode (`:1320`, `self.shot.is_none()`), so no CLI capture of it exists.
-- **Tab bar** (`tabs.rs:895-1212`). Height `TOP_TAB_BAR_HEIGHT` 32 (`tabs.rs:19`). File-local colour aliases (`:22-29`): bar `BG_PRIMARY`, border `BORDER`, active tab `BG_SECONDARY` + `BORDER_STRONG`, hover `BG_HOVER`, and three literal badge colours `#0D99FF` (design), `#F59E0B` (board, the constant is misnamed `BADGE_BOARD_PURPLE`), `#FF6A3D` (deck/spec) used by `badge_color` (`:48-54`). Home button 72×24 with literal radius `cr(6)` (`:925-939`); divider (`:947`); project tab 26 tall, 112–240 wide (`:954-964`); close box 18 (`:971`); active tab top radius `RADIUS_CONTROL`/`RADIUS_SEGMENT` (`:985-998`); kind badge 14×14, Dev badge `#1BC47D` with icon `#0D1F16` (`:1001-1010`), other badges a 38-alpha tint of the badge colour (`:1008`); unsaved dot in `#0D99FF` (`:1028`); close hover fill `#E11D48` with a white glyph (`:1032-1044`); `+` button 24 (`:1064-1078`); Update button with a `#1BC47D` dot (`:1082-1113`), hidden while `UPDATER_UI_ENABLED` is false; the two tab menus use `widgets::menu::popup_menu` (`:1116-1179`).
-- **Left rail** (`panels/rail.rs:36-212`). Width `RAIL_WIDTH` 56 (`theme.rs:263`), cells 56, tile 32, icon 20, labels in `font_caption*` 10 px `TEXT` (`rail.rs:88-89`), selected tile `BG_SELECTED`, hover `BG_HOVER` (`:76-80`), separators `BORDER` (`:200-203`), main-menu button (`:43-55`), Agent Terminal button (`:163-175`), help button with a literal `#0D99FF` dot (`:177-185`).
-- **Bottom toolbar** (`panels/toolbar.rs:109-444`). Bar `TOOLBELT_HEIGHT` 48, radius `RADIUS_FRAME` 14, fill `BG_TOOLBAR`, inner ring `INNER_HIGHLIGHT`, two drop shadows (`:170-173`). Tool buttons 32 (`TOOL_BUTTON`), selected `BG_TOOLBAR_SELECTED` with a white icon (`:191-201`), chevrons 16 wide (`:208-224`). Actions button fills literal `#0D99FF` when open (`:114`, `:233-238`). Mode switcher: 3 segments (`:249-310`), Dev segment fills literal `#1BC47D` (`:272-276`), the selected Draw/Design icon is `#0D99FF` (`:283`). Contextual floating bar 128×34 with 28 px buttons, radius `cr(8)`, border `#383838` (`:121-168`). Dev-mode toolbar (`:314-444`): Re-center pill 118×28 in `#2C2C2C`/`#363636`/`#383838` (`:333-352`), tool icons white when active (`:395`), Dev toggle `#1BC47D`, hover `#22D489`, white icon (`:435-439`).
-- **Shell menus** (`panels/menus.rs`). Main menu tree (`:417-558`), tool-group menus (`:560-569`), the CLI preset (`:577-609`), file menu (`:611-651`), zoom menu (`:653-769`), dispatcher (`:776-842`). All of them are drawn by `widgets::menu::popup_tree`/`popup_menu` (spec C), so they carry no colours of their own. Rows are `MENU_ITEM_HEIGHT` 24 (`theme.rs:419`). The menu widget clamps a level taller than the screen and scrolls it (`widgets/menu.rs:174`, test `:661`). The "Actions…" command palette is drawn here (`menus.rs:879-1057`): search row 38, tab row 34, section row 22, 8 rows of 24, width 520 (`:879-883`), with literals `#2C2C2C` surface, `#383838` border and active tab (`:934-936`) and a white active-tab label (`:982`).
-- **Rulers** (`canvas/rulers.rs:373-498`). 20 px strips (`RULER_SIZE`, `theme.rs:525`) filled `BG` with a `BORDER` hairline (`:427-432`); ticks `RULER_TICK` white 40 % and labels `RULER_TEXT` white 70 % at the 9 px canvas size (`theme.rs:526-529`, `rulers.rs:436-462`); selection band `RULER_SELECTION_FILL` (`#0D99FF` 30 %) with `CANVAS_SELECTION` labels (`:474-493`); guides `RULER_GUIDE` `#F24822` and a guide badge with white text (`:405-422`).
-- **Other shell paint in `shell.rs`.** Window background `theme::BG` (`:1382`); dock and left-panel resize handles highlight in `BG_BRAND` 2 px (`:1457-1464`, `:1491-1498`); collapsed-sidebar button (`:1472-1477`); toast (`:989-1016`, spec J's surface, see section 5); `clear_color` returns the float literal `[0.17, 0.17, 0.17, 1.0]` (`:1180-1182`), which the colour regex below does not see; the recording HUD for `--panel micro-*:seq` (`:3403-3490`, literals at `:3406`, `:3433`, `:3451`, `:3453`, `:3466`, `:3467`, `:3473`, `:3479`).
+- **Title bar** (`shell.rs:1401-1427`). Height `TOP_TITLE_BAR_HEIGHT` 28 (`shell.rs:76`). Fill `#18181B` and bottom hairline `#27272A` are colour literals (`:1406`, `:1407`). Logo in `theme::BG_BRAND` (`:1416`), wordmark "design" strong + ":os studio" regular, 11 px (`:1410-1419`). It is not drawn in `--screenshot` mode (`:1402`, `self.shot.is_none()`), so no CLI capture of it exists.
+- **Tab bar** (`tabs.rs:936-1265`). Height `TOP_TAB_BAR_HEIGHT` 32 (`tabs.rs:21`). File-local colour aliases (`:24-31`): bar `BG_PRIMARY`, border `BORDER`, active tab `BG_SECONDARY` + `BORDER_STRONG`, hover `BG_HOVER`, and three literal badge colours `#0D99FF` (design), `#F59E0B` (board, the constant is misnamed `BADGE_BOARD_PURPLE`), `#FF6A3D` (deck/spec) used by `badge_color` (`:50-56`). Home button 72×24 with literal radius `cr(6)` (`:966-980`); divider (`:988`); project tab 26 tall, 112–240 wide (`:994-1007`); close box 18 (`:1014`); active tab top radius `RADIUS_CONTROL`/`RADIUS_SEGMENT` (`:1028-1041`); kind badge 14×14, Dev badge `#1BC47D` with icon `#0D1F16` (`:1044-1053`), other badges a 38-alpha tint of the badge colour (`:1051`); unsaved dot in `#0D99FF` (`:1071-1072`); close hover fill `#E11D48` with a white glyph (`:1076-1088`); `+` button 24 (`:1108-1122`); Update button with a `#1BC47D` dot (`:1126-1157`), hidden while `UPDATER_UI_ENABLED` is false; the two tab menus use `widgets::menu::popup_menu` (`:1160-1223`).
+- **Left rail** (`panels/rail.rs:36-182`). Width `RAIL_WIDTH` 56 (`theme.rs:263`), cells 56, tile 32, icon 20, labels in `font_caption*` 10 px `TEXT` (`rail.rs:88-89`), selected tile `BG_SELECTED`, hover `BG_HOVER` (`:76-80`), separators `BORDER` (`:170-173`), main-menu button (`:43-55`), help button with a literal `#0D99FF` dot (`:147-155`; the Agent Terminal button that sat above it is gone at `35a65796`).
+- **Bottom toolbar** (`panels/toolbar.rs:131-470`). Bar `TOOLBELT_HEIGHT` 48, radius `RADIUS_FRAME` 14, fill `BG_TOOLBAR`, inner ring `INNER_HIGHLIGHT`, two drop shadows (`:192-195`). Tool buttons 32 (`TOOL_BUTTON`), selected `BG_TOOLBAR_SELECTED` with a white icon (`:213-223`), chevrons 16 wide (`:230-254`). Actions button fills literal `#0D99FF` when open (`:136`, `:263-268`). Mode switcher: 3 segments (`:279-337`), Dev segment fills literal `#1BC47D` (`:302-306`), the selected Draw/Design icon is `#0D99FF` (`:313`). Contextual floating bar 128×34 with 28 px buttons, radius `cr(8)`, border `#383838` (`:143-190`). Dev-mode toolbar (`:341-470`): Re-center pill 118×28 in `#2C2C2C`/`#363636`/`#383838` (`:360-379`), tool icons white when active (`:422`), Dev toggle `#1BC47D`, hover `#22D489`, white icon (`:462-466`).
+- **Shell menus** (`panels/menus.rs`). Main menu tree (`:428-570`), tool-group menus (`:581-590`), the CLI preset (`:598-630`), file menu (`:632-672`), zoom menu (`:674-790`), dispatcher (`:797-864`). All of them are drawn by `widgets::menu::popup_tree`/`popup_menu` (spec C), so they carry no colours of their own. Rows are `MENU_ITEM_HEIGHT` 24 (`theme.rs:419`). The menu widget clamps a level taller than the screen and scrolls it (`widgets/menu.rs:209`, test `:759`). The "Actions…" command palette is drawn here (`menus.rs:901-1079`): search row 38, tab row 34, section row 22, 8 rows of 24, width 520 (`:901-905`), with literals `#2C2C2C` surface, `#383838` border and active tab (`:956-958`) and a white active-tab label (`:1004`).
+- **Rulers** (`canvas/rulers.rs:373-498`). 20 px strips (`RULER_SIZE`, `theme.rs:527`) filled `BG` with a `BORDER` hairline (`:427-432`); ticks `RULER_TICK` white 40 % and labels `RULER_TEXT` white 70 % at the 9 px canvas size (`theme.rs:528-531`, `rulers.rs:436-462`); selection band `RULER_SELECTION_FILL` (`#0D99FF` 30 %) with `CANVAS_SELECTION` labels (`:474-493`); guides `RULER_GUIDE` `#F24822` and a guide badge with white text (`:405-422`).
+- **Other shell paint in `shell.rs`.** Window background `theme::BG` (`:1464`); the left-panel resize handle highlights in `BG_BRAND` 2 px (`:1551-1558`; the terminal dock and its handle are gone at `35a65796`); collapsed-sidebar button (`:1532-1537`); toast (`:993-1034`, spec J's surface, see section 5); `clear_color` returns the float literal `[0.17, 0.17, 0.17, 1.0]` (`:1201-1203`), which the colour regex below does not see; the recording HUD for `--panel micro-*:seq` (`:3451-3556`, literals at `:3454`, `:3481`, `:3499`, `:3501`, `:3514`, `:3515`, `:3521`, `:3527`).
 
 Measured colour census (non-test code: comments and strings blanked and `#[cfg(test)]` items dropped by `scripts/rust_literal_scan.clean`). A *chrome site* is a `Color32` constructor with literal arguments, a `from_gray`/`from_black_alpha`/`from_white_alpha` call, or a named `Color32` colour other than `TRANSPARENT`. A *computed site* builds a colour from variables (a document colour or a derived tint).
 
 | File | `theme::` lines | Chrome sites | Site lines | Computed sites |
 |---|---|---|---|---|
-| `tabs.rs` | 26 | 8 | 27, 28, 29, 1003, 1006, 1034, 1037, 1090 | 1008 (badge tint) |
-| `shell.rs` | 55 | 12 | 1324, 1325, 3406 (×2), 3433 (×2), 3451, 3453, 3466, 3467 (×2), 3473, 3479 | none |
-| `panels/rail.rs` | 28 | 1 | 185 | none |
-| `panels/toolbar.rs` | 99 | 13 | 114, 135, 201, 238, 272, 281, 315, 337 (×2), 338, 395, 438, 439 | none |
-| `panels/menus.rs` | 43 | 4 | 934, 935, 936, 982 | none |
+| `tabs.rs` | 26 | 8 | 29, 30, 31, 1046, 1049, 1078, 1081, 1134 | 1051 (badge tint) |
+| `shell.rs` | 54 | 12 | 1406, 1407, 3454 (×2), 3481 (×2), 3499, 3501, 3514, 3515, 3521, 3527 | none |
+| `panels/rail.rs` | 26 | 1 | 155 | none |
+| `panels/toolbar.rs` | 100 | 13 | 136, 157, 223, 268, 302, 311, 342, 364 (×2), 365, 422, 465, 466 | none |
+| `panels/menus.rs` | 43 | 4 | 956, 957, 958, 1004 | none |
 | `canvas/rulers.rs` | 24 | 1 | 422 | none |
-| **Total** | 275 | **39** | | 1 |
+| **Total** | 273 | **39** | | 1 |
 
 Command (run from the repo root; it writes nothing, `PYTHONDONTWRITEBYTECODE=1` keeps `scripts/` clean):
 
@@ -62,11 +62,11 @@ PY
 
 The plan's own method (`grep -cE 'Color32::from_rgba?(_unmultiplied|_premultiplied)?\(|Color32::from_gray\(' <file>`, lines, tests included) gives `tabs.rs` 8, `shell.rs` 8, `panels/toolbar.rs` 7, `panels/menus.rs` 3, `panels/rail.rs` 1, `canvas/rulers.rs` 0. It misses named colours (`Color32::WHITE`) and counts computed constructors, so this spec uses the census above.
 
-Gates today: no gate counts colour literals. `scripts/check_spacing_relationships.py` ratchets geometry and font-size literals against `scripts/spacing_baseline.json`; `scripts/design_os_self_evolve.py` G01 compares 15 `theme.rs` colour constants with `design/design.tokens.json`; `scripts/zero_fake_ui_gate.py` checks behaviour (Z08 the contextual bar buttons, Z13 the zoom menu rows, Z14 the hidden Update button). Theme tests (`theme.rs:770-913`) pin the control family (24/28/32/40), `RIGHT_TABS_H`, the radius chain and `selection_fills_are_neutral`.
+Gates today: no gate counts colour literals. `scripts/check_spacing_relationships.py` ratchets geometry and font-size literals against `scripts/spacing_baseline.json`; `scripts/design_os_self_evolve.py` G01 compares 15 `theme.rs` colour constants with `design/design.tokens.json`; `scripts/zero_fake_ui_gate.py` checks behaviour (Z08 the contextual bar buttons, Z13 the zoom menu rows, Z14 the hidden Update button). Theme tests (`theme.rs:772-915`) pin the control family (24/28/32/40), `RIGHT_TABS_H`, the radius chain and `selection_fills_are_neutral`.
 
 ## 3. Behaviour rules
 
-1. **Colours come from roles only.** After this change the 39 chrome sites in section 2 are gone from the owned files. Each one becomes a `theme::` constant from spec A. The one computed site (`tabs.rs:1008`) derives a tint from a role; it stays computed but takes its alpha from a theme constant (A names it; "new name" if A has none).
+1. **Colours come from roles only.** After this change the 39 chrome sites in section 2 are gone from the owned files. Each one becomes a `theme::` constant from spec A. The one computed site (`tabs.rs:1051`) derives a tint from a role; it stays computed but takes its alpha from a theme constant (A names it; "new name" if A has none).
 2. **Role map** (provisional names until A lands; A's token contract wins):
 
 | Element | State | Role (Untitled dark) | Today |
@@ -95,21 +95,21 @@ Gates today: no gate counts colour literals. `scripts/check_spacing_relationship
 
 | Element | Constant / code | Today | Target | Δ | Layout effect |
 |---|---|---|---|---|---|
-| Title bar | `shell.rs:71` | 28 | 28 | 0 | none |
-| Wordmark type | `shell.rs:1328-1329` | 11 strong/regular | `text-sm` 14/20 (decision 1) | 0 | brand box ×14/11 wider; nothing else sits in the bar |
-| Tab bar | `tabs.rs:19` | 32 | 32 (Open question 1) | 0 | none |
-| Project tab | `tabs.rs:964` | 26 | 26 (Open question 1) | 0 | none |
-| Home, `+` | `tabs.rs:925`, `:1064` | 24 | 24 (Open question 1) | 0 | "Home" at 12 px still fits the 72 px box (label starts at x+26) |
-| Tab, rail, menu, palette labels | `font_body`/`font_caption`/`font_menu` | 10–11 | `text-xs` 12/18 | 0 | tab titles elide about 8 % earlier (fixed max width, `tabs.rs:1019`) |
+| Title bar | `shell.rs:76` | 28 | 28 | 0 | none |
+| Wordmark type | `shell.rs:1410-1411` | 11 strong/regular | `text-sm` 14/20 (decision 1) | 0 | brand box ×14/11 wider; nothing else sits in the bar |
+| Tab bar | `tabs.rs:21` | 32 | 32 (Open question 1) | 0 | none |
+| Project tab | `tabs.rs:1007` | 26 | 26 (Open question 1) | 0 | none |
+| Home, `+` | `tabs.rs:966`, `:1108` | 24 | 24 (Open question 1) | 0 | "Home" at 12 px still fits the 72 px box (label starts at x+26) |
+| Tab, rail, menu, palette labels | `font_body`/`font_caption`/`font_menu` | 10–11 | `text-xs` 12/18 | 0 | tab titles elide about 8 % earlier (fixed max width, `tabs.rs:1062`) |
 | Rail width, cells, tile | `theme.rs:263`, `:268`, `:275` | 56 / 56 / 32 | unchanged, or the #1106 width (Open question 2) | 0 | none |
 | Rail labels | `rail.rs:88-89` | 10 px | `text-xs` 12/18, or none after #1106 | 0 | "Variables" grows from about 44 px (measured on `D-01`) to about 53 px in a 55 px cell (INFERENCE, scaled) |
 | Toolbar, tool buttons | `theme.rs:398`, `:401` | 48 / 32 | 48 / button `xs` 32 | 0 | none |
-| Mode segments | `toolbar.rs:254-257` | 28 tall | C segment height (C draft: 28) | 0 | none |
-| Contextual bar buttons | `toolbar.rs:129-157` | 28 (bar 34) | button `xs` 32 (bar 40) | +6 | the bar floats 6 px higher above the toolbar; width 128 → about 140 |
-| Re-center pill | `toolbar.rs:333` | 28 | button `xs` 32 | +4 | the pill floats 4 px higher |
+| Mode segments | `toolbar.rs:284-287` | 28 tall | C segment height (C draft: 28) | 0 | none |
+| Contextual bar buttons | `toolbar.rs:151-179` | 28 (bar 34) | button `xs` 32 (bar 40) | +6 | the bar floats 6 px higher above the toolbar; width 128 → about 140 |
+| Re-center pill | `toolbar.rs:360` | 28 | button `xs` 32 | +4 | the pill floats 4 px higher |
 | Menu rows (main, file, tool, zoom, tab menus) | `theme.rs:419` via C | 24 | C's menu row (C draft: 32) | +8 per row | main menu 15 rows + 5 separators: 461 → 581 px (bottom at y 625 in a 1088 window); File submenu 12 rows: 338 → 434 px; at `MIN_WINDOW` 900×600 the menu clamps and scrolls (existing) |
-| Palette rows | `menus.rs:879-883` | 8 × 24, search 38, tabs 34 | 8 × C menu row, search `Input field · Size=sm`, tabs C segment | +64 (rows) | palette 296 → about 360 px, still anchored above the toolbar |
-| Rulers | `theme.rs:525-526` | 20 px, 9 px labels | unchanged (Open question 3) | 0 | none |
+| Palette rows | `menus.rs:901-905` | 8 × 24, search 38, tabs 34 | 8 × C menu row, search `Input field · Size=sm`, tabs C segment | +64 (rows) | palette 296 → about 360 px, still anchored above the toolbar |
+| Rulers | `theme.rs:527-528` | 20 px, 9 px labels | unchanged (Open question 3) | 0 | none |
 
 6. **Radii.** Literal radii in the owned files (`tabs.rs` `cr(6)`, `cr(3)`, `cr(4)`; `toolbar.rs` `cr(8)`, `cr(6)`; `menus.rs` `CornerRadius::same(6)`) take B's roles (controls `radius-md` 8 per R5, marks and badges B's small role). A nested shape stays concentric (P4).
 7. **No behaviour change.** Hit areas, shortcuts, tooltips' text, menu contents, widget ids recorded through `widgets::record` and the order of controls stay as they are. Z08, Z13 and Z14 stay green.
@@ -125,10 +125,10 @@ None. No document, preference or file-format change. Only paint calls, constants
 | File | Owner | Shared surface and rule |
 |---|---|---|
 | `crates/designos-app/src/tabs.rs` | D | none |
-| `crates/designos-app/src/shell.rs` | D | the toast (`:989-1016`) is J's surface: D applies J's toast rules in this file; the recording HUD (`:3403-3490`) is demo-only and is restyled to roles like the rest |
+| `crates/designos-app/src/shell.rs` | D | the toast (`:993-1034`) is J's surface: D applies J's toast rules in this file; the recording HUD (`:3451-3556`) is demo-only and is restyled to roles like the rest |
 | `crates/designos-app/src/panels/rail.rs` | D | #1106 edits it first (section 12) |
-| `crates/designos-app/src/panels/toolbar.rs` | D | the Dev-mode toolbar (`:314-444`) takes G's Dev role |
-| `crates/designos-app/src/panels/menus.rs` | D | the command palette (`:879-1057`) is listed under J's scope ("command palette"); D restyles it here with C widgets and J lists this file as "not mine" |
+| `crates/designos-app/src/panels/toolbar.rs` | D | the Dev-mode toolbar (`:341-470`) takes G's Dev role |
+| `crates/designos-app/src/panels/menus.rs` | D | the command palette (`:901-1079`) is listed under J's scope ("command palette"); D restyles it here with C widgets and J lists this file as "not mine" |
 | `crates/designos-app/src/canvas/rulers.rs` | D | none |
 
 Not mine (listed so no file is owned twice): `theme.rs`, `design/*` (A, B); `widgets/menu.rs`, `widgets/mod.rs`, `widgets/field.rs`, `widgets/popover.rs`, `panels/mod.rs` (scrollbar), and at `origin/main` `widgets/field_tab.rs`, `widgets/popup_open.rs` (C); `panels/left.rs`, `panels/layers.rs`, `find/filter.rs` (E); `panels/right.rs` and the inspector files (F); `dev/*`, `specs.rs` (G); `home/*`, `updater.rs` (H); `terminal.rs`, `agent_*.rs` (I); `cmdk.rs`, `panels/context.rs`, `find/panel.rs`, `comments/*`, `history/*` (J); `panels/assets.rs`, `variables/*`, `libraries/*` (K). Unassigned in D–K (flag to the controller): `canvas/draw.rs` (11 literal lines), `canvas/grids.rs`, `canvas/tiles.rs`, `canvas/interact.rs`, `canvas/agent_*.rs`, `board/*`, `decks/*`, `present.rs`, `icons.rs` (R6 restyle), `lint.rs`, `image_jobs.rs`, `plugins/ui.rs`, `panels/check_designs.rs`.
@@ -148,13 +148,13 @@ None.
 
 ## 8. Edge cases
 
-1. Text grows from 11 to 12 px in fixed boxes: tab titles (`tabs.rs:1019-1022`) and menu labels elide earlier. Elision must stay on a character boundary with the ellipsis, never clip.
+1. Text grows from 11 to 12 px in fixed boxes: tab titles (`tabs.rs:1062-1065`) and menu labels elide earlier. Elision must stay on a character boundary with the ellipsis, never clip.
 2. Rail labels at 12 px nearly fill the 55 px cell ("Variables", about 53 px, INFERENCE). If #1106 has not landed, labels must not overlap the cell edges; measure the widest label in the PR.
-3. Allowlisted sites that stay literal: `Color32::TRANSPARENT` sentinels (`toolbar.rs:196`, `:198`, `:390`, `:392`, not counted); the ruler guide badge text stays white over `#F24822` (canvas exception) but moves to a theme constant, so it leaves the count.
+3. Allowlisted sites that stay literal: `Color32::TRANSPARENT` sentinels (`toolbar.rs:218`, `:220`, `:417`, `:419`, not counted); the ruler guide badge text stays white over `#F24822` (canvas exception) but moves to a theme constant, so it leaves the count.
 4. Dev mode on: tab badge, mode segment and toolbar switch to G's Dev role together; the label on the Dev fill is dark (`#0A0A0A`), not white.
-5. Actions open: the button shows C's Selected state, not blue. The palette and `cmdk` both set "open" (`toolbar.rs:232`); both must show the same state.
+5. Actions open: the button shows C's Selected state, not blue. The palette and `cmdk` both set "open" (`toolbar.rs:262`); both must show the same state.
 6. Menus taller than the window (main menu at `MIN_WINDOW` 900×600 after rows grow to 32): the existing clamp and scroll apply; no row is unreachable.
-7. `clear_color` (`shell.rs:1180-1182`) shows for one frame before the first paint and behind transparent regions: it takes the window background role (`bg-primary`), converted to linear floats.
+7. `clear_color` (`shell.rs:1201-1203`) shows for one frame before the first paint and behind transparent regions: it takes the window background role (`bg-primary`), converted to linear floats.
 8. Board, deck and presentation modes reuse the tab bar and rail; their own toolbars (`board/toolbar.rs`, `decks/ui.rs`) are not in this spec (unassigned, section 5).
 
 ## 9. Non-goals
@@ -202,12 +202,14 @@ RUN "$KIT" --screenshot "$OUT/D-02-menu-main.png" --size 1600x1088 --no-toast --
 RUN "$KIT" --screenshot "$OUT/D-03-menu-main-file.png" --size 1600x1088 --no-toast --menu main/File   # exit 0: File submenu
 RUN "$KIT" --screenshot "$OUT/D-04-menu-shape.png" --size 1600x1088 --no-toast --menu shape           # exit 0: tool-group menu
 RUN "$KIT" --screenshot "$OUT/D-05-menu-palette.png" --size 1600x1088 --no-toast --menu palette       # exit 0: Actions palette
-RUN "$KIT" --screenshot "$OUT/D-06-menu-zoom.png" --size 1600x1088 --no-toast --menu zoom             # exit 1 twice ("designos: screenshot was not captured"): zoom menu (accepted by preset_menu, menus.rs:599-602, not listed in --help)
+RUN "$KIT" --screenshot "$OUT/D-06-menu-zoom.png" --size 1600x1088 --no-toast --menu zoom             # exit 1 twice ("designos: screenshot was not captured"): zoom menu (accepted by preset_menu, menus.rs:620-623, not listed in --help)
 RUN --home --library "$S/lib" --screenshot "$OUT/D-08-home-tab-bar.png" --size 1600x1088 --no-toast   # exit 0: tab bar with Home active
 RUN "$KIT" --screenshot "$OUT/D-09-dev-css.png" --size 1600x1088 --no-toast --dev css --select "Welcome to Untitled UI"  # exit 1 twice ("designos: screenshot was not captured"): Dev toolbar, Dev badge
 ```
 
-Not capturable from the CLI today: the title bar (hidden in screenshot mode), hover and focus states, the contextual floating bar (hidden while a toast is pending, `toolbar.rs:121-128`), tab close hover. The PR shows these with a manual window capture, labelled manual.
+Five captures exited 1 with "designos: screenshot was not captured" on 2026-10-25 while many concurrent cargo builds ran on the machine: D-06 and D-09 twice; E-03b, E-04 and F-03 once. The cause is not diagnosed (a `--screenshot` run closes after 240 frames, `shell.rs:483`). Until one passes, the zoom menu, the Dev Inspect panel, the colour picker and the expanded layer tree have no CLI capture; the implementer reruns them on an idle machine and records the exit codes in the PR.
+
+Not capturable from the CLI today: the title bar (hidden in screenshot mode), hover and focus states, the contextual floating bar (hidden while a toast is pending, `toolbar.rs:143-150`), tab close hover. The PR shows these with a manual window capture, labelled manual.
 
 ## 11. Performance budgets
 
@@ -220,7 +222,7 @@ Not capturable from the CLI today: the title bar (hidden in screenshot mode), ho
 - Build order: A (roles in `theme.rs`) and B (scale) land first; C's widgets next; L's baseline captures before the first surface PR. Then this spec: role swap per file (tabs, title bar, rail, toolbar, menus and palette, rulers), then R5 type and heights, then evidence.
 - **#1106 (icon-only rail, P2, open, assigned by the PM to an Argon worker on 2026-10-25).** It removes the rail labels, adds tooltips and reduces the rail width. That conflicts with R1 ("same widths") unless L's baseline is taken after #1106 merges. Recommended order: #1106 first, L re-baselines the rail, then D restyles (Open question 2). D must not reintroduce labels.
 - **#1108 (Pages/Layers separator, P1).** Worktree `agy-1108-separator` exists with no commits yet. It touches `panels/left.rs` (E) and `theme.rs`; no D file. Its brand-highlight handle should use the same `bg-brand-solid` role as the shell's resize handles (rule 2).
-- **Spec L edits `shell.rs` first** (region rects `:1383-1398` recorded into the app state, screenshot write `:445-460` also writing `--layout-json`; `specs/L-layout-unchanged-gate-baseline-capture.md`). L lands before D, so D rebases on it; D owns `shell.rs` for the revamp only after L merges.
+- **Spec L edits `shell.rs` first** (region rects `:1465-1480` recorded into the app state, screenshot write `:451-466` also writing `--layout-json`; `specs/L-layout-unchanged-gate-baseline-capture.md`, which cites the same code at `ec47da26` as `:1383-1398` and `:445-460`). L lands before D, so D rebases on it; D owns `shell.rs` for the revamp only after L merges.
 - **Open PRs touching D files** (`gh pr list --state open`, 2026-10-25): #1081 `fix/issue-1009-cli-export-writers` (`shell.rs`); #770, #768, #765 (stale `task/5xx` branches touching `shell.rs`, `tabs.rs`, `panels/toolbar.rs`, `panels/menus.rs`, `panels/rail.rs`, `theme.rs`, `widgets/menu.rs`). Rebase on whichever merges first; the stale three need a decision from the PM before this spec starts.
 
 ## 13. Owner rulings that apply

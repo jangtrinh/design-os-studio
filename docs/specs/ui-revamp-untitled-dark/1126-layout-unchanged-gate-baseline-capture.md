@@ -137,7 +137,7 @@ None to documents. New in-memory types: `ShellRegions` (copy of eight `Rect`s), 
 
 The numbers are illustrative. The real ones come from the bless run.
 
-**Case list** (`cases.json`, committed). Each entry is `{"id","spec","args",["kit"]}`. The list dry-run in this session (section 10, case 0) is the starting set: **43 cases** covering D (shell, menus, present, board, deck), E (layers, no selection), F (Design and Prototype tabs, pickers, effects, strokes, type details, styles), G (Dev mode, annotate, compare, spec reader), H (Home), I (Agents panel states, permissions, terminal), J (command palette, menus, Find, comments, version history, plugins, Check designs) and K (assets, variables full and floating, libraries). The worker adds the two kit cases:
+**Case list** (`cases.json`, committed). Each entry is `{"id","spec","args",["kit"]}`. The list dry-run in this session (section 10, case 0) is the starting set: **43 cases, 42 after dropping a duplicate** (section 10), covering D (shell, menus, present, board, deck), E (layers, no selection), F (Design and Prototype tabs, pickers, effects, strokes, type details, styles), G (Dev mode, annotate, compare, spec reader), H (Home), I (Agents panel states, permissions, terminal), J (command palette, menus, Find, comments, version history, plugins, Check designs) and K (assets, variables full and floating, libraries). The worker adds the two kit cases:
 - `kit-editor`: `<kit> --select "Page header" --zoom 100 --gpu`
 - `kit-agents`: `<kit> --select "Avatar group" --zoom 100 --panel agents --gpu`
 
@@ -230,7 +230,30 @@ Run:
 - Runner: `$SCRATCH/agents/w5/tools/capture_layout_baseline.py`, with the cases in `$SCRATCH/agents/w5/l/layout-baseline-cases.json`.
 - Command: `python3 -I capture_layout_baseline.py layout-baseline-cases.json baseline-dryrun seed-lib -- cargo run -q --release -p designos-app --bin designos --`.
 - Output: `$SCRATCH/agents/w5/l/baseline-dryrun/`.
-- Results: see "Dry-run result" below.
+- Binary: `designos` installed from the HEAD of this session (`ec47da26`, clean `crates/`, toolchain 1.93.1) with `cargo install --locked --path crates/designos-app --bin designos --root $SCRATCH/agents/w5/bin`, so the run did not wait on the shared build lock.
+
+**Dry-run result (2026-10-25):** `captured 43/43; total 13.6 MB`. Every case exited 0 in 0.5–2.8 s. PNGs are 57 KB (`x-present`) to 1.22 MB (`i-agent-permissions`). Excerpt of the log:
+
+```text
+seed: 0 …/w5/l/seed-lib
+d-editor-default               exit=0   1.3s    250362 B
+f-picker                       exit=0   1.3s    361801 B
+g-dev-compare                  exit=0   1.4s    925814 B
+h-home                         exit=0   0.9s    139140 B
+i-agent-permissions            exit=0   2.4s   1221523 B
+k-libraries                    exit=0   0.5s    422401 B
+x-deck                         exit=0   0.8s    257603 B
+captured 43/43; total 13.6 MB
+```
+
+The files (`ls baseline-dryrun`): `d-editor-default`, `d-editor-selected`, `d-menu-main`, `d-menu-main-file`, `d-menu-shape`, `d-menu-zoom`, `e-layers-selected`, `e-no-selection`, `f-design-tab`, `f-prototype-tab`, `f-picker`, `f-picker-gradient`, `f-effects-menu`, `f-stroke-settings`, `f-type-details`, `f-effect-styles`, `f-edit-style-color`, `g-dev-react`, `g-dev-annotate`, `g-dev-compare`, `g-spec-reader`, `h-home`, `i-agents`, `i-agents-chat`, `i-agents-picker`, `i-agents-start-failure`, `i-agents-approval-command`, `i-agent-permissions`, `i-terminal`, `j-palette`, `j-cmdk`, `j-find`, `j-comments`, `j-version-history`, `j-plugins`, `j-check-designs`, `k-assets`, `k-variables`, `k-variables-floating`, `k-libraries`, `x-present`, `x-board`, `x-deck` (`.png` each). `f-picker.png` was viewed: a real capture of the Marlow showcase, with the colour picker open on "Balance card".
+
+**Findings that change the case list:**
+- Two pairs are byte-identical (`shasum`):
+  - `d-editor-selected` = `f-design-tab`. `--tab design` is the default tab.
+  - `f-picker` = `f-picker-gradient`. The "Balance card" fill is already a gradient, so both flags open the same picker.
+- The worker drops `f-design-tab`, and points `f-picker` at a layer with a solid fill (pick one from `--inspect-json` of the `showcase` fixture). That leaves **42 distinct cases** before the two kit cases.
+- The 13.6 MB total confirms Decision 3: PNGs are not committed.
 
 ## 11. Performance budgets
 

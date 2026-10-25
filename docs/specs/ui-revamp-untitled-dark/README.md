@@ -61,7 +61,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | M | 2 | #1125 | [1125-docs-and-screenshot-refresh.md](1125-docs-and-screenshot-refresh.md) | M |
 | N | side | #1121 | [1121-mcp-imports-large-kit-files.md](1121-mcp-imports-large-kit-files.md) | S |
 | O | side | #1127 | [1127-cli-addresses-nodes-by-id-and-figma-id.md](1127-cli-addresses-nodes-by-id-and-figma-id.md) | M |
-| P | side | — | Dogfood: DTCG export that `ui ds import` can onboard (spec in progress) | — |
+| P | side | #1140 | [1140-dtcg-export-bundle-for-design-os-onboarding.md](1140-dtcg-export-bundle-for-design-os-onboarding.md) | M |
 | Q | side | #1122 | [1122-research-untitled-icons-licence.md](1122-research-untitled-icons-licence.md) | S |
 
 Sizes: S is under about a day, M is one to three days, L is more than three days, for one worker.

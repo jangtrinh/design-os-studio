@@ -71,7 +71,26 @@ height: 500px;
 background: #F5F5F5;                                          # exit=0: CSS of "Board"
 ```
 
-<!-- O-REPRO-SCREENSHOT -->
+The mutating fallback, the screenshot path and a Figma id. Same session, with the `designos` binary installed from HEAD into scratch:
+
+```text
+$ designos two-cards-copy.designos --select "Card Z" --apply-spec probe.spec.json
+{ "root_node_id": 7, "saved": true }                           # exit=0
+$ designos two-cards-copy.designos --inspect-json | grep -E '"name"|"id"'
+  "name": "two-cards", "id": 1, "name": "Page 1", "id": 2, "name": "Board", "id": 7, "name": "Probe"
+                                                               # Probe became a page-level screen; file saved
+                                                               # shasum two-cards.designos 1f38c0c1… vs copy 494490ed…
+$ designos two-cards.designos --select "Card Z" --size 1000x700 --no-toast --screenshot shot-select-missing-name.png   # exit=0
+$ designos two-cards.designos --select 5 --size 1000x700 --no-toast --screenshot shot-select-id-5.png               # exit=0
+$ cmp shot-select-id-5.png shot-select-missing-name.png && echo IDENTICAL
+IDENTICAL                                                      # an id selects exactly as much as a missing name: nothing
+$ designos two-cards.designos --select "Card B" --size 1000x700 --no-toast --screenshot shot-select-name-card-b.png    # exit=0
+        # viewed: Card B is selected (handles, inspector shows Card B) but the canvas is at page fit, 37%; Card B is a small rectangle
+$ designos two-cards.designos --export-fig two-cards.fig
+{ "bytes": 22969, "exported_fig": true, "omitted_extensions": [], "path": "two-cards.fig" }
+$ designos two-cards.fig --select 9000:5 --export-spec spec-figid.json   # 9000:<id> is the id export.rs:265 writes
+{ "exported_node_id": 2, "path": "spec-figid.json" }          # exit=0: a Figma id falls back to the first screen
+```
 
 ## 3. Behaviour rules
 

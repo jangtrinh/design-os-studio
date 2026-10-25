@@ -6,9 +6,9 @@
 | Size | S/M. About one and a half days: 3 owned files, 2 chrome colour sites, row states moved onto C's tree-row anatomy, the R5 row and type sizes (Pages rows 24 → 32). |
 | Depends on | A (colour roles and `theme.rs` colour constants), B (type, spacing, radius and control-size scale), C (widget anatomy and states, `specs/C-widget-kit-untitled-anatomy.md`) and L (layout-unchanged gate and baselines). Also #1108 (Pages/Layers separator, in flight), see section 12. |
 | Unblocks | M (docs and screenshot refresh). |
-| Touches | `crates/designos-app/src/panels/left.rs` (`:12-190` panel, `:192-194` section title, `:196-307` pages list, `:309-331` page drag, `:333-360` page menu, `:362-458` file header); `crates/designos-app/src/panels/layers.rs` (`:239-245` type-label colour, `:317-656` rows, drop indicator and scrollbar call); `crates/designos-app/src/find/filter.rs` (`:50-62` match highlight, `:64-105` layer filter field). Reads only: the left-panel constants in `theme.rs` (`:279-303`, `:305-316`), owned by A and B. |
+| Touches | `crates/designos-app/src/panels/left.rs` (`:12-190` panel, `:192-194` section title, `:196-307` pages list, `:309-331` page drag, `:333-360` page menu, `:362-458` file header); `crates/designos-app/src/panels/layers.rs` (`:244-250` type-label colour, `:425-766` rows, drop indicator and scrollbar call); `crates/designos-app/src/find/filter.rs` (`:50-62` match highlight, `:64-105` layer filter field). Reads only: the left-panel constants in `theme.rs` (`:279-303`, `:305-316`), owned by A and B. |
 
-Code baseline: HEAD `ec47da26` (the local `main` this spec was written on). `origin/main` is `35a65796`, four commits ahead (release 0.6.1): it changes `panels/layers.rs` (152 changed lines); `panels/left.rs` and `find/filter.rs` are unchanged (`git diff --stat ec47da26 35a65796 -- <files>`). The colour-site counts in section 2 are identical at `35a65796`. Re-anchor every cited line against the HEAD you branch from and report drift before writing code.
+Code baseline: `origin/main` `35a65796` (release 0.6.1). The spec was written on `ec47da26`; every cited line was then re-anchored to `35a65796` (diff-hunk mapping with a content check per line; lines inside changed hunks placed by hand) and the census in section 2 was re-measured there (same site counts). Changed files of this spec between the two: `panels/layers.rs` (152 changed lines; row drag moved to `track_row_drag`); `panels/left.rs` and `find/filter.rs` unchanged. Re-anchor again against the HEAD you branch from and report drift before writing code.
 
 Colour names follow the plan's naming contract: Untitled token name plus the dark-mode hex, resolved this session from the kit export. Brand roles carry the R4 remap. Provisional names wait for spec A's token contract, which wins on conflict. Names Untitled does not have are marked "new name".
 
@@ -24,16 +24,16 @@ As a designer, I read and work the left panel (file name, Pages, Layers) in Unti
 - **Dev section** (`left.rs:91-142`, Dev mode only): 52 px block, literal `#1BC47D` (`:97`) for icon, count and a 24 px "Mark ready" button tinted 16 %/24 % (`:116-132`). Its colour role is decided in spec G.
 - **Find takes the place of Layers** (`left.rs:145-148`): `find::panel` is spec J's.
 - **Layers header** (`left.rs:150-187`): 40 px (`LAYER_HEADER_HEIGHT`), "Layers" title (or Dev tabs, `dev::list::tabs`, spec G), search and collapse-all buttons 24, filter row 32 (`:182-187`, `find/filter.rs:64-105`: search icon `ICON_SECONDARY`, `TextEdit` in `TEXT` with hint `TEXT_TERTIARY`, clear button).
-- **Layer rows** (`layers.rs:317-656`): rows 32 (`LAYER_ROW_HEIGHT` = `CONTROL_TOOL`, `theme.rs:296`), indent 16, chevron box 24, icon 16, toggles 24 (`theme.rs:296-303`). Row states share one pill at the frame inset (`:400-414`): selected `BG_SELECTED`, selected + hover or canvas hover `BG_SELECTED_HOVER`, child of a selected layer `BG_SELECTED_SECONDARY`, canvas hover a 1 px `BORDER_SELECTED` outline (Studio orange), pointer hover a 1 px `BORDER` outline. Chevron colour `ICON_SELECTED`/`ICON`/`ICON_TERTIARY` (`:421-428`). Kind icon `TEXT_COMPONENT` (cyan `#22D3EE`) for component-like layers, else `ICON_SELECTED`/`ICON_TERTIARY` (`:465-472`). Name colour: hidden `TEXT_TERTIARY`, component `TEXT_COMPONENT`, else `TEXT` (`:477-483`); type label `font_caption` in `TEXT_COMPONENT` at 75 % or `TEXT_TERTIARY` (`:239-245`, `:549-557`). Locked rows show only the lock icon; there is no locked name colour (`:577-589`). Inline rename: 24 px field, `BG` fill, `BORDER_SELECTED` outline, radius `RADIUS_MARK` (`:484-520`). Eye and lock toggles 14 px icons, `ICON_SECONDARY` → `ICON` on hover (`:561-589`). Multi-select is shift/cmd click (`:610-627`) and paints the same selected pill on every selected row. Drop indicator: inside = 2 px `DROP_INDICATOR` outline, before/after = 2 px line (`:637-654`). Filter matches: `find/filter.rs:50-62` paints `FIND_HIGHLIGHT` (`#0D99FF` at 35 %) behind matched characters.
+- **Layer rows** (`layers.rs:425-766`): rows 32 (`LAYER_ROW_HEIGHT` = `CONTROL_TOOL`, `theme.rs:296`), indent 16, chevron box 24, icon 16, toggles 24 (`theme.rs:296-303`). Row states share one pill at the frame inset (`:400-414`): selected `BG_SELECTED`, selected + hover or canvas hover `BG_SELECTED_HOVER`, child of a selected layer `BG_SELECTED_SECONDARY`, canvas hover a 1 px `BORDER_SELECTED` outline (Studio orange), pointer hover a 1 px `BORDER` outline. Chevron colour `ICON_SELECTED`/`ICON`/`ICON_TERTIARY` (`:421-428`). Kind icon `TEXT_COMPONENT` (cyan `#22D3EE`) for component-like layers, else `ICON_SELECTED`/`ICON_TERTIARY` (`:467-474`). Name colour: hidden `TEXT_TERTIARY`, component `TEXT_COMPONENT`, else `TEXT` (`:479-485`); type label `font_caption` in `TEXT_COMPONENT` at 75 % or `TEXT_TERTIARY` (`:239-245`, `:551-559`). Locked rows show only the lock icon; there is no locked name colour (`:579-591`). Inline rename: 24 px field, `BG` fill, `BORDER_SELECTED` outline, radius `RADIUS_MARK` (`:486-522`). Eye and lock toggles 14 px icons, `ICON_SECONDARY` → `ICON` on hover (`:563-591`). Multi-select is shift/cmd click (`:612-629`) and paints the same selected pill on every selected row. Drop indicator: inside = 2 px `DROP_INDICATOR` outline, before/after = 2 px line (`:639-656`). Filter matches: `find/filter.rs:50-62` paints `FIND_HIGHLIGHT` (`#0D99FF` at 35 %) behind matched characters.
 
 Measured colour census (non-test code, `scripts/rust_literal_scan.clean`; definitions as in spec D section 2):
 
 | File | `theme::` lines | Chrome sites | Site lines | Computed sites |
 |---|---|---|---|---|
 | `panels/left.rs` | 77 | 2 | 97, 289 | none |
-| `panels/layers.rs` | 51 | 0 | | none |
+| `panels/layers.rs` | 52 | 0 | | none |
 | `find/filter.rs` | 6 | 0 | | none |
-| **Total** | 134 | **2** | | 0 |
+| **Total** | 135 | **2** | | 0 |
 
 Command (run from the repo root; writes nothing):
 
@@ -57,7 +57,7 @@ PY
 
 The plan's line method (`grep -cE 'Color32::from_rgba?(_unmultiplied|_premultiplied)?\(|Color32::from_gray\(' <file>`) gives `left.rs` 2, `layers.rs` 0, `filter.rs` 0. With tests counted, `layers.rs` has 68 `theme::` lines (51 outside tests).
 
-Gates today: no colour-literal gate (spec D section 5 proposes one, owned by A). `scripts/check_spacing_relationships.py` ratchets geometry and font literals; `left.rs` and `layers.rs` have entries in `scripts/spacing_baseline.json`. Theme tests pin `CONTROL_DENSE` 24 and the control family (`theme.rs:843-848`) and that selection fills are neutral (`:900-906`).
+Gates today: no colour-literal gate (spec D section 5 proposes one, owned by A). `scripts/check_spacing_relationships.py` ratchets geometry and font literals; `left.rs` and `layers.rs` have entries in `scripts/spacing_baseline.json`. Theme tests pin `CONTROL_DENSE` 24 and the control family (`theme.rs:845-850`) and that selection fills are neutral (`:902-908`).
 
 ## 3. Behaviour rules
 
@@ -101,7 +101,7 @@ Gates today: no colour-literal gate (spec D section 5 proposes one, owned by A).
 | Layer rows | `theme.rs:296` | 32 | row 32 | 0 | none |
 | Filter row | `left.rs:183`, `:186` | 32 | `Input field · Size=sm` height from C (C draft: 32) | 0 if 32 | none |
 | Panel action buttons (search, `+`, collapse, hide) | `PANEL_ACTION_BUTTON` = `TARGET_MIN` 24 (`theme.rs:287`) | 24 | 24 icon button, or button `xs` 32 if C has no 24 px icon button (Open question 1) | 0 or +8 width | none in height (they sit in 40 px rows); at 32 the two-button cluster widens by 16 px and the title row keeps its order |
-| Row names, sublabel, type labels | `font_body` 11, `font_caption` 10 | 10–11 | `text-xs` 12/18 | 0 | names elide about 8 % earlier at the fixed name column (`layers.rs:543`); the type label hides sooner (`split_row_text`, `layers.rs:230-236`) |
+| Row names, sublabel, type labels | `font_body` 11, `font_caption` 10 | 10–11 | `text-xs` 12/18 | 0 | names elide about 8 % earlier at the fixed name column (`layers.rs:659`); the type label hides sooner (`split_row_text`, `layers.rs:235-241`) |
 | Dev section | `left.rs:95`, `:140` | 52 / 54 | per spec G | per G | per G |
 
 6. **Radii.** Row pills and inline fields take B's control radius (`radius-md` 8 per R5); the rename field's `RADIUS_MARK` 2 becomes the field radius; nested shapes stay concentric (P4).
@@ -118,7 +118,7 @@ None.
 | File | Owner | Shared surface and rule |
 |---|---|---|
 | `crates/designos-app/src/panels/left.rs` | E | the Agents/Tools branch (`:17-41`) is spec I's surface and the Assets branch (`:43-46`) spec K's: E does not restyle them. The Dev section (`:91-142`) and the page-row Ready icon (`:288-291`) are Dev surfaces: E applies spec G's Dev role in this file. #1108 adds the Pages/Layers separator here first. |
-| `crates/designos-app/src/panels/layers.rs` | E | the image-job progress chip in a row (`:535`, `crate::image_jobs`) is not restyled here |
+| `crates/designos-app/src/panels/layers.rs` | E | the image-job progress chip in a row (`:651`, `crate::image_jobs`) is not restyled here |
 | `crates/designos-app/src/find/filter.rs` | E | the match highlight role is shared with J's `find/panel.rs`; the role lives in `theme.rs` (A) |
 
 Not mine: `theme.rs`, `design/*` (A, B); `widgets/*` except `widgets/picker.rs`, and `panels/mod.rs` (C); `tabs.rs`, `shell.rs`, `panels/rail.rs`, `panels/toolbar.rs`, `panels/menus.rs`, `canvas/rulers.rs` (D); right-panel files (F); `dev/*` including `dev/list.rs` (Ready-for-dev list and tabs drawn in the left panel), `specs.rs` (G); `terminal.rs`, `agent_*.rs` (I); `find/panel.rs`, `find/mod.rs`, `find/select.rs`, `panels/context.rs` (J); `panels/assets.rs` (K).
@@ -140,11 +140,11 @@ None. The Pages height chosen by #1108 is a preference, not file content (that i
 
 1. A file with more than 5 pages: the list scrolls inside 5 × 32 = 160 px (was 120). The scrollbar keeps working (`left.rs:307`, C's scrollbar).
 2. With #1108 merged, the user's dragged Pages height is in pixels; after rows grow to 32 a stored height that fitted 5 rows of 24 shows 3.75 rows of 32. #1108's clamps (at least 1 row + header, at most the content height) still apply; E re-checks the minimum with the new row height.
-3. Long layer names at 12 px: the name elides first, then the type label hides (`split_row_text`); never overlap the eye and lock toggles (`layers.rs:474-476`).
+3. Long layer names at 12 px: the name elides first, then the type label hides (`split_row_text`); never overlap the eye and lock toggles (`layers.rs:590-592`).
 4. A selected component row: the selected pill is neutral and the name stays cyan (not white).
-5. Canvas hover on a selected row: Selected-Hover fill, not the orange outline (today's order, `layers.rs:403-414`).
+5. Canvas hover on a selected row: Selected-Hover fill, not the orange outline (today's order, `layers.rs:519-530`).
 6. Hidden and locked together: eye-off and lock both stay visible without hover, as today.
-7. Filter on: drag and drop is off (`layers.rs:629`); matched characters keep the highlight under the selected pill.
+7. Filter on: drag and drop is off (`layers.rs:411-412`, `start_row_drag` refuses while filtering); matched characters keep the highlight under the selected pill.
 8. Dev mode with Ready rows: the Layers header swaps to the Dev tabs (`left.rs:153-157`, spec G); the Layers rows below keep E's styling.
 
 ## 9. Non-goals
@@ -203,12 +203,14 @@ RUN "$KIT" --screenshot "$OUT/D-07-select-frame.png" --size 1600x1088 --no-toast
 RUN "$KIT" --screenshot "$OUT/E-04-dev-left.png" --size 1600x1088 --no-toast --dev css --dev-demo --select "Welcome to Untitled UI"  # exit 1 once ("designos: screenshot was not captured"): Dev section, Ready icon on the page row, Dev tabs
 ```
 
+Five captures exited 1 with "designos: screenshot was not captured" on 2026-10-25 while many concurrent cargo builds ran on the machine: D-06 and D-09 twice; E-03b, E-04 and F-03 once. The cause is not diagnosed (a `--screenshot` run closes after 240 frames, `shell.rs:483`). Until one passes, the zoom menu, the Dev Inspect panel, the colour picker and the expanded layer tree have no CLI capture; the implementer reruns them on an idle machine and records the exit codes in the PR.
+
 Not capturable from the CLI today: hover, keyboard focus, multi-select (`--select` takes one name), locked rows, the layer filter row (no flag opens it), inline rename and drag indicators. The PR covers them with the new paint tests above and a manual window capture, labelled manual.
 
 ## 11. Performance budgets
 
-- The layers list stays virtualised (`layers.rs:354-355`: only rows in view are painted); a taller page row does not change the per-frame row count of the layers list.
-- No allocation added per row; roles are `const`. No `request_repaint` added; idle CPU stays 0 % (CLAUDE.md section 4). `rows_cache` invalidation rules (`layers.rs:254-315`) are unchanged.
+- The layers list stays virtualised (`layers.rs:467-468`: only rows in view are painted); a taller page row does not change the per-frame row count of the layers list.
+- No allocation added per row; roles are `const`. No `request_repaint` added; idle CPU stays 0 % (CLAUDE.md section 4). `rows_cache` invalidation rules (`layers.rs:259-320`) are unchanged.
 
 ## 12. Dependencies and build order
 
