@@ -5,7 +5,7 @@ Usage:
   python3 C-widget-kit-specimen-spec.py --md              # the state tables of spec C, from the same data
 
 Colours are named by Untitled token (Dark mode) and resolved through TOK, so the board and the spec tables
-cannot drift. Brand roles carry the R4 orange remap (pending spec A's token contract; A wins on conflict).
+cannot drift. Brand roles carry the R4 orange remap, aligned with specs/token-contract.md (spec A wins on conflict).
 """
 import json, sys
 
@@ -15,7 +15,8 @@ TOK = {  # Untitled UI PRO v8.0, 1_ Color modes / Dark mode, resolved (evidence/
     "border-primary": "#404040", "border-secondary": "#262626", "border-secondary_alt": "#262626",
     "text-primary": "#FAFAFA", "text-secondary": "#D4D4D4", "text-secondary_hover": "#E5E5E5",
     "text-tertiary": "#A3A3A3", "text-tertiary_hover": "#D4D4D4", "text-quaternary": "#A3A3A3",
-    "text-placeholder": "#737373", "text-white": "#FFFFFF",
+    "text-white": "#FFFFFF",
+    "text-placeholder": "#A3A3A3",  # token-contract.md N5: AA-adjusted (kit #737373), owner question OQ-1
     "fg-primary": "#FFFFFF", "fg-secondary": "#D4D4D4", "fg-secondary_hover": "#E5E5E5",
     "fg-tertiary": "#A3A3A3", "fg-quaternary": "#737373", "fg-quaternary_hover": "#A3A3A3",
     "bg-error-solid": "#DC2626", "bg-error-solid_hover": "#EF4444", "bg-error-primary": "#450A0A",
@@ -24,7 +25,7 @@ TOK = {  # Untitled UI PRO v8.0, 1_ Color modes / Dark mode, resolved (evidence/
     "bg-primary_alt": "#171717", "tooltip-supporting-text": "#D4D4D4", "fg-white": "#FFFFFF",
     "utility-neutral-50": "#171717", "utility-neutral-200": "#404040", "utility-neutral-700": "#D4D4D4",
     "utility-orange-50": "#431407", "utility-orange-200": "#9A3412", "utility-orange-700": "#FDBA74",
-    # Brand roles: kit Brand ramp -> Orange ramp; R4 pins solid and focus. Pending spec A.
+    # Brand roles: kit Brand ramp -> Orange ramp; R4 pins solid and focus. Aligned with specs/token-contract.md (A wins).
     "bg-brand-solid": "#E36323", "bg-brand-solid_hover": "#F97316",
     "Orange-600": "#EA580C",  # primitive: derived Pressed fill (the kit has no Pressed state)
     "border-brand": "#FB923C", "fg-brand-primary": "#F97316", "focus-ring": "#F97316",
@@ -281,13 +282,13 @@ W = [
          studio="comments/ui.rs:92-108 (primary=false) · libraries/modal.rs:81-101 · home/mod.rs:1413-1418 · agent_approval_card.rs:150-158",
          geom="as Button/Primary; border 1 px",
          st=S(("bg-primary", "border-primary", "text-secondary", "fg-quaternary"), (P, "border-primary", "text-secondary_hover", "fg-quaternary_hover"),
-              ("bg-secondary_hover", "border-primary", "text-secondary_hover", "fg-quaternary_hover"),
+              ("bg-quaternary", "border-primary", "text-secondary_hover", "fg-quaternary_hover"),
               ("ring", ("bg-primary", "border-primary", "text-secondary", "fg-quaternary")))),
     dict(name="Button/Tertiary", draw=w_button, kit=BTN.format(h="Tertiary", i="False"), node=24945,
          studio="home/dialog.rs:337-345 (Cancel) · comments/ui.rs:92-108 (plain tile)",
          geom="as Button/Primary; no fill, no border at rest",
          st=S((N, N, "text-tertiary", "fg-quaternary"), (P, N, "text-tertiary_hover", "fg-quaternary_hover"),
-              ("bg-secondary_hover", N, "text-tertiary_hover", "fg-quaternary_hover"), ("ring", ("bg-primary", N, "text-tertiary", "fg-quaternary")))),
+              ("bg-quaternary", N, "text-tertiary_hover", "fg-quaternary_hover"), ("ring", ("bg-primary", N, "text-tertiary", "fg-quaternary")))),
     dict(name="Button/Destructive", draw=w_button, kit="Buttons/Button destructive · Hierarchy=Primary · Size=xs|sm|md", node=26468,
          studio="home/mod.rs:1419-1424 (Kind::Danger) · home/dialog.rs:320-321 (d.danger)",
          geom="as Button/Primary",
@@ -296,17 +297,17 @@ W = [
     dict(name="Button/Icon", draw=w_button, args=dict(label="", icon="+"), kit=BTN.format(h="Tertiary", i="True"), node=24945,
          studio="widgets/mod.rs:167-184 icon_button · widgets/mod.rs:99-113 button_bg · comments/ui.rs:117-131 dots_button",
          geom="xs 32×32 (pad 8, icon 16) · sm 36×36 (pad 8, icon 20) · radius-md 8",
-         st=S((N, N, N, "fg-quaternary"), (P, N, N, "fg-quaternary_hover"), ("bg-secondary_hover", N, N, "fg-quaternary_hover"),
-              ("ring", ("bg-primary", N, N, "fg-quaternary")), "half", ("bg-secondary", N, N, "fg-secondary_hover"))),
+         st=S((N, N, N, "fg-quaternary"), (P, N, N, "fg-quaternary_hover"), ("bg-quaternary", N, N, "fg-quaternary_hover"),
+              ("ring", ("bg-primary", N, N, "fg-quaternary")), "half", ("bg-secondary_hover", N, N, "fg-secondary_hover"))),
     dict(name="Button/Tool", draw=w_button, args=dict(label="", icon="#"), kit="derived: Buttons/Button · Hierarchy=Tertiary · Icon only=True · Size=xs, Selected from _Nav item base · Current=True", node=24945,
          studio="panels/toolbar.rs:187-205 (tool) · :210-240 (chevron, actions)",
          geom="32×32, icon 20 (R6 icon size kept), radius-md 8",
-         st=S((N, N, N, "fg-quaternary_hover"), (P, N, N, "fg-secondary_hover"), ("bg-secondary_hover", N, N, "fg-secondary_hover"),
+         st=S((N, N, N, "fg-quaternary_hover"), (P, N, N, "fg-secondary_hover"), ("bg-quaternary", N, N, "fg-secondary_hover"),
               ("ring", ("bg-primary", N, N, "fg-quaternary_hover")), "half", ("bg-secondary_hover", N, N, "fg-primary"))),
     dict(name="Button/Close", draw=w_button, args=dict(label="", icon="×"), kit="Buttons/Button close X · Size=sm · Dark background=False", node=26431,
          studio="widgets/popover.rs:40-43 · libraries/modal.rs:65-79 · tabs.rs:1031-1035 (file tab ×)",
          geom="sm 36×36 (pad 8, icon 20) · xs 32×32 (derived, icon 16) · radius-md 8",
-         st=S((N, N, N, "fg-quaternary"), (P, N, N, "fg-quaternary_hover"), ("bg-secondary_hover", N, N, "fg-quaternary_hover"),
+         st=S((N, N, N, "fg-quaternary"), (P, N, N, "fg-quaternary_hover"), ("bg-quaternary", N, N, "fg-quaternary_hover"),
               ("ring", ("bg-primary", N, N, "fg-quaternary")), "n/a")),
 ]
 
@@ -364,7 +365,7 @@ W += [
          studio="panels/right.rs:103-127 (Design / Prototype, Inspect / Plugins) · tabs.rs:1005-1035 (file tabs: hover and active fill)",
          geom="xs 32 (pad 0/10) · sm 36 (pad 8/10) · radius-sm 6 · gap 4 · label text-sm semibold",
          st=S((N, N, "text-quaternary", "fg-quaternary"), (P, N, "text-secondary", "fg-quaternary_hover"), "n/a",
-              ("ring", ("bg-primary", N, "text-quaternary", "fg-quaternary")), "half", (P, N, "text-secondary", "fg-quaternary_hover"))),
+              ("ring", ("bg-primary", N, "text-quaternary", "fg-quaternary")), "half", ("bg-secondary_hover", N, "text-secondary", "fg-quaternary_hover"))),
     dict(name="Toggle/Switch", draw=w_toggle, args=dict(on=False), radius=10, kit="Toggle · Type=Default · Size=sm → _Toggle base (Selected = Pressed=True)", node=37581,
          studio="panels/components.rs:69-88 · libraries/modal.rs:108-127 · dev/playground.rs:315-334",
          geom="track 36×20, radius-full, pad spacing-xxs 2 · knob 16 · hit box >= 24 (TARGET_MIN)",
@@ -401,12 +402,12 @@ W += [
          studio="panels/layers.rs:400-480 (pill :402-414, chevron :416-428, icon :455-463, label :471-548)",
          geom="row 32, pad 6/8, gap 8, radius-sm 6, chevron 16 (kit), layer icon 16, indent 12 per level (derived), label text-xs semibold (R5)",
          st=S((N, N, "text-tertiary", "fg-quaternary"), (P, N, "text-tertiary", "fg-quaternary"), "n/a", "n/a", "n/a",
-              ("bg-secondary", N, "text-tertiary", "fg-quaternary"))),
+              ("bg-secondary_hover", N, "text-tertiary", "fg-quaternary"))),
     dict(name="List/Row", draw=w_row, args=dict(depth=0, chevron=False, label="Drafts"), kit="_Nav item base (xs 32 derived for Pages)", node=72558,
          studio="home/mod.rs:1189-1206 (sidebar) · panels/left.rs:272-276 (pages) · home/dialog.rs:288-290 (picker list)",
          geom="sm pitch 38 (row 36, pad 8, icon 20, gap 8, text-sm semibold) · xs pitch 32 (icon 16, text-xs) · radius-sm 6",
          st=S((N, N, "text-secondary", "fg-quaternary"), (P, N, "text-secondary_hover", "fg-quaternary_hover"), "n/a",
-              ("ring", ("bg-primary", N, "text-secondary", "fg-quaternary")), "n/a", ("bg-secondary", N, "text-secondary_hover", "fg-quaternary_hover"))),
+              ("ring", ("bg-primary", N, "text-secondary", "fg-quaternary")), "n/a", ("bg-secondary_hover", N, "text-secondary_hover", "fg-quaternary_hover"))),
     dict(name="Panel/Header", draw=w_header, kit="derived: _Modal header (title role) + Button/Icon action", node=None,
          studio="panels/left.rs:192-194 section_title · widgets/popover.rs:31-36 · libraries/modal.rs:65-79",
          geom="height 40 (unchanged), pad-left 16, title text-sm semibold (R5 titles), action Button/Icon xs at the right",
@@ -449,7 +450,7 @@ W += [
          geom="track 8, radius-full, gap 12 to the label, label text-xs medium (R5; kit text-sm) text-secondary",
          st=S(("bg-quaternary", N, "text-secondary", "fg-brand-primary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Loading/Inline", draw=w_loading, kit="derived from Loading indicator · Style=Line simple (track bg-tertiary, arc fg-brand-primary), sized for a 24 chip", node=78330,
-         studio="image_jobs.rs:1229-1250 (Queued… / Working… chip) · agent_selection_chip.rs:160",
+         studio="image_jobs.rs:1229-1250 (Queued… / Working… chip)",
          geom="ring 16, stroke 2 (kit sm: 32, stroke 4) · chip height 24, radius-sm 6, text-xs medium text-secondary",
          st=S(("bg-secondary", "border-secondary", "text-secondary", "fg-brand-primary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="EmptyState/Default", draw=w_empty, kit="Empty state · Icon=Featured icon · Size=sm (background pattern dropped)", node=76795,

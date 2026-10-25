@@ -56,7 +56,7 @@ As a designer using Studio, every button, field, menu, row, toggle and dialog lo
 | `focus-ring` | Orange-500 `#F97316` | R4 |
 | label, check mark and radio dot on any brand fill | Neutral-950 `#0A0A0A` | R4 (kit: `text-white`) |
 
-Contrast (computed, WCAG 2): `#0A0A0A` on `#E36323` 5.73, on `#F97316` 7.06, on `#EA580C` 5.56; `focus-ring` `#F97316` against `#0A0A0A` 7.06 and `#171717` 6.40 (non-text minimum 3.0).
+Contrast (computed, WCAG 2.x): `#0A0A0A` on `#E36323` 5.73 (plan.md and the token contract round it to 5.76), on `#F97316` 7.06, on `#EA580C` 5.56; `focus-ring` `#F97316` against `#0A0A0A` 7.06 and `#171717` 6.40 (non-text minimum 3.0).
 
 **S2 Size steps (R5).**
 
@@ -699,6 +699,20 @@ Depends on **A** (colour constants for every Untitled name used here, the brand 
 | K Assets, Variables, Libraries, Styles | library modal frame, header, button, toggle, search, tag (`libraries/modal.rs:43-152`), assets badges (`panels/assets.rs:374`, `:481-483`), Check designs checkbox and empty state (`panels/check_designs.rs:330-337`, `:511`) |
 
 Order inside this spec: kit types and pure looks with their tests (red, then green) → `focus.rs` → shared helpers in `widgets/` switched to kit looks → `theme::apply` → registry and DESIGN.md → specimen rebuild and Studio captures → PR (squash). Re-anchor every cited line against HEAD first and report drift.
+
+**Roles spec A must still declare.** Ten Untitled roles used by the tables in 3.4 do not appear in `specs/token-contract.md` (checked by loading `C-widget-kit-specimen-spec.py` and searching the contract for every token name its rows use; 38 names, 28 present). The kit worker needs them as `theme` constants before `kit/` compiles without literals:
+
+| Untitled role (Dark) | Value | Used by |
+|---|---|---|
+| `fg-brand-primary` | `#F97316` (Orange-500, R4 remap) | menu check, toast dot, slider fill, progress fill, spinner arc |
+| `fg-quaternary_hover` | `#A3A3A3` | icon hover and pressed |
+| `fg-secondary_hover` | `#E5E5E5` | selected icon |
+| `fg-white` | `#FFFFFF` | toggle knob |
+| `bg-primary_alt` | `#171717` | segmented selected segment, toast fill |
+| `bg-primary-solid` | `#262626` | tooltip fill |
+| `bg-error-solid_hover` | `#EF4444` | destructive hover |
+| `utility-neutral-50` / `-200` / `-700` | `#171717` / `#404040` / `#D4D4D4` | count badge fill / border / text |
+
 
 ## 13. Owner rulings that apply
 
