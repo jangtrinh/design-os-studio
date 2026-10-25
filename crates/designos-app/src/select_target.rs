@@ -72,6 +72,14 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
             }
         };
     }
+    if kind == "bare" {
+        // Preserve the pre-existing CLI contract: a bare decimal selector addresses
+        // the numeric node ID before it is treated as a layer name. Callers that need
+        // the literal name can use the explicit `name:` form.
+        if let Some(id) = value.parse::<u64>().ok().map(NodeId).filter(|id| doc.get(*id).is_some()) {
+            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::BareId, ambiguous: 1 });
+        }
+    }
     let exact = |needle: &str| {
         doc.pages
             .iter()
@@ -91,10 +99,7 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
     };
     let found = exact(value)
         .map(|id| (id, By::Name, exact_matches.len()))
-        .or_else(|| insensitive_matches.first().copied().map(|id| (id, By::NameCaseInsensitive, insensitive_matches.len())))
-        .or_else(|| {
-            (kind == "bare").then(|| value.parse::<u64>().ok().map(NodeId)).flatten().filter(|id| doc.get(*id).is_some()).map(|id| (id, By::BareId, 1))
-        });
+        .or_else(|| insensitive_matches.first().copied().map(|id| (id, By::NameCaseInsensitive, insensitive_matches.len())));
     if let Some((id, by, ambiguous)) = found {
         return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: by, ambiguous });
     }
@@ -110,15 +115,19 @@ mod tests {
     use designos_doc::{Node, NodeKind};
 
     #[test]
-    fn bare_numeric_name_precedes_node_id() {
+    fn bare_numeric_id_precedes_layer_name() {
         let mut doc = Document::new("numeric selector");
         let page = doc.add_page("Page");
-        let mut named = Node::new(NodeId(4), NodeKind::Rectangle);
+        let mut named = Node::new(NodeId(2), NodeKind::Rectangle);
         named.name = "4".into();
         doc.insert(page, named).unwrap();
+        doc.insert(page, Node::new(NodeId(4), NodeKind::Rectangle)).unwrap();
         let target = resolve(&mut doc, "4").unwrap();
         assert_eq!(target.node, Some(NodeId(4)));
-        assert_eq!(target.matched_by, By::Name);
+        assert_eq!(target.matched_by, By::BareId);
+
+        let explicit_name = resolve(&mut doc, "name:4").unwrap();
+        assert_eq!(explicit_name.node, Some(NodeId(2)));
     }
 
     #[test]
