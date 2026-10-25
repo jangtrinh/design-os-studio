@@ -416,3 +416,197 @@ OK
 - **Weakest link:** `design/ds.manifest.json` (`compiledHash`) is not in the allowed file list, so `G03 (ui_ds_status)` reports a hash mismatch when `design/design.tokens.json` is updated without `design/ds.manifest.json`; if `design/ds.manifest.json` is also desired, `ui ds change-token spacing.rail-width --value 48px --reason "Icon-only left rail width is 48px (#1106)"` updates it in one command.
 
 Status: succeeded
+
+## Round 3
+
+### 1. What could NOT be verified
+
+- Nothing in Round 3's scope remained unverified locally: both failing `fast_drag_draw` tests were reproduced on `8697b7f3` (`r3-red.log`), verified passing on `origin/main` (`ab5d427b4`), diagnosed with exact screen/rect coordinates, fixed in `crates/designos-app/src/shell/tests/fast_drag_draw.rs`, and verified with `r3-green.log` plus the full `designos` test binary (`2938 passed; 0 failed`). Remote GitHub Actions macOS-14 runner execution will run after push.
+
+### 2. Diagnosis Numbers & Decision
+
+- **Decision:** **(a) Test geometry.** The press at `s.screen(700.0, 950.0)` now lands on chrome (`contextual-floating-bar` / `ctx-toolbar-block`) only because narrowing `theme::RAIL_WIDTH` from `56.0` to `48.0` widened `canvas_rect` by `8.0 px`, which increased the initial `fit_all()` zoom from `0.8638889` (`933.0 / 1080.0`) to `0.8712963` (`941.0 / 1080.0`) and shifted page-space `(700.0, 950.0)` `3.78 px` downward on screen across the top edge of the contextual floating bar (`y = 986.0`).
+- **Exact geometry comparison (`Sim::new()`, `1600.0 × 1088.0` window, `demo_document()` bounds `Rect::new(120.0, 120.0, 1080.0, 640.0)`):**
+  - **On `origin/main` (`RAIL_WIDTH = 56.0`):**
+    - `canvas_rect`: `[[298.0, 0.0] - [1359.0, 1088.0]]` (`1061.0 × 1088.0`)
+    - `view.zoom`: `0.8638889` (`(1061.0 - 128.0) / 1080.0`)
+    - `view.offset`: `Vec2 { x: 45.916397, y: -189.71063 }`
+    - `s.screen(700.0, 950.0)`: **`Pos2(863.05554, 984.5833)`** — `1.42 px` above `contextual-floating-bar.top()` (`986.0`) and `0.94 px` left of `contextual-floating-bar.right()` (`864.0`), so it barely missed the floating bar.
+  - **On `8697b7f3` (`RAIL_WIDTH = 48.0`):**
+    - `canvas_rect`: `[[290.0, 0.0] - [1359.0, 1088.0]]` (`1069.0 × 1088.0`)
+    - `view.zoom`: `0.8712963` (`(1069.0 - 128.0) / 1080.0`)
+    - `view.offset`: `Vec2 { x: 46.546204, y: -184.35706 }`
+    - `a = s.screen(300.0, 800.0)`: `Pos2(510.8304, 857.6667)`
+    - `b = s.screen(480.0, 870.0)`: `Pos2(667.66376, 918.6574)`
+    - `c = s.screen(620.0, 930.0)`: `Pos2(789.64526, 970.9352)`
+    - `elsewhere` / `d = s.screen(700.0, 950.0)`: **`Pos2(859.35187, 988.3611)`**
+- **Hit target at `Pos2(859.35187, 988.3611)`:**
+  - When `s.button(true)` starts the first rectangle draw at `a`, `start_draw` sets `app.selection = vec![NodeId(38)]`.
+  - On the next frame (`s.mv(a + (b - a) * 0.5)`), `panels::toolbar::show` sees `!app.selection.is_empty()` and renders the contextual floating action bar `contextual-floating-bar` at **`[[736.0, 986.0] - [864.0, 1020.0]]`** (`8 px` above the main bottom toolbar `[[544.0, 1028.0] - [1056.0, 1076.0]]`), registering `ui.interact(ctx_bar, ui.id().with("ctx-toolbar-block"), Sense::click_and_drag())` after `canvas::show`.
+  - On the `one_frame` (`move_to(b).release().move_to(elsewhere).press()`), the frame's final pointer position `Pos2(859.35187, 988.3611)` is **`2.36 px` below the top edge and `4.65 px` inside the right edge of `contextual-floating-bar` (`[[736.0, 986.0] - [864.0, 1020.0]]`)**.
+  - `ctx-toolbar-block` captures the pointer hover, so `resp.hovered()` on the `canvas` widget is `false`.
+- **What `canvas.inter` becomes:**
+  - **`Interaction::None`**. In `canvas::interact::process` (`crates/designos-app/src/canvas/interact.rs:366-371`), `if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some())` runs `end_open_gesture(app, rect, &inp)` because `inp.prior_release_pos` is `Some(b)`, committing the first drawn rectangle (`NodeId(38)`) and resetting `app.canvas.inter` to `Interaction::None`; then `if new_press && hovered { on_press(app, &ctx, rect, &inp); }` is skipped because `hovered` is `false`.
+- **Fix in `crates/designos-app/src/shell/tests/fast_drag_draw.rs`:**
+  - Added `empty_canvas_points(s: &Sim, b: Pos2) -> (Pos2, Pos2)` derived from `s.app().canvas_rect` and `b` with zero magic numbers:
+    - `c = Pos2::new(cr.center().x, b.y)` = `Pos2(824.5, 918.6574)`
+    - `elsewhere` / `d = Pos2::new(cr.right() - (b.x - cr.left()), b.y)` = `Pos2(981.33624, 918.6574)`
+  - Both points sit in the empty canvas band at `b.y = 918.66` (`95.8 px` below `Dashboard`'s bottom at `822.8`, `156.8 px` / `313.7 px` right of `b.x = 667.7`, `67.3 px` above `contextual-floating-bar.top() = 986.0`, and `109.3 px` above `toolbar_rect.top() = 1028.0`).
+
+### 3. Acceptance table with commands and pasted output
+
+| # | Criterion | Command | Result |
+|---|---|---|---|
+| 1 | `r3-red.log` (fails on `8697b7f3`) and `r3-green.log` (passes on head) | `env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked fast_drag_draw` | **PASS** (`21 passed; 2 failed` on `8697b7f3` in `r3-red.log` → `23 passed; 0 failed` on head in `r3-green.log`; also confirmed `23 passed; 0 failed` on `origin/main` `ab5d427b4`) |
+| 2 | `cargo fmt --all -- --check` and `cargo clippy -p designos-app --all-targets --locked -- -D warnings` exit 0 | `cargo fmt --all -- --check && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy -p designos-app --all-targets --locked -- -D warnings` | **PASS** (exit `0` / `0`) |
+| 3 | Full `designos` binary passes under the harness | `env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked` | **PASS** (`2938 passed; 0 failed; 8 ignored`, exit `0`) |
+| 4 | Commit as `test(canvas): …`, push, add "Round 3" line to PR #1131 body, and delete `out/` | `rm -rf "$PWD/out" && git commit -m "test(canvas): use canvas-derived empty points in fast_drag_draw (#1106)" && git push && gh pr edit 1131 ...` | **PASS** (`out/` deleted, pushed to PR #1131) |
+
+#### Pasted Output — 1a. `plans/reports/agy-1106-icon-only-rail-evidence/r3-red.log` (on `8697b7f3`)
+
+```text
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.85s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 23 tests
+test shell::tests::fast_drag_draw::ellipse_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::flick_draws_the_dragged_size_with_keyboard_shortcut_tool ... ok
+test shell::tests::fast_drag_draw::frame_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::line_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::frame_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::ellipse_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::one_frame_delivers_keys_and_text_together ... ok
+test shell::tests::fast_drag_draw::a_jitter_next_to_a_snap_guide_is_still_a_click ... ok
+test shell::tests::fast_drag_draw::line_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::one_frame_reaches_egui_as_a_single_frame ... ok
+test shell::tests::fast_drag_draw::line_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::a_middle_press_in_the_frame_of_the_last_move_draws_to_that_move_and_ends_the_draw ... ok
+test shell::tests::fast_drag_draw::frame_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::ellipse_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::a_press_while_a_draw_is_open_ends_the_draw_and_undo_removes_the_whole_shape ... ok
+test shell::tests::fast_drag_draw::rectangle_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released ... FAILED
+test shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several ... FAILED
+test shell::tests::fast_drag_draw::rectangle_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::rectangle_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::press_release_press_in_one_frame_leaves_the_second_draw_open ... ok
+test shell::tests::fast_drag_draw::an_eight_pixel_drag_across_a_snap_guide_is_a_drag_not_a_click ... ok
+test shell::tests::fast_drag_draw::a_click_with_a_shape_tool_still_makes_the_default_size ... ok
+
+failures:
+
+---- shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released stdout ----
+
+thread 'shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released' (52694231) panicked at crates/designos-app/src/shell/tests/fast_drag_draw.rs:266:5:
+the draw of the new press is open
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several stdout ----
+
+thread 'shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several' (52694234) panicked at crates/designos-app/src/shell/tests/fast_drag_draw.rs:294:5:
+the draw of the last press is open
+
+
+failures:
+    shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released
+    shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several
+
+test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 2923 filtered out; finished in 2.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+```
+
+#### Pasted Output — 1b. `plans/reports/agy-1106-icon-only-rail-evidence/r3-green.log` (on head)
+
+```text
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 02s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 23 tests
+test shell::tests::fast_drag_draw::frame_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::flick_draws_the_dragged_size_with_keyboard_shortcut_tool ... ok
+test shell::tests::fast_drag_draw::line_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::one_frame_reaches_egui_as_a_single_frame ... ok
+test shell::tests::fast_drag_draw::ellipse_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::one_frame_delivers_keys_and_text_together ... ok
+test shell::tests::fast_drag_draw::ellipse_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::line_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::a_jitter_next_to_a_snap_guide_is_still_a_click ... ok
+test shell::tests::fast_drag_draw::frame_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::line_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::a_press_while_a_draw_is_open_ends_the_draw_and_undo_removes_the_whole_shape ... ok
+test shell::tests::fast_drag_draw::a_middle_press_in_the_frame_of_the_last_move_draws_to_that_move_and_ends_the_draw ... ok
+test shell::tests::fast_drag_draw::frame_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::rectangle_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::rectangle_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::ellipse_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released ... ok
+test shell::tests::fast_drag_draw::press_release_press_in_one_frame_leaves_the_second_draw_open ... ok
+test shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several ... ok
+test shell::tests::fast_drag_draw::rectangle_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::an_eight_pixel_drag_across_a_snap_guide_is_a_drag_not_a_click ... ok
+test shell::tests::fast_drag_draw::a_click_with_a_shape_tool_still_makes_the_default_size ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2923 filtered out; finished in 9.46s
+```
+
+#### Pasted Output — 2 & 3. `cargo fmt`, `cargo clippy`, and full `cargo test -p designos-app --bin designos --locked`
+
+```text
+$ cargo fmt --all -- --check
+FMT_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy -p designos-app --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 08s
+CLIPPY_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+...
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::menu::tests::a_tall_menu_opens_scrolled_to_its_checked_row ... ok
+test widgets::tests::number_formatting ... ok
+test widgets::field::tests::deep_exponent_chain_is_rejected_without_stack_overflow ... ok
+test terminal::tests::unfocused_window_sends_one_notification_without_the_command_text ... ok
+test video::tests::posters ... ok
+test widgets::menu::tests::scrolling_to_the_end_reveals_the_last_row_and_a_click_picks_it ... ok
+test widgets::menu::tests::arrow_keys_keep_the_highlighted_row_in_view ... ok
+test video::tests::garbage_is_not_a_video_and_never_panics ... ok
+test widgets::menu::tests::rows_scrolled_out_of_the_panel_cannot_be_clicked ... ok
+test terminal::tests::sim_approval_card_and_permissions_modal_pass_layout_lint ... ok
+test terminal::tests::touched_layers_do_not_bleed_into_other_active_tab_turn ... ok
+test terminal::tests::pty_injection_fixture_real_shell ... ok
+
+test result: ok. 2938 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 214.85s
+FULL_TEST_EXIT=0
+```
+
+### 4. Changes per file (Round 3)
+
+- [`crates/designos-app/src/shell/tests/fast_drag_draw.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/src/shell/tests/fast_drag_draw.rs):
+  - Added `empty_canvas_points(s: &Sim, b: Pos2) -> (Pos2, Pos2)` returning `(Pos2::new(cr.center().x, b.y), Pos2::new(cr.right() - (b.x - cr.left()), b.y))` where `cr = s.app().canvas_rect`.
+  - Updated `release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released` and `the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several` to use `empty_canvas_points(&s, b)` instead of magic page coordinates `(620.0, 930.0)` and `(700.0, 950.0)`, preserving all test intents and assertions.
+
+### 5. Skills Loaded & Epistemic Ledger (Round 3)
+
+- **Skills loaded:** `es:dev` (`es:feature-dev`), `es:rust`, `es:rust-gpu-canvas`, `es:fable-thinking`, `es:astra-work`.
+  - Applied `es:fable-thinking` falsification-first diagnosis (instrumenting and measuring the exact `canvas_rect`, `view.zoom`, `view.offset`, `s.screen(700.0, 950.0)`, `contextual-floating-bar`, and `canvas.inter` before editing) and derived the replacement empty-canvas points from `canvas_rect` and `b` with zero magic numbers.
+- **Epistemic Ledger:**
+  - `FACT`: On `8697b7f3` (`RAIL_WIDTH = 48.0`), `s.screen(700.0, 950.0)` is `Pos2(859.35187, 988.3611)`, which lies inside `contextual-floating-bar` (`[[736.0, 986.0] - [864.0, 1020.0]]`, `ctx-toolbar-block`), whereas on `origin/main` (`RAIL_WIDTH = 56.0`) it was `Pos2(863.05554, 984.5833)` (`1.42 px` above `contextual-floating-bar`).
+  - `FACT`: Because `ctx-toolbar-block` captures hover at `Pos2(859.35187, 988.3611)`, `canvas` `resp.hovered()` is `false`, so `end_open_gesture` finishes the first draw via `inp.prior_release_pos.is_some()` and leaves `canvas.inter` as `Interaction::None` without calling `on_press`.
+  - `FACT`: Replacing `(620.0, 930.0)` and `(700.0, 950.0)` with `empty_canvas_points(&s, b)` (`Pos2(824.5, 918.66)` and `Pos2(981.34, 918.66)`) passes all 23 `fast_drag_draw` tests and all 2,938 tests in `cargo test -p designos-app --bin designos --locked`.
+  - `INFERENCE`: None load-bearing.
+  - `ASSUMPTION`: None remaining.
+- **Weakest link:** `empty_canvas_points` assumes `b.y` (`s.screen(480.0, 870.0).y = 918.66`) remains between the demo frames (`y <= 822.8`) and `contextual-floating-bar.top()` (`986.0`), which holds with `>= 67 px` vertical margin on both sides.
+- **Unresolved questions:** None.
+
+Status: succeeded

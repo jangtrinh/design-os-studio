@@ -1,0 +1,54 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.85s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 23 tests
+test shell::tests::fast_drag_draw::ellipse_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::flick_draws_the_dragged_size_with_keyboard_shortcut_tool ... ok
+test shell::tests::fast_drag_draw::frame_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::line_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::frame_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::ellipse_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::one_frame_delivers_keys_and_text_together ... ok
+test shell::tests::fast_drag_draw::a_jitter_next_to_a_snap_guide_is_still_a_click ... ok
+test shell::tests::fast_drag_draw::line_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::one_frame_reaches_egui_as_a_single_frame ... ok
+test shell::tests::fast_drag_draw::line_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::a_middle_press_in_the_frame_of_the_last_move_draws_to_that_move_and_ends_the_draw ... ok
+test shell::tests::fast_drag_draw::frame_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::ellipse_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::a_press_while_a_draw_is_open_ends_the_draw_and_undo_removes_the_whole_shape ... ok
+test shell::tests::fast_drag_draw::rectangle_origin_is_the_press_position ... ok
+test shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released ... FAILED
+test shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several ... FAILED
+test shell::tests::fast_drag_draw::rectangle_flick_in_one_frame_draws_the_dragged_size ... ok
+test shell::tests::fast_drag_draw::rectangle_release_frame_carries_the_last_move ... ok
+test shell::tests::fast_drag_draw::press_release_press_in_one_frame_leaves_the_second_draw_open ... ok
+test shell::tests::fast_drag_draw::an_eight_pixel_drag_across_a_snap_guide_is_a_drag_not_a_click ... ok
+test shell::tests::fast_drag_draw::a_click_with_a_shape_tool_still_makes_the_default_size ... ok
+
+failures:
+
+---- shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released stdout ----
+
+thread 'shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released' (52694231) panicked at crates/designos-app/src/shell/tests/fast_drag_draw.rs:266:5:
+the draw of the new press is open
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several stdout ----
+
+thread 'shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several' (52694234) panicked at crates/designos-app/src/shell/tests/fast_drag_draw.rs:294:5:
+the draw of the last press is open
+
+
+failures:
+    shell::tests::fast_drag_draw::release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released
+    shell::tests::fast_drag_draw::the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several
+
+test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 2923 filtered out; finished in 2.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
