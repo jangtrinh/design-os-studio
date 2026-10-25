@@ -653,12 +653,6 @@ impl Session {
     }
 
     fn output_path_allow_overwrite(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
-        if Path::new(path).is_absolute()
-            && !Path::new(path).starts_with(&self.root)
-            && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
-        {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
-        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -682,31 +676,23 @@ impl Session {
         if !parent.starts_with(&self.root) {
             return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
-        crate::engine::validate_output_name(path, "/path")?;
-        let req_meta =
-            fs::symlink_metadata(&requested).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        if req_meta.is_some_and(|(is_symlink, is_dir, _, _)| is_symlink || is_dir) {
-            crate::engine::validate_existing_output_target(req_meta, path, "/path", "path", overwrite, true)?;
-        }
-        if !matches!(requested.extension().and_then(|x| x.to_str()), Some("designos")) {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path must end in .designos")
-                .with_received(json!(path))
-                .with_expected("*.designos"));
-        }
-        let resolved = parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path needs a filename"))?);
-        let target_meta =
-            fs::symlink_metadata(&resolved).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        crate::engine::validate_existing_output_target(target_meta, path, "/path", "path", overwrite, true)?;
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", "designos", overwrite, true)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path needs a filename"))?;
         Ok(resolved)
     }
 
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
-        if Path::new(path).is_absolute()
-            && !Path::new(path).starts_with(&self.root)
-            && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
-        {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
-        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -730,29 +716,23 @@ impl Session {
         if !parent.starts_with(&self.root) {
             return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
-        crate::engine::validate_output_name(path, "/path")?;
-        let req_meta =
-            fs::symlink_metadata(&requested).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        if req_meta.is_some_and(|(is_symlink, is_dir, _, _)| is_symlink || is_dir) {
-            crate::engine::validate_existing_output_target(req_meta, path, "/path", "path", false, false)?;
-        }
-        if requested.extension().and_then(|x| x.to_str()) != Some("png") {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path must end in .png").with_received(json!(path)).with_expected("*.png"));
-        }
-        let resolved = parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path needs a filename"))?);
-        let target_meta =
-            fs::symlink_metadata(&resolved).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        crate::engine::validate_existing_output_target(target_meta, path, "/path", "path", false, false)?;
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", "png", false, false)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path needs a filename"))?;
         Ok(resolved)
     }
 
     fn fig_output_path(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
-        if Path::new(path).is_absolute()
-            && !Path::new(path).starts_with(&self.root)
-            && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
-        {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace"));
-        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -776,26 +756,19 @@ impl Session {
         if !parent.starts_with(&self.root) {
             return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace"));
         }
-        crate::engine::validate_output_name(path, "/output_path")?;
-        let req_meta =
-            fs::symlink_metadata(&requested).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        if req_meta.is_some_and(|(is_symlink, is_dir, _, _)| is_symlink || is_dir) {
-            crate::engine::validate_existing_output_target(req_meta, path, "/output_path", "output_path", overwrite, true)?;
-        }
-        if !requested.extension().and_then(|x| x.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("fig")) {
-            return Err(ToolError::new(
-                ErrorCode::InvalidArguments,
-                "/output_path",
-                format!("{path} does not end with .fig. Choose a path ending with .fig, then try again."),
-            )
-            .with_received(json!(path))
-            .with_expected("*.fig"));
-        }
-        let resolved =
-            parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path needs a filename"))?);
-        let target_meta =
-            fs::symlink_metadata(&resolved).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
-        crate::engine::validate_existing_output_target(target_meta, path, "/output_path", "output_path", overwrite, true)?;
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/output_path", "fig", overwrite, true)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path needs a filename"))?;
         Ok(resolved)
     }
 
@@ -861,7 +834,7 @@ impl Session {
             Ok(Err(mut err)) => {
                 crate::tools::errors::contextualize_corrected_example(&mut err, &raw_args);
                 let after = self.state_tuple();
-                let safe = (after == before) && (files_created == 0);
+                let safe = err.safe_to_retry && (after == before) && (files_created == 0);
                 #[cfg(test)]
                 if self.verify_corrected_examples {
                     if let Some(ex) = err.corrected_example.clone() {
@@ -1061,7 +1034,7 @@ impl Session {
                 let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
                 self.engine.settle_layout();
                 let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes())?;
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite)?;
                 *files_created += 1;
                 self.dirty = false;
                 Ok(json!({"path": path, "saved": true}))
@@ -1093,7 +1066,7 @@ impl Session {
                     return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_id", format!("Node {} produced an empty image", a.node_id))
                         .with_received(json!(a.node_id)));
                 }
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png)?;
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png, false)?;
                 *files_created += 1;
                 Ok(json!({"path": path, "node_id": a.node_id, "scale": a.scale, "bytes": png.len(), "rendered": true}))
             }
@@ -1103,7 +1076,7 @@ impl Session {
                 self.engine.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.engine.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "", format!("Failed to export .fig: {e}")))?;
-                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes)?;
+                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes, a.overwrite)?;
                 *files_created += 1;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({

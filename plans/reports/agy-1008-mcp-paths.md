@@ -406,4 +406,252 @@ OUT_REMOVED=0
 - **`ASSUMPTION` (verified against `rules.rs` and `tools_snapshot.rs`):** In `crates/designos-mcp/src/rules.rs`, `tool_error_codes("designos_export_fig_file")` replaced `` "`INTERNAL_ERROR`" `` with `` "`FILE_EXISTS`" `` (matching `tool_error_codes("designos_save_file")`, which lists `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `TOOL_DISABLED`) because adding both `(optional: \`overwrite\`)` (+23 chars) and `, \`FILE_EXISTS\`` (+15 chars) while retaining `\`INTERNAL_ERROR\`` would push `generated/rules.md` to `24,010` chars (`> MAX_RULES_CHARS = 24,000`). With this alignment, `generated/rules.md` is `23,992` chars (`<= 24,000`).
 - **`ASSUMPTION` (verified against `tools_snapshot.rs`):** Running `cargo run -p designos-mcp --bin gen-tool-docs` updates `crates/designos-mcp/tests/snapshots/tools.json` together with `crates/designos-mcp/generated/rules.md` and `skills/design-os-studio/rules.md`, which `tests/tools_snapshot.rs::docs_blocks_are_current` and `src/rules.rs::tests::prompt_resource_tool_identical` assert are byte-for-byte identical to `generate_default_rules_pack()`.
 
+---
+
+## Round 2
+
+### 1. What Could NOT Be Verified
+
+- **Windows cross-target check (`x86_64-pc-windows-gnu`):** Running `cargo check -p designos-mcp --tests --target x86_64-pc-windows-gnu --locked` on this macOS worker stops at `cfg-if`/`core` with `error[E0463]: can't find crate for core` (`the x86_64-pc-windows-gnu target may not be installed`). Adding `#![cfg(unix)]` at line 1 of `crates/designos-mcp/tests/mcp_paths.rs` gates the entire unix-specific integration test crate off on Windows so Windows CI does not compile `std::os::unix` imports or `libc::mkfifo`/`RLIMIT_FSIZE`.
+
+---
+
+### 2. Acceptance Table & Command Outputs
+
+| # | Gate | Command | Status |
+|---|---|---|---|
+| 1 | Red / Green (`r2-red.log` -> `r2-green.log`) | `cargo test -p designos-mcp --test mcp_paths --locked` on `f2b533c1` (8 Round 2 tests fail) and on `HEAD` (20/20 pass) | PASS |
+| 2 | Rustfmt | `cargo fmt --all -- --check` | PASS (`exit 0`) |
+| 3 | Clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS (`exit 0`) |
+| 4 | Test suites (`designos-mcp` & `designos-eval`) | `cargo test -p designos-mcp --locked` and `cargo test -p designos-eval --locked` under short-`$TMPDIR` harness | PASS (`exit 0`) |
+| 5 | Windows target check (`x86_64-pc-windows-gnu`) | `cargo check -p designos-mcp --tests --target x86_64-pc-windows-gnu --locked` | Target stdlib not installed locally (`#![cfg(unix)]` added at top of `tests/mcp_paths.rs`) |
+| 6 | Clean workspace (`out/` removed) | `rm -rf out && test ! -e out` | PASS (`exit 0`) |
+
+#### Acceptance 1 — Red / Green (`r2-red.log` and `r2-green.log`)
+
+- Full logs:
+  - `plans/reports/agy-1008-mcp-paths-evidence/r2-red.log`
+  - `plans/reports/agy-1008-mcp-paths-evidence/r2-green.log`
+
+Command (`r2-red.log` against `f2b533c1` `src/`):
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --test mcp_paths --locked > plans/reports/agy-1008-mcp-paths-evidence/r2-red.log 2>&1 || true
+rm -rf "$S"
+```
+
+Output (`r2-red.log` summary):
+```text
+thread 'export_fig_rules_list_both_file_exists_and_internal_error' (47039331) panicked at crates/designos-mcp/tests/mcp_paths.rs:677:5:
+designos_export_fig_file rules must list INTERNAL_ERROR: ["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"]
+
+thread 'argument_errors_never_echo_outside_paths_in_corrected_example_or_received' (47039323) panicked at crates/designos-mcp/tests/mcp_paths.rs:695:9:
+designos_render_png {"bogus":1,"node_id":1,"path":"/etc/SECRETNAME.png"} leaked outside path in argument error reply: ...
+
+thread 'in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted' (47039337) panicked at crates/designos-mcp/tests/mcp_paths.rs:662:33:
+save_file via alias (/var/folders/.../alias/alias.designos) must succeed: {"code":"PATH_OUTSIDE_WORKSPACE",...}
+
+thread 'new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes' (47039338) panicked at crates/designos-mcp/tests/mcp_paths.rs:608:9:
+assertion `left == right` failed: a.designos mode was 600, expected 644 (not 0600)
+  left: 384
+ right: 420
+
+thread 'concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json' (47039325) panicked at crates/designos-mcp/tests/mcp_paths.rs:497:5:
+assertion `left == right` failed: two concurrent no-overwrite saves must never both succeed (both_ok=298/300)
+  left: 298
+ right: 0
+
+thread 'file_planted_during_no_overwrite_export_is_never_overwritten' (47039336) panicked at crates/designos-mcp/tests/mcp_paths.rs:535:5:
+assertion `left == right` failed: a file planted between check and write must never be overwritten without overwrite: true (lost=276/300)
+  left: 276
+ right: 0
+
+thread 'partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry' (47039351) panicked at crates/designos-mcp/tests/mcp_paths.rs:577:5:
+failed write must not leave a partial new.designos on disk
+
+thread 'trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first' (47039354) panicked at crates/designos-mcp/tests/mcp_paths.rs:716:41:
+trailing slash must be refused as folder: Object {"bytes": Number(22756), ..., "saved": Bool(true)}
+
+failures:
+    argument_errors_never_echo_outside_paths_in_corrected_example_or_received
+    concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json
+    export_fig_rules_list_both_file_exists_and_internal_error
+    file_planted_during_no_overwrite_export_is_never_overwritten
+    in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted
+    new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes
+    partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry
+    trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first
+
+test result: FAILED. 12 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.65s
+```
+
+Command (`r2-green.log` on `HEAD`):
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --test mcp_paths --locked > plans/reports/agy-1008-mcp-paths-evidence/r2-green.log 2>&1
+rm -rf "$S"
+```
+
+Output (`r2-green.log`):
+```text
+running 20 tests
+test export_fig_rules_list_both_file_exists_and_internal_error ... ok
+test export_fig_refuses_folder ... ok
+test export_fig_refuses_symlink_inside_workspace ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test argument_errors_never_echo_outside_paths_in_corrected_example_or_received ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+test in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted ... ok
+test new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes ... ok
+test concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json ... ok
+test file_planted_during_no_overwrite_export_is_never_overwritten ... ok
+test partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry ... ok
+test trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first ... ok
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.96s
+```
+
+#### Acceptance 2 — `cargo fmt --all -- --check`
+
+Command:
+```sh
+cargo fmt --all -- --check && echo "FMT_CHECK=0"
+```
+
+Output:
+```text
+FMT_CHECK=0
+```
+
+#### Acceptance 3 — `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings && echo "CLIPPY_EXIT=0"
+rm -rf "$S"
+```
+
+Output:
+```text
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.90s
+CLIPPY_EXIT=0
+```
+
+#### Acceptance 4 — `cargo test -p designos-mcp --locked` and `cargo test -p designos-eval --locked`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --locked
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-eval --locked
+rm -rf "$S"
+```
+
+Output (`designos-mcp` & `designos-eval`):
+```text
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-96fd55246d4a3a66)
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.67s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.71s
+     Running tests/session_file_safety.rs (out/cargo/debug/deps/session_file_safety-...)
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running tests/session_file_sites.rs (out/cargo/debug/deps/session_file_sites-...)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/tools_snapshot.rs (out/cargo/debug/deps/tools_snapshot-e6488781337fbb09)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/version.rs (out/cargo/debug/deps/version-7878cb959d478560)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-9a9f1f166d66684f)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/harness.rs (out/cargo/debug/deps/harness-28beba16668beb59)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+     Running tests/real_engine.rs (out/cargo/debug/deps/real_engine-4a6cab08ce582fe8)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+```
+
+#### Acceptance 5 — `cargo check -p designos-mcp --tests --target x86_64-pc-windows-gnu`
+
+Command:
+```sh
+cargo check -p designos-mcp --tests --target x86_64-pc-windows-gnu --locked
+```
+
+Output:
+```text
+error[E0463]: can't find crate for `core`
+  |
+  = note: the `x86_64-pc-windows-gnu` target may not be installed
+  = help: consider downloading the target with `rustup target add x86_64-pc-windows-gnu`
+```
+
+---
+
+### 3. Changes per File (Round 2)
+
+- `crates/designos-mcp/src/engine.rs`:
+  - Consolidated output target validation into `validate_existing_output_target(target_meta, display_path, ptr, ext, overwrite, supports_overwrite)` called by both `Engine::call` and `Session` (`output_path_allow_overwrite`, `png_output_path`, `fig_output_path`). It validates `validate_output_name`, refuses symlinks, refuses folders and paths ending in `/` (or `\.` / `.`), checks the required extension (`.designos`, `.png`, or case-insensitive `.fig`) with cause-first messages, and refuses existing files (when `!overwrite`), hard links (`nlink > 1`), non-plain files (FIFOs/sockets/devices), and read-only files.
+  - Updated `write_checked_output_file(resolved, display_path, ptr, bytes, overwrite)`:
+    - When `overwrite == false`: opens `resolved` with `OpenOptions::new().write(true).create_new(true)` (`O_CREAT | O_EXCL`) and `O_NOFOLLOW` on unix (using the process's normal umask `0644`, not `0600`), maps `ErrorKind::AlreadyExists` to `ErrorCode::FileExists`, and if `write_all`/`sync_all` fails, drops the handle, removes the newly created file, and sets `safe_to_retry` to whether the partial file was removed.
+    - When `overwrite == true`: checks `symlink_metadata(resolved)` and refuses symlinks, folders, non-plain files, hard links (`nlink > 1`), and read-only files; opens a short-named sibling temp file `.designos-out-{pid}-{seq}.tmp` in the same directory with `create_new(true)` + `O_NOFOLLOW` (so 255-byte target filenames never exceed `NAME_MAX`), copies `old.permissions()` when replacing an existing file (or respects default umask `0644` when creating a new file), calls `write_all` + `sync_all`, and atomically renames `&tmp` over `resolved`, unlinking `&tmp` on any failure so the original file is never destroyed and no partial file remains.
+- `crates/designos-mcp/src/server.rs`:
+  - Deleted the three pre-check blocks in `output_path_allow_overwrite`, `png_output_path`, and `fig_output_path` that called `Path::new(path).canonicalize()` on a not-yet-existing file (which rejected valid in-workspace absolute paths through symlink aliases or macOS `/var` vs `/private/var`).
+  - Delegated all output target checks in `output_path_allow_overwrite`, `png_output_path`, and `fig_output_path` to `crate::engine::validate_existing_output_target`.
+  - Updated `call_with_safety` so `safe = err.safe_to_retry && (after == before) && (files_created == 0)`.
+  - Passed `a.overwrite`, `false`, and `a.overwrite` into `write_checked_output_file` for `designos_save_file`, `designos_render_png`, and `designos_export_fig_file`.
+- `crates/designos-mcp/src/tools/errors.rs`:
+  - Updated `build_unknown_field_corrected_example` and `contextualize_corrected_example` to strip `"path"` and `"output_path"` from `corrected_example` and `received` on argument errors (`err.code != ErrorCode::FileExists && err.code != ErrorCode::UnsavedChanges`), and prevented `contextualize_corrected_example` from re-inserting unknown fields or path arguments on `ErrorCode::UnknownField`.
+- `crates/designos-mcp/src/rules.rs`, `crates/designos-mcp/generated/rules.md`, `skills/design-os-studio/rules.md`:
+  - Restored `` "`INTERNAL_ERROR`" `` alongside `` "`FILE_EXISTS`" `` in `tool_error_codes("designos_export_fig_file")`, adjusted `MAX_PURPOSE_CHARS` from `106` to `104` to keep `generated/rules.md` within the 24,000-character budget (`23,972` chars), and regenerated the rules files via `gen-tool-docs`.
+- `crates/designos-mcp/tests/session_file_sites/allowlist.rs`:
+  - Added the single allowlist entry `Allowed { file: "src/engine.rs", func: Some("write_checked_output_file"), why: WORKSPACE_PATH },`.
+- `crates/designos-mcp/tests/mcp_paths.rs`:
+  - Added `#![cfg(unix)]` at the top of the test file and added 8 Round 2 tests (`20` tests total).
+
+---
+
+### 4. User-Facing Strings Added or Changed in Round 2 (Verbatim) & Full Refused Control / Bidi Set
+
+#### User-Facing Strings Added or Changed
+1. `"{display_path} does not end with .designos. Choose a path ending with .designos, then try again."` (`ErrorCode::InvalidArguments`, replaces `"Save path must end in .designos"`)
+2. `"{display_path} does not end with .png. Choose a path ending with .png, then try again."` (`ErrorCode::InvalidArguments`, replaces `"Render path must end in .png"`)
+3. `"{display_path} does not end with .fig. Choose a path ending with .fig, then try again."` (`ErrorCode::InvalidArguments`, unified across `Engine` and `Session` via `"{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."`)
+4. `"{display_path} is a folder, not a file. Choose a file path, then try again."` (`ErrorCode::InvalidArguments`, now also returned for paths ending with `/`, `/.`, or `.`)
+
+#### Full Refused Control & Bidirectional Character Set (`has_control_or_bidi_char`)
+- **Unicode Cc control characters (`char::is_control()`):**
+  - `U+0000..=U+001F` (C0 controls, including `\0`, `\t`, `\n`, `\r`, `\x1B`)
+  - `U+007F` (`DELETE`)
+  - `U+0080..=U+009F` (C1 controls)
+- **Bidirectional embedding & override controls:**
+  - `U+202A` (`LEFT-TO-RIGHT EMBEDDING`, `LRE`)
+  - `U+202B` (`RIGHT-TO-LEFT EMBEDDING`, `RLE`)
+  - `U+202C` (`POP DIRECTIONAL FORMATTING`, `PDF`)
+  - `U+202D` (`LEFT-TO-RIGHT OVERRIDE`, `LRO`)
+  - `U+202E` (`RIGHT-TO-LEFT OVERRIDE`, `RLO`)
+- **Bidirectional isolate controls:**
+  - `U+2066` (`LEFT-TO-RIGHT ISOLATE`, `LRI`)
+  - `U+2067` (`RIGHT-TO-LEFT ISOLATE`, `RLI`)
+  - `U+2068` (`FIRST STRONG ISOLATE`, `FSI`)
+  - `U+2069` (`POP DIRECTIONAL ISOLATE`, `PDI`)
+- **Implicit directional marks (retained per Ruling 8):**
+  - `U+200E` (`LEFT-TO-RIGHT MARK`, `LRM`)
+  - `U+200F` (`RIGHT-TO-LEFT MARK`, `RLM`)
+  - `U+061C` (`ARABIC LETTER MARK`, `ALM`)
+
 Status: DONE

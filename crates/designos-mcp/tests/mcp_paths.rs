@@ -1,28 +1,37 @@
+#![cfg(unix)]
+
 use designos_mcp::{engine::Engine, server::Session, tools::errors::ErrorCode};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::{
     fs,
-    os::unix::fs::symlink,
+    os::unix::fs::{symlink, PermissionsExt},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Barrier, RwLock, RwLockReadGuard,
+    },
 };
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
+/// Keeps concurrent tests from writing files while the RLIMIT_FSIZE test lowers the process file-size limit.
+static RLIMIT_LOCK: RwLock<()> = RwLock::new(());
 
-struct TempDir(PathBuf);
+struct TempDir(PathBuf, RwLockReadGuard<'static, ()>);
 
 impl TempDir {
     fn new(tag: &str) -> Self {
+        let guard = RLIMIT_LOCK.read().unwrap_or_else(|e| e.into_inner());
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let p = std::env::temp_dir().join(format!("designos-mcp-paths-{tag}-{}-{nonce}-{seq}", std::process::id()));
         fs::create_dir_all(&p).unwrap();
-        Self(p)
+        Self(p, guard)
     }
 }
 
 impl Drop for TempDir {
     fn drop(&mut self) {
+        let _ = &self.1;
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -445,5 +454,291 @@ fn save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canar
         assert_eq!(err.message, format!("{name} is a link, not a file. Delete the link, then try again."));
         assert_eq!(sha256_file(&canary), canary_hash);
         assert!(!missing_out.exists());
+    }
+}
+
+#[test]
+fn concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json() {
+    let ws = TempDir::new("ws-r2-race");
+    let rounds = 300;
+    let mut both_ok = 0usize;
+    let mut one_exists = 0usize;
+    let mut other = 0usize;
+    let mut corrupt = 0usize;
+
+    for i in 0..rounds {
+        let name = format!("race-{i}.designos");
+        let barrier = Arc::new(Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let ws_path = ws.0.clone();
+                let b = barrier.clone();
+                let name = name.clone();
+                std::thread::spawn(move || {
+                    let mut s = Session::new(&ws_path).unwrap();
+                    b.wait();
+                    s.call("designos_save_file", json!({"path": name})).map(|_| ()).map_err(|e| e.code)
+                })
+            })
+            .collect();
+        let res: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let oks = res.iter().filter(|r| r.is_ok()).count();
+        let exists = res.iter().filter(|r| matches!(r, Err(ErrorCode::FileExists))).count();
+        match (oks, exists) {
+            (2, _) => both_ok += 1,
+            (1, 1) => one_exists += 1,
+            _ => other += 1,
+        }
+        let bytes = fs::read(ws.0.join(&name)).unwrap_or_default();
+        if serde_json::from_slice::<Value>(&bytes).is_err() {
+            corrupt += 1;
+        }
+    }
+
+    assert_eq!(both_ok, 0, "two concurrent no-overwrite saves must never both succeed (both_ok={both_ok}/{rounds})");
+    assert_eq!(corrupt, 0, "concurrent saves must never write invalid/concatenated JSON (corrupt={corrupt}/{rounds})");
+    assert_eq!(other, 0, "unexpected error codes in concurrent saves (other={other}/{rounds})");
+    assert_eq!(one_exists, rounds, "each round must have one winner and one FILE_EXISTS");
+}
+
+#[test]
+fn file_planted_during_no_overwrite_export_is_never_overwritten() {
+    let ws = TempDir::new("ws-r2-plant");
+    let rounds = 300;
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut lost = 0usize;
+    let mut s = Session::new(&ws.0).unwrap();
+
+    for i in 0..rounds {
+        let name = format!("plant-{i}.fig");
+        let target = ws.0.join(&name);
+        stop.store(false, Ordering::SeqCst);
+        let st = stop.clone();
+        let t2 = target.clone();
+        let planter = std::thread::spawn(move || {
+            while !st.load(Ordering::SeqCst) {
+                if fs::OpenOptions::new().write(true).create_new(true).open(&t2).and_then(|mut f| std::io::Write::write_all(&mut f, b"PLANTED")).is_ok() {
+                    return true;
+                }
+            }
+            false
+        });
+        let r = s.call("designos_export_fig_file", json!({"output_path": name}));
+        stop.store(true, Ordering::SeqCst);
+        let planted = planter.join().unwrap();
+        let bytes = fs::read(&target).unwrap_or_default();
+        if planted && (r.is_ok() || bytes != b"PLANTED") {
+            lost += 1;
+        }
+        let _ = fs::remove_file(&target);
+    }
+
+    assert_eq!(lost, 0, "a file planted between check and write must never be overwritten without overwrite: true (lost={lost}/{rounds})");
+}
+
+#[test]
+fn partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry() {
+    let _exclusive = RLIMIT_LOCK.write().unwrap_or_else(|e| e.into_inner());
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let ws_path = std::env::temp_dir().join(format!("designos-mcp-paths-efbig-{}-{nonce}", std::process::id()));
+    fs::create_dir_all(&ws_path).unwrap();
+
+    let mut s = Session::new(&ws_path).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    for _ in 0..200 {
+        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap();
+    }
+    s.call("designos_save_file", json!({"path": "size.designos"})).unwrap();
+    let full = fs::metadata(ws_path.join("size.designos")).unwrap().len();
+    let original_bytes = b"PRECIOUS-ORIGINAL";
+    fs::write(ws_path.join("precious.designos"), original_bytes).unwrap();
+
+    let mut old = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: ignoring SIGXFSZ and lowering the soft RLIMIT_FSIZE limit while holding RLIMIT_LOCK.write()
+    // affects only this process while no sibling test in this binary is running, and is immediately restored.
+    unsafe {
+        libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+        libc::getrlimit(libc::RLIMIT_FSIZE, &mut old);
+        let lim = libc::rlimit { rlim_cur: full / 2, rlim_max: old.rlim_max };
+        libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
+    }
+    let new_res = s.call("designos_save_file", json!({"path": "new.designos"}));
+    let ow_res = s.call("designos_save_file", json!({"path": "precious.designos", "overwrite": true}));
+    unsafe {
+        libc::setrlimit(libc::RLIMIT_FSIZE, &old);
+    }
+
+    let new_err = new_res.expect_err("partial write to new.designos must fail");
+    let ow_err = ow_res.expect_err("partial overwrite of precious.designos must fail");
+    let new_exists = ws_path.join("new.designos").exists();
+    let precious_after = fs::read(ws_path.join("precious.designos")).unwrap_or_default();
+    let retry_res = s.call("designos_save_file", json!({"path": "new.designos"}));
+    let _ = fs::remove_dir_all(&ws_path);
+
+    assert!(!new_exists, "failed write must not leave a partial new.designos on disk");
+    assert_eq!(precious_after, original_bytes, "failed overwrite must preserve precious.designos intact");
+    assert!(new_err.safe_to_retry, "new_err must report safe_to_retry: true when nothing changed on disk");
+    assert!(ow_err.safe_to_retry, "ow_err must report safe_to_retry: true when original is intact");
+    assert!(retry_res.is_ok(), "retrying new.designos without overwrite after failed write must succeed: {retry_res:?}");
+}
+
+#[test]
+fn new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes() {
+    let ws = TempDir::new("ws-r2-modes");
+    let outside = TempDir::new("out-r2-modes");
+    // SAFETY: reads the process umask and immediately restores it.
+    let umask = unsafe {
+        let old = libc::umask(0o022);
+        libc::umask(old);
+        old as u32
+    };
+    let expected_mode = 0o666 & !umask;
+
+    let mut s = Session::new(&ws.0).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    let rect_id =
+        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap()["node"]["id"].as_u64().unwrap();
+
+    s.call("designos_save_file", json!({"path": "a.designos"})).unwrap();
+    s.call("designos_save_file", json!({"path": "b.designos", "overwrite": true})).unwrap();
+    s.call("designos_render_png", json!({"path": "a.png", "node_id": rect_id})).unwrap();
+    s.call("designos_export_fig_file", json!({"output_path": "a.fig"})).unwrap();
+
+    for name in ["a.designos", "b.designos", "a.png", "a.fig"] {
+        let mode = fs::metadata(ws.0.join(name)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, expected_mode, "{name} mode was {mode:o}, expected {expected_mode:o} (not 0600)");
+    }
+
+    // Overwriting an existing file preserves its mode.
+    fs::set_permissions(ws.0.join("a.designos"), fs::Permissions::from_mode(0o640)).unwrap();
+    s.call("designos_save_file", json!({"path": "a.designos", "overwrite": true})).unwrap();
+    let preserved = fs::metadata(ws.0.join("a.designos")).unwrap().permissions().mode() & 0o777;
+    assert_eq!(preserved, 0o640, "overwrite: true must preserve existing file mode");
+
+    // 255-byte filenames work in both overwrite: false and overwrite: true modes.
+    let name_255_fig = format!("{}.fig", "a".repeat(251));
+    let name_255_dos = format!("{}.designos", "b".repeat(246));
+    assert_eq!(name_255_fig.len(), 255);
+    assert_eq!(name_255_dos.len(), 255);
+    for ow in [false, true] {
+        s.call("designos_export_fig_file", json!({"output_path": name_255_fig, "overwrite": ow}))
+            .unwrap_or_else(|e| panic!("255-byte .fig with overwrite={ow} must succeed: {e}"));
+        s.call("designos_save_file", json!({"path": name_255_dos, "overwrite": ow}))
+            .unwrap_or_else(|e| panic!("255-byte .designos with overwrite={ow} must succeed: {e}"));
+    }
+
+    // Hard links, FIFOs, and read-only targets remain refused in both modes.
+    let canary = outside.0.join("canary.bin");
+    fs::write(&canary, b"CANARY-BYTES").unwrap();
+    let canary_hash = sha256_file(&canary);
+    fs::hard_link(&canary, ws.0.join("hl.fig")).unwrap();
+    fs::hard_link(&canary, ws.0.join("hl.designos")).unwrap();
+    let err = s.call("designos_export_fig_file", json!({"output_path": "hl.fig", "overwrite": true})).expect_err("hard link must be refused on overwrite");
+    assert_eq!(err.code, ErrorCode::InvalidArguments);
+    assert_eq!(err.message, "hl.fig has a second name (a hard link). Delete it, then try again.");
+    let err = s.call("designos_save_file", json!({"path": "hl.designos", "overwrite": true})).expect_err("hard link must be refused on overwrite");
+    assert_eq!(err.code, ErrorCode::InvalidArguments);
+    assert_eq!(err.message, "hl.designos has a second name (a hard link). Delete it, then try again.");
+    assert_eq!(sha256_file(&canary), canary_hash);
+}
+
+#[test]
+fn in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted() {
+    let base = TempDir::new("ws-r2-alias");
+    let real = base.0.join("real");
+    fs::create_dir_all(&real).unwrap();
+    let alias = base.0.join("alias");
+    symlink(&real, &alias).unwrap();
+
+    let mut s = Session::new(&alias).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    let rect_id =
+        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap()["node"]["id"].as_u64().unwrap();
+
+    for (tag, root) in [("alias", alias.clone()), ("tmpdir-raw", real.clone()), ("canonical", real.canonicalize().unwrap())] {
+        let save_path = root.join(format!("{tag}.designos"));
+        let png_path = root.join(format!("{tag}.png"));
+        let fig_path = root.join(format!("{tag}.fig"));
+        s.call("designos_save_file", json!({"path": save_path.to_str().unwrap()}))
+            .unwrap_or_else(|e| panic!("save_file via {tag} ({}) must succeed: {e}", save_path.display()));
+        s.call("designos_render_png", json!({"path": png_path.to_str().unwrap(), "node_id": rect_id}))
+            .unwrap_or_else(|e| panic!("render_png via {tag} ({}) must succeed: {e}", png_path.display()));
+        s.call("designos_export_fig_file", json!({"output_path": fig_path.to_str().unwrap()}))
+            .unwrap_or_else(|e| panic!("export_fig_file via {tag} ({}) must succeed: {e}", fig_path.display()));
+        assert!(real.join(format!("{tag}.designos")).is_file());
+        assert!(real.join(format!("{tag}.png")).is_file());
+        assert!(real.join(format!("{tag}.fig")).is_file());
+    }
+}
+
+#[test]
+fn export_fig_rules_list_both_file_exists_and_internal_error() {
+    let codes = designos_mcp::rules::tool_error_codes("designos_export_fig_file");
+    assert!(codes.contains(&"`FILE_EXISTS`"), "designos_export_fig_file rules must list FILE_EXISTS: {codes:?}");
+    assert!(codes.contains(&"`INTERNAL_ERROR`"), "designos_export_fig_file rules must list INTERNAL_ERROR: {codes:?}");
+}
+
+#[test]
+fn argument_errors_never_echo_outside_paths_in_corrected_example_or_received() {
+    let ws = TempDir::new("ws-r2-arg-echo");
+    let mut s = Session::new(&ws.0).unwrap();
+    let cases: Vec<(&str, Value)> = vec![
+        ("designos_render_png", json!({"path": "/etc/SECRETNAME.png", "node_id": 1, "bogus": 1})),
+        ("designos_save_file", json!({"path": "/etc/SECRETNAME.designos", "overwrite": true, "bogus": 1})),
+        ("designos_export_fig_file", json!({"output_path": "/etc/SECRETNAME.fig", "bogus": true})),
+        ("designos_open_file", json!({"path": "/etc/SECRETNAME.designos", "bogus": 1})),
+        ("designos_import_web_capture", json!({"path": "/etc/SECRETNAME.json", "bogus": 1})),
+        ("designos_save_file", json!({"path": "/etc/SECRETNAME.designos", "overwrite": "yes"})),
+        ("designos_open_file", json!({"path": "/etc/SECRETNAME", "discard_changes": "no"})),
+    ];
+    for (tool, args) in cases {
+        let reply = serde_json::to_string(&s.call_tool_result(tool, args.clone())).unwrap();
+        assert!(!reply.contains("SECRETNAME"), "{tool} {args} leaked outside path in argument error reply: {reply}");
+    }
+}
+
+#[test]
+fn trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first() {
+    let ws = TempDir::new("ws-r2-nits");
+    let mut s = Session::new(&ws.0).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    let rect_id =
+        s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle", "width": 20, "height": 20})).unwrap()["node"]["id"].as_u64().unwrap();
+
+    for (tool, key, bad_dir, stem) in [
+        ("designos_export_fig_file", "output_path", "x.fig/", "x.fig"),
+        ("designos_save_file", "path", "x.designos/", "x.designos"),
+        ("designos_render_png", "path", "x.png/", "x.png"),
+    ] {
+        let mut payload = json!({ key: bad_dir });
+        if tool == "designos_render_png" {
+            payload["node_id"] = json!(rect_id);
+        }
+        let err = s.call(tool, payload).expect_err("trailing slash must be refused as folder");
+        assert_eq!(err.code, ErrorCode::InvalidArguments, "{tool} {bad_dir}: {err}");
+        assert_eq!(err.message, format!("{bad_dir} is a folder, not a file. Choose a file path, then try again."));
+        assert!(!ws.0.join(stem).exists(), "{stem} must not be created when {bad_dir} is passed");
+    }
+
+    let mut e = Engine::default();
+    let trailing_engine = ws.0.join("engine.fig/");
+    let trailing_str = format!("{}/", ws.0.join("engine.fig").display());
+    let err = e.call("designos_export_fig_file", json!({"output_path": trailing_str})).expect_err("bare Engine must refuse trailing slash");
+    assert_eq!(err.code, ErrorCode::InvalidArguments);
+    assert_eq!(err.message, format!("{trailing_str} is a folder, not a file. Choose a file path, then try again."));
+    assert!(!trailing_engine.with_file_name("engine.fig").exists());
+
+    let save_ext = s.call("designos_save_file", json!({"path": "wrong.txt"})).expect_err("save_file must refuse wrong extension");
+    assert_eq!(save_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(save_ext.message, "wrong.txt does not end with .designos. Choose a path ending with .designos, then try again.");
+
+    let png_ext = s.call("designos_render_png", json!({"path": "wrong.txt", "node_id": rect_id})).expect_err("render_png must refuse wrong extension");
+    assert_eq!(png_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(png_ext.message, "wrong.txt does not end with .png. Choose a path ending with .png, then try again.");
+
+    for bidi_mark in ["lrm\u{200E}x.fig", "rlm\u{200F}x.fig", "alm\u{061C}x.fig"] {
+        let err = s.call("designos_export_fig_file", json!({"output_path": bidi_mark})).expect_err("bidi mark must be refused");
+        assert_eq!(err.code, ErrorCode::InvalidArguments);
+        assert_eq!(err.message, format!("{bidi_mark} has a name with a line break or a direction-control character. Rename it, then try again."));
     }
 }
