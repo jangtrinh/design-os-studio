@@ -80,6 +80,7 @@ Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, co
 - #1159: `rules.lock` đã `-text` nên giả thuyết CRLF có thể sai; story bắt in dòng diff đầu tiên trước.
 - #1072: phần còn lại là PR #1085 (mở). Ship v0.6.3+ với Windows đỏ vẫn là OPEN DECISION của Jang.
 - Nhiều issue v0.6.4/v0.6.5 đã có fix merge vào 0.6.2 (#1078, #1024, #1033, #1025, #1091, #1090, #1103) nhưng issue còn mở: story là xác minh AC trên tag rồi đóng (Jang). RT-04/RT-07 của #1003 nằm trong PR #1117 (open).
-- PR trùng cần Jang chọn: #985 (PR #1130 vs #1034); #1050 (PR #1070 vs #1085/#1072).
+- PR trùng đã được PM chọn (25/10, theo uỷ quyền 13:27 của Jang): #985 → PR #1130 (bỏ #1034); #1050 → PR #1085 (bỏ #1070). Đóng PR bị bỏ là việc của Jang.
+- Routing cho Claude: làm #1130 (retarget sang main, đổi mã lỗi `INSTANCE_CHILD`, chạy lại CI Ubuntu) và #1085 (thêm `Closes #1050`). Dừng #1034 và #1070; label `for:claude` trên hai PR này còn đó vì PM chỉ được comment.
 - #1101 cần decision record (write nào qua Ask) trước khi code. #1160/#1161/#1163 đổi `.github/workflows`: cần Jang review merge.
 - Còn lại: #1122 (chờ owner chọn licence), v0.7.4 effects và Backlog chưa thuộc batch này.
