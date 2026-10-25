@@ -11,6 +11,6 @@
     { "id": "contract", "folder": "contract", "name": "Feature contract", "status": "Draft for G2", "owner_role": "PM" },
     { "id": "prd", "folder": "prd", "name": "PRD", "status": "Draft", "owner_role": "PM" },
     { "id": "us", "folder": "us", "name": "Stories, slice 1", "status": "Draft", "owner_role": "PM" },
-    { "id": "decisions", "folder": "decisions", "name": "Decision log", "status": "Current to D4", "owner_role": "PM" }
+    { "id": "decisions", "folder": "decisions", "name": "Decision log", "status": "Current to D5", "owner_role": "PM" }
   ]
 }
