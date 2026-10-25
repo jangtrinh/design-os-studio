@@ -7,6 +7,7 @@ pub mod agent_cli_catalog;
 mod agent_cli_export_fig_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
+pub mod agent_hook_outputs;
 mod agent_mention;
 mod agent_mention_popup;
 pub mod agent_notify;

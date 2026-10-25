@@ -288,7 +288,7 @@ impl EventFileCursor {
     }
 }
 
-/// Off-UI-thread reader for `<session_dir>/agent-events.jsonl` (`#683` §3.1, §11).
+/// Off-UI-thread reader for `agent-events.jsonl` of the hook folder (`agent_hook_outputs`, `#683` §3.1, §11).
 ///
 /// The background worker sleeps on an `mpsc` channel when idle (`0.00%` CPU) and parses
 /// appended JSON records off the UI thread when signalled; the UI thread drains a channel.

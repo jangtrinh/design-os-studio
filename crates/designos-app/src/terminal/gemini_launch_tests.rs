@@ -16,7 +16,7 @@ fn in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file() {
     assert!(!file.starts_with(&st.session_dir), "the file Gemini reads sits in the session folder: {}", file.display());
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let seen: serde_json::Value = serde_json::from_str(&recorded(&st, "defaults-seen.txt")).expect("the stub read the hooks file");
-    assert_eq!(seen, hooks::hooks_settings(&st.session_dir, tab_id));
+    assert_eq!(seen, hooks::hooks_settings(&st.hook_paths(), tab_id));
     assert!(seen.to_string().contains(&format!("\\\"tab\\\":\\\"{tab_id}\\\"")), "the tab id is in the records the handlers write");
     // No hook reaches the session folder, where an agent can write.
     assert!(!recorded(&st, ".gemini/settings.json").contains("hooks"), "the session's Gemini settings carry hooks");
@@ -131,9 +131,9 @@ fn off_unix_a_gemini_tab_gets_no_hooks_file() {
     // Gemini runs a hook through PowerShell on Windows, where the POSIX status command cannot parse.
     let session = std::env::temp_dir().join(format!("designos-gemini-off-unix-{}", std::process::id()));
     let ask = AgentPermissionMode::Ask;
-    assert!(hooks::prepare_for_tab_on(false, &session, 1, ask, AgentCliPreset::Gemini).is_none());
+    assert!(hooks::prepare_for_tab_on(false, &session, None, 1, ask, AgentCliPreset::Gemini).is_none());
     assert!(hooks::tab_file_path(&session, 1).is_some_and(|file| !file.exists()), "a file was written for a shell that cannot run it");
-    let file = hooks::prepare_for_tab_on(true, &session, 1, ask, AgentCliPreset::Gemini).expect("a POSIX shell gets the file");
+    let file = hooks::prepare_for_tab_on(true, &session, None, 1, ask, AgentCliPreset::Gemini).expect("a POSIX shell gets the file");
     assert!(file.is_file());
     crate::agent_approval_channel::remove_channel(&session);
 }

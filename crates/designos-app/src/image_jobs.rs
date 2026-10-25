@@ -930,7 +930,7 @@ fn pump_next_queued_image_job_for(
             job.output_path.display()
         );
 
-        let status_file_path = terminal.session_dir.join("agent-status.json");
+        let status_file_path = terminal.hook_paths().status();
         // Clear any stale `done` status file before starting a new job.
         if let Some(raw) = crate::agent_session_files::read_session_text(&status_file_path) {
             if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
@@ -1859,6 +1859,25 @@ mod tests {
         assert!(shells.is_empty(), "no shell tab may exist or receive the prompt: {shells:?}");
     }
 
+    /// The status word a hook left in the hook folder is what a new job looks at, never a file in the session folder.
+    #[test]
+    fn a_done_status_left_in_the_hook_folder_is_cleared_when_an_image_job_starts() {
+        let tmp = TestDir::new("stale-done");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("test-stale-done-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&app.terminal.session_dir);
+        let status = app.terminal.prepared_hook_paths().status();
+        std::fs::write(&status, r#"{"state":"done"}"#).unwrap();
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let _ = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground);
+
+        assert!(!status.exists(), "a done status an earlier run left must not end the new job at once");
+        app.cleanup_image_jobs_on_file_close();
+        crate::agent_approval_channel::remove_channel(&app.terminal.session_dir);
+        app.terminal.shutdown();
+    }
+
     #[test]
     fn finished_agent_without_output_fails_immediately_and_advances_queue() {
         let tmp = TestDir::new("done-no-output");
@@ -1880,7 +1899,7 @@ mod tests {
         app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
 
         // Signal that the agent finished (`done`) without writing output.png for job 1.
-        std::fs::write(app.terminal.session_dir.join("agent-status.json"), r#"{"state":"done"}"#).unwrap();
+        std::fs::write(app.terminal.prepared_hook_paths().status(), r#"{"state":"done"}"#).unwrap();
 
         // Wait for job 1 to fail immediately (< 1s, nowhere near the 300s timeout).
         let t0 = Instant::now();
@@ -2367,7 +2386,7 @@ mod tests {
         let session = app.terminal.session_dir.clone();
         let _session = SessionFolder(session.clone());
         crate::agent_session_files::ensure_session_dir(&session).expect("the session folder");
-        let fifo = session.join("agent-status.json");
+        let fifo = app.terminal.prepared_hook_paths().status();
         make_fifo(&fifo);
         app.image_jobs.agent_script = Some("sleep 0".into());
 

@@ -197,7 +197,7 @@ fn the_handler_command_runs_the_script_from_a_path_with_a_space() {
     let session = base.join("session dir");
     std::fs::create_dir_all(&session).unwrap();
     let channel = crate::agent_approval_channel::prepare_channel_dir_in(&base.join("Application Support").join("ap"), &session).unwrap();
-    let script = install_hook_script(&channel, &session).unwrap();
+    let script = install_hook_script(&channel, Some(&channel.join("hook out").join("agent-status.json"))).unwrap();
 
     let handler = approval_hook_handler(&script);
     let command = handler["command"].as_str().unwrap();

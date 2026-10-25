@@ -144,8 +144,12 @@ fn in_skip_mode_claude_still_reads_hooks_json_in_the_session_folder() {
     let seen = std::fs::read_to_string(st.session_dir.join("settings-seen.txt")).expect("the stub read hooks.json");
     assert!(!seen.contains("approve-hook.sh"), "Skip mode has no approval handler: {seen}");
     assert!(seen.contains("PermissionRequest"), "the status hooks are there: {seen}");
+    // Skip mode has no approval handler, so it makes no script and no hooks file; the hooks report to a folder in the channel.
     let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).unwrap();
-    assert!(!channel.exists(), "Skip mode creates no private folder: {}", channel.display());
+    let mut made: Vec<String> =
+        std::fs::read_dir(&channel).expect("the channel folder").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    made.sort();
+    assert_eq!(made, [crate::agent_hook_outputs::DIR_NAME], "Skip mode makes only the folder the hooks report to: {}", channel.display());
     finish(dir, st);
 }
 

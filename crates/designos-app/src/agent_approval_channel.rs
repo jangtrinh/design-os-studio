@@ -50,7 +50,7 @@ fn temp_roots() -> Vec<PathBuf> {
 }
 
 /// `path` with its longest existing ancestor resolved through the file system (symlinks, `/private` on macOS).
-fn resolve_existing_prefix(path: &Path) -> PathBuf {
+pub(crate) fn resolve_existing_prefix(path: &Path) -> PathBuf {
     let mut tail = Vec::new();
     let mut current = path;
     loop {
@@ -85,6 +85,9 @@ pub fn private_root() -> Option<PathBuf> {
         if NO_PRIVATE_ROOT.with(std::cell::Cell::get) {
             return None;
         }
+        if let Some(root) = PRIVATE_ROOT_AT.with(|slot| slot.borrow().clone()) {
+            return Some(root);
+        }
         Some(std::env::temp_dir().join("designos-approval-channels-test"))
     }
     #[cfg(not(test))]
@@ -97,6 +100,22 @@ pub fn private_root() -> Option<PathBuf> {
 #[cfg(test)]
 thread_local! {
     static NO_PRIVATE_ROOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static PRIVATE_ROOT_AT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `body` on this thread with the private root at `root` (a path a test chose, such as one with a space and an apostrophe in it,
+/// like the data folder of a user whose home folder is named after a person).
+#[cfg(test)]
+pub fn with_private_root_at<R>(root: &Path, body: impl FnOnce() -> R) -> R {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PRIVATE_ROOT_AT.with(|slot| *slot.borrow_mut() = None);
+        }
+    }
+    PRIVATE_ROOT_AT.with(|slot| *slot.borrow_mut() = Some(root.to_path_buf()));
+    let _restore = Restore;
+    body()
 }
 
 /// Runs `body` on this thread as if the platform had no private data folder (see [`default_private_root`]).

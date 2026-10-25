@@ -80,16 +80,38 @@ fn real_sessions_root(root: Option<&Path>) -> Option<&'static Path> {
     Some(REAL_ROOT.get_or_init(|| real))
 }
 
-/// The session folder `path` lies in, when it lies in one: the closest folder above `path` that is a direct child of the
-/// ephemeral sessions folder (or of the root no session can use), or of a library's `agent-sessions` folder.
+/// The private channel root, spelled without the links above it. Looked up once it exists and kept, like [`real_sessions_root`].
+fn real_private_root(root: Option<&Path>) -> Option<&'static Path> {
+    static REAL_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(real) = REAL_ROOT.get() {
+        return Some(real);
+    }
+    let real = root?.canonicalize().ok()?;
+    Some(REAL_ROOT.get_or_init(|| real))
+}
+
+/// A path below the root no session can use, named `name`: what a folder Studio cannot make private resolves to, so every read of it
+/// fails and every write is refused, and nothing ever lands in a folder an agent can write.
+pub fn unavailable_path(name: &str) -> PathBuf {
+    Path::new(UNAVAILABLE_ROOT).join(name)
+}
+
+/// The folder `path` lies in that the routed helpers anchor at, when it lies in one: the closest folder above `path` that is a direct
+/// child of the ephemeral sessions folder (or of the root no session can use), of a library's `agent-sessions` folder, or of
+/// Studio's private channel root (`<data dir>/designos/ap`, where the hooks report to: `agent_hook_outputs`). The first three are
+/// folders an agent writes, the last is one no agent grant reaches; each is opened from its own handle and never through a link.
 pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
     let root = ephemeral_sessions_root();
     // The same folder spelled through the links above it (`/private/var` for `/var` on macOS) is Studio's own folder too.
     let real_root = real_sessions_root(root.as_deref());
+    let private = crate::agent_approval_channel::private_root();
+    let real_private = real_private_root(private.as_deref());
     let is_session_folder = |dir: &Path| {
         dir.parent().is_some_and(|up| {
             root.as_deref() == Some(up)
                 || real_root == Some(up)
+                || private.as_deref() == Some(up)
+                || real_private == Some(up)
                 || up == Path::new(UNAVAILABLE_ROOT)
                 || up.file_name().is_some_and(|name| name == "agent-sessions")
         })

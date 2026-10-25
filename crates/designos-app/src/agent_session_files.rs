@@ -12,7 +12,7 @@ mod no_follow;
 mod no_follow;
 mod refusal;
 mod session_io;
-pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside};
+pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside, unavailable_path};
 pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
 pub use session_io::{
     added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
@@ -295,7 +295,7 @@ pub struct SnapshotJob {
     pub file_path: Option<PathBuf>,
     /// Run id and runtime of the active agent tab, written into the session's MCP server env.
     pub run_id: String,
-    /// Agent run counter whose first-turn `bootstrap.delivered.<n>` marker the Claude prompt hook checks.
+    /// Agent run counter whose first-turn `bootstrap.delivered.<n>` marker the Claude prompt hook checks (in the hook folder, `agent_hook_outputs`).
     pub bootstrap_run_id: u64,
     pub agent_runtime: String,
     /// True when the session runs in `Ask` permission mode, so its hooks route approvals through the panel.
@@ -648,6 +648,8 @@ mod library_fallback_tests;
 mod linked_parent_tests;
 #[cfg(all(test, unix))]
 mod live_spec_tests;
+#[cfg(all(test, target_vendor = "apple"))]
+mod locked_entry_tests;
 #[cfg(all(test, unix))]
 mod open_race_tests;
 #[cfg(all(test, unix))]
@@ -658,6 +660,8 @@ mod placement_tests;
 mod plain_open_tests;
 #[cfg(all(test, unix))]
 mod poll_readers_tests;
+#[cfg(all(test, unix))]
+mod private_anchor_tests;
 #[cfg(test)]
 mod refusal_tests;
 #[cfg(all(test, unix))]

@@ -33,7 +33,7 @@ fn cleared_run_ids(actions: &[TerminalAction]) -> Vec<String> {
 #[test]
 fn a_fifo_at_agent_status_json_does_not_freeze_the_poll_of_every_frame() {
     let mut st = state_with_session_folder();
-    let fifo = st.session_dir.join("agent-status.json");
+    let fifo = st.prepared_hook_paths().status();
     make_fifo(&fifo);
 
     let (actions, took) = timed_with_fifo_watchdog(&fifo, BUDGET, || st.poll_live_agent_bridge());
@@ -46,13 +46,13 @@ fn a_fifo_at_agent_status_json_does_not_freeze_the_poll_of_every_frame() {
 fn a_link_at_agent_status_json_is_not_read_and_a_plain_file_is() {
     let status = br#"{"state":"done","run_id":"victim-run"}"#;
     let mut st = state_with_session_folder();
-    std::fs::write(st.session_dir.join("agent-status.json"), status).expect("a plain status file");
+    std::fs::write(st.prepared_hook_paths().status(), status).expect("a plain status file");
     assert_eq!(cleared_run_ids(&st.poll_live_agent_bridge()), ["victim-run"], "control: a plain status file in the session folder is read");
 
     let (target, _target) = target_with_sentinel("status-link-target");
     let mut st = state_with_session_folder();
     std::fs::write(target.join("victim.json"), status).expect("a file elsewhere that holds a done status");
-    symlink(target.join("victim.json"), st.session_dir.join("agent-status.json")).expect("plant the link");
+    symlink(target.join("victim.json"), st.prepared_hook_paths().status()).expect("plant the link");
 
     let actions = st.poll_live_agent_bridge();
 

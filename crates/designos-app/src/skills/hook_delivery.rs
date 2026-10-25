@@ -153,55 +153,56 @@ fn longest_fitting_prefix(text: &str, fits: &impl Fn(usize, usize) -> bool) -> O
     (cut > 0).then_some(cut)
 }
 
-/// The reply file of chunk `slot` for agent tab `tab_id` in `session_dir`.
-pub fn reply_file(session_dir: &Path, tab_id: usize, slot: usize) -> PathBuf {
-    session_dir.join(format!("{REPLY_FILE_PREFIX}-{tab_id}-{slot}.json"))
+/// The reply file of chunk `slot` for agent tab `tab_id` in `dir`, the hook folder of the session (`agent_hook_outputs`): the prompt
+/// hook reads it with `cat`, so it lies where no agent can put a link to a file it may not read.
+pub fn reply_file(dir: &Path, tab_id: usize, slot: usize) -> PathBuf {
+    dir.join(format!("{REPLY_FILE_PREFIX}-{tab_id}-{slot}.json"))
 }
 
-/// The shell commands of the prompt hook's skills handlers, one per slot. Each prints its slot's file for the tab named by the
-/// environment (`DESIGNOS_TAB_ID`), and nothing, with exit 0, while that file does not exist.
-pub fn handler_commands(session_dir: &Path) -> Vec<String> {
-    let prefix = crate::agent_turn_status::sh_single_quote(&format!("{}/{REPLY_FILE_PREFIX}-", session_dir.display()));
+/// The shell commands of the prompt hook's skills handlers, one per slot. Each prints its slot's file in `dir` for the tab named by
+/// the environment (`DESIGNOS_TAB_ID`), and nothing, with exit 0, while that file does not exist.
+pub fn handler_commands(dir: &Path) -> Vec<String> {
+    let prefix = crate::agent_turn_status::sh_single_quote(&format!("{}/{REPLY_FILE_PREFIX}-", dir.display()));
     (0..HOOK_SKILL_SLOTS).map(|slot| format!("f={prefix}\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi")).collect()
 }
 
-/// Writes `chunks` as the reply files of `tab_id`, one `additionalContext` each, and deletes the slots from `chunks.len()` up to
-/// `previous` that an earlier, longer set left behind. `false` when a file could not be written.
-pub fn write_replies(session_dir: &Path, tab_id: usize, chunks: &[String], previous: usize) -> bool {
+/// Writes `chunks` as the reply files of `tab_id` in `dir`, one `additionalContext` each, and deletes the slots from `chunks.len()`
+/// up to `previous` that an earlier, longer set left behind. `false` when a file could not be written.
+pub fn write_replies(dir: &Path, tab_id: usize, chunks: &[String], previous: usize) -> bool {
     let mut all_written = true;
     for (slot, chunk) in chunks.iter().enumerate() {
         let reply = serde_json::json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "additionalContext": chunk } });
         let written = serde_json::to_vec_pretty(&reply).map_err(|e| e.to_string()).and_then(|bytes| {
-            let path = reply_file(session_dir, tab_id, slot);
+            let path = reply_file(dir, tab_id, slot);
             crate::agent_session_files::atomic_write_session_file(&path, &bytes).map_err(|e| crate::agent_session_files::with_next_step(&e))
         });
         all_written &= written.is_ok();
     }
-    remove_replies(session_dir, tab_id, chunks.len()..previous);
+    remove_replies(dir, tab_id, chunks.len()..previous);
     all_written
 }
 
-/// Deletes the reply files of `tab_id` for the given `slots`.
-pub fn remove_replies(session_dir: &Path, tab_id: usize, slots: std::ops::Range<usize>) {
+/// Deletes the reply files of `tab_id` in `dir` for the given `slots`.
+pub fn remove_replies(dir: &Path, tab_id: usize, slots: std::ops::Range<usize>) {
     for slot in slots {
-        let _ = crate::agent_session_files::remove_session_file(&reply_file(session_dir, tab_id, slot));
+        let _ = crate::agent_session_files::remove_session_file(&reply_file(dir, tab_id, slot));
     }
 }
 
-/// Deletes every skills reply file in `session_dir`, whoever wrote it: one a run left behind when Studio quit before the prompt
+/// Deletes every skills reply file in `dir`, whoever wrote it: one a run left behind when Studio quit before the prompt
 /// hook ran must not reach a later prompt.
-pub fn remove_all_replies(session_dir: &Path) {
-    for entry in std::fs::read_dir(session_dir).into_iter().flatten().flatten() {
+pub fn remove_all_replies(dir: &Path) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         if entry.file_name().to_string_lossy().starts_with(REPLY_FILE_PREFIX) {
             let _ = crate::agent_session_files::remove_session_file(&entry.path());
         }
     }
 }
 
-/// Names of the skills reply files in `session_dir`, sorted.
+/// Names of the skills reply files in `dir`, sorted.
 #[cfg(test)]
-pub fn reply_file_names(session_dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(session_dir)
+pub fn reply_file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
