@@ -11,6 +11,14 @@ fn click_rect(s: &mut Sim, r: Rect) {
     s.click(r.center());
 }
 
+fn has_no_rect(s: &Sim, name: &str) -> bool {
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_none()
+}
+
+fn more_open(s: &Sim) -> bool {
+    crate::lint::scan_shapes(&s.shapes).0.iter().any(|t| t.text == "Italic")
+}
+
 #[test]
 fn feature_checks_toggle_on_the_layer() {
     let mut s = popover_sim();
@@ -141,15 +149,23 @@ fn tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus() {
 }
 
 #[test]
-fn clicking_typo_var_pill_opens_variables_without_toggling_more() {
+fn typography_header_has_no_var_pill_and_clicking_left_of_style_button_changes_nothing() {
     let mut s = Sim::with(Options { select: Some("Continue".into()), ..Options::default() });
+    assert!(has_no_rect(&s, "typo-var-pill"));
+    let style_btn = s.rect_of("text-style-button");
+    let left_of_style = Rect::from_min_size(Pos2::new(style_btn.left() - 24.0, style_btn.top()), Vec2::splat(24.0));
+    let undo_before = s.app().hist.undo_depth();
+    let more_before = more_open(&s);
+    let fill_top_before = s.rect_of("text-sw").top();
     assert!(!s.app().vars.open);
-    let pill = s.rect_of("typo-var-pill");
-    click_rect(&mut s, pill);
-    assert!(s.app().vars.open, "clicking typo-var-pill opens the Variables modal instead of being swallowed by typo-more-btn");
-    assert!(
-        pill.width() >= crate::theme::TARGET_MIN && pill.height() >= crate::theme::TARGET_MIN,
-        "typo-var-pill meets the 24px target floor: {:?}",
-        pill.size()
-    );
+    assert!(!more_before);
+
+    click_rect(&mut s, left_of_style);
+
+    assert!(has_no_rect(&s, "typo-var-pill"));
+    assert!(!s.app().vars.open, "vars.open stays false");
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "undo stack is unchanged");
+    assert!(!s.app().hist.can_undo(), "undo stack is unchanged");
+    assert_eq!(more_open(&s), more_before, "More toggle is unchanged");
+    assert_eq!(s.rect_of("text-sw").top(), fill_top_before, "More rows stay collapsed");
 }

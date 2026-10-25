@@ -192,11 +192,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     // title row's last button), and the row of the style the layer is linked to above the type rows.
     let style_btn = Rect::from_min_size(Pos2::new(tb.left() - theme::SPACE_FACT - theme::PANEL_ACTION_BUTTON, tb.top()), tb.size());
     style_picker::style_button(app, ui, sel, StyleProperty::Text, style_btn, mb.right());
-    let var_pill = Rect::from_min_size(Pos2::new(style_btn.left() - theme::SPACE_FACT - theme::PANEL_ACTION_BUTTON, style_btn.top()), style_btn.size());
-    widgets::record(ui, "typo-var-pill", var_pill);
-    if ui.interact(var_pill, ui.id().with("typo-var-pill"), Sense::click()).on_hover_text("Apply typography variable or style").clicked() {
-        app.open_variables();
-    }
     if let Some(key) = style_picker::linked_style(app, sel, StyleProperty::Text) {
         style_picker::linked_row(app, ui, pane, sel, StyleProperty::Text, &key);
     }
