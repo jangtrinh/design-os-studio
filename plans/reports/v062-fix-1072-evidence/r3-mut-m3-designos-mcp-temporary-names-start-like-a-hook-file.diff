@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/../../designos-mcp/src/engine.rs
++++ b/crates/designos-app/src/../../designos-mcp/src/engine.rs
+@@ -1566,7 +1566,7 @@
+ 
+ /// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
+ /// made with `create_new`, so it never replaces an existing file).
+-pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
++pub const OUTPUT_TEMP_PREFIX: &str = "agent-";
+ 
+ pub(crate) fn validate_existing_output_target(
+     target_meta: Option<(bool, bool, bool, bool, bool)>,
