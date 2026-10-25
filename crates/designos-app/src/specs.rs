@@ -2257,7 +2257,7 @@ impl App {
         let out_path = out_dir.join(&filename);
         match self.doc.export_spec(target_id) {
             Ok(spec) => match serde_json::to_string_pretty(&spec) {
-                Ok(json) => match std::fs::write(&out_path, json) {
+                Ok(json) => match crate::cli_export_write::write_json_export(&out_path, &json) {
                     Ok(()) => {
                         self.specs.refresh();
                         self.show_toast(format!("Exported {}", out_path.display()), false);
