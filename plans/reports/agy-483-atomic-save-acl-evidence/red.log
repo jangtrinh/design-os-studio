@@ -1,0 +1,684 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling smallvec v1.16.3
+   Compiling log v0.4.34
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling zerocopy v0.8.62
+   Compiling simd-adler32 v0.3.10
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling thiserror v2.0.21
+   Compiling crc32fast v1.5.2
+   Compiling foldhash v0.2.0
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling bitflags v1.3.2
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling num-traits v0.2.19
+   Compiling fdeflate v0.3.7
+   Compiling linebender_resource_handle v0.1.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling cc v1.7.0
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling core_maths v0.1.1
+   Compiling serde_json v1.0.154
+   Compiling itoa v1.0.18
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling quick-error v2.0.1
+   Compiling percent-encoding v2.3.2
+   Compiling zune-core v0.5.3
+   Compiling weezl v0.1.12
+   Compiling zeroize v1.9.1
+   Compiling equivalent v1.0.3
+   Compiling rustls-pki-types v1.15.1
+   Compiling zune-jpeg v0.5.15
+   Compiling form_urlencoded v1.2.2
+   Compiling slotmap v1.1.1
+   Compiling byteorder-lite v0.1.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling unicode-segmentation v1.13.3
+   Compiling ref-cast v1.0.27
+   Compiling fax v0.2.7
+   Compiling pxfm v0.1.30
+   Compiling self_cell v1.3.0
+   Compiling either v1.19.0
+   Compiling color_quant v1.1.0
+   Compiling gif v0.14.1
+   Compiling objc2-foundation v0.3.2
+   Compiling image-webp v0.2.4
+   Compiling getrandom v0.2.17
+   Compiling indexmap v2.14.2
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling pin-project-lite v0.2.17
+   Compiling crossbeam-epoch v0.9.21
+   Compiling parking_lot_core v0.9.12
+   Compiling float-cmp v0.9.0
+   Compiling untrusted v0.9.0
+   Compiling raw-window-handle v0.6.2
+   Compiling getrandom v0.4.3
+   Compiling strict-num v0.1.1
+   Compiling memmap2 v0.9.11
+   Compiling euclid v0.22.14
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling unicode-script v0.5.8
+   Compiling tinyvec v1.13.3
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustc-hash v2.1.3
+   Compiling objc-sys v0.3.5
+   Compiling base64 v0.22.1
+   Compiling dyn-clone v1.0.20
+   Compiling scopeguard v1.2.0
+   Compiling rustls v0.23.45
+   Compiling arrayref v0.3.9
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling subtle v2.6.1
+   Compiling rayon-core v1.13.0
+   Compiling option-ext v0.2.0
+   Compiling unicode-bidi v0.3.18
+   Compiling dirs-sys v0.4.1
+   Compiling parking_lot v0.12.5
+   Compiling webpki-roots v0.26.11
+   Compiling uuid v1.28.0
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling unicode-width v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling yazi v0.2.1
+   Compiling zeno v0.3.3
+   Compiling fontdb v0.23.0
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling i_shape v5.0.0
+   Compiling moxcms v0.8.1
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling regex-automata v0.4.18
+   Compiling objc2 v0.5.3
+   Compiling flate2 v1.1.10
+   Compiling png v0.18.1
+   Compiling png v0.17.16
+   Compiling objc2-metal v0.3.2
+   Compiling regex v1.13.1
+   Compiling dirs v5.0.1
+   Compiling polycool v0.4.0
+   Compiling i_key_sort v0.12.0
+   Compiling rangemap v1.8.0
+   Compiling smol_str v0.3.6
+   Compiling unicode-linebreak v0.1.5
+   Compiling sys-locale v0.3.2
+   Compiling rustc-hash v1.1.0
+   Compiling ring v0.17.14
+   Compiling i_tree v0.20.0
+   Compiling hexf-parse v0.2.1
+   Compiling kurbo v0.13.1
+   Compiling block2 v0.5.1
+   Compiling i_overlay v9.1.0
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling dispatch v0.2.0
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-ccc v0.4.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling utf8parse v0.2.2
+   Compiling siphasher v1.0.4
+   Compiling svgtypes v0.15.3
+   Compiling core-foundation v0.9.4
+   Compiling objc2-foundation v0.2.2
+   Compiling objc2-quartz-core v0.3.2
+   Compiling accesskit v0.24.1
+   Compiling raw-window-metal v1.1.0
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling roxmltree v0.20.0
+   Compiling futures-sink v0.3.34
+   Compiling data-url v0.3.2
+   Compiling futures-core v0.3.34
+   Compiling unicode-general-category v1.1.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling unicode-vo v0.1.0
+   Compiling xmlwriter v0.1.0
+   Compiling imagesize v0.13.0
+   Compiling fearless_simd v0.4.1
+   Compiling pico-args v0.5.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling nix v0.31.3
+   Compiling winit v0.30.13
+   Compiling wgpu-core v29.0.4
+   Compiling litrs v1.0.0
+   Compiling winnow v1.0.4
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling document-features v0.2.12
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling slab v0.4.12
+   Compiling colorchoice v1.0.5
+   Compiling futures-task v0.3.34
+   Compiling anstyle v1.0.14
+   Compiling smol_str v0.2.2
+   Compiling nohash-hasher v0.2.0
+   Compiling futures-io v0.3.34
+   Compiling dpi v0.1.2
+   Compiling anstyle-query v1.1.5
+   Compiling rustls-webpki v0.103.15
+   Compiling bumpalo v3.20.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling epaint_default_fonts v0.35.0
+   Compiling cursor-icon v1.2.0
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling typed-path v0.12.3
+   Compiling strsim v0.11.1
+   Compiling twox-hash v2.1.5
+   Compiling static_assertions v1.1.0
+   Compiling bytes v1.12.1
+   Compiling clap_lex v1.1.1
+   Compiling ruzstd v0.9.1
+   Compiling clap_builder v4.6.7
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling zip v9.0.4
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling termios v0.2.2
+   Compiling web-time v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling rmcp v3.5.1
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling accesskit_macos v0.26.3
+   Compiling winresource v0.1.34
+   Compiling pin-utils v0.1.1
+   Compiling pastey v0.2.3
+   Compiling float_next_after v1.0.0
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-mcp)
+   Compiling pollster v0.4.0
+   Compiling rfd v0.17.2
+   Compiling lyon_tessellation v1.0.22
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app)
+   Compiling serial v0.4.0
+   Compiling dispatch2 v0.3.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling shell-words v1.1.1
+   Compiling unicode-width v0.1.14
+   Compiling downcast-rs v1.2.1
+   Compiling vt100 v0.15.2
+   Compiling open v5.4.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling zerocopy-derive v0.8.62
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling tracing-attributes v0.1.31
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling thiserror-impl v1.0.69
+   Compiling bytemuck v1.25.2
+   Compiling foreign-types v0.5.0
+   Compiling clap_derive v4.6.7
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling tiny-skia v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling read-fonts v0.39.2
+   Compiling zerofrom v0.1.8
+   Compiling peniko v0.6.1
+   Compiling yoke v0.8.3
+   Compiling tracing v0.1.44
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling core-graphics v0.23.2
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling vello_cpu v0.0.9
+   Compiling ecolor v0.35.0
+   Compiling half v2.7.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling tiff v0.11.3
+   Compiling icu_collections v2.3.0
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.40.0
+   Compiling icu_locale_core v2.3.0
+   Compiling usvg v0.45.1
+   Compiling chrono v0.4.45
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling image v0.25.10
+   Compiling url v2.5.8
+   Compiling schemars v1.2.3
+   Compiling skrifa v0.44.0
+   Compiling ureq v2.12.1
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-doc)
+   Compiling skrifa v0.42.1
+   Compiling harfrust v0.7.0
+   Compiling swash v0.2.10
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling epaint v0.35.0
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling futures-util v0.3.34
+   Compiling egui v0.35.0
+   Compiling tokio v1.53.2
+   Compiling accesskit_winit v0.32.2
+   Compiling arboard v3.6.1
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling clap v4.6.7
+   Compiling webbrowser v1.2.4
+   Compiling designos-diff v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-diff)
+   Compiling filedescriptor v0.8.3
+   Compiling rgb v0.8.53
+   Compiling portable-pty v0.8.1
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-fonts)
+   Compiling resvg v0.45.1
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-render)
+   Compiling tokio-util v0.7.20
+   Compiling egui-winit v0.35.0
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-webcapture)
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-fig)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-export)
+   Compiling eframe v0.35.0
+   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-gpu)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 15s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 94 tests
+test io::dialog_probe::tests::a_pick_is_a_pick_however_fast ... ok
+test io::dialog_probe::tests::a_pick_never_runs_the_probe ... ok
+test io::dialog_probe::tests::nothing_picked_after_a_person_could_have_acted_with_a_backend_is_a_cancel ... ok
+test io::dialog_probe::tests::nothing_picked_and_no_backend_is_unavailable ... ok
+test io::dialog_probe::tests::nothing_picked_at_once_is_unavailable_even_when_the_probe_sees_a_backend ... ok
+test io::dialog_probe::tests::the_cutoff_is_exact ... ok
+test io::dialog_probe::tests::off_linux_a_dialog_that_returns_nothing_is_always_a_cancel ... ok
+test io::dialog_probe::tests::a_sandboxed_app_always_counts_as_having_a_portal ... ok
+test io::dialog_probe::tests::an_empty_machine_has_no_backend ... ok
+test io::dialog_probe::tests::a_zenity_file_that_cannot_run_is_not_a_backend ... ok
+test io::comments_in_saved_files_tests::the_rule_counts_every_thread_including_resolved_ones_and_carries_the_pinned_copy ... ok
+test io::fallback_save::tests::a_free_name_is_used_as_is ... ok
+test io::dialog_probe::tests::an_executable_zenity_on_the_path_is_a_backend ... ok
+test io::dialog_probe::tests::the_environment_falls_back_to_the_standard_data_dirs ... ok
+test io::fallback_save::tests::a_long_name_is_cut_to_fit_the_file_system ... ok
+test io::dialog_probe::tests::a_portal_that_implements_the_file_chooser_is_a_backend ... ok
+test io::fallback_save::tests::a_long_tail_after_a_dot_is_not_kept_as_an_extension ... ok
+test io::fallback_save::tests::the_fallback_is_downloads_when_it_exists ... ok
+test io::fallback_save::tests::taken_names_get_a_number_before_the_extension ... ok
+test io::fallback_save::tests::a_missing_folder_is_an_error_not_a_panic ... ok
+test io::fallback_save::tests::the_fallback_is_home_when_downloads_is_missing_or_a_file ... ok
+test io::file_dialog_flow_tests::export_selection_cancel_is_silent_and_writes_nothing ... ok
+test io::file_dialog_flow_tests::export_selection_asks_for_a_png_named_after_the_layer ... ok
+test io::dialog_probe::tests::a_portal_without_a_file_chooser_is_not_a_backend ... ok
+test io::fallback_save::tests::a_name_cannot_leave_the_folder ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_keeps_a_layer_name_inside_the_folder ... ok
+test io::file_dialog_flow_tests::open_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test io::fallback_save::tests::a_cut_name_still_never_overwrites ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_never_overwrites_an_existing_file ... ok
+test io::fallback_save::tests::a_name_without_an_extension_gets_a_plain_number ... ok
+test io::file_dialog_flow_tests::export_selection_writes_to_the_path_the_dialog_picked ... ok
+test io::file_dialog_flow_tests::open_without_a_dialog_says_so ... ok
+test io::fallback_save::tests::a_long_name_of_wide_characters_is_cut_on_a_character_boundary_within_the_byte_limit ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_says_so_and_saves_to_the_fallback_folder ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_saves_a_layer_with_a_very_long_name ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_says_so_and_leaves_the_paint_alone ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_says_so_and_adds_nothing ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_export_says_so_and_starts_no_export ... ok
+test io::file_dialog_flow_tests::save_as_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_says_so_and_starts_no_import ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_and_export_are_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::web_capture_import_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::save_as_without_a_dialog_says_so_and_saves_nothing ... ok
+test io::file_dialog_flow_tests::the_linux_install_docs_say_what_the_file_dialog_needs ... ok
+test io::file_dialog_flow_tests::web_capture_import_without_a_dialog_says_so ... ok
+test io::tests::empty_doc_gets_a_page ... ok
+test io::file_dialog_flow_tests::the_deb_recommends_a_dialog_backend ... ok
+test io::tests::errors_are_readable ... ok
+test io::tests::an_import_warning_is_returned_for_pen_files_and_for_pen_text_in_a_json_file ... ok
+test io::tests::documents_without_a_warning_open_with_the_plain_toast ... ok
+test io::tests::file_with_a_node_id_at_u64_max_opens_and_new_ids_stay_distinct ... ok
+test io::tests::cyclic_file_loads_into_a_consistent_tree ... ok
+test io::tests::json_falls_back_to_native ... ok
+test io::comments_in_saved_files_tests::a_resolved_thread_is_still_a_comment_the_file_cannot_keep ... ok
+test io::tests::hot_reload_surfaces_non_finite_warning_even_when_repaired_hash_matches_saved_hash ... ok
+test io::tests::only_the_native_extension_is_the_native_format ... ok
+test io::tests::acl_granting_write_on_0444_file_allows_save_and_survives ... FAILED
+test io::tests::extended_attribute_survives_atomic_save ... FAILED
+test io::tests::opening_a_finite_rest_json_builds_no_native_json_text ... ok
+test io::comments_in_saved_files_tests::every_save_to_fig_tells_again_because_every_save_leaves_the_comments_out_again ... ok
+test io::tests::failed_save_leaves_original_intact ... ok
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+test io::tests::fig_roundtrip ... ok
+test io::tests::load_path_resolves_relative_pen_library_imports_and_images_via_base_dir ... ok
+test io::tests::clean_native_open_has_no_warning_and_writes_no_backup_on_save ... ok
+test io::tests::native_roundtrip ... ok
+test io::tests::opening_a_rest_json_with_overflowing_numbers_replaces_them_and_tells_the_user_once ... ok
+test io::tests::opening_rest_json_with_overflow_neutralizes_in_place_without_running_migrate_text ... ok
+test io::tests::svg_loads_as_a_document_named_after_the_file ... ok
+test io::tests::web_capture_json_opens_via_open_any_and_load_path ... ok
+test io::comments_in_saved_files_tests::saving_comments_to_fig_or_pen_says_they_are_not_kept_and_still_saves ... ok
+test io::tests::truly_unwritable_0444_file_is_refused ... FAILED
+test io::comments_in_saved_files_tests::only_the_fig_and_pen_writers_leave_comments_out_and_the_rule_matches_the_writer ... ok
+test io::tests::saving_to_a_path_builds_one_json_text_and_reports_the_replaced_numbers ... ok
+test io::tests::malformed_native_open_reports_what_was_repaired_and_backs_up_original_bytes_on_save ... ok
+test io::tests::saving_repaired_document_never_overwrites_existing_bak_files ... ok
+test io::tests::user_file_named_target_dot_tmp_survives_save ... FAILED
+test io::comments_in_saved_files_tests::a_save_that_loses_no_comment_says_nothing_about_comments ... ok
+test io::tests::counted_save_neutralizes_open_document_and_saved_hash_matches_disk ... ok
+test io::tests::importing_several_files_names_each_one_that_had_numbers_replaced ... ok
+test io::tests::non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save ... ok
+test io::tests::switching_documents_preserves_flush_autosave_non_finite_notice ... ok
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast has been running for over 60 seconds
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast ... ok
+
+failures:
+
+---- io::tests::acl_granting_write_on_0444_file_allows_save_and_survives stdout ----
+
+thread 'io::tests::acl_granting_write_on_0444_file_allows_save_and_survives' (50096452) panicked at crates/designos-app/src/io.rs:1293:14:
+first save on 0444 file with write-granting ACL must succeed: "Cannot write /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.TBRVfc/designos_io_acl_0444_16452/acl_writable.designos: io: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.TBRVfc/designos_io_acl_0444_16452/acl_writable.designos is read-only"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- io::tests::extended_attribute_survives_atomic_save stdout ----
+
+thread 'io::tests::extended_attribute_survives_atomic_save' (50096471) panicked at crates/designos-app/src/io.rs:1329:9:
+xattr must still exist after atomic save: xattr: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.TBRVfc/designos_io_xattr_16452/xattr_doc.designos: No such xattr: com.designos.custom-test
+
+
+---- io::tests::truly_unwritable_0444_file_is_refused stdout ----
+
+thread 'io::tests::truly_unwritable_0444_file_is_refused' (50096535) panicked at crates/designos-app/src/io.rs:1381:9:
+unexpected error message: Cannot write /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.TBRVfc/designos_io_unwritable_16452/locked.designos: io: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.TBRVfc/designos_io_unwritable_16452/locked.designos is read-only
+
+---- io::tests::user_file_named_target_dot_tmp_survives_save stdout ----
+
+thread 'io::tests::user_file_named_target_dot_tmp_survives_save' (50096538) panicked at crates/designos-app/src/io.rs:1354:35:
+user <name>.tmp must not be deleted: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+
+failures:
+    io::tests::acl_granting_write_on_0444_file_allows_save_and_survives
+    io::tests::extended_attribute_survives_atomic_save
+    io::tests::truly_unwritable_0444_file_is_refused
+    io::tests::user_file_named_target_dot_tmp_survives_save
+
+test result: FAILED. 89 passed; 4 failed; 1 ignored; 0 measured; 2848 filtered out; finished in 91.72s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+   Compiling smallvec v1.16.3
+   Compiling bitflags v2.13.2
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling arrayvec v0.7.8
+   Compiling either v1.19.0
+   Compiling rustc-hash v2.1.3
+   Compiling hashbrown v0.17.1
+   Compiling proc-macro2 v1.0.107
+   Compiling png v0.18.1
+   Compiling kurbo v0.11.3
+   Compiling nix v0.31.3
+   Compiling rayon v1.12.0
+   Compiling quote v1.0.47
+   Compiling indexmap v2.14.2
+   Compiling syn v3.0.9
+   Compiling svgtypes v0.15.3
+   Compiling zip v9.0.4
+   Compiling moxcms v0.8.1
+   Compiling synstructure v0.14.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling thiserror v2.0.21
+   Compiling bytemuck v1.25.2
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling font-types v0.12.7
+   Compiling font-types v0.11.3
+   Compiling tiny-skia-path v0.11.4
+   Compiling rustybuzz v0.20.1
+   Compiling image v0.25.10
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling tiny-skia v0.11.4
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-doc)
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling usvg v0.45.1
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling ureq v2.12.1
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling swash v0.2.10
+   Compiling cosmic-text v0.19.0
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.91s
+     Running tests/atomic_save.rs (out/cargo/debug/deps/atomic_save-0fc589cd006d9af6)
+
+running 19 tests
+test directory_target_is_refused ... ok
+test a_named_pipe_target_is_refused_without_blocking ... ok
+test file_with_0644_mode_and_a_write_deny_acl_is_refused ... ok
+test read_only_target_is_refused_and_left_untouched ... FAILED
+test publish_and_font_cache_use_the_shared_hardened_write_atomic ... ok
+test a_named_pipe_with_an_open_reader_is_still_refused ... ok
+test a_symlink_to_a_named_pipe_is_refused_without_blocking ... ok
+test acl_granting_write_on_0444_file_allows_save_and_survives ... FAILED
+test missing_file_and_parent_directories_are_created ... ok
+test saving_keeps_the_existing_permission_mode ... ok
+test saving_through_a_dangling_symlink_creates_the_target_and_keeps_the_link ... ok
+test extended_attribute_survives_atomic_save ... FAILED
+test a_user_file_named_like_a_digit_pair_temp_is_never_swept ... ok
+test crashed_save_leftover_tmp_files_are_swept_on_next_save ... FAILED
+test saving_through_a_symlink_updates_the_real_file_and_keeps_the_link ... ok
+test saving_through_a_symlink_into_another_directory_writes_next_to_the_real_file ... ok
+test filename_of_249_or_more_bytes_succeeds_without_enametoolong ... ok
+test forty_concurrent_saves_of_one_file_all_succeed_and_none_is_torn ... ok
+test temp_file_is_never_world_readable_while_saving_a_0600_document ... ok
+
+failures:
+
+---- read_only_target_is_refused_and_left_untouched stdout ----
+
+thread 'read_only_target_is_refused_and_left_untouched' (50145900) panicked at crates/designos-library/tests/atomic_save.rs:89:5:
+error names the cause: io: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/out/cargo/tmp/atomic-save-readonly-29058/locked.designos is read-only
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- acl_granting_write_on_0444_file_allows_save_and_survives stdout ----
+
+thread 'acl_granting_write_on_0444_file_allows_save_and_survives' (50145891) panicked at crates/designos-library/tests/atomic_save.rs:421:10:
+first save on 0444 file with write ACL must succeed: Io(Custom { kind: PermissionDenied, error: "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/out/cargo/tmp/atomic-save-acl-0444-allow-write-29058/doc.designos is read-only" })
+
+---- extended_attribute_survives_atomic_save stdout ----
+
+thread 'extended_attribute_survives_atomic_save' (50145894) panicked at crates/designos-library/tests/atomic_save.rs:448:5:
+xattr must survive save: xattr: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/out/cargo/tmp/atomic-save-xattr-survives-29058/doc.designos: No such xattr: com.designos.test-xattr
+
+
+---- crashed_save_leftover_tmp_files_are_swept_on_next_save stdout ----
+
+thread 'crashed_save_leftover_tmp_files_are_swept_on_next_save' (50145892) panicked at crates/designos-library/tests/atomic_save.rs:306:47:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+
+failures:
+    acl_granting_write_on_0444_file_allows_save_and_survives
+    crashed_save_leftover_tmp_files_are_swept_on_next_save
+    extended_attribute_survives_atomic_save
+    read_only_target_is_refused_and_left_untouched
+
+test result: FAILED. 15 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `-p designos-library --test atomic_save`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling libc v0.2.191
+   Compiling memchr v2.8.3
+   Compiling crc32fast v1.5.2
+   Compiling serde_json v1.0.154
+   Compiling simd-adler32 v0.3.10
+   Compiling log v0.4.34
+   Compiling miniz_oxide v0.9.1
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling flate2 v1.1.10
+   Compiling getrandom v0.2.17
+   Compiling dirs-sys v0.4.1
+   Compiling ring v0.17.14
+   Compiling dirs v5.0.1
+   Compiling regex v1.13.1
+   Compiling rustls-webpki v0.103.15
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-doc)
+   Compiling rustls v0.23.45
+   Compiling ureq v2.12.1
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-fonts)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.20s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-d8a4d3c2a3602c1a)
+
+running 30 tests
+test cache::tests::default_dir_is_under_designos_fonts ... ok
+test ensure::tests::requests_empty_without_text ... ok
+test fontsource::tests::ids ... ok
+test fontsource::tests::license_as_object_is_tolerated ... ok
+test ensure::tests::requests_collect_nodes_and_runs ... ok
+test fontsource::tests::css_weight_matching ... ok
+test cache::tests::temp_names_round_trip_and_nothing_else_is_taken_for_a_crashed_save ... ok
+test fontsource::tests::falls_back_when_no_latin_or_no_italic ... ok
+test cache::tests::offline_miss_is_an_error_not_a_panic ... ok
+test ensure::tests::ensure_substitutes_and_reports_offline_failures ... ok
+test cache::tests::unknown_family_maps_to_not_found ... ok
+test cache::tests::closed_license_is_rejected_and_nothing_is_cached ... ok
+test fontsource::tests::open_licenses ... ok
+test cache::tests::non_font_payload_is_rejected ... ok
+test fontsource::tests::rejects_garbage_and_missing_ttf ... ok
+test fontsource::tests::parses_real_fixture ... ok
+test request::tests::a_bold_run_is_a_new_face ... ok
+test request::tests::faces_already_in_use_and_dropped_faces_are_not_new ... ok
+test request::tests::a_weight_between_the_steps_asks_for_the_face_css_matching_picks ... ok
+test request::tests::italic_and_family_changes_are_new_faces ... ok
+test scripts::tests::classifies_scripts ... ok
+test scripts::tests::missing_script_font_offline_is_a_reported_failure ... ok
+test scripts::tests::requests_follow_the_text_that_uses_the_script ... ok
+test subst::tests::maps_known_families ... ok
+test subst::tests::table_keys_are_lowercase_and_unique ... ok
+test subst::tests::unknown_and_open_families_are_untouched ... ok
+test cache::tests::bundled_inter_needs_no_cache_or_network ... ok
+test cache::tests::fetches_stores_then_serves_from_cache ... ok
+test scripts::tests::script_fonts_come_from_their_own_subset_via_a_temp_cache ... ok
+test cache::tests::leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept ... FAILED
+
+failures:
+
+---- cache::tests::leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept stdout ----
+
+thread 'cache::tests::leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept' (50152317) panicked at crates/designos-fonts/src/cache.rs:534:51:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    cache::tests::leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept
+
+test result: FAILED. 29 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-fonts --lib`

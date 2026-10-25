@@ -117,9 +117,10 @@ pub(crate) fn write_lock() -> MutexGuard<'static, ()> {
 /// Delegates to [`designos_fonts::write_atomic`] so every crate in the workspace shares the same
 /// atomic save guarantees: symlink traversal (including dangling links), temp-file names truncated
 /// on a char boundary for 249–255 byte filenames, the existing permission mode applied when the
-/// temp file is created, refusal of read-only, unwritable and non-regular targets, and cleanup of
-/// stale temp files left by crashed saves. Because the save renames a new file over the old one,
-/// the old file's ACLs, extended attributes, ownership and hard links are not carried over.
+/// temp file is created, macOS ACL and extended-attribute preservation via `fcopyfile(3)`, refusal
+/// of read-only, unwritable and non-regular targets, and cleanup of stale `.save-<pid>-<seq>.tmp`
+/// files left by crashed saves without touching user `.tmp` files. Because the save renames a new
+/// file over the old one, another user's ownership and hard links are not carried over.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }
@@ -1217,12 +1218,15 @@ mod tests {
         let p = lib.create_project("P").unwrap();
         let e = lib.create_file(&p.id, None, "A", &doc("A", 1)).unwrap();
         let path = lib.file_path(&p.id, &e.id);
-        // a leftover temp file from a crashed write must not corrupt the real one
-        std::fs::write(path.with_extension("designos.tmp"), "garbage").unwrap();
+        // a user file named <name>.tmp must not corrupt the real file or be deleted on save
+        let user_tmp = path.with_extension("designos.tmp");
+        std::fs::write(&user_tmp, "keep-user-tmp").unwrap();
         lib.save_file(&e.id, &doc("A", 3)).unwrap();
         assert_eq!(lib.load_file(&e.id).unwrap().nodes.len(), 4);
-        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, vec![format!("{}.designos", e.id)]);
+        assert_eq!(std::fs::read_to_string(&user_tmp).unwrap(), "keep-user-tmp");
+        let mut names: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, vec![format!("{}.designos", e.id), format!("{}.designos.tmp", e.id)]);
     }
 
     #[test]

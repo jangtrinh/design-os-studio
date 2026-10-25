@@ -1252,4 +1252,129 @@ mod tests {
             "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty."
         );
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn acl_granting_write_on_0444_file_allows_save_and_survives() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("designos_io_acl_0444_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("acl_writable.designos");
+
+        let mut doc = Document::new("Initial");
+        doc.add_page("Page 1");
+        save_path(&doc, &file).unwrap();
+
+        let user_out = std::process::Command::new("/usr/bin/id").arg("-un").output().unwrap();
+        assert!(user_out.status.success());
+        let user = String::from_utf8(user_out.stdout).unwrap().trim().to_string();
+        let acl_rule = format!("user:{user} allow write");
+
+        let status = std::process::Command::new("/bin/chmod").args(["+a", &acl_rule, file.to_str().unwrap()]).status().unwrap();
+        assert!(status.success(), "chmod +a failed");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        doc.name = "Saved Once".to_string();
+        let res1 = save_path(&doc, &file);
+        doc.name = "Saved Twice".to_string();
+        let res2 = save_path(&doc, &file);
+
+        let ls_out = std::process::Command::new("/bin/ls").args(["-le", file.to_str().unwrap()]).output().unwrap();
+        let ls_text = String::from_utf8_lossy(&ls_out.stdout).into_owned();
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        let reopened = load_path(&file).map(|d| d.name);
+
+        let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        res1.expect("first save on 0444 file with write-granting ACL must succeed");
+        res2.expect("second save on 0444 file with write-granting ACL must also succeed");
+        assert_eq!(reopened.unwrap(), "Saved Twice");
+        assert_eq!(mode, 0o444, "0444 mode must survive atomic save");
+        assert!(ls_text.contains(&acl_rule), "ACL must survive atomic save, got ls -le:\n{ls_text}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn extended_attribute_survives_atomic_save() {
+        let dir = std::env::temp_dir().join(format!("designos_io_xattr_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("xattr_doc.designos");
+
+        let mut doc = Document::new("BeforeXattr");
+        doc.add_page("Page 1");
+        save_path(&doc, &file).unwrap();
+
+        let status =
+            std::process::Command::new("/usr/bin/xattr").args(["-w", "com.designos.custom-test", "keep-this-xattr", file.to_str().unwrap()]).status().unwrap();
+        assert!(status.success(), "xattr -w failed");
+
+        doc.name = "AfterXattr".to_string();
+        save_path(&doc, &file).unwrap();
+
+        let out = std::process::Command::new("/usr/bin/xattr").args(["-p", "com.designos.custom-test", file.to_str().unwrap()]).output().unwrap();
+        let reopened = load_path(&file).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(reopened.name, "AfterXattr");
+        assert!(out.status.success(), "xattr must still exist after atomic save: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "keep-this-xattr");
+    }
+
+    #[test]
+    fn user_file_named_target_dot_tmp_survives_save() {
+        let dir = std::env::temp_dir().join(format!("designos_io_user_tmp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("project.designos");
+        let user_tmp = dir.join("project.designos.tmp");
+
+        let mut doc = Document::new("V1");
+        doc.add_page("Page 1");
+        save_path(&doc, &file).unwrap();
+        std::fs::write(&user_tmp, b"user-scratch-notes").unwrap();
+
+        doc.name = "V2".to_string();
+        save_path(&doc, &file).unwrap();
+
+        let user_tmp_bytes = std::fs::read(&user_tmp);
+        let reopened = load_path(&file).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(reopened.name, "V2");
+        assert_eq!(user_tmp_bytes.expect("user <name>.tmp must not be deleted"), b"user-scratch-notes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn truly_unwritable_0444_file_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("designos_io_unwritable_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("locked.designos");
+
+        let mut doc = Document::new("LockedV1");
+        doc.add_page("Page 1");
+        save_path(&doc, &file).unwrap();
+        let original = std::fs::read(&file).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        doc.name = "LockedV2".to_string();
+        let err = save_path(&doc, &file).expect_err("truly unwritable 0444 file must be refused");
+        let after = std::fs::read(&file).unwrap();
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(err.contains("is read-only or not writable:"), "unexpected error message: {err}");
+        assert_eq!(after, original, "unwritable file content must stay untouched");
+        assert_eq!(mode, 0o444, "unwritable file mode must stay 0444");
+    }
 }
