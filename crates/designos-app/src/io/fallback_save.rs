@@ -60,15 +60,21 @@ fn write_unique_in(dir: &Path, clean: &str, bytes: &[u8], dashed: bool) -> std::
             Ok(mut file) => {
                 if let Err(e) = file.write_all(bytes) {
                     std::fs::remove_file(&path).ok();
-                    return Err(e);
+                    return Err(with_path(path, e));
                 }
                 return Ok(path);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
+            Err(e) => return Err(with_path(path, e)),
         }
     }
-    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("too many files named {stem}")))
+    let path = dir.join(if ext.is_some() { format!("{stem}.{}", ext.unwrap_or_default()) } else { stem });
+    Err(with_path(path, std::io::Error::new(std::io::ErrorKind::AlreadyExists, "too many candidate names")))
+}
+
+fn with_path(path: PathBuf, error: std::io::Error) -> std::io::Error {
+    let kind = error.kind();
+    std::io::Error::new(kind, format!("{}: {error}", path.display()))
 }
 
 /// Writes `bytes` to `dir/file_name`, or to the first free `name 2.ext`, `name 3.ext`, ... Never replaces a file.
@@ -205,6 +211,25 @@ mod tests {
     fn a_missing_folder_is_an_error_not_a_panic() {
         let dir = scratch("missing").join("nope");
         assert!(write_new_in(&dir, "a.png", b"x").is_err());
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn an_error_names_the_cleaned_path_that_was_tried() {
+        let dir = scratch("error_path").join("missing");
+        let err = write_new_in(&dir, "../Notes.png", b"x").unwrap_err().to_string();
+        assert!(err.contains("missing/_Notes.png"), "{err}");
+        assert!(!err.contains("../Notes.png"), "{err}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_long_name_error_uses_the_cut_stem() {
+        let dir = scratch("long_error_path").join("missing");
+        let name = format!("{}.png", "a".repeat(300));
+        let err = write_new_in(&dir, &name, b"x").unwrap_err().to_string();
+        assert!(err.contains(&format!("missing/{}.png", "a".repeat(100))), "{err}");
+        assert!(!err.contains(&name), "{err}");
         std::fs::remove_dir_all(dir.parent().unwrap()).ok();
     }
 }
