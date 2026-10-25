@@ -282,6 +282,13 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // Resolve --select before any mutating import or save operation. A miss must be side-effect free.
     let selected_target = resolve_select_node(&mut doc, opts.select.as_deref())?;
     let selected_node = selected_target.node;
+    if selected_target.ambiguous > 1 {
+        eprintln!(
+            "designos: --select '{}' matched {} layers; selecting the first match (use id:<id> or fig:<id> to disambiguate).",
+            opts.select.as_deref().unwrap_or(""),
+            selected_target.ambiguous
+        );
+    }
     if selected_target.matched_by == select_target::By::BareId {
         if let Some(id) = selected_node {
             eprintln!(
@@ -849,6 +856,38 @@ mod icon_tests {
         let bad_wc = dir.join("bad.webcapture.json");
         std::fs::write(&bad_wc, "{not valid json").unwrap();
         assert!(app.try_open_path(bad_wc).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_capture_with_unknown_select_writes_nothing() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_web_capture_select_miss_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cap_in = dir.join("card.capture.json");
+        let doc_out = dir.join("card.designos");
+        let original = b"existing document must survive selector failure";
+        std::fs::write(&doc_out, original).unwrap();
+        std::fs::write(
+            &cap_in,
+            r#"{"schema_version":1,"url":"https://example.com","title":"Card","viewport":{"width":800,"height":600,"dpr":1},"root":{"tag":"div","bounds":{"x":0,"y":0,"w":10,"h":10}}}"#,
+        )
+        .unwrap();
+
+        let opts = super::cli::parse([
+            "--import-capture".into(),
+            cap_in.to_string_lossy().into_owned(),
+            "--out".into(),
+            doc_out.to_string_lossy().into_owned(),
+            "--select".into(),
+            "Definitely-Missing-1127".into(),
+        ])
+        .unwrap();
+        let err = super::run_agent_cli(&opts).unwrap_err();
+        assert!(err.contains("No node matches --select"), "{err}");
+        assert_eq!(std::fs::read(&doc_out).unwrap(), original, "a selector miss must leave the output untouched");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -227,7 +227,7 @@ impl Shell {
                 Err(err) => {
                     SELECT_MISS.store(true, Ordering::SeqCst);
                     eprintln!("designos: {err}");
-                    app.show_toast(format!("No layer matches selector"), true);
+                    app.show_toast(err, true);
                     if opts.screenshot.is_some() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }

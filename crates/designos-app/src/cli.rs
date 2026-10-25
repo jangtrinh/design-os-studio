@@ -265,10 +265,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
-                let v = it.next().ok_or(
-                    "--zoom needs a percentage (e.g. 800)
-",
-                )?;
+                let v = it.next().ok_or("--zoom needs a percentage (e.g. 800 or fit)")?;
                 if v.eq_ignore_ascii_case("fit") {
                     o.zoom_fit = true;
                     o.zoom = None;

@@ -53,6 +53,11 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
     }
     if kind == "fig" {
         let ids: Vec<_> = page_walk(doc).filter(|id| doc.get(*id).and_then(|n| n.source_id.as_deref()) == Some(value)).collect();
+        // A first pass can see one match while another matching node is still inside a
+        // deferred page. Expand once before accepting a supposedly unique Figma id.
+        if ids.len() <= 1 && doc.hydrate_all_pages() {
+            return resolve(doc, raw);
+        }
         return match ids.as_slice() {
             [id] => Ok(Target { node: Some(*id), page: doc.page_of(*id), matched_by: By::Figma, ambiguous: 1 }),
             [] => {
@@ -78,12 +83,20 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
             })
             .or_else(|| page_walk(doc).find(|id| doc.get(*id).is_some_and(|n| n.name == needle)))
     };
+    let exact_matches: Vec<_> = page_walk(doc).filter(|id| doc.get(*id).is_some_and(|n| n.name == value)).collect();
+    let insensitive_matches: Vec<_> = if exact_matches.is_empty() {
+        page_walk(doc).filter(|id| doc.get(*id).is_some_and(|n| n.name.eq_ignore_ascii_case(value))).collect()
+    } else {
+        Vec::new()
+    };
     let found = exact(value)
-        .map(|id| (id, By::Name))
-        .or_else(|| page_walk(doc).find(|id| doc.get(*id).is_some_and(|n| n.name.eq_ignore_ascii_case(value))).map(|id| (id, By::NameCaseInsensitive)))
-        .or_else(|| (kind == "bare").then(|| value.parse::<u64>().ok().map(NodeId)).flatten().filter(|id| doc.get(*id).is_some()).map(|id| (id, By::BareId)));
-    if let Some((id, by)) = found {
-        return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: by, ambiguous: 1 });
+        .map(|id| (id, By::Name, exact_matches.len()))
+        .or_else(|| insensitive_matches.first().copied().map(|id| (id, By::NameCaseInsensitive, insensitive_matches.len())))
+        .or_else(|| {
+            (kind == "bare").then(|| value.parse::<u64>().ok().map(NodeId)).flatten().filter(|id| doc.get(*id).is_some()).map(|id| (id, By::BareId, 1))
+        });
+    if let Some((id, by, ambiguous)) = found {
+        return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: by, ambiguous });
     }
     if doc.hydrate_all_pages() {
         return resolve(doc, raw);
@@ -106,5 +119,33 @@ mod tests {
         let target = resolve(&mut doc, "4").unwrap();
         assert_eq!(target.node, Some(NodeId(4)));
         assert_eq!(target.matched_by, By::Name);
+    }
+
+    #[test]
+    fn duplicate_figma_ids_are_rejected() {
+        let mut doc = Document::new("duplicate figma ids");
+        let page = doc.add_page("Page");
+        for id in [2, 3] {
+            let mut node = Node::new(NodeId(id), NodeKind::Rectangle);
+            node.source_id = Some("12:34".into());
+            doc.insert(page, node).unwrap();
+        }
+        let err = resolve(&mut doc, "fig:12:34").unwrap_err();
+        assert!(err.contains("ambiguous"), "{err}");
+        assert!(err.contains("2") && err.contains("3"), "{err}");
+    }
+
+    #[test]
+    fn duplicate_names_report_count_while_selecting_first() {
+        let mut doc = Document::new("duplicate names");
+        let page = doc.add_page("Page");
+        for id in [2, 3] {
+            let mut node = Node::new(NodeId(id), NodeKind::Rectangle);
+            node.name = "Card".into();
+            doc.insert(page, node).unwrap();
+        }
+        let target = resolve(&mut doc, "name:Card").unwrap();
+        assert_eq!(target.node, Some(NodeId(2)));
+        assert_eq!(target.ambiguous, 2);
     }
 }
