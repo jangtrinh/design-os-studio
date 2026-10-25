@@ -4,7 +4,7 @@
 |---|---|
 | Issue | #1142 (epic #1118, spec key A) |
 | Size | M. About two days: 41 token re-values by script, ~70 `theme.rs` colour lines, two gate scripts edited, one gate script added, soul and principles replaced, four agent files edited, tests, evidence. |
-| Depends on | none (phase 0, first) |
+| Depends on | none for the values: they are verified against both copies of every duplicated kit collection (section 2, token-contract.md section 0). Spec P #1140 makes the DTCG export repeatable; until it lands, step 0b of 5.1 is the check. |
 | Unblocks | B (same files, next PR), C–K (they name colours by Untitled token; this spec maps them to constants), M (copies its merged table) |
 | Touches | `crates/designos-app/src/theme.rs` (colours :20-112, `apply()` :619-657, tests :770-913), `crates/designos-app/src/terminal.rs` (colour pins :10019-10021), `crates/designos-app/src/cmdk.rs`/`dev/list.rs` (none; those two are B's), `design/design.tokens.json`, `design/ds.manifest.json`, `design/tokens.json`, `design/specimen.html`, `design/DESIGN.md`, `design/soul.md`, `design/principles.md`, `scripts/design_os_self_evolve.py` (:109, :111-134, :137-158, :160-163, G04 :365), new `scripts/check_chrome_colour_literals.py` (new name) + `scripts/chrome_colour_baseline.json` (new name) + its test, `.agents/agents/{curator,designer,librarian}-jang-designos-studio.md` |
 
@@ -44,11 +44,13 @@ Outcome: `theme.rs` colour constants and `design/design.tokens.json` hold the Un
 | proj-v | re-value in place on a copy of the real store: 41 × `ui ds change-token colors.<key> --value <hex> --reason "<Untitled token>: …"` (token-contract.md (b)) | 41/41 succeeded; generation 28 → 69, changelog 27 → 68 entries; every `$extensions.design-os.role` kept; 12 components kept |
 | e3 | reference store with Untitled names and Studio orange (44 tokens), `ui ds a11y --pairs <94 pairs>` | 94 pairs, 14 below AA, all of them placeholder `#737373`, error `#EF4444`, tertiary or accent text on `bg-quaternary`/`bg-tertiary`; every other chrome pair passes (rules 5–8 below) |
 
+**Duplicated kit collections (FACT).** `--export-variables --format dtcg` overwrites collections that share a name (spec P, #1140): the kit has 10 collections, three of them twice (`_Primitives`, `1. Color modes`, `6. Typography`, a local copy and a library copy each), so the DTCG files keep only one copy. Verification run (scratch): `designos "$KIT" --export-variables all.json --format figma-rest` keeps all 10 by id; resolving every variable of both copies (Dark mode / Style, alias chains followed) and diffing against the DTCG-resolved values this spec uses printed "compared 575 identical 575 diffs 0". The library copies hold 6 variables, each with an identical local twin, and the local copies (343 and 273 variables) are the ones the DTCG files kept. Every hex in token-contract.md is therefore verified, not provisional. The overwrite did drop the local `6. Typography` (32 variables, the whole text scale) behind a one-variable library copy; spec B reads it from the REST export.
+
 Conclusion (INFERENCE from the runs): `ui ds import` cannot onboard the kit onto this project without losing the component registry and changelog, and its raw DTCG path measures nothing; re-valuing the existing role keys with `change-token` is the only path that keeps history, roles and components. Tool gaps and owners are in section 8.
 
 ## 3. Behaviour rules
 
-1. **Values.** Every `theme.rs` colour constant takes the action and value in token-contract.md (a): 55 re-valued, 52 kept, 4 aliases kept, 5 deleted, 13 added (new names). Every `design.tokens.json` colour takes token-contract.md (b): 41 re-valued, 7 kept.
+1. **Values.** Every `theme.rs` colour constant takes the action and value in token-contract.md (a): 55 re-valued, 52 kept, 4 aliases kept, 5 deleted, 23 added (new names; N14–N23 are the roles spec C section 12 needs). Every `design.tokens.json` colour takes token-contract.md (b): 41 re-valued, 7 kept.
 2. **Literals for parity.** Every constant in the G01 map is a plain `rgb(0x……)` / `rgba(…)` literal. `BG_SELECTED` stops being `= BG_PRESSED` and becomes `rgb(0x262626)`.
 3. **egui visuals in `apply()`.** `panel_fill = BG` (`#0A0A0A`), `window_fill = BG_MENU` (`#0A0A0A`), `extreme_bg_color`/`faint_bg_color = BG_SECONDARY`, widgets `inactive = BG_SECONDARY`, `hovered = BG_SECONDARY_HOVER` (new name, `#262626`; `BG_HOVER` equals `BG_SECONDARY` in the kit and would make hover invisible), `active = BG_PRESSED` (`#404040`), `selection.bg_fill = BG_TEXT_SELECTION` (`#431407`), `selection.stroke = BORDER_SELECTED` (`#FB923C`), widget stroke `BORDER_STRONG` for inactive fields (kit inputs use `border-primary` `#404040`). Window and popup shadows: `Shadow::NONE` (kit dark shadows are alpha 0).
 4. **Brand (R4).** `BG_BRAND` stays `#E36323`; hover `#F97316`, pressed `#EA580C`; the label on all three is `TEXT_ON_BRAND` `#0A0A0A` (5.76 / 7.06 / 5.56:1); the focus ring is `FOCUS_RING` `#F97316`. The kit's purple brand values never enter the code.
@@ -66,7 +68,7 @@ Conclusion (INFERENCE from the runs): `ui ds import` cannot onboard the kit onto
 
 ## 4. Data model / schema changes
 
-No schema change. `design.tokens.json` keeps its 48 colour keys and their roles; 41 values change, generation 28 → 69 (41 changelog entries, one per token, each reason naming the Untitled token). `theme.rs` loses 5 constants and gains 13 (new names): `BG_SECONDARY_HOVER`, `TEXT_SECONDARY_HOVER`, `TEXT_TERTIARY_HOVER`, `TEXT_QUATERNARY`, `TEXT_PLACEHOLDER`, `ICON_QUATERNARY`, `TEXT_ERROR`, `TEXT_WARNING`, `TEXT_SUCCESS`, `TEXT_ON_BRAND`, `FOCUS_RING`, `BG_ERROR_SOLID`, `TEXT_WHITE`. Untitled names with no store key live in `theme.rs` only (the store has no add path, kernel gap T1).
+No schema change. `design.tokens.json` keeps its 48 colour keys and their roles; 41 values change, generation 28 → 69 (41 changelog entries, one per token, each reason naming the Untitled token). `theme.rs` loses 5 constants and gains 23 (new names): `BG_SECONDARY_HOVER`, `TEXT_SECONDARY_HOVER`, `TEXT_TERTIARY_HOVER`, `TEXT_QUATERNARY`, `TEXT_PLACEHOLDER`, `ICON_QUATERNARY`, `TEXT_ERROR`, `TEXT_WARNING`, `TEXT_SUCCESS`, `TEXT_ON_BRAND`, `FOCUS_RING`, `BG_ERROR_SOLID`, `TEXT_WHITE`, and for spec C `ICON_BRAND_PRIMARY` (fg-brand-primary, R4 orange `#F97316`), `ICON_SECONDARY_HOVER`, `ICON_QUATERNARY_HOVER`, `ICON_WHITE`, `BG_PRIMARY_ALT`, `BG_PRIMARY_SOLID`, `BG_ERROR_SOLID_HOVER`, `UTILITY_NEUTRAL_50`, `UTILITY_NEUTRAL_200`, `UTILITY_NEUTRAL_700`. Untitled names with no store key live in `theme.rs` only (the store has no add path, kernel gap T1).
 
 ## 5. Contracts
 
@@ -75,6 +77,11 @@ No schema change. `design.tokens.json` keeps its 48 colour keys and their roles;
 ```bash
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 # 0. Kit values (local only, never committed): see token-contract.md section 0.
+# 0b. Verify the dark values against both copies of each duplicated collection (until #1140 lands):
+#     cargo run -q --release -p designos-app --bin designos -- "$KIT" --export-variables /tmp/kit/all.json --format figma-rest
+#     resolve every variable of each '1. Color modes' / '_Primitives' copy by collection id (Dark mode / Style,
+#     aliases followed up to 16 hops) and diff with the values in token-contract.md; expect 0 diffs
+#     (scratch run 2026-10-25: "compared 575 identical 575 diffs 0"). After #1140: diff the two DTCG bundle files instead.
 # 1. Re-value the store in place, one sanctioned mutation per token.
 #    colours.tsv / scale.tsv = the tsv blocks in token-contract.md (b) and (c); B runs the scale loop.
 while IFS=$'\t' read -r key value reason; do
@@ -210,7 +217,7 @@ Red at HEAD, green after:
 
 Acceptance criteria:
 
-1. `theme.rs` colour constants equal token-contract.md (a) (116 rows + 13 new), checked by the G01 run and by `grep` of each new literal.
+1. `theme.rs` colour constants equal token-contract.md (a) (116 rows + 23 new), checked by the G01 run and by `grep` of each new literal.
 2. `ui ds status --dir .` → generation 69 after this PR, 77 tokens, 12 components; `design.tokens.json` colours equal token-contract.md (b).
 3. `ui ds a11y --dir .` and `ui ds a11y --dir . --pairs "$(cat design/a11y-chrome-pairs.txt)"` → 0 below AA.
 4. `python3 scripts/design_os_self_evolve.py` all gates green, G01 "35/35 … 0 Purple Ban violations".
@@ -247,5 +254,7 @@ R1 (adopt 100% Untitled style, keep layout), R2 (take everything from the kit), 
 - Syntax colours take the kit's dark utility steps; `SYNTAX_KEYWORD` pink-400 fixes the HEAD Purple Ban breach.
 - The colour-literal gate requested by D/E/F/G is adopted here with a falling per-file baseline.
 - Specimen refreshed in place, not regenerated (gap T2); `design/tokens.json` mirrored.
+- Buttons change from pills to `radius-md` 8 at every size, Home and dialog buttons included (soul and P4 clauses rewritten): R2 ("take everything from Untitled") and the kit FACT that every `Buttons/Button` size is `radius-md` (`--select "Buttons/Button" --export-spec`). Pills stay for pill badges, count pills, filter chips, toggles and avatars.
+- `BG_ERROR_SOLID_HOVER` takes the kit value `#EF4444` although `TEXT_WHITE` on it is 3.76:1; spec C owns the destructive-hover state and decides whether to keep it.
 - The soul keeps `status: ratified`: its stance is the owner's rulings R1–R7; the owner's PR approval is the ratification act (Jang approves every merge).
 - No `ui agents init --force`; `.agents/agents/` copies are hand-edited.

@@ -55,7 +55,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | F | 1 | #1124 | [1124-surface-right-panel-inspector-design-prototype.md](1124-surface-right-panel-inspector-design-prototype.md) | L |
 | G | 1 | #1128 | [1128-surface-dev-mode-and-spec-reader.md](1128-surface-dev-mode-and-spec-reader.md) | M |
 | H | 1 | #1138 | [1138-surface-home-workspace.md](1138-surface-home-workspace.md) | M |
-| I | 1 | — | Agent terminal panel and agent cards (spec in progress) | — |
+| I | 1 | #1144 | [1144-surface-agent-terminal-and-agent-cards.md](1144-surface-agent-terminal-and-agent-cards.md) | L |
 | J | 1 | — | Popovers, menus, modals, toasts, command palette, Find, Comments (spec in progress) | — |
 | K | 1 | — | Assets, Variables, Libraries and Styles panels (spec in progress) | — |
 | M | 2 | #1125 | [1125-docs-and-screenshot-refresh.md](1125-docs-and-screenshot-refresh.md) | M |

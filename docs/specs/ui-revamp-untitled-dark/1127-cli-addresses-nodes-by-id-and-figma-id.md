@@ -6,9 +6,9 @@
 | Size | M. One to two days: one shared resolver module, the GUI and agent-CLI call sites, an exit path for screenshots, `--zoom fit`, the tests. |
 | Depends on | none |
 | Unblocks | The R3 dogfood loop: specs A, B and C read kit frames by Figma id. Spec L's capture cases and spec M's README commands can name nodes exactly. |
-| Touches | New `crates/designos-app/src/select_target.rs`<br>`crates/designos-app/src/cli.rs`:<br>- `select` doc `:12-13`<br>- `--select` parse `:224`<br>- `--zoom` parse `:255-258`<br>- `USAGE` `:326-338`<br>- tests `:340+`<br>`crates/designos-app/src/shell.rs`:<br>- GUI `--select` `:175-186`<br>- `startup_zoom` `:206`<br>`crates/designos-app/src/canvas/mod.rs:361-373` (first fit)<br>`crates/designos-app/src/main.rs`:<br>- `resolve_select_node` `:173-205`<br>- agent CLI uses `:261`, `:266`, `:276-277`, `:330-333`, `:423-426`, `:441-466`<br>- screenshot exit `:150-156`<br>- tests `:470+`<br>`crates/designos-app/src/app.rs` (`startup_zoom`, `:185`) |
+| Touches | New `crates/designos-app/src/select_target.rs`<br>`crates/designos-app/src/cli.rs`:<br>- `select` doc `:12-13`<br>- `--select` parse `:235`<br>- `--zoom` parse `:266-269`<br>- `USAGE` `:353-371` (placed by hand: the constant moved below a new `--version` helper)<br>- tests `:373+`<br>`crates/designos-app/src/shell.rs`:<br>- GUI `--select` `:183-194`<br>- `startup_zoom` `:214`<br>`crates/designos-app/src/canvas/mod.rs:369-381` (first fit)<br>`crates/designos-app/src/main.rs`:<br>- `resolve_select_node` `:207-239`<br>- agent CLI uses `:299`, `:304`, `:314-315`, `:368-371`, `:465-468`, `:483-508`<br>- screenshot exit `:184-190`<br>- tests `:512+`<br>`crates/designos-app/src/app.rs` (`startup_zoom`, `:198`) |
 
-Code baseline: local `main@ec47da26`, not origin. `origin/main` is `35a65796`, 4 commits ahead, including release 0.6.1 (#1017). This spec cites `designos-app/src/main.rs` and `cli.rs`; between the two commits `main.rs` changed by 56 lines and `cli.rs` by 134, so the `main.rs:` and `cli.rs:` lines cited here are off at `35a65796` (the `--export-variables` branch, for example, starts at `main.rs:426` there). Re-anchor every cited line against HEAD and report drift before writing code. Scratch evidence for this spec, outside the repo: `$SCRATCH/agents/w5/o/`. `$SCRATCH` is the controller's scratchpad, `/private/tmp/claude-501/-Users-jangtrinh--claude-profiles-work-spares-spare-AW68Nz/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad`.
+Code baseline: `origin/main@205c72ef` (fetched 2026-10-25). Every file:line was re-anchored from local `main@ec47da26` using a line diff of each cited file (`git show` at both commits). Each cited block moved without a content change unless it is marked "placed by hand". The `--select`, first-fit and `--inspect-json` blocks were diffed and are identical at `205c72ef`, so the repro below (a binary built from `ec47da26`) still describes `205c72ef`. Re-anchor against HEAD and report drift before writing code. Scratch evidence for this spec, outside the repo: `$SCRATCH/agents/w5/o/`. `$SCRATCH` is the controller's scratchpad, `/private/tmp/claude-501/-Users-jangtrinh--claude-profiles-work-spares-spare-AW68Nz/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad`.
 
 ## 1. Summary and user story
 
@@ -17,39 +17,39 @@ As an agent working on a `.fig` through Studio's CLI, I pass `--select fig:5256:
 ## 2. Current state (FACT unless labelled)
 
 **Two resolvers that disagree:**
-- **GUI and `--screenshot`** (`shell.rs:175-186`): an exact layer name only. It looks first among page children (screens), then any node, in `doc.nodes` order, which is a `BTreeMap` by `NodeId` (`designos-doc/src/lib.rs:179`). A numeric id or a Figma id matches nothing. When nothing matches, the selection stays empty, nothing is printed, and the exit code is 0.
-- **Headless agent CLI** (`main.rs:173-205`, `resolve_select_node`), in this order:
-  1. a number that is an existing `NodeId` (`:178`)
-  2. a page named exactly (`:181-184`)
-  3. a page child named exactly (`:185-189`)
-  4. a page-walk search for an exact or case-insensitive name (`:192-204`)
+- **GUI and `--screenshot`** (`shell.rs:183-194`): an exact layer name only. It looks first among page children (screens), then any node, in `doc.nodes` order, which is a `BTreeMap` by `NodeId` (`designos-doc/src/lib.rs:181`). A numeric id or a Figma id matches nothing. When nothing matches, the selection stays empty, nothing is printed, and the exit code is 0.
+- **Headless agent CLI** (`main.rs:207-239`, `resolve_select_node`), in this order:
+  1. a number that is an existing `NodeId` (`:212`)
+  2. a page named exactly (`:215-218`)
+  3. a page child named exactly (`:219-223`)
+  4. a page-walk search for an exact or case-insensitive name (`:226-238`)
 
   It returns `None` when nothing matches. It has no Figma-id path.
 - `--select` is documented as a name only: `cli.rs:1`, `:12-13` "Select the first layer with this name", and `USAGE` `[--select LAYER|none]`.
 
 **Silent fallbacks when the agent CLI resolves `None`:**
-- `--apply-spec`: inserts into the **first page and saves the file** (`main.rs:266`). This mutates the document.
-- `--add-comment`: anchors to the first page, saves (`main.rs:276-277`).
-- `--export-spec`: exports the first screen (`main.rs:330-333`).
-- `--codegen`: generates code for the first screen (`main.rs:423-426`).
-- `--inspect-json` ignores `--select` completely (`main.rs:441-466`), and its screens list carries no Figma id.
-- Errors returned from `run_agent_cli` already exit 2 (`main.rs:122-127`).
+- `--apply-spec`: inserts into the **first page and saves the file** (`main.rs:304`). This mutates the document.
+- `--add-comment`: anchors to the first page, saves (`main.rs:314-315`).
+- `--export-spec`: exports the first screen (`main.rs:368-371`).
+- `--codegen`: generates code for the first screen (`main.rs:465-468`).
+- `--inspect-json` ignores `--select` completely (`main.rs:483-508`), and its screens list carries no Figma id.
+- Errors returned from `run_agent_cli` already exit 2 (`main.rs:142-147`).
 
-**Other name lookups.** `--edit-text` prints `designos: no text layer named '…'` and carries on, exit 0 (`shell.rs:220-237`). `--layout-grid`, `--dev-demo` and the inspector popups of `--panel` act on the selection (`shell.rs:207-217`; `cli.rs:126`), so a missed `--select` spreads to them.
+**Other name lookups.** `--edit-text` prints `designos: no text layer named '…'` and carries on, exit 0 (`shell.rs:228-245`). `--layout-grid`, `--dev-demo` and the inspector popups of `--panel` act on the selection (`shell.rs:215-225`; `cli.rs:137`), so a missed `--select` spreads to them.
 
 **Figma ids.**
-- `Node.source_id: Option<String>` holds the imported Figma id, for example `"12:34"` (`designos-doc/src/node.rs:67-69`; `lib.rs:121-122`). It is set by the REST/`.fig` importer (`designos-fig/src/rest_import.rs:818`, `:847`, `:927`, `:952`).
+- `Node.source_id: Option<String>` holds the imported Figma id, for example `"12:34"` (`designos-doc/src/node.rs:67-69`; `lib.rs:123-124`). It is set by the REST/`.fig` importer (`designos-fig/src/rest_import.rs:818`, `:847`, `:927`, `:952`).
 - Instance children get `I<instance id>;<child id>` (`:2280`). In files with at least 10,000 nodes and no REST overrides, the fast clone path **removes** `source_id` from instance children (`:2223-2224`, `:2276-2279`).
 - So in the kit, sublayers inside instances have no Figma id. Only nodes that exist as their own records in the file keep one.
 - The `.fig` exporter writes `source_id`, or `9000:<NodeId>` when there is none (`designos-fig/src/export.rs:264-266`).
 - No code looks up a node by `source_id` except one-off scans (`comments/import.rs:58`, `lint/rules/detached.rs:22-55`).
 
-**Lazy pages.** Large `.fig` imports defer instance expansion per page (`Document::ensure_page_hydrated`, `designos-doc/src/lib.rs:633-645`; `hydrate_all_pages` `:647`). A node inside an unexpanded instance is not in `doc.nodes` until its page is hydrated. The GUI resolver hydrates the page of a node it finds (`shell.rs:180-182`), but it cannot find a node that does not exist yet.
+**Lazy pages.** Large `.fig` imports defer instance expansion per page (`Document::ensure_page_hydrated`, `designos-doc/src/lib.rs:639-651`; `hydrate_all_pages` `:653`). A node inside an unexpanded instance is not in `doc.nodes` until its page is hydrated. The GUI resolver hydrates the page of a node it finds (`shell.rs:188-190`), but it cannot find a node that does not exist yet.
 
 **Framing.**
-- At first fit, `--zoom <pct>` calls `zoom_on_content`, which centres on the selection (`canvas/mod.rs:361-364`, `ops.rs:1864-1869`).
-- Without `--zoom`, the canvas runs `fit_all`, the page bounds (`:372`).
-- `fit_selection` exists (`ops.rs:1850-1857`, `View::fit` with `FIT_PADDING`, `app.rs:43-51`), but nothing on the CLI reaches it.
+- At first fit, `--zoom <pct>` calls `zoom_on_content`, which centres on the selection (`canvas/mod.rs:369-372`, `ops.rs:1964-1969`).
+- Without `--zoom`, the canvas runs `fit_all`, the page bounds (`:380`).
+- `fit_selection` exists (`ops.rs:1950-1957`, `View::fit` with `FIT_PADDING`, `app.rs:43-51`), but nothing on the CLI reaches it.
 - So `--select X --screenshot` without `--zoom` shows the whole page.
 
 **Reproduction (scratch, 2026-10-25; the document is two frames in a board).** Built with `--apply-spec two-cards.spec.json`. Ids: 1 page, 2 `Board`, 3 `Card A`, 4 `Title`, 5 `Card B`, 6 `Title`.
@@ -94,7 +94,7 @@ $ designos two-cards.fig --select 9000:5 --export-spec spec-figid.json   # 9000:
 
 ## 3. Behaviour rules
 
-1. **One resolver.** `select_target::resolve(doc: &mut Document, raw: &str) -> Result<Target, SelectError>`. The GUI or screenshot path (`shell.rs:175`) and the agent CLI (`main.rs:261`) both call it. `resolve_select_node` and the inline GUI lookup are deleted.
+1. **One resolver.** `select_target::resolve(doc: &mut Document, raw: &str) -> Result<Target, SelectError>`. The GUI or screenshot path (`shell.rs:183`) and the agent CLI (`main.rs:299`) both call it. `resolve_select_node` and the inline GUI lookup are deleted.
 2. **Grammar** (case-sensitive prefixes):
 
    | Input | Meaning |
@@ -114,7 +114,7 @@ $ designos two-cards.fig --select 9000:5 --export-spec spec-figid.json   # 9000:
 4. **Bare numbers (compatibility).** A bare value that matches no layer name, but parses as an existing `NodeId`, selects that node. stderr then prints `designos: --select 4 matched no layer name; selected node id 4 (use --select id:4)`. Names are checked first, so a layer literally named `4` still wins. The agent CLI today checks the id first; the PR body notes the change.
 5. **No match is an error, never a fallback.**
    - The message names the selector and what was searched: `--select "Card Z" matched no node (searched 6 layers on 1 page by name; use --inspect-json to list screens, or id:<n> / fig:<id>)`.
-   - **Agent CLI.** `run_agent_cli` returns `Err` before any action runs, which exits 2 (`main.rs:122-127`). `--apply-spec`, `--add-comment`, `--export-spec`, `--codegen` and `--inspect-json` never fall back to the first page or screen when `--select` was given. Without `--select` they keep their current defaults.
+   - **Agent CLI.** `run_agent_cli` returns `Err` before any action runs, which exits 2 (`main.rs:142-147`). `--apply-spec`, `--add-comment`, `--export-spec`, `--codegen` and `--inspect-json` never fall back to the first page or screen when `--select` was given. Without `--select` they keep their current defaults.
    - **`--screenshot`.** `Shell::new` records the miss and requests `ViewportCommand::Close` on the first frame. `main.rs` prints the message and exits 2 before its `SHOT_OK` check. No PNG is written.
    - **Interactive launch** (no `--screenshot`, no agent command). The window opens on the file, and an error toast shows the message. It is also printed to stderr. A person is not thrown out of the app for a typo.
 6. **Lazy pages.** When the first pass finds no match and the document has pages that are not hydrated, the resolver calls `hydrate_all_pages()` once and searches again. The miss message then says `(all pages expanded)`.
@@ -124,7 +124,7 @@ $ designos two-cards.fig --select 9000:5 --export-spec spec-figid.json   # 9000:
    - `id:` cannot match twice.
 8. **Pages.** A selector that resolves to a page switches to that page (`app.page`) and selects nothing, in both GUI and screenshot mode. The agent CLI uses the page as the target, which is today's behaviour for `--apply-spec` and `--add-comment`. For `--export-spec` and `--codegen` it uses the page node.
 9. **`--inspect-json` reports the target.** With `--select`, the output gains `"selection": {"id", "name", "kind", "page_id", "source_id", "x", "y", "width", "height"}`, in page coordinates. Every screen entry gains `"source_id"` (null when absent), so an agent can map a Figma id to a Studio id.
-10. **`--zoom fit`.** `--zoom` accepts `fit` as well as a percentage. `startup_zoom` becomes `enum StartupZoom { Percent(f32), Fit }`. At first fit, `Fit` calls `fit_selection()`, or `fit_all()` when nothing is selected (`canvas/mod.rs:361-373`). The default stays page fit when `--zoom` is absent, so existing capture commands do not reframe.
+10. **`--zoom fit`.** `--zoom` accepts `fit` as well as a percentage. `startup_zoom` becomes `enum StartupZoom { Percent(f32), Fit }`. At first fit, `Fit` calls `fit_selection()`, or `fit_all()` when nothing is selected (`canvas/mod.rs:369-381`). The default stays page fit when `--zoom` is absent, so existing capture commands do not reframe.
 
 ## 4. Data model / schema changes
 
@@ -164,7 +164,7 @@ None. `source_id` is read only.
 
 ## 8. Edge cases
 
-- `--select ""` or whitespace only: a parse error, exit 2 (today it is silently ignored, `main.rs:175-176`).
+- `--select ""` or whitespace only: a parse error, exit 2 (today it is silently ignored, `main.rs:209-210`).
 - `id:` with a number that does not exist: no match, exit 2. `id:-1` or `id:1.5`: malformed, exit 2.
 - `fig:` on a non-Figma document (`.designos` built in Studio): no `source_id` anywhere, so no match. The message adds `(this document has no Figma ids)` when no node in the document has a `source_id`.
 - `fig:` naming an instance sublayer in a large kit: the fast clone path removed its id (section 2), so no match. The message adds `(instance sublayers in files over 10,000 nodes keep no Figma id; select the instance and use id:<n>)` when the document has more than 10,000 nodes.
