@@ -22,6 +22,9 @@ const REVEAL_LABEL: &str = "Show in folder";
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
 
+/// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
+pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 #[derive(Clone, Default)]
 pub struct MicroSeqHud {
     pub focus_page: designos_doc::Vec2,
@@ -66,6 +69,7 @@ struct Shot {
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
+    open_failed: bool,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -169,8 +173,20 @@ impl Shell {
                 app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
             }
         }
+        let mut shot_open_failed = false;
         if let Some(f) = &opts.file {
+            let prev_dirty = std::mem::replace(&mut app.canvas.dirty, false);
             app.open_path(f.clone());
+            let opened = app.canvas.dirty;
+            app.canvas.dirty |= prev_dirty;
+            if !opened && opts.screenshot.is_some() {
+                if let Some(err) = app.toast.as_ref().filter(|t| t.error).map(|t| t.text.as_str()) {
+                    let reason = err.lines().next().unwrap_or(err).trim().trim_end_matches('.');
+                    let _ = SHOT_OPEN_ERROR.set(format!("{} could not be opened: {reason}. Check the file, then try again.", f.display()));
+                    shot_open_failed = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
         }
         if let Some(cap) = &opts.import_capture {
             app.import_web_capture_path(cap.clone());
@@ -402,6 +418,7 @@ impl Shell {
             last_try: false,
             seq: seq_capture,
             no_toast: opts.no_toast,
+            open_failed: shot_open_failed,
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default() }
     }
@@ -1353,6 +1370,10 @@ impl Shell {
 
     /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        if self.shot.as_ref().is_some_and(|s| s.open_failed) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
         // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard

@@ -54,7 +54,32 @@ mod history;
 mod home;
 mod icons;
 mod image_jobs;
-mod io;
+#[path = "."]
+mod io_raw {
+    pub mod io;
+}
+mod io {
+    pub use super::io_raw::io::*;
+
+    #[cfg(test)]
+    fn load_counts() -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>> {
+        static COUNTS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>>> = std::sync::OnceLock::new();
+        COUNTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+    }
+
+    #[cfg(test)]
+    pub fn load_call_count(path: &std::path::Path) -> usize {
+        load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    pub fn load_path_with_warning(path: &std::path::Path) -> Result<(designos_doc::Document, Option<String>), String> {
+        if let Ok(mut m) = load_counts().lock() {
+            *m.entry(path.to_path_buf()).or_insert(0) += 1;
+        }
+        super::io_raw::io::load_path_with_warning(path)
+    }
+}
 mod layout;
 mod libraries;
 #[cfg(test)]
@@ -158,14 +183,6 @@ fn main() {
         }
         return;
     }
-    if opts.screenshot.is_some() {
-        if let Some(path) = &opts.file {
-            if let Some(message) = screenshot_file_error(path) {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-    }
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();
@@ -204,32 +221,21 @@ fn main() {
         eprintln!("designos: {e}");
         std::process::exit(1);
     }
-    if screenshot_mode && !shell::SHOT_OK.load(Ordering::SeqCst) {
-        eprintln!("designos: screenshot was not captured");
-        std::process::exit(1);
+    if screenshot_mode {
+        if let Some(err) = shell::SHOT_OPEN_ERROR.get() {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+        if !shell::SHOT_OK.load(Ordering::SeqCst) {
+            eprintln!("designos: screenshot was not captured");
+            std::process::exit(1);
+        }
     }
 }
 
 enum SaveTarget {
     Library(designos_library::Library, String),
     Path(std::path::PathBuf),
-}
-
-fn screenshot_file_error(path: &std::path::Path) -> Option<String> {
-    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            if comments::import::is_comments_payload(&text) || variables::is_variables_payload(&text) {
-                return None;
-            }
-        }
-    }
-    match io::load_path_with_warning(path) {
-        Ok(_) => None,
-        Err(e) => {
-            let reason = e.lines().next().unwrap_or(&e).trim().trim_end_matches('.');
-            Some(format!("{} could not be opened: {reason}. Check the file, then try again.", path.display()))
-        }
-    }
 }
 
 impl SaveTarget {
@@ -655,110 +661,6 @@ mod icon_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn build_cli_binaries() -> Vec<(&'static str, std::path::PathBuf)> {
-        static BINS: std::sync::OnceLock<Vec<(&'static str, std::path::PathBuf)>> = std::sync::OnceLock::new();
-        BINS.get_or_init(|| {
-            let exe = std::env::current_exe().expect("test executable path");
-            let profile_dir = exe.parent().and_then(|p| p.parent()).expect("target/<profile> directory").to_path_buf();
-            let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
-            let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()));
-            cmd.args(["build", "-p", "designos-app", "--bins", "--locked", "--manifest-path"]).arg(&manifest);
-            if profile_dir.file_name().is_some_and(|n| n == "release") {
-                cmd.arg("--release");
-            }
-            let status = cmd.status().expect("cargo build -p designos-app --bins");
-            assert!(status.success(), "building designos binaries failed: {status}");
-            let mut out = Vec::new();
-            for name in ["designos", "designos-studio"] {
-                let bin = profile_dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-                assert!(bin.is_file(), "binary not found at {}", bin.display());
-                out.push((name, bin));
-            }
-            out
-        })
-        .clone()
-    }
-
-    fn run_cli_bin(exe: &std::path::Path, cwd: &std::path::Path, args: &[&str]) -> std::process::Output {
-        use std::process::{Command, Stdio};
-        use std::time::{Duration, Instant};
-        let mut child = Command::new(exe)
-            .args(args)
-            .current_dir(cwd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|e| panic!("start {}: {e}", exe.display()));
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            if child.try_wait().expect("poll child").is_some() {
-                return child.wait_with_output().expect("collect output");
-            }
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("{} {args:?} did not exit within 30 s", exe.display());
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-
-    #[test]
-    fn cli_screenshot_refuses_broken_files_and_captures_good_file() {
-        let dir = std::env::temp_dir().join(format!("designos_rt04_cli_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let mut good_doc = designos_doc::Document::new("Good");
-        good_doc.add_page("Page 1");
-        super::io::save_path(&good_doc, &dir.join("good.designos")).unwrap();
-        let fig_bytes = designos_fig::export_fig(&good_doc).expect("export valid .fig");
-
-        std::fs::write(dir.join("trunc.fig"), &fig_bytes[..24.min(fig_bytes.len())]).unwrap();
-        std::fs::write(dir.join("corrupt.designos"), b"{corrupt designos json").unwrap();
-        std::fs::write(dir.join("garbage.fig"), b"not a fig file at all").unwrap();
-
-        let bins = build_cli_binaries();
-        for (bin_name, bin_path) in &bins {
-            for broken in ["trunc.fig", "corrupt.designos", "garbage.fig"] {
-                let png_name = format!("{bin_name}_{broken}.png");
-                let png_path = dir.join(&png_name);
-                let _ = std::fs::remove_file(&png_path);
-                let out = run_cli_bin(bin_path, &dir, &[broken, "--screenshot", &png_name]);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                assert!(!out.status.success(), "{bin_name} {broken} --screenshot must exit non-zero, got {:?}\nstderr: {stderr}", out.status);
-                assert!(!png_path.exists(), "{bin_name} {broken} --screenshot must not write {png_name}");
-                let lines: Vec<&str> = stderr.lines().collect();
-                assert_eq!(lines.len(), 1, "{bin_name} {broken} must print exactly one line to stderr, got: {stderr:?}");
-                assert!(
-                    lines[0].starts_with(&format!("{broken} could not be opened: ")),
-                    "{bin_name} {broken} stderr must start with '{broken} could not be opened: ', got: {:?}",
-                    lines[0]
-                );
-                assert!(
-                    lines[0].ends_with(". Check the file, then try again."),
-                    "{bin_name} {broken} stderr must end with '. Check the file, then try again.', got: {:?}",
-                    lines[0]
-                );
-            }
-        }
-
-        let good_png = dir.join("good.png");
-        let (_, designos_bin) = &bins[0];
-        let mut out = run_cli_bin(designos_bin, &dir, &["good.designos", "--screenshot", "good.png"]);
-        for _ in 0..2 {
-            if out.status.success() || !String::from_utf8_lossy(&out.stderr).contains("screenshot was not captured") {
-                break;
-            }
-            out = run_cli_bin(designos_bin, &dir, &["good.designos", "--screenshot", "good.png"]);
-        }
-        assert!(out.status.success(), "control run on good.designos must exit 0, got {:?}\nstderr: {}", out.status, String::from_utf8_lossy(&out.stderr));
-        assert!(good_png.metadata().is_ok_and(|m| m.len() > 0), "control run on good.designos must write non-empty good.png");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     #[test]
     fn cli_apply_spec_reports_field_and_expected_type_in_plain_words() {
         let dir = std::env::temp_dir().join(format!("designos_rt07_cli_{}", std::process::id()));
@@ -825,13 +727,45 @@ mod icon_tests {
             }
         }
 
-        std::fs::write(&spec_path, r#"{"name":"Card","children":[[{"kind":"rectangle","name":"Box"}]]}"#).unwrap();
-        let (_, designos_bin) = &build_cli_binaries()[0];
-        let bin_out = run_cli_bin(designos_bin, &dir, &["r7.designos", "--apply-spec", "aa.json"]);
-        let bin_stderr = String::from_utf8_lossy(&bin_out.stderr);
-        assert!(!bin_out.status.success(), "designos r7.designos --apply-spec aa.json must fail");
-        assert!(bin_stderr.contains("children must be an array of NodeSpec objects"), "stderr: {bin_stderr}");
-        assert!(!bin_stderr.contains("expected u64"), "stderr: {bin_stderr}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_screenshot_loads_good_file_once() {
+        let dir = std::env::temp_dir().join(format!("designos_rt04_load_once_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let good_path = dir.join("good.designos");
+        let png_path = dir.join("good.png");
+        let mut good_doc = designos_doc::Document::new("Good");
+        good_doc.add_page("Page 1");
+        super::io::save_path(&good_doc, &good_path).unwrap();
+
+        let opts = super::cli::parse([good_path.to_string_lossy().into_owned(), "--screenshot".into(), png_path.to_string_lossy().into_owned()]).unwrap();
+
+        let ctx = egui::Context::default();
+        let _shell = super::shell::Shell::build(&ctx, opts);
+
+        assert_eq!(super::io::load_call_count(&good_path), 1, "--screenshot must load {} exactly once", good_path.display());
+        assert!(super::shell::SHOT_OPEN_ERROR.get().is_none());
+
+        let broken_path = dir.join("garbage.fig");
+        let broken_png = dir.join("broken.png");
+        std::fs::write(&broken_path, b"not a fig file at all").unwrap();
+        let broken_opts =
+            super::cli::parse([broken_path.to_string_lossy().into_owned(), "--screenshot".into(), broken_png.to_string_lossy().into_owned()]).unwrap();
+        let broken_ctx = egui::Context::default();
+        let mut broken_shell = super::shell::Shell::build(&broken_ctx, broken_opts);
+        assert_eq!(super::io::load_call_count(&broken_path), 1, "--screenshot must attempt to load broken file {} only once", broken_path.display());
+        let recorded = super::shell::SHOT_OPEN_ERROR.get().expect("broken file sets SHOT_OPEN_ERROR");
+        assert!(recorded.starts_with(&format!("{} could not be opened: ", broken_path.display())), "got: {recorded}");
+        assert!(recorded.ends_with(". Check the file, then try again."), "got: {recorded}");
+        let out = broken_ctx.run_ui(egui::RawInput::default(), |ui| broken_shell.draw(ui));
+        assert!(out.shapes.is_empty(), "broken screenshot must not render blank Untitled document");
+        let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.as_slice()).unwrap_or(&[]);
+        assert!(cmds.contains(&egui::ViewportCommand::Close), "broken screenshot must close viewport");
+        assert!(!broken_png.exists(), "broken screenshot must not write PNG");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,0 +1,26 @@
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked cli_screenshot_loads_good_file_once -- --nocapture
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 53.34s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+
+thread 'icon_tests::cli_screenshot_loads_good_file_once' (50393459) panicked at crates/designos-app/src/main.rs:892:9:
+assertion `left == right` failed: --screenshot must load /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.jIvcQN/designos_rt04_load_once_99620/good.designos exactly once
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test icon_tests::cli_screenshot_loads_good_file_once ... FAILED
+
+failures:
+
+failures:
+    icon_tests::cli_screenshot_loads_good_file_once
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

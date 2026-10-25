@@ -231,4 +231,153 @@ $ rm -rf out && git status -sb
 
 - For `designos FILE --screenshot OUT.png`, a `.json` file whose contents match `comments::import::is_comments_payload` or `variables::is_variables_payload` is intentionally allowed through `screenshot_file_error` because `Shell::build` handles comments and variables JSON payloads on the default demo document (`crates/designos-app/src/shell.rs:159-169`). All other unreadable `.fig`, `.designos`, `.svg`, or `.json` files are rejected before starting the window.
 
+---
+
+## Round 2
+
+### 1) What could NOT be verified
+- **Non-macOS native window close timing under `--screenshot` (`Linux` / `Windows`)**: Verified on macOS (`aarch64-apple-darwin`) both in-process (`cli_screenshot_loads_good_file_once`) and via child processes (`tests/cli_screenshot.rs`); Ubuntu and Windows CI runners were not executed locally.
+
+### Conclusion & Epistemic Ledger
+- **Conclusion (FACT)**: Removed the duplicate `screenshot_file_error` pre-load in `crates/designos-app/src/main.rs` so `--screenshot` loads `opts.file` once inside `Shell::build` (`crates/designos-app/src/shell.rs`). When that initial load fails in screenshot mode, `Shell::build` records the formatted message in `shell::SHOT_OPEN_ERROR: OnceLock<String>`, marks `Shot.open_failed = true`, and sends `ViewportCommand::Close`; `Shell::draw` returns immediately on `open_failed` without rendering a blank `Untitled` document or requesting a screenshot, and `main` prints the single error line to stderr and exits `1`. Moved the RT-04 CLI test into `crates/designos-app/tests/cli_screenshot.rs` using `env!("CARGO_BIN_EXE_designos")` and `env!("CARGO_BIN_EXE_designos-studio")` with no nested `cargo build`.
+- **Epistemic Ledger**:
+  - **FACT**: On `2870e72a`, `cli_screenshot_loads_good_file_once` failed with `left: 2, right: 1` (`plans/reports/agy-e-cli-spec-errors-evidence/r2-red.log`) because `main.rs` called `io::load_path_with_warning` in `screenshot_file_error` before `Shell::build` called `app.open_path`.
+  - **FACT**: After removing the pre-load in `main.rs` and handling initial-load failures in `Shell::build` / `Shell::draw`, `cli_screenshot_loads_good_file_once` passes with `load_call_count == 1` (`plans/reports/agy-e-cli-spec-errors-evidence/r2-green.log`), and `crates/designos-app/tests/cli_screenshot.rs` passes for both `designos` and `designos-studio`.
+  - **FACT**: In `app.open_path` (`crates/designos-app/src/ops.rs:2143-2182`), every successful document open calls `self.replace_document` -> `self.changed()` (setting `self.canvas.dirty = true`), and `.json` comments/variables payloads set a non-error toast (`toast.error == false`), whereas every failed open leaves `self.canvas.dirty` untouched (`false`) and sets `toast.error = true`.
+  - **INFERENCE**: Tracking `open_failed: bool` per `Shot` instance in addition to storing the message in `SHOT_OPEN_ERROR: OnceLock<String>` prevents cross-test interference when multiple `Shell` instances run inside the same unit-test process.
+  - **ASSUMPTION**: None added beyond the `.json` comments/variables payload exception preserved from `app.open_path`.
+- **Weakest link**: In-process detection of `app.open_path` failure in `Shell::build` relies on `app.open_path` leaving `app.canvas.dirty == false` and setting `app.toast.error == true` on load failure (since `ops.rs` is outside the Round 2 allowed files list).
+- **Unresolved questions**: None.
+
+### 2) Acceptance Table (Round 2)
+
+| # | Acceptance Check | Status | Command & Evidence |
+|---|---|---|---|
+| 1 | `r2-red.log`: the load-once proof fails on `2870e72a`. `r2-green.log`: it passes on your head, and so does the moved RT-04 test. | PASS | Saved at `plans/reports/agy-e-cli-spec-errors-evidence/r2-red.log` (`left: 2, right: 1`) and `plans/reports/agy-e-cli-spec-errors-evidence/r2-green.log` (both tests `ok`). |
+| 2 | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` exit 0. | PASS | Both exited `0` under the test harness (see output below). |
+| 3 | `cargo test -p designos-app --test cli_screenshot --locked` and `cargo test -p designos-app --bin designos --locked cli` pass under the harness. | PASS | `cli_screenshot` (1 passed) and `--bin designos cli` (291 passed, 0 failed) exited `0` (see output below). |
+| 4 | Commit as `fix(cli): …` (no AI or tool names), push, and add a "Round 2" line to the PR body. Keep the PR a draft, never merge, and delete `out/`. | PASS | Committed, pushed, PR #1117 body updated with Round 2 line, `out/` deleted. |
+
+### 3) Changes per file (Round 2)
+
+#### Skills Loaded & Changes Because of Them
+- **Skills loaded**:
+  - `/es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`)
+  - `/es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`)
+  - `/es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`)
+  - `/es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`)
+  - `/es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`)
+  - `/es:astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`)
+- **What changed because of the loaded skills**:
+  - Per `/es:rust` (eliminating duplicate full-document deserialization and 2x peak memory on 1M-record `.fig` files), removed `screenshot_file_error` from `main.rs` so `--screenshot` loads `opts.file` once through `Shell::build`.
+  - Per `/es:rust-gpu-canvas` & `/es:fable-thinking` adversarial verification, added `open_failed: bool` on `Shot` so `Shell::draw` returns before `draw_window` and `request_screenshot` (preventing any blank `Untitled` frame compilation/rendering on broken files and avoiding cross-test `OnceLock` state leakage in unit tests).
+  - Per `/es:rust` testing discipline, counted calls to `io::load_path_with_warning` per file path in `#[cfg(test)]` via `mod io` in `main.rs` (zero runtime cost in release builds, zero edits to `io.rs`) and moved the CLI binary test to `crates/designos-app/tests/cli_screenshot.rs` using `env!("CARGO_BIN_EXE_designos")` and `env!("CARGO_BIN_EXE_designos-studio")`.
+
+#### Per-File Summary
+- **`crates/designos-app/src/main.rs`**:
+  - Removed `screenshot_file_error` and the pre-window load block before `agent_session_files::spawn_startup_sweep()`.
+  - After `eframe::run_native`, checks `shell::SHOT_OPEN_ERROR.get()` first when `screenshot_mode` is true, printing `{err}` to stderr and exiting `1` before the `SHOT_OK` fallback check.
+  - Wrapped `mod io` with a `#[cfg(test)]` per-path call counter on `io::load_path_with_warning` (`io::load_call_count`) — the cheapest honest proof that counts real calls to the loader in a unit test without touching `io.rs` or `ops.rs`.
+  - Deleted `build_cli_binaries`, `run_cli_bin`, and `cli_screenshot_refuses_broken_files_and_captures_good_file` from `mod icon_tests`, and added `cli_screenshot_loads_good_file_once`.
+- **`crates/designos-app/src/shell.rs`**:
+  - Added `pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();` next to `SHOT_OK`.
+  - In `Shell::build`, when `opts.file` is `Some(f)` and `opts.screenshot.is_some()`, detects initial-load failure after `app.open_path(f.clone())` (preserving the `.json` comments/variables payload exception in `app.open_path`), records `"{} could not be opened: {reason}. Check the file, then try again."` in `SHOT_OPEN_ERROR`, marks `Shot.open_failed = true`, and sends `egui::ViewportCommand::Close`.
+  - In `Shell::draw`, when `self.shot.as_ref().is_some_and(|s| s.open_failed)` is true, sends `egui::ViewportCommand::Close` and returns immediately before `draw_window` and `request_screenshot`.
+- **`crates/designos-app/tests/cli_screenshot.rs`**:
+  - Added integration test `cli_screenshot_refuses_broken_files_and_captures_good_file` using `env!("CARGO_BIN_EXE_designos")` and `env!("CARGO_BIN_EXE_designos-studio")`, 30 s timeout in `run_cli_bin`, the three broken files (`trunc.fig`, `corrupt.designos`, `garbage.fig`), the single-line stderr check, and the `good.designos` control.
+
+### Exact Commands & Pasted Output (Round 2)
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r2-red.log`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked cli_screenshot_loads_good_file_once -- --nocapture
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 53.34s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+
+thread 'icon_tests::cli_screenshot_loads_good_file_once' (50393459) panicked at crates/designos-app/src/main.rs:892:9:
+assertion `left == right` failed: --screenshot must load /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.jIvcQN/designos_rt04_load_once_99620/good.designos exactly once
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test icon_tests::cli_screenshot_loads_good_file_once ... FAILED
+
+failures:
+
+failures:
+    icon_tests::cli_screenshot_loads_good_file_once
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+```
+
+#### `plans/reports/agy-e-cli-spec-errors-evidence/r2-green.log`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked cli_screenshot_loads_good_file_once -- --nocapture
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test icon_tests::cli_screenshot_loads_good_file_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3280 filtered out; finished in 0.03s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --test cli_screenshot --locked -- --nocapture
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.19s
+     Running tests/cli_screenshot.rs (out/cargo/debug/deps/cli_screenshot-71d1269d723c30fb)
+
+running 1 test
+test cli_screenshot_refuses_broken_files_and_captures_good_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.54s
+```
+
+#### Acceptance 2 & 3 Commands & Output
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+(exited with code 0)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 42.11s
+(exited with code 0)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --test cli_screenshot --locked
+     Running tests/cli_screenshot.rs (out/cargo/debug/deps/cli_screenshot-71d1269d723c30fb)
+
+running 1 test
+test cli_screenshot_refuses_broken_files_and_captures_good_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.54s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked cli
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 291 tests
+...
+test cli::tests::parse_spec_json_names_the_field_and_expected_type ... ok
+test icon_tests::agent_cli_apply_comment_and_export_roundtrip ... ok
+test icon_tests::cli_apply_spec_reports_field_and_expected_type_in_plain_words ... ok
+test icon_tests::cli_screenshot_loads_good_file_once ... ok
+test icon_tests::web_capture_cli_import_and_out_roundtrip ... ok
+...
+test result: ok. 291 passed; 0 failed; 0 ignored; 0 measured; 2990 filtered out; finished in 22.60s
+```
+
 Status: DONE
