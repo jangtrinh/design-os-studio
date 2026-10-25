@@ -7,7 +7,7 @@
 //! So every file a hook writes, and every file it reads back into the agent's context, lies where no agent write grant reaches.
 //!
 //! ```text
-//! <data dir>/designos/ap/<sid>/hook-out/       0700  beside the approval channel of the same session (`agent_approval_channel`)
+//! <data dir>/designos/ap/<sid>/hook-out/       0700  inside the approval channel folder of the same session (`agent_approval_channel`)
 //!   agent-status.json                                 the last state word of any hook
 //!   agent-events.jsonl  agent-events.jsonl.lock/      one wrapped record per hook event, and the lock an append takes
 //!   turn-marks.jsonl                                  the turn boundaries, with the byte length of `doc-patch.jsonl` at each
@@ -17,9 +17,10 @@
 //!                                                     what the prompt hook of Claude prints into the agent's context
 //! ```
 //!
-//! The folder lies next to the approval channel because it has the same lifetime: it is made when a session's agent files are
-//! written, and goes with the channel when the last tab of the session closes or the session ends. It is not the channel's own
-//! folder, so `hook-out` holds nothing a CLI is told to run.
+//! The folder lies inside the approval channel folder because it has the same lifetime: it is made when a session's agent files are
+//! written, and goes with the channel when the last tab of the session closes or the session ends. It is a folder of its own, apart
+//! from the files the channel holds for a CLI to read or run (the approval hook script, the hooks, MCP and plugin files), so `hook-out`
+//! holds nothing a CLI is told to run.
 //!
 //! What no agent grant reaches. Studio passes these grants and no others (the private root is outside every one of them):
 //!
