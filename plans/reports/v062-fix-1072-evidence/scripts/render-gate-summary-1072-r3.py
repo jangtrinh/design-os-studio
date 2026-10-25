@@ -35,7 +35,7 @@ def short(name):
     return name.replace("agent_session_files::", "").replace("terminal::", "").replace("agent_composer::tests::", "")[:118]
 
 
-red, green = results("r3-red-on-c9b2d8b1.log"), results("gate-r3-test-app.log")
+red, green = {**results("r3b-red-on-5384e79f.log"), **results("r3-red-on-c9b2d8b1.log")}, results("gate-r3-test-app.log")
 table = [f"{red.get(name, 'new'):>6} -> {green[name]:<2}  {short(name)}" for name in sorted(green, key=short)]
 race = grab("gate-r3-race-loop-designos.log", [r"run 1 "]) + grab("gate-r3-race-loop-designos-studio.log", [r"run 1 "])
 muts = []
@@ -54,7 +54,7 @@ sections = [
     ("cargo test -p designos-app --bin designos --locked", grab("gate-r3-test-app.log", [r"^test result", r"^app exit=", r"FAILED$"])),
     ("cargo test -p designos-app --bin designos-studio --locked", grab("gate-r3-test-studio.log", [r"^test result", r"^studio exit=", r"FAILED$"])),
     ("race test, once per bin (the other bin's full suite runs at the same time)", race),
-    ("each round-3 test: on c9b2d8b1 (the head before the fixes, tests alone) -> on the head", table),
+    ("each round-3 test: on c9b2d8b1 (and the third-tab test on 5384e79f), tests alone, before the fixes -> on the head", table),
     ("mutations (code changed on the head, the tests run, the code put back; each diff is saved beside its log)", muts),
     ("home mtimes after the gate run", grab("gate-r3-mtimes-after.txt", [r"\d"])),
 ]

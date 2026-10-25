@@ -4,7 +4,7 @@
               got_lock=0; i=0; \
               while [ $i -lt 50 ]; do \
                 if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; \
--               if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; fi; break; fi; \
+-               if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {lock} ] || break; fi; \
 +               \
                 sleep 0.01; i=$((i+1)); \
               done; \
