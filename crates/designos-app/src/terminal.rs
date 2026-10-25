@@ -9579,7 +9579,7 @@ mod tests {
             }
         }
         assert!(
-            command_of(&claude, "UserPromptSubmit").contains("else cat '/tmp/designos-683-677-hooks/page-context-reply.json'; fi"),
+            command_of(&claude, "UserPromptSubmit").contains("else cat '/tmp/designos-683-677-hooks/page-context-reply.json' 2>/dev/null || true; fi"),
             "Claude still answers with the page context once the bootstrap block was delivered"
         );
         // Attached skills are `additionalContext` of the prompt hook's own handlers, one per slot: each prints nothing, and
