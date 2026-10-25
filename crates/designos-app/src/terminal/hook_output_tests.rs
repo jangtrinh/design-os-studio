@@ -82,9 +82,20 @@ fn run_hook(command: &str, session: &Path, run_id: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+/// The POSIX shells a CLI may run a hook through that are here: `sh`, and dash, which is the `sh` of Linux and ends a shell whose redirect
+/// of a special builtin (`:`, `exec`) failed, where the `sh` of macOS goes on.
+pub(super) fn shells_here() -> Vec<&'static str> {
+    ["sh", "/bin/dash"].into_iter().filter(|shell| *shell == "sh" || Path::new(shell).exists()).collect()
+}
+
 pub(super) fn run_hook_with(command: &str, session: &Path, run_id: &str, before_input: impl FnOnce(u32)) -> std::process::Output {
+    run_hook_in("sh", command, session, run_id, before_input)
+}
+
+/// [`run_hook_with`] through the shell `shell`.
+pub(super) fn run_hook_in(shell: &str, command: &str, session: &Path, run_id: &str, before_input: impl FnOnce(u32)) -> std::process::Output {
     use std::io::Write;
-    let mut child = Command::new("sh")
+    let mut child = Command::new(shell)
         .arg("-c")
         .arg(command)
         .current_dir(session)
@@ -96,7 +107,7 @@ pub(super) fn run_hook_with(command: &str, session: &Path, run_id: &str, before_
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("sh starts");
+        .unwrap_or_else(|e| panic!("{shell} starts: {e}"));
     // A hook reads its payload first, so whoever knows the pid of the shell has time to plant a name that depends on it.
     before_input(child.id());
     // A hook that reads nothing is gone before the payload is written: a closed pipe is what such a hook does.

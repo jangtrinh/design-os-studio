@@ -4,7 +4,7 @@
 //! command strings of every CLI's installed hooks, Claude's prompt hook included, through `sh`, against a missing folder and a folder
 //! that refuses writes.
 
-use super::hook_output_tests::{run_hook_with, window_with_hooks, Installed, EVERY_CLI};
+use super::hook_output_tests::{run_hook_in, run_hook_with, shells_here, window_with_hooks, Installed, EVERY_CLI};
 use super::*;
 use crate::agent_session_files::test_support::{running_as_root, tab_state_in};
 use std::os::unix::fs::PermissionsExt;
@@ -31,23 +31,26 @@ impl Drop for Restore {
     }
 }
 
-/// What one run of a hook looked like, when it did not end as it must.
-fn complaint(command: &str, session: &Path) -> Option<String> {
+/// What one run of a hook through `shell` looked like, when it did not end as it must.
+fn complaint(shell: &str, command: &str, session: &Path) -> Option<String> {
     let started = Instant::now();
-    let output = run_hook_with(command, session, "run-1", |_| {});
+    let output = run_hook_in(shell, command, session, "run-1", |_| {});
     let took = started.elapsed();
     let stderr = String::from_utf8_lossy(&output.stderr);
     let ends_well = output.status.code() == Some(0) && took < QUICK && stderr.is_empty();
-    (!ends_well)
-        .then(|| format!("exit {:?} after {took:?}, stderr {:?}: {}", output.status.code(), stderr.trim(), command.chars().take(110).collect::<String>()))
+    (!ends_well).then(|| {
+        format!("{shell}: exit {:?} after {took:?}, stderr {:?}: {}", output.status.code(), stderr.trim(), command.chars().take(110).collect::<String>())
+    })
 }
 
-/// Runs every command at most eight at a time, so a hook that waits does not make a long test of it, and returns what was wrong.
+/// Runs every command through every shell here, at most eight at a time, so a hook that waits does not make a long test of it, and
+/// returns what was wrong.
 fn complaints(commands: &[String], session: &Path) -> Vec<String> {
     let mut found = Vec::new();
-    for chunk in commands.chunks(8) {
+    let runs: Vec<(&str, &String)> = shells_here().into_iter().flat_map(|shell| commands.iter().map(move |command| (shell, command))).collect();
+    for chunk in runs.chunks(8) {
         std::thread::scope(|scope| {
-            let handles: Vec<_> = chunk.iter().map(|command| scope.spawn(|| complaint(command, session))).collect();
+            let handles: Vec<_> = chunk.iter().map(|(shell, command)| scope.spawn(|| complaint(shell, command, session))).collect();
             found.extend(handles.into_iter().filter_map(|handle| handle.join().expect("a hook run")));
         });
     }

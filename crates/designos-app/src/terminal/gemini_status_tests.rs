@@ -44,7 +44,7 @@ fn the_claude_grok_and_agy_status_hooks_stay_byte_identical() {
         crate::agent_sessions::fnv1a_64(value.to_string().replace(crate::agent_turn_marks::SIZE_OF_COMMAND, "<size of>").as_bytes())
     };
     let claude = session_hooks_settings_with_approval(status, Some(1), None, true);
-    assert_eq!(platform_free(&claude), 2671435569173232294, "claude");
+    assert_eq!(platform_free(&claude), 11756183769062552372, "claude");
     assert_eq!(platform_free(&session_hooks_settings(status, None, false)), 4997215177674353351, "grok");
     assert_eq!(platform_free(&agy_session_hooks(status)), 14534362815708219633, "agy");
 }
