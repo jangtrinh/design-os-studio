@@ -6,8 +6,6 @@ use crate::theme;
 use crate::widgets;
 use egui::{Pos2, Rect, Sense, Ui, Vec2};
 
-const _: (f32, f32, f32, f32) = (theme::RAIL_MENU_BUTTON_X, theme::RAIL_SEPARATOR_INSET, theme::RAIL_ICON_CENTER_Y, theme::RAIL_LABEL_CENTER_Y);
-
 /// Rail entries in order; the flag marks the item that starts a new group (separator above it).
 /// (`RailItem::Specs` temporarily hidden from the UI rail).
 pub const ITEMS: [(RailItem, Icon, &str, bool); 6] = [

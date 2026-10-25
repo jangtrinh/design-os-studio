@@ -271,10 +271,7 @@ pub const RAIL_GROUP_GAP: f32 = 16.0;
 pub const RAIL_ICON_SIZE: f32 = 20.0;
 /// 1px separators under the logo and before the last group (y relative to the rail top / item cell).
 pub const RAIL_SEPARATOR_Y: f32 = 48.0;
-pub const RAIL_SEPARATOR_INSET: f32 = 20.0;
 pub const RAIL_TILE: f32 = 32.0;
-pub const RAIL_ICON_CENTER_Y: f32 = 20.0;
-pub const RAIL_LABEL_CENTER_Y: f32 = 44.0;
 
 pub const LEFT_PANEL_WIDTH: f32 = 240.0;
 pub const LEFT_HEADER_HEIGHT: f32 = 65.0;

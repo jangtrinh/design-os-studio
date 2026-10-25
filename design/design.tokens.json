@@ -375,7 +375,7 @@
     },
     "rail-width": {
       "$type": "dimension",
-      "$value": "56px"
+      "$value": "48px"
     },
     "space-1": {
       "$type": "dimension",
