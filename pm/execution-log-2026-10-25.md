@@ -1,0 +1,1038 @@
+
+## Run 2026-10-25 03:18 UTC+7
+- 03:18:44 UTC+7 | create label P0 | rc=0 | 
+- 03:18:45 UTC+7 | create label P1 | rc=0 | 
+- 03:18:47 UTC+7 | create label P2 | rc=0 | 
+- 03:18:49 UTC+7 | create label P3 | rc=0 | 
+- 03:18:54 UTC+7 | create issue: Export PNG writes the file silently to ~ with no save dialog or toast | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1095
+- 03:18:58 UTC+7 | add #1095 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpZw
+- 03:19:00 UTC+7 | #1095 Priority=P3 | rc=0 | 
+- 03:19:03 UTC+7 | #1095 Waiting on=Claude | rc=0 | 
+- 03:19:07 UTC+7 | create issue: Clicking an option in the agent approval menu does nothing (keyboard only) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1096
+- 03:19:13 UTC+7 | add #1096 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpeU
+- 03:19:16 UTC+7 | #1096 Priority=P2 | rc=0 | 
+- 03:19:18 UTC+7 | #1096 Waiting on=Claude | rc=0 | 
+- 03:19:22 UTC+7 | create issue: Esc on the Other CLI menu/form still leaks to Codex and puts it in rewind mode | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1097
+- 03:19:27 UTC+7 | add #1097 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpio
+- 03:19:30 UTC+7 | #1097 Priority=P1 | rc=0 | 
+- 03:19:32 UTC+7 | #1097 Waiting on=Claude | rc=0 | 
+- 03:19:37 UTC+7 | create issue: AI-generated card: button label sits top-left instead of centered | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1098
+- 03:19:42 UTC+7 | add #1098 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpn0
+- 03:19:44 UTC+7 | #1098 Priority=P3 | rc=0 | 
+- 03:19:47 UTC+7 | #1098 Waiting on=Claude | rc=0 | 
+- 03:19:51 UTC+7 | create issue: MCP has no tool to create a variable | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1099
+- 03:19:56 UTC+7 | add #1099 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpt4
+- 03:19:59 UTC+7 | #1099 Priority=P2 | rc=0 | 
+- 03:20:01 UTC+7 | #1099 Waiting on=Claude | rc=0 | 
+- 03:20:06 UTC+7 | create issue: README Quickstart Option B still tells users to `cargo run` | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1100
+- 03:20:11 UTC+7 | add #1100 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTpzM
+- 03:20:13 UTC+7 | #1100 Priority=P3 | rc=0 | 
+- 03:20:16 UTC+7 | #1100 Waiting on=Claude | rc=0 | 
+- 03:20:20 UTC+7 | create issue: MCP and CLI writes skip the Ask gate | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1101
+- 03:20:25 UTC+7 | add #1101 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTp3o
+- 03:20:27 UTC+7 | #1101 Priority=P1 | rc=0 | 
+- 03:20:30 UTC+7 | #1101 Waiting on=Claude | rc=0 | 
+- 03:20:33 UTC+7 | create issue: Re-test the 39 NOT-RETESTED v0.6.1 GUI fixes before closing v0.6.2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1102
+- 03:20:39 UTC+7 | add #1102 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTp7g
+- 03:20:41 UTC+7 | #1102 Priority=P1 | rc=0 | 
+- 03:20:44 UTC+7 | #1102 Waiting on=QA | rc=0 | 
+- 03:20:47 UTC+7 | comment #1008 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1008#issuecomment-6392893908
+- 03:20:51 UTC+7 | edit #1008 --add-label P1 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1008
+- 03:20:56 UTC+7 | add #1008 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqBw
+- 03:20:59 UTC+7 | #1008 Priority=P1 | rc=0 | 
+- 03:21:02 UTC+7 | comment #1087 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1087#issuecomment-6392895863
+- 03:21:05 UTC+7 | edit #1087 --add-label P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1087
+- 03:21:10 UTC+7 | add #1087 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqF4
+- 03:21:12 UTC+7 | #1087 Priority=P3 | rc=0 | 
+- 03:21:15 UTC+7 | comment #1088 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1088#issuecomment-6392897755
+- 03:21:19 UTC+7 | edit #1088 --add-label P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1088
+- 03:21:24 UTC+7 | add #1088 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDToFs
+- 03:21:27 UTC+7 | #1088 Priority=P3 | rc=0 | 
+- 03:21:30 UTC+7 | comment #1089 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1089#issuecomment-6392899636
+- 03:21:33 UTC+7 | edit #1089 --add-label P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1089
+- 03:21:37 UTC+7 | edit #1089 --milestone v0.6.2 AI design 2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1089
+- 03:21:41 UTC+7 | add #1089 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqRU
+- 03:21:44 UTC+7 | #1089 Priority=P3 | rc=0 | 
+- 03:21:47 UTC+7 | comment #1086 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1086#issuecomment-6392902232
+- 03:21:51 UTC+7 | edit #1086 --add-label P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1086
+- 03:21:55 UTC+7 | add #1086 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqWc
+- 03:21:58 UTC+7 | #1086 Priority=P2 | rc=0 | 
+- 03:22:01 UTC+7 | comment #930 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/930#issuecomment-6392904089
+- 03:22:05 UTC+7 | edit #930 --add-label P1 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/930
+- 03:22:10 UTC+7 | add #930 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqag
+- 03:22:12 UTC+7 | #930 Priority=P1 | rc=0 | 
+- 03:22:15 UTC+7 | comment #931 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/931#issuecomment-6392906055
+- 03:22:19 UTC+7 | edit #931 --add-label P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/931
+- 03:22:24 UTC+7 | add #931 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqgY
+- 03:22:26 UTC+7 | #931 Priority=P2 | rc=0 | 
+- 03:22:29 UTC+7 | comment #926 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/926#issuecomment-6392907885
+- 03:22:33 UTC+7 | edit #926 --add-label P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/926
+- 03:22:38 UTC+7 | add #926 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqlo
+- 03:22:40 UTC+7 | #926 Priority=P2 | rc=0 | 
+- 03:22:44 UTC+7 | edit #1059 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1059
+- 03:22:50 UTC+7 | add #1059 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqqM
+- 03:22:53 UTC+7 | #1059 Priority=P2 | rc=0 | 
+- 03:22:57 UTC+7 | edit #1054 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1054
+- 03:23:02 UTC+7 | add #1054 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTqu8
+- 03:23:06 UTC+7 | #1054 Priority=P2 | rc=0 | 
+- 03:23:10 UTC+7 | edit #1043 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1043
+- 03:23:15 UTC+7 | add #1043 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTq1Q
+- 03:23:18 UTC+7 | #1043 Priority=P3 | rc=0 | 
+- 03:23:22 UTC+7 | edit #1073 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1073
+- 03:23:27 UTC+7 | add #1073 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTq54
+- 03:23:29 UTC+7 | #1073 Priority=P2 | rc=0 | 
+- 03:23:34 UTC+7 | edit #714 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/714
+- 03:23:39 UTC+7 | add #714 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTq9I
+- 03:23:42 UTC+7 | #714 Priority=P3 | rc=0 | 
+- 03:23:46 UTC+7 | edit #713 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/713
+- 03:23:51 UTC+7 | add #713 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrBA
+- 03:23 [E1-triage] #127 add-label P1 (matches Project Priority field)
+- 03:23:54 UTC+7 | #713 Priority=P3 | rc=0 | 
+- 03:23 [E1-triage] #129 add-label P1 (matches Project Priority field)
+- 03:23:59 UTC+7 | edit #715 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/715
+- 03:24 [E1-triage] #132 add-label P1 (matches Project Priority field)
+- 03:24:04 UTC+7 | add #715 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrFA
+- 03:24 [E1-triage] #133 add-label P1 (matches Project Priority field)
+- 03:24:06 UTC+7 | #715 Priority=P2 | rc=0 | 
+- 03:24 [E1-triage] #130 add-label P2 (matches Project Priority field)
+- 03:24:10 UTC+7 | edit #43 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/43
+- 03:24 [E1-triage] #134 add-label P2 (matches Project Priority field)
+- 03:24:15 UTC+7 | add #43 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrJI
+- 03:24 [E1-triage] #135 add-label P2 (matches Project Priority field)
+- 03:24:18 UTC+7 | #43 Priority=P2 | rc=0 | 
+- 03:24 [E1-triage] #136 add-label P2 (matches Project Priority field)
+- 03:24:22 UTC+7 | edit #81 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/81
+- 03:24 [E1-triage] #137 add-label P2 (matches Project Priority field)
+- 03:24:27 UTC+7 | add #81 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrMM
+- 03:24 [E1-triage] #141 add-label P2 (matches Project Priority field)
+- 03:24:30 UTC+7 | #81 Priority=P3 | rc=0 | 
+- 03:24 [E1-triage] #143 add-label P2 (matches Project Priority field)
+- 03:24:34 UTC+7 | edit #77 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/77
+- 03:24 [E1-triage] #483 add-label P2,bug; milestone v0.6.3
+- 03:24:39 UTC+7 | add #77 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrQk
+- 03:24:42 UTC+7 | #77 Priority=P3 | rc=0 | 
+- 03:24:45 UTC+7 | edit #75 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/75
+- 03:24:51 UTC+7 | add #75 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrUM
+- 03:24:53 UTC+7 | #75 Priority=P3 | rc=0 | 
+- 03:24:58 UTC+7 | edit #486 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/486
+- 03:25:03 UTC+7 | add #486 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrXw
+- 03:25 [E1-triage] #127 [PM] comment + for:claude + Waiting on=Claude (routed)
+- 03:25:06 UTC+7 | #486 Priority=P3 | rc=0 | 
+- 03:25:10 UTC+7 | edit #485 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/485
+- 03:25:15 UTC+7 | add #485 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTra8
+- 03:25:17 UTC+7 | #485 Priority=P3 | rc=0 | 
+- 03:25:22 UTC+7 | edit #481 milestone v0.6.3, P2 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/481
+- 03:25:27 UTC+7 | add #481 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTreU
+- 03:25:29 UTC+7 | #481 Priority=P2 | rc=0 | 
+- 03:25 [E1-triage] #130 [PM] comment + for:claude + Waiting on=Claude (routed)
+- 03:25:33 UTC+7 | edit #487 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/487
+- 03:25:38 UTC+7 | add #487 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTriA
+- 03:25:41 UTC+7 | #487 Priority=P3 | rc=0 | 
+- 03:25:45 UTC+7 | edit #676 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/676
+- 03:25:50 UTC+7 | add #676 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrk0
+- 03:25:53 UTC+7 | #676 Priority=P3 | rc=0 | 
+- 03:25:57 UTC+7 | edit #834 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/834
+- 03:25 [E1-triage] #129 [PM] comment + for:claude + Waiting on=Claude (routed)
+- 03:26:02 UTC+7 | add #834 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTroY
+- 03:26:05 UTC+7 | #834 Priority=P3 | rc=0 | 
+- 03:26:09 UTC+7 | edit #831 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/831
+- 03:26:14 UTC+7 | add #831 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrrM
+- 03:26:16 UTC+7 | #831 Priority=P3 | rc=0 | 
+- 03:26:20 UTC+7 | edit #827 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/827
+- 03:26 [E1-triage] #483 [PM] comment + for:claude + Waiting on=Claude (routed)
+- 03:26:26 UTC+7 | add #827 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTrwg
+- 03:26:28 UTC+7 | #827 Priority=P3 | rc=0 | 
+- 03:26:32 UTC+7 | edit #773 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/773
+- 03:26:37 UTC+7 | add #773 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTr00
+- 03:26:40 UTC+7 | #773 Priority=P3 | rc=0 | 
+- 03:26:44 UTC+7 | edit #483 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/483
+- 03:26 [E1-triage] wrote E1-triage-2026-10-25.md + evidence/e1-triage-2026-10-25.png
+- 03:26:48 UTC+7 | add #483 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTruQ
+- 03:26:51 UTC+7 | #483 Priority=P3 | rc=0 | 
+- 03:26:55 UTC+7 | edit #474 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/474
+- 03:27:00 UTC+7 | add #474 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTr8g
+- 03:27:02 UTC+7 | #474 Priority=P3 | rc=0 | 
+- 03:27:07 UTC+7 | edit #475 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/475
+- 03:27:12 UTC+7 | add #475 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsAo
+- 03:27:14 UTC+7 | #475 Priority=P3 | rc=0 | 
+- 03:27:18 UTC+7 | edit #472 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/472
+- [E1-triage] PM moved epic #14 milestone v0.3 -> v0.8 Variables everywhere
+- 03:27:24 UTC+7 | add #472 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsEg
+- 03:27:26 UTC+7 | #472 Priority=P3 | rc=0 | 
+- 03:27:30 UTC+7 | edit #417 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/417
+- 03:27:34 UTC+7 | add #417 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsJA
+- 03:27:37 UTC+7 | #417 Priority=P3 | rc=0 | 
+- 03:27:41 UTC+7 | edit #10 milestone v0.6.3, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/10
+- 03:27:45 UTC+7 | add #10 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsM8
+- 03:27:48 UTC+7 | #10 Priority=P3 | rc=0 | 
+- 03:27:52 UTC+7 | edit #484 milestone v0.7 Effects & Export, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/484
+- 03:27:57 UTC+7 | add #484 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsQE
+- 03:28:00 UTC+7 | #484 Priority=P3 | rc=0 | 
+- 03:28:05 UTC+7 | edit #480 milestone v0.7 Effects & Export, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/480
+- 03:28:10 UTC+7 | add #480 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsTs
+- 03:28:13 UTC+7 | #480 Priority=P3 | rc=0 | 
+- 03:28:16 UTC+7 | edit #476 milestone v0.8 Variables everywhere, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/476
+- 03:28:21 UTC+7 | add #476 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsXs
+- 03:28:24 UTC+7 | #476 Priority=P3 | rc=0 | 
+- 03:28:29 UTC+7 | edit #477 milestone v0.21 Edit vectors, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/477
+- 03:28:34 UTC+7 | add #477 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsbk
+- 03:28:36 UTC+7 | #477 Priority=P3 | rc=0 | 
+- 03:28:41 UTC+7 | edit #482 milestone v0.12 Run Figma plugins, P3 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/482
+- 03:28:46 UTC+7 | add #482 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTse8
+- 03:28:49 UTC+7 | #482 Priority=P3 | rc=0 | 
+- 03:28:53 UTC+7 | edit #875 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/875
+- 03:28:57 UTC+7 | add #875 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsjo
+- 03:29:00 UTC+7 | #875 Waiting on=Jang | rc=0 | 
+- 03:29:04 UTC+7 | edit #993 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/993
+- 03:29:09 UTC+7 | add #993 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTspE
+- 03:29:12 UTC+7 | #993 Waiting on=Jang | rc=0 | 
+- 03:29:15 UTC+7 | edit #887 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/887
+- 03:29:20 UTC+7 | add #887 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTst0
+- 03:29:23 UTC+7 | #887 Waiting on=Jang | rc=0 | 
+- 03:29:26 UTC+7 | edit #1023 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1023
+- 03:29:31 UTC+7 | add #1023 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTsyE
+- 03:29:34 UTC+7 | #1023 Waiting on=Jang | rc=0 | 
+- 03:29:38 UTC+7 | edit #1036 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1036
+- 03:29:43 UTC+7 | add #1036 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTs2s
+- 03:29:46 UTC+7 | #1036 Waiting on=Jang | rc=0 | 
+- 03:29:50 UTC+7 | edit #1044 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1044
+- 03:29:55 UTC+7 | add #1044 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTheA
+- 03:29:58 UTC+7 | #1044 Waiting on=Jang | rc=0 | 
+- 03:30:01 UTC+7 | edit #1046 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1046
+- 03:30:06 UTC+7 | add #1046 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTs-o
+- 03:30:09 UTC+7 | #1046 Waiting on=Jang | rc=0 | 
+- 03:30:13 UTC+7 | edit #1053 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1053
+- 03:30:18 UTC+7 | add #1053 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtDU
+- 03:30:20 UTC+7 | #1053 Waiting on=Jang | rc=0 | 
+- 03:30:24 UTC+7 | edit #1057 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1057
+- 03:30:29 UTC+7 | add #1057 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtIA
+- 03:30:32 UTC+7 | #1057 Waiting on=Jang | rc=0 | 
+- 03:30:35 UTC+7 | edit #1061 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1061
+- 03:30:40 UTC+7 | add #1061 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtMI
+- 03:30:44 UTC+7 | #1061 Waiting on=Jang | rc=0 | 
+- 03:30:48 UTC+7 | edit #1068 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1068
+- 03:30:53 UTC+7 | add #1068 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtRI
+- 03:30:56 UTC+7 | #1068 Waiting on=Jang | rc=0 | 
+- 03:31:00 UTC+7 | edit #1069 for:jang (close at v0.6.2 ship) | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1069
+- 03:31:05 UTC+7 | add #1069 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtVA
+- 03:31:07 UTC+7 | #1069 Waiting on=Jang | rc=0 | 
+- 03:31:11 UTC+7 | comment #1044 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/1044#issuecomment-6392981341
+- 03:31:13 UTC+7 | comment #924 | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/924#issuecomment-6392981731
+- 03:31:18 UTC+7 | edit #924 --add-label for:claude | rc=0 | https://github.com/jangtrinh/design-os-studio/issues/924
+- 03:31:22 UTC+7 | add #924 to Project 9 | rc=0 | PVTI_lAHOAGoIHs4BnbrNzhDTtbA
+- 03:31:25 UTC+7 | #924 Waiting on=Claude | rc=0 | 
+
+## [SWEEP] board hygiene sweep 03:32 UTC+7
+- [SWEEP] 03:32:46 UTC+7 | #15 Status In -> Done | rc=0
+- [SWEEP] 03:32:49 UTC+7 | #16 Status In -> Done | rc=0
+- [SWEEP] 03:32:52 UTC+7 | #24 Status Backlog -> Done | rc=0
+- [SWEEP] 03:32:55 UTC+7 | #25 Status Backlog -> Done | rc=0
+- [SWEEP] 03:32:57 UTC+7 | #26 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:00 UTC+7 | #29 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:02 UTC+7 | #31 Status In -> Done | rc=0
+- [SWEEP] 03:33:05 UTC+7 | #32 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:08 UTC+7 | #34 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:11 UTC+7 | #35 Status In -> Done | rc=0
+- [SWEEP] 03:33:14 UTC+7 | #40 Status Ready -> Done | rc=0
+- [SWEEP] 03:33:17 UTC+7 | #2 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:19 UTC+7 | #3 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:22 UTC+7 | #4 Status Ready -> Done | rc=0
+- [SWEEP] 03:33:25 UTC+7 | #5 Status Ready -> Done | rc=0
+- [SWEEP] 03:33:28 UTC+7 | #51 Status In -> Done | rc=0
+- [SWEEP] 03:33:30 UTC+7 | #52 Status None -> Done | rc=0
+- [SWEEP] 03:33:41 UTC+7 | #59 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:44 UTC+7 | #60 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:46 UTC+7 | #61 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:50 UTC+7 | #62 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:51 UTC+7 | comment #1003 route QA | https://github.com/jangtrinh/design-os-studio/issues/1003#issuecomment-6393002770
+- [SWEEP] 03:33:52 UTC+7 | #63 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:55 UTC+7 | #1003 +for:qa | rc=0
+- [SWEEP] 03:33:55 UTC+7 | #1003 Waiting on=QA | rc=0
+- [SWEEP] 03:33:55 UTC+7 | #68 Status Backlog -> Done | rc=0
+- [SWEEP] 03:33:58 UTC+7 | comment PR #547 superseded | https://github.com/jangtrinh/design-os-studio/pull/547#issuecomment-6393003656
+- [SWEEP] 03:33:58 UTC+7 | #65 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:01 UTC+7 | #56 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:03 UTC+7 | PR #547 +for:jang | rc=0
+- [SWEEP] 03:34:03 UTC+7 | #57 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:06 UTC+7 | #72 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:09 UTC+7 | #73 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:11 UTC+7 | #71 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:13 UTC+7 | add #1003 to Project 9 | PVTI_lAHOAGoIHs4BnbrNzhDTuZs
+- [SWEEP] 03:34:14 UTC+7 | #7 Status In -> Done | rc=0
+- [SWEEP] 03:34:17 UTC+7 | #9 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:20 UTC+7 | #11 Status In -> Done | rc=0
+- [SWEEP] 03:34:23 UTC+7 | #12 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:25 UTC+7 | #1003 Waiting on:QA | rc=0
+- [SWEEP] 03:34:26 UTC+7 | #106 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:28 UTC+7 | #107 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:31 UTC+7 | #108 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:34 UTC+7 | #1003 Status:In review | rc=0
+- [SWEEP] 03:34:34 UTC+7 | #109 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:37 UTC+7 | #110 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:40 UTC+7 | #111 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:42 UTC+7 | #112 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:45 UTC+7 | #131 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:47 UTC+7 | #138 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:50 UTC+7 | #139 Status Backlog -> Done | rc=0
+- [SWEEP] 03:34:53 UTC+7 | #144 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:55 UTC+7 | #145 Status Ready -> Done | rc=0
+- [SWEEP] 03:34:58 UTC+7 | #146 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:01 UTC+7 | #147 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:04 UTC+7 | #148 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:07 UTC+7 | #149 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:10 UTC+7 | #150 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:13 UTC+7 | #151 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:15 UTC+7 | #152 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:18 UTC+7 | #154 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:20 UTC+7 | #155 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:23 UTC+7 | #157 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:26 UTC+7 | #158 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:28 UTC+7 | #159 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:31 UTC+7 | #160 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:34 UTC+7 | #174 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:36 UTC+7 | #177 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:39 UTC+7 | #186 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:41 UTC+7 | #195 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:44 UTC+7 | #215 Status Backlog -> Done | rc=0
+- [SWEEP] 03:35:47 UTC+7 | #238 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:50 UTC+7 | #239 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:52 UTC+7 | #240 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:55 UTC+7 | #241 Status Ready -> Done | rc=0
+- [SWEEP] 03:35:58 UTC+7 | #243 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:01 UTC+7 | #247 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:04 UTC+7 | #248 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:06 UTC+7 | #250 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:10 UTC+7 | #272 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:13 UTC+7 | #276 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:16 UTC+7 | #277 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:19 UTC+7 | #295 Status Backlog -> Done | rc=0
+- [SWEEP] 03:36:21 UTC+7 | #338 Status Backlog -> Done | rc=0
+- [SWEEP] 03:36:24 UTC+7 | #343 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:27 UTC+7 | #344 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:30 UTC+7 | #345 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:33 UTC+7 | #351 Status Backlog -> Done | rc=0
+- [SWEEP] 03:36:36 UTC+7 | #405 Status Backlog -> Done | rc=0
+- [SWEEP] 03:36:38 UTC+7 | #570 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:40 UTC+7 | #573 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:43 UTC+7 | #581 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:46 UTC+7 | #586 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:48 UTC+7 | #587 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:51 UTC+7 | #588 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:53 UTC+7 | #589 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:56 UTC+7 | #590 Status Ready -> Done | rc=0
+- [SWEEP] 03:36:59 UTC+7 | #591 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:01 UTC+7 | #592 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:04 UTC+7 | #593 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:07 UTC+7 | #594 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:10 UTC+7 | #595 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:12 UTC+7 | #596 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:15 UTC+7 | #597 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:18 UTC+7 | #600 Status Backlog -> Done | rc=0
+- [SWEEP] 03:37:21 UTC+7 | #601 Status Backlog -> Done | rc=0
+- [SWEEP] 03:37:24 UTC+7 | #602 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:27 UTC+7 | #611 Status Backlog -> Done | rc=0
+- [SWEEP] 03:37:29 UTC+7 | #613 Status Backlog -> Done | rc=0
+- [SWEEP] 03:37:32 UTC+7 | #636 Status Backlog -> Done | rc=0
+- [SWEEP] 03:37:34 UTC+7 | #578 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:37 UTC+7 | #582 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:40 UTC+7 | #583 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:43 UTC+7 | #605 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:46 UTC+7 | #639 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:49 UTC+7 | #644 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:51 UTC+7 | #645 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:54 UTC+7 | #651 Status Ready -> Done | rc=0
+- [SWEEP] 03:37:57 UTC+7 | #652 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:00 UTC+7 | #653 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:02 UTC+7 | #654 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:05 UTC+7 | #655 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:08 UTC+7 | #656 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:11 UTC+7 | #663 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:13 UTC+7 | #669 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:16 UTC+7 | #673 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:19 UTC+7 | #677 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:21 UTC+7 | #678 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:24 UTC+7 | #679 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:27 UTC+7 | #681 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:30 UTC+7 | #682 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:32 UTC+7 | #683 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:35 UTC+7 | #684 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:37 UTC+7 | #685 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:40 UTC+7 | #686 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:43 UTC+7 | #687 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:46 UTC+7 | #688 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:49 UTC+7 | #689 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:52 UTC+7 | #690 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:54 UTC+7 | #691 Status Ready -> Done | rc=0
+- [SWEEP] 03:38:57 UTC+7 | #693 Status Ready -> Done | rc=0
+- [SWEEP] 03:39:00 UTC+7 | #695 Status Ready -> Done | rc=0
+- [SWEEP] 03:39:03 UTC+7 | #696 Status Ready -> Done | rc=0
+- [SWEEP] 03:39:06 UTC+7 | #1044 Status None -> In review | rc=0
+- [SWEEP] 03:39:08 UTC+7 | #1088 Status None -> In review | rc=0
+- [SWEEP] 03:39:11 UTC+7 | #983 Status None -> In review | rc=0
+- [SWEEP] 03:39:13 UTC+7 | #875 Status None -> In review | rc=0
+- [SWEEP] 03:39:16 UTC+7 | #993 Status None -> In review | rc=0
+- [SWEEP] 03:39:19 UTC+7 | #887 Status None -> In review | rc=0
+- [SWEEP] 03:39:22 UTC+7 | #1023 Status None -> In review | rc=0
+- [SWEEP] 03:39:24 UTC+7 | #1036 Status None -> In review | rc=0
+- [SWEEP] 03:39:27 UTC+7 | #1046 Status None -> In review | rc=0
+- [SWEEP] 03:39:29 UTC+7 | #1053 Status None -> In review | rc=0
+- [SWEEP] 03:39:31 UTC+7 | #1057 Status None -> In review | rc=0
+- [SWEEP] 03:39:34 UTC+7 | #1061 Status None -> In review | rc=0
+- [SWEEP] 03:39:36 UTC+7 | #1068 Status None -> In review | rc=0
+- [SWEEP] 03:39:39 UTC+7 | #1069 Status None -> In review | rc=0
+- [SWEEP] 03:45:17 UTC | label standalone created | rc=0
+- [SWEEP] 03:45:20 UTC | created epic https://github.com/jangtrinh/design-os-studio/issues/1104
+- [SWEEP] 03:45:22 UTC | created epic https://github.com/jangtrinh/design-os-studio/issues/1105
+- [SWEEP] 03:45:34 UTC | add epic #1104 to Project 9 | rc=0
+- [SWEEP] 03:45:39 UTC | add epic #1105 to Project 9 | rc=0
+- [SWEEP] 03:46:05 UTC | #483 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:07 UTC | #875 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:10 UTC | #876 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:12 UTC | #1026 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:14 UTC | #1028 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:16 UTC | #1030 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:19 UTC | #1031 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:21 UTC | #1039 sub-issue of epic #14 | rc=0
+- [SWEEP] 03:46:23 UTC | #484 sub-issue of epic #15 | rc=0
+- [SWEEP] 03:46:25 UTC | #473 sub-issue of epic #16 | rc=0
+- [SWEEP] 03:46:28 UTC | #477 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:30 UTC | #499 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:32 UTC | #859 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:34 UTC | #907 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:36 UTC | #945 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:39 UTC | #946 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:41 UTC | #947 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:44 UTC | #952 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:46 UTC | #953 sub-issue of epic #17 | rc=0
+- [SWEEP] 03:46:49 UTC | #10 sub-issue of epic #18 | rc=0
+- [SWEEP] 03:46:51 UTC | #520 sub-issue of epic #18 | rc=0
+- [SWEEP] 03:46:53 UTC | #521 sub-issue of epic #18 | rc=0
+- [SWEEP] 03:46:55 UTC | #457 sub-issue of epic #19 | rc=0
+- [SWEEP] 03:46:57 UTC | #459 sub-issue of epic #19 | rc=0
+- [SWEEP] 03:46:59 UTC | #528 sub-issue of epic #19 | rc=0
+- [SWEEP] 03:47:01 UTC | #1095 sub-issue of epic #19 | rc=0
+- [SWEEP] 03:47:04 UTC | #937 sub-issue of epic #19 | rc=0
+- [SWEEP] 03:47:06 UTC | #43 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:08 UTC | #75 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:10 UTC | #76 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:13 UTC | #77 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:15 UTC | #81 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:17 UTC | #485 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:19 UTC | #486 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:21 UTC | #713 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:24 UTC | #714 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:25 UTC | #887 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:27 UTC | #896 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:30 UTC | #897 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:32 UTC | #898 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:34 UTC | #899 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:36 UTC | #900 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:38 UTC | #901 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:40 UTC | #912 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:43 UTC | #913 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:45 UTC | #920 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:48 UTC | #954 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:50 UTC | #968 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:52 UTC | #985 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:55 UTC | #993 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:57 UTC | #1086 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:47:59 UTC | #1088 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:48:02 UTC | #1099 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:48:04 UTC | #909 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:48:05 UTC | #1032 sub-issue of epic #20 | rc=0
+- [SWEEP] 03:48:08 UTC | #482 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:10 UTC | #773 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:12 UTC | #834 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:14 UTC | #891 sub-issue of epic #21 | rc=0
+
+## 03:48 ICT — Sidebar icon-only rail (Jang 10:46)
+- Dup search (sidebar/rail/icon-only/labels): none. #838 (closed) is terminal dock, unrelated.
+- Created #1106 https://github.com/jangtrinh/design-os-studio/issues/1106 — labels enhancement, P2, standalone; milestone v0.6.3.
+- No UI shell/layout epic exists → labelled standalone (not sub-issued).
+- Added to Project 9 (item PVTI_lAHOAGoIHs4BnbrNzhDTzWw), Priority=P2.
+- Routed via check-inbox.sh: [PM] comment, label for:claude, Waiting on=Claude.
+- Evidence: pm/evidence/sidebar-rail-2026-10-25.png
+- [SWEEP] 03:48:16 UTC | #941 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:18 UTC | #1043 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:20 UTC | #849 sub-issue of epic #21 | rc=0
+- [SWEEP] 03:48:22 UTC | #497 sub-issue of epic #22 | rc=0
+- [SWEEP] 03:48:24 UTC | #868 sub-issue of epic #22 | rc=0
+- [SWEEP] 03:48:27 UTC | #472 sub-issue of epic #23 | rc=0
+- [SWEEP] 03:48:29 UTC | #476 sub-issue of epic #23 | rc=0
+- [SWEEP] 03:48:31 UTC | #963 sub-issue of epic #23 | rc=0
+- [SWEEP] 03:48:33 UTC | #480 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:35 UTC | #417 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:38 UTC | #519 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:40 UTC | #828 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:42 UTC | #856 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:44 UTC | #869 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:46 UTC | #870 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:48 UTC | #879 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:51 UTC | #889 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:53 UTC | #904 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:55 UTC | #915 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:48:57 UTC | #935 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:00 UTC | #938 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:02 UTC | #944 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:05 UTC | #951 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:07 UTC | #962 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:10 UTC | #969 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:12 UTC | #970 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:14 UTC | #977 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:17 UTC | #979 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:19 UTC | #980 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:21 UTC | #1004 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:24 UTC | #1018 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:26 UTC | #1019 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:28 UTC | #1020 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:30 UTC | #1027 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:32 UTC | #1037 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:34 UTC | #1038 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:37 UTC | #983 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:39 UTC | #997 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:42 UTC | #940 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:44 UTC | #949 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:46 UTC | #474 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:48 UTC | #895 sub-issue of epic #124 | rc=0
+- [SWEEP] 03:49:51 UTC | #888 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:49:54 UTC | #910 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:49:56 UTC | #921 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:49:58 UTC | #926 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:00 UTC | #928 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:02 UTC | #930 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:05 UTC | #931 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:07 UTC | #932 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:09 UTC | #978 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:11 UTC | #1010 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:14 UTC | #1021 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:16 UTC | #1029 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:18 UTC | #1052 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:20 UTC | #1054 sub-issue of epic #585 | rc=0
+
+## 03:50 ICT — Figma-parity micro-interactions (Jang 10:47)
+- [SWEEP] 03:50:23 UTC | #1063 sub-issue of epic #585 | rc=0
+- [MICRO] 03:50:24 UTC | epic https://github.com/jangtrinh/design-os-studio/issues/1107
+- [SWEEP] 03:50:25 UTC | #1066 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:27 UTC | #1089 sub-issue of epic #585 | rc=0
+- [MICRO] 03:50:28 UTC | sep https://github.com/jangtrinh/design-os-studio/issues/1108
+- [SWEEP] 03:50:30 UTC | #1096 sub-issue of epic #585 | rc=0
+- [MICRO] 03:50:32 UTC | right https://github.com/jangtrinh/design-os-studio/issues/1109
+- [SWEEP] 03:50:32 UTC | #1097 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:34 UTC | #1098 sub-issue of epic #585 | rc=0
+- [MICRO] 03:50:35 UTC | left https://github.com/jangtrinh/design-os-studio/issues/1110
+- [SWEEP] 03:50:36 UTC | #992 sub-issue of epic #585 | rc=0
+- [SWEEP] 03:50:39 UTC | #481 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:50:39 UTC | pages https://github.com/jangtrinh/design-os-studio/issues/1111
+- [SWEEP] 03:50:41 UTC | #1002 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:44 UTC | #1003 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:46 UTC | #1008 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:47 UTC | #1009 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:49 UTC | #1023 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:50:51 UTC | #1108 sub-issue of #1107 rc=0
+- [SWEEP] 03:50:51 UTC | #1036 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:54 UTC | #1042 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:50:55 UTC | #1109 sub-issue of #1107 rc=0
+- [SWEEP] 03:50:56 UTC | #1044 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:50:58 UTC | #1046 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:50:58 UTC | #1110 sub-issue of #1107 rc=0
+- [SWEEP] 03:51:00 UTC | #1047 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:02 UTC | #1048 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:51:03 UTC | #1111 sub-issue of #1107 rc=0
+- [SWEEP] 03:51:04 UTC | #1049 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:06 UTC | #1050 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:51:07 UTC | #1106 sub-issue of #1107 rc=0
+- [SWEEP] 03:51:08 UTC | #1053 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:10 UTC | #1055 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:51:11 UTC | #1106 removed standalone rc=0
+- [SWEEP] 03:51:13 UTC | #1056 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:15 UTC | #1057 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:18 UTC | #1059 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:20 UTC | #1061 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:22 UTC | #1068 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:24 UTC | #1069 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:26 UTC | #1072 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:51:27 UTC | #1107 on Project 9 Priority=P1 rc=0
+- [SWEEP] 03:51:28 UTC | #1073 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:30 UTC | #1074 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:33 UTC | #1087 sub-issue of epic #1104 | rc=0
+- [MICRO] 03:51:35 UTC | #1108 on Project 9 Priority=P1 rc=0
+- [SWEEP] 03:51:35 UTC | #1094 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:37 UTC | #1101 sub-issue of epic #1104 | rc=0
+- [SWEEP] 03:51:39 UTC | #715 sub-issue of epic #1105 | rc=0
+- [MICRO] 03:51:41 UTC | #1109 on Project 9 Priority=P2 rc=0
+- [SWEEP] 03:51:41 UTC | #93 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:51:44 UTC | #475 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:51:47 UTC | #487 sub-issue of epic #1105 | rc=0
+- [MICRO] 03:51:48 UTC | #1110 on Project 9 Priority=P2 rc=0
+- [SWEEP] 03:51:49 UTC | #676 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:51:51 UTC | #716 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:51:54 UTC | #825 sub-issue of epic #1105 | rc=0
+- [MICRO] 03:51:55 UTC | #1111 on Project 9 Priority=P3 rc=0
+- [SWEEP] 03:51:56 UTC | #826 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:51:58 UTC | #827 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:00 UTC | #831 sub-issue of epic #1105 | rc=0
+- [MICRO] 03:52:01 UTC | #1106 on Project 9 Priority=P2 rc=0
+- [SWEEP] 03:52:02 UTC | #832 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:04 UTC | #833 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:06 UTC | #836 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:08 UTC | #837 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:11 UTC | #972 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:14 UTC | #996 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:16 UTC | #999 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:18 UTC | #1014 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:21 UTC | #1062 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:23 UTC | #1100 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:25 UTC | #1102 sub-issue of epic #1105 | rc=0
+- [SWEEP] 03:52:30 UTC | #41 +standalone | rc=0
+- [MICRO] 03:52:38 UTC | #1108 routed for:claude, Waiting on=Claude
+- [MICRO] 03:52:57 UTC | wrote micro-interactions-audit-2026-10-25.md + evidence/micro-interactions-2026-10-25.png
+- 04:06 (UTC+7) [SWEEP-2] Project 9: set Status=Backlog on 164 open issue items that had no Status (1 closed no-status item skipped; 0 failures; no other fields touched).
+- 05:14 [REPORT] Progress report + chart (read-only, no GitHub writes): progress-report-2026-10-25.md, evidence/progress-2026-10-25.png
+- 05:16 [CUT] created milestone 'v0.6.4 AI design 2 roadmap'
+- 05:16 [CUT] v0.6.2 due_on set 2026-11-01
+- 05:17 [CUT] #1100 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] #1089 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] #1086 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] PR #1081 [PM] comment + for:claude
+- 05:17 [CUT] #1063 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] PR #1075 [PM] comment + for:claude
+- 05:17 [CUT] #1062 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] PR #1070 [PM] comment + for:claude
+- 05:17 [CUT] #1038 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] PR #1034 [PM] comment + for:claude
+- 05:17 [CUT] #1037 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] PR #765 [PM] comment + for:claude
+- 05:17 [CUT] #1032 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] #1009 Waiting on -> Claude
+- 05:17 [CUT] #1049 Waiting on -> Claude
+- 05:17 [CUT] #1031 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:17 [CUT] #1050 Waiting on -> Claude
+- 05:18 [CUT] #985 Waiting on -> Claude
+- 05:18 [CUT] #598 Waiting on -> Claude
+- 05:18 [CUT] #1030 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1029 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1028 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1026 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1021 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1020 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1019 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:18 [CUT] #1018 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #1014 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #1010 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #1004 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #1002 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #999 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #997 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #996 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #992 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:19 [CUT] #980 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #978 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #972 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #970 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #969 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #968 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #963 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #962 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:20 [CUT] #954 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #953 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #952 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #951 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #949 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #947 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #946 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #945 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:21 [CUT] #944 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #941 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #940 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #938 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #937 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #935 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #932 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #931 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #928 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:22 [CUT] #926 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #921 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #920 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #915 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #910 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #909 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #907 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #904 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:23 [CUT] #895 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #891 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #889 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #888 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #879 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #876 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #870 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #869 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #868 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:24 [CUT] #859 v0.6.2 -> v0.10 Pro strokes (+[PM] comment)
+- 05:25 [CUT] #856 v0.6.2 -> v0.6.3 (+[PM] comment)
+- 05:25 [CUT] #638 v0.6.2 -> v0.7 Effects & Export (+[PM] comment)
+- 05:25 [CUT] #637 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #635 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #634 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #633 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #632 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #631 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:25 [CUT] #629 v0.6.2 -> v0.7 Effects & Export (+[PM] comment)
+- 05:26 [CUT] #628 v0.6.2 -> v0.7 Effects & Export (+[PM] comment)
+- 05:26 [CUT] #627 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #626 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #625 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #624 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #623 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #622 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:26 [CUT] #621 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #620 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #619 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #618 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #617 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #616 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #614 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #612 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:27 [CUT] #610 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #609 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #608 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #606 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #604 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #599 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #598 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #572 v0.6.2 -> v0.6.4 AI design 2 roadmap (+[PM] comment)
+- 05:28 [CUT] #163 v0.6.2 -> v0.7 Effects & Export (+[PM] comment)
+- 05:29 [CUT] wrote pr-map-2026-10-25.md + evidence/v062-cut-2026-10-25.png
+- 06:02 [TRAIN] renamed milestone #50 -> Backlog: AI design 2 roadmap & overflow
+- 06:02 [TRAIN] v0.6.2 due -> 2026-10-26
+- 06:02 [TRAIN] v0.6.3 due -> 2026-10-26
+- 06:02 [TRAIN] created milestone v0.6.4 due 2026-10-27
+- 06:02 [TRAIN] created milestone v0.6.5 due 2026-10-28
+- 06:02 [TRAIN] created milestone v0.6.6 due 2026-10-29
+- 06:02 [TRAIN] created milestone v0.6.7 due 2026-10-30
+- 06:02 [TRAIN] created milestone v0.6.8 due 2026-10-31
+- 06:02 [TRAIN] created milestone v0.6.9 due 2026-11-01
+- 06:02 [TRAIN] v0.6.2 due -> 2026-10-25 (today's ship)
+- 06:02 [TRAIN] #1072 -> v0.6.3
+- 06:02 [TRAIN] #930 -> v0.6.3
+- 06:02 [TRAIN] #1102 [PM] daily-cadence comment + for:claude
+- 06:02 [TRAIN] #1008 -> v0.6.3
+- 06:03 [TRAIN] #1087 -> v0.6.3
+- 06:03 [TRAIN] #1009 -> v0.6.4
+- 06:03 [TRAIN] #1049 -> v0.6.4
+- 06:03 [TRAIN] #1050 -> v0.6.4
+- 06:03 [TRAIN] #985 -> v0.6.4
+- 06:03 [TRAIN] #1101 -> v0.6.5
+- 06:03 [TRAIN] #1074 -> v0.6.5
+- 06:03 [TRAIN] #1048 -> v0.6.5
+- 06:03 [TRAIN] #1047 -> v0.6.5
+- 06:03 [TRAIN] #1056 -> v0.6.6
+- 06:03 [TRAIN] #1055 -> v0.6.6
+- 06:03 [TRAIN] #1052 -> v0.6.6
+- 06:03 [TRAIN] #1042 -> v0.6.6
+- 06:03 [TRAIN] #1066 -> v0.6.6
+- 06:04 [TRAIN] #1097 -> v0.6.7
+- 06:04 [TRAIN] #1096 -> v0.6.7
+- 06:04 [TRAIN] #1027 -> v0.6.7
+- 06:04 [TRAIN] #1010 -> v0.6.7
+- 06:04 [TRAIN] #979 -> v0.6.8
+- 06:04 [TRAIN] #977 -> v0.6.8
+- 06:04 [TRAIN] #938 -> v0.6.8
+- 06:04 [TRAIN] #968 -> v0.6.8
+- 06:04 [TRAIN] #713 -> v0.6.9
+- 06:04 [TRAIN] #714 -> v0.6.9
+- 06:04 [TRAIN] #715 -> v0.6.9
+- 06:04 [TRAIN] #773 -> v0.6.9
+- 06:04 [TRAIN] #1043 -> v0.6.9
+- 06:04 [TRAIN] #1102 -> v0.6.9
+- 06:05 [TRAIN] #1111 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1110 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1109 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1108 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1106 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1100 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1099 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1098 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1095 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1094 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1089 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1086 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1073 -> Backlog: AI design 2 roadmap & overflow
+- 06:05 [TRAIN] #1063 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1062 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1059 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1054 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1038 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1037 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1032 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1031 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1030 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1029 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1028 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1026 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1021 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1020 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1019 -> Backlog: AI design 2 roadmap & overflow
+- 06:06 [TRAIN] #1018 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #1014 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #1004 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #1002 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #999 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #997 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #996 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #992 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #980 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #978 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #972 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #970 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #969 -> Backlog: AI design 2 roadmap & overflow
+- 06:07 [TRAIN] #963 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #962 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #954 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #953 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #952 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #951 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #949 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #947 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #946 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #945 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #944 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #941 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #940 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #937 -> Backlog: AI design 2 roadmap & overflow
+- 06:08 [TRAIN] #935 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #932 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #931 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #928 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #926 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #921 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #920 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #915 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #910 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #909 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #907 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #904 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #895 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #891 -> Backlog: AI design 2 roadmap & overflow
+- 06:09 [TRAIN] #889 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #888 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #879 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #876 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #870 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #869 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #868 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #856 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #834 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #831 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #827 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #676 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #487 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #486 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #485 -> Backlog: AI design 2 roadmap & overflow
+- 06:10 [TRAIN] #483 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #481 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #475 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #474 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #472 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #417 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #81 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #77 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #75 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #43 -> Backlog: AI design 2 roadmap & overflow
+- 06:11 [TRAIN] #10 -> Backlog: AI design 2 roadmap & overflow
+- 06:16 [TRAIN] wrote daily-release-train-2026-10-25.md + evidence/daily-train-2026-10-25.png
+- 06:21 [TRAIN-2] milestone #47 v0.6.2 AI design 2 due 2026-10-25
+- 06:21 [TRAIN-2] milestone #49 v0.6.3 due 2026-10-25
+- 06:21 [TRAIN-2] milestone #51 v0.6.4 due 2026-10-25
+- 06:21 [TRAIN-2] milestone #52 v0.6.5 due 2026-10-25
+- 06:21 [TRAIN-2] milestone #5 v0.7 Effects & Export due 2026-10-26
+- 06:21 [TRAIN-2] milestone #53 v0.7.1 due 2026-10-26
+- 06:21 [TRAIN-2] milestone #54 v0.7.2 due 2026-10-26
+- 06:21 [TRAIN-2] milestone #55 v0.7.3 due 2026-10-26
+- 06:21 [TRAIN-2] milestone #56 v0.7.4 due 2026-10-26
+- 06:21 [TRAIN-2] milestone #6 v0.8 Variables everywhere due 2026-10-27
+- 06:21 [TRAIN-2] milestone #7 v0.9 Present like Keynote due 2026-10-28
+- 06:21 [TRAIN-2] milestone #8 v0.10 Pro strokes due 2026-10-29
+- 06:21 [TRAIN-2] milestone #9 v0.11 Animate a frame due 2026-10-30
+- 06:21 [TRAIN-2] milestone #10 v0.12 Run Figma plugins due 2026-10-31
+- 06:21 [TRAIN-2] milestone #11 v0.13 Branches due 2026-11-01
+- 06:21 [TRAIN-2] label from:v0.7 created
+- 06:21 [TRAIN-2] label from:v0.8 created
+- 06:21 [TRAIN-2] label from:v0.9 created
+- 06:21 [TRAIN-2] label from:v0.10 created
+- 06:21 [TRAIN-2] label from:v0.11 created
+- 06:21 [TRAIN-2] label from:v0.12 created
+- 06:21 [TRAIN-2] label from:v0.13 created
+- 06:21 [TRAIN-2] #1044 -> v0.6.2 AI design 2 
+- 06:21 [TRAIN-2] #1046 -> v0.6.2 AI design 2 
+- 06:21 [TRAIN-2] #1053 -> v0.6.2 AI design 2 
+- 06:22 [TRAIN-2] #1036 -> v0.6.2 AI design 2 
+- 06:22 [TRAIN-2] #1023 -> v0.6.3 
+- 06:22 [TRAIN-2] #1057 -> v0.6.3 
+- 06:22 [TRAIN-2] #1061 -> v0.6.3 
+- 06:22 [TRAIN-2] #1068 -> v0.6.3 
+- 06:22 [TRAIN-2] #1069 -> v0.6.4 
+- 06:22 [TRAIN-2] #875 -> v0.6.4 
+- 06:22 [TRAIN-2] #887 -> v0.6.4 
+- 06:22 [TRAIN-2] #993 -> v0.6.4 
+- 06:22 [TRAIN-2] #1039 -> v0.6.5 
+- 06:22 [TRAIN-2] #1102 [PM] cadence v2 comment (for:claude already set)
+- 06:22 [TRAIN-2] #1088 -> v0.6.5 
+- 06:22 [TRAIN-2] #983 -> v0.6.5 
+- 06:22 [TRAIN-2] #1003 -> v0.6.5 
+- 06:22 [TRAIN-2] #1072 -> v0.7 Effects & Export 
+- 06:23 [TRAIN-2] #930 -> v0.7 Effects & Export 
+- 06:23 [TRAIN-2] #1008 -> v0.7 Effects & Export 
+- 06:23 [TRAIN-2] #1087 -> v0.7 Effects & Export 
+- 06:23 [TRAIN-2] #528 -> v0.7 Effects & Export 
+- 06:23 [TRAIN-2] #1009 -> v0.7.1 
+- 06:23 [TRAIN-2] #1049 -> v0.7.1 
+- 06:23 [TRAIN-2] #1050 -> v0.7.1 
+- 06:23 [TRAIN-2] #985 -> v0.7.1 
+- 06:23 [TRAIN-2] #1101 -> v0.7.2 
+- 06:23 [TRAIN-2] #1074 -> v0.7.2 
+- 06:23 [TRAIN-2] #1048 -> v0.7.3 
+- 06:23 [TRAIN-2] #1047 -> v0.7.3 
+- 06:23 [TRAIN-2] #161 -> v0.7.4 
+- 06:23 [TRAIN-2] #162 -> v0.7.4 
+- 06:23 [TRAIN-2] #127 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #476 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1056 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1055 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1052 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1042 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1066 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1097 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1096 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #129 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #130 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] doc daily-release-train-2026-10-25.md v2 + spec-driven section (minor→spec map, G1–G5 ↔ ship gate); image evidence/release-cadence-v2-2026-10-25.png
+- 06:24 [TRAIN-2] #1027 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #1010 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #14 -> v0.8 Variables everywhere 
+- 06:24 [TRAIN-2] #323 -> v0.9 Present like Keynote 
+- 06:24 [TRAIN-2] #322 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #979 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #977 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #938 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #968 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #713 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #714 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #715 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #773 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #1043 -> v0.9 Present like Keynote 
+- 06:25 [TRAIN-2] #859 -> v0.10 Pro strokes 
+- 06:25 [TRAIN-2] #184 -> v0.10 Pro strokes 
+- 06:25 [TRAIN-2] #521 -> v0.10 Pro strokes 
+- 06:25 [TRAIN-2] #459 -> v0.11 Animate a frame 
+- 06:25 [TRAIN-2] #457 -> v0.11 Animate a frame 
+- 06:26 [TRAIN-2] #482 -> v0.12 Run Figma plugins 
+- 06:26 [TRAIN-2] #348 -> v0.13 Branches 
+- 06:26 [TRAIN-2] #1102 -> v0.13 Branches 
+- 06:26 [TRAIN-2] #638 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #629 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #628 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #484 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #480 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #254 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #253 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #252 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #251 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #249 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #246 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:26 [TRAIN-2] #244 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #242 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #166 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #163 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #39 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #38 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #37 -> Backlog: AI design 2 roadmap & overflow from:v0.7
+- 06:27 [TRAIN-2] #289 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #137 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #136 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #135 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #134 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #133 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:27 [TRAIN-2] #132 -> Backlog: AI design 2 roadmap & overflow from:v0.8
+- 06:28 [TRAIN-2] #325 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #324 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #294 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #292 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #291 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #290 -> Backlog: AI design 2 roadmap & overflow from:v0.9
+- 06:28 [TRAIN-2] #187 -> Backlog: AI design 2 roadmap & overflow from:v0.10
+- 06:28 [TRAIN-2] #185 -> Backlog: AI design 2 roadmap & overflow from:v0.10
+- 06:28 [TRAIN-2] #182 -> Backlog: AI design 2 roadmap & overflow from:v0.10
+- 06:28 [TRAIN-2] #180 -> Backlog: AI design 2 roadmap & overflow from:v0.10
+- 06:28 [TRAIN-2] #179 -> Backlog: AI design 2 roadmap & overflow from:v0.10
+- 06:28 [TRAIN-2] #214 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:28 [TRAIN-2] #213 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:28 [TRAIN-2] #212 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #211 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #210 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #209 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #165 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #164 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #142 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #140 -> Backlog: AI design 2 roadmap & overflow from:v0.11
+- 06:29 [TRAIN-2] #298 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #297 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #296 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #258 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #257 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #256 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:29 [TRAIN-2] #255 -> Backlog: AI design 2 roadmap & overflow from:v0.12
+- 06:30 [TRAIN-2] #353 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:30 [TRAIN-2] #352 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:30 [TRAIN-2] #350 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:30 [TRAIN-2] #349 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:30 [TRAIN-2] #347 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:30 [TRAIN-2] #346 -> Backlog: AI design 2 roadmap & overflow from:v0.13
+- 06:34 [OWN] 123 moves DONE, 0 fail; milestones rechecked (v0.6.2 6, v0.6.3 4, v0.6.4 4, v0.6.5 4, v0.7 4, v0.7.1 4, v0.7.2 2, v0.7.3 2, v0.7.4 2, Backlog 182)
+- 06:34 [OWN] #1080 vs #1103: keep #1103 (was already merged by Jang into release/v0.6.2 at 13:14); #1080 for:claude close; #1008 #1087 → v0.6.2
+- 06:34 [OWN] PR #1114 spec v0.6 (Format v2, lint 0/0) → release/v0.6.2; PR #1115 spec v0.7 G1/G2 → main
+- 06:34 [OWN] pm/RELEASE-RUNBOOK.md (repo branch pm/spec-v0.6 + workspace)
+- 06:34 [OWN] #1102 for:claude ship v0.6.2 (issuecomment-6394432737); for:qa smoke note on #1114 (issuecomment-6394433128)
+- 06:34 [OWN] image evidence/ownership-kickoff-2026-10-25.png
+- 21:27 [P0-UI] #1119 Priority Backlog->P0, label P0
+- 21:27 [P0-UI] #1120 Priority Backlog->P0, label P0
+- 21:27 [P0-UI] #1121 Priority Backlog->P0, label P0
+- 21:27 [P0-UI] #1122 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1124 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1125 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1126 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1127 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1128 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1138 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1139 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1140 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1141 Priority Backlog->P0, label P0
+- 21:28 [P0-UI] #1142 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1143 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1144 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1146 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1154 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1155 Priority Backlog->P0, label P0
+- 21:29 [P0-UI] #1118 Priority none->P0, label P0
+- 21:31 [P0-UI] CORRECTION: earlier [P0-UI] lines saying "Priority Backlog->P0" are wrong. A field-shift bug meant the Project field edit did not run then (only the P0 label was added). Re-run done and verified.
+- 21:31 [P0-UI] Epic #1118 + 19 sub-issues (1119-1122,1124-1128,1138-1144,1146,1154,1155): Priority (none)->P0, except #1141 and #1154 P2->P0. P0 label on all 20; no other P labels existed. Status unchanged (subs Backlog, epic none). No milestones moved.
+- 2026-10-25 22:38:41 [SHIP] Added Known issues (Windows tests red, #1158) to v0.6.2 release notes per Jang 22:38
+- 22:56 [TRAIN-3] Milestones: #1085/#1117/#1072->v0.6.3; #1130->v0.7.1; #1051->v0.7; #1039/#1027->v0.6.2 (fixed by #1092); #1142/#1143/#1126->new #57 "v0.7.5 UI Revamp slice 1" (30/10). Re-dated: v0.6.3-0.6.5 26/10, v0.7 27/10, v0.7.1-2 28/10, v0.7.3-4 29/10, v0.8-v0.13 31/10-05/11.
+- 22:56 [TRAIN-3] Spec PR #1166 (pm/spec-ui-revamp -> main), plans/specs/ui-revamp, lint 0 errors. Runbook branch strategy pushed to pm/spec-v0.6 (4e41390, PR #1114). release/v0.6.3 NOT cut: v0.6.2 tag absent.
+- 22:56 [TRAIN-3] Routed for:claude + Waiting Claude: #1166 #1126 #1142 #1143 #1158 #1159 #1085 #1117 #1072; one queue comment https://github.com/jangtrinh/design-os-studio/pull/1166#issuecomment-6399745760
+- 22:56 [TRAIN-3] Hygiene 58->1: 8 closed->Done (labels/Waiting cleared), 4 fixed->In review, #1003 for:jang, for:claude on #598/#1009/#1049/#1050, for:jang on #1164, Waiting cleared on 16 UI Revamp backlog subs, standalone on #1134/#1136/#1152, #1165 sub of #1118 (P0). Left: #153 stale PR (needs Jang to close).
+- 22:56 [TRAIN-3] Wrote v063-ship-runbook-2026-10-25.md, evidence/train-2026-10-26.png.
+- 22:58 [TRAIN-3] #1068/#1061/#1057/#1023: fix PRs #1071/#1067/#1060/#1035 merged and contained in 184e145 (GitHub compare: behind 0), moved to v0.6.2 and added to the v062 close-after-ship list (6 -> 10 issues). Label for:jang kept.
+- 22:58 [TRAIN-3] v0.6.3 runbook: Windows red (#1158) recorded as a Known issue, not a blocker (Jang 22:38); B2/B4 removed.
+- 22:58 [TRAIN-3] CORRECTION: release/v0.6.2 was cut from tag v0.6.1 (17 ahead / 0 behind), not from main + 140 commits (shallow clone error). RELEASE-RUNBOOK fixed, pushed to pm/spec-v0.6.
+- 22:59 [TRAIN-3] Redrew evidence/train-2026-10-26.png: v0.6.3=#1085/#1117/#1072, Windows=Known issue #1158, v0.6.2 close list 10, only blocker = Jang tag v0.6.2 @184e145. Committed 581da81 on pm/spec-v0.6 (PR #1114) with both runbooks.
+- 23:00 [TRAIN-3] #1039/#1027 verified on v0.6.2, fixed by #1092 (Closes both; a2f5158 contained in 184e145, behind 0). Close list 10 -> 12 (runbook lines 88, 119; table 67-68). Image redrawn with 12. Commit d32e1a3 on pm/spec-v0.6.
+
+## [P0-UI-V06] 23:04–23:15 (UTC+7)
+- [P0-UI-V06] Created milestones v0.6.6–v0.6.11 (#58–#63, due 29/10–03/11). Moved v0.6.4 to 27/10 and v0.6.5 to 28/10.
+- [P0-UI-V06] Moved #1166 and #1126 to v0.6.4, #1142 to v0.6.5, #1143 #1141 #1154 to v0.6.6, #1139 #1121 #1127 #1140 #1165 to v0.6.7, #1119 #1120 #1124 to v0.6.8, #1128 #1138 #1144 to v0.6.9, #1146 #1155 to v0.6.10, #1125 #1122 to v0.6.11.
+- [P0-UI-V06] Re-dated v0.7 to 04/11, v0.7.1/7.2 to 05/11, v0.7.3/7.4 to 06/11, and v0.8–v0.13 to 07–12/11.
+- [P0-UI-V06] Milestone #57 is retired: 0 open, with a description added. Not deleted.
+- [P0-UI-V06] Spec #1166: added D5 and replaced D3/D4, updated the FC-UIR handoff (149e875). Lint: 0 errors.
+- [P0-UI-V06] New queue comment: https://github.com/jangtrinh/design-os-studio/pull/1166#issuecomment-6399952528
+- [P0-UI-V06] Project 9 fields: #1126 Status Ready; #1126 #1142 #1143 Waiting on Claude; #1158 Waiting on Jang (Windows decision).
+- [P0-UI-V06] CORRECTION: v063 runbook no longer says Jang accepted Windows red. It is now an OPEN DECISION for Jang (A: accept / B: land #1158 first), and the gate is all green until he decides. train-2026-10-26.png ("Known issue: Windows") is out of date; see ui-revamp-v06x-2026-10-25.png instead.

@@ -6,8 +6,8 @@
 | B1 | No `v0.6.2` tag yet, so `release/v0.6.3` can't be cut | Jang (tag at `184e145`) → PM cuts the branch | waiting |
 | B3 | #1085 Test (ubuntu-latest) is **pending**; earlier run 40197935120 was ✅ | CI | re-check |
 
-### Known issue (Jang's decision 25/10 22:38 UTC+7)
-- **Windows Test is red** on #1085 (`beafe3e`) and #1117 (`d5c6628`), because of STATUS_STACK_OVERFLOW (#1158, fixed in v0.7.1). This **is not a blocker**: the v0.6.3 gate needs Ubuntu, macOS, Clippy, Rustfmt, Codegen and Design gates green. Record it in the release notes.
+### OPEN DECISION for Jang: Windows red (#1158)
+- **Windows Test is red** on #1085 (`beafe3e`) and #1117 (`d5c6628`): STATUS_STACK_OVERFLOW (#1158). **Jang has NOT decided** whether to accept Windows red for releases after v0.6.2. Until he does, the gate is ALL green. Option A: Jang accepts it as a known issue. Option B: land #1158 first (move it from v0.7.1 into v0.6.3) and then re-run CI on #1085/#1117. Correction at 23:04: an earlier version wrongly said Jang had accepted it.
 - #1068, #1061, #1057 and #1023 have left v0.6.3. Their fixes (#1071, #1067, #1060, #1035) are already in `184e145`, so they ship with v0.6.2.
 
 ## 2. PRs in the slice
@@ -20,7 +20,7 @@
 1. **Jang** tags `v0.6.2` at `184e145` and publishes the release.
 2. **PM** runs `git push origin v0.6.2:refs/heads/release/v0.6.3`. This is an empty branch with no code merge (RELEASE-RUNBOOK "Release branch strategy").
 3. **Claude** rebases #1085 and #1117 onto `v0.6.2` and retargets them to `release/v0.6.3`.
-4. **Gate:** everything except Windows is green (Windows = known issue #1158). Any other red = stop.
+4. **Gate:** all checks green, Windows included, unless Jang has explicitly accepted Windows red (see OPEN DECISION). Any red = stop.
 5. **Jang** merges #1085 and #1117. Claude re-runs CI on the head of `release/v0.6.3`.
 6. **QA smoke** (PM posts `[PM] for:qa`), one PASS/FAIL per issue.
 7. Claude opens `release: 0.6.3` (Cargo version); **Jang** tags `v0.6.3` and publishes.
@@ -31,4 +31,4 @@
 - Agent hooks now write every output into a private folder that no agent grant can reach, so a link planted in the session folder no longer redirects hook writes (#1072, PR #1085). Hook prompts no longer fail on Ubuntu's `dash` shell.
 - The CLI and MCP refuse broken `--screenshot` files and show readable spec errors (PR #1117).
 
-**Known issue:** the Windows test suite fails with a stack overflow in CI (#1158, fixed in v0.7.1). The Windows build itself still builds and runs.
+**(Only if Jang picks option A) Known issue:** the Windows test suite fails with a stack overflow in CI (#1158). Remove this line if #1158 lands first.
