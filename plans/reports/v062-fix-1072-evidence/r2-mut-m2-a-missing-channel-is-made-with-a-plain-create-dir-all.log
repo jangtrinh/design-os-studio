@@ -3,7 +3,7 @@ warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/desi
   * `bin` target `designos-studio`
    Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
    Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.16s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.76s
      Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
 
 running 5 tests
@@ -17,7 +17,7 @@ failures:
 
 ---- agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder stdout ----
 
-thread 'agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder' (46683826) panicked at crates/designos-app/src/agent_session_files/private_anchor_tests.rs:81:5:
+thread 'agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder' (49193653) panicked at crates/designos-app/src/agent_session_files/private_anchor_tests.rs:81:5:
 assertion `left == right` failed: the channel folder of the session is owner-only, not what a plain create_dir_all makes
   left: 493
  right: 448
@@ -27,6 +27,6 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder
 
-test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 3300 filtered out; finished in 0.02s
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 3304 filtered out; finished in 0.01s
 
 error: test failed, to rerun pass `-p designos-app --bin designos`

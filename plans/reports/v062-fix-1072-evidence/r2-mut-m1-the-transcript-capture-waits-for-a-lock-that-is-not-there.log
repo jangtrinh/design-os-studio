@@ -3,7 +3,7 @@ warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/desi
   * `bin` target `designos-studio`
    Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
    Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.07s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.93s
      Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
 
 running 3 tests
@@ -15,14 +15,14 @@ failures:
 
 ---- terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there stdout ----
 
-thread 'terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there' (46717170) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:112:9:
-the capture waits for a lock that is not there: its quickest of three runs took 788.226ms
+thread 'terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there' (49177656) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:112:9:
+the capture waits for a lock that is not there: its quickest of three runs took 766.5835ms
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 
 failures:
     terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there
 
-test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3303 filtered out; finished in 3.79s
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3306 filtered out; finished in 3.95s
 
 error: test failed, to rerun pass `-p designos-app --bin designos`
