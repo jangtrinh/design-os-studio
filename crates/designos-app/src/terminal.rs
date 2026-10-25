@@ -5003,10 +5003,17 @@ fn session_hooks_settings_with_approval(
     let prompt = match bootstrap_run {
         Some(run) => {
             let quoted = |path: PathBuf| crate::agent_turn_status::sh_single_quote(&path.display().to_string());
-            let (marker, boot, compact, page) =
-                (quoted(paths.delivered_marker(run)), quoted(paths.bootstrap_reply()), quoted(paths.compact_reply()), quoted(paths.page_reply()));
+            let (dir, marker, boot, compact, page) = (
+                quoted(paths.dir().to_path_buf()),
+                quoted(paths.delivered_marker(run)),
+                quoted(paths.bootstrap_reply()),
+                quoted(paths.compact_reply()),
+                quoted(paths.page_reply()),
+            );
+            // Over a folder that is gone or refuses writes the hook still ends quietly and with success: it waits for a reply only
+            // while the folder is there, makes the marker in brace form, and a reply it cannot read prints nothing.
             format!(
-                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then : > {marker}; cat {boot}; elif [ ! -e {marker} ] && [ -f {compact} ]; then : > {marker}; cat {compact}; else cat {page}; fi",
+                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ -d {dir} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then {{ : > {marker}; }} 2>/dev/null || true; cat {boot} 2>/dev/null || true; elif [ ! -e {marker} ] && [ -f {compact} ]; then {{ : > {marker}; }} 2>/dev/null || true; cat {compact} 2>/dev/null || true; else cat {page} 2>/dev/null || true; fi",
                 status_hook_command(paths, "UserPromptSubmit", "working"),
                 start_mark,
             )
@@ -6572,6 +6579,9 @@ mod hook_output_tests;
 
 #[cfg(all(test, unix))]
 mod unwritable_hook_folder_tests;
+
+#[cfg(all(test, unix))]
+mod capture_lock_tests;
 
 #[cfg(all(test, unix))]
 mod fail_closed_hook_tests;

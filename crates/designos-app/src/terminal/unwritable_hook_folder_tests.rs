@@ -1,7 +1,8 @@
 //! A hook whose folder it cannot write must still end at once, quietly and with success. Two things put a hook there: the user turns
 //! on the CLI's own sandbox (Gemini, Grok), whose write grants never reach Studio's private hook folder, and a folder that is gone.
 //! The tab then shows no status, but the CLI must not wait on its hooks or print a failure for every event. These tests run the real
-//! command strings of every CLI's installed hooks, through `sh`, against a missing folder and a folder that refuses writes.
+//! command strings of every CLI's installed hooks, Claude's prompt hook included, through `sh`, against a missing folder and a folder
+//! that refuses writes.
 
 use super::hook_output_tests::{run_hook_with, window_with_hooks, Installed, EVERY_CLI};
 use super::*;
@@ -28,12 +29,6 @@ impl Drop for Restore {
     fn drop(&mut self) {
         let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
     }
-}
-
-/// Whether `command` is the prompt hook of Claude: it reads the reply files Studio wrote, which is its purpose, and Claude's hooks are
-/// never confined by a sandbox of the user's.
-fn is_claudes_prompt_hook(command: &str) -> bool {
-    command.contains("bootstrap.delivered.")
 }
 
 /// What one run of a hook looked like, when it did not end as it must.
@@ -69,11 +64,17 @@ fn a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothin
             let (st, commands) = window_with_hooks(which, None);
             let folder = st.prepared_hook_paths().dir().to_path_buf();
             let _restore = Restore(folder.clone());
+            if matches!(which, Installed::ClaudeAsk | Installed::ClaudeSkip) {
+                // The prompt hook of Claude marks a first turn whose bootstrap block it printed, and prints the block: with the reply
+                // there, it has a marker to make over a folder that refuses it. (Without a reply it waits up to half a second for one.)
+                let reply = r#"{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"BOOTSTRAP-BLOCK"}}"#;
+                std::fs::write(st.prepared_hook_paths().bootstrap_reply(), reply).expect("the bootstrap reply");
+            }
             match how {
                 Unwritable::Missing => std::fs::remove_dir_all(&folder).expect("the hook folder goes"),
                 Unwritable::ReadOnly => std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).expect("the hook folder refuses writes"),
             }
-            let mut commands: Vec<String> = commands.into_iter().filter(|command| !is_claudes_prompt_hook(command)).collect();
+            let mut commands = commands;
             commands.sort();
             commands.dedup();
             assert!(commands.len() >= 4, "{which:?}: only {} commands to run", commands.len());
@@ -111,6 +112,26 @@ fn the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there() {
             .expect("three runs");
         assert!(quickest < Duration::from_millis(450), "the capture waits for a lock that is not there: its quickest of three runs took {quickest:?}");
     }
+}
+
+#[test]
+fn claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone() {
+    // With the folder there, the first turn waits up to half a second for the bootstrap reply, which Studio builds in the background.
+    // With the folder gone no reply can come, so it must not: the quickest of three runs is under that floor on any machine that is not
+    // stopped (the 1 s bound of the sweep cannot tell half a second from a busy machine).
+    let (st, commands) = window_with_hooks(Installed::ClaudeAsk, None);
+    let prompt: Vec<&String> = commands.iter().filter(|command| command.contains("bootstrap.delivered.")).collect();
+    assert_eq!(prompt.len(), 1, "Claude has one prompt hook with a marker");
+    std::fs::remove_dir_all(st.prepared_hook_paths().dir()).expect("the hook folder goes");
+    let quickest = (0..3)
+        .map(|_| {
+            let started = Instant::now();
+            run_hook_with(prompt[0], &st.session_dir, "run-1", |_| {});
+            started.elapsed()
+        })
+        .min()
+        .expect("three runs");
+    assert!(quickest < Duration::from_millis(400), "the prompt hook waits for a reply in a folder that is gone: its quickest of three runs took {quickest:?}");
 }
 
 #[test]

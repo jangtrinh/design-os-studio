@@ -256,22 +256,29 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
            if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
-             i=0; while ! mkdir {lock} 2>/dev/null && [ -e {lock} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
-             prev=\"\"; \
-             if [ -f {dest} ]; then \
-               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
-               prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
+             got_lock=0; i=0; \
+             while [ $i -lt 50 ]; do \
+               if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; \
+               if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; fi; break; fi; \
+               sleep 0.01; i=$((i+1)); \
+             done; \
+             if [ \"$got_lock\" = 1 ]; then \
+               prev=\"\"; \
+               if [ -f {dest} ]; then \
+                 prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
+                 prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
+               fi; \
+               if [ -n \"$prev\" ]; then \
+                 entries=\"$prev,$pair\"; \
+               else \
+                 entries=\"$pair\"; \
+               fi; \
+               tmp={tmp}$$; \
+               if {{ printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\"; }} 2>/dev/null; then \
+                 mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
+               fi; \
+               rmdir {lock} 2>/dev/null || true; \
              fi; \
-             if [ -n \"$prev\" ]; then \
-               entries=\"$prev,$pair\"; \
-             else \
-               entries=\"$pair\"; \
-             fi; \
-             tmp={tmp}$$; \
-             if {{ printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\"; }} 2>/dev/null; then \
-               mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
-             fi; \
-             rmdir {lock} 2>/dev/null || true; \
            fi; \
          fi"
     )
