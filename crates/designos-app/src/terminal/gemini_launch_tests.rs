@@ -131,9 +131,9 @@ fn off_unix_a_gemini_tab_gets_no_hooks_file() {
     // Gemini runs a hook through PowerShell on Windows, where the POSIX status command cannot parse.
     let session = std::env::temp_dir().join(format!("designos-gemini-off-unix-{}", std::process::id()));
     let ask = AgentPermissionMode::Ask;
-    assert!(hooks::prepare_for_tab_on(false, &session, None, 1, ask, AgentCliPreset::Gemini).is_none());
+    assert!(hooks::prepare_for_tab_on(false, &session, 1, ask, AgentCliPreset::Gemini).is_none());
     assert!(hooks::tab_file_path(&session, 1).is_some_and(|file| !file.exists()), "a file was written for a shell that cannot run it");
-    let file = hooks::prepare_for_tab_on(true, &session, None, 1, ask, AgentCliPreset::Gemini).expect("a POSIX shell gets the file");
+    let file = hooks::prepare_for_tab_on(true, &session, 1, ask, AgentCliPreset::Gemini).expect("a POSIX shell gets the file");
     assert!(file.is_file());
     crate::agent_approval_channel::remove_channel(&session);
 }

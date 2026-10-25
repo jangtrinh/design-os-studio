@@ -59,7 +59,7 @@ pub enum Fix {
     #[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
     Unlock,
     /// Something refused a move and nothing Studio can read says which of an entry and the folder it is in (an ACL that denies the
-    /// delete), so both are named.
+    /// delete): the line names both, the folder by its path, and the user checks both.
     CheckItAndItsFolder,
 }
 
@@ -76,7 +76,7 @@ impl Fix {
             Fix::DeleteIt => format!("Delete it, then {then}"),
             Fix::MoveOrDeleteIt => format!("Move or delete it, then {then}"),
             Fix::Unlock => format!("Unlock it, then {then}"),
-            Fix::CheckItAndItsFolder => format!("Check its permissions and those of the folder it is in, then {then}"),
+            Fix::CheckItAndItsFolder => format!("Check its permissions and those of that folder, then {then}"),
         }
     }
 }

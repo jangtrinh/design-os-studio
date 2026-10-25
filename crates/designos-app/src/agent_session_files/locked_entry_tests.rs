@@ -77,8 +77,9 @@ fn an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_
     assert_eq!(
         message,
         format!(
-            "Couldn't start Grok Build: {} can't be moved: Permission denied (os error 13). Check its permissions and those of the folder it is in, then try again.",
-            path.display()
+            "Couldn't start Grok Build: {} can't be moved out of {}: Permission denied (os error 13). Check its permissions and those of that folder, then try again.",
+            path.display(),
+            st.session_dir.display()
         )
     );
 }

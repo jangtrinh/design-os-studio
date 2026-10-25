@@ -961,7 +961,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&workspace);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(&workspace).unwrap();
-        crate::agent_hook_outputs::HookPaths::prepare(&dir, None).expect("the hook folder the marks go to");
+        crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder the marks go to");
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
         app.terminal.flush_live_sync();
         let session = designos_mcp::server::Session::with_session_dir(&workspace, &dir).expect("mcp session");

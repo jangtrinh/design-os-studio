@@ -98,9 +98,18 @@ fn a_locked_entry_and_an_entry_nothing_can_be_read_about_each_get_their_own_next
         start_failure_message("Grok Build", &locked),
         "Couldn't start Grok Build: /data/sessions/p1-tab-1/.mcp.json is locked, so Studio can't move it. Unlock it, then try again."
     );
-    let unknown = cannot("moved", path, io::Error::from(io::ErrorKind::PermissionDenied), Fix::CheckItAndItsFolder);
+    let folder = path.parent().expect("a folder");
+    let unknown = failed(
+        io::ErrorKind::PermissionDenied,
+        format!("{} can't be moved out of {}: permission denied", path.display(), folder.display()),
+        Fix::CheckItAndItsFolder,
+    );
     let said = start_failure_message("Grok Build", &unknown);
-    assert!(said.ends_with("can't be moved: permission denied. Check its permissions and those of the folder it is in, then try again."), "{said}");
+    assert_eq!(
+        said,
+        "Couldn't start Grok Build: /data/sessions/p1-tab-1/.mcp.json can't be moved out of /data/sessions/p1-tab-1: permission denied. \
+         Check its permissions and those of that folder, then try again."
+    );
     assert!(!said.contains("Make it writable"), "{said}");
 }
 

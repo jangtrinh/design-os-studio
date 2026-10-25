@@ -5,7 +5,9 @@
 //! A path in no session folder is refused. Only a test build anchors such a path (a scratch folder) at its own folder instead:
 //! nothing above it is checked, and the name is handled the same way.
 
-use super::folder::{create_session_folder_in, ephemeral_sessions_root, no_private_data_folder, session_folder_of, UNAVAILABLE_ROOT};
+use super::folder::{
+    create_session_folder_in, ephemeral_sessions_root, is_anchor_folder, lies_in_private_root, no_private_data_folder, session_folder_of, UNAVAILABLE_ROOT,
+};
 use super::no_follow::Dir;
 use super::refusal::{cannot, failed, Fix};
 use std::ffi::OsString;
@@ -30,7 +32,9 @@ pub(super) fn place_of_with(path: &Path, allow_unanchored: bool) -> io::Result<P
     let parent = path.parent().ok_or_else(|| invalid("has no folder"))?;
     let anchor = match session_folder_of(path) {
         Some(folder) => folder,
-        None if allow_unanchored => parent.to_path_buf(),
+        // A test build lets a scratch folder anchor at itself. A path in the private channel root never does: there only the hook folder is
+        // a place for these helpers, and a test that wrote elsewhere in it would hide that.
+        None if allow_unanchored && !lies_in_private_root(path) => parent.to_path_buf(),
         None => {
             return Err(failed(
                 io::ErrorKind::InvalidInput,
@@ -57,7 +61,7 @@ pub(super) fn place_of_with(path: &Path, allow_unanchored: bool) -> io::Result<P
 fn open_holder(place: &Place, create: bool) -> io::Result<Dir> {
     let mut dir = match Dir::open_session_folder(&place.anchor) {
         Err(e) if create && e.kind() == io::ErrorKind::NotFound => {
-            if session_folder_of(&place.anchor.join("_")).is_some() {
+            if is_anchor_folder(&place.anchor) {
                 create_session_folder_in(ephemeral_sessions_root().as_deref(), &place.anchor)?;
             } else {
                 std::fs::create_dir_all(&place.anchor).map_err(|e| cannot("created", &place.anchor, e, Fix::CheckPermissions))?;

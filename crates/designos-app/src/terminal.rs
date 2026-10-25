@@ -1040,10 +1040,12 @@ impl TerminalTab {
         self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
     }
 
-    /// True when this tab is Claude Code, which reads attached skills from its `UserPromptSubmit` hook. Every other CLI, a custom
-    /// command included, never reads that hook and gets the skills in the pasted prompt (`#573`).
-    pub fn reads_skills_from_hook(&self) -> bool {
-        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli()
+    /// True when this tab is Claude Code and its session has a hook folder, so Claude reads attached skills from its `UserPromptSubmit`
+    /// hook. Every other CLI, a custom command included, never reads that hook and gets the skills in the pasted prompt (`#573`), and so
+    /// does a Claude tab whose session has no hook folder: none of its hooks is installed (`hooks_without_a_folder`), so a reply file
+    /// written for the hook would never be read.
+    pub fn reads_skills_from_hook(&self, session_dir: &Path) -> bool {
+        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli() && crate::agent_hook_outputs::HookPaths::locate(session_dir).is_made()
     }
 
     /// The runtime recorded in `run.json` for skills sent to this tab: the CLI's binary name, `custom` for an "Other CLI…" command
@@ -2165,7 +2167,7 @@ impl TerminalState {
     /// [`Self::hook_paths`] with the folder made, for a test that writes what a hook would.
     #[cfg(test)]
     pub(crate) fn prepared_hook_paths(&self) -> crate::agent_hook_outputs::HookPaths {
-        crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir, None).expect("the hook folder is made")
+        crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).expect("the hook folder is made")
     }
 
     pub fn session_env(&self) -> SessionEnv {
@@ -3069,8 +3071,7 @@ impl TerminalState {
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
-        env.gemini_system_defaults =
-            crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, file_path, id, mode, preset).map(|path| path.display().to_string());
+        env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
         let cmd_override = command.map(|c| {
             let cmd = build_agent_shell_cmd(&default_shell_program(), c);
             #[cfg(test)]
@@ -4814,7 +4815,7 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     let exact = if job.ask_mode { job.exact_project_config } else { None };
     // Every hook reports to a folder no agent grant reaches (`agent_hook_outputs`). Without one (no private data folder, or one that
     // cannot be kept private) no hook that writes or reads a file is installed, and the tabs show no status.
-    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(&job.session_dir, job.file_path.as_deref()) {
+    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(&job.session_dir) {
         Ok(paths) => Some(paths),
         Err(e) => {
             eprintln!("design:os studio: no hook can report for this session, so its agent tabs show no status: {e}");
@@ -4952,7 +4953,7 @@ fn status_hook_command(paths: &crate::agent_hook_outputs::HookPaths, event: &str
 pub(crate) fn status_hook_command_for_tab(paths: &crate::agent_hook_outputs::HookPaths, event: &str, state: &str, tab: Option<usize>) -> String {
     let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&paths.events(), event, tab);
     format!(
-        "{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}",
+        "{append_cmd}; {{ printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}; }} 2>/dev/null || true",
         crate::agent_turn_status::sh_single_quote(&paths.status().display().to_string())
     )
 }
@@ -6568,6 +6569,12 @@ mod ask_hooks_tests;
 
 #[cfg(all(test, unix))]
 mod hook_output_tests;
+
+#[cfg(all(test, unix))]
+mod unwritable_hook_folder_tests;
+
+#[cfg(all(test, unix))]
+mod fail_closed_hook_tests;
 
 #[cfg(test)]
 mod pty_error_tests;

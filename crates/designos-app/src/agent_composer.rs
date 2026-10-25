@@ -561,7 +561,7 @@ impl TerminalState {
                             self.status_msg = tab.composer.notice.clone();
                         }
                         None => {
-                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab) };
+                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir) };
                             let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                             let outcome = write_prompt_to_live_tab(tab, &queued, skills_block, &mut self.status_msg, system);
                             if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -742,7 +742,7 @@ impl TerminalState {
                 self.active_mentions.clear();
                 self.mention_popup.close();
                 // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
-                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab);
+                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
                 let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                 let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
                 if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -2548,7 +2548,7 @@ mod tests {
         let dir = temp_composer_dir("skills-reply-bind");
         let session_dir = dir.join("agent-sessions").join("doc-skills-bind");
         std::fs::create_dir_all(&session_dir).expect("session dir");
-        let hook_folder = crate::agent_hook_outputs::HookPaths::prepare(&session_dir, None).expect("the hook folder");
+        let hook_folder = crate::agent_hook_outputs::HookPaths::prepare(&session_dir).expect("the hook folder");
         for stale in ["skills-context-reply.json", "skills-context-reply-3-0.json", "skills-context-reply-3-1.json"] {
             std::fs::write(hook_folder.dir().join(stale), "{}").expect("stale reply");
         }
@@ -2650,6 +2650,32 @@ mod tests {
         assert!(delay >= OTHER_CLI_BASE_ENTER_DELAY, "a big paste waits as long as for any other CLI: {delay:?}");
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them() {
+        let _turn = one_pty_test_at_a_time();
+        let dir = temp_composer_dir("skills-no-hook-folder");
+        crate::agent_approval_channel::without_private_root(|| {
+            let mut st = TerminalState::new_for_session("doc-skills-no-folder", "Skill Send", Some(&dir));
+            let selector = write_user_skill(&mut st, &dir, "armed-skill", "Keep gutters on the 8px grid.");
+            st.skills.toggle_skill(&selector);
+            assert!(st.skills.hook_chunks().is_some(), "the set is small enough for a hook to carry, if there were one");
+            let sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+            assert!(!crate::agent_hook_outputs::HookPaths::locate(&st.session_dir).dir().exists(), "this session has no hook folder");
+
+            assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Written);
+
+            let text = take_written(&sent);
+            assert!(text.contains("designos-skill:armed-skill@1.0.0\n"), "the skills are pasted, not left for a hook that is not installed: {text:?}");
+            assert!(text.ends_with("Make a pricing card\x1b[201~"));
+            assert!(skills_reply_files(&st.session_dir).is_empty(), "nothing waits in the replies of a hook that is not there");
+            let runs = run_records(&st.session_dir);
+            assert_eq!(runs.len(), 1, "{runs:?}");
+            assert_eq!(record_skill_names(&runs[0]), ["armed-skill"]);
+            st.shutdown();
+        });
         let _ = std::fs::remove_dir_all(&dir);
     }
 

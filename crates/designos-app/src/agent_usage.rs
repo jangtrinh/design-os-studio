@@ -256,7 +256,7 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
            if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
-             i=0; while ! mkdir {lock} 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
+             i=0; while ! mkdir {lock} 2>/dev/null && [ -e {lock} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
              prev=\"\"; \
              if [ -f {dest} ]; then \
                prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
@@ -268,7 +268,7 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
                entries=\"$pair\"; \
              fi; \
              tmp={tmp}$$; \
-             if printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\" 2>/dev/null; then \
+             if {{ printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\"; }} 2>/dev/null; then \
                mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
              fi; \
              rmdir {lock} 2>/dev/null || true; \
@@ -926,7 +926,7 @@ mod tests {
     #[test]
     fn hook_capture_writes_session_and_transcript_path_once() {
         let dir = temp_test_dir("hook-capture");
-        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir, None).expect("the hook folder").transcript();
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
         let stdin_json = r#"{"session_id":"sess-abc-123","transcript_path":"/tmp/claude/sess-abc-123.jsonl","hook_event_name":"UserPromptSubmit"}"#;
 
@@ -1093,7 +1093,7 @@ mod tests {
     #[test]
     fn two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings() {
         let dir = temp_test_dir("two-claude-tabs");
-        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir, None).expect("the hook folder").transcript();
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
 
         let transcript_a = dir.join("tab-a.jsonl");
@@ -1140,7 +1140,7 @@ mod tests {
     #[test]
     fn claude_clear_rotates_session_id_and_restarts_tab_usage_reading() {
         let dir = temp_test_dir("claude-clear-rotate");
-        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir, None).expect("the hook folder").transcript();
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
 
         let transcript_before = dir.join("sess-before-clear.jsonl");
@@ -1239,7 +1239,7 @@ mod tests {
         assert_eq!(grok_tracker.reading(), Some(grok_seed), "failed grok usage probe must not erase restored reading");
 
         // 3. When claude-transcript.json maps this tab's uuid to a transcript path that is confirmed gone, clear the reading.
-        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir, None).expect("the hook folder").transcript();
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let gone_path = dir.join("confirmed-gone.jsonl");
         let meta_json = serde_json::json!({
             "session_id": "uuid-resumed",

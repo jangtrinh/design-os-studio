@@ -21,10 +21,10 @@ fn old_output_names(run_id: u64) -> Vec<String> {
 }
 
 /// The payload a CLI feeds a hook on stdin: what the prompt, tool and capture handlers read.
-const PAYLOAD: &str = r#"{"session_id":"sid-1","transcript_path":"/nonexistent/transcript.jsonl","hook_event_name":"UserPromptSubmit","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
+pub(super) const PAYLOAD: &str = r#"{"session_id":"sid-1","transcript_path":"/nonexistent/transcript.jsonl","hook_event_name":"UserPromptSubmit","tool_name":"Bash","tool_input":{"command":"ls"}}"#;
 
 /// Every `command` string below `value`, in document order.
-fn commands_in(value: &serde_json::Value, out: &mut Vec<String>) {
+pub(super) fn commands_in(value: &serde_json::Value, out: &mut Vec<String>) {
     match value {
         serde_json::Value::Object(map) => {
             for (key, inner) in map {
@@ -39,7 +39,7 @@ fn commands_in(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
-fn commands_of_file(path: &Path) -> Vec<String> {
+pub(super) fn commands_of_file(path: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let mut out = Vec::new();
     commands_in(&serde_json::from_str(&text).expect("the hooks are JSON"), &mut out);
@@ -48,7 +48,7 @@ fn commands_of_file(path: &Path) -> Vec<String> {
 
 /// Which CLI's hooks, and in which mode they are installed.
 #[derive(Clone, Copy, Debug)]
-enum Installed {
+pub(super) enum Installed {
     ClaudeAsk,
     ClaudeSkip,
     Grok,
@@ -56,10 +56,10 @@ enum Installed {
     Gemini,
 }
 
-const EVERY_CLI: [Installed; 5] = [Installed::ClaudeAsk, Installed::ClaudeSkip, Installed::Grok, Installed::Antigravity, Installed::Gemini];
+pub(super) const EVERY_CLI: [Installed; 5] = [Installed::ClaudeAsk, Installed::ClaudeSkip, Installed::Grok, Installed::Antigravity, Installed::Gemini];
 
 /// A window whose session folder holds the hooks of `which`, with the commands of those hooks.
-fn window_with_hooks(which: Installed, file_path: Option<&Path>) -> (crate::test_timing::ScopedTerminalState, Vec<String>) {
+pub(super) fn window_with_hooks(which: Installed, file_path: Option<&Path>) -> (crate::test_timing::ScopedTerminalState, Vec<String>) {
     let mode = if matches!(which, Installed::ClaudeSkip | Installed::Grok | Installed::Antigravity) { PermissionMode::Skip } else { PermissionMode::Ask };
     let mut st = tab_state_in(mode);
     assert!(st.reset_agent_run(file_path).is_none(), "the agent files are written");
@@ -68,7 +68,7 @@ fn window_with_hooks(which: Installed, file_path: Option<&Path>) -> (crate::test
         Installed::ClaudeSkip => st.session_dir.join("hooks.json"),
         Installed::Grok => st.session_dir.join(".grok/hooks/designos-status.json"),
         Installed::Antigravity => st.session_dir.join(".agents/hooks.json"),
-        Installed::Gemini => crate::gemini_status_hooks::prepare_for_tab(&st.session_dir, file_path, 1, AgentPermissionMode::Ask, AgentCliPreset::Gemini)
+        Installed::Gemini => crate::gemini_status_hooks::prepare_for_tab(&st.session_dir, 1, AgentPermissionMode::Ask, AgentCliPreset::Gemini)
             .expect("Gemini's status hooks are written in Ask mode"),
     };
     let commands = commands_of_file(&hooks_file);
@@ -82,7 +82,7 @@ fn run_hook(command: &str, session: &Path, run_id: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-fn run_hook_with(command: &str, session: &Path, run_id: &str, before_input: impl FnOnce(u32)) -> std::process::Output {
+pub(super) fn run_hook_with(command: &str, session: &Path, run_id: &str, before_input: impl FnOnce(u32)) -> std::process::Output {
     use std::io::Write;
     let mut child = Command::new("sh")
         .arg("-c")
@@ -94,7 +94,7 @@ fn run_hook_with(command: &str, session: &Path, run_id: &str, before_input: impl
         .env("DESIGNOS_APPROVAL_TIMEOUT_MS", "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("sh starts");
     // A hook reads its payload first, so whoever knows the pid of the shell has time to plant a name that depends on it.
@@ -239,7 +239,7 @@ fn a_link_at_a_reply_file_is_not_read_by_the_prompt_hook_into_the_agents_context
 }
 
 /// The quoted absolute paths of `command` whose last part is one of the files a hook writes.
-fn hook_files_named_in(command: &str) -> Vec<PathBuf> {
+pub(super) fn hook_files_named_in(command: &str) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for part in command.split('\'').skip(1).step_by(2) {
         let path = Path::new(part);
@@ -253,7 +253,7 @@ fn hook_files_named_in(command: &str) -> Vec<PathBuf> {
 }
 
 #[test]
-fn every_file_a_hook_writes_lies_outside_the_session_folder_the_open_files_folder_and_every_folder_granted_to_a_cli() {
+fn every_file_a_hook_writes_lies_outside_the_session_folder_and_the_folder_of_a_file_kept_beside_the_data_folder() {
     let files = std::env::temp_dir().join(format!("designos-hook-grants-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&files);
     std::fs::create_dir_all(&files).expect("the open file's folder");
@@ -261,7 +261,9 @@ fn every_file_a_hook_writes_lies_outside_the_session_folder_the_open_files_folde
     for which in EVERY_CLI {
         let (st, commands) = window_with_hooks(which, Some(&file_path));
         // What Studio grants a CLI: its working folder, the folders `--add-dir` and `--include-directories` name (the session
-        // folder again), and the workspace of `designos-mcp` (the open file's folder).
+        // folder again), and the workspace of `designos-mcp` (the open file's folder: this file is kept in a folder of its own, as
+        // most are. For a file kept in a folder that holds the data folder, the extension test below is what keeps its workspace
+        // harmless).
         let grants: Vec<PathBuf> =
             [Some(st.session_dir.clone()), st.session_dir.canonicalize().ok(), Some(files.clone()), files.canonicalize().ok()].into_iter().flatten().collect();
         let mut written = Vec::new();
@@ -327,4 +329,45 @@ fn the_turn_mark_hook_still_counts_the_bytes_of_a_patch_log_that_is_a_plain_file
     let line = std::fs::read_to_string(marks.join("turn-marks.jsonl")).expect("the mark");
     assert_eq!(line.trim(), r#"{"v":1,"turn_mark":"end","cli":"claude","patch_bytes":12}"#);
     let _ = std::fs::remove_dir_all(&marks);
+}
+
+#[test]
+fn no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write() {
+    // The hook folder can lie inside the folder `designos-mcp` serves (`--workspace`, the open file's folder: a file kept in the home
+    // folder). That server creates only names that end in `designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS`, so a hook file must
+    // never end in one of them. A change on either side, a new ending there or a new name here, trips this test.
+    let st = tab_state_in(PermissionMode::Ask);
+    let paths = st.prepared_hook_paths();
+    let mut names: std::collections::BTreeSet<String> = [
+        paths.status(),
+        paths.events(),
+        paths.turn_marks(),
+        paths.transcript(),
+        paths.delivered_marker(7),
+        paths.page_reply(),
+        paths.bootstrap_reply(),
+        paths.compact_reply(),
+        crate::skills::hook_delivery::reply_file(paths.dir(), 3, 1),
+    ]
+    .iter()
+    .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string))
+    .collect();
+    // The names the commands derive from those: the locks and the temporary file of a capture.
+    for which in EVERY_CLI {
+        let (_window, commands) = window_with_hooks(which, None);
+        for command in &commands {
+            names.extend(hook_files_named_in(command).iter().filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string)));
+        }
+    }
+    for expected in ["agent-events.jsonl.lock", "claude-transcript.json.lock", "claude-transcript.json.tmp."] {
+        assert!(names.iter().any(|name| name.starts_with(expected)), "the commands name no {expected}: {names:?}");
+    }
+
+    for name in &names {
+        let ending = Path::new(name).extension().and_then(|extension| extension.to_str()).unwrap_or_default().to_ascii_lowercase();
+        assert!(
+            !designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS.contains(&ending.as_str()),
+            "{name} ends in .{ending}, a name designos-mcp writes below its workspace"
+        );
+    }
 }

@@ -30,7 +30,7 @@ impl Drop for Writable {
 }
 
 /// True for root, which writes into a read-only folder: a test of the refusal of such a write does not apply.
-pub(super) fn running_as_root() -> bool {
+pub(crate) fn running_as_root() -> bool {
     // SAFETY: `geteuid` takes no arguments and cannot fail.
     unsafe { libc::geteuid() == 0 }
 }

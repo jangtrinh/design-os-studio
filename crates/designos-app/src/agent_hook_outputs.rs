@@ -34,10 +34,14 @@
 //! | OpenCode | `opencode "$DESIGNOS_SESSION_DIR"` | none |
 //! | every tab | `designos-mcp --workspace <the open file's folder>` (Studio's working folder for a file with no path), which writes `.designos`, `.png` and `.fig` names only | |
 //!
-//! So the folders to stay out of are the session folder, the open file's folder, `$TMPDIR`, `/tmp` and `/var/tmp`. The private root is
-//! checked against the temp folders (`agent_approval_channel::default_private_root`), and [`HookPaths::prepare`] against the open
-//! file's folder; a folder it cannot keep private means no hook reports there at all, and the tab shows no status (the same as a tab of
-//! a CLI with no hooks).
+//! So the folders to stay out of are the session folder, `$TMPDIR`, `/tmp` and `/var/tmp`. The private root is checked against the temp
+//! folders (`agent_approval_channel::default_private_root`); a folder Studio cannot keep private means no hook reports there at all,
+//! and the tab shows no status (the same as a tab of a CLI with no hooks).
+//!
+//! The open file's folder is the one grant that can contain the data folder (a file kept in the home folder, or in a folder with no
+//! path at all, which Studio serves from its working folder). It is not checked, because `designos-mcp` writes only the names that end
+//! in `designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS` (`.designos`, `.png`, `.fig`), and no name in the hook folder does: a test
+//! lists every name this module hands out and every name a hook command derives from one, and fails on the first with such an ending.
 //!
 //! `doc-patch.jsonl` stays in the session folder, because `designos-mcp` writes it there. A hook only reads its length, with `stat`,
 //! which neither opens it (a FIFO planted there cannot block the hook) nor writes anything.
@@ -97,38 +101,22 @@ impl HookPaths {
     }
 
     /// Makes the folder (owner-only, never through a link, with the private channel folder above it) and returns its paths. Fails when
-    /// Studio has no private data folder, when the folder cannot be made private, or when it would lie inside `file_path`'s folder,
-    /// which `designos-mcp` can write: no hook may then report there, and the caller installs none.
-    pub fn prepare(session_dir: &Path, file_path: Option<&Path>) -> io::Result<HookPaths> {
-        let folder = file_path.and_then(Path::parent).filter(|folder| !folder.as_os_str().is_empty());
-        // A unit test keeps its private root in the temp folder, so a file there would always overlap with it: that is not a place
-        // the production root can be.
-        #[cfg(test)]
-        let folder = folder.filter(|folder| folder.canonicalize().ok() != std::env::temp_dir().canonicalize().ok());
-        HookPaths::prepare_outside(session_dir, folder)
-    }
-
-    /// [`HookPaths::prepare`] with the folder to stay out of named: the open file's folder, or none.
-    pub fn prepare_outside(session_dir: &Path, folder: Option<&Path>) -> io::Result<HookPaths> {
+    /// Studio has no private data folder or when the folder cannot be made private: no hook may then report anywhere, and the caller
+    /// installs none that writes or reads a file.
+    ///
+    /// The open file's folder is not checked. It can contain the data folder, and `designos-mcp` serves it, but that server writes only
+    /// the names that end in `.designos`, `.png` or `.fig` (see the module doc), and no name in this folder does.
+    pub fn prepare(session_dir: &Path) -> io::Result<HookPaths> {
         let channel = crate::agent_approval_channel::prepare_channel_dir(session_dir)?;
         let paths = HookPaths { session_dir: session_dir.to_path_buf(), dir: channel.join(DIR_NAME) };
-        if let Some(folder) = folder {
-            if paths.lies_in(folder) {
-                return Err(io::Error::other(format!(
-                    "{} lies inside this file's folder, {}, which an agent's tools can write",
-                    paths.dir.display(),
-                    folder.display()
-                )));
-            }
-        }
         crate::agent_session_files::create_session_dir_all(&paths.dir)?;
         Ok(paths)
     }
 
-    /// Whether the hook folder lies inside `folder`, as either is spelled or resolved through the links above it.
-    pub fn lies_in(&self, folder: &Path) -> bool {
-        let resolve = crate::agent_approval_channel::resolve_existing_prefix;
-        self.dir.starts_with(folder) || resolve(&self.dir).starts_with(resolve(folder))
+    /// Whether the hook folder is there: made by [`HookPaths::prepare`], and not gone since. A session with none has no hook installed
+    /// that writes or reads a file.
+    pub fn is_made(&self) -> bool {
+        std::fs::symlink_metadata(&self.dir).is_ok_and(|meta| meta.is_dir())
     }
 
     /// The folder itself.
@@ -189,8 +177,15 @@ mod tests {
         std::env::temp_dir().join("designos-sessions").join(format!("hook-out-{tag}-{}", std::process::id()))
     }
 
-    /// The production hook folder sits outside every folder an agent can write: not in the session folder, not in the open file's
-    /// folder, not in `$TMPDIR`, `/tmp` or `/var/tmp`, whichever way each is spelled.
+    /// Whether `inner` lies inside `folder`, as either is spelled or resolved through the links above it.
+    fn lies_in(inner: &Path, folder: &Path) -> bool {
+        let resolve = crate::agent_approval_channel::resolve_existing_prefix;
+        inner.starts_with(folder) || resolve(inner).starts_with(resolve(folder))
+    }
+
+    /// The production hook folder sits outside the folders Studio grants a CLI and the folders its own sandbox adds: not in the session
+    /// folder, not in `$TMPDIR`, `/tmp` or `/var/tmp`, whichever way each is spelled. The open file's folder is the one grant it can
+    /// lie in; `no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write` is what makes that harmless.
     #[test]
     fn the_production_hook_folder_lies_outside_every_folder_an_agent_can_write() {
         // A test harness with HOME under a temp folder has no production root (`default_private_root` refuses it, which the test of the
@@ -201,7 +196,8 @@ mod tests {
         let channel = crate::agent_approval_channel::channel_dir_in(&root, &session_dir).expect("a channel folder");
         let paths = HookPaths { session_dir: session_dir.clone(), dir: channel.join(DIR_NAME) };
         // Every grant of the table in the module doc: the session folder (the working folder and what `--add-dir`,
-        // `--include-directories` and `--cwd` name), the folders of the open files below, and the temp folders.
+        // `--include-directories` and `--cwd` name) and the temp folders. A folder of an open file is a grant too, whichever folder the
+        // file is in, so a few of them that do not hold the data folder are checked as well.
         let open_files_folders = [
             std::env::temp_dir().join("a-designs-folder"),
             PathBuf::from("/tmp/designs"),
@@ -213,7 +209,7 @@ mod tests {
             [paths.status(), paths.events(), paths.turn_marks(), paths.transcript(), paths.delivered_marker(3), paths.page_reply(), paths.bootstrap_reply()]
         {
             for grant in &grants {
-                assert!(!paths.lies_in(grant), "the hook folder {} lies in {}", paths.dir().display(), grant.display());
+                assert!(!lies_in(paths.dir(), grant), "the hook folder {} lies in {}", paths.dir().display(), grant.display());
                 assert!(!file.starts_with(grant), "{} lies in {}", file.display(), grant.display());
             }
         }
@@ -222,22 +218,11 @@ mod tests {
     }
 
     #[test]
-    fn a_file_whose_folder_holds_the_hook_folder_gets_no_hook_folder() {
-        let session_dir = session("guard");
-        // A file kept in a folder above the data folder (the home folder, say): its folder is the workspace of `designos-mcp`.
-        let above = crate::agent_approval_channel::private_root().expect("a test root").parent().expect("a parent").to_path_buf();
-        let err = HookPaths::prepare_outside(&session_dir, Some(&above)).expect_err("the folder lies in the folder of the open file");
-        assert!(err.to_string().contains("lies inside this file's folder"), "{err}");
-        assert!(HookPaths::prepare_outside(&session_dir, Some(&above.join("a-folder-beside"))).is_ok(), "a folder beside it is fine");
-        crate::agent_approval_channel::remove_channel(&session_dir);
-    }
-
-    #[test]
     fn without_a_private_data_folder_every_path_is_one_no_read_or_write_can_use() {
         crate::agent_approval_channel::without_private_root(|| {
             let paths = HookPaths::locate(&session("none"));
             assert!(paths.status().starts_with(crate::agent_session_files::unavailable_path("")), "{}", paths.status().display());
-            assert!(HookPaths::prepare(&session("none"), None).is_err());
+            assert!(HookPaths::prepare(&session("none")).is_err());
             assert!(crate::agent_session_files::read_session_text(&paths.status()).is_none());
             assert!(crate::agent_session_files::atomic_write_session_file(&paths.status(), b"{}").is_err());
         });
@@ -245,11 +230,11 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn prepare_makes_an_owner_only_folder_next_to_the_approval_channel_and_the_routed_helpers_use_it() {
+    fn prepare_makes_an_owner_only_folder_inside_the_approval_channel_and_the_routed_helpers_use_it() {
         use std::os::unix::fs::PermissionsExt;
         let session_dir = session("made");
         crate::agent_approval_channel::remove_channel(&session_dir);
-        let paths = HookPaths::prepare(&session_dir, None).expect("the hook folder is made");
+        let paths = HookPaths::prepare(&session_dir).expect("the hook folder is made");
         assert_eq!(std::fs::metadata(paths.dir()).expect("a folder").permissions().mode() & 0o777, 0o700);
         assert_eq!(paths.dir().parent(), crate::agent_approval_channel::channel_dir(&session_dir).as_deref());
         crate::agent_session_files::atomic_write_session_file(&paths.events(), b"one\n").expect("a routed write into the hook folder");

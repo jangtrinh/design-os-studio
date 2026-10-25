@@ -32,18 +32,20 @@ fn the_claude_grok_and_agy_status_hooks_stay_byte_identical() {
     let one = status_hook_command(status, "PreToolUse", "working");
     assert_eq!(
         one,
-        r#"{ p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PreToolUse","p":%s}' "$(date +%s)" "$p"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir '/s/agent-events.jsonl.lock' 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\n' "$line" >> '/s/agent-events.jsonl'; if [ "$got_lock" = 1 ]; then rmdir '/s/agent-events.jsonl.lock' 2>/dev/null || true; fi; }; printf '{"state":"working","run_id":"%s"}\n' "${DESIGNOS_AGENT_RUN_ID:-}" > '/s/agent-status.json'"#
+        r#"{ p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PreToolUse","p":%s}' "$(date +%s)" "$p"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir '/s/agent-events.jsonl.lock' 2>/dev/null; then got_lock=1; break; fi; [ -e '/s/agent-events.jsonl.lock' ] || break; sleep 0.01; i=$((i+1)); done; { printf '%s\n' "$line" >> '/s/agent-events.jsonl'; } 2>/dev/null; if [ "$got_lock" = 1 ]; then rmdir '/s/agent-events.jsonl.lock' 2>/dev/null || true; fi; }; { printf '{"state":"working","run_id":"%s"}\n' "${DESIGNOS_AGENT_RUN_ID:-}" > '/s/agent-status.json'; } 2>/dev/null || true"#
     );
-    // The pins below changed once, when the hooks moved to a folder beside the approval channel and the turn-mark hook began to measure
-    // the patch log with `stat` instead of `wc -c <` (which opens a FIFO an agent planted there and waits for it). The size command
-    // differs between macOS and the rest, so it is named in the text that is hashed, and the pins hold on every platform.
+    // The pins below changed twice: when the hooks moved to a folder no agent grant reaches and the turn-mark hook began to measure the
+    // patch log with `stat` instead of `wc -c <` (which opens a FIFO an agent planted there and waits for it); and when every hook
+    // learned to end at once, quietly and with success over a folder it cannot write (the lock loop leaves when no lock is there, every
+    // write is silenced). The size command differs between macOS and the rest, so it is named in the text that is hashed, and the pins
+    // hold on every platform.
     let platform_free = |value: &serde_json::Value| {
         crate::agent_sessions::fnv1a_64(value.to_string().replace(crate::agent_turn_marks::SIZE_OF_COMMAND, "<size of>").as_bytes())
     };
     let claude = session_hooks_settings_with_approval(status, Some(1), None, true);
-    assert_eq!(platform_free(&claude), 17639265978705599556, "claude");
-    assert_eq!(platform_free(&session_hooks_settings(status, None, false)), 15989822006165617021, "grok");
-    assert_eq!(platform_free(&agy_session_hooks(status)), 10114618310895550110, "agy");
+    assert_eq!(platform_free(&claude), 6561890326296676990, "claude");
+    assert_eq!(platform_free(&session_hooks_settings(status, None, false)), 4997215177674353351, "grok");
+    assert_eq!(platform_free(&agy_session_hooks(status)), 14534362815708219633, "agy");
 }
 
 #[test]

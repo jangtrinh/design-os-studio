@@ -134,23 +134,16 @@ pub fn remove_tab_file(session_dir: &Path, tab_id: usize) {
 
 /// Writes the status-hooks file of a Gemini tab started in `mode` and returns its path, the value for
 /// [`SYSTEM_DEFAULTS_ENV`]. `None` when the tab is not a Gemini tab in Ask mode, when Gemini has system defaults of its own,
-/// when the hooks have no folder to report to (`HookPaths::prepare`, given the open file's path `file_path`), or when the file
+/// when the hooks have no folder to report to (`HookPaths::prepare`), or when the file
 /// cannot be written; the caller then leaves the tab's environment alone and the tab reads its waits from its
 /// screen. Written before the tab starts, so the variable never names a file that is not there.
-pub fn prepare_for_tab(session_dir: &Path, file_path: Option<&Path>, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
-    prepare_for_tab_on(cfg!(unix), session_dir, file_path, tab_id, mode, preset)
+pub fn prepare_for_tab(session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
+    prepare_for_tab_on(cfg!(unix), session_dir, tab_id, mode, preset)
 }
 
 /// [`prepare_for_tab`] with the platform's shell named: `posix_shell` is false where Gemini runs a hook through PowerShell,
 /// which cannot parse the POSIX command the handlers use.
-pub fn prepare_for_tab_on(
-    posix_shell: bool,
-    session_dir: &Path,
-    file_path: Option<&Path>,
-    tab_id: usize,
-    mode: AgentPermissionMode,
-    preset: AgentCliPreset,
-) -> Option<PathBuf> {
+pub fn prepare_for_tab_on(posix_shell: bool, session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
     if preset != AgentCliPreset::Gemini {
         return None;
     }
@@ -171,7 +164,7 @@ pub fn prepare_for_tab_on(
             return None;
         }
     };
-    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(session_dir, file_path) {
+    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(session_dir) {
         Ok(paths) => paths,
         Err(e) => {
             eprintln!("design:os studio: Gemini CLI status hooks are off for this session, no hook can report: {e}");

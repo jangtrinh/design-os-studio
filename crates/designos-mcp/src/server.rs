@@ -21,6 +21,19 @@ use std::{
     sync::Mutex,
 };
 
+/// The one file name ending `designos_save_file` writes below the workspace.
+const SAVE_EXTENSION: &str = "designos";
+/// The one file name ending `designos_render_png` writes below the workspace.
+const RENDER_EXTENSION: &str = "png";
+/// The one file name ending `designos_export_fig_file` writes below the workspace.
+const EXPORT_FIG_EXTENSION: &str = "fig";
+
+/// Every file name ending the tools of this server create below the workspace (`--workspace`, the open file's folder). A tool refuses
+/// any other, so a file with none of these endings in the workspace is out of its reach. Studio relies on it: its hook folder lies
+/// in the data folder, which can lie inside a workspace, and none of the names kept there ends in one of these
+/// (`agent_hook_outputs`).
+pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, EXPORT_FIG_EXTENSION];
+
 pub struct DesignOSServer {
     session: Mutex<Session>,
 }
@@ -646,7 +659,7 @@ impl Session {
 
     fn output_path_allow_overwrite(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
         let requested = self.root.join(path);
-        if !matches!(requested.extension().and_then(|x| x.to_str()), Some("designos")) {
+        if requested.extension().and_then(|x| x.to_str()) != Some(SAVE_EXTENSION) {
             return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path must end in .designos")
                 .with_received(json!(path))
                 .with_expected("*.designos"));
@@ -685,7 +698,7 @@ impl Session {
 
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         let requested = self.root.join(path);
-        if requested.extension().and_then(|x| x.to_str()) != Some("png") {
+        if requested.extension().and_then(|x| x.to_str()) != Some(RENDER_EXTENSION) {
             return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path must end in .png").with_received(json!(path)).with_expected("*.png"));
         }
         let parent = requested
@@ -708,7 +721,7 @@ impl Session {
 
     fn fig_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         let requested = self.root.join(path);
-        if requested.extension().and_then(|x| x.to_str()) != Some("fig") {
+        if requested.extension().and_then(|x| x.to_str()) != Some(EXPORT_FIG_EXTENSION) {
             return Err(ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path must end in .fig")
                 .with_received(json!(path))
                 .with_expected("*.fig"));

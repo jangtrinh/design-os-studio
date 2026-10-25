@@ -136,7 +136,8 @@ impl Dir {
                 return locked(&dest.path, "move anything into it");
             }
         }
-        cannot("moved", path, e, Fix::CheckItAndItsFolder)
+        // Neither descriptor shows who refuses, so the line names the folder the entry is in by its path, next to the entry.
+        failed(e.kind(), format!("{} can't be moved out of {}: {e}", path.display(), self.path.display()), Fix::CheckItAndItsFolder)
     }
 
     /// Whether this folder is locked: immutable or append-only (Finder's "Locked", `chflags uchg`), which refuses a rename in or out.

@@ -154,7 +154,9 @@ pub(crate) const SIZE_OF_COMMAND: &str = "/usr/bin/stat -L -f %z";
 pub(crate) const SIZE_OF_COMMAND: &str = "stat -L -c %s";
 
 /// Shell command that appends a `{"v":TURN_MARK_VERSION,"turn_mark":"...","cli":"...","patch_bytes":N}` JSON line
-/// to `mark_path`, where `N` is the current byte length of `patch_log_path` (or `0` when absent, unreadable or not a number).
+/// to `mark_path`, where `N` is the current byte length of `patch_log_path` (or `0` when absent, unreadable or not a number). A link
+/// with nothing behind it is not "absent" on macOS: BSD `stat -L` falls back to the link itself and prints the length of its text. The
+/// patch log is the one an agent can write anyway, and a mark only says where in it a turn began, so a number it chose changes nothing.
 /// `mark_path` lies in the hook folder (`agent_hook_outputs`); `patch_log_path` is the one file in the session folder that a hook
 /// touches, and it is only measured, never opened. Produces no stdout so CLI hook output contracts remain untouched.
 pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &str, cli: &str) -> String {
@@ -162,6 +164,6 @@ pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &s
     let patch_q = sh_quote_path(patch_log_path);
     format!(
         "n=$( ({SIZE_OF_COMMAND} {patch_q}) 2>/dev/null || echo 0); case \"$n\" in ''|*[!0-9]*) n=0;; esac; \
-         printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}"
+         {{ printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}; }} 2>/dev/null || true"
     )
 }
