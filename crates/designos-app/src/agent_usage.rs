@@ -1088,6 +1088,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON")]
     fn two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings() {
         let dir = temp_test_dir("two-claude-tabs");
         let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
@@ -1135,6 +1136,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON")]
     fn claude_clear_rotates_session_id_and_restarts_tab_usage_reading() {
         let dir = temp_test_dir("claude-clear-rotate");
         let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);

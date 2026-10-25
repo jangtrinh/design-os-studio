@@ -233,6 +233,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "splits colon-separated Unix PATH and XDG_DATA_DIRS")]
     fn the_environment_falls_back_to_the_standard_data_dirs() {
         let env = ProbeEnv::from_vars(Some("/usr/bin:/bin"), None, None, Some("/home/u"), false);
         assert_eq!(env.path_dirs, [PathBuf::from("/usr/bin"), PathBuf::from("/bin")]);

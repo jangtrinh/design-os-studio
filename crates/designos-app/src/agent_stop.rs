@@ -504,6 +504,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stop_ends_a_looping_stub_within_three_seconds() {
         designos_doc::set_mock_now_ms(Some(1_000));
         let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Claude, false);
@@ -528,6 +529,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn second_key_is_sent_only_if_still_running() {
         // Case A: a stub that keeps painting and ignores the first key (Esc) -> gets Ctrl+C at t = 3s, and no third key.
         let mut tab_ignores = spawn_chatty_stub_tab(1, AgentCliPreset::Claude, 2);
@@ -568,6 +570,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn no_key_is_sent_after_the_turn_ended() {
         let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Grok, false);
         if let Ok(mut st) = tab.agent_status.lock() {
@@ -693,6 +696,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn in_progress_flags_clear_on_stop() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();
@@ -719,6 +723,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn live_spec_flag_without_run_id_clears_on_stop_of_the_writing_tab() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();
@@ -785,6 +790,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_stop_leaves_it() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = app_with_agent_tab("sess-live-1-1");
@@ -803,6 +809,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_turn_end_leaves_it() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = app_with_agent_tab("sess-live-1-1");
@@ -818,6 +825,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn nested_spec_flags_without_a_run_id_get_the_agent_tab_run_id_and_explicit_ones_keep_theirs() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = app_with_agent_tab("sess-live-1-1");
@@ -853,6 +861,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();
@@ -883,6 +892,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn receipt_says_stopped_by_you() {
         assert_eq!(format_stopped_receipt(1_000, 43_000), "Stopped by you after 42s");
 
@@ -898,6 +908,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stop_after_user_shapes_and_earlier_turn_only_folds_active_turn_and_resets_receipt_clock() {
         designos_doc::set_mock_now_ms(Some(1_000));
         let mut app = new_test_app();
@@ -995,6 +1006,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh PTY stub")]
     fn osc_status_in_pty_does_not_erase_stopped_until_new_working_turn() {
         let script = "python3 -u -c 'import sys\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nline = sys.stdin.readline()\nsys.stdout.write(\"\\x1b]9999;done\\x07AFTER_IDLE\\n\")\nsys.stdout.flush()\nline2 = sys.stdin.readline()\nsys.stdout.write(\"\\x1b]9999;working:Next turn\\x07AFTER_WORK\\n\")\nsys.stdout.flush()\n'";
         let mut cmd = CommandBuilder::new("sh");
@@ -1038,6 +1050,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn esc_in_the_terminal_reaches_the_cli_unchanged() {
         let mut state = TerminalState::default();
         let tab = spawn_looping_stub_tab(1, AgentCliPreset::Grok, true);
@@ -1053,6 +1066,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn esc_in_the_chrome_stops() {
         let mut state = TerminalState::default();
         let tab = spawn_looping_stub_tab(1, AgentCliPreset::Grok, true);
@@ -1072,6 +1086,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stop_all_stops_every_running_tab() {
         let mut state = TerminalState::default();
         state.tabs.push(spawn_looping_stub_tab(1, AgentCliPreset::Claude, false));
@@ -1094,6 +1109,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn codex_heuristic_stop_folds_all_patches_and_preserves_elapsed_receipt() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();
@@ -1230,6 +1246,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stopped_turn_reads_as_stopped_in_the_receipt_row_and_header_status() {
         let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Claude, false);
         tab.turn_tracker.on_event(&hook_record(1.0, "UserPromptSubmit"));
@@ -1274,6 +1291,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stopped_turn_closes_its_ledger_turn_and_revert_after_a_user_undo_still_covers_every_step() {
         let mut app = new_test_app();
         let page = app.page;
@@ -1369,6 +1387,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let (mut app, _events) = app_with_hooked_turn(spawn_quiet_after_interrupt_stub_tab(1, AgentCliPreset::Claude));
@@ -1426,6 +1445,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn a_cli_that_prints_nothing_after_the_key_is_not_closed_by_quiet_and_ends_in_the_still_running_notice() {
         designos_doc::set_mock_now_ms(Some(1_000));
         let mut tab = spawn_silent_after_interrupt_stub_tab(1, AgentCliPreset::Claude);
@@ -1454,6 +1474,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn a_chatty_cli_stays_pending_across_the_real_quiet_window() {
         designos_doc::set_mock_now_ms(Some(1_000));
         // Paints a dot every 50 ms and exits only after two keys, so it is never quiet for 600 ms.
@@ -1474,6 +1495,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn a_new_prompt_closes_the_pending_stop_so_the_next_turn_never_folds_with_it() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let (mut app, events) = app_with_hooked_turn(spawn_chatty_stub_tab(1, AgentCliPreset::Claude, 99));
@@ -1520,6 +1542,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "needs POSIX sh and python tty/termios PTY stub")]
     fn folding_a_stopped_turn_remaps_the_ledger_of_every_tab() {
         let mut app = new_test_app();
         app.terminal.tabs.push(spawn_looping_stub_tab(1, AgentCliPreset::Claude, true));

@@ -2374,6 +2374,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "spawns #!/bin/sh custom CLI stub via unquoted POSIX path")]
     fn a_custom_cli_tab_gets_the_skills_pasted_and_is_not_recorded_as_claude() {
         let _turn = one_pty_test_at_a_time();
         let dir = temp_composer_dir("skills-custom-cli");
