@@ -252,6 +252,15 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.content = text;
             props.runs.clear();
             props.lists.clear();
+            if props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+                let intrinsic = designos_doc::estimate_intrinsic_text_size(props);
+                if u.width.is_none() {
+                    node.size.x = intrinsic.x;
+                }
+                if u.height.is_none() {
+                    node.size.y = intrinsic.y;
+                }
+            }
         }
     }
     let changed = doc.get(id) != Some(&node);
