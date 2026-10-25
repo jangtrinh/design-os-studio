@@ -186,6 +186,7 @@ pub struct App {
     /// Pastes whose clipboard image is still being read.
     pub paste_jobs: std::collections::VecDeque<crate::system_paste::PasteJob>,
     pub toast: Option<Toast>,
+    pub toast_queue: std::collections::VecDeque<Toast>,
     pub file_path: Option<PathBuf>,
     pub now: f64,
     pub keep_tool: bool,
@@ -282,6 +283,7 @@ impl App {
             system_image: crate::system_paste::system_image,
             paste_jobs: Default::default(),
             toast: None,
+            toast_queue: Default::default(),
             file_path: None,
             now: 0.0,
             keep_tool: false,
@@ -345,16 +347,22 @@ impl App {
                 error = true;
             }
         }
-        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None });
+        let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None };
+        if self.now > 0.0 && self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && self.now < t.until) {
+            self.toast_queue.push_back(next);
+            return;
+        }
+        self.toast = Some(next);
     }
 
     /// A toast that stays long enough to read and offers to show `path` in its folder.
     pub fn show_toast_with_reveal(&mut self, text: impl Into<String>, path: PathBuf) {
-        self.show_toast(text, false);
-        if let Some(toast) = self.toast.as_mut() {
-            toast.reveal = Some(path);
-            toast.until = self.now + theme::TOAST_REVEAL_SECONDS;
-        }
+        self.show_toast_with_reveal_status(text, false, path);
+    }
+
+    /// A toast that offers to show `path` in its folder, keeping `error` when a fallback or warning occurred.
+    pub fn show_toast_with_reveal_status(&mut self, text: impl Into<String>, error: bool, path: PathBuf) {
+        self.toast = Some(Toast { text: text.into(), until: self.now + theme::TOAST_REVEAL_SECONDS, error, reveal: Some(path) });
     }
 
     /// Marks the document as modified so the canvas texture is re-rendered.

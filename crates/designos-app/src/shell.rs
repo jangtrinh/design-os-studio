@@ -998,11 +998,14 @@ impl Shell {
         if self.shot.as_ref().is_some_and(|s| s.no_toast) {
             return;
         }
-        let Some(t) = &self.app.toast else { return };
-        if self.app.now > t.until {
-            self.app.toast = None;
-            return;
+        if self.app.now > self.app.toast.as_ref().map_or(0.0, |t| t.until) {
+            self.app.toast = self.app.toast_queue.pop_front().map(|mut next| {
+                let duration = if next.reveal.is_some() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
+                next.until = self.app.now + duration;
+                next
+            });
         }
+        let Some(t) = &self.app.toast else { return };
         let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
         let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
@@ -1031,6 +1034,7 @@ impl Shell {
         }
         if let (true, Some(file)) = (reveal_clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
+                self.app.toast = None;
                 self.app.show_toast(e, true);
             }
         }

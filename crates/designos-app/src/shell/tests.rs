@@ -1148,6 +1148,7 @@ mod live_patch_agent_switch_guards;
 mod menus;
 mod pages_layers_separator;
 mod palette_autofix_undo;
+mod panel_export;
 mod panel_keys;
 mod proto;
 mod proto_vars;

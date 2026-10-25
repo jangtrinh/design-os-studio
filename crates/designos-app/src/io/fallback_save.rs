@@ -9,14 +9,13 @@ pub fn user_home() -> Option<PathBuf> {
     ["HOME", "USERPROFILE"].iter().find_map(|name| std::env::var_os(name).filter(|v| !v.is_empty())).map(PathBuf::from)
 }
 
-/// `Downloads` inside `home`, or `home` itself when there is no such folder.
+/// `Downloads` inside `home`, creating it when missing so exports never fall back to `~`.
 pub fn fallback_dir_in(home: &Path) -> PathBuf {
     let downloads = home.join("Downloads");
-    if downloads.is_dir() {
-        downloads
-    } else {
-        home.to_path_buf()
+    if !downloads.exists() {
+        let _ = std::fs::create_dir(&downloads);
     }
+    downloads
 }
 
 const MAX_STEM_CHARS: usize = 100;
@@ -86,11 +85,15 @@ mod tests {
     }
 
     #[test]
-    fn the_fallback_is_home_when_downloads_is_missing_or_a_file() {
+    fn the_fallback_is_always_downloads_and_never_home() {
         let home = scratch("home_without_downloads");
-        assert_eq!(fallback_dir_in(&home), home);
+        assert_eq!(fallback_dir_in(&home), home.join("Downloads"));
+        assert!(home.join("Downloads").is_dir(), "missing Downloads folder is created");
+        std::fs::remove_dir_all(home.join("Downloads")).unwrap();
         std::fs::write(home.join("Downloads"), b"not a folder").unwrap();
-        assert_eq!(fallback_dir_in(&home), home);
+        assert_eq!(fallback_dir_in(&home), home.join("Downloads"));
+        assert!(write_new_in(&fallback_dir_in(&home), "a.png", b"x").is_err(), "blocked Downloads errors instead of writing to ~");
+        assert!(!home.join("a.png").exists());
         std::fs::remove_dir_all(&home).ok();
     }
 

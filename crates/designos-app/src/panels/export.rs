@@ -206,6 +206,8 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
     // Created before the button so the button sits on top of it.
     let title_resp = ui.interact(title, ui.id().with("export-title"), Sense::click());
     let plus = at(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+    widgets::record(ui, "title-action:Export", plus);
+    widgets::record(ui, "export-add", plus);
     if widgets::icon_button(ui, plus, "export-add", Icon::Plus, false, "Add export setting").clicked() {
         edit = Some(RowEdit::Add(rows.last().cloned().unwrap_or_default()));
     }
@@ -312,6 +314,7 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
 
     // Export button.
     let btn = at(theme::SECTION_CONTENT_X, y, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+    widgets::record(ui, "export-btn", btn);
     let resp = ui.interact(btn, ui.id().with("export-btn"), Sense::click());
     ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     icons::paint(ui.painter(), Icon::Export, Pos2::new(btn.left() + 16.0, btn.center().y), 14.0, theme::ICON_SECONDARY);
@@ -439,14 +442,14 @@ enum Sink {
 }
 
 impl Sink {
-    fn write(&self, job: &ExportJob, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    fn write(&self, job: &ExportJob, bytes: &[u8]) -> Result<PathBuf, (PathBuf, std::io::Error)> {
         match self {
-            Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()),
+            Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()).map_err(|e| (path.clone(), e)),
             Sink::Dir { dir, keep_existing: false } => {
                 let path = dir.join(&job.file);
-                std::fs::write(&path, bytes).map(|()| path)
+                std::fs::write(&path, bytes).map(|()| path.clone()).map_err(|e| (path, e))
             }
-            Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes),
+            Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes).map_err(|e| (dir.join(&job.file), e)),
         }
     }
 }
@@ -502,9 +505,9 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
         };
         match sink.write(job, &bytes) {
             Ok(path) => written.push(path),
-            Err(e) => {
+            Err((path, e)) => {
                 drop(doc);
-                app.show_toast(format!("{lead}Export failed: {e}"), true);
+                app.show_export_write_error(without_dialog, &path, &e);
                 return;
             }
         }
@@ -514,10 +517,15 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
     let warn = without_dialog || !failed.is_empty();
     match (written.as_slice(), &sink) {
         ([], _) => app.show_toast(format!("Nothing exported{skipped}"), true),
-        ([one], _) if without_dialog => app.show_toast(format!("{lead}Saved to {}{skipped}", one.display()), warn),
-        ([one], _) => app.show_toast(format!("Exported {}{skipped}", one.display()), warn),
-        (many, Sink::Dir { dir, .. }) if without_dialog => app.show_toast(format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display()), warn),
-        (many, _) => app.show_toast(format!("Exported {} files{skipped}", many.len()), warn),
+        ([one], _) if without_dialog => app.show_toast_with_reveal_status(format!("{lead}Saved to {}{skipped}", one.display()), warn, one.clone()),
+        ([one], _) => app.show_toast_with_reveal_status(format!("Exported {}{skipped}", one.display()), warn, one.clone()),
+        (many, Sink::Dir { dir, .. }) if without_dialog => {
+            app.show_toast_with_reveal_status(format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display()), warn, many[0].clone())
+        }
+        (many, Sink::Dir { dir, .. }) => {
+            app.show_toast_with_reveal_status(format!("Exported {} files to {}{skipped}", many.len(), dir.display()), warn, many[0].clone())
+        }
+        (many, Sink::File(path)) => app.show_toast_with_reveal_status(format!("Exported {} files{skipped}", many.len()), warn, path.clone()),
     }
 }
 
