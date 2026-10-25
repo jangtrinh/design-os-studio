@@ -84,7 +84,7 @@ Gates today: no gate counts colour literals. `scripts/check_spacing_relationship
 | Tab close button | hover | C `Buttons/Button · Hierarchy=Tertiary` destructive hover: `bg-error-solid` `#DC2626` with `fg-white` `#FFFFFF` (4.83:1) | `#E11D48` + white |
 | Unsaved-changes dot, rail help dot | default | `fg-brand-secondary` per R4 (provisional `#F97316`, A decides) | `#0D99FF` literal |
 | File-kind badge (design, board, deck) | default | Untitled utility colours, 600 step: design `utility-blue-600` `#60A5FA`, board `utility-amber-600` `#FBBF24`, deck `utility-orange-600` `#FB923C`; tint = same colour at A's tint alpha | `#0D99FF`, `#F59E0B`, `#FF6A3D` literals |
-| Dev-mode accent (tab Dev badge, Dev mode segment, Dev toggle) | default, hover | the Dev role decided in spec G (controller default `DEV_READY` `#14AE5C`); label/icon on it `on-brand-label` `#0A0A0A` (new name, spec C; 6.82:1) | `#1BC47D`, `#22D489`, white icon (2.27:1) |
+| Dev-mode accent (tab Dev badge, Dev mode segment, Dev toggle) | default, hover | the Dev role decided in spec G (controller default `DEV_READY` `#14AE5C`); label/icon on it `on-brand-label` `#0A0A0A` (new name for the R4 dark label; `Neutral-950` in spec C's draft; 6.82:1) | `#1BC47D`, `#22D489`, white icon (2.27:1) |
 | Focus ring (every focusable control in this spec) | focused | `focus-ring` `#F97316` (R4), drawn per C | none on most shell controls |
 | Ruler ticks / labels / strip | default | ticks `fg-quaternary` `#737373`; labels `text-tertiary` `#A3A3A3` (7.85:1 on `#0A0A0A`) | `RULER_TICK` white 40 %, `RULER_TEXT` white 70 % |
 | Ruler selection band and its labels, ruler guides and guide badge | default | Studio canvas exceptions (controller default): selection `#0D99FF`, guides `#F24822`; badge label `fg-white` | unchanged values, badge text literal white (`rulers.rs:422`) |
@@ -189,10 +189,12 @@ Acceptance criteria:
 
 Run: `cargo test -p designos-app --bin designos theme::`, `cargo test -p designos-app --bin designos panels::toolbar`, `cargo test -p designos-app --bin designos panels::rail`, `cargo test -p designos-app --bin designos widgets::menu`, `cargo test -p designos-app --bin designos tabs::`, `python3 scripts/check_spacing_relationships.py`, `python3 scripts/zero_fake_ui_gate.py`, `python3 scripts/design_os_self_evolve.py`, `cargo fmt --all --check`, `cargo clippy -p designos-app --all-targets -- -D warnings`.
 
-**Evidence commands.** Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME` and the exit code shown. `KIT` is a copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` in a scratch folder (never the original); `OUT` is a scratch folder; each kit run takes about 50 s plus build-lock waits. Run the same list after the change and put both sets in the PR.
+**Evidence commands.** The exit codes were recorded through the spec writer's wrapper (`run-shot.sh` in the writer's scratch folder, not in the repo), which ran `cargo run -q --release -p designos-app --bin designos -- <the same arguments>` from the repo root with an isolated `HOME` and absolute scratch paths. Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME` and the exit code shown. `KIT` is a copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` in a scratch folder (never the original); `OUT` is a scratch folder; each kit run takes about 50 s plus build-lock waits. Run the same list after the change and put both sets in the PR.
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home" "$S/lib"
+cd "$(git rev-parse --show-toplevel)"   # repo root: cargo run -p needs it
+export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home" "$S/lib" "$S/shots"; OUT="$S/shots"
+KIT="$S/untitled-ui-kit-copy.fig"; cp "$HOME/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig" "$KIT"   # a copy, never the original
 RUN() { env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" cargo run -q --release -p designos-app --bin designos -- "$@"; echo "exit $?"; }
 RUN "$KIT" --screenshot "$OUT/D-01-editor-default.png" --size 1600x1088 --no-toast                       # exit 0: tab bar, rail, toolbar, rulers
 RUN "$KIT" --screenshot "$OUT/D-07-select-frame.png" --size 1600x1088 --no-toast --select "Welcome to Untitled UI"   # exit 0: selected state, ruler band
@@ -200,9 +202,9 @@ RUN "$KIT" --screenshot "$OUT/D-02-menu-main.png" --size 1600x1088 --no-toast --
 RUN "$KIT" --screenshot "$OUT/D-03-menu-main-file.png" --size 1600x1088 --no-toast --menu main/File   # exit 0: File submenu
 RUN "$KIT" --screenshot "$OUT/D-04-menu-shape.png" --size 1600x1088 --no-toast --menu shape           # exit 0: tool-group menu
 RUN "$KIT" --screenshot "$OUT/D-05-menu-palette.png" --size 1600x1088 --no-toast --menu palette       # exit 0: Actions palette
-RUN "$KIT" --screenshot "$OUT/D-06-menu-zoom.png" --size 1600x1088 --no-toast --menu zoom             # exit EXIT_D06: zoom menu (accepted by preset_menu, menus.rs:599-602, not listed in --help)
-RUN --home --library "$S/lib" --screenshot "$OUT/D-08-home-tab-bar.png" --size 1600x1088 --no-toast   # exit EXIT_D08: tab bar with Home active
-RUN "$KIT" --screenshot "$OUT/D-09-dev-css.png" --size 1600x1088 --no-toast --dev css --select "Welcome to Untitled UI"  # exit EXIT_D09: Dev toolbar, Dev badge
+RUN "$KIT" --screenshot "$OUT/D-06-menu-zoom.png" --size 1600x1088 --no-toast --menu zoom             # exit 1 twice ("designos: screenshot was not captured"): zoom menu (accepted by preset_menu, menus.rs:599-602, not listed in --help)
+RUN --home --library "$S/lib" --screenshot "$OUT/D-08-home-tab-bar.png" --size 1600x1088 --no-toast   # exit 0: tab bar with Home active
+RUN "$KIT" --screenshot "$OUT/D-09-dev-css.png" --size 1600x1088 --no-toast --dev css --select "Welcome to Untitled UI"  # exit 1 twice ("designos: screenshot was not captured"): Dev toolbar, Dev badge
 ```
 
 Not capturable from the CLI today: the title bar (hidden in screenshot mode), hover and focus states, the contextual floating bar (hidden while a toast is pending, `toolbar.rs:121-128`), tab close hover. The PR shows these with a manual window capture, labelled manual.
@@ -218,6 +220,7 @@ Not capturable from the CLI today: the title bar (hidden in screenshot mode), ho
 - Build order: A (roles in `theme.rs`) and B (scale) land first; C's widgets next; L's baseline captures before the first surface PR. Then this spec: role swap per file (tabs, title bar, rail, toolbar, menus and palette, rulers), then R5 type and heights, then evidence.
 - **#1106 (icon-only rail, P2, open, assigned by the PM to an Argon worker on 2026-10-25).** It removes the rail labels, adds tooltips and reduces the rail width. That conflicts with R1 ("same widths") unless L's baseline is taken after #1106 merges. Recommended order: #1106 first, L re-baselines the rail, then D restyles (Open question 2). D must not reintroduce labels.
 - **#1108 (Pages/Layers separator, P1).** Worktree `agy-1108-separator` exists with no commits yet. It touches `panels/left.rs` (E) and `theme.rs`; no D file. Its brand-highlight handle should use the same `bg-brand-solid` role as the shell's resize handles (rule 2).
+- **Spec L edits `shell.rs` first** (region rects `:1383-1398` recorded into the app state, screenshot write `:445-460` also writing `--layout-json`; `specs/L-layout-unchanged-gate-baseline-capture.md`). L lands before D, so D rebases on it; D owns `shell.rs` for the revamp only after L merges.
 - **Open PRs touching D files** (`gh pr list --state open`, 2026-10-25): #1081 `fix/issue-1009-cli-export-writers` (`shell.rs`); #770, #768, #765 (stale `task/5xx` branches touching `shell.rs`, `tabs.rs`, `panels/toolbar.rs`, `panels/menus.rs`, `panels/rail.rs`, `theme.rs`, `widgets/menu.rs`). Rebase on whichever merges first; the stale three need a decision from the PM before this spec starts.
 
 ## 13. Owner rulings that apply

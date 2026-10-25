@@ -176,10 +176,13 @@ Acceptance criteria:
 
 Run: `cargo test -p designos-app --bin designos panels::layers`, `cargo test -p designos-app --bin designos panels::left`, `cargo test -p designos-app --bin designos find::filter`, `cargo test -p designos-app --bin designos theme::`, `python3 scripts/check_spacing_relationships.py`, `python3 scripts/zero_fake_ui_gate.py`, `python3 scripts/design_os_self_evolve.py`, `cargo fmt --all --check`, `cargo clippy -p designos-app --all-targets -- -D warnings`.
 
-**Evidence commands.** Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME`; exit codes shown. `KIT` is a scratch copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` (never the original). `FIX` is a small fixture built with `--apply-spec` from the JSON below (component, instance, hidden layer, nested group, long name); the CLI cannot lock a layer (NodeSpec has `visible` but no `locked`).
+**Evidence commands.** The exit codes were recorded through the spec writer's wrapper (`run-shot.sh` in the writer's scratch folder, not in the repo), which ran `cargo run -q --release -p designos-app --bin designos -- <the same arguments>` from the repo root with an isolated `HOME` and absolute scratch paths. Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME`; exit codes shown. `KIT` is a scratch copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` (never the original). `FIX` is a small fixture built with `--apply-spec` from the JSON below (component, instance, hidden layer, nested group, long name); the CLI cannot lock a layer (NodeSpec has `visible` but no `locked`).
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home"
+cd "$(git rev-parse --show-toplevel)"   # repo root: cargo run -p needs it
+export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home" "$S/shots"; OUT="$S/shots"
+KIT="$S/untitled-ui-kit-copy.fig"; cp "$HOME/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig" "$KIT"   # a copy, never the original
+FIX="$S/e-layers.designos"
 RUN() { env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" cargo run -q --release -p designos-app --bin designos -- "$@"; echo "exit $?"; }
 cat > "$S/e-layers.spec.json" <<'JSON'
 {"kind":"frame","name":"Revamp fixture","width":480,"height":360,"fill":"#FFFFFF","layout":{"direction":"column","gap":12,"padding":[24,24,24,24]},
@@ -192,11 +195,12 @@ cat > "$S/e-layers.spec.json" <<'JSON'
  ]}
 JSON
 FIX="$S/e-layers.designos"
-RUN "$FIX" --apply-spec "$S/e-layers.spec.json"                                                         # exit EXIT_E00: builds the fixture
-RUN "$FIX" --screenshot "$OUT/E-03-fixture-rows.png" --size 1600x1088 --no-toast --select "Revamp fixture"   # exit EXIT_E03: component, instance, hidden, nested, long-name rows
+RUN "$FIX" --apply-spec "$S/e-layers.spec.json"                                                         # exit 0: builds the fixture
+RUN "$FIX" --screenshot "$OUT/E-03-fixture-rows.png" --size 1600x1088 --no-toast --select "Revamp fixture"   # exit 0: selected top-level row; the tree stays collapsed
+RUN "$FIX" --screenshot "$OUT/E-03b-fixture-rows-expanded.png" --size 1600x1088 --no-toast --select "Nested text"   # exit 1 once ("designos: screenshot was not captured"): selecting a nested layer expands its ancestors: component, instance, hidden, nested, long-name rows
 RUN "$KIT" --screenshot "$OUT/D-01-editor-default.png" --size 1600x1088 --no-toast                      # exit 0: header, Pages (group label, divider), Layers (shared with spec D)
 RUN "$KIT" --screenshot "$OUT/D-07-select-frame.png" --size 1600x1088 --no-toast --select "Welcome to Untitled UI"   # exit 0: selected layer row (shared with spec D)
-RUN "$KIT" --screenshot "$OUT/E-04-dev-left.png" --size 1600x1088 --no-toast --dev css --dev-demo --select "Welcome to Untitled UI"  # exit EXIT_E04: Dev section, Ready icon on the page row, Dev tabs
+RUN "$KIT" --screenshot "$OUT/E-04-dev-left.png" --size 1600x1088 --no-toast --dev css --dev-demo --select "Welcome to Untitled UI"  # exit 1 once ("designos: screenshot was not captured"): Dev section, Ready icon on the page row, Dev tabs
 ```
 
 Not capturable from the CLI today: hover, keyboard focus, multi-select (`--select` takes one name), locked rows, the layer filter row (no flag opens it), inline rename and drag indicators. The PR covers them with the new paint tests above and a manual window capture, labelled manual.

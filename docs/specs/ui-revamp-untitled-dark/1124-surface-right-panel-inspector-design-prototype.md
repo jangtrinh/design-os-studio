@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Issue | #1124 (epic #1118, spec key F) |
-| Size | L. Four to five days: 17 owned files, 84 chrome colour sites (8 of them canvas-overlay handles that move to theme constants), every inspector field and section on C's anatomy, R5 field and label sizes in a 240 px panel. Splittable into F1 (header, tabs, footer, `properties.rs` sections) and F2 (`inspect.rs`, `prototype.rs`, picker and popovers) if the PM wants two PRs. |
+| Size | L. Four to five days: 17 owned files, 84 literal colour sites (60 chrome choices, 16 canvas overlays that move to theme constants, 7 placeholders, 1 allowlisted image tint), every inspector field and section on C's anatomy, R5 field and label sizes in a 240 px panel. Splittable into F1 (header, tabs, footer, `properties.rs` sections) and F2 (`inspect.rs`, `prototype.rs`, picker and popovers) if the PM wants two PRs. |
 | Depends on | A (colour roles and `theme.rs` colour constants), B (type, spacing, radius and control-size scale), C (widget anatomy and states, `specs/C-widget-kit-untitled-anatomy.md`) and L (layout-unchanged gate and baselines). G for the Dev role (Dev-mode Share and plugins row) and for the Dev sections drawn inside the Inspect panel. |
 | Unblocks | M (docs and screenshot refresh). |
 | Touches | `crates/designos-app/src/panels/right.rs` (`:11-181` header, tabs, footer; `:183-315` Dev plugins; `:317-381` frame presets); `panels/properties.rs` (`:177-353` pane, titles, sublabels, segmented, checkbox; `:389-710` page, styles and selection-colour sections; `:711-1427` selection, dimensions, resizing, auto layout, grid; `:1438-1680` paints; `:1819-2247` picker popup and gradient handles); `panels/inspect.rs` (`:17-21`, `:302-812`); `panels/prototype.rs`; `panels/proto_actions.rs`; `panels/components.rs`; `panels/export.rs`; `panels/stroke.rs`; `panels/effects.rs`; `panels/typography.rs`; `panels/layoutguide.rs`; `panels/vertex.rs`; `panels/var_bind.rs`; `panels/style_picker.rs`; `panels/style_edit.rs`; `panels/style_edit_grid_rows.rs`; `crates/designos-app/src/widgets/picker.rs`. Reads only: the right-panel constants in `theme.rs` (`:318-396`, A and B). |
@@ -64,9 +64,10 @@ PY
 
 The plan's line method (`grep -cE 'Color32::from_rgba?(_unmultiplied|_premultiplied)?\(|Color32::from_gray\(' <file>`, tests included) gives `inspect.rs` 13, `properties.rs` 6, `right.rs` 7, `prototype.rs` 6, `picker.rs` 7, `typography.rs` 3, `effects.rs` 1, `layoutguide.rs` 1. It counts the 8 converters and misses named colours, so this spec uses the census above.
 
-Classification of the 84 chrome sites:
-- **Chrome colour choices (63)**: become A roles (section 3).
-- **Canvas or content overlays (19)**: gradient handles (`properties.rs:2106-2108`, `:2143-2144`, `:2173`, 7 sites), picker handles and thumbs over the colour field (`picker.rs:666`, `:670`, `:1001`, `:1002`, `:1193`, `:1483`, `:1484`, 7 sites), the measurement pill label (`inspect.rs:812`), and the grey placeholders for image or empty paints (`properties.rs:474`, `:572`, `:634`, `:1444`, `:1445` is one of these, `:2305`; `picker.rs:681`). Handles and labels keep their values but move to theme canvas constants (A; `CANVAS_HANDLE_FILL` exists, the black-alpha outline is a new name). Placeholders take one role (decision 4).
+Classification of the 84 chrome sites (per-line counts from the same command with a `Counter`; 60 + 16 + 7 + 1 = 84):
+- **Chrome colour choices (60)**: become A roles (section 3).
+- **Canvas or content overlays (16)**: gradient handles (`properties.rs:2106`, `:2107`, `:2108`, `:2143`, `:2144`, `:2173` ×2; 7 sites), picker handles and thumbs drawn over the colour field (`picker.rs:666`, `:670`, `:1001`, `:1002`, `:1193`, `:1483`, `:1484`; 7 sites), the measurement pill label (`inspect.rs:812`) and the type-details baseline guide (`typography.rs:619`). They keep their values and move to theme constants (A; `CANVAS_HANDLE_FILL` exists, the others are new names).
+- **Placeholder swatches (7)**: the grey shown for image or empty paints (`properties.rs:474`, `:572`, `:634`, `:1444`, `:1445`, `:2305`; `picker.rs:681`). They take one role (decision 4).
 - **Identity image tint (1)**: `export.rs:307` passes `Color32::WHITE` as the tint of `Painter::image`, not a colour choice. It is the only allowlisted site.
 - The 8 computed sites convert document colours (content) and stay.
 
@@ -74,7 +75,7 @@ Gates today: no colour-literal gate (spec D section 5 proposes one, owned by A).
 
 ## 3. Behaviour rules
 
-1. **Colours from roles only.** The 63 chrome choices become A roles, the 19 overlay sites become theme constants, and only `export.rs:307` stays literal (allowlisted identity tint).
+1. **Colours from roles only.** The 60 chrome choices and the 7 placeholders become A roles, the 16 overlay sites become theme constants, and only `export.rs:307` stays literal (allowlisted identity tint).
 2. **Role map** (provisional names until A lands; A wins):
 
 | Element | State | Role (Untitled dark) | Today |
@@ -89,7 +90,7 @@ Gates today: no colour-literal gate (spec D section 5 proposes one, owned by A).
 | Field prefix labels and icons (X, Y, W, H, rotation) | default | `fg-quaternary` `#737373` icons, `text-quaternary` `#A3A3A3` letters | `TEXT_SECONDARY`, `ICON_SECONDARY` |
 | Segmented icon groups (alignment, flow, text align) | default, hover, selected | C segmented control: track `bg-secondary`, selected segment C Selected (neutral), icon `fg-primary` when selected | `BG_SECONDARY`, `BG_SELECTED`, white |
 | Secondary buttons (Copy to Slide Deck, Update auto layout, Show prototype settings, + Add redlines, Copy MCP link, Send to Agent Terminal) | default, hover, focused | `Buttons/Button · Size=xs · Hierarchy=Secondary`: `bg-primary` fill, `border-primary`, `text-secondary` → hover per C | `#2C2C2C`/`#383838` literals |
-| Share | default, hover, focused | `Buttons/Button · Size=xs · Hierarchy=Primary`: `bg-brand-solid` `#E36323`, label `on-brand-label` `#0A0A0A` (new name, spec C; 5.73:1), hover `bg-brand-solid_hover` per C, in both modes (decision 1) | `#0D99FF` / `#1BC47D` + white |
+| Share | default, hover, focused | `Buttons/Button · Size=xs · Hierarchy=Primary`: `bg-brand-solid` `#E36323`, label `on-brand-label` `#0A0A0A` (new name for the R4 dark label; `Neutral-950` in spec C's draft; 5.73:1), hover `bg-brand-solid_hover` per C, in both modes (decision 1) | `#0D99FF` / `#1BC47D` + white |
 | Present, zoom, avatar | default, hover | `Buttons/Button · Size=xs · Hierarchy=Tertiary` (zoom: C dropdown trigger) | `button_bg`, `BG_HOVER` |
 | Avatar circle | default | Untitled avatar placeholder: `utility-orange-600` `#FB923C` fill with `on-brand-label` initial (new name), or C's avatar if C defines one | `#F59E0B` + white |
 | Design/Prototype (Inspect/Plugins) tabs | default, hover, selected | C segmented control (`Horizontal tabs`, button type; C name TBD): selected C Selected (neutral) + `text-primary`; others `text-quaternary` | `BG_SECONDARY`, `TEXT_SECONDARY` |
@@ -201,17 +202,19 @@ Acceptance criteria:
 
 Run: `cargo test -p designos-app --bin designos panels::right`, `cargo test -p designos-app --bin designos panels::properties`, `cargo test -p designos-app --bin designos panels::inspect`, `cargo test -p designos-app --bin designos panels::prototype`, `cargo test -p designos-app --bin designos panels::typography`, `cargo test -p designos-app --bin designos widgets::picker`, `cargo test -p designos-app --bin designos theme::`, `python3 scripts/check_spacing_relationships.py`, `python3 scripts/zero_fake_ui_gate.py`, `python3 scripts/design_os_self_evolve.py`, `cargo fmt --all --check`, `cargo clippy -p designos-app --all-targets -- -D warnings`.
 
-**Evidence commands.** Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME`; exit codes shown. `KIT` is a scratch copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` (never the original).
+**Evidence commands.** The exit codes were recorded through the spec writer's wrapper (`run-shot.sh` in the writer's scratch folder, not in the repo), which ran `cargo run -q --release -p designos-app --bin designos -- <the same arguments>` from the repo root with an isolated `HOME` and absolute scratch paths. Each was run once on HEAD `ec47da26` by the spec writer with an isolated `HOME`; exit codes shown. `KIT` is a scratch copy of `~/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` (never the original).
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home"
+cd "$(git rev-parse --show-toplevel)"   # repo root: cargo run -p needs it
+export PATH="$HOME/.cargo/bin:$PATH"; S="$(mktemp -d)"; mkdir -p "$S/home" "$S/shots"; OUT="$S/shots"
+KIT="$S/untitled-ui-kit-copy.fig"; cp "$HOME/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig" "$KIT"   # a copy, never the original
 RUN() { env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" cargo run -q --release -p designos-app --bin designos -- "$@"; echo "exit $?"; }
 RUN "$KIT" --screenshot "$OUT/D-01-editor-default.png" --size 1600x1088 --no-toast                      # exit 0: no selection: Page and Styles sections, header, tabs, footer (shared with D)
 RUN "$KIT" --screenshot "$OUT/D-07-select-frame.png" --size 1600x1088 --no-toast --select "Welcome to Untitled UI"   # exit 0: Design tab with a frame (shared with D)
-RUN "$KIT" --screenshot "$OUT/F-02-prototype-tab.png" --size 1600x1088 --no-toast --tab prototype --select "Welcome to Untitled UI"   # exit EXIT_F02: Prototype tab
-RUN "$KIT" --screenshot "$OUT/F-03-picker.png" --size 1600x1088 --no-toast --panel picker --select "Welcome to Untitled UI"           # exit EXIT_F03: colour picker, contrast badge
-RUN "$KIT" --screenshot "$OUT/F-04-type-details.png" --size 1600x1088 --no-toast --panel type-details --select "Welcome to Untitled UI"  # exit EXIT_F04: type-details popover
-RUN "$KIT" --screenshot "$OUT/D-09-dev-css.png" --size 1600x1088 --no-toast --dev css --select "Welcome to Untitled UI"             # exit EXIT_D09: Dev Inspect tab (shared with D and G)
+RUN "$KIT" --screenshot "$OUT/F-02-prototype-tab.png" --size 1600x1088 --no-toast --tab prototype --select "Welcome to Untitled UI"   # exit 0: Prototype tab
+RUN "$KIT" --screenshot "$OUT/F-03-picker.png" --size 1600x1088 --no-toast --panel picker --select "Welcome to Untitled UI"           # exit 1 once ("designos: screenshot was not captured"): colour picker, contrast badge
+RUN "$KIT" --screenshot "$OUT/F-04-type-details.png" --size 1600x1088 --no-toast --panel type-details --select "Welcome to Untitled UI"  # exit 0: type-details popover
+RUN "$KIT" --screenshot "$OUT/D-09-dev-css.png" --size 1600x1088 --no-toast --dev css --select "Welcome to Untitled UI"             # exit 1 twice ("designos: screenshot was not captured"): Dev Inspect tab (shared with D and G)
 ```
 
 Not capturable from the CLI today: hover, focus, the Mixed state, a bound field (needs a document with variables bound to the selection), the Dev Plugins tab (no `--tab` value for it in Dev mode). The PR covers them with the new paint tests and a manual window capture, labelled manual.

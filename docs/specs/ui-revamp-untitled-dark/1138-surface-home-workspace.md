@@ -243,7 +243,7 @@ RUN --home --library "$S/first-run" --screenshot "$OUT/H-02-home-first-run.png" 
 RUN --home --library "$S/lib" --screenshot "$OUT/H-03-home-min-900x600.png" --size 900x600 --no-toast        # exit 0: minimum window, header crowding (rule 7)
 ```
 
-Observed while capturing (all specs H–K, 27 runs under parallel load from other agents): 5 runs printed `designos: screenshot was not captured` and exited 1; every retry of the same command exited 0. If that happens, re-run the command once and note it in the PR. This is plan.md's unconfirmed dogfood gap, now reproduced as load-dependent.
+Observed while capturing (all specs H–K, 37 screenshot runs under parallel load from other agents): 5 runs printed `designos: screenshot was not captured` and exited 1; every retry of the same command exited 0. If that happens, re-run the command once and note it in the PR. This is plan.md's unconfirmed dogfood gap, now reproduced as load-dependent.
 
 Not capturable from the CLI today (no flag selects a Home section, the list view, a hover or a menu): Templates & Specs, Drafts, All folders, Resources & Libraries, Starred, Trash (with and without items), list view, filter and sort menus open, context menu, drag ghost, empty states, focus rings. The PR covers them with the tests above and manual window captures labelled manual. A `--home-section` flag would be a separate issue.
 

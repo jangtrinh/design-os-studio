@@ -32,7 +32,7 @@ This spec fixes those three things and keeps the owner's 512 MiB limit.
 - `designos_open_file`: `len > 512 * 1024 * 1024` returns `FILE_TOO_LARGE` at `/path`, with `received` (bytes) and `expected` `"<= 536870912 bytes"` (`server.rs:842-847`). After loading, `validate_document` refuses more than 1,200,000 layers (`server.rs:1239-1242`), and that error maps to `FILE_TOO_LARGE` (`server.rs:864-866`).
 - `designos_import_web_capture` with a `path`: `len > 64 * 1024 * 1024` returns the plain string `"Input file exceeds the 64 MiB import limit"` (`server.rs:1046-1047`). `ToolError::from_plain_message` turns a message with no code prefix into `INVALID_ARGUMENTS` with path `""` and `safe_to_retry:true` (`errors.rs:591-607`).
 - The rules pack already promises `FILE_TOO_LARGE` for this tool (`rules.rs:557`), so the reply contradicts the documented contract.
-- Studio itself has no file-size limit. `designos_library::load_external` reads the whole file (`designos-library/src/store.rs:134-139`), and the `.fig` container bounds only inflation: 2 GiB per entry, 4 GiB total, ratio 100 (`designos-fig/src/container.rs:9-17`). Studio's `--import-capture` reads the capture file with no limit (`designos-app/src/main.rs:236`).
+- Studio itself has no file-size limit. `designos_library::load_external` reads the whole file (`designos-library/src/store.rs:134-139`), and the `.fig` container bounds only inflation: 2 GiB per entry, 4 GiB total, ratio 100 (`designos-fig/src/container.rs:9-17`). Studio's `--import-capture` reads the capture file with no limit (`designos-app/src/main.rs:238`).
 
 **Why the 512 MiB limit exists (FACT, from the record).**
 - E15-17 §3.5 (`docs/specs/v0.6/E15-17-streaming-large-document-query.md:78-84`) raised it from 64 MiB "for the same reason" as the layer limit: reads became bounded.
@@ -44,7 +44,7 @@ This spec fixes those three things and keeps the owner's 512 MiB limit.
 **Version.** `serverInfo` carries `CARGO_PKG_VERSION` (`server.rs:1450`). The binary has no `--version` argument: `main.rs:6-24` accepts only `--workspace DIR`, `--list-lint-rules` and `--help`, and anything else exits 1 with a usage error.
 
 **Error polish.**
-- `default_next_step` has no arm for `FileTooLarge`, so the reply tells the agent to use `valid_options` or `corrected_example`, which this error never carries (`errors.rs:321`).
+- `default_next_step` has no arm for `FileTooLarge`, so the reply tells the agent to use `valid_options` or `corrected_example`, which this error never carries (`errors.rs:320`).
 - `safe_to_retry` defaults to `true` (`errors.rs:443`), although retrying the same file fails the same way. Fixture 44 records the code (`server.rs:2425-2431`).
 
 **Reproduction (scratch, 2026-10-25).** Workspace `$SCRATCH/uui-ws` holds the kit copy. The client is `$SCRATCH/tools/mcp_client.py`, which by default runs `/Applications/designos.app/Contents/MacOS/designos-mcp`.
