@@ -79,7 +79,26 @@ jobs:
           echo "NODE_PATH=$harness_dir/node_modules" >> "$GITHUB_ENV"
 
       - name: Test workspace
+        if: runner.os != 'Linux'
         run: cargo test --workspace --locked
+
+      - name: Test workspace (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          (while true; do date -u; free -m; df -h /; ps -eo rss,etime,args --sort=-rss | head -8; sleep 10; done) | tee -a "$RUNNER_TEMP/mem.log" &
+          sampler_pid=$!
+          trap "kill $sampler_pid 2>/dev/null || true" EXIT
+          sh -c 'echo 500 > /proc/self/oom_score_adj 2>/dev/null || true; exec cargo test --workspace --locked'
+
+      - name: Print Linux memory diagnostic log
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "=== $RUNNER_TEMP/mem.log ==="
+          cat "$RUNNER_TEMP/mem.log" || true
+          echo "=== dmesg OOM events ==="
+          sudo dmesg -T | grep -iE 'oom|out of memory|killed process' || true
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
