@@ -1,0 +1,131 @@
+=== designos-doc ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.91s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 16 tests
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... ok
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... ok
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file ... FAILED
+test styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step ... FAILED
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+
+failures:
+
+---- styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file stdout ----
+
+thread 'styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file' (47255046) panicked at crates/designos-doc/src/styles_ops.rs:879:45:
+called `Result::unwrap_err()` on an `Ok` value: Batch([])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step stdout ----
+
+thread 'styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step' (47255051) panicked at crates/designos-doc/src/styles_ops.rs:813:9:
+assertion failed: !d.styles.contains_key("FillStyle") && !d.style_meta.contains_key("FillStyle")
+
+
+failures:
+    styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file
+    styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step
+
+test result: FAILED. 14 passed; 2 failed; 0 ignored; 0 measured; 617 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== designos-fig ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.63s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 2 tests
+test a_soft_deleted_style_is_ignored ... ok
+test deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip ... FAILED
+
+failures:
+
+---- deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip stdout ----
+
+thread 'deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip' (47257043) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:569:5:
+deleted style key must not reappear in styles
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+=== designos-app ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-mcp)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-svg)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-export)
+   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-gpu)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-library)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.41s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 7 tests
+test shell::tests::effect_grid_styles::local_styles_list_effect_and_grid_groups ... ok
+test shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu ... FAILED
+test shell::tests::effect_grid_styles::creating_an_effect_style_links_the_layer_in_one_undo_step ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step ... FAILED
+test shell::tests::effect_grid_styles::renaming_an_effect_style_from_the_menu ... ok
+test shell::tests::effect_grid_styles::detaching_and_applying_an_effect_style_from_the_menu ... ok
+test shell::tests::effect_grid_styles::creating_detaching_and_applying_a_grid_style ... ok
+
+failures:
+
+---- shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu stdout ----
+
+thread 'shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu' (47261314) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:176:9:
+assertion `left == right` failed: Effect: a local style can be deleted from the menu
+  left: ("", false)
+ right: ("Delete style", false)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step stdout ----
+
+thread 'shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step' (47261317) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:143:5:
+assertion `left == right` failed
+  left: "Created \"Effect style 1\""
+ right: "Style deleted · Cmd+Z to undo"
+
+
+failures:
+    shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu
+    shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 2933 filtered out; finished in 0.80s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

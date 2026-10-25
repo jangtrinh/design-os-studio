@@ -29,7 +29,7 @@ pub struct StyleEdit {
 }
 
 /// Tooltip (and menu label) of an "Edit style" control for a style that belongs to a library.
-pub(super) const LIBRARY_STYLE_TIP: &str = "Edit in the library file";
+pub(crate) const LIBRARY_STYLE_TIP: &str = "Edit in the library file";
 
 /// A style published by a shared library is read-only in the files that use it, as in Figma.
 pub(super) fn is_read_only(app: &App, key: &str) -> bool {

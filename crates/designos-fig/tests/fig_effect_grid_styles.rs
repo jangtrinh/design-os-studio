@@ -555,3 +555,30 @@ fn effect_style_shadow_vars_round_trip() {
     assert_eq!(spread, 6.0);
     assert_eq!(offset, Vec2::new(8.0, 12.0));
 }
+
+#[test]
+fn deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip() {
+    let mut d = import_fig(&fixture_bytes()).unwrap();
+    let mut h = History::default();
+    let cmd = delete_style(&d, "2:100").expect("delete_style succeeds on local effect style");
+    h.exec(&mut d, cmd).unwrap();
+
+    let bytes = export_fig(&d).expect("export_fig succeeds after deleting style");
+    let d2 = import_fig(&bytes).expect("import_fig succeeds on exported bytes");
+
+    assert!(!d2.styles.contains_key("2:100"), "deleted style key must not reappear in styles");
+    assert!(!d2.style_meta.contains_key("2:100"), "deleted style key must not reappear in style_meta");
+    assert!(d2.style_meta.values().all(|m| m.name != "Shadow/Card"), "no orphan style node named Shadow/Card");
+    for n in d2.nodes.values() {
+        for (slot, target) in &n.style_refs {
+            assert_ne!(target, "2:100", "node {} still points at deleted style 2:100 via {slot}", n.name);
+            assert!(d2.styles.contains_key(target), "node {} has dangling style_ref {slot} -> {target}", n.name);
+        }
+    }
+    for name in ["Modern", "Legacy"] {
+        let n = find(&d2, name);
+        assert!(!n.style_refs.contains_key("effect"), "{name} has no effect style ref");
+        assert_eq!(drop_shadow_radius(&n.effects[0]), 8.0, "{name} keeps its resolved effect values");
+        assert_eq!(n.style_refs.get("grid").map(String::as_str), Some("2:101"), "{name} keeps its other style refs");
+    }
+}

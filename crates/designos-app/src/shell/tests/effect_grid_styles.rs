@@ -124,3 +124,74 @@ fn local_styles_list_effect_and_grid_groups() {
     s.rect_of("style:Grid style 1");
     s.rect_of("style:Effect style 1");
 }
+
+#[test]
+fn deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step() {
+    let (mut s, welcome) = welcome_sim();
+    let card = s.by_name("Card");
+    pick(&mut s, "effect-style-button", 1, 1);
+    s.shell.app.apply_style(&[card], "Effect style 1");
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+
+    // Rows: the style (0), Create (1), Rename (2), Detach (3), Delete (4), Edit (5).
+    pick(&mut s, "effect-style-button", 4, 1);
+
+    let expected_toast = if cfg!(target_os = "macos") { "Style deleted · Cmd+Z to undo" } else { "Style deleted · Ctrl+Z to undo" };
+    let toast = s.app().toast.as_ref().expect("deleting a style shows a toast");
+    assert!(!toast.error, "delete toast is informational: {}", toast.text);
+    assert_eq!(toast.text, expected_toast);
+    assert!(!s.app().doc.styles.contains_key("Effect style 1"), "the style is removed from doc.styles");
+    for id in [welcome, card] {
+        let n = s.app().doc.get(id).unwrap();
+        assert!(!n.style_refs.contains_key("effect"), "{id:?} lost its style ref");
+        assert_eq!(n.effects, vec![shadow()], "{id:?} kept its resolved effect values");
+    }
+
+    // One undo step restores the style and every linked layer's reference.
+    s.cmd_key(Key::Z);
+    assert!(s.app().doc.styles.contains_key("Effect style 1"), "undo restores the deleted style");
+    for id in [welcome, card] {
+        let n = s.app().doc.get(id).unwrap();
+        assert_eq!(n.style_refs.get("effect").map(String::as_str), Some("Effect style 1"), "{id:?} link is restored");
+        assert_eq!(n.effects, vec![shadow()]);
+    }
+}
+
+#[test]
+fn a_library_style_cannot_be_deleted_from_the_style_menu() {
+    use crate::panels::{style_edit, style_picker};
+    use designos_doc::{ExternalAsset, LibraryAssetKind};
+
+    let (mut s, welcome) = welcome_sim();
+    s.shell.app.create_style_from(welcome, StyleProperty::Effect);
+    s.shell.app.create_style_from(welcome, StyleProperty::Grid);
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    let sel = s.app().selection.clone();
+    let props = [(StyleProperty::Effect, "Effect style 1"), (StyleProperty::Grid, "Grid style 1")];
+
+    for (prop, _) in props {
+        let row = style_picker::delete_style_row(s.app(), &sel, prop);
+        assert_eq!((row.label.as_str(), row.disabled), ("Delete style", false), "{prop:?}: a local style can be deleted from the menu");
+    }
+
+    for (_, key) in props {
+        s.shell.app.doc.library.external.insert(
+            format!("L1/{key}"),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some(key.into()) },
+        );
+    }
+
+    for (prop, _) in props {
+        let row = style_picker::delete_style_row(s.app(), &sel, prop);
+        assert!(row.disabled, "{prop:?}: the Delete style row is disabled for a library style");
+        assert_eq!(row.label, style_edit::LIBRARY_STYLE_TIP, "{prop:?}: the Delete style row shows the A13 wording");
+        assert_eq!(row.tooltip, style_edit::LIBRARY_STYLE_TIP, "{prop:?}: the Delete style row carries the A13 tooltip");
+    }
+
+    // Clicking the disabled Delete style row in the menu leaves the library style and its link intact.
+    pick(&mut s, "effect-style-button", 4, 1);
+    assert!(s.app().doc.styles.contains_key("Effect style 1"));
+    assert_eq!(s.app().doc.get(welcome).unwrap().style_refs.get("effect").map(String::as_str), Some("Effect style 1"));
+}

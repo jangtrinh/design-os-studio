@@ -17,6 +17,32 @@ use egui::{Align2, Id, Pos2, Sense, TextEdit, Ui};
 
 const MENU_W: f32 = 184.0;
 
+const STYLE_DELETED_TOAST: &str = if cfg!(target_os = "macos") { "Style deleted · Cmd+Z to undo" } else { "Style deleted · Ctrl+Z to undo" };
+
+fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
+    let Some(key) = linked_style(app, sel, prop) else { return };
+    app.scrub_end();
+    if app.props.style_edit.as_ref().is_some_and(|s| s.key == key) {
+        app.props.style_edit = None;
+    }
+    if app.props.style_rename == Some(prop) {
+        app.props.style_rename = None;
+    }
+    let mut tx = crate::edit::Tx::new();
+    let applied = delete_style(&app.doc, &key).map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut app.doc, cmd).map_err(|e| e.to_string()));
+    match applied {
+        Ok(()) => {
+            if app.run_tx(tx) {
+                app.show_toast(STYLE_DELETED_TOAST, false);
+            }
+        }
+        Err(e) => {
+            tx.cancel(&mut app.doc);
+            app.show_toast(format!("Style not changed: {e}"), true);
+        }
+    }
+}
+
 fn kind_of(prop: StyleProperty) -> StyleKind {
     if prop == StyleProperty::Effect {
         StyleKind::Effect
@@ -45,6 +71,7 @@ enum Pick {
     Create,
     Rename,
     Detach,
+    Delete,
     Edit,
 }
 
@@ -72,8 +99,13 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Rename style" }).disabled(!linked || read_only));
     items.push(MenuItem::new("Detach style").disabled(!linked));
+    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Delete style" }).disabled(!linked || read_only).tooltip(if read_only {
+        style_edit::LIBRARY_STYLE_TIP
+    } else {
+        ""
+    }));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
-    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
+    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)
 }
 
@@ -88,6 +120,13 @@ pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> 
 pub(crate) fn rename_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
     let (items, picks) = menu_model(app, sel, prop);
     items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Rename)).then_some(item)).expect("the menu always has a Rename style row")
+}
+
+/// The "Delete style" row of the menu, so tests can read its label, tooltip and state.
+#[cfg(test)]
+pub(crate) fn delete_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    let (items, picks) = menu_model(app, sel, prop);
+    items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Delete)).then_some(item)).expect("the menu always has a Delete style row")
 }
 
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and
@@ -122,6 +161,9 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
                 }
                 Some(Pick::Detach) => {
                     app.detach_style_of(sel, prop);
+                }
+                Some(Pick::Delete) => {
+                    delete_linked_style(app, sel, prop);
                 }
                 Some(Pick::Edit) => {
                     if let Some(style) = linked_style(app, sel, prop) {

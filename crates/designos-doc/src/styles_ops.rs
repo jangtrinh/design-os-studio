@@ -308,6 +308,52 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
 }
 
+/// Deletes style `key`, detaching every linked layer while keeping its current
+/// resolved values (including any variable bindings resolved in each layer's
+/// mode) as a single undoable command. A library style is refused.
+pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> {
+    let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
+    let meta_bindings = doc.style_meta.get(key).map(|m| &m.bindings);
+    let mut styles = doc.styles.clone();
+    styles.remove(key);
+    let mut style_meta = doc.style_meta.clone();
+    style_meta.remove(key);
+    let mut cmds = vec![Command::SetStyles { styles, style_meta }];
+    for id in linked_style_nodes(doc, key) {
+        let Some(n) = doc.get(id) else { continue };
+        let mut copy = n.clone();
+        apply_style_values(&mut copy, stored, key);
+        if let Some(bindings) = meta_bindings {
+            for (property, variable) in bindings {
+                if let Some(val) = doc.resolve_variable(id, variable) {
+                    if copy.style_refs.get("stroke").is_some_and(|k| k == key) {
+                        if let Some(rest) = property.strip_prefix("fills/") {
+                            let s_key = format!("strokes/{rest}");
+                            if !copy.variables.bindings.contains_key(&s_key) {
+                                set_bound_property(&mut copy, &s_key, &val);
+                            }
+                        }
+                    }
+                    if copy.style_refs.get("fill").is_some_and(|k| k == key)
+                        || copy.style_refs.get("text").is_some_and(|k| k == key)
+                        || copy.style_refs.get("effect").is_some_and(|k| k == key)
+                    {
+                        if !copy.variables.bindings.contains_key(property) {
+                            set_bound_property(&mut copy, property, &val);
+                        }
+                    }
+                }
+            }
+        }
+        copy.style_refs.retain(|_, v| v != key);
+        cmds.push(Command::Update { node: Box::new(copy) });
+    }
+    Ok(Command::Batch(cmds))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -709,5 +755,171 @@ mod tests {
         let mut loaded = loaded;
         h.exec(&mut loaded, c).unwrap();
         assert_eq!(loaded.get(a).unwrap().effects, vec![shadow(2.0)]);
+    }
+
+    #[test]
+    fn deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_fill".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let light_col = Color::rgb(10, 20, 30);
+        let dark_col = Color::rgb(200, 210, 220);
+        d.variables.insert(
+            "v_fill".into(),
+            Variable {
+                id: "v_fill".into(),
+                name: "Brand/Surface".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: [("light".to_string(), VariableValue::Color(light_col)), ("dark".to_string(), VariableValue::Color(dark_col))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        let f1_id = d.alloc_id();
+        let mut f1 = Node::frame(f1_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f1.fills = vec![Paint::solid(light_col)];
+        f1.effects = vec![shadow(8.0)];
+        f1.kind.frame_props_mut().unwrap().grids = vec![cols(12)];
+        f1.style_refs.insert("fill".into(), "FillStyle".into());
+        f1.style_refs.insert("effect".into(), "EffectStyle".into());
+        f1.style_refs.insert("grid".into(), "GridStyle".into());
+        let f1 = d.insert(page, f1).unwrap();
+
+        let f2_id = d.alloc_id();
+        let mut f2 = Node::frame(f2_id, Rect::new(120.0, 0.0, 100.0, 100.0));
+        f2.variables.modes.insert("c1".into(), "dark".into());
+        f2.fills = vec![Paint::solid(light_col)];
+        f2.effects = vec![shadow(8.0)];
+        f2.kind.frame_props_mut().unwrap().grids = vec![cols(12)];
+        f2.style_refs.insert("fill".into(), "FillStyle".into());
+        f2.style_refs.insert("effect".into(), "EffectStyle".into());
+        f2.style_refs.insert("grid".into(), "GridStyle".into());
+        let f2 = d.insert(page, f2).unwrap();
+
+        let ts = TextStyle { font_size: 24.0, font_weight: 700, ..Default::default() };
+        let t1_id = d.alloc_id();
+        let mut t1 = Node::text(t1_id, Rect::new(0.0, 120.0, 80.0, 30.0), "One", ts.clone());
+        t1.style_refs.insert("text".into(), "TextStyle".into());
+        let t1 = d.insert(page, t1).unwrap();
+
+        let t2_id = d.alloc_id();
+        let mut t2 = Node::text(t2_id, Rect::new(120.0, 120.0, 80.0, 30.0), "Two", ts.clone());
+        t2.style_refs.insert("text".into(), "TextStyle".into());
+        let t2 = d.insert(page, t2).unwrap();
+
+        d.styles.insert("FillStyle".into(), Style::Fill(vec![Paint::solid(light_col)]));
+        d.style_meta.insert(
+            "FillStyle".into(),
+            StyleMeta {
+                name: "FillStyle".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0".to_string(), "v_fill".to_string())].into_iter().collect(),
+            },
+        );
+        d.styles.insert("TextStyle".into(), Style::Text(ts.clone()));
+        d.style_meta.insert("TextStyle".into(), StyleMeta { name: "TextStyle".into(), property: StyleProperty::Text, ..Default::default() });
+        d.styles.insert("EffectStyle".into(), Style::Effect(vec![shadow(8.0)]));
+        d.style_meta.insert("EffectStyle".into(), StyleMeta { name: "EffectStyle".into(), property: StyleProperty::Effect, ..Default::default() });
+        d.styles.insert("GridStyle".into(), Style::Grid(vec![cols(12)]));
+        d.style_meta.insert("GridStyle".into(), StyleMeta { name: "GridStyle".into(), property: StyleProperty::Grid, ..Default::default() });
+
+        let mut h = History::default();
+
+        // 1. Delete FillStyle (bound to v_fill: resolves to light_col on f1, dark_col on f2).
+        let c = delete_style(&d, "FillStyle");
+        run(&mut d, &mut h, c);
+        assert!(!d.styles.contains_key("FillStyle") && !d.style_meta.contains_key("FillStyle"));
+        assert!(!d.get(f1).unwrap().style_refs.contains_key("fill"));
+        assert!(!d.get(f2).unwrap().style_refs.contains_key("fill"));
+        assert_eq!(d.get(f1).unwrap().fills, vec![Paint::solid(light_col)]);
+        assert_eq!(d.get(f2).unwrap().fills, vec![Paint::solid(dark_col)], "variable binding on the style resolved in f2's dark mode");
+        h.undo(&mut d).unwrap();
+        assert!(d.styles.contains_key("FillStyle") && d.style_meta.contains_key("FillStyle"));
+        assert_eq!(d.get(f1).unwrap().style_refs.get("fill").map(String::as_str), Some("FillStyle"));
+        assert_eq!(d.get(f2).unwrap().style_refs.get("fill").map(String::as_str), Some("FillStyle"));
+        h.redo(&mut d).unwrap();
+        assert!(!d.styles.contains_key("FillStyle") && !d.get(f1).unwrap().style_refs.contains_key("fill"));
+
+        // 2. Delete TextStyle.
+        let c = delete_style(&d, "TextStyle");
+        run(&mut d, &mut h, c);
+        assert!(!d.styles.contains_key("TextStyle") && !d.style_meta.contains_key("TextStyle"));
+        for id in [t1, t2] {
+            let n = d.get(id).unwrap();
+            assert!(!n.style_refs.contains_key("text"));
+            match &n.kind {
+                NodeKind::Text(tp) => assert_eq!((tp.style.font_size, tp.style.font_weight), (24.0, 700)),
+                other => panic!("expected text, got {other:?}"),
+            }
+        }
+        h.undo(&mut d).unwrap();
+        assert!(d.styles.contains_key("TextStyle"));
+        assert_eq!(d.get(t1).unwrap().style_refs.get("text").map(String::as_str), Some("TextStyle"));
+        assert_eq!(d.get(t2).unwrap().style_refs.get("text").map(String::as_str), Some("TextStyle"));
+        h.redo(&mut d).unwrap();
+
+        // 3. Delete EffectStyle.
+        let c = delete_style(&d, "EffectStyle");
+        run(&mut d, &mut h, c);
+        assert!(!d.styles.contains_key("EffectStyle") && !d.style_meta.contains_key("EffectStyle"));
+        for id in [f1, f2] {
+            let n = d.get(id).unwrap();
+            assert!(!n.style_refs.contains_key("effect"));
+            assert_eq!(n.effects, vec![shadow(8.0)]);
+        }
+        h.undo(&mut d).unwrap();
+        assert!(d.styles.contains_key("EffectStyle"));
+        assert_eq!(d.get(f1).unwrap().style_refs.get("effect").map(String::as_str), Some("EffectStyle"));
+        assert_eq!(d.get(f2).unwrap().style_refs.get("effect").map(String::as_str), Some("EffectStyle"));
+        h.redo(&mut d).unwrap();
+
+        // 4. Delete GridStyle.
+        let c = delete_style(&d, "GridStyle");
+        run(&mut d, &mut h, c);
+        assert!(!d.styles.contains_key("GridStyle") && !d.style_meta.contains_key("GridStyle"));
+        for id in [f1, f2] {
+            assert!(!d.get(id).unwrap().style_refs.contains_key("grid"));
+            assert_eq!(grids(&d, id), vec![cols(12)]);
+        }
+        h.undo(&mut d).unwrap();
+        assert!(d.styles.contains_key("GridStyle"));
+        assert_eq!(d.get(f1).unwrap().style_refs.get("grid").map(String::as_str), Some("GridStyle"));
+        assert_eq!(d.get(f2).unwrap().style_refs.get("grid").map(String::as_str), Some("GridStyle"));
+    }
+
+    #[test]
+    fn a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file() {
+        let (mut d, [fill_node, ..]) = paint_and_text_fixture();
+        d.library.external.insert(
+            "L1/Brand".into(),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some("Brand".into()) },
+        );
+        let err = delete_style(&d, "Brand").unwrap_err();
+        assert!(matches!(&err, StyleOpError::LibraryStyle(k) if k == "Brand"), "expected LibraryStyle error, got {err:?}");
+        assert!(err.to_string().contains("edit it in the library file"));
+        assert!(d.styles.contains_key("Brand"));
+        assert_eq!(d.get(fill_node).unwrap().style_refs.get("fill").map(String::as_str), Some("Brand"));
+        assert!(matches!(delete_style(&d, "nope").unwrap_err(), StyleOpError::UnknownStyle(k) if k == "nope"));
     }
 }

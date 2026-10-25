@@ -123,10 +123,10 @@ fn editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one
 #[test]
 fn editing_a_grid_style_from_the_style_menu_updates_the_linked_frame() {
     let (mut s, welcome, _card) = welcome_with_styles();
-    // The menu rows: the style, then Create, Rename, Detach and Edit style below the separator.
+    // The menu rows: the style, then Create, Rename, Detach, Delete and Edit style below the separator.
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     assert_eq!(s.app().props.style_edit.as_ref().map(|e| e.key.as_str()), Some("Grid style 1"));
     s.frame(vec![]);
@@ -146,7 +146,7 @@ fn a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing() {
     let (mut s, welcome, _card) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     let field = s.field_rect("se-grid-count");
@@ -209,7 +209,7 @@ fn scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step()
     let (mut s, welcome, _card) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     let count_field = s.field_rect("se-grid-count");
@@ -362,7 +362,7 @@ fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
     let (mut s, ..) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     assert_distinct_icons(&s, &["\"se-grid-count\"", "\"se-grid-gutter\"", "\"se-grid-offset\"", "\"se-grid-opacity\""], "Grid style edit popover (Columns)");
