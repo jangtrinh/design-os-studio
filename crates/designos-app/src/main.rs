@@ -158,6 +158,14 @@ fn main() {
         }
         return;
     }
+    if opts.screenshot.is_some() {
+        if let Some(path) = &opts.file {
+            if let Some(message) = screenshot_file_error(path) {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+    }
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();
@@ -205,6 +213,23 @@ fn main() {
 enum SaveTarget {
     Library(designos_library::Library, String),
     Path(std::path::PathBuf),
+}
+
+fn screenshot_file_error(path: &std::path::Path) -> Option<String> {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if comments::import::is_comments_payload(&text) || variables::is_variables_payload(&text) {
+                return None;
+            }
+        }
+    }
+    match io::load_path_with_warning(path) {
+        Ok(_) => None,
+        Err(e) => {
+            let reason = e.lines().next().unwrap_or(&e).trim().trim_end_matches('.');
+            Some(format!("{} could not be opened: {reason}. Check the file, then try again.", path.display()))
+        }
+    }
 }
 
 impl SaveTarget {
@@ -312,7 +337,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
-        let spec: designos_doc::NodeSpec = serde_json::from_str(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
+        let spec = cli::parse_spec_json(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
         let root_id = doc.apply_spec(parent, &spec)?;
         // no window drains the deferred layout here, and the queue is not part of the file
@@ -626,6 +651,187 @@ mod icon_tests {
         let loaded = super::io::load_path(&doc_out).unwrap();
         assert_eq!(loaded.name, "CLI Captured Card — example.com");
         assert!(loaded.nodes.values().any(|n| matches!(&n.kind, designos_doc::NodeKind::Text(t) if t.content == "Captured via CLI")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn build_cli_binaries() -> Vec<(&'static str, std::path::PathBuf)> {
+        static BINS: std::sync::OnceLock<Vec<(&'static str, std::path::PathBuf)>> = std::sync::OnceLock::new();
+        BINS.get_or_init(|| {
+            let exe = std::env::current_exe().expect("test executable path");
+            let profile_dir = exe.parent().and_then(|p| p.parent()).expect("target/<profile> directory").to_path_buf();
+            let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
+            let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()));
+            cmd.args(["build", "-p", "designos-app", "--bins", "--locked", "--manifest-path"]).arg(&manifest);
+            if profile_dir.file_name().is_some_and(|n| n == "release") {
+                cmd.arg("--release");
+            }
+            let status = cmd.status().expect("cargo build -p designos-app --bins");
+            assert!(status.success(), "building designos binaries failed: {status}");
+            let mut out = Vec::new();
+            for name in ["designos", "designos-studio"] {
+                let bin = profile_dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+                assert!(bin.is_file(), "binary not found at {}", bin.display());
+                out.push((name, bin));
+            }
+            out
+        })
+        .clone()
+    }
+
+    fn run_cli_bin(exe: &std::path::Path, cwd: &std::path::Path, args: &[&str]) -> std::process::Output {
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+        let mut child = Command::new(exe)
+            .args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("start {}: {e}", exe.display()));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if child.try_wait().expect("poll child").is_some() {
+                return child.wait_with_output().expect("collect output");
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("{} {args:?} did not exit within 30 s", exe.display());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn cli_screenshot_refuses_broken_files_and_captures_good_file() {
+        let dir = std::env::temp_dir().join(format!("designos_rt04_cli_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut good_doc = designos_doc::Document::new("Good");
+        good_doc.add_page("Page 1");
+        super::io::save_path(&good_doc, &dir.join("good.designos")).unwrap();
+        let fig_bytes = designos_fig::export_fig(&good_doc).expect("export valid .fig");
+
+        std::fs::write(dir.join("trunc.fig"), &fig_bytes[..24.min(fig_bytes.len())]).unwrap();
+        std::fs::write(dir.join("corrupt.designos"), b"{corrupt designos json").unwrap();
+        std::fs::write(dir.join("garbage.fig"), b"not a fig file at all").unwrap();
+
+        let bins = build_cli_binaries();
+        for (bin_name, bin_path) in &bins {
+            for broken in ["trunc.fig", "corrupt.designos", "garbage.fig"] {
+                let png_name = format!("{bin_name}_{broken}.png");
+                let png_path = dir.join(&png_name);
+                let _ = std::fs::remove_file(&png_path);
+                let out = run_cli_bin(bin_path, &dir, &[broken, "--screenshot", &png_name]);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                assert!(!out.status.success(), "{bin_name} {broken} --screenshot must exit non-zero, got {:?}\nstderr: {stderr}", out.status);
+                assert!(!png_path.exists(), "{bin_name} {broken} --screenshot must not write {png_name}");
+                let lines: Vec<&str> = stderr.lines().collect();
+                assert_eq!(lines.len(), 1, "{bin_name} {broken} must print exactly one line to stderr, got: {stderr:?}");
+                assert!(
+                    lines[0].starts_with(&format!("{broken} could not be opened: ")),
+                    "{bin_name} {broken} stderr must start with '{broken} could not be opened: ', got: {:?}",
+                    lines[0]
+                );
+                assert!(
+                    lines[0].ends_with(". Check the file, then try again."),
+                    "{bin_name} {broken} stderr must end with '. Check the file, then try again.', got: {:?}",
+                    lines[0]
+                );
+            }
+        }
+
+        let good_png = dir.join("good.png");
+        let (_, designos_bin) = &bins[0];
+        let mut out = run_cli_bin(designos_bin, &dir, &["good.designos", "--screenshot", "good.png"]);
+        for _ in 0..2 {
+            if out.status.success() || !String::from_utf8_lossy(&out.stderr).contains("screenshot was not captured") {
+                break;
+            }
+            out = run_cli_bin(designos_bin, &dir, &["good.designos", "--screenshot", "good.png"]);
+        }
+        assert!(out.status.success(), "control run on good.designos must exit 0, got {:?}\nstderr: {}", out.status, String::from_utf8_lossy(&out.stderr));
+        assert!(good_png.metadata().is_ok_and(|m| m.len() > 0), "control run on good.designos must write non-empty good.png");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_apply_spec_reports_field_and_expected_type_in_plain_words() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_cli_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("r7.designos");
+        let spec_path = dir.join("aa.json");
+        let mut doc = designos_doc::Document::new("RT07");
+        doc.add_page("Page 1");
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let cases: &[(&str, &str)] = &[
+            (r#"{"name":"Card","children":[[{"kind":"rectangle","name":"Box"}]]}"#, "children must be an array of NodeSpec objects"),
+            (r#"{"name":"Card","children":[[]]}"#, "children must be an array of NodeSpec objects"),
+            (r#"{"name":"Card","children":"nope"}"#, "children must be an array of NodeSpec objects"),
+            (r#"[{"kind":"frame","name":"Card"}]"#, "spec must be a NodeSpec object"),
+            (r#"{"name":"Card","layout":"row"}"#, "layout must be a LayoutSpec object"),
+            (r#"{"name":"Card","layout":[]}"#, "layout must be a LayoutSpec object"),
+            (r#"{"name":"Card","overrides":[[{"path":"Title"}]]}"#, "overrides must be an array of OverrideSpec objects"),
+            (r#"{"name":"Card","overrides":[[]]}"#, "overrides must be an array of OverrideSpec objects"),
+            (r#"{"name":"Card","in_progress":"yes"}"#, "in_progress must be a boolean or an in_progress object"),
+            (r#"{"name":"Card","in_progress":[]}"#, "in_progress must be a boolean or an in_progress object"),
+            (r#"{"name":"Card","width":true}"#, "width must be a number or a \"var:...\" string"),
+            (r#"{"name":"Card","opacity":[]}"#, "opacity must be a number between 0 and 1 or a \"var:...\" string"),
+            (r#"{"name":"Card","corner_radii":[8,8]}"#, "corner_radii must be an array of 4 numbers or \"var:...\" strings"),
+            (r#"{"name":"Card","layout":{"padding":16}}"#, "padding must be an array of 4 numbers or \"var:...\" strings"),
+            (r#"{"name":"Card","visible":123}"#, "visible must be a boolean or a \"var:...\" string"),
+            (r#"{"name":"Card","id":"abc"}"#, "id must be a non-negative integer"),
+            (r#"{"name":"Card","font_weight":"bold"}"#, "font_weight must be a number between 100 and 900"),
+            (r#"{"name":"Card","col_span":"two"}"#, "col_span must be a positive integer"),
+            (r#"{"name":"Card","layout":{"grid_columns":"three"}}"#, "grid_columns must be a positive integer"),
+            (r#"{"name":"Card","x":"left"}"#, "x must be a number"),
+            (r#"{"name":"Card","min_width":true}"#, "min_width must be a number"),
+            (r#"{"name":"Card","clips_content":"yes"}"#, "clips_content must be a boolean"),
+            (r#"{"name":"Card","variant":["md"]}"#, "variant must be an object"),
+            (r#"{"name":"Card","mode":["dark"]}"#, "mode must be an object"),
+            (r#"{"name":"Card","props":[]}"#, "props must be an object"),
+            (r#"{"name":"Card","annotations":"one"}"#, "annotations must be an array of strings"),
+            (r#"{"name":"Card","comments":[[]]}"#, "comments must be an array of comment thread objects"),
+        ];
+
+        let banned_rust_types = [
+            "expected u64",
+            "expected u32",
+            "expected u16",
+            "expected f32",
+            "NumberOrVar",
+            "BoolOrVar",
+            "InProgressSpec",
+            "struct LayoutSpec",
+            "struct NodeSpec",
+            "struct OverrideSpec",
+            "tuple of size 4",
+        ];
+
+        for (raw_json, expected_phrase) in cases {
+            std::fs::write(&spec_path, raw_json).unwrap();
+            let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+            let err = super::run_agent_cli(&opts).expect_err(&format!("spec {raw_json} must be refused"));
+            assert!(err.contains(expected_phrase), "for {raw_json}, expected {expected_phrase:?} in {err:?}");
+            for banned in banned_rust_types {
+                assert!(!err.contains(banned), "for {raw_json}, error must not name Rust type {banned:?}: {err:?}");
+            }
+        }
+
+        std::fs::write(&spec_path, r#"{"name":"Card","children":[[{"kind":"rectangle","name":"Box"}]]}"#).unwrap();
+        let (_, designos_bin) = &build_cli_binaries()[0];
+        let bin_out = run_cli_bin(designos_bin, &dir, &["r7.designos", "--apply-spec", "aa.json"]);
+        let bin_stderr = String::from_utf8_lossy(&bin_out.stderr);
+        assert!(!bin_out.status.success(), "designos r7.designos --apply-spec aa.json must fail");
+        assert!(bin_stderr.contains("children must be an array of NodeSpec objects"), "stderr: {bin_stderr}");
+        assert!(!bin_stderr.contains("expected u64"), "stderr: {bin_stderr}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
