@@ -48,7 +48,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 |---|---|---|---|---|
 | L | 0, first | #1126 | [1126-layout-unchanged-gate-baseline-capture.md](1126-layout-unchanged-gate-baseline-capture.md) | M |
 | A | 0 | #1142 | [1142-onboard-untitled-dark-colour-roles-and-soul.md](1142-onboard-untitled-dark-colour-roles-and-soul.md) | M |
-| B | 0 | — | Untitled type, spacing, radius and control-size scale (spec in progress) | — |
+| B | 0 | #1143 | [1143-untitled-type-spacing-radius-control-scale.md](1143-untitled-type-spacing-radius-control-scale.md) | M |
 | C | 0 | #1139 | [1139-widget-kit-untitled-anatomy.md](1139-widget-kit-untitled-anatomy.md) | L |
 | D | 1 | #1119 | [1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md](1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md) | M |
 | E | 1 | #1120 | [1120-surface-left-panel-pages-layers.md](1120-surface-left-panel-pages-layers.md) | M |
