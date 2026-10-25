@@ -618,5 +618,3 @@ mod icon_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
-
-compile_error!("ci-1161-broken-check-verification");
