@@ -32,17 +32,37 @@
     {
       "id": "prd",
       "name": "PRD",
-      "status": "Planned"
+      "status": "Written",
+      "folder": "prd",
+      "owner_role": "PM"
     },
     {
       "id": "us",
       "name": "Delivery slices as stories",
-      "status": "Planned"
+      "status": "Written",
+      "folder": "us",
+      "owner_role": "PM"
     },
     {
       "id": "delivery",
       "name": "Patch slices v0.7.0-v0.7.4",
-      "status": "Planned"
+      "status": "Written (v0.7.0-v0.7.3)",
+      "folder": "delivery",
+      "owner_role": "PM"
+    },
+    {
+      "id": "tests",
+      "folder": "tests",
+      "name": "Test cases",
+      "status": "Written",
+      "owner_role": "QA"
+    },
+    {
+      "id": "evidence",
+      "folder": "evidence",
+      "name": "Mockups per story",
+      "status": "Written",
+      "owner_role": "PM"
     }
   ]
 }
