@@ -3,7 +3,7 @@
 //! The tab then shows no status, but the CLI must not wait on its hooks or print a failure for every event. These tests run the real
 //! command strings of every CLI's installed hooks, through `sh`, against a missing folder and a folder that refuses writes.
 
-use super::hook_output_tests::{run_hook_with, window_with_hooks, EVERY_CLI};
+use super::hook_output_tests::{run_hook_with, window_with_hooks, Installed, EVERY_CLI};
 use super::*;
 use crate::agent_session_files::test_support::{running_as_root, tab_state_in};
 use std::os::unix::fs::PermissionsExt;
@@ -87,6 +87,29 @@ fn a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothin
                 found.join("\n")
             );
         }
+    }
+}
+
+#[test]
+fn the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there() {
+    // The capture takes its lock for at most 50 tries 10 ms apart, so one that waits over a missing folder takes half a second at the
+    // least, which the 1 s bound of the test above cannot tell from a busy machine. A capture that leaves at once takes a few
+    // milliseconds, so one of three runs is under the floor of the wait on any machine that is not stopped.
+    let (st, commands) = window_with_hooks(Installed::ClaudeSkip, None);
+    let capture: Vec<&String> = commands.iter().filter(|command| command.contains("transcript_path")).collect();
+    assert!(!capture.is_empty(), "Claude's hooks include the transcript capture");
+    let folder = st.prepared_hook_paths().dir().to_path_buf();
+    std::fs::remove_dir_all(&folder).expect("the hook folder goes");
+    for command in capture {
+        let quickest = (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                run_hook_with(command, &st.session_dir, "run-1", |_| {});
+                started.elapsed()
+            })
+            .min()
+            .expect("three runs");
+        assert!(quickest < Duration::from_millis(450), "the capture waits for a lock that is not there: its quickest of three runs took {quickest:?}");
     }
 }
 
