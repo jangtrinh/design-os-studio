@@ -69,12 +69,48 @@ PATH="$rest"
 exec sed "$@"
 "#;
 
+/// A stand-in for `mkdir` with a third tab: the holder (tab A) lets go between the first failed `mkdir` and the capture's next look; a third
+/// tab (C) takes the lock before the capture's retry; and when the capture asks again, C has finished (its entry is in the file and its
+/// lock is gone) and the capture's own `mkdir` goes through.
+const MKDIR_THIRD_TAB_STAND_IN: &str = r#"#!/bin/sh
+rest="${PATH#*:}"
+if [ "$1" = "$FAKE_LOCK" ]; then
+  n=$(cat "$FAKE_STATE/count" 2>/dev/null || echo 0)
+  n=$((n+1))
+  echo "$n" > "$FAKE_STATE/count"
+  PATH="$rest"
+  case "$n" in
+    1)
+      rmdir "$FAKE_LOCK"
+      echo "mkdir: cannot create directory: File exists" >&2
+      exit 1
+      ;;
+    2)
+      mkdir "$FAKE_LOCK"
+      : > "$FAKE_STATE/third_tab_took_it"
+      echo "mkdir: cannot create directory: File exists" >&2
+      exit 1
+      ;;
+    3)
+      printf '%s\n' '{"session_id":"sid-c","transcript_path":"/t/c.jsonl","sessions":{"tab-a":"/t/a.jsonl","tab-c":"/t/c.jsonl"}}' > "$FAKE_CAPTURE"
+      rmdir "$FAKE_LOCK"
+      : > "$FAKE_STATE/third_tab_let_go"
+      ;;
+  esac
+fi
+PATH="$rest"
+exec mkdir "$@"
+"#;
+
+fn install_stand_in(rig: &Rig, name: &str, body: &str) {
+    let path = rig.shims.join(name);
+    std::fs::write(&path, body).expect("a stand-in");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("executable");
+}
+
 fn install_stand_ins(rig: &Rig) {
-    for (name, body) in [("mkdir", MKDIR_STAND_IN), ("sed", SED_STAND_IN)] {
-        let path = rig.shims.join(name);
-        std::fs::write(&path, body).expect("a stand-in");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("executable");
-    }
+    install_stand_in(rig, "mkdir", MKDIR_STAND_IN);
+    install_stand_in(rig, "sed", SED_STAND_IN);
 }
 
 /// Runs the capture of the tab `key` (the tab session id Claude's hooks export) for the Claude session `sid`.
@@ -90,6 +126,7 @@ fn capture(rig: &Rig, key: &str, sid: &str, transcript: &str, stand_ins: bool) -
         .env("DESIGNOS_TAB_SESSION_UUID", key)
         .env("FAKE_LOCK", &rig.lock)
         .env("FAKE_STATE", &rig.state)
+        .env("FAKE_CAPTURE", &rig.capture)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -137,6 +174,28 @@ fn a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped
         sessions_of(&rig.capture),
         [("tab-a".to_string(), "/t/a.jsonl".to_string()), ("tab-b".to_string(), "/t/b.jsonl".to_string())].into(),
         "both tabs keep their transcript"
+    );
+    assert!(!rig.lock.exists(), "the capture gave back the lock it took");
+}
+
+#[test]
+fn a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it() {
+    let rig = rig("third");
+    install_stand_in(&rig, "mkdir", MKDIR_THIRD_TAB_STAND_IN);
+    tab_a_captured(&rig);
+    std::fs::create_dir(&rig.lock).expect("tab A holds the lock");
+
+    let output = capture(&rig, "tab-b", "sid-b", "/t/b.jsonl", true);
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(rig.state.join("third_tab_took_it").exists(), "the stand-in made tab C take the lock before the retry of the capture");
+    assert!(rig.state.join("third_tab_let_go").exists(), "the capture gave up before tab C finished: it never asked a third time");
+    assert_eq!(
+        sessions_of(&rig.capture),
+        [("tab-a".to_string(), "/t/a.jsonl".to_string()), ("tab-b".to_string(), "/t/b.jsonl".to_string()), ("tab-c".to_string(), "/t/c.jsonl".to_string()),]
+            .into(),
+        "the capture lost the race to a third tab, waited, and still wrote its entry next to the entries of both"
     );
     assert!(!rig.lock.exists(), "the capture gave back the lock it took");
 }

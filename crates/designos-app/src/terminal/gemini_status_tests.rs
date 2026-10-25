@@ -37,14 +37,14 @@ fn the_claude_grok_and_agy_status_hooks_stay_byte_identical() {
     // The pins below changed three times: when the hooks moved to a folder no agent grant reaches and the turn-mark hook began to measure
     // the patch log with `stat` instead of `wc -c <` (which opens a FIFO an agent planted there and waits for it); when every hook
     // learned to end at once, quietly and with success over a folder it cannot write (the lock loop leaves when no lock is there, every
-    // write is silenced); and when the transcript capture took a lock only to write under it (it skips the write when it holds none) and
-    // Claude's prompt hook learned the same manners. The size command differs between macOS and the rest, so it is named in the text
-    // that is hashed, and the pins hold on every platform.
+    // write is silenced); and when the transcript capture took a lock only to write under it (it skips the write when it holds none, and
+    // waits on when its one more `mkdir` loses to another tab) and Claude's prompt hook learned the same manners. The size command
+    // differs between macOS and the rest, so it is named in the text that is hashed, and the pins hold on every platform.
     let platform_free = |value: &serde_json::Value| {
         crate::agent_sessions::fnv1a_64(value.to_string().replace(crate::agent_turn_marks::SIZE_OF_COMMAND, "<size of>").as_bytes())
     };
     let claude = session_hooks_settings_with_approval(status, Some(1), None, true);
-    assert_eq!(platform_free(&claude), 9011227385097757619, "claude");
+    assert_eq!(platform_free(&claude), 2671435569173232294, "claude");
     assert_eq!(platform_free(&session_hooks_settings(status, None, false)), 4997215177674353351, "grok");
     assert_eq!(platform_free(&agy_session_hooks(status)), 14534362815708219633, "agy");
 }
