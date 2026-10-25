@@ -51,6 +51,11 @@ pub fn style_entries(doc: &Document, text: bool) -> Vec<StyleEntry> {
     style_entries_of(doc, if text { StyleKind::Text } else { StyleKind::Color })
 }
 
+/// Description of shared style `key`, or `""` when absent.
+pub fn style_description<'a>(doc: &'a Document, key: &str) -> &'a str {
+    doc.style_meta.get(key).map(|m| m.description.as_str()).unwrap_or("")
+}
+
 /// The styles of one kind, ordered by `sort_position` (or stored order when absent) and grouped
 /// by folder in first-seen folder order.
 pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
@@ -143,7 +148,13 @@ impl App {
     /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
     fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
-        let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
+        let applied = op.map_err(|e| e.to_string()).and_then(|cmd| {
+            if matches!(&cmd, Command::Batch(v) if v.is_empty()) {
+                Ok(())
+            } else {
+                tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())
+            }
+        });
         match applied {
             Ok(()) => {
                 after(self, &mut tx);
@@ -207,6 +218,12 @@ impl App {
     /// Renames style `key` (the display name; folders come from "/").
     pub fn rename_style_to(&mut self, key: &str, name: &str) -> bool {
         let op = rename_style(&self.doc, key, name);
+        self.run_style_op(op)
+    }
+
+    /// Sets the description of style `key` (trailing whitespace trimmed) in one undo step.
+    pub fn set_style_description_to(&mut self, key: &str, text: &str) -> bool {
+        let op = set_style_description(&self.doc, key, text);
         self.run_style_op(op)
     }
 

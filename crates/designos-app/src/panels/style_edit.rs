@@ -118,7 +118,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
     let style = st.pending.clone().unwrap_or_else(|| stored.clone());
     let count = item_count(&style);
     let item = item.min(count.saturating_sub(1));
-    let rows = 1 + usize::from(count > 1) + kind_rows(&style, item);
+    let rows = 2 + usize::from(count > 1) + kind_rows(&style, item);
     let ctx = ui.ctx().clone();
     let close = popover::show(&ctx, Id::new("style-edit-popover"), anchor, region, 240.0, popover::height(rows), "Edit style", |ui, body| {
         body_ui(app, ui, body, &key, &style, item, count);
@@ -145,7 +145,16 @@ fn body_ui(app: &mut App, ui: &mut Ui, body: Rect, key: &str, style: &Style, ite
             app.rename_style_to(key, &name);
         }
     });
-    let mut first = 1;
+    popover::row(ui, body, 1, "Description", |ui, rc| {
+        widgets::record(ui, "se-description", rc);
+        let desc = crate::styles::style_description(&app.doc, key);
+        if is_read_only(app, key) {
+            ui.interact(rc, ui.id().with(("se-description-ro", key)), egui::Sense::hover()).on_hover_text(LIBRARY_STYLE_TIP);
+        } else if let Some(text) = field::text_input(ui, rc, "se-description", desc) {
+            app.set_style_description_to(key, &text);
+        }
+    });
+    let mut first = 2;
     if count > 1 {
         let (label, names): (&str, Vec<String>) = match style {
             Style::Fill(p) => ("Fill", p.iter().enumerate().map(|(i, p)| format!("{} \u{b7} {}", i + 1, paint_kind_name(p))).collect()),

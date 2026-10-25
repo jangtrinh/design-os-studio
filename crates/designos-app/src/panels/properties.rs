@@ -255,7 +255,8 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
                 }
                 last_folder = Some(e.folder.clone());
                 let label = if e.folder.is_empty() { e.leaf.clone() } else { format!("  {}", e.leaf) };
-                items.push(crate::widgets::menu::MenuItem::new(label));
+                let desc = crate::styles::style_description(&app.doc, &e.key);
+                items.push(crate::widgets::menu::MenuItem::new(label).tooltip(desc));
                 picks.push(Some(e.key.clone()));
             }
         }
@@ -619,11 +620,12 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             // "Edit style" appears on the row under the pointer (and stays while its popover is open).
             let editing = app.props.style_edit.as_ref().is_some_and(|s| s.key == e.key);
             let mut edit_clicked = false;
-            if editing || ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p)) {
-                let edit_r = Rect::from_min_size(
-                    Pos2::new(r.right() - theme::PANEL_ACTION_BUTTON - 4.0, r.center().y - theme::PANEL_ACTION_BUTTON / 2.0),
-                    Vec2::splat(theme::PANEL_ACTION_BUTTON),
-                );
+            let edit_r = Rect::from_min_size(
+                Pos2::new(r.right() - theme::PANEL_ACTION_BUTTON - 4.0, r.center().y - theme::PANEL_ACTION_BUTTON / 2.0),
+                Vec2::splat(theme::PANEL_ACTION_BUTTON),
+            );
+            let hover_pos = ui.input(|i| i.pointer.hover_pos());
+            if editing || hover_pos.is_some_and(|p| r.contains(p)) {
                 widgets::record(ui, &format!("style-edit:{}", e.key), edit_r);
                 ui.painter().rect_filled(
                     edit_r.expand2(Vec2::new(4.0, 0.0)),
@@ -634,6 +636,11 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 if edit_clicked {
                     super::style_edit::toggle(app, &e.key, edit_r);
                 }
+            }
+            let over_edit = hover_pos.is_some_and(|p| edit_r.contains(p));
+            let desc = crate::styles::style_description(&app.doc, &e.key);
+            if !desc.is_empty() && !over_edit {
+                resp.clone().on_hover_text(desc);
             }
             if resp.clicked() && !edit_clicked && !target.is_empty() {
                 app.apply_style(target, &e.key);
@@ -2314,12 +2321,14 @@ fn find_node_in_page(doc: &Document, root: NodeId, pred: &dyn Fn(&Node) -> bool)
 
 /// Opens an inspector popup on the current selection (`--panel`, for screenshots).
 pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
-    if spec == "variables" {
+    let (base, sub) = spec.split_once(':').unwrap_or((spec, ""));
+    super::style_picker::set_screenshot_hover_tip(sub == "hover");
+    if base == "variables" {
         app.vars.open = true;
         app.vars.full = true;
         return;
     }
-    if spec == "picker-page" {
+    if base == "picker-page" {
         // The page background picker, anchored on the Page row swatch.
         let bg = match app.doc.get(app.page).map(|n| &n.kind) {
             Some(NodeKind::Page { background }) => *background,
@@ -2330,7 +2339,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         open_picker(app, PickTarget::PageBg, to_c32(bg, 1.0), sw, vec![app.page]);
         return;
     }
-    if spec == "type-details" || spec == "edit-style-text" {
+    if base == "type-details" || base == "edit-style-text" {
         let has_text = app.selection.first().and_then(|id| app.doc.get(*id)).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)));
         if !has_text {
             if let Some(tid) = find_node_in_page(&app.doc, app.page, &|n| matches!(n.kind, NodeKind::Text(_))) {
@@ -2344,12 +2353,12 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
     }
     let Some(id) = app.selection.first().copied() else { return };
     let sw = Rect::from_min_size(Pos2::new(screen.x - theme::RIGHT_PANEL_WIDTH + 29.0, 660.0), Vec2::splat(theme::SWATCH_SIZE));
-    match spec {
+    match base {
         "picker" | "picker-gradient" => {
             if app.doc.get(id).is_some_and(|n| n.fills.is_empty()) {
                 app.edit_nodes(&[id], |n| n.fills.push(Paint::solid(Color::rgb(0xD9, 0xD9, 0xD9))));
             }
-            if spec == "picker-gradient" {
+            if base == "picker-gradient" {
                 app.edit_nodes(&[id], |n| {
                     if let Some(p) = n.fills.first_mut() {
                         *p = widgets::picker::convert(p, widgets::picker::Mode::Linear);
@@ -2370,7 +2379,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         "effect-styles" | "grid-styles" => {
             // The style menu of the Effects / Layout guide header. A frame without guides gets the
             // usual 12 column ones, and with no style yet one is created from the selection.
-            let prop = if spec == "grid-styles" { StyleProperty::Grid } else { StyleProperty::Effect };
+            let prop = if base == "grid-styles" { StyleProperty::Grid } else { StyleProperty::Effect };
             if prop == StyleProperty::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
                 let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
                 app.edit_nodes(&[id], |n| {
@@ -2383,6 +2392,13 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             if crate::styles::style_entries_of(&app.doc, kind).is_empty() {
                 app.create_style_from(id, prop);
             }
+            if sub == "hover" {
+                if let Some(entry) = crate::styles::style_entries_of(&app.doc, kind).into_iter().next() {
+                    if crate::styles::style_description(&app.doc, &entry.key).is_empty() {
+                        app.set_style_description_to(&entry.key, "Soft elevation shadow for cards and popovers");
+                    }
+                }
+            }
             app.props.scroll = 1.0e6;
             app.props.style_menu = Some(prop);
         }
@@ -2391,7 +2407,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             // frame without guides gets the usual 12 column ones and a layer without effects a
             // drop shadow, so the style is created from real values like the effect-styles panel.
             app.props.scroll = 1.0e6;
-            let kind = match spec {
+            let kind = match base {
                 "edit-style-color" => StyleKind::Color,
                 "edit-style-text" => StyleKind::Text,
                 "edit-style-effect" => StyleKind::Effect,
@@ -2417,6 +2433,9 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 };
             }
             if let Some(entry) = crate::styles::style_entries_of(&app.doc, kind).into_iter().next() {
+                if sub == "desc" && crate::styles::style_description(&app.doc, &entry.key).is_empty() {
+                    app.set_style_description_to(&entry.key, "Soft elevation shadow for cards and popovers");
+                }
                 app.apply_style(&[id], &entry.key);
                 let anchor = Rect::from_min_size(Pos2::new(screen.x - 56.0, 420.0), Vec2::splat(24.0));
                 super::style_edit::toggle(app, &entry.key, anchor);

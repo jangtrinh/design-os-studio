@@ -98,7 +98,8 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         }
         last_folder = Some(e.folder.clone());
         let label = if e.folder.is_empty() { e.leaf } else { format!("  {}", e.leaf) };
-        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())));
+        let desc = crate::styles::style_description(&app.doc, &e.key);
+        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())).tooltip(desc));
         picks.push(Some(Pick::Apply(e.key)));
     }
     if items.is_empty() {
@@ -150,6 +151,12 @@ pub(crate) fn delete_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -
     items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Delete)).then_some(item)).expect("the menu always has a Delete style row")
 }
 
+static SCREENSHOT_HOVER_TIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(super) fn set_screenshot_hover_tip(on: bool) {
+    SCREENSHOT_HOVER_TIP.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and
 /// its menu while open.
 pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[NodeId], prop: StyleProperty) {
@@ -165,6 +172,27 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
     }
     let (items, picks) = menu_model(app, sel, prop);
     let pos = Pos2::new(btn.right() - MENU_W, btn.bottom() + 4.0);
+    if SCREENSHOT_HOVER_TIP.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some((idx, it)) =
+            items.iter().enumerate().find(|(i, it)| picks.get(*i).is_some_and(|p| matches!(p, Some(Pick::Apply(_)))) && !it.tooltip.is_empty())
+        {
+            crate::widgets::menu::preset_path(ui.ctx(), Id::new(("style-menu", key)), &[idx]);
+            let screen_r = ui.ctx().content_rect();
+            let est_h = items.len() as f32 * theme::MENU_ITEM_HEIGHT;
+            let menu_top = pos.y.min(screen_r.bottom() - est_h).max(screen_r.top() + theme::MENU_PADDING);
+            let row_y = menu_top + (idx as f32 + 1.0) * theme::MENU_ITEM_HEIGHT;
+            let tip_text = it.tooltip.clone();
+            egui::Area::new(Id::new(("style-menu-hover-tip", key)))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(Pos2::new(pos.x + theme::MENU_PADDING, row_y + theme::MENU_PADDING))
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(tip_text);
+                    });
+                });
+        }
+    }
     match popup_menu(ui.ctx(), Id::new(("style-menu", key)), pos, MENU_W, &items, Some(btn)) {
         MenuResult::Picked(i) => {
             app.props.style_menu = None;

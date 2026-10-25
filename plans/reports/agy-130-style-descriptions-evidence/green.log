@@ -1,0 +1,82 @@
+=== (a) & (b) designos-doc ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.48s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 2 tests
+test styles_ops::tests::set_style_description_sets_text_in_one_undo_step_and_keeps_other_fields ... ok
+test styles_ops::tests::set_style_description_refuses_library_style ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 651 filtered out; finished in 0.01s
+
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-d19362047bc102bf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-c7fad459a80a2bad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+
+=== (c) & (d) designos-app ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-doc)
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-mcp)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-webcapture)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-export)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-fig)
+   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-gpu)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-library)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.77s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test shell::tests::style_edit::editing_a_style_description_in_the_popover_survives_native_save_and_load ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2964 filtered out; finished in 0.31s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 1 test
+test shell::tests::style_edit::style_picker_and_styles_list_show_description_tooltip_only_when_non_empty ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2964 filtered out; finished in 0.39s
+
+
+=== (e) designos-fig ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-doc)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-130-style-descriptions/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.71s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test style_description_fig_round_trip_keeps_empty_and_non_empty_descriptions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.05s
+

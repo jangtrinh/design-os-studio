@@ -451,3 +451,152 @@ fn deleted_variable_bound_on_a_style_renders_detachable_pill_and_emits_broken_st
     s.click(Pos2::new(pill.right() - 13.0, pill.center().y));
     assert!(!s.app().doc.style_meta["Brand/Primary"].bindings.contains_key("fills/0"), "clicking detach on the broken style pill unbinds the missing variable");
 }
+
+#[test]
+fn editing_a_style_description_in_the_popover_survives_native_save_and_load() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    s.shell.app.selection.clear();
+    s.frame(vec![]);
+    edit_from_list(&mut s, "Brand/Primary");
+    assert_eq!(s.app().props.style_edit.as_ref().map(|e| e.key.as_str()), Some("Brand/Primary"));
+
+    let desc_rect = s.rect_of("se-description");
+    type_into(&mut s, desc_rect, "Primary brand accent   ");
+    assert_eq!(s.app().doc.style_meta["Brand/Primary"].description, "Primary brand accent");
+
+    let tmp = std::env::temp_dir().join(format!("designos-style-desc-{}.designos", std::process::id()));
+    let json = s.app().doc.to_json().unwrap();
+    std::fs::write(&tmp, &json).unwrap();
+    let loaded = designos_doc::Document::from_json(&std::fs::read_to_string(&tmp).unwrap()).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(loaded.style_meta["Brand/Primary"].description, "Primary brand accent");
+
+    // Setting the same text (after trailing whitespace trim) is a no-op that adds no undo step.
+    assert!(!s.shell.app.set_style_description_to("Brand/Primary", "Primary brand accent   "));
+
+    s.cmd_key(Key::Z);
+    assert_eq!(crate::styles::style_description(&s.app().doc, "Brand/Primary"), "");
+
+    // Library styles cannot have their description edited via App::set_style_description_to.
+    make_library_style(&mut s, "Brand/Primary");
+    assert!(!s.shell.app.set_style_description_to("Brand/Primary", "Blocked edit"));
+    assert_eq!(crate::styles::style_description(&s.app().doc, "Brand/Primary"), "");
+}
+
+#[test]
+fn style_picker_and_styles_list_show_description_tooltip_only_when_non_empty() {
+    fn collect_texts(shape: &egui::epaint::Shape, out: &mut Vec<(String, Rect)>) {
+        match shape {
+            egui::epaint::Shape::Text(t) => out.push((t.galley.job.text.clone(), t.visual_bounding_rect())),
+            egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect_texts(s, out)),
+            _ => {}
+        }
+    }
+    let painted_with_rects = |s: &Sim| -> Vec<(String, Rect)> {
+        let mut out = Vec::new();
+        for cs in &s.shapes {
+            collect_texts(&cs.shape, &mut out);
+        }
+        out
+    };
+
+    let (mut s, welcome, _) = welcome_with_styles();
+    let fx2 = s.shell.app.create_style_from(welcome, StyleProperty::Effect).unwrap();
+    assert!(s.shell.app.set_style_description_to("Effect style 1", "Soft card drop shadow"));
+    assert_eq!(s.app().doc.style_meta[&fx2].description, "");
+
+    let btn = s.rect_of("effect-style-button");
+    s.click(btn.center());
+    s.frame(vec![]);
+    let items = painted_with_rects(&s);
+    let (_, fx1_menu_rect) = items.iter().rfind(|(t, _)| t == "Effect style 1").cloned().expect("Effect style 1 in picker menu");
+    let (_, fx2_menu_rect) = items.iter().rfind(|(t, _)| t == &fx2).cloned().expect("second effect style in picker menu");
+
+    let pt_menu_1 = fx1_menu_rect.center();
+    s.mv(pt_menu_1 + Vec2::new(0.0, 1.0));
+    s.mv(pt_menu_1);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        painted_with_rects(&s).iter().any(|(t, _)| t == "Soft card drop shadow"),
+        "hovering a style row with a description in the style picker menu should paint its description tooltip"
+    );
+
+    let pt_menu_2 = fx2_menu_rect.center();
+    s.mv(pt_menu_2 + Vec2::new(0.0, 1.0));
+    s.mv(pt_menu_2);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        !painted_with_rects(&s).iter().any(|(t, _)| t == "Soft card drop shadow"),
+        "hovering a style row without a description in the style picker menu must show no tooltip"
+    );
+
+    s.key(Key::Escape);
+
+    // Colour-style menu (paint_title): non-empty description shows tooltip, folder header shows none.
+    assert!(s.shell.app.set_style_description_to("Brand/Primary", "Brand primary fill"));
+    let hero = s.by_name("Hero");
+    s.shell.app.selection = vec![hero];
+    s.shell.app.props.scroll = 0.0;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.shell.app.props.styles_menu = Some(false);
+    s.mv(Pos2::new(10.0, 10.0));
+    s.frame(vec![]);
+    let color_items = painted_with_rects(&s);
+    let (_, folder_rect) = color_items.iter().rfind(|(t, _)| t == "Brand").cloned().expect("Brand folder header in colour-style menu");
+    let (_, primary_rect) = color_items.iter().rfind(|(t, _)| t.trim() == "Primary").cloned().expect("Primary row in colour-style menu");
+
+    let pt_folder = folder_rect.center();
+    s.mv(pt_folder + Vec2::new(0.0, 1.0));
+    s.mv(pt_folder);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        !painted_with_rects(&s).iter().any(|(t, _)| t == "Brand primary fill"),
+        "hovering a folder header row in the colour-style menu must show no tooltip"
+    );
+
+    let pt_primary = primary_rect.center();
+    s.mv(pt_primary + Vec2::new(0.0, 1.0));
+    s.mv(pt_primary);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        painted_with_rects(&s).iter().any(|(t, _)| t == "Brand primary fill"),
+        "hovering a colour style row with a description in the colour-style menu should paint its description tooltip"
+    );
+    s.shell.app.props.styles_menu = None;
+
+    s.shell.app.selection.clear();
+    s.frame(vec![]);
+    s.scroll_inspector_down();
+    let fx1_row = s.rect_of("style:Effect style 1");
+    let pt1 = Pos2::new(fx1_row.left() + 40.0, fx1_row.center().y);
+    s.mv(pt1 + Vec2::new(0.0, 1.0));
+    s.mv(pt1);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        painted_with_rects(&s).iter().any(|(t, _)| t == "Soft card drop shadow"),
+        "hovering a style row with a description in the Styles list should paint its description tooltip"
+    );
+
+    let fx2_row = s.rect_of(&format!("style:{fx2}"));
+    let pt2 = Pos2::new(fx2_row.left() + 40.0, fx2_row.center().y);
+    s.mv(pt2 + Vec2::new(0.0, 1.0));
+    s.mv(pt2);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    assert!(
+        !painted_with_rects(&s).iter().any(|(t, _)| t == "Soft card drop shadow"),
+        "hovering a style row without a description must not show the previous tooltip"
+    );
+}
