@@ -17,7 +17,7 @@ Follow this 7-step loop on every design task:
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid)...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
@@ -125,9 +125,9 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
 
 ### `designos_export_fig_file`
-- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate...
-- **Args:** required: `output_path`
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `INTERNAL_ERROR`
+- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and...
+- **Args:** required: `output_path` (optional: `overwrite`)
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
@@ -137,13 +137,13 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page,...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
 
 ### `designos_get_guidelines`
-- **Purpose:** List available design guideline topics or return the guideline document for a topic ('design-system',...
+- **Purpose:** List available design guideline topics or return the guideline document for a topic...
 - **Args:** required: none (optional: `max_tokens`, `platform`, `topic`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_TOPIC`, `TOPIC_NOT_AVAILABLE`
 - **Example:** `{"topic":"design-system","platform":"web"}`
@@ -191,7 +191,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"ops":[{"op":"insert","as":"card","parent_id":1,"kind":"frame","name":"Card","width":360,"height":180},{"op":"insert","parent_id":"@card","kind":"text","name":"Title","text":"Q3 Overview"}]}`
 
 ### `designos_get_design_context`
-- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax,...
+- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code...
 - **Args:** required: `node_id` (optional: `include_screenshot`, `language`, `react_tailwind`, `response_format`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2,"language":"css"}`

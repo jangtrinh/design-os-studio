@@ -463,8 +463,42 @@ fn styles_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         pane.y += theme::STYLES_BOTTOM_PAD;
     }
     section_sep(ui, pane, false);
-    title(ui, pane, "Export", Some(Icon::Plus), true);
+    let page = app.page;
+    pane.y += super::export::section(app, ui, pane.x0, pane.oy + pane.y, &[page]);
     section_sep(ui, pane, false);
+}
+
+const STYLE_GROUP_KINDS: [(&str, StyleKind); 4] =
+    [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)];
+
+fn target_accepts_style_kind(doc: &Document, target: &[NodeId], kind: StyleKind) -> bool {
+    if target.is_empty() {
+        return true;
+    }
+    match kind {
+        StyleKind::Color | StyleKind::Effect => true,
+        StyleKind::Text => target.iter().any(|id| doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))),
+        StyleKind::Grid => target.iter().any(|id| doc.get(*id).is_some_and(|n| n.kind.frame_props().is_some())),
+    }
+}
+
+fn style_kind_of(style: &Style) -> StyleKind {
+    match style {
+        Style::Text(_) => StyleKind::Text,
+        Style::Fill(_) => StyleKind::Color,
+        Style::Effect(_) => StyleKind::Effect,
+        Style::Grid(_) => StyleKind::Grid,
+    }
+}
+
+fn has_styles_for(app: &mut App, target: &[NodeId]) -> bool {
+    let local = STYLE_GROUP_KINDS
+        .iter()
+        .any(|(_, kind)| target_accepts_style_kind(&app.doc, target, *kind) && !crate::styles::style_entries_of(&app.doc, *kind).is_empty());
+    if local {
+        return true;
+    }
+    app.library_styles().iter().any(|s| s.local_key.is_none() && target_accepts_style_kind(&app.doc, target, style_kind_of(&s.style)))
 }
 
 /// Colours of a paint (one for solids, the stops for gradients).
@@ -484,9 +518,10 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
 fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
     let applied = |app: &App, prop: &str| target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop).cloned());
     let mut shown_groups = 0;
-    for (label, kind) in
-        [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)]
-    {
+    for (label, kind) in STYLE_GROUP_KINDS {
+        if !target_accepts_style_kind(&app.doc, target, kind) {
+            continue;
+        }
         let entries = crate::styles::style_entries_of(&app.doc, kind);
         if entries.is_empty() {
             continue;
@@ -603,23 +638,24 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             pane.y += theme::STYLE_ROW_H;
         }
     }
-    library_styles_list(app, ui, pane, target);
+    library_styles_list(app, ui, pane, target, &mut shown_groups);
 }
 
 /// Styles of enabled libraries this file has not used yet, one group per
 /// library. Clicking one copies it into the file and applies it to `target`.
-fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
+fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId], shown_groups: &mut usize) {
     let all: Vec<crate::libraries::LibraryStyle> =
-        app.library_styles().into_iter().filter(|s| s.local_key.is_none() && matches!(s.style, Style::Text(_) | Style::Fill(_))).collect();
+        app.library_styles().into_iter().filter(|s| s.local_key.is_none() && target_accepts_style_kind(&app.doc, target, style_kind_of(&s.style))).collect();
     let mut libs: Vec<(String, String)> = all.iter().map(|s| (s.library_id.clone(), s.library_name.clone())).collect();
     libs.dedup();
     for (lib_id, lib_name) in libs {
-        for (label, text) in [("Text styles", true), ("Color styles", false)] {
-            let rows: Vec<&crate::libraries::LibraryStyle> = all.iter().filter(|s| s.library_id == lib_id && s.text == text).collect();
+        for (label, kind) in STYLE_GROUP_KINDS {
+            let rows: Vec<&crate::libraries::LibraryStyle> = all.iter().filter(|s| s.library_id == lib_id && style_kind_of(&s.style) == kind).collect();
             if rows.is_empty() {
                 continue;
             }
-            pane.y += theme::STYLES_GROUP_GAP;
+            pane.y += if *shown_groups == 0 { theme::STYLES_LABEL_GAP } else { theme::STYLES_GROUP_GAP };
+            *shown_groups += 1;
             let lr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::SUBLABEL_HEIGHT);
             let head = widgets::elide(ui.painter(), &format!("{lib_name} \u{b7} {label}"), &theme::font_body(), lr.width());
             ui.painter().text(Pos2::new(lr.left(), lr.center().y), Align2::LEFT_CENTER, head, theme::font_body(), theme::TEXT_SECONDARY);
@@ -640,16 +676,37 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
                         ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
                     }
-                    _ => {
+                    Style::Effect(fx) => {
+                        let icon = fx.first().map_or(Icon::DropShadow, |f| super::effects::KINDS[super::effects::kind_of(f)].1);
+                        icons::paint(
+                            ui.painter(),
+                            icon,
+                            Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y),
+                            theme::STYLE_SWATCH,
+                            theme::ICON_SECONDARY,
+                        );
+                        let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
+                        ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
+                    }
+                    Style::Grid(_) => {
+                        icons::paint(
+                            ui.painter(),
+                            Icon::Grid2x2,
+                            Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y),
+                            theme::STYLE_SWATCH,
+                            theme::ICON_SECONDARY,
+                        );
+                        let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
+                        ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
+                    }
+                    Style::Text(_) => {
                         ui.painter().text(Pos2::new(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Ag", theme::font_body_strong(), theme::TEXT);
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 110.0);
                         ui.painter().text(Pos2::new(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
                     }
                 }
                 if resp.clicked() && !target.is_empty() {
-                    if let Some(key) = app.use_library_style(&s.library_id, &s.key) {
-                        app.apply_picked_style(target, &key);
-                    }
+                    app.apply_library_style(crate::edit::Tx::new(), target, &s.library_id, &s.key);
                 }
                 pane.y += theme::STYLE_ROW_H;
             }
@@ -891,11 +948,6 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if let NodeKind::Text(t) = &n0.kind {
         section_sep(ui, pane, false);
         title(ui, pane, "Typography", None, false);
-        let var_pill = pane.rect(theme::SECTION_TRAILING_X, -26.0, 24.0, 20.0);
-        widgets::record(ui, "typo-var-pill", var_pill);
-        if ui.interact(var_pill, ui.id().with("typo-var-pill"), Sense::click()).on_hover_text("Apply typography variable or style").clicked() {
-            app.open_variables();
-        }
         super::typography::section(app, ui, pane, sel, t);
         pane.y += 4.0;
     }
@@ -971,7 +1023,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
 
     // ---- Selection colors / Styles
     selection_colors_section(app, ui, pane, sel);
-    if !app.doc.styles.is_empty() {
+    if has_styles_for(app, sel) {
         section_sep(ui, pane, false);
         title(ui, pane, "Styles", None, false);
         styles_list(app, ui, pane, sel);

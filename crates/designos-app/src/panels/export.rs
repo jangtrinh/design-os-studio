@@ -206,6 +206,8 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
     // Created before the button so the button sits on top of it.
     let title_resp = ui.interact(title, ui.id().with("export-title"), Sense::click());
     let plus = at(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+    widgets::record(ui, "title-action:Export", plus);
+    widgets::record(ui, "export-add", plus);
     if widgets::icon_button(ui, plus, "export-add", Icon::Plus, false, "Add export setting").clicked() {
         edit = Some(RowEdit::Add(rows.last().cloned().unwrap_or_default()));
     }
@@ -312,6 +314,7 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
 
     // Export button.
     let btn = at(theme::SECTION_CONTENT_X, y, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+    widgets::record(ui, "export-btn", btn);
     let resp = ui.interact(btn, ui.id().with("export-btn"), Sense::click());
     ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     icons::paint(ui.painter(), Icon::Export, Pos2::new(btn.left() + 16.0, btn.center().y), 14.0, theme::ICON_SECONDARY);
@@ -416,7 +419,16 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
                 jobs.push(ExportJob { file, nodes: vec![*id], setting: s });
             } else if !in_pdf {
                 in_pdf = true;
-                pdf.get_or_insert_with(|| (p.clone(), Vec::new())).1.push(*id);
+                let out = &mut pdf.get_or_insert_with(|| (p.clone(), Vec::new())).1;
+                if matches!(n.kind, designos_doc::NodeKind::Page { .. }) {
+                    for &child in &n.children {
+                        if doc.get(child).is_some_and(|c| c.visible && matches!(c.kind, designos_doc::NodeKind::Frame(_))) && !out.contains(&child) {
+                            out.push(child);
+                        }
+                    }
+                } else {
+                    out.push(*id);
+                }
             }
         }
     }

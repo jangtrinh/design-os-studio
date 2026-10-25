@@ -465,7 +465,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 106;
+const MAX_PURPOSE_CHARS: usize = 104;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -530,7 +530,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_set_in_progress" => {
             &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`IN_PROGRESS_TARGET_NOT_ROOT`", "`NODE_IN_PROGRESS_BY_OTHER_RUN`", "`TOOL_DISABLED`"]
         }
-        "designos_export_fig_file" => &["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"],
+        "designos_export_fig_file" => &["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"],
         "designos_query_xpath" => &["`INVALID_ARGUMENTS`", "`INVALID_SELECTOR`", "`NODE_NOT_FOUND`", "`CURSOR_STALE`", "`RULE_UNAVAILABLE`", "`TOOL_DISABLED`"],
         "designos_lint" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_guidelines" => &["`INVALID_ARGUMENTS`", "`UNKNOWN_TOPIC`", "`TOPIC_NOT_AVAILABLE`", "`TOOL_DISABLED`"],

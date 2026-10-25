@@ -39,9 +39,11 @@
 //! and the tab shows no status (the same as a tab of a CLI with no hooks).
 //!
 //! The open file's folder is the one grant that can contain the data folder (a file kept in the home folder, or in a folder with no
-//! path at all, which Studio serves from its working folder). It is not checked, because `designos-mcp` writes only the names that end
-//! in `designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS` (`.designos`, `.png`, `.fig`), and no name in the hook folder does: a test
-//! lists every name this module hands out and every name a hook command derives from one, and fails on the first with such an ending.
+//! path at all, which Studio serves from its working folder). It is not checked, because `designos-mcp` creates only the names that end
+//! in `designos_mcp::engine::WORKSPACE_WRITE_EXTENSIONS` (`.designos`, `.png`, `.fig`, any case) and, for an overwrite, a temporary
+//! name that starts with `OUTPUT_TEMP_PREFIX` (made with `create_new`, so never over an existing file), and no name in the hook folder
+//! does either: a test lists every name this module hands out and every name a hook command derives from one, and fails on the first
+//! that does.
 //!
 //! `doc-patch.jsonl` stays in the session folder, because `designos-mcp` writes it there. A hook only reads its length, with `stat`,
 //! which neither opens it (a FIFO planted there cannot block the hook) nor writes anything.

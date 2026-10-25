@@ -334,8 +334,9 @@ fn the_turn_mark_hook_still_counts_the_bytes_of_a_patch_log_that_is_a_plain_file
 #[test]
 fn no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write() {
     // The hook folder can lie inside the folder `designos-mcp` serves (`--workspace`, the open file's folder: a file kept in the home
-    // folder). That server creates only names that end in `designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS`, so a hook file must
-    // never end in one of them. A change on either side, a new ending there or a new name here, trips this test.
+    // folder). That server creates only names that end in `designos_mcp::engine::WORKSPACE_WRITE_EXTENSIONS` (any case), and the
+    // temporary file of an overwrite, which starts with `OUTPUT_TEMP_PREFIX`; so a hook file must never end in one of those endings
+    // or start with that prefix. A change on either side, a new ending there or a new name here, trips this test.
     let st = tab_state_in(PermissionMode::Ask);
     let paths = st.prepared_hook_paths();
     let mut names: std::collections::BTreeSet<String> = [
@@ -366,8 +367,9 @@ fn no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write() {
     for name in &names {
         let ending = Path::new(name).extension().and_then(|extension| extension.to_str()).unwrap_or_default().to_ascii_lowercase();
         assert!(
-            !designos_mcp::server::WORKSPACE_WRITE_EXTENSIONS.contains(&ending.as_str()),
+            !designos_mcp::engine::WORKSPACE_WRITE_EXTENSIONS.contains(&ending.as_str()),
             "{name} ends in .{ending}, a name designos-mcp writes below its workspace"
         );
+        assert!(!name.starts_with(designos_mcp::engine::OUTPUT_TEMP_PREFIX), "{name} starts like the temporary file of a designos-mcp overwrite");
     }
 }
