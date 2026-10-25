@@ -798,6 +798,33 @@ mod tests {
     }
 
     #[test]
+    fn export_error_toast_uses_the_sanitized_layer_path() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("error_sanitized").join("missing");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "../Notes".into();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let toast = toast_of(&app).expect("failed export explains the attempted path").0;
+        assert!(toast.contains(&format!("{}/_Notes.png", dir.display())), "{toast}");
+        assert!(!toast.contains("../Notes"), "{toast}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn export_error_toast_uses_the_cut_layer_path() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("error_long").join("missing");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        let name = "a".repeat(300);
+        app.doc.get_mut(a).unwrap().name = name.clone();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let toast = toast_of(&app).expect("failed export explains the attempted path").0;
+        assert!(toast.contains(&format!("{}/{}.png", dir.display(), "a".repeat(100))), "{toast}");
+        assert!(!toast.contains(&name), "{toast}");
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
     fn export_without_a_dialog_or_a_fallback_folder_still_says_so() {
         use crate::io::{DialogOutcome, ScriptedDialogs};
         let (mut app, a, b) = named_rects_with_png_rows();
