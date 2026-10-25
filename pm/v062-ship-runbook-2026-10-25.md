@@ -64,6 +64,8 @@ Không phải dời issue nào sang v0.6.3. Không có [SHIP] log cho việc d�
 | #1061 | #1067 (merged, contained in 184e145) | Close after release |
 | #1057 | #1060 (merged, contained in 184e145) | Close after release |
 | #1023 | #1035 (merged, contained in 184e145) | Close after release |
+| #1039 | #1092 (merged, contained in 184e145) | Close after release |
+| #1027 | #1092 (merged, contained in 184e145) | Close after release |
 | #1157 | fix nằm trên #1085 | Giữ mở. Nếu đi theo phương án A thì để Jang quyết có dời sang v0.6.3 cùng #1085 không. PM chưa dời vì brief yêu cầu giữ. |
 
 Các issue này đóng không tự động vì PR merge vào nhánh release, không vào nhánh mặc định.
@@ -83,7 +85,7 @@ Các issue này đóng không tự động vì PR merge vào nhánh release, kh�
 3. Chờ workflow Release xanh, kiểm tra asset của cả 3 hệ điều hành, rồi publish release.
 4. Merge `release/v0.6.2` vào `main`, như các bản trước (v0.6.1 được tag trên main). Sau đó merge #1114 vào main.
 5. Đổi base của #1085, #1117, #1130, #1051 sang nhánh v0.6.3 hoặc main.
-6. Đóng 10 issue: #1008, #1087, #1036, #1044, #1046, #1053, #1068, #1061, #1057, #1023.
+6. Đóng 12 issue: #1008, #1087, #1036, #1044, #1046, #1053, #1068, #1061, #1057, #1023, #1039, #1027.
 
 **Phương án B (có thêm #1085, khoảng +1 giờ):** merge #1085, chờ CI chạy lại (Ubuntu và macOS phải xanh), tag head mới, rồi đóng thêm #1072 và #1157.
 
@@ -114,5 +116,5 @@ Các issue này đóng không tự động vì PR merge vào nhánh release, kh�
 ### Known issues
 - Test Windows đang đỏ trên CI do lỗi tràn stack trong test (`STATUS_STACK_OVERFLOW`), không phải lỗi build. Bản build Windows vẫn được tạo bình thường. Đang sửa trong #1158 (https://github.com/jangtrinh/design-os-studio/issues/1158).
 
-Issue đã đóng: #1008 #1087 #1036 #1044 #1046 #1053 #1068 #1061 #1057 #1023
+Issue đã đóng: #1008 #1087 #1036 #1044 #1046 #1053 #1068 #1061 #1057 #1023 #1039 #1027
 ```
