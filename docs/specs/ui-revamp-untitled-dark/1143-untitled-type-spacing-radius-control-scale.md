@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | Issue | #1143 (epic #1118, spec key B) |
-| Size | M. About a day and a half: ~40 `theme.rs` lines, 16 new constants, one mechanical rename across 42 references, 7 theme tests rewritten, 10 token re-values, two ratchet fixes, one ratchet category added, evidence. |
+| Size | M. About a day and a half: ~40 `theme.rs` lines, 17 new constants, one mechanical rename across 42 references, 7 theme tests rewritten, 10 token re-values, two ratchet fixes, one ratchet category added, evidence. |
 | Depends on | A (same files: `theme.rs`, `design/design.tokens.json`, `scripts/non_colour_token_parity.py`). One writer, B's PR opens after A merges. |
 | Unblocks | C (widget anatomy uses these sizes), D–K (re-point call sites), L (height growth to allow) |
-| Touches | `crates/designos-app/src/theme.rs` (type :116-139, `font_*` :141-184, radii :190-196, controls :255-260, derived sizes :290, :306, :311, :332, :346, :362, :365, :394, :419, :583, :728, tests :770-913), 42 references renamed in `crates/` and `scripts/` (section 5.2), `crates/designos-app/src/cmdk.rs:446`, `crates/designos-app/src/dev/list.rs:60,67`, `design/design.tokens.json` (radius :341-366, typography :417-450), `scripts/non_colour_token_parity.py` (:23-58), `scripts/tests/test_non_colour_token_parity.py:81`, `scripts/rust_literal_scan.py` (:27-32 categories), `scripts/spacing_baseline.json` |
+| Touches | `crates/designos-app/src/theme.rs` (type :116-139, `font_*` :141-184, radii :190-196, controls :255-260, derived sizes :290, :306, :311, :346, :362, :365, :394, :419, :583, :728, tests :770-913), 42 references renamed in `crates/` and `scripts/` (section 5.2), `crates/designos-app/src/cmdk.rs:446`, `crates/designos-app/src/dev/list.rs:60,67`, `design/design.tokens.json` (radius :341-366, typography :417-450), `scripts/non_colour_token_parity.py` (:23-58), `scripts/tests/test_non_colour_token_parity.py:81`, `scripts/rust_literal_scan.py` (:27-32 categories), `scripts/spacing_baseline.json` |
 
 Code baseline: `ec47da26` (local `main`). Drift: `origin/main@35a65796` adds `TOAST_REVEAL_SECONDS` after `theme.rs:463` (+2 lines; every cited line after :463 moves by 2). Re-anchor every cited line against HEAD (and against A's merged diff) before writing code.
 
@@ -55,19 +55,20 @@ As a surface implementer (C–K), I want one constant per Untitled step (`text-x
 1. **Type roles (R5).** `FONT_SIZE_CAPTION` and `FONT_SIZE_BODY` become 12 (`text-xs`), `FONT_SIZE_LARGE` 14 (`text-sm`), `FONT_SIZE_TITLE` stays 20 (`text-xl`); `LINE_BODY` and `LINE_CAPTION` become 18. `FONT_SIZE_CANVAS` 9 stays (canvas exception; rulers and canvas pills only). Caption and body now share a size; weight tells them apart.
 2. **Untitled steps (new names).** `FONT_SIZE_TEXT_XS` 12, `_SM` 14, `_MD` 16, `_LG` 18, `_XL` 20 and `LINE_TEXT_XS` 18, `_SM` 20, `_MD` 24, `_LG` 28, `_XL` 30, plus `pub fn font_text(size: f32, weight: TextWeight) -> FontId` and `pub enum TextWeight { Regular, Medium, Semibold }` (new names). Home and dialogs (specs H and J) move their text to `font_text(FONT_SIZE_TEXT_SM, …)`; until they do, Home text renders at 12 (interim, sequential phases).
 3. **Weights.** `UI_FONT_WEIGHT` 400 (Regular), `UI_FONT_WEIGHT_MEDIUM` 500 (Medium), `UI_FONT_WEIGHT_STRONG` 600 (Semibold). Bold 700 is Display-only and has no chrome constant. The legacy role helpers (`font_caption*`, `font_body*`) keep their names; no mass rename.
-4. **Radii.** `RADIUS_CONTROL` 8 (`radius-md`, R5), `RADIUS_SEGMENT` 6 (`radius-sm`), `RADIUS_FRAME` 16 (`radius-2xl`, OQ-5), `RADIUS_MARK` 2 (`radius-xxs`, unchanged).
-5. **Concentric law, with numbers.** `RADIUS_FRAME` 16 − `INSET_FRAME` 8 = `RADIUS_CONTROL` 8; `RADIUS_CONTROL` 8 − `INSET_SEGMENT` 2 = `RADIUS_SEGMENT` 6; `concentric(RADIUS_FRAME, MENU_PILL_INSET 8)` = 8 = `RADIUS_CONTROL`; chain 16 > 8 > 6 > 2 strictly decreasing. A pill inside a pill: `radius_full(h_outer) − inset = radius_full(h_outer − 2·inset)`, e.g. a 32 track with inset 2 holds a 28 thumb: 16 − 2 = 14 = 28 ÷ 2.
+3a. **Button labels (R8.6).** Button labels at every size, xs 32 included, are `text-sm` 14 Semibold 600 (`font_text(FONT_SIZE_TEXT_SM, TextWeight::Semibold)`), as the kit's `Buttons/Button` xs. This is for buttons only: row, label and tab text stays `text-xs` 12 (R5).
+4. **Radii.** `RADIUS_CONTROL` 8 (`radius-md`, R5), `RADIUS_SEGMENT` 6 (`radius-sm`), `RADIUS_FRAME` 16 (`radius-2xl`, R8.5: menus, dropdowns and popovers, items 8 at inset 8), `RADIUS_XL` 12 (`radius-xl`, new name, G-4: cards and nested panels holding controls at inset 4), `RADIUS_MARK` 2 (`radius-xxs`, unchanged).
+5. **Concentric law, with numbers.** `RADIUS_FRAME` 16 − `INSET_FRAME` 8 = `RADIUS_CONTROL` 8; `RADIUS_CONTROL` 8 − `INSET_SEGMENT` 2 = `RADIUS_SEGMENT` 6; `concentric(RADIUS_FRAME, MENU_PILL_INSET 8)` = 8 = `RADIUS_CONTROL`; `RADIUS_XL` 12 − 4 = 8 = `RADIUS_CONTROL` (a card with a 4 px inset); chain 16 > 12 > 8 > 6 > 2 strictly decreasing. A pill inside a pill: `radius_full(h_outer) − inset = radius_full(h_outer − 2·inset)`, e.g. a 32 track with inset 2 holds a 28 thumb: 16 − 2 = 14 = 28 ÷ 2.
 6. **Controls (R5).** New `CONTROL_XS` 32 (button xs; editor buttons, rows, fields), `CONTROL_SM` 36 (button and input sm; Home, dialogs), `CONTROL_MD` 40 (button and input md; panel title rows), `BADGE_SM` 22, `BADGE_MD` 24, `BADGE_LG` 28 (new names). `TARGET_MIN` 24 stays the floor; `PANEL_ACTION_BUTTON` stays `TARGET_MIN` (two 32 px buttons at x 209 would overflow the 240 px panel; spec C/D decide icon-button anatomy).
 7. **Renames.** `CONTROL_TOOL` → `CONTROL_XS` and `CONTROL_ROW` → `CONTROL_MD` (values kept; section 5.2). `CONTROL_DENSE` 24 and `CONTROL_STANDARD` 28 keep name and value as legacy: their sites mix buttons, chips and strips, so each surface spec re-points the sites it owns (button or row → `CONTROL_XS`, chip or pill → `BADGE_MD`/`BADGE_LG`, icon hit box → `TARGET_MIN`), and a ratchet stops new uses (rule 11).
-8. **Re-pointed derived sizes.** `PAGE_ROW_HEIGHT`, `MENU_ITEM_HEIGHT`, `RIGHT_TABS_H`, `FIELD_HEIGHT` (OQ-4), `FIND_FIELD_H`, `FIND_GROUP_ROW_H`, `STYLE_FOLDER_ROW_H` → `CONTROL_XS`; `SUBLABEL_HEIGHT` → `LINE_CAPTION`; `VAR_PILL_H` → `BADGE_MD`; `LABEL_BOX_H` and `CODE_LINE_HEIGHT` follow their line heights. Every other numeric constant keeps its value (296, token-contract.md appendix; evaluated, 0 implicit changes).
+8. **Re-pointed derived sizes.** `PAGE_ROW_HEIGHT`, `MENU_ITEM_HEIGHT`, `FIELD_HEIGHT` (R8.4), `FIND_FIELD_H`, `FIND_GROUP_ROW_H`, `STYLE_FOLDER_ROW_H` → `CONTROL_XS`; `SUBLABEL_HEIGHT` → `LINE_CAPTION`; `VAR_PILL_H` → `BADGE_MD`; `LABEL_BOX_H` and `CODE_LINE_HEIGHT` follow their line heights. `RIGHT_TABS_H` (:332) stays `CONTROL_DENSE` 24 (R10.1, owner: "A · Giữ như hiện tại"; R1 wins over R5 for tab heights): the Inspector segmented strip, file tabs (26 in the 32 bar) and session tabs (24) keep today's heights. Every other numeric constant keeps its value (296, token-contract.md appendix; evaluated, 0 implicit changes).
 9. **Spacing.** Every ladder, inset and control value must be a step of the Untitled spacing scale {0, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160}; the 2 px and 6 px steps are allowed (R5). Values do not change in B. Badge heights 22 and 28 and kit button paddings (10, 14, 18) are component anatomy sizes, not spacing steps (spec C).
 10. **Ratchet baseline policy.** `scripts/spacing_baseline.json` is never raised. A rise caused by a re-valued theme constant is fixed in code in the same PR by deriving the inner radius from the law (`RADIUS_CONTROL` or `theme::concentric(outer, inset)`) or by moving the inset onto a theme constant. Gains may be locked with `--write-baseline`; the PR diff of the baseline shows decreases only.
-11. **Legacy-name ratchet.** `scripts/rust_literal_scan.py` gains the category `legacy_control_refs` (new name, regex `\bCONTROL_(DENSE|STANDARD)\b`, code only), counted per file into the same baseline; B writes its initial counts (102 references) once; afterwards they may only fall. When a constant reaches 0 references, the PR that removes the last one deletes the constant and its `RUST_ONLY` / `TOKEN_TO_RUST` row.
+11. **Legacy-name ratchet.** `scripts/rust_literal_scan.py` gains the category `legacy_control_refs` (new name, regex `\bCONTROL_(DENSE|STANDARD)\b`, code only), counted per file outside `theme.rs` into the same baseline; B writes its initial counts (102 references) once; afterwards they may only fall. When a constant reaches 0 references, the PR that removes the last one deletes the constant and its `RUST_ONLY` / `TOKEN_TO_RUST` row, except `CONTROL_DENSE`, which stays as the base of `RIGHT_TABS_H` inside `theme.rs` (R10.1).
 12. **Layout unchanged (R1).** No width, x position, region or order changes. Heights grow only where rules 1, 6 and 8 raise a size (section 7).
 
 ## 4. Data model / schema changes
 
-`theme.rs`: 16 constants added (new names, rule 2 and 6), 2 renamed, 21 changed or re-pointed (token-contract.md (c)); `RADIUS_*` stay `u8`. `design/design.tokens.json`: 10 re-values with `ui ds change-token` (token-contract.md (c) tsv: `font-size-caption` 12px, `font-size-body` 12px, `font-size-title` 14px, `font-size-heading` 14px, `radius-xs` 4px, `radius-sm` 6px, `radius-md` 8px, `radius-lg` 10px, `radius-xl` 12px, `radius-pill` 9999px); generation 69 → 79. Store keys unchanged (no add path, kernel gap T1 in spec A).
+`theme.rs`: 17 constants added (new names, rules 2, 4 and 6), 2 renamed, 20 changed or re-pointed (token-contract.md (c); `RIGHT_TABS_H` held by R10.1); `RADIUS_*` stay `u8`. `design/design.tokens.json`: 10 re-values with `ui ds change-token` (token-contract.md (c) tsv: `font-size-caption` 12px, `font-size-body` 12px, `font-size-title` 14px, `font-size-heading` 14px, `radius-xs` 4px, `radius-sm` 6px, `radius-md` 8px, `radius-lg` 10px, `radius-xl` 12px, `radius-pill` 9999px); generation 69 → 79. Store keys unchanged (no add path, kernel gap T1 in spec A).
 
 ## 5. Contracts
 
@@ -92,7 +93,7 @@ Scratch copy of `crates/designos-app/src`: 42 references renamed outside `theme.
 
 ### 5.3 `scripts/non_colour_token_parity.py`
 
-`TOKEN_TO_RUST` and `RUST_ONLY` exactly as token-contract.md (d). Scratch harness (repo G01 functions + A and B edits, scratch theme and store): `G01 ok = True`, "35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; 29 non-colour constants match"; unmapped (information only): `radius-lg`, `radius-pill`, `radius-xl`, `radius-xs`, `ai-panel-width`, `font-size-title`.
+`TOKEN_TO_RUST` and `RUST_ONLY` exactly as token-contract.md (d). Scratch harness (repo G01 functions + A and B edits, scratch theme and store): `G01 ok = True`, "35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; 30 non-colour constants match" (with `radius.radius-xl` → `RADIUS_XL`); unmapped (information only): `radius-lg`, `radius-pill`, `radius-xs`, `ai-panel-width`, `font-size-title`.
 
 ### 5.4 Ratchet on the scratch tree (pasted)
 
@@ -123,7 +124,7 @@ None. Document text keeps document sizes; only chrome changes.
 - Height growth, layout unchanged (R1). INFERENCE from the code at `ec47da26`, assuming the left panel is 1056 px tall at the default 1600×1088 window (1088 − tab bar 32):
   - Left panel stack (`panels/left.rs:60-193`): header 65 + Pages title 40 + Pages list `min(n,5) × PAGE_ROW_HEIGHT + 8` + Layers header 40. With ≥ 5 pages: 65 + 40 + 128 + 40 = 273 before, 65 + 40 + 168 + 40 = 313 after; visible Layers rows (32 each) ⌊(1056 − 273)/32⌋ = 24 before, ⌊(1056 − 313)/32⌋ = 23 after. With 1 page: 27 rows before and after.
   - Inspector (`panels/properties.rs:207-297`): a labelled group is sublabel gap (12 − 4) + `LABEL_BOX_H` + 4 + `FIELD_HEIGHT` + 4 = 54 before, 66 after (+12); the first group after a title 46 → 58. A section with g groups grows 12g; Position (title 40 + 3 groups) 194 → 230.
-  - Menus: `MENU_ITEM_HEIGHT` 24 → 32, a menu of n items grows 8n. Inspector tab strip 24 → 32 (`RIGHT_TABS_Y` 48 + 32 = 80 ≤ `RIGHT_CONTENT_TOP` 81, so content does not move).
+  - Menus: `MENU_ITEM_HEIGHT` 24 → 32, a menu of n items grows 8n. Inspector tab strip stays 24 (`RIGHT_TABS_H` = `CONTROL_DENSE`, R10.1), so nothing below `RIGHT_TABS_Y` 48 moves.
   - Text widths: body 11 → 12 (+9%), caption 10 → 12 (+20%). Rail labels in the 56 px rail (e.g. "Variables") are UNKNOWN at 12 px; spec D measures them.
 - Evidence to the PR, not Figma (outputs under `evidence/B/`):
 
@@ -153,8 +154,8 @@ for p in cmdk variables assets picker; do cargo run -q --release -p designos-app
 Rewritten tests (red against HEAD values, green after):
 
 1. `ladder_insets_and_controls_are_untitled_spacing_steps` (replaces `…sit_on_the_4px_grid`): every `LADDER`, `INSETS` and control value ∈ the Untitled spacing set (rule 9); `CONTROLS` = `[CONTROL_XS, CONTROL_SM, CONTROL_MD, TARGET_MIN]`.
-2. `control_heights_are_the_untitled_button_sizes` (replaces `…ratified_family`): `[CONTROL_XS, CONTROL_SM, CONTROL_MD] == [32, 36, 40]`, `[BADGE_SM, BADGE_MD, BADGE_LG] == [22, 24, 28]`, `TARGET_MIN == 24`, `RIGHT_TABS_H == PAGE_ROW_HEIGHT == MENU_ITEM_HEIGHT == CONTROL_XS`.
-3. `nested_radii_are_concentric`: unchanged asserts; add `[RADIUS_FRAME, RADIUS_CONTROL, RADIUS_SEGMENT, RADIUS_MARK] == [16, 8, 6, 2]` and membership in the Untitled radius set {0, 2, 4, 6, 8, 10, 12, 16, 20, 24}.
+2. `control_heights_are_the_untitled_button_sizes` (replaces `…ratified_family`): `[CONTROL_XS, CONTROL_SM, CONTROL_MD] == [32, 36, 40]`, `[BADGE_SM, BADGE_MD, BADGE_LG] == [22, 24, 28]`, `TARGET_MIN == 24`, `PAGE_ROW_HEIGHT == MENU_ITEM_HEIGHT == CONTROL_XS`; `RIGHT_TABS_H == CONTROL_DENSE == 24` stays as today (`theme.rs:847`, "inspector tab strips are 24px, not 28px"; R10.1).
+3. `nested_radii_are_concentric`: unchanged asserts; add `[RADIUS_FRAME, RADIUS_XL, RADIUS_CONTROL, RADIUS_SEGMENT, RADIUS_MARK] == [16, 12, 8, 6, 2]`, `concentric(RADIUS_XL, 4.0) == RADIUS_CONTROL` and membership in the Untitled radius set {0, 2, 4, 6, 8, 10, 12, 16, 20, 24}.
 4. `type_roles_are_untitled_text_styles` (replaces `type_roles_keep_their_order…`): non-decreasing chain, `[CAPTION, BODY, LARGE, TITLE] == [12, 12, 14, 20]`, `FONT_SIZE_CANVAS == 9` the only size below 12, `(FONT_SIZE_TEXT_*, LINE_TEXT_*)` == the five kit pairs.
 5. `line_heights_fit_their_roles`: `LINE_CAPTION == LINE_BODY == 18`; slot `FIELD_HEIGHT` (32): `LABEL_BOX_H + SPACE_FACT <= FIELD_HEIGHT`.
 6. `only_three_ui_weights_exist`: `[400, 500, 600]`.
@@ -167,7 +168,7 @@ Acceptance criteria:
 
 1. `theme.rs` scale constants equal token-contract.md (c); `grep -rnwE 'CONTROL_(TOOL|ROW)' crates scripts` prints nothing.
 2. `cargo test -p designos-app` green with tests 1–7.
-3. `python3 scripts/design_os_self_evolve.py` green (G01 "… 29 non-colour constants match" or more); `python3 scripts/check_spacing_relationships.py` PASS with the baseline diff showing decreases only plus the new `legacy_control_refs` entries.
+3. `python3 scripts/design_os_self_evolve.py` green (G01 "… 30 non-colour constants match" or more); `python3 scripts/check_spacing_relationships.py` PASS with the baseline diff showing decreases only plus the new `legacy_control_refs` entries.
 4. `ui ds status --dir .` generation 79; `design.tokens.json` radius and typography equal token-contract.md (c).
 5. `python3 scripts/zero_fake_ui_gate.py`, `ui ds soul check --dir .`, `ui agents check --dir .`, `design-os evolution` green.
 6. Evidence PNGs of section 7 attached; L's layout gate (once it exists) shows no region, width or order change; "responsive: SKIPPED (owner default)" stated.
@@ -178,7 +179,7 @@ Constants only. Taller rows draw fewer Layers rows per frame (24 → 23 at the d
 
 ## 12. Dependencies and build order
 
-A merges first; B rebases on it and runs 5.1–5.4 on top (one writer, sequential PRs, same files). Then C (anatomy), then D–K re-point sites and retire `CONTROL_DENSE`/`CONTROL_STANDARD`. L's baseline capture must be taken at A+B before D–K start, so their diffs are measured against B's sizes.
+A merges first; B rebases on it and runs 5.1–5.4 on top (one writer, sequential PRs, same files). Then C (anatomy), then D–K re-point sites and retire `CONTROL_STANDARD` and every `CONTROL_DENSE` call site (`CONTROL_DENSE` itself stays as the base of `RIGHT_TABS_H`, R10.1). L's baseline capture must be taken at A+B before D–K start, so their diffs are measured against B's sizes.
 
 ## 13. Owner rulings that apply
 
@@ -186,8 +187,11 @@ R1 (layout unchanged; heights may grow only where a size rises), R2 (take type a
 
 ## Open questions for the owner
 
-1. **OQ-4 Inspector field height.** Recommended: 32 (`CONTROL_XS`, matches R5 row 32; Position section grows 194 → 230). Alternatives: kit Input sm 36 (the kit's smallest input; +4 more per field) or keep 24 (densest, but no kit size).
-2. **OQ-5 Floating-chrome radius.** Recommended: 16 (`radius-2xl` = 8 + `INSET_FRAME` 8, keeps the concentric law with radius-md rows). Alternative: the kit's own menu radius 8 (`radius-md`); then rows inside at inset 8 would be square (`concentric(8, 8)` = 0) or break the law.
+All decided by the owner on 2026-10-25 (plan.md R8); none open.
+
+1. **OQ-4 Inspector field height: decided (R8.4).** 32 (`CONTROL_XS`); Position section 194 → 230. Owner: "A · 32px".
+2. **OQ-5 Floating-chrome radius: decided (R8.5).** 16 (`radius-2xl`) for menus, dropdowns and popovers, items radius 8 at inset 8 (concentric). Owner: "A · 16, item 8, inset 8".
+3. **Button xs label: decided (R8.6).** `text-sm` 14 Semibold for button labels only; rows, labels and tabs stay `text-xs` 12. Owner: "A · 14px semibold".
 
 ## Decisions on the open questions (designer, 2026-10-25)
 
@@ -195,5 +199,7 @@ R1 (layout unchanged; heights may grow only where a size rises), R2 (take type a
 - Only value-preserving renames (`CONTROL_TOOL`, `CONTROL_ROW`); `CONTROL_DENSE`/`CONTROL_STANDARD` are legacy with a falling reference ratchet, because a blanket rename would silently grow chips 24 → 32.
 - No mass rename of `font_*` helpers; new Untitled steps sit beside them.
 - `PANEL_ACTION_BUTTON` stays 24; icon-button anatomy is spec C's.
-- Button label size (kit `Text sm` Semibold even at xs) is spec C's call; B provides both `FONT_SIZE_TEXT_XS` and `_SM`.
+- Button labels follow R8.6 (`text-sm` 14 Semibold at every button size); B provides `FONT_SIZE_TEXT_SM` and `TextWeight::Semibold`, spec C applies them.
+- `RADIUS_XL` 12 is added for the contract gap G-4 and mapped to `radius.radius-xl` (12 after the re-value), so that token is guarded instead of unmapped.
+- Contrast is not B's acceptance: B changes no colour; specs cite contrast check C-1 in token-contract.md (f).
 - Ratchet rises from re-valued radii are fixed in code, never by raising the baseline.

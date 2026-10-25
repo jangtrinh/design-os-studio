@@ -44,19 +44,19 @@ Outcome: `theme.rs` colour constants and `design/design.tokens.json` hold the Un
 | proj-v | re-value in place on a copy of the real store: 41 × `ui ds change-token colors.<key> --value <hex> --reason "<Untitled token>: …"` (token-contract.md (b)) | 41/41 succeeded; generation 28 → 69, changelog 27 → 68 entries; every `$extensions.design-os.role` kept; 12 components kept |
 | e3 | reference store with Untitled names and Studio orange (44 tokens), `ui ds a11y --pairs <94 pairs>` | 94 pairs, 14 below AA, all of them placeholder `#737373`, error `#EF4444`, tertiary or accent text on `bg-quaternary`/`bg-tertiary`; every other chrome pair passes (rules 5–8 below) |
 
-**Duplicated kit collections (FACT).** `--export-variables --format dtcg` overwrites collections that share a name (spec P, #1140): the kit has 10 collections, three of them twice (`_Primitives`, `1. Color modes`, `6. Typography`, a local copy and a library copy each), so the DTCG files keep only one copy. Verification run (scratch): `designos "$KIT" --export-variables all.json --format figma-rest` keeps all 10 by id; resolving every variable of both copies (Dark mode / Style, alias chains followed) and diffing against the DTCG-resolved values this spec uses printed "compared 575 identical 575 diffs 0". The library copies hold 6 variables, each with an identical local twin, and the local copies (343 and 273 variables) are the ones the DTCG files kept. Every hex in token-contract.md is therefore verified, not provisional. The overwrite did drop the local `6. Typography` (32 variables, the whole text scale) behind a one-variable library copy; spec B reads it from the REST export.
+**Duplicated kit collections (FACT).** `--export-variables --format dtcg` overwrites collections that share a name (spec P, #1140): the kit has 10 collections, three of them twice (`_Primitives`, `1. Color modes`, `6. Typography`, a local copy and a library copy each), so the DTCG files keep only one copy. Verification run (scratch): `designos "$KIT" --export-variables all.json --format figma-rest` keeps all 10 by id; resolving every variable of both copies (Dark mode / Style, alias chains followed) and diffing against the DTCG-resolved values this spec uses printed "compared 575 identical 575 diffs 0". The library copies hold 6 variables, each with an identical local twin, and the local copies (343 and 273 variables) are the ones the DTCG files kept. Every hex in token-contract.md is therefore verified. A second, independent check against the live kit in Figma (R9, read-only) is in `evidence/figma-live-variable-check.md`: colour variables 273/273 identical in Dark mode and 273/273 in Light mode, numeric variables 76/76. Studio's export lacking 31 of 32 `6. Typography` variables is spec P's (#1140). The overwrite did drop the local `6. Typography` (32 variables, the whole text scale) behind a one-variable library copy; spec B reads it from the REST export.
 
 Conclusion (INFERENCE from the runs): `ui ds import` cannot onboard the kit onto this project without losing the component registry and changelog, and its raw DTCG path measures nothing; re-valuing the existing role keys with `change-token` is the only path that keeps history, roles and components. Tool gaps and owners are in section 8.
 
 ## 3. Behaviour rules
 
-1. **Values.** Every `theme.rs` colour constant takes the action and value in token-contract.md (a): 55 re-valued, 52 kept, 4 aliases kept, 5 deleted, 23 added (new names; N14–N23 are the roles spec C section 12 needs). Every `design.tokens.json` colour takes token-contract.md (b): 41 re-valued, 7 kept.
+1. **Values.** Every `theme.rs` colour constant takes the action and value in token-contract.md (a): 55 re-valued, 52 kept, 4 aliases kept, 5 deleted, 46 added (new names; N14–N23 and N38 are for spec C, N24–N37 close contract gaps G-1..G-3, N39–N46 are the R10.2 Home tiles). Every `design.tokens.json` colour takes token-contract.md (b): 41 re-valued, 7 kept.
 2. **Literals for parity.** Every constant in the G01 map is a plain `rgb(0x……)` / `rgba(…)` literal. `BG_SELECTED` stops being `= BG_PRESSED` and becomes `rgb(0x262626)`.
 3. **egui visuals in `apply()`.** `panel_fill = BG` (`#0A0A0A`), `window_fill = BG_MENU` (`#0A0A0A`), `extreme_bg_color`/`faint_bg_color = BG_SECONDARY`, widgets `inactive = BG_SECONDARY`, `hovered = BG_SECONDARY_HOVER` (new name, `#262626`; `BG_HOVER` equals `BG_SECONDARY` in the kit and would make hover invisible), `active = BG_PRESSED` (`#404040`), `selection.bg_fill = BG_TEXT_SELECTION` (`#431407`), `selection.stroke = BORDER_SELECTED` (`#FB923C`), widget stroke `BORDER_STRONG` for inactive fields (kit inputs use `border-primary` `#404040`). Window and popup shadows: `Shadow::NONE` (kit dark shadows are alpha 0).
-4. **Brand (R4).** `BG_BRAND` stays `#E36323`; hover `#F97316`, pressed `#EA580C`; the label on all three is `TEXT_ON_BRAND` `#0A0A0A` (5.76 / 7.06 / 5.56:1); the focus ring is `FOCUS_RING` `#F97316`. The kit's purple brand values never enter the code.
+4. **Brand (R4).** `BG_BRAND` stays `#E36323`; hover `#F97316`, pressed `#EA580C`; the label on all three is `TEXT_ON_BRAND` `#0A0A0A` (5.73 / 7.06 / 5.56:1); the focus ring is `FOCUS_RING` `#F97316`. The kit's purple brand values never enter the code.
 5. **Pressed fill.** On `BG_PRESSED` (`bg-quaternary` `#404040`) only `TEXT` and `TEXT_SECONDARY` may sit (`text-tertiary` 4.11:1, accent 3.70:1, placeholder 2.19:1 fail).
 6. **Error text.** Text uses `TEXT_ERROR` `#F87171`; `DANGER` `#EF4444` is for icons, dots and strokes only (4.02:1 on `bg-tertiary`).
-7. **Placeholder.** `TEXT_PLACEHOLDER` (new name) is `#A3A3A3` pending OQ-1 (kit `#737373` is 3.78:1 on `#171717`).
+7. **Placeholder (R8.1).** `TEXT_PLACEHOLDER` (new name) is the kit's `text-placeholder` `#737373`: 3.78:1 on `BG_SECONDARY`, 4.18:1 on `BG`. Owner ruling R8.1 makes placeholder the one named exception to the AA text law (min 3:1, contrast check C-1.25/26); it sits only in fields filled `BG`/`BG_PRIMARY` or `BG_SECONDARY`, never on `BG_TERTIARY` (3.19:1) or `BG_PRESSED` (2.19:1).
 8. **Non-text graphics.** `ICON_QUATERNARY` and `VAR_SCROLL_THUMB` (`#737373`) need 3:1 and never sit on `BG_PRESSED` (2.19:1).
 9. **Disabled.** No disabled colour token (v8 has none); a disabled control draws at opacity 0.5 (kit `Buttons/Button` State=Disabled). `TEXT_DISABLED` = `text-secondary` at 50% for text-only cases.
 10. **No shadows.** `SHADOW_COLOR`, `SHADOW_COLOR_STRONG`, `ELEVATION_400_SHADOW`, `ELEVATION_400_TOP` become transparent; the surface specs drop the draw calls. `ELEVATION_400_RING` and `INNER_HIGHLIGHT` become the `border-secondary_alt` hairline `#262626`.
@@ -65,10 +65,15 @@ Conclusion (INFERENCE from the runs): `ui ds import` cannot onboard the kit onto
 13. **Colour-literal gate.** New `scripts/check_chrome_colour_literals.py` (new name) counts chrome sites per file with spec D section 2's regex over `rust_literal_scan.clean` output, against `scripts/chrome_colour_baseline.json` (new name, written once from HEAD: 410 sites in 51 files). A file's count may only fall; an allowlist names identity-tint and canvas-exception lines (D, F and G list theirs). It joins the pre-commit list next to `check_spacing_relationships.py`. This spec retires no call-site literal; surface specs do.
 14. **Store mirrors.** `design/tokens.json` is rewritten from `design.tokens.json` values (same keys) so no file prints a retired value. `design/specimen.html` is not regenerated with `ui ds preview` (section 8, gap T2); its printed values are refreshed in place.
 15. **Agents.** No `ui agents init --force`: the project name (`designos-studio`) and studio name do not change, and `.claude/agents/*` read the soul at run time through `ui ds context`. The `.agents/agents/` copies are hand-edited (section 5.4).
+16. **Contract gaps closed (token-contract.md (a) N24–N37, (c)).** Status badges use the kit `Badge` anatomy (utility-<colour>-50 fill, -200 stroke, -700 text): `BG_SUCCESS_PRIMARY` `#052E16` / `UTILITY_GREEN_200` `#166534` / `UTILITY_GREEN_700` `#86EFAC`, warning `#422006` / `#854D0E` / `#FDE047`, error `#450A0A` / `#991B1B` / `#FCA5A5` (G-1). Provider marks (Claude `#D97757`, Codex/OpenCode `#FAFAFA`, Grok `#E5E5E5`, Gemini/Antigravity `#60A5FA`) are identity content like `AVATAR_COLORS`: exempt from role mapping, declared once in `theme.rs` as `PROVIDER_*` (new names) and bound by the Purple Ban (G-2). The modal scrim is `BG_OVERLAY` = bg-overlay `#262626` at 70% (`rgba(0x262626, 0xB3)`); the kit adds a 16 px background blur, which spec J decides (G-3). `RADIUS_XL` 12 (radius-xl) is spec B's (G-4). Sources: resolved export plus `evidence/figma-live-variable-check.md`; the 70% layer opacity and 16 px blur were read in live Figma (R9, read-only `figma-agent exec-js`: Modals page, node "Background overlay", fill bound to `Colors/Background/bg-overlay`, opacity 0.70, `BACKGROUND_BLUR` 16).
+17. **Tooltip.** Fill `BG_PRIMARY_SOLID` `#262626`, title `TEXT` `#FAFAFA` (14.50:1), supporting text `TEXT_SECONDARY` `#D4D4D4` (10.21:1). This overrides the kit's `text-white` tooltip label (controller ruling 2026-10-25); `TEXT_WHITE` stays reserved for `BG_ERROR_SOLID` and `BG_ERROR_SOLID_HOVER`.
+18. **Destructive hover (R8.7).** `BG_ERROR_SOLID_HOVER` is Red-700 `#B91C1C` (white label 6.47:1); the default stays `BG_ERROR_SOLID` `#DC2626` (4.83:1).
+19. **Contrast check C-1.** The acceptance check for contrast in every spec is token-contract.md (f) "Contrast check C-1" (62 pairs, WCAG 2.x, exits 1 on a failure; owner exceptions E-1 placeholder and E-2 checkbox border are listed beside it, never as passes); after this spec lands the Rust test `chrome_contrast_pairs` asserts the same rows on the constants. `ui ds a11y` is supplementary evidence only, never an acceptance gate (single-mode imports measure 0 pairs, a recorded false green).
+20. **Board-3 answers (R10).** Home category tiles use `UTILITY_<HUE>_50` / `UTILITY_<HUE>_600` for blue, amber, green and orange (R10.2); the Dev mode accent is `DEV_READY` `#14AE5C` with the `TEXT_ON_BRAND` label, 6.82:1 (R10.4); the selected Home card border is 2 px `BORDER_SELECTED` (R10.3); the unchecked checkbox and radio border is the kit's 1 px `BORDER_STRONG` `#404040` (1.91:1 / 1.73:1), the second named exception after the placeholder, to the 3:1 non-text rule (R10.7, contract (f) E-2).
 
 ## 4. Data model / schema changes
 
-No schema change. `design.tokens.json` keeps its 48 colour keys and their roles; 41 values change, generation 28 → 69 (41 changelog entries, one per token, each reason naming the Untitled token). `theme.rs` loses 5 constants and gains 23 (new names): `BG_SECONDARY_HOVER`, `TEXT_SECONDARY_HOVER`, `TEXT_TERTIARY_HOVER`, `TEXT_QUATERNARY`, `TEXT_PLACEHOLDER`, `ICON_QUATERNARY`, `TEXT_ERROR`, `TEXT_WARNING`, `TEXT_SUCCESS`, `TEXT_ON_BRAND`, `FOCUS_RING`, `BG_ERROR_SOLID`, `TEXT_WHITE`, and for spec C `ICON_BRAND_PRIMARY` (fg-brand-primary, R4 orange `#F97316`), `ICON_SECONDARY_HOVER`, `ICON_QUATERNARY_HOVER`, `ICON_WHITE`, `BG_PRIMARY_ALT`, `BG_PRIMARY_SOLID`, `BG_ERROR_SOLID_HOVER`, `UTILITY_NEUTRAL_50`, `UTILITY_NEUTRAL_200`, `UTILITY_NEUTRAL_700`. Untitled names with no store key live in `theme.rs` only (the store has no add path, kernel gap T1).
+No schema change. `design.tokens.json` keeps its 48 colour keys and their roles; 41 values change, generation 28 → 69 (41 changelog entries, one per token, each reason naming the Untitled token). `theme.rs` loses 5 constants and gains 46 (new names): `BG_SECONDARY_HOVER`, `TEXT_SECONDARY_HOVER`, `TEXT_TERTIARY_HOVER`, `TEXT_QUATERNARY`, `TEXT_PLACEHOLDER`, `ICON_QUATERNARY`, `TEXT_ERROR`, `TEXT_WARNING`, `TEXT_SUCCESS`, `TEXT_ON_BRAND`, `FOCUS_RING`, `BG_ERROR_SOLID`, `TEXT_WHITE`, and for spec C `ICON_BRAND_PRIMARY` (fg-brand-primary, R4 orange `#F97316`), `ICON_SECONDARY_HOVER`, `ICON_QUATERNARY_HOVER`, `ICON_WHITE`, `BG_PRIMARY_ALT`, `BG_PRIMARY_SOLID`, `BG_ERROR_SOLID_HOVER`, `UTILITY_NEUTRAL_50`, `UTILITY_NEUTRAL_200`, `UTILITY_NEUTRAL_700`, and for the contract gaps `BG_SUCCESS_PRIMARY`, `BG_WARNING_PRIMARY`, `BG_ERROR_PRIMARY`, `UTILITY_GREEN_200`, `UTILITY_YELLOW_200`, `UTILITY_RED_200`, `UTILITY_GREEN_700`, `UTILITY_YELLOW_700`, `UTILITY_RED_700`, `BG_OVERLAY`, `PROVIDER_CLAUDE`, `PROVIDER_CODEX`, `PROVIDER_GROK`, `PROVIDER_GEMINI`, then `BG_ERROR_SOLID_PRESSED` (N38) and for R10.2 `UTILITY_BLUE_50`, `UTILITY_BLUE_600`, `UTILITY_AMBER_50`, `UTILITY_AMBER_600`, `UTILITY_GREEN_50`, `UTILITY_GREEN_600`, `UTILITY_ORANGE_50`, `UTILITY_ORANGE_600` (46 in all). Untitled names with no store key live in `theme.rs` only (the store has no add path, kernel gap T1).
 
 ## 5. Contracts
 
@@ -94,9 +99,8 @@ python3 -c 'import json;t=json.load(open("design/design.tokens.json"));f=json.lo
 ui ds docs --dir . --out design/DESIGN.md
 #    specimen: rewrite every `  --colors-<key>: <hex>;` line, each swatch `<code>#bg / #fg · r:1</code>`,
 #    the `generation N` header and `min r:1` from design.tokens.json + ds.manifest.json (WCAG ratio).
-# 4. Prove it.
-ui ds a11y --dir .
-ui ds a11y --dir . --pairs "$(cat design/a11y-chrome-pairs.txt)"     # new file, 5.3
+# 4. Prove it. Contrast: token-contract.md (f) C-1 snippet (exit 0), then `cargo test -p designos-app chrome_contrast_pairs`.
+#    Supplementary only (not a gate): ui ds a11y --dir . ; ui ds a11y --dir . --pairs "$(cat design/a11y-chrome-pairs.txt)"
 ui gate design/specimen.html --tokens design/design.tokens.json --json
 ui ds-usage-lint design/specimen.html --dir . --json
 ui ds soul check --dir .
@@ -137,7 +141,7 @@ The same 50-pair list passes on the HEAD store too (`ui ds a11y --dir . --pairs 
 
 Exactly the edits in token-contract.md (d): `BANNED_PURPLES` +6, `CORE_RUST_CONSTANTS` +13 (35), 14 map rows changed or added, `DEV_READY` moved to `EXPECTED_STANDALONE_HEX` `#14ae5c`. Without them G01 fails on the scratch theme ("BG_PRESSED vs bg-active", "DEV_READY vs success").
 
-### 5.3 G04 explicit chrome pairs
+### 5.3 G04 explicit chrome pairs (supplementary evidence, not an acceptance gate)
 
 New `design/a11y-chrome-pairs.txt` (new name, one comma-separated line): `bg-foreground`, `muted-foreground`, `accent-foreground` × {`canvas`, `bg`, `bg-hover`, `bg-active`, `surface`, `surface-hover`, `surface-active`, `card`, `popover`, `input`, `muted`, `secondary`, `accent`}; `bg-foreground` × {`secondary-hover`, `secondary-active`}; `primary-foreground` × {`primary`, `primary-hover`, `primary-active`}; `destructive-foreground:destructive`, `success-foreground:success`, `warning-foreground:warning`, `info-foreground:info`, `component-foreground:component`, `neutral-foreground:neutral` — every path prefixed `colors.` (without the prefix `ui ds a11y` reports "not checked"). `check_ui_ds_a11y` (:365) runs both the default and the `--pairs` call and needs 0 below AA in each.
 
@@ -193,7 +197,7 @@ done
 - **T3 — `ui ds import --force` wipes the registry and changelog (by design).** Never used here.
 - **T4 — default `ui ds a11y` on an Untitled-named store builds cartesian pairs (1392, 731 "failing") or, on raw DTCG, measures 0 pairs (false green).** Always pass `--pairs` with `colors.` paths.
 - `BG_HOVER == BG_SECONDARY` (`#171717`): any surface that is `BG_SECONDARY` uses `BG_SECONDARY_HOVER` for hover (rule 3); surface specs own the call sites.
-- `BG_SELECTED == BG_SELECTED_HOVER` (`#262626`, OQ-2): the kit keeps the fill under the pointer; no extra state colour.
+- `BG_SELECTED == BG_SELECTED_HOVER` (`#262626`, R8.2): the kit keeps the fill under the pointer; no extra state colour.
 - `TEXT_SECONDARY`/`TEXT_TERTIARY` turn from alpha to opaque: text drawn over images or the canvas (none found in chrome) would no longer blend.
 - `terminal.rs` pins `SUCCESS` and `WARNING` hex in a test (:10019-10021): update the two literals in the same commit.
 - Constants deleted with 0 references: a reference added between HEAD and the PR re-anchor breaks the build; re-run the grep before deleting.
@@ -208,19 +212,19 @@ Red at HEAD, green after:
 
 1. `theme.rs` `no_chrome_colour_is_purple` (new test): hue scan of every `Color32` constant except `BOARD_*`; red at HEAD (`SYNTAX_KEYWORD` `#C792EA`, 276°).
 2. `theme.rs` `brand_label_passes_aa` (new test): WCAG ratio of `TEXT_ON_BRAND` on `BG_BRAND`, `BG_BRAND_HOVER`, `BG_BRAND_PRESSED` ≥ 4.5; red at HEAD (no `TEXT_ON_BRAND` constant exists).
-3. `theme.rs` `chrome_text_passes_aa` (new test): `TEXT`, `TEXT_SECONDARY`, `TEXT_TERTIARY`, `TEXT_PLACEHOLDER`, `TEXT_ERROR` on `BG`, `BG_SECONDARY`, `BG_TERTIARY`, `BG_SELECTED` ≥ 4.5, and `TEXT`/`TEXT_SECONDARY` on `BG_PRESSED`; red at HEAD (`TEXT_TERTIARY` `rgba(0xF4F4F5, 0x66)` blends to 3.84:1 on `BG`).
+3. `theme.rs` `chrome_contrast_pairs` (new test): one assert per row of token-contract.md (f) C-1, on the constants, with that row's minimum (4.5 for text, 3.0 for the placeholder exception and non-text); red at HEAD (`TEXT_TERTIARY` `rgba(0xF4F4F5, 0x66)` blends to 3.84:1 on `BG`; the new constants do not exist).
 4. Existing selection-fills-neutral test (:900-906) keeps passing with the new values.
 5. `terminal.rs` colour pins updated to `#22C55E`/`#EAB308`; `INFO` pin unchanged.
 6. G01: `python3 scripts/design_os_self_evolve.py` green with 35 core constants; a fixture run with `SYNTAX_KEYWORD` set back to `#C792EA` fails on the Purple Ban.
 7. `scripts/check_chrome_colour_literals.py`: a test injects one `Color32::from_rgb(1, 2, 3)` into a temp copy of a file and expects FAIL; HEAD passes against the written baseline.
-8. G04 with 5.3 pairs green; the 68-pair list shows it can fail.
+8. Contrast check C-1 (token-contract.md (f)) exits 0; raising row C-1.26's minimum to 4.5 makes it exit 1 (scratch run: "C-1.26 3.78:1 (min 4.5) FAIL").
 
 Acceptance criteria:
 
-1. `theme.rs` colour constants equal token-contract.md (a) (116 rows + 23 new), checked by the G01 run and by `grep` of each new literal.
+1. `theme.rs` colour constants equal token-contract.md (a) (116 rows + 46 new), checked by the G01 run and by `grep` of each new literal.
 2. `ui ds status --dir .` → generation 69 after this PR, 77 tokens, 12 components; `design.tokens.json` colours equal token-contract.md (b).
-3. `ui ds a11y --dir .` and `ui ds a11y --dir . --pairs "$(cat design/a11y-chrome-pairs.txt)"` → 0 below AA.
-4. `python3 scripts/design_os_self_evolve.py` all gates green, G01 "35/35 … 0 Purple Ban violations".
+3. Contrast: token-contract.md (f) C-1 exits 0 (62/62 rows; scratch run 2026-10-25) and `cargo test -p designos-app chrome_contrast_pairs` passes.
+4. `python3 scripts/design_os_self_evolve.py`: G01 "35/35 … 0 Purple Ban violations", G05, G06 and G08 green. Its G04 (`ui ds a11y`) is reported as supplementary evidence only; contrast acceptance is item 3.
 5. `ui ds soul check --dir .` → 0 findings, `status: ratified`; `design/soul.md` and `design/principles.md` byte-equal the drafts.
 6. `ui agents check --dir .` → 0 findings; the 5.4 grep prints nothing.
 7. `ui gate design/specimen.html …` pass and `ui ds-usage-lint` 0 errors; no retired hex printed in `design/`.
@@ -241,9 +245,11 @@ R1 (adopt 100% Untitled style, keep layout), R2 (take everything from the kit), 
 
 ## Open questions for the owner
 
-1. **OQ-1 Placeholder colour.** Recommended: `#A3A3A3` (Neutral-400, 7.11:1 on `#171717`). Alternative: kit `text-placeholder` `#737373` (3.78:1 on `#171717`, 4.18:1 on `#0A0A0A`: fails AA).
-2. **OQ-2 Selected row fill.** Recommended: `#262626` (`bg-secondary_hover`, one step above hover so selection reads). Alternative: kit-literal `bg-secondary` `#171717`, which equals hover in dark mode.
-3. **OQ-3 Accent text (`TEXT_BRAND`).** Recommended: Studio orange `#F97316` (7.06:1 on `#0A0A0A`; marks New/Fix/undo steps). Alternative: kit-literal `text-brand-secondary`, which is neutral `#D4D4D4` in dark mode.
+All decided by the owner on 2026-10-25 (plan.md R8); none open.
+
+1. **OQ-1 Placeholder colour: decided (R8.1).** Kit `text-placeholder` `#737373` (3.78:1 on `#171717`, 4.18:1 on `#0A0A0A`), the one named exception to the AA text law. Owner: "B · #737373 của kit" (the designer had recommended `#A3A3A3`).
+2. **OQ-2 Selected row fill: decided (R8.2).** `#262626` bg-secondary_hover. Owner: "A · #262626".
+3. **OQ-3 Accent text: decided (R8.3).** `TEXT_BRAND` Orange-500 `#F97316` (7.06:1). Owner: "A · cam #F97316".
 
 ## Decisions on the open questions (designer, 2026-10-25)
 
@@ -255,6 +261,9 @@ R1 (adopt 100% Untitled style, keep layout), R2 (take everything from the kit), 
 - The colour-literal gate requested by D/E/F/G is adopted here with a falling per-file baseline.
 - Specimen refreshed in place, not regenerated (gap T2); `design/tokens.json` mirrored.
 - Buttons change from pills to `radius-md` 8 at every size, Home and dialog buttons included (soul and P4 clauses rewritten): R2 ("take everything from Untitled") and the kit FACT that every `Buttons/Button` size is `radius-md` (`--select "Buttons/Button" --export-spec`). Pills stay for pill badges, count pills, filter chips, toggles and avatars.
-- `BG_ERROR_SOLID_HOVER` takes the kit value `#EF4444` although `TEXT_WHITE` on it is 3.76:1; spec C owns the destructive-hover state and decides whether to keep it.
+- `BG_ERROR_SOLID_HOVER` is Red-700 `#B91C1C` by owner ruling R8.7 ("C · #B91C1C Red-700"), not the kit's dark `#EF4444` (3.76:1).
+- Provider marks are identity content (G-2), declared in `theme.rs` so no literal stays in `terminal.rs`; Grok's Zinc-200 `#E4E4E7` moves to Neutral-200 `#E5E5E5` because the Zinc family is retired.
+- The modal scrim keeps the kit's 70% `bg-overlay`; whether to draw the 16 px background blur is spec J's call (P8 frame budget).
+- Contrast acceptance moves from `ui ds a11y` to contrast check C-1 (token-contract.md (f)) plus the Rust test that mirrors it.
 - The soul keeps `status: ratified`: its stance is the owner's rulings R1–R7; the owner's PR approval is the ratification act (Jang approves every merge).
 - No `ui agents init --force`; `.agents/agents/` copies are hand-edited.

@@ -8,7 +8,7 @@
 | Unblocks | Spec A (onboard Untitled UI dark with the design:os CLI, no Figma: R3). Any other kit onboarding that goes `designos --export-variables` → `ui ds import`. |
 | Touches | `crates/designos-fig/src/variables_dtcg.rs`:<br>- `export_dtcg` `:844-1014` (group names `:848-853`, cross-collection alias refs `:921-933`, file name `:982`, manifest `:986-1011`)<br>- `export_variables` `:614-628`<br>- `resolve_literal_in_mode` `:541-567` (reused)<br>- `color_to_dtcg_obj` `:491`<br>- `zip_entries` `:109-121`<br>- tests `:2373+`<br>`crates/designos-app/src/cli.rs` (`Options` `:91-93`, `parse` `:317-324`, `USAGE`)<br>`crates/designos-app/src/main.rs` (export branch `:426-461`) |
 
-Code baseline: `origin/main@35a65796`. `variables_dtcg.rs` is identical between local `ec47da26` and `35a65796`. The `designos-app` lines were re-anchored with `git show 35a65796:<path>`. Re-anchor against HEAD and report drift before writing code. Scratch evidence for this spec, outside the repo: `$SCRATCH/agents/w5/p/`. `$SCRATCH` is the controller's scratchpad, `/private/tmp/claude-501/-Users-jangtrinh--claude-profiles-work-spares-spare-AW68Nz/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad`. The runs used a `designos` binary built from `ec47da26` (`cargo install --path crates/designos-app --bin designos --root $SCRATCH/agents/w5/bin`).
+Code baseline: `origin/main@35a65796`, also valid at `205c72ef` (newest `origin/main` on 2026-10-25): between the two, `crates/designos-mcp`, `crates/designos-fig/src` and `designos-app` `main.rs`/`cli.rs` did not change (only a new test file `designos-fig/tests/fig_effect_grid_styles.rs` was added). `variables_dtcg.rs` is identical between local `ec47da26` and `35a65796`. The `designos-app` lines were re-anchored with `git show 35a65796:<path>`. Re-anchor against HEAD and report drift before writing code. Scratch evidence for this spec, outside the repo: `$SCRATCH/agents/w5/p/`. `$SCRATCH` is the controller's scratchpad, `/private/tmp/claude-501/-Users-jangtrinh--claude-profiles-work-spares-spare-AW68Nz/a6445c24-c40e-4254-a3e2-5e0bafafd0f4/scratchpad`. The runs used a `designos` binary built from `ec47da26` (`cargo install --path crates/designos-app --bin designos --root $SCRATCH/agents/w5/bin`).
 
 ## 1. Summary and user story
 
@@ -84,6 +84,21 @@ exit=1
 Sanity check on the resolved + hex file: `bg-primary` = `#0A0A0A` and `text-primary` = `#FAFAFA`, matching plan.md "Dark mode, resolved".
 
 **INFERENCE:** the plan's resolved values came from the collections that survived the overwrite, the local copies. Whether the overwritten library copies held different values is UNKNOWN. Closing check: test case 3 exports both after the fix and diffs them.
+
+**Live Figma cross-check (`evidence/figma-live-variable-check.md`, 2026-10-25 21:25).** Read-only `figma-agent exec-js` scripts were run against the open kit file in Figma. Their output was compared with Studio's `.fig` import, read through `--export-variables` and `resolve-untitled-tokens.py`:
+
+| Check | Figma | Studio | Result |
+|---|---|---|---|
+| Colour variables, Dark mode and Light mode (`1. Color modes`) | 273 each | 273 each | 273/273 identical, hex and alpha |
+| Spacing, radius, widths, containers (numbers) | 76 | 76 | 76/76 identical once units are normalised |
+| `6. Typography` variables | 32 | 1 | **Studio's DTCG export lacks 31 of 32** |
+
+So the colour and number values that survive the overwrite equal Figma's.
+
+**The Typography loss is the same overwrite bug, not a separate one.** Checked in scratch (`$SCRATCH/agents/w5/p/native/`):
+- The import holds all 32 variables. `designos untitled-ui.fig --export-variables native --format figma-native` exports them, because that exporter makes names unique (`variables_dtcg.rs:816-833`). It writes `6. Typography.zip` with **32 tokens (10 string, 22 number)**, in collection `VariableCollectionId:7403:16248`, local with no `source_library_key`. It also writes `6. Typography (2).zip` with **1 token**, in `VariableCollectionId:7856:138521`, the library copy.
+- In the DTCG manifest, both collections map to the same file, `6_ Typography.Value.tokens.json` (group `6_ Typography`, mode `Value`). `export_dtcg` writes collections in id order, so the library copy (`7856:…`) is written after the local one (`7403:…`), and `main.rs` overwrites the file (`:442-450`). The file on disk holds that 1 token.
+- Rule 1 fixes it. The local collection keeps `6_ Typography.Value.tokens.json` with its 32 tokens, and the library copy moves to `6_ Typography (2).Value.tokens.json`. Test 1's fixture already covers this shape. Dogfood step 5 checks the kit.
 
 ## 3. Behaviour rules
 
@@ -216,6 +231,7 @@ Run:
    - a11y reports more than 0 pairs checked
    - `bg-primary` is `#0A0A0A`
 4. Diff the Dark values of the local and the library "1. Color modes" (from step 1) and paste the count of differing tokens.
+5. `6_ Typography.Value.tokens.json` from step 1 holds 32 tokens (10 string, 22 number), matching Figma's 32 (`evidence/figma-live-variable-check.md`). `6_ Typography (2).Value.tokens.json` holds the library copy's 1 token.
 
 ## 11. Performance budgets
 
@@ -266,3 +282,5 @@ Exact gaps, each reproduced above:
 None. These are CLI flags and a bug fix, with no visible product change.
 
 **Note to the controller:** plan.md says the DTCG export "writes 9 files". That count is the overwrite bug: 13 were written, and 4 were overwritten. The plan's resolved Dark values come from the surviving local collections. Spec A should re-derive them after this fix (test-plan step 4).
+
+**Changelog:** 2026-10-25 (round 2): added the live Figma cross-check (colours 273/273 and numbers 76/76 match; Typography 32 vs 1) and the finding that the Typography loss is the same overwrite bug (local `7403:16248` with 32 tokens overwritten by library `7856:138521` with 1 token, figma-native export as proof); dogfood step 5 added. Relabelled valid at `205c72ef` earlier the same day.

@@ -6,7 +6,7 @@
 | Code baseline | `ec47da26` (every line number below is `crates/designos-app/src/theme.rs` at that commit unless a path is given) |
 | Drift seen | `origin/main@35a65796` adds `pub const TOAST_REVEAL_SECONDS: f64 = 10.0;` after line 463 (+2 lines, unchanged by this contract). Re-anchor every line number against HEAD before editing. |
 | Naming | Untitled token names as the kit names them (`bg-primary_hover`); the design:os store writes `_` as `-` (`bg-primary-hover`) on import. Rust names are the existing `theme.rs` names; every name this contract adds is marked "new name". |
-| Rulings | R1–R7 and the controller defaults in `plans/261025-1247-untitled-ui-dark-revamp/plan.md` |
+| Rulings | R1–R7, R8.1–R8.7 (owner answers to the seven board questions, 2026-10-25), R9 (read-only Figma check), R10.1–R10.7 (owner answers to board 3, 2026-10-25) and the controller defaults in `plans/261025-1247-untitled-ui-dark-revamp/plan.md` |
 
 Other specs refer to Untitled names only; this file is the single place that maps them to Rust constants and
 `design/design.tokens.json` paths (plan.md, "Shared naming contract").
@@ -33,19 +33,23 @@ both copies in Dark mode / Style through the alias chain and diff against the DT
 "compared 575 identical 575 diffs 0". The library copies hold only 6 variables (`_Primitives`: Neutral/400 `#A3A3A3`,
 Neutral/600, Base/transparent; `1. Color modes`: text-tertiary, shadow-xs; `6. Typography`: text-sm 14), each with
 an identical local twin; the local copies (343 and 273 variables) are the ones the DTCG files kept. So every colour
-in this contract is verified. The DTCG overwrite did lose the local `6. Typography` (32 variables) to its one-variable
+in this contract is verified. A second, independent check against the live kit in Figma (R9, read-only
+`figma-agent exec-js`, file key `VEffelx01mDl5BJJanwxja`) is recorded in `evidence/figma-live-variable-check.md`: colour
+variables 273/273 identical in Dark mode and 273/273 in Light mode, numeric variables (spacing, radius, widths,
+containers) 76/76. No dark value in this contract is provisional. The DTCG overwrite did lose the local `6. Typography` (32 variables) to its one-variable
 library copy; the REST export reads it: Font size text-xs 12, sm 14, md 16, lg 18, xl 20 (display 24 … 72); Line
 height 18, 20, 24, 28, 30 (display 32 … 90); Font weight Regular, Medium, Semibold, Bold; family Inter. That makes
-spec B's type scale a variable FACT, matching the Styles panel reading.
+spec B's type scale a variable FACT, matching the Styles panel reading (and the live Figma check). That Studio's DTCG
+export lacks 31 of the 32 `6. Typography` variables is spec P's to fix (#1140).
 
 ### Coverage (acceptance 4)
 
 | Family | Grep (on `theme.rs` at `ec47da26`) | In file | Covered here |
 |---|---|---|---|
 | All constants | `grep -cE '^pub const ' theme.rs` → 451 lines, of which 2 are `pub const fn` | 449 | 449 |
-| Colour, `Color32` and `[Color32; N]` | `grep -cE '^pub const [A-Z0-9_]+: (Color32\|\[Color32; ?[0-9]+\]) =' theme.rs` | 116 | 116 in (a): 116 constants covered; alias 4, delete 5, keep 52, revalue 55; new 23 (N1–N13 from spec A, N14–N23 for spec C) |
+| Colour, `Color32` and `[Color32; N]` | `grep -cE '^pub const [A-Z0-9_]+: (Color32\|\[Color32; ?[0-9]+\]) =' theme.rs` | 116 | 116 in (a): 116 constants covered; alias 4, delete 5, keep 52, revalue 55; new 46 (N1–N13 spec A, N14–N23 spec C, N24–N37 contract gaps G-1..G-3, N38 spec C, N39–N46 R10.2) |
 | Colour, `u32` / `[u32; 8]` (document defaults, board) | `grep -nE '^pub const [A-Z0-9_]+: (u32\|\[u32; ?[0-9]+\]) =' theme.rs` | 7 | 7 in (e), unchanged |
-| Numeric (`f32` 306, `f64` 1, `u8` 6, `usize` 4, `(f32, f32)` 2, `[f32; N]` 2) | `grep -cE '^pub const [A-Z0-9_]+: (f32\|f64\|u8\|usize\|\(f32, ?f32\)\|\[f32; ?[0-9]\]) =' theme.rs` | 321 | 321: 21 changed or re-pointed + 2 renamed + 2 legacy in (c), 296 unchanged in the appendix |
+| Numeric (`f32` 306, `f64` 1, `u8` 6, `usize` 4, `(f32, f32)` 2, `[f32; N]` 2) | `grep -cE '^pub const [A-Z0-9_]+: (f32\|f64\|u8\|usize\|\(f32, ?f32\)\|\[f32; ?[0-9]\]) =' theme.rs` | 321 | 321: 20 changed or re-pointed + 1 held by R10.1 (`RIGHT_TABS_H`) + 2 renamed + 2 legacy in (c), 296 unchanged in the appendix |
 | Strings (`&str`: font families, `APP_TITLE`) | `grep -cE '^pub const [A-Z0-9_]+: &str =' theme.rs` | 5 | 5 in (e), unchanged |
 
 The numeric values were evaluated (aliases and expressions resolved) for HEAD and for a scratch copy of
@@ -66,7 +70,7 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | 5 | `BG_HOVER` :26 | `rgb(0x232329)` | revalue | `rgb(0x171717)` | bg-primary_hover | hover on a bg-primary surface; kit menu item, tab and nav hover |
 | 6 | `BG_PRESSED` :27 | `rgb(0x2E2E36)` | revalue | `rgb(0x404040)` | bg-quaternary | press state (egui `active`); kit has no pressed role; only text-primary/text-secondary may sit on it (AA, spec A rule 6) |
 | 7 | `BG_MENU` :28 | `rgb(0x18181B)` | revalue | `rgb(0x0A0A0A)` | bg-primary | kit `Dropdown menu` > Menu fill |
-| 8 | `BG_SELECTED` :31 | `BG_PRESSED` | revalue | `rgb(0x262626)` | bg-secondary_hover | selected tool, tab and row; was an alias of BG_PRESSED, now its own literal; owner question OQ-2 (kit-literal alternative bg-secondary #171717) |
+| 8 | `BG_SELECTED` :31 | `BG_PRESSED` | revalue | `rgb(0x262626)` | bg-secondary_hover | selected tool, tab and row; was an alias of BG_PRESSED, now its own literal; decided by R8.2 (owner: "A · #262626") |
 | 9 | `BG_SELECTED_HOVER` :32 | `rgb(0x383840)` | revalue | `rgb(0x262626)` | bg-secondary_hover | kit keeps the current fill under the pointer (`_Tab button base` Current=True State=Hover = Current=True State=Default) |
 | 10 | `BG_SELECTED_SECONDARY` :33 | `rgb(0x24242A)` | revalue | `rgb(0x171717)` | bg-secondary | rows inside a selected parent (Layers); kit current-item fill |
 | 11 | `BG_TEXT_SELECTION` :35 | `rgb(0x2B1D16)` | revalue | `rgb(0x431407)` | utility-orange-50 | selected text in a field; kit has no selection role, the brand-tinted dark utility step keeps text-primary at 14.98:1 |
@@ -87,7 +91,7 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | 26 | `TEXT_SECONDARY` :51 | `rgba(0xF4F4F5, 0xB2)` | revalue | `rgb(0xD4D4D4)` | text-secondary | was white at 70% alpha; now the opaque kit step |
 | 27 | `TEXT_TERTIARY` :52 | `rgba(0xF4F4F5, 0x66)` | revalue | `rgb(0xA3A3A3)` | text-tertiary | was white at 40% alpha (about 3.9:1 on BG); the kit step passes AA on every surface up to bg-tertiary |
 | 28 | `TEXT_DISABLED` :53 | `rgba(0xF4F4F5, 0x55)` | revalue | `rgba(0xD4D4D4, 0x80)` | text-secondary at opacity 0.5 | v8 has no disabled token; kit `Buttons/Button` State=Disabled sets `opacity: 0.5`; disabled text is exempt from WCAG 1.4.3 |
-| 29 | `TEXT_BRAND` :54 | `rgb(0xFF9E66)` | revalue | `rgb(0xF97316)` | fg-brand-secondary (Studio orange) | accent text (New, Fix, undo-step marks); owner question OQ-3 (kit-literal alternative text-brand-secondary #D4D4D4, which is neutral in dark mode) |
+| 29 | `TEXT_BRAND` :54 | `rgb(0xFF9E66)` | revalue | `rgb(0xF97316)` | fg-brand-secondary (Studio orange) | accent text (New, Fix, undo-step marks); decided by R8.3 (owner: "A · cam #F97316") |
 | 30 | `TEXT_COMPONENT` :55 | `rgb(0x22D3EE)` | keep | unchanged | Studio-only: component (Cyan-400 primitive) | Untitled has no component role; Layers component names keep cyan |
 | 31 | `ICON` :56 | `rgb(0xF4F4F5)` | revalue | `rgb(0xFFFFFF)` | fg-primary | highest-emphasis icon |
 | 32 | `ICON_SECONDARY` :57 | `rgba(0xF4F4F5, 0xB2)` | revalue | `rgb(0xD4D4D4)` | fg-secondary | was white at 70% |
@@ -156,7 +160,7 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | 95 | `SYNTAX_FUNCTION` :561 | `rgb(0x82AAFF)` | revalue | `rgb(0x60A5FA)` | utility-blue-600 | kit dark utility step |
 | 96 | `SYNTAX_COMMENT` :562 | `rgb(0x8A8A8A)` | revalue | `rgb(0xA3A3A3)` | text-quaternary | comments are quiet text; fg-quaternary #737373 would fail AA |
 | 97 | `SYNTAX_PUNCT` :563 | `rgb(0xB3B3B3)` | revalue | `rgb(0xD4D4D4)` | text-secondary | punctuation one step below plain text |
-| 98 | `DEV_READY` :565 | `rgb(0x14AE5C)` | keep | unchanged | Dev overlay | controller default: Dev ready emerald #14AE5C |
+| 98 | `DEV_READY` :565 | `rgb(0x14AE5C)` | keep | unchanged | Dev overlay | controller default: Dev ready emerald #14AE5C; R10.4 makes it the one Dev mode accent (Dev toggle, tab badge, Plugins row) with the dark label `TEXT_ON_BRAND` #0A0A0A, 6.82:1 (owner: "A · #14AE5C xanh Figma") |
 | 99 | `DEV_COMPLETED` :566 | `rgb(0x06B6D4)` | keep | unchanged | Dev overlay | same |
 | 100 | `DEV_CHANGED` :567 | `rgb(0xFFA629)` | keep | unchanged | Dev overlay | same |
 | 101 | `STATUS_INFO_TEXT` :569 | `rgb(0x0D99FF)` | keep | unchanged | Studio-only: info family | agent Working badge, also drawn on the canvas |
@@ -182,12 +186,12 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | N2 | `TEXT_SECONDARY_HOVER` | `rgb(0xE5E5E5)` | text-secondary_hover | kit hover text for menu items, nav items and secondary buttons |
 | N3 | `TEXT_TERTIARY_HOVER` | `rgb(0xD4D4D4)` | text-tertiary_hover | kit hover text for tertiary and link-gray buttons |
 | N4 | `TEXT_QUATERNARY` | `rgb(0xA3A3A3)` | text-quaternary | kit non-current tab text and menu shortcuts |
-| N5 | `TEXT_PLACEHOLDER` | `rgb(0xA3A3A3)` | text-placeholder (AA-adjusted, OQ-1) | kit #737373 is 3.78:1 on bg-secondary; recommended value is the AA-passing Neutral-400 |
+| N5 | `TEXT_PLACEHOLDER` | `rgb(0x737373)` | text-placeholder (kit value, R8.1) | owner chose the kit value ("B · #737373 của kit"): 3.78:1 on bg-secondary, 4.18:1 on bg-primary; the one named exception to the AA text law; placeholder only on bg-primary or bg-secondary fields (3.19:1 on bg-tertiary, 2.19:1 on bg-quaternary are not allowed) |
 | N6 | `ICON_QUATERNARY` | `rgb(0x737373)` | fg-quaternary | kit input leading icons and nav icons; non-text 3:1 holds up to bg-tertiary (3.19:1) |
 | N7 | `TEXT_ERROR` | `rgb(0xF87171)` | text-error-primary | error text; 7.16:1 on bg-primary, passes on bg-tertiary |
 | N8 | `TEXT_WARNING` | `rgb(0xFACC15)` | text-warning-primary | warning text |
 | N9 | `TEXT_SUCCESS` | `rgb(0x4ADE80)` | text-success-primary | success text |
-| N10 | `TEXT_ON_BRAND` | `rgb(0x0A0A0A)` | Neutral-950 (dark label, R4) | label on BG_BRAND, BG_BRAND_HOVER, BG_BRAND_PRESSED: 5.76 / 7.06 / 5.56:1 |
+| N10 | `TEXT_ON_BRAND` | `rgb(0x0A0A0A)` | Neutral-950 (dark label, R4) | label on BG_BRAND, BG_BRAND_HOVER, BG_BRAND_PRESSED: 5.73 / 7.06 / 5.56:1 |
 | N11 | `FOCUS_RING` | `rgb(0xF97316)` | focus-ring (R4: Orange-500) | focus ring for every focusable control (spec C draws it) |
 | N12 | `BG_ERROR_SOLID` | `rgb(0xDC2626)` | bg-error-solid | destructive button fill; label TEXT_WHITE at 4.83:1 |
 | N13 | `TEXT_WHITE` | `rgb(0xFFFFFF)` | text-white | label on bg-error-solid (kit destructive button) |
@@ -197,14 +201,45 @@ Actions: **revalue** (new literal), **keep** (value unchanged; canvas, Dev overl
 | N17 | `ICON_WHITE` | `rgb(0xFFFFFF)` | fg-white | spec C: toggle knob |
 | N18 | `BG_PRIMARY_ALT` | `rgb(0x171717)` | bg-primary_alt (dark: alias of bg-secondary) | spec C: selected segment, toast fill |
 | N19 | `BG_PRIMARY_SOLID` | `rgb(0x262626)` | bg-primary-solid (dark: alias of bg-tertiary) | spec C: tooltip fill; `TEXT` on it 14.50:1 |
-| N20 | `BG_ERROR_SOLID_HOVER` | `rgb(0xEF4444)` | bg-error-solid_hover (Red-500) | spec C: destructive hover. Kit FACT, but `TEXT_WHITE` on it is 3.76:1 (below AA for 14 px text); spec C owns the call |
+| N20 | `BG_ERROR_SOLID_HOVER` | `rgb(0xB91C1C)` | bg-error-solid_hover, owner override R8.7 (`_Primitives` Red-700; the kit's dark value is Red-500 `#EF4444`, its light-mode value is Red-700) | destructive button hover; `TEXT_WHITE` on it 6.47:1 (kit `#EF4444` would be 3.76:1). Owner: "C · #B91C1C Red-700" |
 | N21 | `UTILITY_NEUTRAL_50` | `rgb(0x171717)` | utility-neutral-50 (dark: Neutral-900) | spec C: count badge fill |
 | N22 | `UTILITY_NEUTRAL_200` | `rgb(0x404040)` | utility-neutral-200 (dark: Neutral-700) | spec C: count badge border |
 | N23 | `UTILITY_NEUTRAL_700` | `rgb(0xD4D4D4)` | utility-neutral-700 (dark: Neutral-300) | spec C: count badge text, 12.09:1 on `UTILITY_NEUTRAL_50` |
+| N24 | `BG_SUCCESS_PRIMARY` | `rgb(0x052E16)` | bg-success-primary (= utility-green-50, Green-950) | G-1: success badge and banner fill. G-1 source (N24–N32): resolved export, matched 273/273 by `evidence/figma-live-variable-check.md`; badge anatomy (utility-<colour>-50 fill, -200 stroke, -700 text) from `designos "$KIT" --select "Badge" --export-spec` |
+| N25 | `BG_WARNING_PRIMARY` | `rgb(0x422006)` | bg-warning-primary (= utility-yellow-50, Yellow-950) | G-1: warning badge and banner fill |
+| N26 | `BG_ERROR_PRIMARY` | `rgb(0x450A0A)` | bg-error-primary (= utility-red-50, Red-950) | G-1: error badge and banner fill |
+| N27 | `UTILITY_GREEN_200` | `rgb(0x166534)` | utility-green-200 (Green-800) | G-1: success badge border (kit `Badge` stroke); decorative, 2.09:1 on its fill |
+| N28 | `UTILITY_YELLOW_200` | `rgb(0x854D0E)` | utility-yellow-200 (Yellow-800) | G-1: warning badge border; decorative, 2.13:1 |
+| N29 | `UTILITY_RED_200` | `rgb(0x991B1B)` | utility-red-200 (Red-800) | G-1: error badge border; decorative, 1.94:1 |
+| N30 | `UTILITY_GREEN_700` | `rgb(0x86EFAC)` | utility-green-700 (Green-300) | G-1: success badge text, 10.62:1 on `BG_SUCCESS_PRIMARY` |
+| N31 | `UTILITY_YELLOW_700` | `rgb(0xFDE047)` | utility-yellow-700 (Yellow-300) | G-1: warning badge text, 11.06:1 on `BG_WARNING_PRIMARY` |
+| N32 | `UTILITY_RED_700` | `rgb(0xFCA5A5)` | utility-red-700 (Red-300; not the Red-700 primitive of N20) | G-1: error badge text, 8.51:1 on `BG_ERROR_PRIMARY` |
+| N33 | `BG_OVERLAY` | `rgba(0x262626, 0xB3)` | bg-overlay (Neutral-800) at the kit overlay's 70% layer opacity | G-3: modal scrim; the kit adds a background blur: Figma `BACKGROUND_BLUR` radius 16, which Figma's own CSS export writes as `backdrop-filter: blur(8px)` (CSS `blur()` takes the Gaussian standard deviation, so radius 16 = sigma 8; read-only `getCSSAsync` on 3 overlay nodes, R9). Specs I, J and K draw no blur, so the numbers are documentation only. Source: live Figma, read-only (R9): Modals page, node "Background overlay", fill bound to `Colors/Background/bg-overlay`, layer opacity 0.70, `BACKGROUND_BLUR` 16; the dark value of bg-overlay from the resolved export, matched 273/273 by `evidence/figma-live-variable-check.md` |
+| N34 | `PROVIDER_CLAUDE` | `rgb(0xD97757)` | none: third-party identity (G-2, content) | provider mark in agent tabs (`terminal.rs:4224-4240` today) |
+| N35 | `PROVIDER_CODEX` | `rgb(0xFAFAFA)` | none: identity, equals text-primary | Codex and OpenCode mark |
+| N36 | `PROVIDER_GROK` | `rgb(0xE5E5E5)` | none: identity, Neutral-200 (was Zinc-200 `#E4E4E7`) | Grok mark |
+| N37 | `PROVIDER_GEMINI` | `rgb(0x60A5FA)` | none: identity, equals utility-blue-600 (dark) | Antigravity and Gemini mark |
+| N38 | `BG_ERROR_SOLID_PRESSED` | `rgb(0x991B1B)` | Red-800 (same value as N29 `UTILITY_RED_200`; kit has no pressed role) | spec C: destructive button pressed, one step past R8.7 hover; `TEXT_WHITE` on it 8.31:1 |
+| N39 | `UTILITY_BLUE_50` | `rgb(0x172554)` | utility-blue-50 (Blue-950) | R10.2: Home category tile, design file (kit `Featured icon` tile) |
+| N40 | `UTILITY_BLUE_600` | `rgb(0x60A5FA)` | utility-blue-600 (Blue-400) | R10.2: design-file glyph on `UTILITY_BLUE_50`, 5.78:1 (same value as `PROVIDER_GEMINI`) |
+| N41 | `UTILITY_AMBER_50` | `rgb(0x451A03)` | utility-amber-50 (Amber-950) | R10.2: Home category tile, board |
+| N42 | `UTILITY_AMBER_600` | `rgb(0xFBBF24)` | utility-amber-600 (Amber-400) | R10.2: board glyph on `UTILITY_AMBER_50`, 8.97:1 |
+| N43 | `UTILITY_GREEN_50` | `rgb(0x052E16)` | utility-green-50 (Green-950) | R10.2: Home category tile, deck (same value as `BG_SUCCESS_PRIMARY`) |
+| N44 | `UTILITY_GREEN_600` | `rgb(0x4ADE80)` | utility-green-600 (Green-400) | R10.2: deck glyph on `UTILITY_GREEN_50`, 8.55:1 (same value as `TEXT_SUCCESS`) |
+| N45 | `UTILITY_ORANGE_50` | `rgb(0x431407)` | utility-orange-50 (Orange-950) | R10.2: Home category tile, spec bundle (same value as `BG_TEXT_SELECTION`) |
+| N46 | `UTILITY_ORANGE_600` | `rgb(0xFB923C)` | utility-orange-600 (Orange-400) | R10.2: spec-bundle glyph on `UTILITY_ORANGE_50`, 6.92:1 (same value as `BORDER_SELECTED`) |
 
 Rules that follow from the AA run in spec A section 3:
 
 - On `BG_PRESSED` (bg-quaternary `#404040`) only `TEXT` and `TEXT_SECONDARY` may sit (tertiary 4.11:1, accent 3.70:1, placeholder 2.19:1 fail).
+- Placeholder (`TEXT_PLACEHOLDER` `#737373`, R8.1) is the one named exception to the AA text law: it sits only in fields filled `BG` / `BG_PRIMARY` (4.18:1) or `BG_SECONDARY` (3.78:1).
+- Tooltip (ruling 2026-10-25, overrides the kit's `text-white` label): fill `BG_PRIMARY_SOLID` `#262626`, title `TEXT` `#FAFAFA` (14.50:1), supporting text `TEXT_SECONDARY` `#D4D4D4` (= tooltip-supporting-text, 10.21:1). No new constant. White text (`TEXT_WHITE`) sits only on `BG_ERROR_SOLID` and `BG_ERROR_SOLID_HOVER`.
+- Status badges (G-1, kit `Badge` = utility-<colour>-50 fill, -200 stroke, -700 text, from `--select "Badge" --export-spec`): success `BG_SUCCESS_PRIMARY` / `UTILITY_GREEN_200` / `UTILITY_GREEN_700`, warning `BG_WARNING_PRIMARY` / `UTILITY_YELLOW_200` / `UTILITY_YELLOW_700`, error `BG_ERROR_PRIMARY` / `UTILITY_RED_200` / `UTILITY_RED_700`. Info badges keep the Studio-only `STATUS_INFO_*` family (the kit has no info role).
+- Provider marks (G-2): identity content, like `AVATAR_COLORS` and the terminal's ANSI palette. They are exempt from Untitled role mapping but live in `theme.rs` (N34–N37) so the colour-literal gate does not count them in `terminal.rs`, and they obey the Purple Ban: a provider whose brand is violet gets a neutral mark.
+- Home category tiles (R10.2, owner: "A · Ô màu utility"): kit `Featured icon` tiles, tile `UTILITY_<HUE>_50`, glyph `UTILITY_<HUE>_600`: design file blue, board amber, deck green, spec bundle orange (N39–N46). Glyph pairs are C-1.31–C-1.34.
+- Dev mode accent (R10.4): `DEV_READY` `#14AE5C`, label `TEXT_ON_BRAND` `#0A0A0A` (C-1.35); "Ready" text in the accent on `BG` (C-1.36).
+- Selected Home file card (R10.3): 2 px `BORDER_SELECTED` `#FB923C` (C-1.37, C-1.38).
+- Unchecked checkbox and radio border (R10.7, owner: "B · #404040 của kit"): the kit's 1 px `BORDER_STRONG` `#404040`, 1.91:1 on `BG`, 1.73:1 on `BG_SECONDARY`. It is the second named exception, to the 3:1 non-text rule (the placeholder, R8.1, is the first, to the AA text rule). It is listed under "Named exceptions" in (f), never as a C-1 pass.
 - Error text uses `TEXT_ERROR` (`#F87171`); `DANGER` (`#EF4444`) is for icons, dots and strokes (4.02:1 on bg-tertiary).
 - `ICON_QUATERNARY` and `VAR_SCROLL_THUMB` (`#737373`) are non-text graphics (3:1): never on `BG_PRESSED` (2.19:1).
 - `BG_HOVER` equals `BG_SECONDARY` (`#171717`) in the kit; hover on a bg-secondary surface uses `BG_SECONDARY_HOVER` (new name).
@@ -224,7 +259,7 @@ is one `ui ds change-token colors.<key> --value <hex> --reason "<Untitled token>
 | `colors.agent-3` | `#ee46bc` | unchanged | Studio-only role kept (see (e)) |
 | `colors.agent-4` | `#38bdf8` | unchanged | Studio-only role kept (see (e)) |
 | `colors.bg` | `#18181b` | `#0a0a0a` | bg-primary |
-| `colors.bg-active` | `#2e2e36` | `#262626` | bg-secondary_hover: selected row (owner question OQ-2) |
+| `colors.bg-active` | `#2e2e36` | `#262626` | bg-secondary_hover: selected row (R8.2) |
 | `colors.bg-foreground` | `#f5f5f7` | `#fafafa` | text-primary |
 | `colors.bg-hover` | `#232329` | `#171717` | bg-primary_hover |
 | `colors.border` | `#27272a` | `#262626` | border-secondary |
@@ -274,7 +309,7 @@ The 41 re-values as a tab-separated list (key, value, reason) for the spec A loo
 accent	#431407	utility-orange-50 (Orange-950): brand-tinted text-selection fill
 accent-foreground	#f97316	fg-brand-secondary with Studio orange (Orange-500): accent text
 bg	#0a0a0a	bg-primary
-bg-active	#262626	bg-secondary_hover: selected row (owner question OQ-2)
+bg-active	#262626	bg-secondary_hover: selected row (R8.2)
 bg-foreground	#fafafa	text-primary
 bg-hover	#171717	bg-primary_hover
 border	#262626	border-secondary
@@ -323,18 +358,18 @@ collections; control heights from `Buttons/Button` and `Input field` sizes; badg
 |---|---|---|---|---|
 | `FONT_SIZE_CAPTION` :117 | `10.0` | `12.0` | text-xs | R5 labels: captions, sublabels, rail labels, counts |
 | `FONT_SIZE_BODY` :120 | `11.0` | `12.0` | text-xs | R5 rows: body, controls, menu rows, values in editor panels |
-| `FONT_SIZE_LARGE` :121 | `13.0` | `14.0` | text-sm | R5 panel titles; also modal titles |
+| `FONT_SIZE_LARGE` :121 | `13.0` | `14.0` | text-sm | R5 panel titles (modal titles use the kit text-md 16, `FONT_SIZE_TEXT_MD`, spec C) |
 | `LINE_BODY` :124 | `16.0` | `18.0` | text-xs line height | kit Text xs 12/18 |
 | `LINE_CAPTION` :125 | `14.0` | `18.0` | text-xs line height | kit Text xs 12/18 |
 | `UI_FONT_WEIGHT` :131 | `450.0` | `400.0` | Regular | kit weights 400/500/600/700 |
 | `UI_FONT_WEIGHT_STRONG` :132 | `550.0` | `600.0` | Semibold | kit Semibold; 550 is not a kit weight |
 | `RADIUS_SEGMENT` :192 | `4` | `6` | radius-sm | RADIUS_CONTROL 8 - INSET_SEGMENT 2 |
 | `RADIUS_CONTROL` :194 | `6` | `8` | radius-md | R5 radius md 8 |
-| `RADIUS_FRAME` :196 | `14` | `16` | radius-2xl | RADIUS_CONTROL 8 + INSET_FRAME 8 (concentric law); owner question OQ-5 |
+| `RADIUS_FRAME` :196 | `14` | `16` | radius-2xl | RADIUS_CONTROL 8 + INSET_FRAME 8 (concentric law); decided by R8.5 (owner: "A · 16, item 8, inset 8") |
 | `PAGE_ROW_HEIGHT` :290 | `CONTROL_DENSE` | `CONTROL_XS` | button xs / row 32 | R5 row 32 (was CONTROL_DENSE 24) |
 | `MENU_ITEM_HEIGHT` :419 | `CONTROL_DENSE` | `CONTROL_XS` | row 32 | R5 row 32 (was CONTROL_DENSE 24) |
-| `RIGHT_TABS_H` :332 | `CONTROL_DENSE` | `CONTROL_XS` | row 32 | R5 row 32 (was CONTROL_DENSE 24); RIGHT_TABS_Y 48 + 32 = 80 stays above RIGHT_CONTENT_TOP 81 |
-| `FIELD_HEIGHT` :346 | `CONTROL_DENSE` | `CONTROL_XS` | control xs 32 | R5 small end; kit has no input below Input sm 36; owner question OQ-4 |
+| `RIGHT_TABS_H` :332 | `CONTROL_DENSE` | unchanged (`CONTROL_DENSE` 24; :329 at `205c72ef`, same value) | none (held by R10.1) | R10.1 (owner, board 3 Q1: "A · Giữ như hiện tại"): editor tab heights stay, R1 wins over R5 here; the Inspector segmented strip stays 24 and the `theme.rs:847` assertion stays. File tabs (26 in the 32 bar, `tabs.rs:964`) and session tabs (24, `terminal.rs:5105`, `:5802`) are local literals with no `theme.rs` row, so they keep their heights without a contract row |
+| `FIELD_HEIGHT` :346 | `CONTROL_DENSE` | `CONTROL_XS` | control xs 32 | R5 small end; kit has no input below Input sm 36; decided by R8.4 (owner: "A · 32px") |
 | `FIND_FIELD_H` :306 | `CONTROL_STANDARD` | `CONTROL_XS` | control xs 32 | was CONTROL_STANDARD 28 |
 | `LABEL_BOX_H` :365 | `LINE_CAPTION` | `LINE_CAPTION` | text-xs line 18 | follows LINE_CAPTION 14 -> 18 |
 | `SUBLABEL_HEIGHT` :362 | `16.0` | `LINE_CAPTION` | text-xs line 18 | was literal 16; a label box is one caption line |
@@ -344,7 +379,7 @@ collections; control heights from `Buttons/Button` and `Input field` sizes; badg
 | `CODE_LINE_HEIGHT` :583 | `LINE_BODY` | `LINE_BODY` | text-xs line 18 | follows LINE_BODY 16 -> 18 |
 | `CONTROL_TOOL` :257 | `32.0` | renamed to `CONTROL_XS` (value kept) | Buttons/Button Size=xs height | mechanical rename, see (d) |
 | `CONTROL_ROW` :258 | `40.0` | renamed to `CONTROL_MD` (value kept) | Buttons/Button Size=md, Input field Size=md | mechanical rename, see (d) |
-| `CONTROL_DENSE` :255 | `24.0` | unchanged (legacy, see (d)) | none (24 = Badge md / TARGET_MIN; 28 = Badge lg) | call sites mix buttons, rows and chips; surface specs re-point each site |
+| `CONTROL_DENSE` :255 | `24.0` | unchanged (legacy, see (d)) | none (24 = Badge md / TARGET_MIN; 28 = Badge lg) | call sites mix buttons, rows and chips; surface specs re-point each site; stays defined as the base of `RIGHT_TABS_H` (R10.1) |
 | `CONTROL_STANDARD` :256 | `28.0` | unchanged (legacy, see (d)) | none (24 = Badge md / TARGET_MIN; 28 = Badge lg) | call sites mix buttons, rows and chips; surface specs re-point each site |
 
 | New constant (new name) | Value | Untitled step | Reason |
@@ -357,7 +392,7 @@ collections; control heights from `Buttons/Button` and `Input field` sizes; badg
 | `BADGE_LG` | `28.0` | Badge Size=lg | kit badge heights |
 | `FONT_SIZE_TEXT_XS` | `12.0` | Text xs 12/18 | Styles panel |
 | `FONT_SIZE_TEXT_SM` | `14.0` | Text sm 14/20 | Styles panel |
-| `FONT_SIZE_TEXT_MD` | `16.0` | Text md 16/24 | Styles panel |
+| `FONT_SIZE_TEXT_MD` | `16.0` | Text md 16/24 | Styles panel; modal titles (spec C) |
 | `FONT_SIZE_TEXT_LG` | `18.0` | Text lg 18/28 | Styles panel |
 | `FONT_SIZE_TEXT_XL` | `20.0` | Text xl 20/30 | Styles panel |
 | `LINE_TEXT_XS` | `18.0` | Text xs line | kit text style line height |
@@ -365,6 +400,7 @@ collections; control heights from `Buttons/Button` and `Input field` sizes; badg
 | `LINE_TEXT_MD` | `24.0` | Text md line | kit text style line height |
 | `LINE_TEXT_LG` | `28.0` | Text lg line | kit text style line height |
 | `LINE_TEXT_XL` | `30.0` | Text xl line | kit text style line height |
+| `RADIUS_XL` (`u8`) | `12` | radius-xl | G-4: cards and nested panels that hold controls at inset 4 (12 − 4 = 8 = `RADIUS_CONTROL`); chain `RADIUS_FRAME` 16 > `RADIUS_XL` 12 > `RADIUS_CONTROL` 8 > `RADIUS_SEGMENT` 6 > `RADIUS_MARK` 2 |
 
 Unchanged scale constants that already sit on the Untitled scale (listed in the appendix with their values):
 `FONT_SIZE_TITLE` 20 (text-xl), `FONT_SIZE_CANVAS` 9 (canvas exception, not a kit size), `UI_FONT_WEIGHT_MEDIUM` 500
@@ -408,11 +444,14 @@ Measured on a scratch copy of `crates/designos-app/src`: 42 references outside `
 
 Not renamed: `CONTROL_DENSE` (24, 55 references outside `theme.rs` in 13 files) and `CONTROL_STANDARD` (28, 47
 references in 15 files; `grep -rnow <NAME> crates/designos-app/src --exclude=theme.rs | wc -l`). Their call sites mix buttons (→ `CONTROL_XS` 32 under R5), rows, chips and pills (→ `BADGE_MD` 24 or
-`BADGE_LG` 28) and icon hit boxes (→ `TARGET_MIN` 24), so a single rename would silently resize chips. They stay
+`BADGE_LG` 28) and icon hit boxes (→ `TARGET_MIN` 24), so a single rename would silently resize chips.
+Tabs and segmented strips keep today's height (R10.1); a control inside a tab bar matches its tabs, so the
+"Sessions" ghost button (`agent_open_flow.rs:396-397`) stays 24 beside the 24 session tabs (designer inference from R10.1 and R1). They stay
 as legacy names with their values; each surface spec (D–K) re-points the sites it owns, and spec B adds a
-reference-count ratchet (spec B section 10) so the count only falls. When it reaches 0, the constant is deleted.
+reference-count ratchet (spec B rule 11) so the count only falls. When it reaches 0, the constant is deleted,
+except `CONTROL_DENSE`, which stays as the base of `RIGHT_TABS_H` (R10.1).
 
-No colour constant is renamed; 5 dead colour constants are deleted and 23 are added (table (a)).
+No colour constant is renamed; 5 dead colour constants are deleted and 46 are added (table (a)).
 
 ### `scripts/design_os_self_evolve.py` (G01, colour parity)
 
@@ -434,6 +473,7 @@ Every mapped constant stays a plain `rgb(0x……)` literal (the parser at :223-
 |---|---|
 | `radius.radius-sm` (6) | `RADIUS_SEGMENT` |
 | `radius.radius-md` (8) | `RADIUS_CONTROL` |
+| `radius.radius-xl` (12) | `RADIUS_XL` (new, G-4) |
 | `typography.font-size-small` (9) | `FONT_SIZE_CANVAS` |
 | `typography.font-size-caption` (12) | `FONT_SIZE_CAPTION`, `FONT_SIZE_TEXT_XS` |
 | `typography.font-size-body` (12) | `FONT_SIZE_BODY` |
@@ -452,9 +492,111 @@ token". `CONTROL_DENSE` keeps its row. `scripts/tests/test_non_colour_token_pari
 `CONTROL_ROW` for `CONTROL_MD`.
 
 Harness result on the scratch theme and scratch store with exactly these edits (imports the repo scripts, writes
-nothing): `G01 ok = True`, "35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; 29
-non-colour constants match". Without the edits it fails (map collision, `RADIUS_MARK` vs `radius-xs`, unguarded new
+nothing): `G01 ok = True`, "35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; 30
+non-colour constants match" (with `RADIUS_XL`; unmapped, information only: `radius-lg`, `radius-pill`, `radius-xs`,
+`ai-panel-width`, `font-size-title`). Without the edits it fails (map collision, `RADIUS_MARK` vs `radius-xs`, unguarded new
 constants).
+
+## (f) Contrast check C-1 (the one every spec cites)
+
+`ui ds a11y` is not an acceptance gate: on a single-mode import it measured 0 pairs (false green, spec A section 2),
+and on this store it checks role/foreground pairs, not where text actually sits. Specs cite **C-1** instead: the pairs
+below, recomputed with WCAG 2.x relative luminance by the snippet under the table, which exits 1 if any row is below
+its minimum. After spec A lands, the Rust test `chrome_contrast_pairs` (spec A section 10) asserts the same rows on the
+`theme.rs` constants, so the table and the code cannot drift. A spec that adds a text×surface pair adds a row here.
+
+| Id | Foreground | Background | Min | Use |
+|---|---|---|---|---|
+| C-1.1 | `TEXT` #FAFAFA | `BG` #0A0A0A | 4.5 | primary text on chrome |
+| C-1.2 | `TEXT` #FAFAFA | `BG_SECONDARY` #171717 | 4.5 | text in fields and cards |
+| C-1.3 | `TEXT` #FAFAFA | `BG_SELECTED` #262626 | 4.5 | selected row (R8.2) |
+| C-1.4 | `TEXT` #FAFAFA | `BG_PRESSED` #404040 | 4.5 | pressed control |
+| C-1.5 | `TEXT_SECONDARY` #D4D4D4 | `BG` #0A0A0A | 4.5 | secondary text |
+| C-1.6 | `TEXT_SECONDARY` #D4D4D4 | `BG_PRESSED` #404040 | 4.5 | pressed control |
+| C-1.7 | `TEXT_TERTIARY` #A3A3A3 | `BG` #0A0A0A | 4.5 | captions, labels |
+| C-1.8 | `TEXT_TERTIARY` #A3A3A3 | `BG_SECONDARY` #171717 | 4.5 | field prefixes |
+| C-1.9 | `TEXT_TERTIARY` #A3A3A3 | `BG_SELECTED` #262626 | 4.5 | caption in a selected row |
+| C-1.10 | `TEXT_BRAND` #F97316 | `BG` #0A0A0A | 4.5 | accent text (R8.3) |
+| C-1.11 | `TEXT_BRAND` #F97316 | `BG_SECONDARY` #171717 | 4.5 | accent text on cards |
+| C-1.12 | `TEXT_ERROR` #F87171 | `BG` #0A0A0A | 4.5 | error text |
+| C-1.13 | `TEXT_ERROR` #F87171 | `BG_SECONDARY` #171717 | 4.5 | error text in fields |
+| C-1.14 | `TEXT_ON_BRAND` #0A0A0A | `BG_BRAND` #E36323 | 4.5 | primary button label (R4) |
+| C-1.15 | `TEXT_ON_BRAND` #0A0A0A | `BG_BRAND_HOVER` #F97316 | 4.5 | primary hover |
+| C-1.16 | `TEXT_ON_BRAND` #0A0A0A | `BG_BRAND_PRESSED` #EA580C | 4.5 | primary pressed |
+| C-1.17 | `TEXT_WHITE` #FFFFFF | `BG_ERROR_SOLID` #DC2626 | 4.5 | destructive button |
+| C-1.18 | `TEXT_WHITE` #FFFFFF | `BG_ERROR_SOLID_HOVER` #B91C1C | 4.5 | destructive hover (R8.7) |
+| C-1.19 | `TEXT` #FAFAFA | `BG_PRIMARY_SOLID` #262626 | 4.5 | tooltip title |
+| C-1.20 | `TEXT_SECONDARY` #D4D4D4 | `BG_PRIMARY_SOLID` #262626 | 4.5 | tooltip supporting text |
+| C-1.21 | `UTILITY_GREEN_700` #86EFAC | `BG_SUCCESS_PRIMARY` #052E16 | 4.5 | success badge |
+| C-1.22 | `UTILITY_YELLOW_700` #FDE047 | `BG_WARNING_PRIMARY` #422006 | 4.5 | warning badge |
+| C-1.23 | `UTILITY_RED_700` #FCA5A5 | `BG_ERROR_PRIMARY` #450A0A | 4.5 | error badge |
+| C-1.24 | `UTILITY_NEUTRAL_700` #D4D4D4 | `UTILITY_NEUTRAL_50` #171717 | 4.5 | count badge |
+| C-1.25 | `TEXT_PLACEHOLDER` #737373 | `BG` #0A0A0A | 3.0 | placeholder, named exception (R8.1) |
+| C-1.26 | `TEXT_PLACEHOLDER` #737373 | `BG_SECONDARY` #171717 | 3.0 | placeholder, named exception (R8.1) |
+| C-1.27 | `ICON_TERTIARY` #A3A3A3 | `BG_SELECTED` #262626 | 3.0 | icon, non-text (WCAG 1.4.11) |
+| C-1.28 | `ICON_QUATERNARY` #737373 | `BG_SECONDARY` #171717 | 3.0 | quiet icon, non-text |
+| C-1.29 | `FOCUS_RING` #F97316 | `BG` #0A0A0A | 3.0 | focus ring, non-text |
+| C-1.30 | `BORDER_SELECTED` #FB923C | `BG_SECONDARY` #171717 | 3.0 | focused field outline, non-text |
+| C-1.31 | `UTILITY_BLUE_600` #60A5FA | `UTILITY_BLUE_50` #172554 | 4.5 | Home tile glyph, design file (R10.2) |
+| C-1.32 | `UTILITY_AMBER_600` #FBBF24 | `UTILITY_AMBER_50` #451A03 | 4.5 | Home tile glyph, board (R10.2) |
+| C-1.33 | `UTILITY_GREEN_600` #4ADE80 | `UTILITY_GREEN_50` #052E16 | 4.5 | Home tile glyph, deck (R10.2) |
+| C-1.34 | `UTILITY_ORANGE_600` #FB923C | `UTILITY_ORANGE_50` #431407 | 4.5 | Home tile glyph, spec bundle (R10.2) |
+| C-1.35 | `TEXT_ON_BRAND` #0A0A0A | `DEV_READY` #14AE5C | 4.5 | Dev toggle and tab badge label (R10.4) |
+| C-1.36 | `DEV_READY` #14AE5C | `BG` #0A0A0A | 4.5 | Dev accent text, Plugins "Ready" (R10.4) |
+| C-1.37 | `BORDER_SELECTED` #FB923C | `BG` #0A0A0A | 3.0 | selected Home card border on the page (R10.3) |
+| C-1.38 | `BORDER_SELECTED` #FB923C | `HOME_THUMB_BG` #262626 | 3.0 | selected Home card border on its thumbnail (R10.3) |
+| C-1.39 | `TEXT_SECONDARY` #D4D4D4 | `BG_SECONDARY_HOVER` #262626 | 4.5 | H: secondary text on a hovered card or field |
+| C-1.40 | `TEXT_TERTIARY` #A3A3A3 | `BG_OVERLAY` #1E1E1E | 4.5 | H: text on the star backdrop or hover scrim; #1E1E1E is rgba(0x262626, 0xB3) composited over `BG` #0A0A0A |
+| C-1.41 | `AGENT_LABEL_TEXT` #0A0A0A | `AGENT_1` #FFA629 | 4.5 | I: agent label on its presence colour |
+| C-1.42 | `AGENT_LABEL_TEXT` #0A0A0A | `AGENT_2` #14AE5C | 4.5 | I: agent label on its presence colour |
+| C-1.43 | `AGENT_LABEL_TEXT` #0A0A0A | `AGENT_3` #EE46BC | 4.5 | I: agent label on its presence colour |
+| C-1.44 | `AGENT_LABEL_TEXT` #0A0A0A | `AGENT_4` #38BDF8 | 4.5 | I: agent label on its presence colour |
+| C-1.45 | `TEXT_QUATERNARY` #A3A3A3 | `BG_PRIMARY` #0A0A0A | 4.5 | I: non-current session tab text |
+| C-1.46 | `STATUS_INFO_TEXT` #0D99FF | `STATUS_INFO_BG` #0A1E2D | 4.5 | I: Working badge; #0A1E2D is rgba(0x0D99FF, 0x24) composited over `BG` #0A0A0A (= `BG_PRIMARY`) |
+| C-1.47 | `PROVIDER_CLAUDE` #D97757 | `BG_PRIMARY` #0A0A0A | 3.0 | I: provider mark on the tab bar, non-text |
+| C-1.48 | `PROVIDER_CODEX` #FAFAFA | `BG_PRIMARY` #0A0A0A | 3.0 | I: provider mark on the tab bar, non-text |
+| C-1.49 | `PROVIDER_GROK` #E5E5E5 | `BG_PRIMARY` #0A0A0A | 3.0 | I: provider mark on the tab bar, non-text |
+| C-1.50 | `PROVIDER_GEMINI` #60A5FA | `BG_PRIMARY` #0A0A0A | 3.0 | I: provider mark on the tab bar, non-text |
+| C-1.51 | `ICON_TERTIARY` #A3A3A3 | `BG_PRIMARY` #0A0A0A | 3.0 | I: tab-bar icon, non-text |
+| C-1.52 | `TEXT_SECONDARY_HOVER` #E5E5E5 | `BG_MENU_HOVER` #171717 | 4.5 | J: hovered menu item label |
+| C-1.53 | `TEXT_QUATERNARY` #A3A3A3 | `BG_MENU` #0A0A0A | 4.5 | J: menu shortcut (`Menu/Shortcut`) |
+| C-1.54 | `TEXT` #FAFAFA | `BG_PRIMARY_ALT` #171717 | 4.5 | J: toast text, selected segment |
+| C-1.55 | `TEXT_TERTIARY` #A3A3A3 | `BG_MENU` #0A0A0A | 4.5 | J: caption in a menu or popover |
+| C-1.56 | `TEXT_ON_LIGHT_CANVAS` #0A0A0A | `CANVAS_COMPONENT` #06B6D4 | 4.5 | K: variants badge label on the component cyan |
+| C-1.57 | `TEXT_SECONDARY` #D4D4D4 | `BG_MENU` #0A0A0A | 4.5 | K: secondary text in a dialog |
+| C-1.58 | `TEXT_TERTIARY` #A3A3A3 | `BG_SECONDARY_HOVER` #262626 | 4.5 | K: caption in a hovered row or card |
+| C-1.59 | `WARNING` #EAB308 | `BG_MENU` #0A0A0A | 3.0 | K: status icon in a dialog, non-text |
+| C-1.60 | `DANGER` #EF4444 | `BG_MENU` #0A0A0A | 3.0 | K: status icon in a dialog, non-text |
+| C-1.61 | `INFO` #0D99FF | `BG_MENU` #0A0A0A | 3.0 | K: status icon in a dialog, non-text |
+| C-1.62 | `SUCCESS` #22C55E | `BG_MENU` #0A0A0A | 3.0 | K: status icon in a dialog, non-text |
+
+C-1.39–C-1.62 are the pairs specs H–K paint (W4 round). Translucent backgrounds are composited over `BG` #0A0A0A
+before the ratio is computed: `BG_OVERLAY` → #1E1E1E (C-1.40), `STATUS_INFO_BG` → #0A1E2D (C-1.46).
+
+```bash
+# from this folder; prints every row and exits 1 on a failure
+python3 - token-contract.md <<'PY'
+import re, sys
+def lum(h):
+    c = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+bad = 0
+for m in re.finditer(r"^\| (C-1\.\d+) \| `\w+` #(\w{6}) \| `\w+` #(\w{6}) \| ([\d.]+) \|", open(sys.argv[1]).read(), re.M):
+    hi, lo = sorted((lum(m[2]), lum(m[3])), reverse=True)
+    r = (hi + 0.05) / (lo + 0.05)
+    ok = r >= float(m[4]); bad += not ok
+    print(f"{m[1]:7} {r:5.2f}:1 (min {m[4]}) {'ok' if ok else 'FAIL'}")
+sys.exit(1 if bad else 0)
+PY
+```
+
+**Named exceptions** (owner rulings; not C-1 passes, the snippet does not read this table):
+
+| Id | Foreground | Background | Ratio | Rule it breaks | Ruling |
+|---|---|---|---|---|---|
+| E-1 | `TEXT_PLACEHOLDER` #737373 | `BG` #0A0A0A / `BG_SECONDARY` #171717 | 4.18:1 / 3.78:1 | AA 4.5:1 for text (C-1.25/26 still hold it to 3:1) | R8.1 |
+| E-2 | `BORDER_STRONG` #404040 (unchecked checkbox and radio, 1 px) | `BG` #0A0A0A / `BG_SECONDARY` #171717 | 1.91:1 / 1.73:1 | 3:1 for non-text UI components (WCAG 1.4.11) | R10.7 |
 
 ## (e) Unchanged because they are canvas, document, terminal or board
 
@@ -468,8 +610,9 @@ constants).
   `DEFAULT_FRAME_FILL` :611 `0xFFFFFF`, `DEFAULT_SHAPE_FILL` :612 `0xD9D9D9`.
 - **Board content (`u32`):** `BOARD_PALETTE` :741, `BOARD_INK` :743, `BOARD_BG` :745 `0xF4F4F4`; `BOARD_DOT` (Color32) keeps.
 - **Terminal:** the ANSI palette lives in `terminal.rs`, not `theme.rs`, and is content. The chrome around the
-  terminal uses the chrome constants above. `terminal.rs:10019-10021` pins `INFO`, `SUCCESS`, `WARNING`; the
-  `SUCCESS` and `WARNING` pins move to `#22C55E` / `#EAB308` with spec A (at `origin/main` the pins sit at 9613-9615).
+  terminal uses the chrome constants above. `terminal.rs:9612-9630` at `205c72ef` (`:10019-10037` at `ec47da26`), the test
+  `theme_has_info_success_warning_in_token_parity`, pins `INFO`, `SUCCESS`, `WARNING` in `theme.rs` (`:9613-9615`) and
+  `colors.info/success/warning` in the store (`:9628-9630`); the `SUCCESS` and `WARNING` pins move to `#22C55E` / `#EAB308` in both places with spec A.
 - **Strings:** `FAMILY_STRONG`, `UI_FONT_FAMILY` (`"Inter"`, the kit typeface), `FAMILY_MEDIUM`, `UI_MONO_FAMILY`
   (`"Roboto Mono"`), `APP_TITLE`.
 - **Layout (R1):** every width, x position and panel geometry constant in the appendix.

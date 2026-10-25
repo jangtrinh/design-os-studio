@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Issue | #1125 (epic #1118, spec key M) |
-| Size | M. One to two days: about ten captures, about ten text lines, the site palette, and the checks in section 10. |
+| Size | M, upper end. Two to three days (was one to two). Thirteen images instead of about ten: 11 distinct Studio captures (6 README files, plus 5 site-only files: `designos-hero.png`, `designos-agent-spec.png`, `designos-components.png`, `designos-overview.png`, `v2/anatomy/studio-window-061.webp`) plus `og-designos-studio.png` and `cover.png`. The 5 site-only files have no recorded command, so each scene (page, selection, zoom, panel, size) must be rebuilt from the existing image before it can be recaptured (rule 6), and the `.webp` anatomy capture comes from the site v2 pipeline (#1093), which this spec has not traced. Also about ten text lines, the site palette, and the checks in section 10. |
 | Depends on | A (colour roles and names, merged), B (scale), C (widget kit), D, E, F, G, H, I, J, K (every surface swept and merged), L (capture list and gate). Phase 2: starts only after the last of D–K has merged. |
 | Unblocks | The release task of the pack that ships the revamp (`docs/releasing.md` "Closing a pack", step 6). |
 | Touches | `README.md`:<br>- hero `:4-5`<br>- "What's new" images `:160`, `:164`<br>- feature captures and their `Command:` lines `:217-218`, `:227-228`, `:236-237`<br>`docs/index.html`:<br>- `theme-color` `:10`<br>- `:root` palette `:86-89`<br>- `body` `:96`, scrollbar `:95`<br>- og and twitter image `:19`, `:27`<br>- chrome captures `:306-310`, `:334`, `:347`, `:360`, `:383`, `:414`, `:424`, `:433`, `:455` (placed by hand)<br>New captures under `docs/images/v<pack>/` (new folder; older folders stay)<br>`docs/images/og-designos-studio.png`, `docs/images/cover.png`<br>`.project-agent.md:6`<br>`CLAUDE.md:6`, `:31`<br>`AGENTS.md:30`<br>`CONTRIBUTING.md:8` |
@@ -70,11 +70,11 @@ As someone reading the README or the site after the revamp ships, I see the Stud
    - `CONTRIBUTING.md:8`
 
    The Purple Ban and the canvas Figma-parity colours (selection blue, component cyan) stay in the text.
-9. **The site palette** (`docs/index.html:10`, `:86-89`, `:95`, `:96`) follows owner question 1. If the answer is yes:
-   - The neutrals take the Untitled dark values spec A merged, mapped role for role: `--bg` → the Untitled role A uses for the app background, `--panel` → panels, `--surface`, `--hover` and `--border` likewise.
+9. **The site palette** (`docs/index.html:10`, `:86-89`, `:95`, `:96`) moves to the Untitled dark neutrals (owner ruling R10.6, 2026-10-25: "A · Đổi sang xám Untitled"):
+   - The neutrals take the Untitled dark values spec A merged, mapped role for role: `--bg` → `BG` `#0A0A0A`, `--panel` → `BG_SECONDARY` `#171717` (one fill step per role kept so the page keeps its bands; owner board 3, Q6), `--surface`, `--hover` and `--border` likewise from token-contract.md.
    - `--orange`, `--blue` and `--emerald` stay.
    - `theme-color` and the body background follow `--bg`.
-   - `ui ds a11y`-style contrast is checked for `--text` and `--muted` on the new `--bg` and `--panel` (section 10, check 5).
+   - Contrast for `--text` and `--muted` on the new `--bg` and `--panel` is computed with the WCAG formula (section 10, check 5; board 3 measured `--muted` 7.85:1 on `--bg`, 7.11:1 on `--panel`).
 10. **Out of this spec's reach** (non-goals): version-labelled release copy (the site's and the README's "What's new" entries and bullets), the films, and the docs pages' own light theme (`docs/assets/site.css`, `docs/_layouts/default.html`). That theme comes from the design-os GitHub page, not the app chrome.
 
 ## 4. Data model / schema changes
@@ -103,7 +103,7 @@ None.
 
 ## 7. UI
 
-None in the app. On the site, only the palette variables change, and only if the owner says yes to question 1. Layout, copy and sections are unchanged, so `es-designer` is not needed for `docs/index.html`.
+None in the app. On the site, only the palette variables change (R10.6). Layout, copy and sections are unchanged, so `es-designer` is not needed for `docs/index.html`.
 
 ## 8. Edge cases
 
@@ -131,7 +131,7 @@ None in the app. On the site, only the palette variables change, and only if the
 | 2. Every image reference resolves | A short Python check (inline in the PR, not committed) that every `src=`/`href=` under `docs/images/` in `README.md` and `docs/index.html` exists on disk | 0 missing | guard |
 | 3. Declared sizes match the files | Same check: each `<img width height>` and `data-size="W × H"` in `docs/index.html` equals the PNG's pixel size (PIL) | 0 mismatches | yes for any replaced image until its attributes are updated |
 | 4. The README prints the command that made each feature image | Every `Command:` line under a README image names the file it sits under | 3 of 3 | guard |
-| 5. Site contrast (only on owner answer 1 = yes) | `--text` and `--muted` against the new `--bg` and `--panel`, computed with the WCAG formula; values in the PR | ≥ 4.5:1 for `--text`, ≥ 4.5:1 for `--muted` on `--bg`, or the PR names any pair below 4.5 and its use (e.g. only large text) | yes, until the palette exists |
+| 5. Site contrast (R10.6) | `--text` and `--muted` against the new `--bg` and `--panel`, computed with the WCAG formula; values in the PR | ≥ 4.5:1 for `--text`, ≥ 4.5:1 for `--muted` on `--bg`, or the PR names any pair below 4.5 and its use (e.g. only large text) | yes, until the palette exists |
 | 6. Visual evidence | The new hero and the three feature captures, viewed in the PR next to the 0.6.0 images | Untitled dark chrome; same regions and framing; kit content unchanged | — |
 | 7. Layout gate still green | Spec L's gate on the release commit | green | — |
 
@@ -150,7 +150,7 @@ Order:
 3. Update the README and site references and `alt` texts.
 4. Rebuild og and cover.
 5. Make the text edits in the four files.
-6. Change the site palette, if approved.
+6. Change the site palette (R10.6).
 7. Run checks 1–7.
 8. PR (squash).
 
@@ -163,6 +163,7 @@ This is the last PR of the revamp. If it ships in the pack's release task, it go
 - Marketing videos (2026-10-17, `CLAUDE.md`): demo UI from the Untitled UI PRO v8.0 kit, worked on a copy; kit content keeps its colours; credit in the end card.
 - `docs/releasing.md` step 6: captures from the release build, real UI through CLI flags, older image folders kept.
 - 2026-09-22: visual evidence in every PR.
+- R10.6 (2026-10-25, board 3 Q6): the site palette moves to the Untitled dark neutrals; orange, blue and emerald stay.
 
 ## Decisions on the open questions (writer, 2026-10-25)
 
@@ -172,6 +173,8 @@ This is the last PR of the revamp. If it ships in the pack's release task, it go
 
 ## Open questions for the owner
 
-1. **Should the website's own colours (`docs/index.html`) move to the Untitled dark neutrals?** Recommended: **yes, neutrals only.** The site's palette was copied from the old app chrome (`:87`), so after the revamp the screenshots and the page around them would disagree. Orange, blue and emerald stay. Alternative: keep the site as it is; it is marketing, not the app.
+1. **Decided (R10.6, owner 2026-10-25: "A · Đổi sang xám Untitled").** Was: should the website's own colours (`docs/index.html`) move to the Untitled dark neutrals? Recommended: **yes, neutrals only.** The site's palette was copied from the old app chrome (`:87`), so after the revamp the screenshots and the page around them would disagree. Orange, blue and emerald stay. Alternative: keep the site as it is; it is marketing, not the app.
 2. Withdrawn on 2026-10-25: the film still is no longer on the site at `205c72ef`. Site v2 (#1093) replaced it with Untitled-kit captures, which rule 6 covers.
-3. **Films.** Recommended: **no new film in this spec.** The existing films are dated by version, and the next pack's launch film (marketing rule) will show the new chrome. Alternative: a short "new look" clip, specced separately.
+3. **Decided (controller default, plan.md 21:35 sweep): no new film in this spec.** Films. The existing films are dated by version, and the next pack's launch film (marketing rule) will show the new chrome. Alternative: a short "new look" clip, specced separately.
+
+**Changelog:** 2026-10-25 (round 2): Size revised from "M, one to two days" to "M, upper end, two to three days". Site v2 grew the image list from about ten to thirteen, and five of the new site captures need their scenes rebuilt because no command was recorded. Re-anchored to `205c72ef` earlier the same day.

@@ -1,8 +1,8 @@
 # UI revamp: Untitled UI dark theme — task specs
 
-**Pack goal.** Studio's chrome adopts the Untitled UI PRO v8.0 **dark** design system. That covers colour roles, the type, spacing and radius scales, borders, focus rings and component states. The current layout stays as it is: the same regions, panel order, panel widths and control placement. Studio is used to improve itself. The kit is read, mocked and onboarded with Studio's own CLI and MCP, and Figma is not used.
+**Pack goal.** Studio's chrome adopts the Untitled UI PRO v8.0 **dark** design system. That covers colour roles, the type, spacing and radius scales, borders, focus rings and component states. The current layout stays as it is: the same regions, panel order, panel widths and control placement. Studio is used to improve itself. The kit is read, mocked and onboarded with Studio's own CLI and MCP. Figma is used only read-only, to check kit facts against the live kit (R9).
 
-Epic: #1118. One spec per issue; the number in a file name is the issue number. Every spec follows the 13-section layout of the v0.6 and v0.7 specs. Each spec tells the worker to re-anchor cited lines against HEAD and report drift before writing code. Specs were written on `ec47da26`; `origin/main` was `35a65796` (0.6.1) when they were published.
+Epic: #1118. One spec per issue; the number in a file name is the issue number. Every spec follows the 13-section layout of the v0.6 and v0.7 specs. Each spec tells the worker to re-anchor cited lines against HEAD and report drift before writing code. Specs were written on `ec47da26` and re-anchored to `origin/main@205c72ef` (spec L to `7e15ddae`) during review.
 
 ## Owner rulings (Jang, 2026-10-25)
 
@@ -10,11 +10,26 @@ Epic: #1118. One spec per issue; the number in a file name is the issue number. 
 |---|---|
 | R1 | 100% Untitled UI style; keep the current layout and arrangement. |
 | R2 | Take everything from Untitled (spacing and typography too) and adapt it to our layout. |
-| R3 | Use Studio to improve Studio; no Figma. |
-| R4 | Brand = Untitled anatomy with Studio orange `#E36323`, label `#0A0A0A` (5.76:1). Focus ring is Untitled Orange-500 `#F97316`. The Purple Ban stays. |
+| R3 | Use Studio to improve Studio; do not build or onboard through Figma. |
+| R4 | Brand = Untitled anatomy with Studio orange `#E36323`, label `#0A0A0A` (5.73:1). Focus ring is Untitled Orange-500 `#F97316`. The Purple Ban stays. |
 | R5 | Editor panels use the small end of the scale: text-xs 12/18 for rows and labels, text-sm 14/20 for panel titles, button xs 32, row 32, radius md 8. Home and dialogs use text-sm 14/20 with button sm 36 or md 40. The full Untitled spacing scale applies; the old ban on 2px and 6px steps is lifted. |
 | R6 | Keep the current icon set and restyle it to Untitled fg roles. Research the Untitled Icons licence separately (Q). |
 | R7 | Spec-driven: everything is specified before work starts. The PM coordinates delivery. |
+| R8.1 | Placeholder text = kit `#737373` (named exception E-1 to the AA text rule). |
+| R8.2 | Selected row, tool and tab fill = `#262626`. |
+| R8.3 | Accent text = Orange-500 `#F97316`. |
+| R8.4 | Inspector fields are 32 high. |
+| R8.5 | Menus, dropdowns and popovers: radius 16, items radius 8 at inset 8. |
+| R8.6 | Button labels text-sm 14 Semibold; rows, labels and tabs stay text-xs 12. |
+| R8.7 | Destructive hover = Red-700 `#B91C1C`. |
+| R9 | The Ease Design Figma Agent may read the live kit to verify facts; Studio builds, renders and onboards. |
+| R10.1 | Editor tab heights stay as today: file tabs 26 in the 32 bar, session tabs 24, Inspector strip 24. |
+| R10.2 | Home category tiles use the kit's utility colours (blue, amber, green, orange). |
+| R10.3 | The selected Home file card has a 2 px `#FB923C` border. |
+| R10.4 | Dev mode accent = `#14AE5C`. |
+| R10.5 | The always-on rail help dot is removed. |
+| R10.6 | The website palette moves to the Untitled dark neutrals. |
+| R10.7 | Unchecked checkbox and radio borders keep the kit `#404040` (named exception E-2). |
 
 Controller defaults (the owner may reverse them):
 - Canvas and Dev overlays keep their Figma-parity colours, because Untitled has no canvas roles. These are selection blue `#0D99FF`/`#3582FF`, component cyan `#06B6D4`, guides `#F24822`/`#FE5938` and Dev ready `#14AE5C`.
@@ -57,7 +72,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | H | 1 | #1138 | [1138-surface-home-workspace.md](1138-surface-home-workspace.md) | M |
 | I | 1 | #1144 | [1144-surface-agent-terminal-and-agent-cards.md](1144-surface-agent-terminal-and-agent-cards.md) | L |
 | J | 1 | #1146 | [1146-surface-popovers-menus-modals-toasts-cmdk-find-comments.md](1146-surface-popovers-menus-modals-toasts-cmdk-find-comments.md) | M |
-| K | 1 | — | Assets, Variables, Libraries and Styles panels (spec in progress) | — |
+| K | 1 | #1155 | [1155-surface-assets-variables-libraries-styles.md](1155-surface-assets-variables-libraries-styles.md) | M |
 | M | 2 | #1125 | [1125-docs-and-screenshot-refresh.md](1125-docs-and-screenshot-refresh.md) | M |
 | N | side | #1121 | [1121-mcp-imports-large-kit-files.md](1121-mcp-imports-large-kit-files.md) | S |
 | O | side | #1127 | [1127-cli-addresses-nodes-by-id-and-figma-id.md](1127-cli-addresses-nodes-by-id-and-figma-id.md) | M |
