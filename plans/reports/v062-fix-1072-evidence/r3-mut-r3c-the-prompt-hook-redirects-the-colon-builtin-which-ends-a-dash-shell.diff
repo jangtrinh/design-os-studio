@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -5014,7 +5014,7 @@
+             // while the folder is there, makes the marker in brace form, and a reply it cannot read prints nothing. The marker is made with `true >`,
+             // not `: >`: dash, the `sh` of Linux, ends the whole shell (status 2) when a redirect of a special builtin fails, whatever surrounds it.
+             format!(
+-                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ -d {dir} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then {{ true > {marker}; }} 2>/dev/null || true; cat {boot} 2>/dev/null || true; elif [ ! -e {marker} ] && [ -f {compact} ]; then {{ true > {marker}; }} 2>/dev/null || true; cat {compact} 2>/dev/null || true; else cat {page} 2>/dev/null || true; fi",
++                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ -d {dir} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then {{ : > {marker}; }} 2>/dev/null || true; cat {boot} 2>/dev/null || true; elif [ ! -e {marker} ] && [ -f {compact} ]; then {{ true > {marker}; }} 2>/dev/null || true; cat {compact} 2>/dev/null || true; else cat {page} 2>/dev/null || true; fi",
+                 status_hook_command(paths, "UserPromptSubmit", "working"),
+                 start_mark,
+             )

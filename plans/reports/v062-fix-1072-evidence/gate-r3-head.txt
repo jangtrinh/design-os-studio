@@ -1,12 +1,13 @@
-56d6754291f9df25b50c1cad18dc55d90232a8c8
+196688042bcffca6dda796e36d537542ae22a549
  M plans/reports/v062-fix-1072-evidence/gate-r3-head.txt
- M plans/reports/v062-fix-1072-evidence/r3-mut-m1-the-transcript-capture-waits-for-a-lock-that-is-not-there.diff
- M plans/reports/v062-fix-1072-evidence/r3-mut-m1-the-transcript-capture-waits-for-a-lock-that-is-not-there.log
- M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-capture-skips-instead-of-retrying-a-lock-released-in-the-window.diff
- M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-capture-skips-instead-of-retrying-a-lock-released-in-the-window.log
- M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-capture-writes-and-removes-the-lock-without-holding-it.diff
- M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-capture-writes-and-removes-the-lock-without-holding-it.log
-?? plans/reports/v062-fix-1072-evidence/r3-mut-r3b-the-capture-gives-up-when-its-retry-loses-to-a-third-tab.diff
-?? plans/reports/v062-fix-1072-evidence/r3-mut-r3b-the-capture-gives-up-when-its-retry-loses-to-a-third-tab.log
-?? plans/reports/v062-fix-1072-evidence/r3b-green-after-the-retry-fix.log
-?? plans/reports/v062-fix-1072-evidence/r3b-red-on-5384e79f.log
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-makes-its-marker-and-prints-unbraced.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-makes-its-marker-and-prints-unbraced.log
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-prints-the-page-reply-unsilenced.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-prints-the-page-reply-unsilenced.log
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-waits-for-a-reply-in-a-folder-that-is-gone.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-waits-for-a-reply-in-a-folder-that-is-gone.log
+?? plans/reports/v062-fix-1072-evidence/ci-ubuntu-leg-on-6f2f9a79.txt
+?? plans/reports/v062-fix-1072-evidence/r3-mut-r3c-the-prompt-hook-redirects-the-colon-builtin-which-ends-a-dash-shell.diff
+?? plans/reports/v062-fix-1072-evidence/r3-mut-r3c-the-prompt-hook-redirects-the-colon-builtin-which-ends-a-dash-shell.log
+?? plans/reports/v062-fix-1072-evidence/r3c-green-dash-sweep.log
+?? plans/reports/v062-fix-1072-evidence/r3c-red-dash-on-56d67542.log

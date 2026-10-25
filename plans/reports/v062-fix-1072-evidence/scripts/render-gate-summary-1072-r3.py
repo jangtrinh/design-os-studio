@@ -54,6 +54,10 @@ sections = [
     ("cargo test -p designos-app --bin designos --locked", grab("gate-r3-test-app.log", [r"^test result", r"^app exit=", r"FAILED$"])),
     ("cargo test -p designos-app --bin designos-studio --locked", grab("gate-r3-test-studio.log", [r"^test result", r"^studio exit=", r"FAILED$"])),
     ("race test, once per bin (the other bin's full suite runs at the same time)", race),
+    (
+        "both bins again, each by itself with --test-threads 6 (the lines above ran next to each other with the race test, on a machine at load 8 to 12)",
+        grab("gate-r3-test-app-threads6.log", [r"^test result"]) + grab("gate-r3-test-studio-threads6.log", [r"^test result"]),
+    ),
     ("each round-3 test: on c9b2d8b1 (and the third-tab test on 5384e79f), tests alone, before the fixes -> on the head", table),
     ("mutations (code changed on the head, the tests run, the code put back; each diff is saved beside its log)", muts),
     ("home mtimes after the gate run", grab("gate-r3-mtimes-after.txt", [r"\d"])),
