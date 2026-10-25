@@ -43,10 +43,13 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
     if kind == "id" {
         let id = value.parse::<u64>().map_err(|_| format!("Invalid --select '{s}': id must be a decimal number"))?;
         let id = NodeId(id);
-        return doc
-            .get(id)
-            .map(|_| Target { node: Some(id), page: doc.page_of(id), matched_by: By::Id, ambiguous: 1 })
-            .ok_or_else(|| format!("No node matches --select '{s}'"));
+        if doc.get(id).is_some() {
+            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::Id, ambiguous: 1 });
+        }
+        if doc.hydrate_all_pages() && doc.get(id).is_some() {
+            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::Id, ambiguous: 1 });
+        }
+        return Err(format!("No node matches --select '{s}'"));
     }
     if kind == "fig" {
         let ids: Vec<_> = page_walk(doc).filter(|id| doc.get(*id).and_then(|n| n.source_id.as_deref()) == Some(value)).collect();
@@ -58,7 +61,10 @@ pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
                 }
                 Err(format!("No node matches --select '{s}'"))
             }
-            _ => Err(format!("Figma selector '{s}' is ambiguous: {} matches", ids.len())),
+            _ => {
+                let listed = ids.iter().take(10).map(|id| id.0.to_string()).collect::<Vec<_>>().join(", ");
+                Err(format!("Figma selector '{s}' is ambiguous: {} matches (ids: {listed})", ids.len()))
+            }
         };
     }
     let exact = |needle: &str| {

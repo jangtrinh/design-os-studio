@@ -208,7 +208,11 @@ impl Shell {
                         app.doc.ensure_page_hydrated(pg);
                         app.page = pg;
                     }
-                    app.selection = vec![id];
+                    if app.doc.pages.contains(&id) {
+                        app.selection.clear();
+                    } else {
+                        app.selection = vec![id];
+                    }
                 }
                 Ok(None) => app.selection.clear(),
                 Err(err) => {
