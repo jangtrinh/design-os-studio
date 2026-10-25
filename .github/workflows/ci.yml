@@ -14,8 +14,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libfontconfig1-dev
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Rustfmt
+        run: cargo fmt --all --check
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --locked
+
   test:
     name: Test (${{ matrix.os }})
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -88,6 +116,7 @@ jobs:
 
   lint:
     name: Clippy
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,6 +166,7 @@ jobs:
 
   codegen-validators:
     name: Codegen Validators
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
