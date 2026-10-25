@@ -54,7 +54,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 
 ## Evidence
 
-- `evidence/baseline-home.png`, `evidence/baseline-editor-with-kit.png`: Studio today, 0.6.x.
+- `evidence/baseline-editor-with-kit.png`: Studio's editor today (0.6.x) with the kit open. The Home baseline is not published here, because the first capture showed a personal library; spec L captures every baseline from a seeded library instead.
 - `evidence/brainstorm-compare-board@2x.png`: the board the owner chose from. It was built in Studio with `--apply-spec` and rendered by `designos_render_png`.
 - `evidence/owner-questions-board-1@2x.png` and `evidence/owner-questions-board-3@2x.png` (with their generators): the open questions the owner answered (R8, R10), built and rendered in Studio. Labels sit off-centre because of #1154.
 - `evidence/1139-widget-kit-specimen@2x.png` (with its generator): spec C's widget kit in every state.
