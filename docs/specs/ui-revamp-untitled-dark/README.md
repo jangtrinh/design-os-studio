@@ -53,7 +53,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | D | 1 | #1119 | [1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md](1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md) | M |
 | E | 1 | #1120 | [1120-surface-left-panel-pages-layers.md](1120-surface-left-panel-pages-layers.md) | M |
 | F | 1 | #1124 | [1124-surface-right-panel-inspector-design-prototype.md](1124-surface-right-panel-inspector-design-prototype.md) | L |
-| G | 1 | — | Dev mode and spec reader (spec in progress) | — |
+| G | 1 | #1128 | [1128-surface-dev-mode-and-spec-reader.md](1128-surface-dev-mode-and-spec-reader.md) | M |
 | H | 1 | — | Home workspace (spec in progress) | — |
 | I | 1 | — | Agent terminal panel and agent cards (spec in progress) | — |
 | J | 1 | — | Popovers, menus, modals, toasts, command palette, Find, Comments (spec in progress) | — |
