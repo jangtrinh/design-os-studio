@@ -112,7 +112,7 @@ jobs:
 
       - name: Test designos-app (Linux)
         if: runner.os == 'Linux'
-        run: cargo test -p designos-app --locked -- --test-threads=2
+        run: cargo test -p designos-app --bin designos --test cli_version --locked -- --test-threads=2
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)

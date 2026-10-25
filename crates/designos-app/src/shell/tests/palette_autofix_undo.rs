@@ -145,6 +145,7 @@ fn sim_on(doc: Document, layers: Layers) -> (Sim, Layers) {
 fn open_in_sim(doc: Document) -> Sim {
     let mut s = Sim::new();
     s.use_stub_agent_clis();
+    s.shell.app.terminal.platform_is_mac_override = Some(true);
     s.shell.app.replace_document(doc, None);
     s.frame(vec![]);
     s.frame(vec![]);
