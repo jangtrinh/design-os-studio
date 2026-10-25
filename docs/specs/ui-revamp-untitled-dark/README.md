@@ -52,13 +52,13 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | C | 0 | — | Widget kit: Untitled component anatomy and states (spec in progress) | — |
 | D | 1 | #1119 | [1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md](1119-surface-app-shell-tabs-rail-toolbar-rulers-menus.md) | M |
 | E | 1 | #1120 | [1120-surface-left-panel-pages-layers.md](1120-surface-left-panel-pages-layers.md) | M |
-| F | 1 | — | Right panel: Inspector Design and Prototype (spec in progress) | — |
+| F | 1 | #1124 | [1124-surface-right-panel-inspector-design-prototype.md](1124-surface-right-panel-inspector-design-prototype.md) | L |
 | G | 1 | — | Dev mode and spec reader (spec in progress) | — |
 | H | 1 | — | Home workspace (spec in progress) | — |
 | I | 1 | — | Agent terminal panel and agent cards (spec in progress) | — |
 | J | 1 | — | Popovers, menus, modals, toasts, command palette, Find, Comments (spec in progress) | — |
 | K | 1 | — | Assets, Variables, Libraries and Styles panels (spec in progress) | — |
-| M | 2 | — | Docs and screenshot refresh (spec in progress) | — |
+| M | 2 | #1125 | [1125-docs-and-screenshot-refresh.md](1125-docs-and-screenshot-refresh.md) | M |
 | N | side | #1121 | [1121-mcp-imports-large-kit-files.md](1121-mcp-imports-large-kit-files.md) | S |
 | O | side | — | Dogfood: CLI addresses a node by id or Figma id (spec in progress) | — |
 | P | side | — | Dogfood: DTCG export that `ui ds import` can onboard (spec in progress) | — |
