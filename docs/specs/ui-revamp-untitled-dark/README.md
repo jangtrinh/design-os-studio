@@ -56,7 +56,7 @@ How the values were read: `designos <kit.fig> --export-variables <dir> --format 
 | G | 1 | #1128 | [1128-surface-dev-mode-and-spec-reader.md](1128-surface-dev-mode-and-spec-reader.md) | M |
 | H | 1 | #1138 | [1138-surface-home-workspace.md](1138-surface-home-workspace.md) | M |
 | I | 1 | #1144 | [1144-surface-agent-terminal-and-agent-cards.md](1144-surface-agent-terminal-and-agent-cards.md) | L |
-| J | 1 | — | Popovers, menus, modals, toasts, command palette, Find, Comments (spec in progress) | — |
+| J | 1 | #1146 | [1146-surface-popovers-menus-modals-toasts-cmdk-find-comments.md](1146-surface-popovers-menus-modals-toasts-cmdk-find-comments.md) | M |
 | K | 1 | — | Assets, Variables, Libraries and Styles panels (spec in progress) | — |
 | M | 2 | #1125 | [1125-docs-and-screenshot-refresh.md](1125-docs-and-screenshot-refresh.md) | M |
 | N | side | #1121 | [1121-mcp-imports-large-kit-files.md](1121-mcp-imports-large-kit-files.md) | S |
