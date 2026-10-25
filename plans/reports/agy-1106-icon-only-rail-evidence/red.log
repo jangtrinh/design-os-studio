@@ -1,0 +1,59 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1106-icon-only-rail/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.07s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 12 tests
+test panels::rail::tests::cells_follow_the_measured_rail_layout ... ok
+test panels::rail::tests::rail_width_and_active_tile_and_divider ... FAILED
+test panels::rail::tests::rail_shows_tooltip_on_hover_and_on_keyboard_focus ... FAILED
+test panels::rail::tests::rail_buttons_preserve_accesskit_names ... FAILED
+test panels::rail::tests::rail_paints_icons_only_without_label_text ... FAILED
+test textmeasure::tests::caret_stays_on_text_line_before_a_trailing_soft_break ... ok
+test terminal::tests::at_mention_typed_before_trailing_words_opens_popup_and_replaces_only_that_token ... ok
+test shell::tests::agents_panel_only::the_rail_has_no_terminal_button_and_keeps_the_updates_button ... ok
+test shell::tests::variables::rail_opens_floating_panel_then_full_view_and_back ... ok
+test shell::tests::plugins::plugins_rail_opens_library ... ok
+test shell::tests::rail_menu_opens_and_closes ... ok
+test shell::tests::agents_panel_only::tools_rail_item_opens_only_the_tools_panel ... ok
+
+failures:
+
+---- panels::rail::tests::rail_width_and_active_tile_and_divider stdout ----
+
+thread 'panels::rail::tests::rail_width_and_active_tile_and_divider' (50446211) panicked at crates/designos-app/src/panels/rail.rs:387:9:
+assertion `left == right` failed: icon-only rail width comes from theme tokens (32px tile + 2 * 8px inset)
+  left: 56.0
+ right: 48.0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::rail::tests::rail_shows_tooltip_on_hover_and_on_keyboard_focus stdout ----
+
+thread 'panels::rail::tests::rail_shows_tooltip_on_hover_and_on_keyboard_focus' (50446210) panicked at crates/designos-app/src/panels/rail.rs:310:13:
+assertion `left == right` failed: hovering rail-File must show only tooltip "File", got texts: ["File", "Agents", "Assets", "Tools", "Variables", "Plugins"]
+  left: ["File", "Agents", "Assets", "Tools", "Variables", "Plugins"]
+ right: ["File"]
+
+---- panels::rail::tests::rail_buttons_preserve_accesskit_names stdout ----
+
+thread 'panels::rail::tests::rail_buttons_preserve_accesskit_names' (50446208) panicked at crates/designos-app/src/panels/rail.rs:378:13:
+expected AccessKit Role::Button with label "File" on rail button
+
+---- panels::rail::tests::rail_paints_icons_only_without_label_text stdout ----
+
+thread 'panels::rail::tests::rail_paints_icons_only_without_label_text' (50446209) panicked at crates/designos-app/src/panels/rail.rs:273:9:
+rail buttons must show icons only with no painted label text, found: ["File", "Agents", "Assets", "Tools", "Variables", "Plugins"]
+
+
+failures:
+    panels::rail::tests::rail_buttons_preserve_accesskit_names
+    panels::rail::tests::rail_paints_icons_only_without_label_text
+    panels::rail::tests::rail_shows_tooltip_on_hover_and_on_keyboard_focus
+    panels::rail::tests::rail_width_and_active_tile_and_divider
+
+test result: FAILED. 8 passed; 4 failed; 0 ignored; 0 measured; 2930 filtered out; finished in 0.43s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

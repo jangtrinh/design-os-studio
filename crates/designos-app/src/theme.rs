@@ -260,7 +260,7 @@ pub const CONTROL_ROW: f32 = 40.0;
 pub const TARGET_MIN: f32 = 24.0;
 
 // ---------------------------------------------------------------- shell layout
-pub const RAIL_WIDTH: f32 = 56.0;
+pub const RAIL_WIDTH: f32 = 48.0;
 pub const BORDER_WIDTH: f32 = 1.0;
 pub const RAIL_MENU_BUTTON_X: f32 = 12.0;
 pub const RAIL_MENU_BUTTON_Y: f32 = 8.0;
