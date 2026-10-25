@@ -41,3 +41,15 @@ Applies from 2026-10-25. Cadence: 4–5 patches per day, one minor per day (deci
 - [ ] QA PASS for every AC (+ G4 screenshot if there is UI)
 - [ ] Tag + Release created by Claude
 - [ ] PM closes issues, comments with the release link
+
+## Release branch strategy (PM proposal, 25/10/2026 22:50 UTC+7)
+
+**Fact (git, 25/10):** `release/v0.6.2` was cut from `main` at `2a20e55`. Since then `main` has 140 more commits (features such as #1153, #1131, #1137), and the release branch has 3 commits of its own (head `184e145`, "release: 0.6.2 (#1135)").
+
+**Proposal:**
+1. **Patch lines (v0.6.3, v0.6.4, v0.6.5)** are cut from the **`v0.6.2` tag**, not from `main`. The patch carries only the slice's fixes and does not pull in 140 unreviewed feature commits from `main`. This is an empty branch, so it needs no code merge.
+   - `git push origin v0.6.2:refs/heads/release/v0.6.3` once the tag exists.
+   - v0.6.4 is cut from the `v0.6.3` tag, and so on.
+2. **The minor line (v0.7)** is cut from **`main`** as `release/v0.7` after `release/v0.6.x` has merged back into `main`. That way main holds every patch fix before the minor is cut.
+3. **PRs already targeting `release/v0.6.2`** that move to v0.6.3 (#1085, #1117) get their base changed to `release/v0.6.3` once that branch exists. Claude or Jang does the retarget. Expect a rebase onto the v0.6.2 tag; there should be no conflicts, because v0.6.2 = the current base + `release: 0.6.2`.
+4. **Status 25/10 22:50:** the `v0.6.2` tag **does not exist yet**, so PM has **not created** `release/v0.6.3`. PM creates it right after Jang tags v0.6.2.
