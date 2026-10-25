@@ -54,4 +54,4 @@ Thứ tự: L (#1126) trước mọi PR revamp; A (#1142) rồi B (#1143) (cùng
 Mỗi PR có bằng chứng hình (screenshot hoặc terminal capture). G2 không cần built evidence.
 
 ## Bàn giao và giới hạn demo
-Receiver: Claude (for:claude). Milestone `v0.7.5 UI Revamp slice 1` (30/10/2026). PR vào nhánh release theo runbook; PM verify, Jang merge/tag.
+Receiver: Claude (for:claude). Milestones v0.6.4 (#1166, #1126, due 27/10), v0.6.5 (#1142, due 28/10), v0.6.6 (#1143, due 29/10). PR vào nhánh release theo runbook; PM verify, Jang merge/tag.
