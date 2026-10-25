@@ -1,0 +1,61 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1108-separator/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1108-separator/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1108-separator/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1108-separator/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.48s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 6 tests
+test shell::tests::pages_layers_separator::separator_height_persists_across_restart ... FAILED
+test shell::tests::pages_layers_separator::double_clicking_the_separator_resets_to_default_height ... FAILED
+test shell::tests::pages_layers_separator::dragging_the_separator_clamps_at_min_and_max_bounds ... FAILED
+test shell::tests::pages_layers_separator::slow_frame_drag_ends_at_the_release_point ... FAILED
+test shell::tests::pages_layers_separator::dragging_the_separator_changes_the_pages_and_layers_split ... FAILED
+test shell::tests::pages_layers_separator::keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring ... FAILED
+
+failures:
+
+---- shell::tests::pages_layers_separator::separator_height_persists_across_restart stdout ----
+
+thread 'shell::tests::pages_layers_separator::separator_height_persists_across_restart' (54030235) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-layers-separator
+
+---- shell::tests::pages_layers_separator::double_clicking_the_separator_resets_to_default_height stdout ----
+
+thread 'shell::tests::pages_layers_separator::double_clicking_the_separator_resets_to_default_height' (54030231) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-list
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::pages_layers_separator::dragging_the_separator_clamps_at_min_and_max_bounds stdout ----
+
+thread 'shell::tests::pages_layers_separator::dragging_the_separator_clamps_at_min_and_max_bounds' (54030233) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-layers-separator
+
+---- shell::tests::pages_layers_separator::slow_frame_drag_ends_at_the_release_point stdout ----
+
+thread 'shell::tests::pages_layers_separator::slow_frame_drag_ends_at_the_release_point' (54030236) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-layers-separator
+
+---- shell::tests::pages_layers_separator::dragging_the_separator_changes_the_pages_and_layers_split stdout ----
+
+thread 'shell::tests::pages_layers_separator::dragging_the_separator_changes_the_pages_and_layers_split' (54030232) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-layers-separator
+
+---- shell::tests::pages_layers_separator::keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring stdout ----
+
+thread 'shell::tests::pages_layers_separator::keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring' (54030234) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for pages-layers-separator
+
+
+failures:
+    shell::tests::pages_layers_separator::double_clicking_the_separator_resets_to_default_height
+    shell::tests::pages_layers_separator::dragging_the_separator_changes_the_pages_and_layers_split
+    shell::tests::pages_layers_separator::dragging_the_separator_clamps_at_min_and_max_bounds
+    shell::tests::pages_layers_separator::keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring
+    shell::tests::pages_layers_separator::separator_height_persists_across_restart
+    shell::tests::pages_layers_separator::slow_frame_drag_ends_at_the_release_point
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 2946 filtered out; finished in 0.38s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

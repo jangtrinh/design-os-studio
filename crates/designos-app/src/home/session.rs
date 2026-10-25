@@ -534,6 +534,7 @@ impl App {
             entry.terminal.permission_mode = mode;
         }
         let _ = crate::comments::settings::load_in_progress_stale_minutes(&root);
+        self.ui.pages_height = crate::comments::settings::load_pages_height(&root);
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {

@@ -98,6 +98,7 @@ pub struct UiState {
     pub menu_anchor: Option<egui::Rect>,
     pub left_collapsed: bool,
     pub left_panel_width: f32,
+    pub pages_height: Option<f32>,
     pub ai_panel_width: f32,
     pub rail: Option<RailItem>,
     pub right_tab: Option<RightTab>,

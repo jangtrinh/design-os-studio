@@ -1,5 +1,8 @@
 //! Left panel: file header, pages list and the layers tree.
 
+#[path = "left_sep.rs"]
+mod left_sep;
+
 use super::{clipped, layers, scrollbar, wheel_scroll};
 use crate::app::{App, MenuKind};
 use crate::icons::{self, Icon};
@@ -63,6 +66,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     // ---- pages
     section_title(ui, Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), theme::PANEL_TITLE_ROW_HEIGHT)), "Pages");
     let tr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), theme::PANEL_TITLE_ROW_HEIGHT));
+    widgets::record(ui, "pages-toggle", tr);
     let plus = Rect::from_min_size(
         Pos2::new(tr.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::PANEL_ACTION_BUTTON, tr.top() + 8.0),
         Vec2::splat(theme::PANEL_ACTION_BUTTON),
@@ -80,13 +84,13 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     }
     y += theme::PANEL_TITLE_ROW_HEIGHT;
 
-    let n = app.doc.pages.len();
-    let visible = n.min(theme::PAGES_MAX_VISIBLE_ROWS);
-    let list_h = visible as f32 * theme::PAGE_ROW_HEIGHT;
+    let pages_list_top = y;
+    let (list_h, sep_bounds, sep_dragging) = left_sep::prepare_height(app, ui, inner, pages_list_top);
     let list = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), list_h));
+    widgets::record(ui, "pages-list", list);
     pages_list(app, ui, list);
-    y += list_h + 8.0;
-    widgets::hline(&p, x0, inner.right(), y - 1.0, theme::BORDER);
+    y += list_h + theme::SPACE_INLINE;
+    left_sep::paint_and_interact(ui, inner, pages_list_top, list_h, sep_bounds, sep_dragging);
 
     // ---- Dev Mode: compact 52px `Ready for development` section between Pages and Layers (`Gap C`)
     let ready_rows =
@@ -94,6 +98,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if app.ui.dev_mode {
         let sec_r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), 52.0));
         widgets::record(ui, "left-dev-ready-section", sec_r);
+        widgets::record(ui, "dev-ready-toggle", sec_r);
         let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
         let ready_on_page: usize = ready_rows
             .iter()
@@ -186,6 +191,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         y += 32.0;
     }
     let region = Rect::from_min_max(Pos2::new(x0, y), inner.max);
+    widgets::record(ui, "layers-list", region);
     layers::show(app, ui, region);
 }
 

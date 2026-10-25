@@ -100,6 +100,10 @@ impl Shell {
         let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
+        if shell.app.ui.pages_height.is_none() {
+            let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
+            shell.app.ui.pages_height = crate::comments::settings::load_pages_height(&settings_root);
+        }
         if !screenshot && panel_was_none && !has_file {
             shell.app.ui.rail = Some(crate::app::RailItem::Agents);
             shell.app.ui.left_collapsed = false;
