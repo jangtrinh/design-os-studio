@@ -1284,3 +1284,232 @@ OUT_REMOVED=yes
 - `"Style not changed: {e}"`
 
 Status: DONE
+
+
+---
+
+## Round 4
+
+### 1. What could NOT be verified
+
+- **Independent cross-runtime verifier pass for Round 4**: Not run inside this DEV worker session (`Role: DEV`; controller runs the independent verifier after `worker_done`).
+- **Multi-mode divergence across 3+ modes when 1 mode is overridden by a layer's own binding and 2+ non-overridden modes hold distinct style variable values**: When a layer's own binding (`fontStyle`, `fills/N`, or `strokes/N`) overwrites the style binding (`fontWeight`, `fills/N/opacity`, or `strokes/N/opacity`) in at least one mode, keeping the style binding on `node.variables.bindings` would reverse precedence in the overridden mode (because `"fontStyle" < "fontWeight"`, `"fills/N" < "fills/N/opacity"`, and `"strokes/N" < "strokes/N/opacity"` in `BTreeMap` iteration order), and `resolve_node` may not be altered in Round 4. Baking from the first non-overridden mode preserves exact parity across 2-mode collections (such as Light/Dark) regardless of which mode is active at deletion time.
+
+### Conclusion & Epistemic Ledger
+
+- **Conclusion**: Fixed both Major findings from the Round 3 review in `crates/designos-doc/src/styles_ops.rs` (with a read-only helper `font_style_weight` exposed in `crates/designos-doc/src/variables_apply.rs`) so that `resolve_node` produces the exact same resolved `Node` before and after `delete_style` in every mode, regardless of which mode was active when the user deleted the style.
+- **FACT**: On `9e7c51be`, all 3 new Round 4 tests (`deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark`, `deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node`, and `table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types`) failed (`23 passed; 3 failed`, captured in `plans/reports/agy-127-delete-style-evidence/r4-red.log`).
+- **FACT**: On the Round 4 fix, all 26 `styles_ops` unit tests pass (`26 passed; 0 failed`, captured in `plans/reports/agy-127-delete-style-evidence/r4-green.log`), `cargo fmt --all -- --check` exits `0`, `cargo clippy --workspace --all-targets --locked -- -D warnings` exits `0`, `cargo test -p designos-doc --locked` passes (`643` unit + `8` integration tests), `cargo test -p designos-fig --locked` passes (`121` unit + `450` integration tests), and `cargo test -p designos-app --bin designos --locked style` passes (`89` tests).
+- **INFERENCE**: All 6 overlapping `(style_key, own_key)` families (`fontWeight`/`fontStyle`, `fills/N/opacity`/`fills/N`, `strokes/N/opacity`/`strokes/N`, `effects/N/opacity`/`effects/N/color`, `fills/N/stops/M`/`fills/N`, and `strokes/N/stops/M`/`strokes/N`) now classify per-mode precedence identically to `resolve_node`.
+- **ASSUMPTION**: None remaining for 2-mode variable collections.
+- **Weakest link**: If a collection has 3+ modes where 1 mode is overridden by `own` and 2 non-overridden modes have different style values, a single baked scalar on the raw node can store only the first non-overridden mode's value without changing `resolve_node`.
+
+### Skills Loaded & Changes Because of Them
+
+- **`/es:dev` -> `es:feature-dev`** (`~/.gemini/config/skills/es-dev/SKILL.md`, `~/.gemini/config/skills/es-feature-dev/SKILL.md`): Executed Phase 3 (DEV) directly from the controller's rulings without re-opening brainstorm/plan gates or launching a separate verifier.
+- **`/es:rust`** (`~/.gemini/config/skills/es-rust/SKILL.md`): Used `std::borrow::Cow<'_, str>` in `resolve_variable_with_mode` (`styles_ops.rs:345-349`) to avoid unnecessary `String` clones when overriding collection modes, and adhered to Rust 2021 edition compatibility (`first_kept_mode.and_then(...)` instead of Rust 2024 `let` chains).
+- **`/es:rust-gpu-canvas`** (`~/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Preserved `resolve_node`'s borrow-first `Cow<'a, Node>` path untouched in `variables_apply.rs`.
+- **`es:fable-thinking` & `es-astra-work`** (`~/.gemini/config/skills/es-fable-thinking/SKILL.md`, `~/.gemini/config/skills/es-astra-work/SKILL.md`): Predicted and reproduced both findings as red tests on `9e7c51be` (`r4-red.log`) before modifying production code, then attacked all 23 key/mode combinations across `"light"` and `"dark"` active deletion modes in a table test (`r4-green.log`).
+
+---
+
+### 2. Acceptance Table
+
+| # | Check | Command | Exit / Result |
+|---|---|---|---|
+| 1a | `r4-red.log` on `9e7c51be` | `cargo test -p designos-doc --locked styles_ops` (before fix) | Exit `101` (`23 passed; 3 failed` — all 3 new Round 4 tests fail) |
+| 1b | `r4-green.log` on Round 4 head | `cargo test -p designos-doc --locked styles_ops` (after fix) | Exit `0` (`26 passed; 0 failed`) |
+| 2a | Formatting check | `cargo fmt --all -- --check` | Exit `0` |
+| 2b | Workspace Clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Exit `0` |
+| 3a | `designos-doc` tests | `cargo test -p designos-doc --locked` | Exit `0` (`643` lib + `3` + `5` integration passed) |
+| 3b | `designos-fig` tests | `cargo test -p designos-fig --locked` | Exit `0` (`121` lib + `450` integration passed across 34 binaries) |
+| 3c | `designos-app` style tests | `cargo test -p designos-app --bin designos --locked style` | Exit `0` (`89 passed; 0 failed`) |
+| 4 | Delete `out/` | `rm -rf out && test ! -e out` | Exit `0` (`OUT_REMOVED=yes`) |
+
+#### Pasted Commands & Exact Output
+
+##### Check 1a — `r4-red.log` on `9e7c51be`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" plans/reports/agy-127-delete-style-evidence
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked styles_ops > plans/reports/agy-127-delete-style-evidence/r4-red.log 2>&1
+```
+
+Output (`plans/reports/agy-127-delete-style-evidence/r4-red.log`):
+```text
+RED_EXIT=101
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.59s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 26 tests
+test styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node ... FAILED
+test styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark ... FAILED
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... FAILED
+...
+---- styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node stdout ----
+
+thread 'styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node' (52103822) panicked at crates/designos-doc/src/styles_ops.rs:1901:9:
+strokes/0 on a stroke-slot style must not be moved onto the layer
+
+---- styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark stdout ----
+
+thread 'styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark' (52103827) panicked at crates/designos-doc/src/styles_ops.rs:1740:13:
+assertion `left == right` failed: mixed fontStyle/fontWeight deleted in dark: resolve_node mismatch in mode 'light'
+  left: Node { id: NodeId(2), ..., style: TextStyle { font_family: "Inter", font_weight: 800, italic: true, ... } }
+ right: Node { id: NodeId(2), ..., style: TextStyle { font_family: "Inter", font_weight: 300, italic: true, ... } }
+
+---- styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types stdout ----
+
+thread 'styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types' panicked at crates/designos-doc/src/styles_ops.rs:1740:13:
+assertion `left == right` failed: case=fill_opacity_with_mixed_opaque_light_translucent_dark_own_fill deleted_in=dark: resolve_node mismatch in mode 'light'
+  left: Node { id: NodeId(2), ..., fills: [Paint { kind: Solid(Color { r: 0.8235294, g: 0.15686275, b: 0.15686275, a: 1.0 }), opacity: 0.25, visible: true, blend: Normal }], ... }
+ right: Node { id: NodeId(2), ..., fills: [Paint { kind: Solid(Color { r: 0.8235294, g: 0.15686275, b: 0.15686275, a: 1.0 }), opacity: 0.5, visible: true, blend: Normal }], ... }
+
+failures:
+    styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node
+    styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark
+    styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types
+
+test result: FAILED. 23 passed; 3 failed; 0 ignored; 0 measured; 617 filtered out; finished in 11.59s
+```
+
+##### Check 1b — `r4-green.log` on Round 4 head
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" plans/reports/agy-127-delete-style-evidence
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked styles_ops > plans/reports/agy-127-delete-style-evidence/r4-green.log 2>&1
+```
+
+Output (`plans/reports/agy-127-delete-style-evidence/r4-green.log`):
+```text
+GREEN_EXIT=0
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.64s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 26 tests
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file ... ok
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... ok
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... ok
+test styles_ops::tests::deleting_a_style_bakes_unrecognized_binding_keys_instead_of_dropping_them ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run ... ok
+test styles_ops::tests::deleting_a_text_style_keeps_a_bold_run ... ok
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::deleting_a_style_with_mixed_own_and_style_bindings_preserves_resolved_look_in_all_modes ... ok
+test styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches ... ok
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... ok
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... ok
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node ... ok
+test styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark ... ok
+test styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref ... ok
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::used_on_library_page_walks_only_the_library_page_subtree_and_probes_300k_nodes ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 617 filtered out; finished in 11.71s
+```
+
+##### Checks 2a & 2b — `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+echo "FMT_EXIT=$?"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+echo "CLIPPY_EXIT=$?"
+rm -rf "$S"
+```
+
+Output:
+```text
+FMT_EXIT=0
+    Checking designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-doc)
+    Checking designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fonts)
+    Checking designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-render)
+    Checking designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-svg)
+    Checking designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-export)
+    Checking designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-gpu)
+    Checking designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-webcapture)
+    Checking designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fig)
+    Checking designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-library)
+    Checking designos-eval v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-eval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 59.77s
+CLIPPY_EXIT=0
+```
+
+##### Checks 3a, 3b & 3c — `cargo test -p designos-doc --locked`, `cargo test -p designos-fig --locked`, and `cargo test -p designos-app --bin designos --locked style`
+
+Command:
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --locked
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked style
+rm -rf "$S"
+```
+
+Output:
+```text
+=== DESIGNOS-DOC ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+test result: ok. 643 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.36s
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-d19362047bc102bf)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-c7fad459a80a2bad)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+DOC_EXIT=0
+
+=== DESIGNOS-FIG ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-540f1f9206f56183)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 62.31s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+(all 34 integration test binaries in designos-fig: 450 passed; 0 failed)
+FIG_EXIT=0
+
+=== DESIGNOS-APP STYLE ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 2853 filtered out; finished in 2.44s
+APP_STYLE_EXIT=0
+```
+
+---
+
+### 3. Changes per file
+
+- `crates/designos-doc/src/variables_apply.rs:197-228`: Extracted read-only helper `pub(crate) fn font_style_weight(val: &str) -> Option<u16>` (`197-220`) and called it from `apply_font_style_str` (`222-228`) with zero behaviour change.
+- `crates/designos-doc/src/styles_ops.rs:335-442`: Replaced `color_var_has_translucent_mode` and `own_binding_overrides_style_key` with `StyleBindingOverride` (`335-339`), `resolve_variable_with_mode` (`341-360`), `governing_collection_and_modes` (`362-388`), and `classify_own_binding_override` (`392-442`) so style-vs-own precedence is evaluated per mode across the governing variable collection.
+- `crates/designos-doc/src/styles_ops.rs:593-615`: Updated `delete_style` to skip stroke-slot binding keys that do not start with `"fills/"` (`594: let Some(rest) = bkey.strip_prefix("fills/") else { continue };`) matching `resolve_node`, drop style keys overwritten in every mode (`StyleBindingOverride::AllModes`), bake from the non-overridden mode when overwritten in only some modes (`StyleBindingOverride::SomeModesBake`), and move non-overridden style keys onto `copy.variables.bindings` (`StyleBindingOverride::None`).
+- `crates/designos-doc/src/styles_ops.rs:1779-2301`: Added `make_var` (`1779-1793`), `assert_resolved_matches_across_modes` (`1795-1811`), `deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark` (`1814-1916`), `deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node` (`1919-1968`), and `table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` (`1971-2300`).
+
+---
+
+### 4. Each case baked
+
+1. **Mixed-mode `fontWeight` (style) vs `fontStyle` (layer own binding)** (`StyleBindingOverride::SomeModesBake` in `crates/designos-doc/src/styles_ops.rs:395-396, 437-438, 604-606`): When the layer's own `fontStyle` binding sets a weight (`font_style_weight(s).is_some()`, e.g. `"Bold Italic"`) in some mode(s) but leaves weight untouched (e.g. `"Italic"`) in at least one mode, keeping `fontWeight` on `node.variables.bindings` would run `fontWeight` after `fontStyle` in `BTreeMap` order and clobber the mode where `fontStyle` won. Instead, `delete_style` bakes `fontWeight` from the non-overridden mode onto `copy` via `set_bound_property` and drops the `fontWeight` binding, so the non-overridden mode keeps the style's weight and the overridden mode still takes `fontStyle`'s weight.
+2. **Mixed-mode `fills/{idx}/opacity` (style) vs `fills/{idx}` (layer own binding)** (`StyleBindingOverride::SomeModesBake` in `crates/designos-doc/src/styles_ops.rs:397-398, 437-438, 604-606`): When the layer's own `fills/{idx}` colour binding has `c.a < 1.0` in some mode(s) (which resets `p.opacity = 1.0` in `set_bound_property`) and `c.a >= 1.0` in at least one mode (which leaves `p.opacity` untouched), keeping `fills/{idx}/opacity` on `node.variables.bindings` would run `fills/{idx}/opacity` after `fills/{idx}` in `BTreeMap` order and overwrite `p.opacity = 1.0` in the translucent mode. Instead, `delete_style` bakes `fills/{idx}/opacity` from the opaque (`c.a >= 1.0`) mode onto `copy` and drops the `fills/{idx}/opacity` binding.
+3. **Mixed-mode `strokes/{idx}/opacity` (style) vs `strokes/{idx}` (layer own binding)** (`StyleBindingOverride::SomeModesBake` in `crates/designos-doc/src/styles_ops.rs:399-400, 437-438, 604-606`): Same as `fills/{idx}/opacity` when a fill style carrying `fills/{idx}/opacity` is linked to the `"stroke"` slot (`node_key = "strokes/{idx}/opacity"`) and the layer has its own `strokes/{idx}` colour binding with `c.a < 1.0` in some mode(s) and `c.a >= 1.0` in another mode.
+4. **Unrecognized / legacy style binding keys outside `property_kind`** (`bake_unrecognized_style_binding` in `crates/designos-doc/src/styles_ops.rs:446-565, 612-614`, retained from Round 3): Keys that pass the slot filter (including `slot == "stroke"` requiring `fills/` prefix) but return `None` from `property_kind(&node_key)` (such as `fontSize/0`, `fills/0/color`, `fillOpacities/0`, `effects/0/x`, `cornerRadius`, `minWidth`) are baked onto `copy` in the active mode.
+
+### Unresolved Questions
+
+- None.
+
+Status: DONE

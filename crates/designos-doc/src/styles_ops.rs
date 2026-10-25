@@ -332,46 +332,113 @@ pub fn used_on_library_page(doc: &Document, key: &str) -> bool {
     false
 }
 
-fn color_var_has_translucent_mode(doc: &Document, var_id: &str) -> bool {
-    doc.variables.get(var_id).is_some_and(|v| v.values.values().any(|val| matches!(val, VariableValue::Color(c) if c.a < 1.0)))
+enum StyleBindingOverride {
+    None,
+    AllModes,
+    SomeModesBake(VariableValue),
 }
 
-/// Whether moving `node_key` onto `n.variables.bindings` would flip precedence against one of
-/// `n`'s existing own bindings (because `resolve_node` applies style bindings before own bindings,
-/// whereas `n.variables.bindings` is a `BTreeMap` iterated in key order).
-fn own_binding_overrides_style_key(doc: &Document, n: &Node, node_key: &str) -> bool {
+fn resolve_variable_with_mode(doc: &Document, node: NodeId, variable: &str, override_collection: &str, override_mode: &str) -> Option<VariableValue> {
+    let mut id = variable.to_string();
+    for _ in 0..16 {
+        let v = doc.variables.get(&id)?;
+        let mode: std::borrow::Cow<'_, str> = if v.collection == override_collection {
+            std::borrow::Cow::Borrowed(override_mode)
+        } else {
+            std::borrow::Cow::Owned(doc.variable_mode(node, &v.collection)?)
+        };
+        let value = match doc.variable_collections.get(&v.collection) {
+            Some(coll) => v.values.get(mode.as_ref()).or_else(|| v.values.get(&coll.default_mode)),
+            None => v.values.get(mode.as_ref()),
+        }?;
+        match value {
+            VariableValue::Alias(next) => id = next.clone(),
+            other => return Some(other.clone()),
+        }
+    }
+    None
+}
+
+fn governing_collection_and_modes<'a>(doc: &'a Document, var_id: &str) -> Option<(&'a str, Vec<&'a str>)> {
+    let mut id = var_id;
+    let mut fallback: Option<(&'a str, Vec<&'a str>)> = None;
+    for _ in 0..16 {
+        let v = doc.variables.get(id)?;
+        let modes: Vec<&'a str> = match doc.variable_collections.get(&v.collection) {
+            Some(coll) if !coll.modes.is_empty() => coll.modes.iter().map(|m| m.id.as_str()).collect(),
+            Some(coll) => vec![coll.default_mode.as_str()],
+            None => v.values.keys().map(String::as_str).collect(),
+        };
+        if modes.len() > 1 {
+            return Some((v.collection.as_str(), modes));
+        }
+        let next_alias = v.values.values().find_map(|val| match val {
+            VariableValue::Alias(next) => Some(next.as_str()),
+            _ => None,
+        });
+        if fallback.is_none() && !modes.is_empty() {
+            fallback = Some((v.collection.as_str(), modes));
+        }
+        match next_alias {
+            Some(next) => id = next,
+            None => break,
+        }
+    }
+    fallback
+}
+
+/// Classifies how `n`'s existing own bindings interact with moving `node_key` (`style_var`) onto
+/// `n.variables.bindings` across every mode of the governing collection.
+fn classify_own_binding_override(doc: &Document, id: NodeId, n: &Node, node_key: &str, style_var: &str) -> StyleBindingOverride {
     let own = &n.variables.bindings;
-    if node_key == "fontWeight" && own.contains_key("fontStyle") {
-        return true;
-    }
-    if let Some(idx) = node_key.strip_prefix("fills/").and_then(|s| s.strip_suffix("/opacity")) {
-        let fill_key = format!("fills/{idx}");
-        if own.get(&fill_key).is_some_and(|vid| color_var_has_translucent_mode(doc, vid)) {
-            return true;
+    type OverwritePred = fn(&VariableValue) -> bool;
+    let (own_key, overwrites): (String, OverwritePred) = if node_key == "fontWeight" {
+        ("fontStyle".into(), |val| matches!(val, VariableValue::String(s) if font_style_weight(s).is_some()))
+    } else if let Some(idx) = node_key.strip_prefix("fills/").and_then(|s| s.strip_suffix("/opacity")) {
+        (format!("fills/{idx}"), |val| matches!(val, VariableValue::Color(c) if c.a < 1.0))
+    } else if let Some(idx) = node_key.strip_prefix("strokes/").and_then(|s| s.strip_suffix("/opacity")) {
+        (format!("strokes/{idx}"), |val| matches!(val, VariableValue::Color(c) if c.a < 1.0))
+    } else if let Some(idx) = node_key.strip_prefix("effects/").and_then(|s| s.strip_suffix("/opacity")) {
+        (format!("effects/{idx}/color"), |val| matches!(val, VariableValue::Color(_)))
+    } else if let Some((idx, _)) = node_key.strip_prefix("fills/").and_then(|s| s.split_once("/stops/")) {
+        (format!("fills/{idx}"), |val| matches!(val, VariableValue::Color(_)))
+    } else if let Some((idx, _)) = node_key.strip_prefix("strokes/").and_then(|s| s.split_once("/stops/")) {
+        (format!("strokes/{idx}"), |val| matches!(val, VariableValue::Color(_)))
+    } else {
+        return StyleBindingOverride::None;
+    };
+
+    let Some(own_var_id) = own.get(&own_key) else {
+        return StyleBindingOverride::None;
+    };
+    let Some((coll_id, modes)) = governing_collection_and_modes(doc, own_var_id) else {
+        return StyleBindingOverride::None;
+    };
+
+    let mut any_overridden = false;
+    let mut all_overridden = true;
+    let mut first_kept_mode: Option<&str> = None;
+    for &mode_id in &modes {
+        let is_overridden = resolve_variable_with_mode(doc, id, own_var_id, coll_id, mode_id).is_some_and(|val| overwrites(&val));
+        if is_overridden {
+            any_overridden = true;
+        } else {
+            all_overridden = false;
+            if first_kept_mode.is_none() {
+                first_kept_mode = Some(mode_id);
+            }
         }
     }
-    if let Some(idx) = node_key.strip_prefix("strokes/").and_then(|s| s.strip_suffix("/opacity")) {
-        let stroke_key = format!("strokes/{idx}");
-        if own.get(&stroke_key).is_some_and(|vid| color_var_has_translucent_mode(doc, vid)) {
-            return true;
-        }
+
+    if !any_overridden {
+        StyleBindingOverride::None
+    } else if all_overridden {
+        StyleBindingOverride::AllModes
+    } else if let Some(val) = first_kept_mode.and_then(|keep_mode| resolve_variable_with_mode(doc, id, style_var, coll_id, keep_mode)) {
+        StyleBindingOverride::SomeModesBake(val)
+    } else {
+        StyleBindingOverride::None
     }
-    if let Some(idx) = node_key.strip_prefix("effects/").and_then(|s| s.strip_suffix("/opacity")) {
-        if own.contains_key(&format!("effects/{idx}/color")) {
-            return true;
-        }
-    }
-    if let Some((idx, _)) = node_key.strip_prefix("fills/").and_then(|s| s.split_once("/stops/")) {
-        if own.contains_key(&format!("fills/{idx}")) {
-            return true;
-        }
-    }
-    if let Some((idx, _)) = node_key.strip_prefix("strokes/").and_then(|s| s.split_once("/stops/")) {
-        if own.contains_key(&format!("strokes/{idx}")) {
-            return true;
-        }
-    }
-    false
 }
 
 /// Bakes a resolved variable value for a style binding key outside `property_kind` onto `node`
@@ -524,21 +591,21 @@ pub fn delete_style(doc: &Document, key: &str) -> Result<Command, StyleOpError> 
                 }
                 for (bkey, variable) in bindings {
                     let node_key = if slot == "stroke" {
-                        match bkey.strip_prefix("fills/") {
-                            Some(rest) => format!("strokes/{rest}"),
-                            None => bkey.clone(),
-                        }
+                        let Some(rest) = bkey.strip_prefix("fills/") else { continue };
+                        format!("strokes/{rest}")
                     } else {
                         bkey.clone()
                     };
                     if copy.variables.bindings.contains_key(&node_key) {
                         continue;
                     }
-                    if own_binding_overrides_style_key(doc, n, &node_key) {
-                        if let Some(val) = doc.resolve_variable(id, variable) {
+                    match classify_own_binding_override(doc, id, n, &node_key, variable) {
+                        StyleBindingOverride::AllModes => continue,
+                        StyleBindingOverride::SomeModesBake(val) => {
                             set_bound_property(&mut copy, &node_key, &val);
+                            continue;
                         }
-                        continue;
+                        StyleBindingOverride::None => {}
                     }
                     if property_kind(&node_key).is_some() {
                         copy.variables.bindings.insert(node_key, variable.clone());
@@ -1703,6 +1770,532 @@ mod tests {
         match &rn.effects[0] {
             Effect::DropShadow { offset, .. } => assert_eq!(offset.x, 14.0, "effects/0/x must bake onto shadow offset.x"),
             other => panic!("expected drop shadow, got {other:?}"),
+        }
+    }
+
+    fn make_var(id: &str, kind: VariableKind, light: VariableValue, dark: VariableValue) -> Variable {
+        Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: "c".into(),
+            kind,
+            values: [("light".to_string(), light), ("dark".to_string(), dark)].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        }
+    }
+
+    fn assert_resolved_matches_across_modes(before_doc: &Document, after_doc: &Document, id: NodeId, context: &str) {
+        for mode in ["light", "dark"] {
+            let mut bdoc = before_doc.clone();
+            bdoc.get_mut(id).unwrap().variables.modes.insert("c".into(), mode.into());
+            let mut expected = resolve_node(&bdoc, bdoc.get(id).unwrap()).into_owned();
+            expected.style_refs.clear();
+            expected.variables = Default::default();
+
+            let mut adoc = after_doc.clone();
+            adoc.get_mut(id).unwrap().variables.modes.insert("c".into(), mode.into());
+            let mut actual = resolve_node(&adoc, adoc.get(id).unwrap()).into_owned();
+            actual.style_refs.clear();
+            actual.variables = Default::default();
+
+            assert_eq!(actual, expected, "{context}: resolve_node mismatch in mode '{mode}'");
+        }
+    }
+
+    #[test]
+    fn deleting_in_dark_with_mixed_mode_overrides_preserves_resolved_node_in_light_and_dark() {
+        let mut d = Document::new("t");
+        let p = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_style".into(), "v_weight".into(), "v_fill".into(), "v_op".into(), "v_style_italic".into(), "v_fill_opaque".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_style".into(),
+            make_var("v_style", VariableKind::String, VariableValue::String("Italic".into()), VariableValue::String("Bold Italic".into())),
+        );
+        d.variables.insert("v_weight".into(), make_var("v_weight", VariableKind::Number, VariableValue::Number(300.0), VariableValue::Number(800.0)));
+        d.variables.insert(
+            "v_fill".into(),
+            make_var("v_fill", VariableKind::Color, VariableValue::Color(Color::rgba(200, 100, 50, 255)), VariableValue::Color(Color::rgba(40, 80, 160, 128))),
+        );
+        d.variables.insert("v_op".into(), make_var("v_op", VariableKind::Number, VariableValue::Number(50.0), VariableValue::Number(25.0)));
+        d.variables.insert(
+            "v_style_italic".into(),
+            make_var("v_style_italic", VariableKind::String, VariableValue::String("Italic".into()), VariableValue::String("Oblique".into())),
+        );
+        d.variables.insert(
+            "v_fill_opaque".into(),
+            make_var(
+                "v_fill_opaque",
+                VariableKind::Color,
+                VariableValue::Color(Color::rgba(200, 100, 50, 255)),
+                VariableValue::Color(Color::rgba(40, 80, 160, 255)),
+            ),
+        );
+
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 30.0), "Hello", TextStyle::default());
+        t.style_refs.insert("text".into(), "Heading".into());
+        t.variables.bindings.insert("fontStyle".into(), "v_style".into());
+        t.variables.modes.insert("c".into(), "dark".into());
+        let tid = d.insert(p, t).unwrap();
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 40.0, 100.0, 40.0));
+        r.fills = vec![Paint::solid(Color::BLACK)];
+        r.style_refs.insert("fill".into(), "Surface".into());
+        r.variables.bindings.insert("fills/0".into(), "v_fill".into());
+        r.variables.modes.insert("c".into(), "dark".into());
+        let rid = d.insert(p, r).unwrap();
+
+        let tid_keep = d.alloc_id();
+        let mut t_keep = Node::text(tid_keep, Rect::new(0.0, 80.0, 100.0, 30.0), "Keep", TextStyle::default());
+        t_keep.style_refs.insert("text".into(), "Heading".into());
+        t_keep.variables.bindings.insert("fontStyle".into(), "v_style_italic".into());
+        t_keep.variables.modes.insert("c".into(), "dark".into());
+        let tid_keep = d.insert(p, t_keep).unwrap();
+
+        let rid_keep = d.alloc_id();
+        let mut r_keep = Node::rectangle(rid_keep, Rect::new(0.0, 120.0, 100.0, 40.0));
+        r_keep.fills = vec![Paint::solid(Color::BLACK)];
+        r_keep.style_refs.insert("fill".into(), "Surface".into());
+        r_keep.variables.bindings.insert("fills/0".into(), "v_fill_opaque".into());
+        r_keep.variables.modes.insert("c".into(), "dark".into());
+        let rid_keep = d.insert(p, r_keep).unwrap();
+
+        d.styles.insert("Heading".into(), Style::Text(TextStyle::default()));
+        d.style_meta.insert(
+            "Heading".into(),
+            StyleMeta {
+                name: "Heading".into(),
+                property: StyleProperty::Text,
+                bindings: [("fontWeight".to_string(), "v_weight".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        d.styles.insert("Surface".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        d.style_meta.insert(
+            "Surface".into(),
+            StyleMeta {
+                name: "Surface".into(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0/opacity".to_string(), "v_op".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+
+        let before = d.clone();
+        let mut h = History::default();
+        let c1 = delete_style(&d, "Heading");
+        run(&mut d, &mut h, c1);
+        let c2 = delete_style(&d, "Surface");
+        run(&mut d, &mut h, c2);
+
+        assert_resolved_matches_across_modes(&before, &d, tid, "mixed fontStyle/fontWeight deleted in dark");
+        assert_resolved_matches_across_modes(&before, &d, rid, "mixed fills/0 + fills/0/opacity deleted in dark");
+        assert_resolved_matches_across_modes(&before, &d, tid_keep, "non-overriding fontStyle/fontWeight deleted in dark");
+        assert_resolved_matches_across_modes(&before, &d, rid_keep, "non-overriding fills/0 + fills/0/opacity deleted in dark");
+        assert_eq!(d.get(tid_keep).unwrap().variables.bindings.get("fontWeight").map(String::as_str), Some("v_weight"));
+        assert_eq!(d.get(rid_keep).unwrap().variables.bindings.get("fills/0/opacity").map(String::as_str), Some("v_op"));
+    }
+
+    #[test]
+    fn deleting_a_stroke_style_skips_non_fills_prefixed_binding_keys_matching_resolve_node() {
+        let mut d = Document::new("t");
+        let p = d.add_page("p");
+        d.variable_collections.insert(
+            "c".into(),
+            VariableCollection {
+                id: "c".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_green".into(), "v_blue".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "v_green".into(),
+            make_var("v_green", VariableKind::Color, VariableValue::Color(Color::rgb(0, 200, 0)), VariableValue::Color(Color::rgb(0, 120, 0))),
+        );
+        d.variables.insert(
+            "v_blue".into(),
+            make_var("v_blue", VariableKind::Color, VariableValue::Color(Color::rgb(0, 0, 200)), VariableValue::Color(Color::rgb(0, 0, 120))),
+        );
+
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 80.0, 40.0));
+        r.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        r.style_refs.insert("stroke".into(), "Border".into());
+        let rid = d.insert(p, r).unwrap();
+
+        d.styles.insert("Border".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        d.style_meta.insert(
+            "Border".into(),
+            StyleMeta {
+                name: "Border".into(),
+                property: StyleProperty::Fill,
+                bindings: [("strokes/0".to_string(), "v_green".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+
+        let before = d.clone();
+        let mut h = History::default();
+        let c = delete_style(&d, "Border");
+        run(&mut d, &mut h, c);
+
+        assert!(!d.get(rid).unwrap().variables.bindings.contains_key("strokes/0"), "strokes/0 on a stroke-slot style must not be moved onto the layer");
+        assert_resolved_matches_across_modes(&before, &d, rid, "stroke-slot style with non-fills/ key");
+    }
+
+    #[test]
+    fn table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types() {
+        #[derive(Clone)]
+        struct Case {
+            name: &'static str,
+            slot: &'static str,
+            style_prop: StyleProperty,
+            style_val: Style,
+            style_bindings: Vec<(&'static str, &'static str)>,
+            own_bindings: Vec<(&'static str, &'static str)>,
+        }
+
+        let gradient_paint = Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::ZERO, Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        };
+
+        let cases = vec![
+            Case {
+                name: "fill_color",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0", "v_col_opaque")],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "fill_opacity_no_own",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "fill_opacity_with_opaque_own_fill",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("fills/0", "v_col_opaque")],
+            },
+            Case {
+                name: "fill_opacity_with_translucent_own_fill_all_modes",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("fills/0", "v_col_trans")],
+            },
+            Case {
+                name: "fill_opacity_with_mixed_opaque_light_translucent_dark_own_fill",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("fills/0", "v_col_light_opaque_dark_trans")],
+            },
+            Case {
+                name: "fill_opacity_with_mixed_translucent_light_opaque_dark_own_fill",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("fills/0", "v_col_light_trans_dark_opaque")],
+            },
+            Case {
+                name: "fill_stop_no_own",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![gradient_paint.clone()]),
+                style_bindings: vec![("fills/0/stops/0", "v_col_opaque")],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "fill_stop_overridden_by_own_fill",
+                slot: "fill",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![gradient_paint.clone()]),
+                style_bindings: vec![("fills/0/stops/0", "v_col_opaque")],
+                own_bindings: vec![("fills/0", "v_col_trans")],
+            },
+            Case {
+                name: "stroke_color_from_fills_prefix",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0", "v_col_opaque")],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "stroke_opacity_with_opaque_own_stroke",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("strokes/0", "v_col_opaque")],
+            },
+            Case {
+                name: "stroke_opacity_with_translucent_own_stroke_all_modes",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("strokes/0", "v_col_trans")],
+            },
+            Case {
+                name: "stroke_opacity_with_mixed_opaque_light_translucent_dark_own_stroke",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("strokes/0", "v_col_light_opaque_dark_trans")],
+            },
+            Case {
+                name: "stroke_opacity_with_mixed_translucent_light_opaque_dark_own_stroke",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("fills/0/opacity", "v_op")],
+                own_bindings: vec![("strokes/0", "v_col_light_trans_dark_opaque")],
+            },
+            Case {
+                name: "stroke_stop_overridden_by_own_stroke",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![gradient_paint.clone()]),
+                style_bindings: vec![("fills/0/stops/0", "v_col_opaque")],
+                own_bindings: vec![("strokes/0", "v_col_opaque")],
+            },
+            Case {
+                name: "stroke_non_fills_prefix_skipped",
+                slot: "stroke",
+                style_prop: StyleProperty::Fill,
+                style_val: Style::Fill(vec![Paint::solid(Color::BLACK)]),
+                style_bindings: vec![("strokes/0", "v_col_opaque"), ("strokes/0/opacity", "v_op")],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "text_fields_no_own",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![
+                    ("fontSize", "v_num_a"),
+                    ("lineHeight", "v_num_b"),
+                    ("letterSpacing", "v_num_a"),
+                    ("paragraphSpacing", "v_num_b"),
+                    ("paragraphIndent", "v_num_a"),
+                    ("fontFamily", "v_fam"),
+                ],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "text_weight_with_non_weight_own_font_style",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![("fontWeight", "v_weight")],
+                own_bindings: vec![("fontStyle", "v_style_italic_only")],
+            },
+            Case {
+                name: "text_weight_with_all_weight_own_font_style",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![("fontWeight", "v_weight")],
+                own_bindings: vec![("fontStyle", "v_style_both_weighted")],
+            },
+            Case {
+                name: "text_weight_with_mixed_italic_light_bold_dark_own_font_style",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![("fontWeight", "v_weight")],
+                own_bindings: vec![("fontStyle", "v_style_light_italic_dark_bold")],
+            },
+            Case {
+                name: "text_weight_with_mixed_light_weight_dark_italic_own_font_style",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![("fontWeight", "v_weight")],
+                own_bindings: vec![("fontStyle", "v_style_light_bold_dark_italic")],
+            },
+            Case {
+                name: "text_style_font_style_with_own_font_weight",
+                slot: "text",
+                style_prop: StyleProperty::Text,
+                style_val: Style::Text(TextStyle::default()),
+                style_bindings: vec![("fontStyle", "v_style_light_italic_dark_bold")],
+                own_bindings: vec![("fontWeight", "v_weight")],
+            },
+            Case {
+                name: "effect_fields_and_opacity_no_own_color",
+                slot: "effect",
+                style_prop: StyleProperty::Effect,
+                style_val: Style::Effect(vec![shadow(4.0)]),
+                style_bindings: vec![
+                    ("effects/0/opacity", "v_op"),
+                    ("effects/0/radius", "v_num_a"),
+                    ("effects/0/spread", "v_num_b"),
+                    ("effects/0/offsetX", "v_num_a"),
+                    ("effects/0/offsetY", "v_num_b"),
+                ],
+                own_bindings: vec![],
+            },
+            Case {
+                name: "effect_opacity_overridden_by_own_effect_color",
+                slot: "effect",
+                style_prop: StyleProperty::Effect,
+                style_val: Style::Effect(vec![shadow(4.0)]),
+                style_bindings: vec![("effects/0/opacity", "v_op")],
+                own_bindings: vec![("effects/0/color", "v_col_opaque")],
+            },
+        ];
+
+        for case in &cases {
+            for active_mode in ["light", "dark"] {
+                let mut d = Document::new("t");
+                let p = d.add_page("p");
+                let vars = vec![
+                    make_var(
+                        "v_col_opaque",
+                        VariableKind::Color,
+                        VariableValue::Color(Color::rgba(210, 40, 40, 255)),
+                        VariableValue::Color(Color::rgba(40, 40, 210, 255)),
+                    ),
+                    make_var(
+                        "v_col_trans",
+                        VariableKind::Color,
+                        VariableValue::Color(Color::rgba(210, 40, 40, 120)),
+                        VariableValue::Color(Color::rgba(40, 40, 210, 180)),
+                    ),
+                    make_var(
+                        "v_col_light_opaque_dark_trans",
+                        VariableKind::Color,
+                        VariableValue::Color(Color::rgba(210, 40, 40, 255)),
+                        VariableValue::Color(Color::rgba(40, 40, 210, 140)),
+                    ),
+                    make_var(
+                        "v_col_light_trans_dark_opaque",
+                        VariableKind::Color,
+                        VariableValue::Color(Color::rgba(210, 40, 40, 140)),
+                        VariableValue::Color(Color::rgba(40, 40, 210, 255)),
+                    ),
+                    make_var("v_op", VariableKind::Number, VariableValue::Number(50.0), VariableValue::Number(25.0)),
+                    make_var("v_num_a", VariableKind::Number, VariableValue::Number(14.0), VariableValue::Number(22.0)),
+                    make_var("v_num_b", VariableKind::Number, VariableValue::Number(18.0), VariableValue::Number(28.0)),
+                    make_var("v_fam", VariableKind::String, VariableValue::String("Inter".into()), VariableValue::String("Roboto".into())),
+                    make_var("v_weight", VariableKind::Number, VariableValue::Number(300.0), VariableValue::Number(800.0)),
+                    make_var("v_style_italic_only", VariableKind::String, VariableValue::String("Italic".into()), VariableValue::String("Oblique".into())),
+                    make_var(
+                        "v_style_both_weighted",
+                        VariableKind::String,
+                        VariableValue::String("Bold Italic".into()),
+                        VariableValue::String("SemiBold Italic".into()),
+                    ),
+                    make_var(
+                        "v_style_light_italic_dark_bold",
+                        VariableKind::String,
+                        VariableValue::String("Italic".into()),
+                        VariableValue::String("Bold Italic".into()),
+                    ),
+                    make_var(
+                        "v_style_light_bold_dark_italic",
+                        VariableKind::String,
+                        VariableValue::String("Bold Italic".into()),
+                        VariableValue::String("Italic".into()),
+                    ),
+                ];
+                let var_ids = vars.iter().map(|v| v.id.clone()).collect();
+                d.variable_collections.insert(
+                    "c".into(),
+                    VariableCollection {
+                        id: "c".into(),
+                        name: "Theme".into(),
+                        modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                        default_mode: "light".into(),
+                        variables: var_ids,
+                        key: None,
+                        source_library_key: None,
+                        extensions: Default::default(),
+                    },
+                );
+                for v in vars {
+                    d.variables.insert(v.id.clone(), v);
+                }
+
+                let nid = d.alloc_id();
+                let mut n = if case.slot == "text" {
+                    Node::text(nid, Rect::new(0.0, 0.0, 100.0, 30.0), "Sample", TextStyle::default())
+                } else {
+                    let mut r = Node::rectangle(nid, Rect::new(0.0, 0.0, 100.0, 40.0));
+                    r.fills = vec![if case.name.starts_with("fill_stop") { gradient_paint.clone() } else { Paint::solid(Color::BLACK) }];
+                    r.stroke.paints = vec![if case.name.starts_with("stroke_stop") { gradient_paint.clone() } else { Paint::solid(Color::BLACK) }];
+                    r.effects = vec![shadow(4.0)];
+                    r
+                };
+                n.style_refs.insert(case.slot.into(), "S".into());
+                for (k, v) in &case.own_bindings {
+                    n.variables.bindings.insert((*k).into(), (*v).into());
+                }
+                n.variables.modes.insert("c".into(), active_mode.into());
+                let nid = d.insert(p, n).unwrap();
+
+                d.styles.insert("S".into(), case.style_val.clone());
+                d.style_meta.insert(
+                    "S".into(),
+                    StyleMeta {
+                        name: "S".into(),
+                        property: case.style_prop,
+                        bindings: case.style_bindings.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect(),
+                        ..Default::default()
+                    },
+                );
+
+                let before = d.clone();
+                let mut h = History::default();
+                let c = delete_style(&d, "S");
+                run(&mut d, &mut h, c);
+
+                assert_resolved_matches_across_modes(&before, &d, nid, &format!("case={} deleted_in={active_mode}", case.name));
+            }
         }
     }
 }

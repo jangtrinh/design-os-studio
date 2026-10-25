@@ -194,10 +194,9 @@ fn set_effect_field(fx: &mut Effect, field: &str, value: &VariableValue) {
     }
 }
 
-fn apply_font_style_str(s: &mut TextStyle, val: &str) {
+pub(crate) fn font_style_weight(val: &str) -> Option<u16> {
     let low = val.to_ascii_lowercase();
-    s.italic = low.contains("italic") || low.contains("oblique");
-    let weight = if low.contains("thin") || low.contains("hairline") {
+    if low.contains("thin") || low.contains("hairline") {
         Some(100)
     } else if low.contains("extralight") || low.contains("extra light") || low.contains("ultralight") {
         Some(200)
@@ -217,8 +216,13 @@ fn apply_font_style_str(s: &mut TextStyle, val: &str) {
         Some(400)
     } else {
         None
-    };
-    if let Some(w) = weight {
+    }
+}
+
+fn apply_font_style_str(s: &mut TextStyle, val: &str) {
+    let low = val.to_ascii_lowercase();
+    s.italic = low.contains("italic") || low.contains("oblique");
+    if let Some(w) = font_style_weight(val) {
         s.font_weight = w;
     }
 }
