@@ -203,7 +203,16 @@ impl Shell {
         }
         if opts.select.is_some() {
             match crate::resolve_select_node(&mut app.doc, opts.select.as_deref()) {
-                Ok(Some(id)) => {
+                Ok(target) if target.node.is_some() => {
+                    let id = target.node.unwrap();
+                    if target.matched_by == crate::select_target::By::BareId {
+                        eprintln!(
+                            "designos: --select {} matched no layer name; selected node id {} (use --select id:{}).",
+                            opts.select.as_deref().unwrap_or(""),
+                            id.0,
+                            id.0
+                        );
+                    }
                     if let Some(pg) = app.doc.page_of(id) {
                         app.doc.ensure_page_hydrated(pg);
                         app.page = pg;
@@ -214,7 +223,7 @@ impl Shell {
                         app.selection = vec![id];
                     }
                 }
-                Ok(None) => app.selection.clear(),
+                Ok(_) => app.selection.clear(),
                 Err(err) => {
                     SELECT_MISS.store(true, Ordering::SeqCst);
                     eprintln!("designos: {err}");

@@ -232,17 +232,17 @@ impl SaveTarget {
     }
 }
 
-pub(crate) fn resolve_select_node(doc: &mut designos_doc::Document, select: Option<&str>) -> Result<Option<designos_doc::NodeId>, String> {
+pub(crate) fn resolve_select_node(doc: &mut designos_doc::Document, select: Option<&str>) -> Result<select_target::Target, String> {
     let Some(raw) = select else {
-        return Ok(None);
+        return Ok(select_target::Target { node: None, page: None, matched_by: select_target::By::Name, ambiguous: 0 });
     };
     if raw.trim().is_empty() {
         return Err("--select requires a non-empty selector".into());
     }
     if raw.trim().eq_ignore_ascii_case("none") {
-        return Ok(None);
+        return Ok(select_target::Target { node: None, page: None, matched_by: select_target::By::Name, ambiguous: 0 });
     }
-    select_target::resolve(doc, raw).map(|t| t.node)
+    select_target::resolve(doc, raw)
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
@@ -280,7 +280,8 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     };
 
     // Resolve --select before any mutating import or save operation. A miss must be side-effect free.
-    let selected_node = resolve_select_node(&mut doc, opts.select.as_deref())?;
+    let selected_target = resolve_select_node(&mut doc, opts.select.as_deref())?;
+    let selected_node = selected_target.node;
 
     if let Some(cap_path) = &opts.import_capture {
         let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
@@ -537,14 +538,14 @@ mod icon_tests {
         node.source_id = Some("12:34".into());
         doc.insert(page, node).unwrap();
 
-        assert_eq!(super::resolve_select_node(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("id:2")).unwrap().node, Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("fig:12:34")).unwrap().node, Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("name:Card")).unwrap().node, Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&mut doc, Some("Card")).unwrap().node, Some(designos_doc::NodeId(2)));
         assert!(super::resolve_select_node(&mut doc, Some("id:999")).is_err());
         assert!(super::resolve_select_node(&mut doc, Some("Missing")).is_err());
-        assert_eq!(super::resolve_select_node(&mut doc, Some("none")).unwrap(), None);
-        assert_eq!(super::resolve_select_node(&mut doc, None).unwrap(), None);
+        assert_eq!(super::resolve_select_node(&mut doc, Some("none")).unwrap().node, None);
+        assert_eq!(super::resolve_select_node(&mut doc, None).unwrap().node, None);
     }
 
     #[test]
