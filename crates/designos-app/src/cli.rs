@@ -1,4 +1,4 @@
-//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select name|none] [--menu name]`.
+//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<id>|name:<text>|LAYER|none] [--menu name]`.
 
 use std::path::PathBuf;
 
@@ -9,7 +9,7 @@ pub struct Options {
     pub size: Option<(u32, u32)>,
     /// Device pixel ratio of `--screenshot` (`--scale 2` writes a PNG twice the `--size`, with crisp UI and text).
     pub scale: Option<f32>,
-    /// Select the first layer with this name after loading (handy for screenshots).
+    /// Select a node by id:<n>, fig:<id>, name:<text>, or layer name (handy for screenshots).
     pub select: Option<String>,
     /// Open a menu after loading: `main`, `main/File`, `shape`, `palette` (for screenshots).
     pub menu: Option<String>,
@@ -25,7 +25,7 @@ pub struct Options {
     pub fullscreen: bool,
     /// Open a panel on start: `variables` (full view) or `variables-floating`.
     pub panel: Option<String>,
-    /// Initial zoom in percent (`--zoom 800`), centred on the selection or the page.
+    /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
     pub zoom: Option<f32>,
     pub zoom_fit: bool,
     /// Show the rulers.
@@ -270,6 +270,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
 ",
                 )?;
                 if v.eq_ignore_ascii_case("fit") {
+                    o.zoom_fit = true;
                     o.zoom = None;
                 } else {
                     o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
@@ -364,7 +365,7 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -499,6 +500,8 @@ mod tests {
     fn parses_canvas_aid_flags() {
         let o = p(&["--zoom", "800%", "--rulers", "--grid", "--layout-grid", "columns", "--edit-text", "Title", "--select-text", "2-7"]).unwrap();
         assert_eq!(o.zoom, Some(800.0));
+        let fit = p(&["--zoom", "fit"]).unwrap();
+        assert!(fit.zoom_fit);
         assert!(o.rulers && o.grid);
         assert_eq!(o.layout_grid.as_deref(), Some("columns"));
         assert_eq!(o.edit_text.as_deref(), Some("Title"));
