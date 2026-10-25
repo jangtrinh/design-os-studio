@@ -126,8 +126,8 @@ Follow this 7-step loop on every design task:
 
 ### `designos_export_fig_file`
 - **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate...
-- **Args:** required: `output_path`
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `INTERNAL_ERROR`
+- **Args:** required: `output_path` (optional: `overwrite`)
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`

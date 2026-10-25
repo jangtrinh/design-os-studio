@@ -896,15 +896,29 @@ impl Engine {
             }
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: ExportFigArgs = parse(args)?;
+                validate_output_name(&a.output_path, "/output_path")?;
                 let path = std::path::Path::new(&a.output_path);
-                if path.extension().and_then(|x| x.to_str()) != Some("fig") {
-                    return Err(ToolError::new(ErrorCode::UnsupportedExtension, "/output_path", "output_path must end in .fig")
-                        .with_valid_options(vec![".fig"])
-                        .with_corrected_example(json!({ "output_path": "export.fig" })));
+                let target_meta =
+                    std::fs::symlink_metadata(path).ok().map(|m| (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly()));
+                if target_meta.is_some_and(|(is_symlink, is_dir, _, _)| is_symlink || is_dir) {
+                    validate_existing_output_target(target_meta, &a.output_path, "/output_path", "output_path", a.overwrite, true)?;
                 }
+                if !path.extension().and_then(|x| x.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("fig")) {
+                    return Err(ToolError::new(
+                        ErrorCode::InvalidArguments,
+                        "/output_path",
+                        format!("{} does not end with .fig. Choose a path ending with .fig, then try again.", a.output_path),
+                    )
+                    .with_received(json!(a.output_path))
+                    .with_expected("*.fig")
+                    .with_valid_options(vec![".fig"])
+                    .with_corrected_example(json!({ "output_path": "export.fig" })));
+                }
+                validate_existing_output_target(target_meta, &a.output_path, "/output_path", "output_path", a.overwrite, true)?;
+                self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
-                    .map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Failed to export .fig: {e}")))?;
-                std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot write .fig file: {e}")))?;
+                    .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
+                write_checked_output_file(path, &a.output_path, "/output_path", &bytes)?;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
                     "output_path": a.output_path,
@@ -1509,6 +1523,113 @@ struct SetInProgressArgs {
 pub(crate) struct ExportFigArgs {
     #[serde(alias = "path")]
     pub output_path: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+pub(crate) fn has_control_or_bidi_char(s: &str) -> bool {
+    s.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{200E}'
+                    | '\u{200F}'
+                    | '\u{061C}'
+            )
+    })
+}
+
+pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
+    if has_control_or_bidi_char(display_path) {
+        return Err(ToolError::new(
+            ErrorCode::InvalidArguments,
+            ptr,
+            format!("{display_path} has a name with a line break or a direction-control character. Rename it, then try again."),
+        )
+        .with_received(json!(display_path)));
+    }
+    for comp in std::path::Path::new(display_path).components() {
+        if let std::path::Component::Normal(part) = comp {
+            if part.len() > 255 {
+                return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
+                    .with_received(json!(display_path)));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_existing_output_target(
+    target_meta: Option<(bool, bool, bool, bool)>,
+    display_path: &str,
+    ptr: &str,
+    field_name: &str,
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
+    if let Some((is_symlink, is_dir, is_file, is_readonly)) = target_meta {
+        if is_symlink {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if is_dir {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is a folder, not a file. Choose a file path, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if !is_file {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if !overwrite {
+            if supports_overwrite {
+                return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                    .with_received(json!(display_path))
+                    .with_corrected_example(json!({ field_name: display_path, "overwrite": true })));
+            }
+            return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if is_readonly {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
+            )
+            .with_received(json!(display_path)));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn write_checked_output_file(resolved: &std::path::Path, display_path: &str, ptr: &str, bytes: &[u8]) -> Result<(), ToolError> {
+    let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
+        Some(crate::session_file_io::Refusal::Link) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::SecondName) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::NotPlainFile) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        None => ToolError::new(
+            ErrorCode::InternalError,
+            ptr,
+            format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
+        ),
+    };
+    crate::session_file_io::truncate(resolved, false).map_err(&map_io_err)?;
+    crate::session_file_io::append(resolved, bytes, true).map_err(&map_io_err)?;
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1849,7 +1970,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "export_fig_file",
         "Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace.",
-        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."}}),
+        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."},"overwrite":{"type":"boolean","default":false}}),
         vec!["output_path"],
         json!({
             "output_path": {"type": "string"},

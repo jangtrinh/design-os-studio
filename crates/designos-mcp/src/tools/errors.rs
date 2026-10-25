@@ -451,7 +451,9 @@ impl ToolError {
     }
 
     pub fn with_received(mut self, received: impl Into<Value>) -> Self {
-        self.received = Some(received.into());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            self.received = Some(received.into());
+        }
         self
     }
 
@@ -522,8 +524,10 @@ impl ToolError {
         map.insert("code".into(), json!(self.code.as_str()));
         map.insert("message".into(), json!(self.message));
         map.insert("path".into(), json!(self.path));
-        if let Some(received) = &self.received {
-            map.insert("received".into(), received.clone());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            if let Some(received) = &self.received {
+                map.insert("received".into(), received.clone());
+            }
         }
         if let Some(expected) = &self.expected {
             map.insert("expected".into(), json!(expected));

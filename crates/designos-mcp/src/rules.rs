@@ -530,7 +530,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_set_in_progress" => {
             &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`IN_PROGRESS_TARGET_NOT_ROOT`", "`NODE_IN_PROGRESS_BY_OTHER_RUN`", "`TOOL_DISABLED`"]
         }
-        "designos_export_fig_file" => &["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"],
+        "designos_export_fig_file" => &["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"],
         "designos_query_xpath" => &["`INVALID_ARGUMENTS`", "`INVALID_SELECTOR`", "`NODE_NOT_FOUND`", "`CURSOR_STALE`", "`RULE_UNAVAILABLE`", "`TOOL_DISABLED`"],
         "designos_lint" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_guidelines" => &["`INVALID_ARGUMENTS`", "`UNKNOWN_TOPIC`", "`TOPIC_NOT_AVAILABLE`", "`TOOL_DISABLED`"],
