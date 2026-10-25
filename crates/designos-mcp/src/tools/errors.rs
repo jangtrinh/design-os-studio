@@ -753,6 +753,68 @@ fn escape_json_pointer_token(token: &str) -> String {
     token.replace('~', "~0").replace('/', "~1")
 }
 
+/// Returns the owning instance root if `id` sits inside a component instance and cannot be deleted
+/// (mirrors the Studio UI delete guard in `crates/designos-app/src/ops.rs:delete_selection`).
+///
+/// Returns `None` when `id` is:
+/// - a top-level instance root itself (`is_top_instance`),
+/// - a child/descendant of a main `Component` (outside any nested `Instance`), or
+/// - slot content inside an instance slot container (either a direct child of `is_slot_container`,
+///   marked with `component.is_slot_content`, or a descendant inside a non-instance subtree added to a slot).
+pub fn enclosing_instance_for_delete(doc: &designos_doc::Document, id: designos_doc::NodeId) -> Option<designos_doc::NodeId> {
+    let node = doc.get(id)?;
+    let parent = node.parent?;
+    if designos_doc::is_slot_container(doc, parent)
+        || (node.component.is_slot_content && (!designos_doc::is_linked(node) || designos_doc::is_top_instance(node)))
+    {
+        return None;
+    }
+    let mut nearest_instance = None;
+    let mut cur = Some(parent);
+    while let Some(anc_id) = cur {
+        let anc = doc.get(anc_id)?;
+        if designos_doc::is_slot_container(doc, anc_id) {
+            return nearest_instance;
+        }
+        if matches!(anc.kind, designos_doc::NodeKind::Instance { .. }) {
+            if nearest_instance.is_none() {
+                nearest_instance = Some(anc_id);
+            }
+            if designos_doc::is_top_instance(anc) {
+                return Some(anc_id);
+            }
+        }
+        if anc.component.is_slot_content
+            && (!designos_doc::is_linked(anc) || designos_doc::is_top_instance(anc))
+            && !matches!(anc.kind, designos_doc::NodeKind::Instance { .. })
+            && nearest_instance.is_none()
+        {
+            return None;
+        }
+        cur = anc.parent;
+    }
+    if nearest_instance.is_some() {
+        return nearest_instance;
+    }
+    if designos_doc::is_linked(node) && !designos_doc::is_top_instance(node) {
+        return designos_doc::instance_root_of(doc, id).or(Some(parent));
+    }
+    None
+}
+
+/// Checks whether `id` sits inside a component instance (and is not deletable slot content),
+/// returning a cause-first [`ToolError`] when deletion must be refused (#985).
+pub fn check_not_instance_child(doc: &designos_doc::Document, id: designos_doc::NodeId, path: &str) -> Option<ToolError> {
+    let inst_id = enclosing_instance_for_delete(doc, id)?;
+    let node = doc.get(id)?;
+    let inst = doc.get(inst_id)?;
+    let node_name = if node.name.is_empty() { format!("node {}", node.id.0) } else { node.name.clone() };
+    let inst_name = if inst.name.is_empty() { format!("node {}", inst.id.0) } else { inst.name.clone() };
+    let next_step = "Hide it or set an override instead.";
+    let message = format!("{node_name} is inside the instance {inst_name}. {next_step}");
+    Some(ToolError::new(ErrorCode::InvalidArguments, path, message).with_received(json!(id.0)).with_next_step(next_step))
+}
+
 /// Converts a [`designos_doc::SpecError`] into a [`ToolError`] with an RFC 6901 JSON Pointer
 /// rooted at `pointer_prefix` (e.g. `"/spec"` for `designos_apply_spec` or `"/ops/2/spec"` for batch).
 pub fn from_spec_error(err: designos_doc::SpecError, pointer_prefix: &str) -> ToolError {
