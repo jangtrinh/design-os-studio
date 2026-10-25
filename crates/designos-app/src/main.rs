@@ -228,38 +228,45 @@ impl SaveTarget {
     }
 }
 
-fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Option<designos_doc::NodeId> {
-    let s = select?.trim();
+pub(crate) fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Result<Option<designos_doc::NodeId>, String> {
+    let Some(raw) = select else {
+        return Ok(None);
+    };
+    let s = raw.trim();
     if s.is_empty() || s.eq_ignore_ascii_case("none") {
-        return None;
+        return Ok(None);
     }
-    if let Some(id) = s.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()) {
-        return Some(id);
+
+    let (kind, value) = if let Some(v) = s.strip_prefix("id:") {
+        ("id", v)
+    } else if let Some(v) = s.strip_prefix("fig:") {
+        ("fig", v)
+    } else if let Some(v) = s.strip_prefix("name:") {
+        ("name", v)
+    } else {
+        ("bare", s)
+    };
+    if value.trim().is_empty() {
+        return Err(format!("Invalid --select '{s}': selector value is empty"));
     }
-    for &pid in &doc.pages {
-        if let Some(p) = doc.get(pid) {
-            if p.name == s {
-                return Some(pid);
-            }
-            for &cid in &p.children {
-                if doc.get(cid).is_some_and(|c| c.name == s) {
-                    return Some(cid);
-                }
-            }
+
+    let found = match kind {
+        "id" => value.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()),
+        "fig" => doc.nodes.values().find(|n| n.source_id.as_deref() == Some(value)).map(|n| n.id),
+        "name" => doc.nodes.values().find(|n| n.name == value).map(|n| n.id),
+        "bare" => {
+            // A bare numeric token remains a native node id for backwards compatibility.
+            value.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()).or_else(|| {
+                // Preserve the CLI's top-level name precedence before walking descendants.
+                doc.pages
+                    .iter()
+                    .find_map(|pid| doc.get(*pid).filter(|p| p.name.eq_ignore_ascii_case(value)).map(|p| p.id))
+                    .or_else(|| doc.nodes.values().find(|n| n.name.eq_ignore_ascii_case(value)).map(|n| n.id))
+            })
         }
-    }
-    let mut found = None;
-    for &pid in &doc.pages {
-        doc.walk(pid, |n, _| {
-            if found.is_none() && (n.name == s || n.name.eq_ignore_ascii_case(s)) {
-                found = Some(n.id);
-            }
-        });
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
+        _ => unreachable!(),
+    };
+    found.map(Some).ok_or_else(|| format!("No node matches --select '{s}'"))
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
@@ -320,7 +327,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
-    let selected_node = resolve_select_node(&doc, opts.select.as_deref());
+    let selected_node = resolve_select_node(&doc, opts.select.as_deref())?;
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
@@ -510,6 +517,11 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             "kind": doc.kind,
             "node_count": doc.nodes.len(),
             "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
+            "selection": selected_node.map(|id| serde_json::json!({
+                "id": id.0,
+                "source_id": doc.get(id).and_then(|n| n.source_id.clone()),
+                "name": doc.get(id).map(|n| n.name.clone()),
+            })),
             "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
                 "id": p.id.0,
                 "name": p.name,
@@ -532,6 +544,25 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
 #[cfg(test)]
 mod icon_tests {
+    #[test]
+    fn select_resolves_native_fig_and_name_selectors_without_fallback() {
+        let mut doc = designos_doc::Document::new("selector test");
+        let page = doc.add_page("Page");
+        let mut node = designos_doc::Node::new(designos_doc::NodeId(2), designos_doc::NodeKind::Rectangle);
+        node.name = "Card".into();
+        node.source_id = Some("12:34".into());
+        doc.insert(page, node).unwrap();
+
+        assert_eq!(super::resolve_select_node(&doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(super::resolve_select_node(&doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert!(super::resolve_select_node(&doc, Some("id:999")).is_err());
+        assert!(super::resolve_select_node(&doc, Some("Missing")).is_err());
+        assert_eq!(super::resolve_select_node(&doc, Some("none")).unwrap(), None);
+        assert_eq!(super::resolve_select_node(&doc, None).unwrap(), None);
+    }
+
     #[test]
     fn embedded_window_icon_decodes() {
         let icon = super::window_icon().expect("icon decodes");

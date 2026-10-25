@@ -200,16 +200,17 @@ impl Shell {
                 }
             }
         }
-        if let Some(name) = opts.select.as_ref().filter(|n| n.as_str() != "none") {
-            // a top-level layer (screen) wins over same-named layers deeper in the tree
-            let named =
-                |top: bool| app.doc.nodes.values().find(|n| &n.name == name && (!top || n.parent.is_some_and(|p| app.doc.pages.contains(&p)))).map(|n| n.id);
-            if let Some(id) = named(true).or_else(|| named(false)) {
-                if let Some(pg) = app.doc.page_of(id) {
-                    app.doc.ensure_page_hydrated(pg);
-                    app.page = pg;
+        if opts.select.is_some() {
+            match crate::resolve_select_node(&app.doc, opts.select.as_deref()) {
+                Ok(Some(id)) => {
+                    if let Some(pg) = app.doc.page_of(id) {
+                        app.doc.ensure_page_hydrated(pg);
+                        app.page = pg;
+                    }
+                    app.selection = vec![id];
                 }
-                app.selection = vec![id];
+                Ok(None) => app.selection.clear(),
+                Err(err) => eprintln!("designos: {err}"),
             }
         }
         if let Some(spec) = &opts.menu {
