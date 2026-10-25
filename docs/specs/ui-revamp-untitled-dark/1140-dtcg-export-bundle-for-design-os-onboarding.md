@@ -72,6 +72,15 @@ exit=0
 | **Resolved + hex** | aliases replaced by literals, colour `$value` a hex string | **273 colour tokens, 84 roles, 7 gaps** | **1,852 pairs checked, 975 below AA**, exit 1: a real measurement |
 | Resolved + hex, no `$extensions` | as above | identical | identical |
 
+Resolved + hex run, from `$SCRATCH/agents/w5/p/a11y-resolved-hex.txt`:
+
+```text
+$ ui ds a11y --dir ds-resolved-hex
+ds a11y: 1852 text×surface pair(s) checked (roles inferred from token names — cartesian; prefer -foreground pairing or --pairs), 975 below AA (4.5:1).
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-solid — 1:1 (fail); fails normal-text AA
+exit=1
+```
+
 Sanity check on the resolved + hex file: `bg-primary` = `#0A0A0A` and `text-primary` = `#FAFAFA`, matching plan.md "Dark mode, resolved".
 
 **INFERENCE:** the plan's resolved values came from the collections that survived the overwrite, the local copies. Whether the overwritten library copies held different values is UNKNOWN. Closing check: test case 3 exports both after the fix and diffs them.
@@ -86,7 +95,7 @@ Sanity check on the resolved + hex file: `bg-primary` = `#0A0A0A` and `text-prim
    - The manifest's `group` holds the unique name, and its `name` keeps the original.
    - `main.rs` refuses, rather than overwrites, a bundle that still contains two files with one name. The error names them and the exit code is 2. This is a guard; with rule 1 it cannot trigger.
 2. **Zip works.** With unique names, `--export-variables x.zip --format dtcg` writes the zip. The zip error message no longer says "not a fig file": map it to `FigError` text that names the zip step.
-3. **A round trip keeps every collection.** `--import-variables <dir>/tokens.manifest.json` of a fixed export restores every collection, each with its own tokens. The importer already reads each collection's file under its manifest `group` (`:1697-1750`), so no importer change is expected. Test case 3 proves it.
+3. **A round trip keeps every collection.** `--import-variables <dir>/tokens.manifest.json` of a fixed export restores every collection, each with its own tokens. The importer already reads each collection's file under its manifest `group` (`:1697-1750`). INFERENCE: no importer change is needed. I have not read whether it resolves alias references by `group` or by `name`. Test case 3 is the check that settles it.
 4. **Single-file export per mode.** With `--format dtcg --mode "<mode name>"`, the output path must end in `.json`. Studio writes **one** file holding:
    - every collection that has a mode with exactly that name, at that mode
    - every collection with exactly one mode, at that mode (`_Primitives` "Style", `2. Radius` "Mode 1" and so on)
@@ -182,7 +191,7 @@ Fixtures are built in code: two collections both named `_Primitives`, one with `
 |---|---|---|---|
 | 1 | `dtcg_export_gives_same_named_collections_unique_groups_and_files` | `_Primitives.Style.tokens.json` (local) and `_Primitives (2).Style.tokens.json`. Manifest groups are unique, and aliases into the library copy say `{_Primitives (2).…}`. | yes |
 | 2 | `dtcg_zip_export_with_same_named_collections_succeeds` | the zip holds 1 + 5 entries | yes (duplicate filename) |
-| 3 | `dtcg_round_trip_keeps_every_collection` | export to a directory, import the manifest into an empty document: same collection ids, the same variable count per collection, the same resolved Dark `bg-primary` | yes |
+| 3 | `dtcg_round_trip_keeps_every_collection` | export to a directory, then import the manifest into an empty document. Same collection ids. Collection names come back from the manifest `name`, not `group` (no `_Primitives (2)` after import). Same variable count per collection. A `{_Primitives (2).…}` alias resolves to the library copy's variable after import. Same resolved Dark `bg-primary`. | yes |
 | 4 | `cli_directory_export_never_overwrites_within_one_run` | `files` count = files on disk | yes (13 vs 9 on the kit) |
 | 5 | `mode_export_is_one_self_contained_file` | every `{…}` in the file resolves inside the file; `inlined_for_aliases` lists `_Primitives (2)` | yes (no flag) |
 | 6 | `resolve_aliases_writes_literals_and_keeps_provenance` | Dark `bg-primary` is a literal; `alias_of` equals the old reference string | yes |

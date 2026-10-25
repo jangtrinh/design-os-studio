@@ -8,7 +8,7 @@
 | Unblocks | The release task of the pack that ships the revamp (`docs/releasing.md` "Closing a pack", step 6). |
 | Touches | `README.md`:<br>- hero `:4-5`<br>- "What's new" images `:148`, `:152`<br>- feature captures and their `Command:` lines `:205-206`, `:215-216`, `:224-225`<br>`docs/index.html`:<br>- `theme-color` `:10`<br>- `:root` palette `:82-85`<br>- `body` `:92`, scrollbar `:91`<br>- og and twitter image `:19`, `:27`<br>- agents still `:434-435`<br>New captures under `docs/images/v<pack>/` (new folder; older folders stay)<br>`docs/images/og-designos-studio.png`, `docs/images/cover.png`<br>`.project-agent.md:6`<br>`CLAUDE.md:6`, `:31`<br>`AGENTS.md:30`<br>`CONTRIBUTING.md:8` |
 
-Code baseline: `origin/main@ec47da26`. Re-anchor every cited line against HEAD and report drift before editing. HEAD will have moved by the time this runs, because D–K land first.
+Code baseline: local `main@ec47da26`, not origin. `origin/main` is `35a65796`, 4 commits ahead (#998 kept only Untitled-kit captures in `docs/images`, #1022 and #1093 changed the site). Between the two commits `README.md` changed by 30 lines, `docs/index.html` by 668, `.project-agent.md` by 6 and `CLAUDE.md` by 2, so the inventory line numbers below are off at `35a65796` and some images may already be replaced. Re-anchor every cited line against HEAD and report drift before editing. HEAD will have moved by the time this runs, because D–K land first.
 
 ## 1. Summary and user story
 
