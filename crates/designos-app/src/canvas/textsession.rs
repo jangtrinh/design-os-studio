@@ -328,14 +328,25 @@ fn text_ref() -> &'static str {
     crate::styles::StyleKind::Text.ref_key()
 }
 
+#[derive(Clone, Copy)]
+enum LinkEdit<'a> {
+    Keep,
+    Set(Option<&'a str>),
+    DetachIfChanged,
+}
+
 /// Runs `f` on the edited text. `log` records an undo step (None = no step, for IME previews).
 fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
-    edit_props_linked(app, log, None, f);
+    edit_props_with_link(app, log, LinkEdit::Keep, f);
 }
 
 /// [`edit_props`] that can also change the text style the edited layer is linked to (`link`: `Some(None)`
 /// unlinks), so a style pick and its link are one undo step: the log keeps the link with the values.
 fn edit_props_linked(app: &mut App, log: Option<(EditKind, bool)>, link: Option<Option<&str>>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
+    edit_props_with_link(app, log, link.map_or(LinkEdit::Keep, LinkEdit::Set), f);
+}
+
+fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: LinkEdit<'_>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
     let now = app.now;
     let App { doc, canvas, .. } = app;
     let Some(sess) = canvas.text.as_mut() else { return };
@@ -349,16 +360,19 @@ fn edit_props_linked(app: &mut App, log: Option<(EditKind, bool)>, link: Option<
         if let Some(t) = n.kind.any_text_mut() {
             let snap = Snap { props: t.clone(), style_ref, caret, anchor };
             f(t, &mut caret, &mut anchor);
+            let props_changed = *t != snap.props;
             match link {
-                Some(Some(key)) => {
+                LinkEdit::Set(Some(key)) => {
                     n.style_refs.insert(text_ref().into(), key.into());
                 }
-                Some(None) => {
+                LinkEdit::Set(None) => {
                     n.style_refs.remove(text_ref());
                 }
-                None => {}
+                LinkEdit::DetachIfChanged if props_changed => {
+                    n.style_refs.remove(text_ref());
+                }
+                LinkEdit::Keep | LinkEdit::DetachIfChanged => {}
             }
-            let props_changed = *t != snap.props;
             if props_changed {
                 added_faces = designos_fonts::new_faces(&snap.props, t);
             }
@@ -524,6 +538,15 @@ pub fn style_selection(app: &mut App, f: impl Fn(&mut TextStyle)) -> bool {
 
 /// [`style_selection`] with an explicit undo kind (inspector edits coalesce).
 pub fn style_selection_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKind) -> bool {
+    style_selection_impl(app, f, kind, false)
+}
+
+/// Typography style edit that detaches a linked text style with the value change.
+pub fn style_selection_detaching_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKind) -> bool {
+    style_selection_impl(app, f, kind, true)
+}
+
+fn style_selection_impl(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKind, detach_style: bool) -> bool {
     let Some(sess) = app.canvas.text.as_ref() else { return false };
     let range = sess.range();
     let empty_text = props_of(app).is_none_or(|(t, _)| t.content.is_empty());
@@ -537,7 +560,7 @@ pub fn style_selection_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditK
         }
         return true;
     }
-    edit_props(app, Some((kind, kind == EditKind::Other)), |t, _, _| {
+    edit_props_with_link(app, Some((kind, kind == EditKind::Other)), if detach_style { LinkEdit::DetachIfChanged } else { LinkEdit::Keep }, |t, _, _| {
         if empty_text {
             richtext::apply_all(t, &f);
         } else {
@@ -794,10 +817,21 @@ pub fn caret_screen_rect(app: &App, origin: egui::Pos2) -> Option<ERect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{Document, Node};
+    use designos_doc::{Document, Node, Style};
 
     fn app_with_text(s: &str) -> (App, NodeId) {
         app_with_styled_text(s, TextStyle { font_size: 16.0, ..Default::default() })
+    }
+
+    fn app_with_linked_text_style() -> (App, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut n = Node::text(id, Rect::new(0.0, 0.0, 120.0, 24.0), "hello", TextStyle { font_size: 16.0, ..Default::default() });
+        n.style_refs.insert("text".into(), "Body".into());
+        d.insert(page, n).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        (App::new(d), id)
     }
 
     fn app_with_styled_text(s: &str, style: TextStyle) -> (App, NodeId) {
@@ -819,6 +853,54 @@ mod tests {
             NodeKind::Text(t) => t.clone(),
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn typography_edit_detaches_a_linked_text_style_in_the_same_undo_step() {
+        let (mut app, id) = app_with_linked_text_style();
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 24.0);
+        assert!(!n.style_refs.contains_key("text"), "a per-layer Typography edit must detach the shared text style");
+
+        app.undo();
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 16.0);
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+
+        app.redo();
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 24.0);
+        assert!(!n.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn typography_edit_detaches_a_linked_text_style_in_an_active_text_session() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 24.0);
+        assert!(!n.style_refs.contains_key("text"));
+
+        key(&mut app, egui::Key::Z, false, true);
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 16.0);
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+
+        key(&mut app, egui::Key::Z, true, true);
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.style.font_size, 24.0);
+        assert!(!n.style_refs.contains_key("text"));
     }
 
     fn key(app: &mut App, k: egui::Key, shift: bool, ctrl: bool) {
