@@ -60,7 +60,6 @@ jobs:
       - name: Configure Linux swap and debuginfo
         if: runner.os == 'Linux'
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           if sudo modprobe zram 2>/dev/null && command -v zramctl >/dev/null 2>&1; then
             zdev=$(sudo zramctl --find --size 24G --algorithm zstd 2>/dev/null || sudo zramctl --find --size 24G 2>/dev/null || true)
             if [ -n "$zdev" ]; then
@@ -72,10 +71,10 @@ jobs:
             echo 50 | sudo tee /sys/module/zswap/parameters/max_pool_percent >/dev/null 2>&1 || true
             echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null 2>&1 || true
           fi
-          sudo fallocate -l 24G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon -p 10 /swapfile
+          sudo fallocate -l 24G /swapfile_ci
+          sudo chmod 600 /swapfile_ci
+          sudo mkswap /swapfile_ci
+          sudo swapon -p 10 /swapfile_ci
           swapon --show
           free -m
           df -h /
