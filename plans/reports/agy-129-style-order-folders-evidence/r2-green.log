@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-doc)
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-mcp)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-svg)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-export)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.49s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-bccb00bdb05568d2)
+
+running 1 test
+test tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 223 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-doc)
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.58s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test unpositioned_ten_fill_styles_keep_order_through_fig_round_trip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.89s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 1 test
+test styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 650 filtered out; finished in 0.00s
+

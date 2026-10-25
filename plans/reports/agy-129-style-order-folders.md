@@ -228,4 +228,315 @@ test result: ok. 2944 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; f
 ## 7. Residual Risks
 
 - Styles that share a folder prefix but have non-contiguous `sortPosition` values across other folders are grouped under the folder's first-seen position in `style_entries_of` so the picker never repeats the same folder header twice; within that folder, members keep their relative `sortPosition` order.
-- When exporting newly created native styles that have `sort_position: None` to `.fig`, `fig_export::push_styles` synthesizes a monotonic `"~{i:04}"` `sortPosition` (`'~'` sorts after printable ASCII `'!'..'}'` used by imported Figma styles) so their relative order is preserved in `.fig` without colliding with imported `sortPosition` strings.
+- When exporting newly created native styles that have `sort_position: None` to `.fig`, `fig_export::export_styles_on_internal` synthesizes a monotonic `"{max_existing}{ordinal:06}"` `sortPosition` so their relative order is preserved in `.fig` without colliding with imported `sortPosition` strings.
+
+---
+
+## Round 2
+
+### Unverified Items (Stated First)
+
+- **None** within the Round 2 acceptance criteria — every acceptance check (Red-first failure log on `c8c8790c`, Green test log, `cargo fmt`, `cargo clippy`, `designos-doc` / `designos-fig` / `designos-mcp` / `designos-app --bin designos` test suites under the isolated harness, `zero_fake_ui_gate.py`, and the `1440×900` `r2-style-picker-folders.png` capture on a temporary copy of the Untitled UI kit) was executed and verified directly in this session.
+- **Explicitly Out of Scope (per controller Ruling 5):** Nested folders displayed hierarchically under their parent folder, and renaming a folder onto an existing folder name to merge them (documented under "Known limits" in the PR #1153 body).
+
+### Conclusion & Epistemic Ledger
+
+- **Conclusion:** All four Round 2 rulings from the PR #1153 review are implemented, Red-first verified against `c8c8790c`, and Green-verified on head.
+- **FACT (observed this session):**
+  - On `c8c8790c`, `apply_set_style_op` (`crates/designos-mcp/src/tools/batch.rs:1283`) reconstructed `StyleMeta` with `..Default::default()`, dropping `sort_position` on existing styles (`r2-red.log`). Carrying `sort_position` from `existing_meta` preserves `Some("!~~p~oL")` while leaving newly created styles at `None` (`r2-green.log`).
+  - On `c8c8790c`, `export_styles_on_internal` (`crates/designos-fig/src/fig_export.rs:678`) omitted `sortPosition` when `StyleMeta::sort_position` was `None`, causing 10 unpositioned styles `S01..S10` to reorder as `S09, S10, S01..S08` after `.fig` export and import (`r2-red.log`). Generating `"{max_existing}{ordinal:06}"` on export keeps all 10 unpositioned styles and mixed positioned+unpositioned styles in exact order across `.fig` round trips while keeping in-memory `sort_position: None` untouched before round trip (`r2-green.log`).
+  - On `c8c8790c`, `rename_style_folder` (`crates/designos-doc/src/styles_ops.rs:335-336`) rejoined all segments with `"/"`, stripping spaces around `/` in the tail (`"Brand / Primary"` -> `"Theme/Primary"` in `r2-red.log`). Slicing `&raw_name[prefix_end..]` from the end of the last matched segment's trimmed text preserves the raw separator and tail (`"Brand / Primary"` -> `"Theme / Primary"` in `r2-green.log`).
+  - Replacing the per-folder slice rescan in `style_entries_of` (`crates/designos-app/src/styles.rs:56-68`) with a single-pass `HashMap<String, usize>` first-seen folder rank and `ranked.sort_by_key(|(rank, _)| *rank)` keeps root styles in place, preserves all grouping tests, and produces byte-for-byte identical `r2-style-picker-folders.png` output (`cmp -s` exited 0 against `style-picker-folders.png`).
+- **INFERENCE:** None relied upon without direct tool verification.
+- **ASSUMPTION:** For Ruling 2's fixed-width suffix from `0-9A-Za-z`, a 6-digit zero-padded 1-based decimal suffix (`{ordinal:06}`, e.g. `"000001"`) satisfies both the character-set constraint (`'0'..='9'` $\subset$ `0-9A-Za-z`, strictly inside Figma's printable ASCII `'!'..='~'` range so keys never end in `'!'`) and fixed-width lexicographic ordering up to 999,999 unpositioned styles.
+- **Weakest link:** Fixed 6-digit width (`{ordinal:06}`) assumes a single document has fewer than 1,000,000 unpositioned styles exported at once.
+- **Unresolved questions:** None.
+
+### Skills Loaded & Changes Made Because of Them
+
+- **`es:dev` -> `es:feature-dev`** (`~/.gemini/config/skills/es-dev/SKILL.md`, `~/.gemini/config/skills/es-feature-dev/SKILL.md`): Operated directly in the DEV phase against the accepted plan and controller rulings without re-opening brainstorm/plan gates or launching a separate verifier.
+- **`es:fable-thinking` & `es-astra-work`** (`~/.gemini/config/skills/es-fable-thinking/SKILL.md`, `~/.gemini/config/skills/es-astra-work/SKILL.md`): Enforced Red-first falsification on `c8c8790c` (`r2-red.log`) before writing production fixes, verified that `mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip` actively falsifies the unfixed code by pairing an unpositioned non-GUID key (`"1_unpos_first"`) with an explicit GUID key (`"2:2"`), and verified visual output with both `read_file` and `cmp -s`.
+- **`es:rust` & `es:rust-gpu-canvas`** (`~/.gemini/config/skills/es-rust/SKILL.md`, `~/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Used a single-pass `HashMap<String, usize>` rank + precomputed `(usize, StyleEntry)` tuple with Rust's stable `sort_by_key` in `style_entries_of` so sorting performs zero hash lookups inside the comparator closure and avoids $O(n^2)$ rescanning.
+- **`es:designer`** (`~/.gemini/config/skills/es-designer/SKILL.md`): Verified UI chrome integrity with `python3 scripts/zero_fake_ui_gate.py` (17/17 PASS) and visual inspection of `r2-style-picker-folders.png` at `1440×900`.
+
+### Generated-Key Format (`crates/designos-fig/src/fig_export.rs`)
+
+- **Function:** `generated_style_sort_position(max_existing: &str, ordinal: usize) -> String`
+- **Format:** `format!("{max_existing}{ordinal:06}")` where:
+  - `max_existing` is the byte-wise largest non-empty `StyleMeta::sort_position` among the styles in the document (or `""` when no style has a `sort_position`), and
+  - `ordinal` is the 1-based index (`1, 2, 3, …`) of the unpositioned style in `ordered_style_keys(doc, None)` walk order, formatted as a fixed-width 6-digit ASCII decimal string (`000001`, `000002`, …).
+- **Examples:**
+  - When no style has a `sort_position` (`max_existing = ""`), ten unpositioned styles `S01..S10` receive `"000001"`, `"000002"`, …, `"000010"`.
+  - When positioned styles have `"!~~p~oL"`, `"!~~p~oLf"`, and `"\"'#"` (`max_existing = "\"'#"`), two unpositioned styles after them receive `"\"'#000001"` and `"\"'#000002"`.
+- **Why:** Every generated key has `max_existing` as a strict prefix, so it sorts strictly after every existing positioned style under Rust/ASCII byte order (`str::cmp`). The fixed-width 6-digit suffix keeps generated keys in `ordered_style_keys` walk order among themselves, and using only characters from `0-9A-Za-z` (`0x30..=0x7A`) stays strictly above Figma's smallest printable fractional-index character (`'!'`, `0x21`) and below `'~'` (`0x7E`), so a key never ends in the smallest character and Figma can always insert between any two keys.
+
+### Changes Per File
+
+- `crates/designos-mcp/src/tools/batch.rs` — In `apply_set_style_op`, preserved `sort_position` from `existing_meta` alongside `key` (`let (lib_key, sort_position) = match existing_meta { Some(m) => (m.key, m.sort_position), None => (None, None) };`). Added unit test `set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none`.
+- `crates/designos-fig/src/fig_export.rs` — Added documented helper `generated_style_sort_position(max_existing, ordinal)` and updated `export_styles_on_internal` to emit a generated `sortPosition` for styles whose `sort_position` is `None` (without mutating the in-memory `Document`).
+- `crates/designos-fig/tests/fig_effect_grid_styles.rs` — Added integration tests `unpositioned_ten_fill_styles_keep_order_through_fig_round_trip` (`S01..S10` with `sort_position: None`) and `mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip` (3 positioned + 2 unpositioned styles).
+- `crates/designos-doc/src/styles_ops.rs` — Updated `rename_style_folder` to record the byte end offset of each trimmed non-empty segment (`offset + part.trim_end().len()`) and construct the renamed style as `format!("{new_clean}{}", &raw_name[prefix_end..])`, replacing only the matched prefix while preserving raw separators in the tail (`"Brand / Primary"` -> `"Theme / Primary"`). Extended `folder_rename_renames_every_member_and_one_undo_restores_all` with `("s6", "Brand / Primary")`.
+- `crates/designos-app/src/styles.rs` — Replaced the per-folder slice rescan in `style_entries_of` with a single-pass `HashMap<String, usize>` first-seen folder rank and a stable sort `ranked.sort_by_key(|(rank, _)| *rank)`, keeping root styles in place.
+
+### Acceptance Table
+
+| # | Acceptance Check | Verdict | Evidence |
+|---|---|---|---|
+| 1 | Red-first: `r2-red.log` shows the 4 new tests failing on `c8c8790c`; `r2-green.log` shows them passing on head | PASS | `plans/reports/agy-129-style-order-folders-evidence/r2-red.log` & `plans/reports/agy-129-style-order-folders-evidence/r2-green.log` (pasted below) |
+| 2 | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` exit 0 | PASS | Both exited `0` with `0` warnings (pasted below) |
+| 3 | Under the harness: `cargo test -p designos-doc --locked`, `cargo test -p designos-fig --locked`, `cargo test -p designos-mcp --locked`, and `cargo test -p designos-app --bin designos --locked` pass | PASS | `designos-doc`: 659 passed; `designos-fig`: 421 passed; `designos-mcp`: 310 passed; `designos-app --bin designos`: 2,951 passed, 0 failed (pasted below) |
+| 4 | `python3 scripts/zero_fake_ui_gate.py` passes | PASS | `Gate Verdict: PASS (17/17 invariants satisfied)` (pasted below) |
+| 5 | Re-capture `r2-style-picker-folders.png` at `1440×900` on a copy of the Untitled UI kit; grouping and order match `style-picker-folders.png` | PASS | `plans/reports/agy-129-style-order-folders-evidence/r2-style-picker-folders.png` (`1440 x 900`, `cmp -s` identical to `style-picker-folders.png`) |
+| 6 | Commit as `fix(styles): …`, push, add "Round 2" line and "Known limits" section to PR #1153 body, and delete `out/` | PASS | `out/` deleted; committed and pushed to `jangtrinh/agy-129-style-order` |
+
+### Exact Commands and Pasted Output
+
+#### 1. Red Phase (`plans/reports/agy-129-style-order-folders-evidence/r2-red.log` on `c8c8790c`)
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" && export CARGO_TARGET_DIR="$PWD/out/cargo" && {
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --lib --locked set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none || true
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --test fig_effect_grid_styles --locked unpositioned_ten_fill_styles_keep_order_through_fig_round_trip || true
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --test fig_effect_grid_styles --locked mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip || true
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --lib --locked folder_rename_renames_every_member_and_one_undo_restores_all || true
+} 2>&1 | tee plans/reports/agy-129-style-order-folders-evidence/r2-red.log; rm -rf "$S"
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-bccb00bdb05568d2)
+
+running 1 test
+test tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none ... FAILED
+
+failures:
+
+---- tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none stdout ----
+
+thread 'tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none' (56512106) panicked at crates/designos-mcp/src/tools/batch.rs:3574:9:
+assertion `left == right` failed
+  left: None
+ right: Some("!~~p~oL")
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 223 filtered out; finished in 0.00s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test unpositioned_ten_fill_styles_keep_order_through_fig_round_trip ... FAILED
+
+failures:
+
+---- unpositioned_ten_fill_styles_keep_order_through_fig_round_trip stdout ----
+
+thread 'unpositioned_ten_fill_styles_keep_order_through_fig_round_trip' (56512208) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:890:5:
+assertion `left == right` failed: ten unpositioned fill styles S01..S10 must keep their order through .fig export and import
+  left: ["Fill/S09", "Fill/S10", "Fill/S01", "Fill/S02", "Fill/S03", "Fill/S04", "Fill/S05", "Fill/S06", "Fill/S07", "Fill/S08"]
+ right: ["Fill/S01", "Fill/S02", "Fill/S03", "Fill/S04", "Fill/S05", "Fill/S06", "Fill/S07", "Fill/S08", "Fill/S09", "Fill/S10"]
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip ... FAILED
+
+failures:
+
+---- mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip stdout ----
+
+thread 'mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip' (56512356) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:921:5:
+assertion `left == right` failed: positioned styles must come first in sortPosition order, followed by unpositioned styles in stored order
+  left: ["Shadows/xs", "Shadows/sm", "Focus rings/ring", "Custom/Second", "Custom/First"]
+ right: ["Shadows/xs", "Shadows/sm", "Focus rings/ring", "Custom/First", "Custom/Second"]
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 1 test
+test styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all ... FAILED
+
+failures:
+
+---- styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all stdout ----
+
+thread 'styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all' (56512864) panicked at crates/designos-doc/src/styles_ops.rs:3226:9:
+assertion `left == right` failed
+  left: "Theme/Primary"
+ right: "Theme / Primary"
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 650 filtered out; finished in 0.00s
+```
+
+#### 2. Green Phase (`plans/reports/agy-129-style-order-folders-evidence/r2-green.log`)
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" && export CARGO_TARGET_DIR="$PWD/out/cargo" && {
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --lib --locked set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --test fig_effect_grid_styles --locked unpositioned_ten_fill_styles_keep_order_through_fig_round_trip
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --test fig_effect_grid_styles --locked mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip
+  env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --lib --locked folder_rename_renames_every_member_and_one_undo_restores_all
+} 2>&1 | tee plans/reports/agy-129-style-order-folders-evidence/r2-green.log; rm -rf "$S"
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-bccb00bdb05568d2)
+running 1 test
+test tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 223 filtered out; finished in 0.00s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+running 1 test
+test unpositioned_ten_fill_styles_keep_order_through_fig_round_trip ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+running 1 test
+test mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+running 1 test
+test styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 650 filtered out; finished in 0.00s
+```
+
+#### 3. `cargo fmt --all -- --check`, `python3 scripts/zero_fake_ui_gate.py`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" && export CARGO_TARGET_DIR="$PWD/out/cargo" && cargo fmt --all -- --check && python3 scripts/zero_fake_ui_gate.py && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings; RC=$?; rm -rf "$S"; exit $RC
+============================================================================================================
+ design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+============================================================================================================
+...
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.87s
+(exit 0)
+```
+
+#### 4. Full Crate & Binary Test Suites Under Isolated Harness
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" && export CARGO_TARGET_DIR="$PWD/out/cargo" && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-fig --locked && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-mcp --locked
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+test result: ok. 651 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.25s
+     Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-d19362047bc102bf)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/changelog_pillars.rs (out/cargo/debug/deps/changelog_pillars-c7fad459a80a2bad)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-540f1f9206f56183)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.63s
+     Running tests/clipboard.rs (out/cargo/debug/deps/clipboard-4d126ac74bee9c11)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+     Running tests/component_props.rs (out/cargo/debug/deps/component_props-6a6c79033748144a)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/dev_mode.rs (out/cargo/debug/deps/dev_mode-5f91afe4d1363fcb)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fig_child_margins.rs (out/cargo/debug/deps/fig_child_margins-deb2909275dc189e)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+     Running tests/fig_export_field_shapes.rs (out/cargo/debug/deps/fig_export_field_shapes-14b8df8b8f7ae19b)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/fig_export_grid_shapes.rs (out/cargo/debug/deps/fig_export_grid_shapes-b69708343c7c2519)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/fig_export_non_finite.rs (out/cargo/debug/deps/fig_export_non_finite-f7feffeef1a81be5)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/fig_export_real_schema.rs (out/cargo/debug/deps/fig_export_real_schema-24ffa9c18be63a4b)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+     Running tests/fig_export_real_tags.rs (out/cargo/debug/deps/fig_export_real_tags-2d8f4e74dbaf2a0c)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/fig_grid_fixed_row_export.rs (out/cargo/debug/deps/fig_grid_fixed_row_export-fd08bc8bc1ec3c39)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/fig_grid_override_anchors.rs (out/cargo/debug/deps/fig_grid_override_anchors-db94d009ffe66fc0)
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/fig_import.rs (out/cargo/debug/deps/fig_import-c9e0797ea0b1168b)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+     Running tests/fig_import_legacy_export.rs (out/cargo/debug/deps/fig_import_legacy_export-d14e96387ebe08b8)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-b0a7ff67511e03f7)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fig_non_finite_derived.rs (out/cargo/debug/deps/fig_non_finite_derived-472de72c78f482b7)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+     Running tests/fig_prop_var_value.rs (out/cargo/debug/deps/fig_prop_var_value-34118cea98741b37)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-...)
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/fig_slots.rs (out/cargo/debug/deps/fig_slots-...)
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/fig_unmapped_layer_edits.rs (out/cargo/debug/deps/fig_unmapped_layer_edits-...)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/fig_upgrade.rs (out/cargo/debug/deps/fig_upgrade-...)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/figjam.rs (out/cargo/debug/deps/figjam-...)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/grid_child_align_patch.rs (out/cargo/debug/deps/grid_child_align_patch-...)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/kiwi_zero_size_struct_limit.rs (out/cargo/debug/deps/kiwi_zero_size_struct_limit-...)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/pen_component_depth_limits.rs (out/cargo/debug/deps/pen_component_depth_limits-...)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/pen_schema_2_21.rs (out/cargo/debug/deps/pen_schema_2_21-...)
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/proto_import.rs (out/cargo/debug/deps/proto_import-...)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/proto_vars.rs (out/cargo/debug/deps/proto_vars-...)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/real_files.rs (out/cargo/debug/deps/real_files-...)
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out
+     Running tests/remote_components.rs (out/cargo/debug/deps/remote_components-...)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/rest_import.rs (out/cargo/debug/deps/rest_import-...)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/rest_import_grid_sizing.rs (out/cargo/debug/deps/rest_import_grid_sizing-...)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/rest_upgrade.rs (out/cargo/debug/deps/rest_upgrade-...)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/settings_import.rs (out/cargo/debug/deps/settings_import-...)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/stack_wrap_and_text_wrap.rs (out/cargo/debug/deps/stack_wrap_and_text_wrap-...)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/variables.rs (out/cargo/debug/deps/variables-...)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/variables_code_syntax_opacity.rs (out/cargo/debug/deps/variables_code_syntax_opacity-...)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/variables_library_collections.rs (out/cargo/debug/deps/variables_library_collections-...)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/vector_network.rs (out/cargo/debug/deps/vector_network-...)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-bccb00bdb05568d2)
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+     Running tests/apply_spec_style_bindings.rs
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/list_lint_rules.rs
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+     Running tests/live_doc_epoch.rs
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/live_session_guards.rs
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/session.rs
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running tests/spec_text_colour.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/stdio.rs
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/text_fill.rs
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/tools_snapshot.rs
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/version.rs
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-...)
+running 2959 tests
+...
+test result: ok. 2951 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 168.25s
+```
+
+#### 5. `1440×900` Style Picker Screenshot Verification (`r2-style-picker-folders.png`)
+
+```text
+$ cp "/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig" "$S/untitled-copy.fig" && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" ./out/cargo/debug/designos "$S/untitled-copy.fig" --panel effect-styles --size 1440x900 --screenshot plans/reports/agy-129-style-order-folders-evidence/r2-style-picker-folders.png; rm -rf "$S"
+plans/reports/agy-129-style-order-folders-evidence/r2-style-picker-folders.png: PNG image data, 1440 x 900, 8-bit/color RGBA, non-interlaced
+IDENTICAL_PNG_BYTES
+```
+
+Status: DONE

@@ -54,30 +54,19 @@ pub fn style_entries(doc: &Document, text: bool) -> Vec<StyleEntry> {
 /// The styles of one kind, ordered by `sort_position` (or stored order when absent) and grouped
 /// by folder in first-seen folder order.
 pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
-    let ordered: Vec<StyleEntry> = ordered_style_keys(doc, None)
+    let mut folder_rank: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut ranked: Vec<(usize, StyleEntry)> = ordered_style_keys(doc, None)
         .into_iter()
         .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s)))
-        .map(|k| {
+        .enumerate()
+        .map(|(idx, k)| {
             let (folder, leaf) = split_name(doc.style_name(&k));
-            StyleEntry { key: k, folder, leaf }
+            let rank = if folder.is_empty() { idx } else { *folder_rank.entry(folder.clone()).or_insert(idx) };
+            (rank, StyleEntry { key: k, folder, leaf })
         })
         .collect();
-    let mut out = Vec::with_capacity(ordered.len());
-    let mut seen_folders: Vec<String> = Vec::new();
-    for idx in 0..ordered.len() {
-        let folder = &ordered[idx].folder;
-        if folder.is_empty() {
-            out.push(ordered[idx].clone());
-        } else if !seen_folders.contains(folder) {
-            seen_folders.push(folder.clone());
-            for item in &ordered[idx..] {
-                if &item.folder == folder {
-                    out.push(item.clone());
-                }
-            }
-        }
-    }
-    out
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.into_iter().map(|(_, entry)| entry).collect()
 }
 
 impl App {

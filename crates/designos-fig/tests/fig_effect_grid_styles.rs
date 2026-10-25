@@ -867,3 +867,62 @@ fn style_sort_position_and_folder_order_round_trip() {
         .collect();
     assert_eq!(order2, order1, "import -> export -> import must keep exact order and sortPosition values");
 }
+
+#[test]
+fn unpositioned_ten_fill_styles_keep_order_through_fig_round_trip() {
+    let mut d = Document::new("TenStyles");
+    d.add_page("Page 1");
+    let expected_names: Vec<String> = (1..=10).map(|i| format!("Fill/S{i:02}")).collect();
+    for i in 1..=10 {
+        let key = format!("S{i:02}");
+        let name = format!("Fill/S{i:02}");
+        d.styles.insert(key.clone(), Style::Fill(vec![Paint::solid(Color::rgb(i as u8 * 10, 20, 30))]));
+        d.style_meta.insert(key, StyleMeta { name, property: StyleProperty::Fill, sort_position: None, ..Default::default() });
+    }
+    assert!(d.style_meta.values().all(|m| m.sort_position.is_none()));
+
+    let exported = export_fig(&d).unwrap();
+    assert!(d.style_meta.values().all(|m| m.sort_position.is_none()), "export must not mutate in-memory doc sort_position");
+
+    let reimported = import_fig(&exported).unwrap();
+    let names_after: Vec<String> =
+        ordered_style_keys(&reimported, Some(StyleProperty::Fill)).into_iter().map(|k| reimported.style_name(&k).to_string()).collect();
+    assert_eq!(names_after, expected_names, "ten unpositioned fill styles S01..S10 must keep their order through .fig export and import");
+}
+
+#[test]
+fn mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip() {
+    let mut d = Document::new("MixedStyles");
+    d.add_page("Page 1");
+    for (key, name, pos, r) in [
+        ("p_mid", "Shadows/sm", Some("!~~p~oLf"), 20),
+        ("p_last", "Focus rings/ring", Some("\"'#"), 30),
+        ("p_first", "Shadows/xs", Some("!~~p~oL"), 10),
+        ("1_unpos_first", "Custom/First", None, 40),
+        ("2:2", "Custom/Second", None, 50),
+    ] {
+        d.styles.insert(key.into(), Style::Fill(vec![Paint::solid(Color::rgb(r, 0, 0))]));
+        d.style_meta
+            .insert(key.into(), StyleMeta { name: name.into(), property: StyleProperty::Fill, sort_position: pos.map(str::to_string), ..Default::default() });
+    }
+
+    let exported = export_fig(&d).unwrap();
+    assert_eq!(d.style_meta["1_unpos_first"].sort_position, None);
+    assert_eq!(d.style_meta["2:2"].sort_position, None);
+
+    let reimported = import_fig(&exported).unwrap();
+    let after: Vec<(String, Option<String>)> = ordered_style_keys(&reimported, Some(StyleProperty::Fill))
+        .into_iter()
+        .map(|k| (reimported.style_name(&k).to_string(), reimported.style_meta[&k].sort_position.clone()))
+        .collect();
+    let names_after: Vec<&str> = after.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names_after,
+        vec!["Shadows/xs", "Shadows/sm", "Focus rings/ring", "Custom/First", "Custom/Second"],
+        "positioned styles must come first in sortPosition order, followed by unpositioned styles in stored order"
+    );
+    assert_eq!(after[0].1.as_deref(), Some("!~~p~oL"));
+    assert_eq!(after[1].1.as_deref(), Some("!~~p~oLf"));
+    assert_eq!(after[2].1.as_deref(), Some("\"'#"));
+    assert!(after[3].1.is_some() && after[4].1.is_some(), "unpositioned styles receive generated sortPosition on round trip");
+}

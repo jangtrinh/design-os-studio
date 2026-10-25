@@ -327,13 +327,24 @@ pub fn rename_style_folder(doc: &Document, old_folder: &str, new_folder: &str) -
     let mut matched = Vec::new();
     for key in doc.styles.keys() {
         let raw_name = doc.style_name(key);
-        let segs: Vec<&str> = raw_name.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
-        if segs.len() > old_segs.len() && segs[..old_segs.len()] == old_segs[..] {
+        let mut offset = 0usize;
+        let mut segs: Vec<(&str, usize)> = Vec::new();
+        for (i, part) in raw_name.split('/').enumerate() {
+            if i > 0 {
+                offset += 1;
+            }
+            let trimmed = part.trim();
+            if !trimmed.is_empty() {
+                segs.push((trimmed, offset + part.trim_end().len()));
+            }
+            offset += part.len();
+        }
+        if segs.len() > old_segs.len() && segs[..old_segs.len()].iter().map(|(s, _)| *s).eq(old_segs.iter().copied()) {
             if is_library_style(doc, key) {
                 return Err(StyleOpError::LibraryStyle(key.clone()));
             }
-            let rest = segs[old_segs.len()..].join("/");
-            matched.push((key.clone(), format!("{new_clean}/{rest}")));
+            let prefix_end = segs[old_segs.len() - 1].1;
+            matched.push((key.clone(), format!("{new_clean}{}", &raw_name[prefix_end..])));
         }
     }
     if matched.is_empty() {
@@ -3199,8 +3210,14 @@ mod tests {
     fn folder_rename_renames_every_member_and_one_undo_restores_all() {
         let mut d = Document::new("FolderRenameDoc");
         d.add_page("Page 1");
-        for (key, name) in [("s1", "Brand/Primary"), ("s2", "Brand/Secondary"), ("s3", "Brand/Nested/Accent"), ("s4", "BrandNew/Untouched"), ("s5", "Surface")]
-        {
+        for (key, name) in [
+            ("s1", "Brand/Primary"),
+            ("s2", "Brand/Secondary"),
+            ("s3", "Brand/Nested/Accent"),
+            ("s4", "BrandNew/Untouched"),
+            ("s5", "Surface"),
+            ("s6", "Brand / Primary"),
+        ] {
             d.styles.insert(key.into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
             d.style_meta.insert(
                 key.into(),
@@ -3217,6 +3234,7 @@ mod tests {
         assert_eq!(d.style_name("s3"), "Theme/Nested/Accent");
         assert_eq!(d.style_name("s4"), "BrandNew/Untouched");
         assert_eq!(d.style_name("s5"), "Surface");
+        assert_eq!(d.style_name("s6"), "Theme / Primary");
         assert_eq!(d.style_meta["s1"].sort_position.as_deref(), Some("!00000s1"), "sort_position preserved on folder rename");
 
         // Single undo step restores all members.
@@ -3226,5 +3244,6 @@ mod tests {
         assert_eq!(d.style_name("s3"), "Brand/Nested/Accent");
         assert_eq!(d.style_name("s4"), "BrandNew/Untouched");
         assert_eq!(d.style_name("s5"), "Surface");
+        assert_eq!(d.style_name("s6"), "Brand / Primary");
     }
 }
