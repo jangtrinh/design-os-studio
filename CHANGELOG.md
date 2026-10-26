@@ -32,7 +32,7 @@ Patch for **AI design** ([milestone v0.6.3](https://github.com/jangtrinh/design-
   - Stop on Windows is not checked by any test. The Stop tests fail there because their Python stub imports `tty`, which Python does not provide on Windows (#1066).
   - Palette auto-fix undo is unverified on Windows: eight tests show different auto-layout sizes after one undo, and the cause is not known (#1066).
   - The link checks for session files are not race-free on Windows (#1061, #1068), an Ask-mode Grok or Antigravity tab refuses an entry that is not Studio's instead of moving it (#1069), and no hooks file is written for Gemini, so its `Needs approval` comes from the screen only (#1058, #1066).
-  - Linux and Windows were not built or run by hand for these changes.
+  - Windows was not built or run by hand for these changes.
 - Not checked against a live model turn: the Ask-mode Claude launch (skill from a private plugin, Studio's hooks and MCP config from private copies), the Gemini approval state, and the Ask-mode Grok and Antigravity checks were tested with stubs and source reading, not with a real Claude, Gemini, Grok or Antigravity turn.
 - Of the 38 GUI fixes from 0.6.1 listed in #1102, 16 were re-checked by tests. The rest are not re-tested yet, and U-17 (a new design file is named "Untitled") is still open (#1102).
 
