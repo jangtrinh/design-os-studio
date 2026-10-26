@@ -52,8 +52,12 @@ fn no_test_starts_a_real_agent_cli() {
     let path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", root.join("bin").display());
     let mut child = Process::new(std::env::current_exe().unwrap());
     child.args(["--test-threads=1", "--include-ignored", "--exact"]).args(LAUNCHING_TESTS);
-    // zsh as `$SHELL`, as on a developer machine: without a shell the tabs never start and the check would see nothing.
-    child.env("PATH", path).env("HOME", &home).env("SHELL", "/bin/zsh");
+    // zsh as `$SHELL`, as on a developer machine (falling back to `/usr/bin/zsh` or `/bin/bash` on Linux runners where `/bin/zsh` is absent): without a shell the tabs never start and the check would see nothing.
+    let shell = ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/bin/sh"]
+        .into_iter()
+        .find(|candidate| Path::new(candidate).is_file())
+        .expect("an interactive shell on the runner");
+    child.env("PATH", path).env("HOME", &home).env("SHELL", shell);
     let out = child.output().expect("run the launching tests in a child process");
     let launches = std::fs::read_to_string(&log).unwrap_or_default();
     let ran = String::from_utf8_lossy(&out.stdout);
