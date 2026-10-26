@@ -234,6 +234,11 @@ impl AgentCliPreset {
         !matches!(self, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
     }
 
+    /// True when turn status is derived from the PTY output heuristic rather than `agent-events.jsonl` hooks (`#1194`).
+    pub const fn uses_pty_heuristic(self) -> bool {
+        matches!(self, AgentCliPreset::Codex)
+    }
+
     /// True when this preset reserves `Ctrl+Z` inside the terminal on Windows/Linux (`#685`).
     pub fn uses_ctrl_z(self) -> bool {
         crate::terminal_undo_chord::preset_ctrl_z_policy(self).1
@@ -601,6 +606,24 @@ pub struct TerminalTab {
     pub input_line_buffer: String,
 }
 
+/// Quiet window after which a PTY-heuristic tab (`Codex`) decays an explicit `Working(_)` into `Done` (`#1194`).
+pub const PTY_HEURISTIC_WORKING_DECAY: std::time::Duration = std::time::Duration::from_millis(1_500);
+
+/// Activity window during which recent PTY output promotes `Idle`/`Done` to `Working(None)` on a PTY-heuristic tab.
+pub const PTY_HEURISTIC_ACTIVITY_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// Pure status resolver for PTY-heuristic presets (`Codex`, `#1194`).
+pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output_at: Option<std::time::Instant>, now: std::time::Instant) -> AgentTabStatus {
+    let recent_pty_activity = last_output_at.is_some_and(|ts| now.saturating_duration_since(ts) < PTY_HEURISTIC_ACTIVITY_WINDOW);
+    match explicit_status {
+        AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
+        AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
+        AgentTabStatus::Stopped => AgentTabStatus::Stopped,
+        other if recent_pty_activity => AgentTabStatus::Working(None),
+        other => other,
+    }
+}
+
 impl TerminalTab {
     /// True when this tab has a queued approval request file or is a non-Claude tab in `Ask` mode waiting for input (`#656`).
     pub fn needs_approval(&self) -> bool {
@@ -900,16 +923,11 @@ impl TerminalTab {
     /// [`Self::effective_status`] judged at `now`: Codex counts as working while its PTY output is under 600 ms old at `now`.
     pub(crate) fn effective_status_at(&self, now: std::time::Instant) -> AgentTabStatus {
         let explicit_status = self.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-        let recent_pty_activity = self.spawn_preset == AgentCliPreset::Codex
-            && self.last_output_at.lock().ok().and_then(|g| *g).is_some_and(|ts| now.saturating_duration_since(ts) < std::time::Duration::from_millis(600));
-        match explicit_status {
-            AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
-            AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
-            // A stopped Codex tab keeps showing `Stopped` while the CLI is still repainting its prompt (`#684`).
-            AgentTabStatus::Stopped => AgentTabStatus::Stopped,
-            other if recent_pty_activity => AgentTabStatus::Working(None),
-            other => other,
+        if self.spawn_preset.uses_pty_heuristic() {
+            let last_output_at = self.last_output_at.lock().ok().and_then(|g| *g);
+            return resolve_pty_heuristic_status(explicit_status, last_output_at, now);
         }
+        explicit_status
     }
 
     /// True for a tool, notification or failure hook event that was already in flight when the user stopped this tab. Such a
@@ -3616,7 +3634,9 @@ impl TerminalState {
             if !tab.is_alive() {
                 tab.turn_ledger.on_tab_exited(patch_off, now_instant);
                 let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped));
-                let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
+                let exit_status = tab.child.try_wait().ok().flatten();
+                let exit_code = exit_status.as_ref().map(|status| status.exit_code());
+                let process_exit = crate::agent_turn_status::ProcessExit::from_pty_status(exit_status);
                 let failed_start = !was_stopped && agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
                     let log_empty = tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false);
@@ -3654,7 +3674,7 @@ impl TerminalState {
                     }
                 }
                 let prev_status = tab.effective_status();
-                if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status) {
+                if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status, was_stopped, process_exit) {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = next_status.clone();
                     }
@@ -10156,17 +10176,101 @@ mod tests {
         *st.tabs[codex_idx].last_output_at.lock().unwrap() = Some(output_at);
         assert_eq!(st.tabs[codex_idx].effective_status_at(output_at), AgentTabStatus::Working(None));
 
-        // Heuristic / OSC status drives Codex Running -> Done.
+        // Heuristic / OSC status drives Codex Running -> Done once quiet for 1.5 s (#1194).
         let (_, working) = parse_osc_agent_status_and_strip("\x1b]9999;working:Thinking\x07");
         if let Some(next) = working {
             *st.tabs[codex_idx].agent_status.lock().unwrap() = next;
         }
-        assert!(matches!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Working(_)));
+        assert!(matches!(st.tabs[codex_idx].effective_status_at(output_at + std::time::Duration::from_millis(1_400)), AgentTabStatus::Working(_)));
+        assert_eq!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Done);
         let (_, done) = parse_osc_agent_status_and_strip("\x1b]9999;done\x07");
         if let Some(next) = done {
             *st.tabs[codex_idx].agent_status.lock().unwrap() = next;
         }
         assert_eq!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Done);
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn codex_turn_end_pure_decay_and_precedence_rules() {
+        let t0 = std::time::Instant::now();
+        // 1. Working, quiet 1.4 s -> still Working
+        assert_eq!(
+            resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Working…".into())), Some(t0), t0 + std::time::Duration::from_millis(1_400)),
+            AgentTabStatus::Working(Some("Working…".into()))
+        );
+        // 2. Working, quiet 1.5 s -> Done
+        let decayed = resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Working…".into())), Some(t0), t0 + std::time::Duration::from_millis(1_500));
+        assert_eq!(decayed, AgentTabStatus::Done);
+        // 3. WaitingForInput, quiet 60 s -> still WaitingForInput
+        assert_eq!(
+            resolve_pty_heuristic_status(AgentTabStatus::WaitingForInput(Some("Approval".into())), Some(t0), t0 + std::time::Duration::from_secs(60)),
+            AgentTabStatus::WaitingForInput(Some("Approval".into()))
+        );
+        // 4. Stopped and Error are unchanged (both when quiet and when recent PTY output arrived)
+        for delta in [std::time::Duration::from_millis(100), std::time::Duration::from_secs(60)] {
+            assert_eq!(resolve_pty_heuristic_status(AgentTabStatus::Stopped, Some(t0), t0 + delta), AgentTabStatus::Stopped);
+            assert_eq!(
+                resolve_pty_heuristic_status(AgentTabStatus::Error(Some("exit code 1".into())), Some(t0), t0 + delta),
+                AgentTabStatus::Error(Some("exit code 1".into()))
+            );
+        }
+        // 5. A new Working after Done (next turn), plus turn_ledger Active -> Completed -> Active transitions
+        let mut ledger = crate::agent_turn_ledger::AgentTurnLedger::default();
+        let t_work1 = t0 + std::time::Duration::from_millis(200);
+        let st_work1 = resolve_pty_heuristic_status(AgentTabStatus::Working(None), Some(t0), t_work1);
+        assert_eq!(st_work1, AgentTabStatus::Working(None));
+        ledger.on_status_change(matches!(st_work1, AgentTabStatus::Working(_)), 0, t_work1);
+        assert_eq!(ledger.turns.last().map(|t| t.state), Some(crate::agent_turn_ledger::TurnState::Active));
+
+        let t_done1 = t0 + std::time::Duration::from_millis(1_500);
+        let st_done1 = resolve_pty_heuristic_status(AgentTabStatus::Working(None), Some(t0), t_done1);
+        assert_eq!(st_done1, AgentTabStatus::Done);
+        ledger.on_status_change(matches!(st_done1, AgentTabStatus::Working(_)), 10, t_done1);
+        assert_eq!(ledger.turns.len(), 1);
+        assert_eq!(ledger.turns[0].state, crate::agent_turn_ledger::TurnState::Completed);
+
+        // Next turn starts at t0 + 10 s
+        let t_turn2_out = t0 + std::time::Duration::from_secs(10);
+        let t_turn2_check = t_turn2_out + std::time::Duration::from_millis(200);
+        let st_work2_from_done = resolve_pty_heuristic_status(AgentTabStatus::Done, Some(t_turn2_out), t_turn2_check);
+        assert_eq!(st_work2_from_done, AgentTabStatus::Working(None));
+        let st_work2_explicit = resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Next turn".into())), Some(t_turn2_out), t_turn2_check);
+        assert_eq!(st_work2_explicit, AgentTabStatus::Working(Some("Next turn".into())));
+        ledger.on_status_change(matches!(st_work2_explicit, AgentTabStatus::Working(_)), 10, t_turn2_check);
+        assert_eq!(ledger.turns.len(), 2);
+        assert_eq!(ledger.turns.last().map(|t| (t.id, t.state)), Some((2, crate::agent_turn_ledger::TurnState::Active)));
+    }
+
+    #[test]
+    fn codex_turn_end_stub_pty_turn_decays_to_done_closes_ledger_and_hides_stop() {
+        let mut st = isolated_683_state(68394);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'printf \"\\033]0;\\342\\240\\213 codex\\007\"; sleep 5'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex stub");
+        st.tabs.push(tab);
+        st.active_tab = 0;
+
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+        while !matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)) && std::time::Instant::now() < deadline {
+            let _ = st.poll_live_agent_bridge();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert!(matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)), "stub Codex PTY spinner must enter Working");
+        assert!(crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "Stop must be eligible while Codex is Working");
+        let working = st.is_tab_working(0);
+        st.tabs[0].turn_ledger.tick(working, std::time::Instant::now());
+        assert_eq!(st.tabs[0].turn_ledger.turns.last().map(|t| t.state), Some(crate::agent_turn_ledger::TurnState::Active));
+
+        // Advance quiet time to 1.5 s and poll.
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(std::time::Instant::now() - PTY_HEURISTIC_WORKING_DECAY);
+        let _ = st.poll_live_agent_bridge();
+        let working_after_decay = st.is_tab_working(0);
+        st.tabs[0].turn_ledger.tick(working_after_decay, std::time::Instant::now());
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Done, "Codex tab must decay to Done after 1.5 s of PTY quiet");
+        assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "Stop must hide once Codex turn decays to Done");
+        assert!(st.tabs[0].turn_ledger.turns.is_empty(), "active heuristic turn must close on decay");
         kill_tabs(&mut st);
     }
 
@@ -10327,7 +10431,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Done);
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 0".to_string())));
         assert_eq!(st.tabs[0].last_turn_receipt().map(|r| r.format_line()), Some("Ended without reporting a result".to_string()));
         assert_eq!(sink.count(), 1, "process exit during a running turn while unfocused must send a Finished notification");
     }
