@@ -242,7 +242,7 @@ impl AgentTurnLedger {
         }
     }
 
-    /// Applies `Start` / `End` marks read from `<session_dir>/turn-marks.jsonl`.
+    /// Applies `Start` / `End` marks read from `turn-marks.jsonl` of the hook folder (`agent_hook_outputs`).
     pub fn ingest_marks(&mut self, marks: impl IntoIterator<Item = TurnMarkLine>, now: Instant) {
         for mark in marks {
             match mark.turn_mark {
@@ -961,6 +961,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&workspace);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(&workspace).unwrap();
+        crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder the marks go to");
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
         app.terminal.flush_live_sync();
         let session = designos_mcp::server::Session::with_session_dir(&workspace, &dir).expect("mcp session");
@@ -973,7 +974,7 @@ mod tests {
         }
 
         fn marks_path(&self) -> std::path::PathBuf {
-            self.dir.join("turn-marks.jsonl")
+            crate::agent_hook_outputs::HookPaths::locate(&self.dir).turn_marks()
         }
 
         fn run_hook(&self, phase: &str, cli: &str) {
@@ -1006,6 +1007,7 @@ mod tests {
     impl Drop for TestRig {
         fn drop(&mut self) {
             self.app.terminal.shutdown();
+            crate::agent_approval_channel::remove_channel(&self.dir);
             let _ = std::fs::remove_dir_all(&self.dir);
             let _ = std::fs::remove_dir_all(&self.workspace);
         }
@@ -1347,6 +1349,28 @@ mod tests {
             "card must display 'approximate grouping' for heuristic turns: {:?}",
             texts.iter().map(|t| &t.text).collect::<Vec<_>>()
         );
+    }
+
+    /// A tab whose hooks cannot report (a Gemini or Grok sandbox the user turned on) sends no marks and no status change, as an
+    /// OpenCode tab never does. The ledger does not look at which CLI wrote a patch, so both get the same receipt: the edits
+    /// land in one turn that is marked approximate, which Keep and Revert act on like on any other.
+    #[test]
+    fn edits_with_no_marks_and_no_status_change_make_one_approximate_turn_whatever_the_cli() {
+        let mut r = rig();
+        let hero = r.hero;
+        r.agent_rename(hero, "First");
+        r.deliver();
+        r.agent_rename(hero, "Second");
+        r.deliver();
+
+        let ledger = r.app.terminal.active_turn_ledger();
+        assert_eq!(ledger.turns.len(), 1, "no mark and no status change: the edits are one turn");
+        let turn = &ledger.turns[0];
+        assert!(turn.approximate, "a turn with no hook behind it is marked approximate");
+        assert_eq!(turn.steps.len(), 2);
+        let turn_id = turn.id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+        assert_eq!(r.app.doc.get(hero).expect("the layer").name, "Hero", "Revert undoes the whole turn");
     }
 
     /// §10 Case 12: a turn with no patches: no card.

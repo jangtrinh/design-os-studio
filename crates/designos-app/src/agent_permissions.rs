@@ -258,14 +258,16 @@ pub fn build_resume_command_for_mode(
 /// Generates the POSIX `sh` script Studio installs in the session's private channel folder
 /// ([`crate::agent_approval_channel`]) for Claude Code's `PermissionRequest` hook in `Ask` mode.
 ///
-/// The folder it answers from and the session folder it reports status to are written into the script itself.
+/// The folder it answers from and the file it reports status to (`status_file`, in the hook folder of `agent_hook_outputs`; none
+/// when no hook has a folder) are written into the script itself.
 /// The environment may only name the tab (digits, checked) and shorten the wait; it never names a path, so a
 /// variable an agent managed to set cannot point the hook at a folder the agent can write. Request ids are 128 bits
 /// from `/dev/urandom`.
-pub fn approval_hook_script(channel_dir: &Path, session_dir: &Path) -> String {
+pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>) -> String {
     let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
     let channel_dir_escaped = quote(channel_dir);
-    let session_dir_escaped = quote(session_dir);
+    let status_assignment = status_file.map(|file| format!("STATUS_FILE='{}'\n", quote(file))).unwrap_or_default();
+    let status_write = if status_file.is_some() { "{ printf '{\"state\":\"waiting\"}\\n' > \"$STATUS_FILE\"; } 2>/dev/null || true\n" } else { "" };
     // The system's commands go first on `PATH`, so a command of the same name in an earlier entry never decides anything
     // here. The rest of the inherited `PATH` stays after them: a system without `od` or `awk` in those folders (NixOS) still
     // finds them. The script Studio writes on Windows (Git Bash) leaves `PATH` alone: Git Bash already leads it with its own
@@ -277,8 +279,7 @@ set -eu
 umask 077
 {path_pin}
 CHANNEL_DIR='{channel_dir_escaped}'
-STATUS_FILE='{session_dir_escaped}/agent-status.json'
-
+{status_assignment}
 # Declining prints nothing, so Claude asks in its own terminal prompt. Drain stdin first so Claude's write to this
 # hook never meets a closed pipe.
 decline() {{
@@ -291,8 +292,7 @@ case "${{DESIGNOS_TAB_ID:-}}" in
 esac
 APPROVALS_DIR="$CHANNEL_DIR/tab-$DESIGNOS_TAB_ID"
 mkdir -p "$APPROVALS_DIR" || decline
-printf '{{"state":"waiting"}}\n' > "$STATUS_FILE" 2>/dev/null || true
-
+{status_write}
 REQ_ID="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
 case "$REQ_ID" in
     ''|*[!0-9a-f]*) decline ;;
@@ -408,13 +408,13 @@ exit 0
 /// made private; Claude then asks in its own terminal prompt.
 pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf> {
     let channel_dir = crate::agent_approval_channel::prepare_channel_dir(session_dir)?;
-    install_hook_script(&channel_dir, session_dir)
+    install_hook_script(&channel_dir, Some(&crate::agent_hook_outputs::HookPaths::locate(session_dir).status()))
 }
 
-/// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix) for the agent working in `session_dir`.
-pub(crate) fn install_hook_script(channel_dir: &Path, session_dir: &Path) -> std::io::Result<PathBuf> {
+/// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix), which reports its status to `status_file` (none: it reports none).
+pub(crate) fn install_hook_script(channel_dir: &Path, status_file: Option<&Path>) -> std::io::Result<PathBuf> {
     let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
-    let content = approval_hook_script(channel_dir, session_dir);
+    let content = approval_hook_script(channel_dir, status_file);
     crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
     Ok(script_path)
 }
@@ -1005,7 +1005,7 @@ mod tests {
 
     #[test]
     fn the_hook_script_puts_the_system_commands_first_on_path() {
-        let script = approval_hook_script(Path::new("/chan"), Path::new("/session"));
+        let script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")));
         let first_command = script.lines().position(|line| line.starts_with("CHANNEL_DIR=")).expect("the script bakes in its folder");
         let pin = script.lines().position(|line| line == "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"");
         if cfg!(windows) {

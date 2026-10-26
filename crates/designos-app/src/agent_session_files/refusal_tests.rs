@@ -91,6 +91,29 @@ fn the_line_of_files_not_updated_names_the_path_once() {
 }
 
 #[test]
+fn a_locked_entry_and_an_entry_nothing_can_be_read_about_each_get_their_own_next_step() {
+    let path = Path::new("/data/sessions/p1-tab-1/.mcp.json");
+    let locked = failed(io::ErrorKind::PermissionDenied, format!("{} is locked, so Studio can't move it", path.display()), Fix::Unlock);
+    assert_eq!(
+        start_failure_message("Grok Build", &locked),
+        "Couldn't start Grok Build: /data/sessions/p1-tab-1/.mcp.json is locked, so Studio can't move it. Unlock it, then try again."
+    );
+    let folder = path.parent().expect("a folder");
+    let unknown = failed(
+        io::ErrorKind::PermissionDenied,
+        format!("{} can't be moved out of {}: permission denied", path.display(), folder.display()),
+        Fix::CheckItAndItsFolder,
+    );
+    let said = start_failure_message("Grok Build", &unknown);
+    assert_eq!(
+        said,
+        "Couldn't start Grok Build: /data/sessions/p1-tab-1/.mcp.json can't be moved out of /data/sessions/p1-tab-1: permission denied. \
+         Check its permissions and those of that folder, then try again."
+    );
+    assert!(!said.contains("Make it writable"), "{said}");
+}
+
+#[test]
 fn a_note_on_what_was_moved_aside_comes_after_the_cause_and_its_fix_and_changes_neither() {
     let dir = Path::new("/data/sessions/p1-tab-1");
     let note = "Moved .mcp.json to .designos-set-aside/20261025-101500-a1b2c3 in this file's agent folder, so Grok won't run it.";

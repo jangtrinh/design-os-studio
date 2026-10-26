@@ -1,0 +1,32 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.27s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 5 tests
+test agent_session_files::private_anchor_tests::a_path_beside_the_private_root_is_no_anchor ... ok
+test agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write ... FAILED
+test agent_session_files::private_anchor_tests::a_path_in_the_hook_folder_anchors_at_the_channel_folder_of_its_session ... ok
+test agent_session_files::private_anchor_tests::the_hook_folder_itself_and_everything_below_it_still_anchor_at_the_channel ... ok
+test agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder ... ok
+
+failures:
+
+---- agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write stdout ----
+
+thread 'agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write' (49190496) panicked at crates/designos-app/src/agent_session_files/private_anchor_tests.rs:50:9:
+assertion `left == right` failed: approve-hook.sh anchors at the channel
+  left: Some("<tmp>/b1061.HNq1PW/designos-approval-channels-test/498c460c17feee83")
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 3304 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

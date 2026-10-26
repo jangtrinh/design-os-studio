@@ -32,12 +32,12 @@ impl SkillsAttachment {
 
 /// What a composer send attaches to `tab`: the selected skills when it is the tab's first send or the selected set changed
 /// since the last attach, nothing otherwise. Call after the selected files were re-read and the limit was checked.
-pub(crate) fn plan_attachment(skills: &SkillsAttachmentState, tab: &TerminalTab) -> Option<SkillsAttachment> {
+pub(crate) fn plan_attachment(skills: &SkillsAttachmentState, tab: &TerminalTab, session_dir: &Path) -> Option<SkillsAttachment> {
     let fingerprint = skills.selection_fingerprint();
     (tab.composer.skills_sent != Some(fingerprint)).then(|| SkillsAttachment {
         fingerprint,
         block: skills.format_fenced_blocks(),
-        hook_chunks: if tab.reads_skills_from_hook() { skills.hook_chunks().unwrap_or_default() } else { Vec::new() },
+        hook_chunks: if tab.reads_skills_from_hook(session_dir) { skills.hook_chunks().unwrap_or_default() } else { Vec::new() },
     })
 }
 

@@ -50,13 +50,13 @@ pub fn tab_file_path(session_dir: &Path, tab_id: usize) -> Option<PathBuf> {
 }
 
 /// Gemini's settings shape for the status hooks of tab `tab_id`: one handler per event, each appending a record that
-/// names the tab to `agent-events.jsonl`. A handler prints nothing, as Gemini reads any output of a hook as JSON.
-pub fn hooks_settings(session_dir: &Path, tab_id: usize) -> serde_json::Value {
-    let status_path = session_dir.join("agent-status.json");
+/// names the tab to the events file of the hook folder `paths` (`agent_hook_outputs`). A handler prints nothing, as Gemini reads any
+/// output of a hook as JSON.
+pub fn hooks_settings(paths: &crate::agent_hook_outputs::HookPaths, tab_id: usize) -> serde_json::Value {
     let hooks: serde_json::Map<String, serde_json::Value> = GEMINI_HOOK_EVENTS
         .iter()
         .map(|&(event, label, state)| {
-            let command = crate::terminal::status_hook_command_for_tab(&status_path, label, state, Some(tab_id));
+            let command = crate::terminal::status_hook_command_for_tab(paths, label, state, Some(tab_id));
             let handler = serde_json::json!({ "type": "command", "name": HOOK_NAME, "command": command, "timeout": HOOK_TIMEOUT_MS });
             (event.to_string(), serde_json::json!([{ "matcher": "*", "hooks": [handler] }]))
         })
@@ -134,7 +134,8 @@ pub fn remove_tab_file(session_dir: &Path, tab_id: usize) {
 
 /// Writes the status-hooks file of a Gemini tab started in `mode` and returns its path, the value for
 /// [`SYSTEM_DEFAULTS_ENV`]. `None` when the tab is not a Gemini tab in Ask mode, when Gemini has system defaults of its own,
-/// or when the file cannot be written; the caller then leaves the tab's environment alone and the tab reads its waits from its
+/// when the hooks have no folder to report to (`HookPaths::prepare`), or when the file
+/// cannot be written; the caller then leaves the tab's environment alone and the tab reads its waits from its
 /// screen. Written before the tab starts, so the variable never names a file that is not there.
 pub fn prepare_for_tab(session_dir: &Path, tab_id: usize, mode: AgentPermissionMode, preset: AgentCliPreset) -> Option<PathBuf> {
     prepare_for_tab_on(cfg!(unix), session_dir, tab_id, mode, preset)
@@ -163,8 +164,15 @@ pub fn prepare_for_tab_on(posix_shell: bool, session_dir: &Path, tab_id: usize, 
             return None;
         }
     };
+    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(session_dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("design:os studio: Gemini CLI status hooks are off for this session, no hook can report: {e}");
+            return None;
+        }
+    };
     let path = channel.join(format!("gemini-tab-{tab_id}.json"));
-    let written = serde_json::to_vec_pretty(&hooks_settings(session_dir, tab_id))
+    let written = serde_json::to_vec_pretty(&hooks_settings(&hook_paths, tab_id))
         .map_err(std::io::Error::other)
         .and_then(|bytes| crate::agent_approval_channel::write_owner_only_file(&path, &bytes, false));
     match written {

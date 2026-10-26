@@ -80,21 +80,86 @@ fn real_sessions_root(root: Option<&Path>) -> Option<&'static Path> {
     Some(REAL_ROOT.get_or_init(|| real))
 }
 
-/// The session folder `path` lies in, when it lies in one: the closest folder above `path` that is a direct child of the
-/// ephemeral sessions folder (or of the root no session can use), or of a library's `agent-sessions` folder.
-pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
+/// The private channel root, spelled without the links above it. Looked up once it exists and kept, like [`real_sessions_root`].
+fn real_private_root(root: Option<&Path>) -> Option<&'static Path> {
+    static REAL_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(real) = REAL_ROOT.get() {
+        return Some(real);
+    }
+    let real = root?.canonicalize().ok()?;
+    Some(REAL_ROOT.get_or_init(|| real))
+}
+
+/// A path below the root no session can use, named `name`: what a folder Studio cannot make private resolves to, so every read of it
+/// fails and every write is refused, and nothing ever lands in a folder an agent can write.
+pub fn unavailable_path(name: &str) -> PathBuf {
+    Path::new(UNAVAILABLE_ROOT).join(name)
+}
+
+/// What a folder is to the routed helpers, when they anchor at it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Anchor {
+    /// A session folder: a direct child of the ephemeral sessions folder (or of the root no session can use), or of a library's
+    /// `agent-sessions` folder. Everything below it is the agent's to write, and Studio's helpers never follow a link in it.
+    Session,
+    /// The folder of a session's approval channel, a direct child of Studio's private channel root (`<data dir>/designos/ap`). No agent
+    /// grant reaches it, and only its hook folder (`agent_hook_outputs`) is a place for the routed helpers: the rest of it is what
+    /// decides which commands a CLI runs and which request Studio answers, and a helper that wrote there would be a way to change it.
+    Channel,
+}
+
+/// The folders the routed helpers can anchor at, found once and asked of any number of folders.
+fn anchors() -> impl Fn(&Path) -> Option<Anchor> {
     let root = ephemeral_sessions_root();
     // The same folder spelled through the links above it (`/private/var` for `/var` on macOS) is Studio's own folder too.
     let real_root = real_sessions_root(root.as_deref());
-    let is_session_folder = |dir: &Path| {
-        dir.parent().is_some_and(|up| {
-            root.as_deref() == Some(up)
-                || real_root == Some(up)
-                || up == Path::new(UNAVAILABLE_ROOT)
-                || up.file_name().is_some_and(|name| name == "agent-sessions")
+    let private = crate::agent_approval_channel::private_root();
+    let real_private = real_private_root(private.as_deref());
+    move |dir: &Path| {
+        let up = dir.parent()?;
+        if root.as_deref() == Some(up)
+            || real_root == Some(up)
+            || up == Path::new(UNAVAILABLE_ROOT)
+            || up.file_name().is_some_and(|name| name == "agent-sessions")
+        {
+            Some(Anchor::Session)
+        } else if private.as_deref() == Some(up) || real_private == Some(up) {
+            Some(Anchor::Channel)
+        } else {
+            None
+        }
+    }
+}
+
+/// The folder `path` lies in that the routed helpers anchor at, when it lies in one: the closest folder above `path` that is a session
+/// folder, or the channel folder of a session when `path` is in its hook folder (`hook-out`, where the hooks report to). Each is
+/// opened from its own handle and never through a link.
+pub(super) fn session_folder_of(path: &Path) -> Option<PathBuf> {
+    let anchor_of = anchors();
+    path.ancestors()
+        .skip(1)
+        .find(|dir| match anchor_of(dir) {
+            Some(Anchor::Session) => true,
+            Some(Anchor::Channel) => path
+                .strip_prefix(dir)
+                .ok()
+                .and_then(|below| below.components().next())
+                .is_some_and(|first| first.as_os_str() == crate::agent_hook_outputs::DIR_NAME),
+            None => false,
         })
-    };
-    path.ancestors().skip(1).find(|dir| is_session_folder(dir)).map(Path::to_path_buf)
+        .map(Path::to_path_buf)
+}
+
+/// Whether `dir` is a folder the routed helpers anchor at, of either kind. The folder of a place that [`session_folder_of`] found is.
+pub(super) fn is_anchor_folder(dir: &Path) -> bool {
+    anchors()(dir).is_some()
+}
+
+/// Whether `path` lies in the private channel root, however it is spelled.
+pub(super) fn lies_in_private_root(path: &Path) -> bool {
+    let private = crate::agent_approval_channel::private_root();
+    let real_private = real_private_root(private.as_deref());
+    private.as_deref().is_some_and(|root| path.starts_with(root)) || real_private.is_some_and(|root| path.starts_with(root))
 }
 
 /// Makes the session folder `dir` the way rule 2 says; a re-sync of a folder Studio made earlier succeeds. Parent folders

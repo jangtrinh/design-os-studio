@@ -914,7 +914,7 @@ mod tests {
         let mut app = new_test_app();
         let page = app.page;
         let _ = std::fs::create_dir_all(&app.terminal.session_dir);
-        let events_file = app.terminal.session_dir.join("agent-events.jsonl");
+        let events_file = app.terminal.prepared_hook_paths().events();
         let _ = std::fs::remove_file(&events_file);
         let append_event = |t: f64, event: &str| {
             use std::io::Write;
@@ -1349,7 +1349,7 @@ mod tests {
     fn app_with_hooked_turn(tab: TerminalTab) -> (App, std::path::PathBuf) {
         let mut app = new_test_app();
         let _ = std::fs::create_dir_all(&app.terminal.session_dir);
-        let events = app.terminal.session_dir.join("agent-events.jsonl");
+        let events = app.terminal.prepared_hook_paths().events();
         let _ = std::fs::remove_file(&events);
         if let Ok(mut st) = tab.agent_status.lock() {
             *st = AgentTabStatus::Idle;

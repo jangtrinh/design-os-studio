@@ -350,6 +350,12 @@ pub fn missing_file_message(opts: &Options) -> Option<String> {
     (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
 }
 
+/// Parses a declarative `NodeSpec` JSON string for `--apply-spec`, returning a plain-language
+/// error that names the field and what it must be instead of a Rust type name.
+pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
+    designos_mcp::tools::errors::parse_spec_json(raw)
+}
+
 pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
@@ -643,5 +649,12 @@ mod tests {
     #[test]
     fn empty_is_default() {
         assert_eq!(p(&[]).unwrap(), Options::default());
+    }
+
+    #[test]
+    fn parse_spec_json_names_the_field_and_expected_type() {
+        let err = parse_spec_json(r#"{"name":"Card","children":[[{"kind":"rectangle"}]]}"#).unwrap_err();
+        assert!(err.contains("children must be an array of NodeSpec objects"), "{err}");
+        assert!(!err.contains("expected u64"), "{err}");
     }
 }

@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_hook_outputs.rs
++++ b/crates/designos-app/src/agent_hook_outputs.rs
+@@ -58,7 +58,7 @@
+ pub const DIR_NAME: &str = "hook-out";
+ 
+ /// The last state word of any hook, as `{"state":…,"run_id":…}`.
+-pub const STATUS_FILE_NAME: &str = "agent-status.json";
++pub const STATUS_FILE_NAME: &str = "agent-status.fig";
+ 
+ /// The wrapped hook records, one per line.
+ pub const EVENTS_FILE_NAME: &str = "agent-events.jsonl";

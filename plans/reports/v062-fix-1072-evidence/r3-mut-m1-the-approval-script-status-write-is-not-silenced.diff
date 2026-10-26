@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_permissions.rs
++++ b/crates/designos-app/src/agent_permissions.rs
+@@ -267,7 +267,7 @@
+     let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
+     let channel_dir_escaped = quote(channel_dir);
+     let status_assignment = status_file.map(|file| format!("STATUS_FILE='{}'\n", quote(file))).unwrap_or_default();
+-    let status_write = if status_file.is_some() { "{ printf '{\"state\":\"waiting\"}\\n' > \"$STATUS_FILE\"; } 2>/dev/null || true\n" } else { "" };
++    let status_write = if status_file.is_some() { "printf '{\"state\":\"waiting\"}\\n' > \"$STATUS_FILE\" 2>/dev/null || true\n" } else { "" };
+     // The system's commands go first on `PATH`, so a command of the same name in an earlier entry never decides anything
+     // here. The rest of the inherited `PATH` stays after them: a system without `od` or `awk` in those folders (NixOS) still
+     // finds them. The script Studio writes on Windows (Git Bash) leaves `PATH` alone: Git Bash already leads it with its own

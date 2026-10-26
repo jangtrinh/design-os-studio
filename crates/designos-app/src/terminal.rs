@@ -60,6 +60,15 @@ const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
 const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
 
+/// The status line of a tab whose process could not start: the error, and what was moved aside for the start before it failed (the
+/// entries stay moved whether or not the tab came up).
+fn pty_error_line(error: &str, set_aside_note: Option<&str>) -> String {
+    match set_aside_note {
+        Some(note) => format!("PTY error: {error}. {note}"),
+        None => format!("PTY error: {error}"),
+    }
+}
+
 /// The command an agent tab runs when its caller prepared none. Every tab Studio starts passes a mode-aware command, so
 /// this is only the safety net behind a future caller that forgets to, and it asks: the plain
 /// [`AgentCliPreset::cli_launch_command`] carries the Skip flags (`#924`).
@@ -691,8 +700,14 @@ impl TerminalTab {
         };
 
         if let Some(sess) = session {
-            for lock_name in ["agent-events.jsonl.lock", "agent-status.jsonl.lock", "agent-status.json.lock"] {
-                let _ = crate::agent_session_files::remove_session_dir_all(&sess.session_dir.join(lock_name));
+            // A lock a hook that was killed left behind in the hook folder (`agent_hook_outputs`) would make the next append wait.
+            let hook_dir = crate::agent_hook_outputs::HookPaths::locate(&sess.session_dir);
+            for lock_name in [
+                format!("{}.lock", crate::agent_hook_outputs::EVENTS_FILE_NAME),
+                format!("{}.lock", crate::agent_hook_outputs::STATUS_FILE_NAME),
+                format!("{}.lock", crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME),
+            ] {
+                let _ = crate::agent_session_files::remove_session_dir_all(&hook_dir.dir().join(lock_name));
             }
         }
         // A new tab starts with an empty approvals folder: requests of an earlier run with the same id are not its own.
@@ -1025,10 +1040,12 @@ impl TerminalTab {
         self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
     }
 
-    /// True when this tab is Claude Code, which reads attached skills from its `UserPromptSubmit` hook. Every other CLI, a custom
-    /// command included, never reads that hook and gets the skills in the pasted prompt (`#573`).
-    pub fn reads_skills_from_hook(&self) -> bool {
-        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli()
+    /// True when this tab is Claude Code and its session has a hook folder, so Claude reads attached skills from its `UserPromptSubmit`
+    /// hook. Every other CLI, a custom command included, never reads that hook and gets the skills in the pasted prompt (`#573`), and so
+    /// does a Claude tab whose session has no hook folder: none of its hooks is installed (`hooks_without_a_folder`), so a reply file
+    /// written for the hook would never be read.
+    pub fn reads_skills_from_hook(&self, session_dir: &Path) -> bool {
+        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli() && crate::agent_hook_outputs::HookPaths::locate(session_dir).is_made()
     }
 
     /// The runtime recorded in `run.json` for skills sent to this tab: the CLI's binary name, `custom` for an "Other CLI…" command
@@ -1270,7 +1287,7 @@ pub struct TerminalState {
     pub rename_session_focus_pending: bool,
     /// Prompt held by `dispatch_figma_ai_prompt` when no live tab and no resumable session exist (`#651` §3 rule 10).
     pub pending_prompt: Option<(String, String)>,
-    /// Hook-written turn boundary marks reader (`<session_dir>/turn-marks.jsonl`, `#677`).
+    /// Hook-written turn boundary marks reader (`turn-marks.jsonl` of the hook folder, `agent_hook_outputs`, `#677`).
     pub turn_marks: crate::agent_turn_marks::TurnMarkLog,
     /// Fallback turn ledger used when `tabs` is empty (`#677`).
     pub turn_ledger: crate::agent_turn_ledger::AgentTurnLedger,
@@ -1392,7 +1409,7 @@ fn write_bootstrap_artifacts(session_dir: &Path, boot: &designos_export::agent_c
         }
     });
     if let Ok(reply_bytes) = serde_json::to_vec_pretty(&boot_reply) {
-        let _ = atomic_write_session_file(&session_dir.join("bootstrap-context-reply.json"), &reply_bytes);
+        let _ = atomic_write_session_file(&crate::agent_hook_outputs::HookPaths::locate(session_dir).bootstrap_reply(), &reply_bytes);
     }
 }
 
@@ -1404,7 +1421,7 @@ fn write_compact_bootstrap_fallback(session_dir: &Path, compact: &designos_expor
         }
     });
     if let Ok(reply_bytes) = serde_json::to_vec_pretty(&compact_reply) {
-        let _ = atomic_write_session_file(&session_dir.join("bootstrap-compact-reply.json"), &reply_bytes);
+        let _ = atomic_write_session_file(&crate::agent_hook_outputs::HookPaths::locate(session_dir).compact_reply(), &reply_bytes);
     }
     let md_path = session_dir.join("bootstrap.md");
     if !md_path.exists() {
@@ -1477,8 +1494,9 @@ impl TerminalState {
         let bootstrap_json_path = session_dir.join("bootstrap.json");
         let initial_spec_mtime = spec_mtime(&live_spec_path);
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
-        let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(session_dir.join("turn-marks.jsonl"));
-        let event_stream = crate::agent_turn_status::AgentEventStream::bind(session_dir.join("agent-events.jsonl"));
+        let hook_paths = crate::agent_hook_outputs::HookPaths::locate(&session_dir);
+        let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(hook_paths.turn_marks());
+        let event_stream = crate::agent_turn_status::AgentEventStream::bind(hook_paths.events());
         #[cfg(test)]
         let notifier = crate::agent_notify::AgentNotifier::with_sink(Arc::new(crate::agent_notify::StubNotificationSink::new()));
         #[cfg(not(test))]
@@ -1868,7 +1886,7 @@ impl TerminalState {
         // Skills replies written into the folder being left go with it. Tabs that still wait to deliver rewrite theirs, into the new
         // folder, on the next `sync_hook_reply`.
         for (tab_id, chunks) in std::mem::take(&mut self.reply_skills) {
-            crate::skills::hook_delivery::remove_replies(&self.session_dir, tab_id, 0..chunks.len());
+            crate::skills::hook_delivery::remove_replies(self.hook_paths().dir(), tab_id, 0..chunks.len());
         }
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
@@ -1887,11 +1905,11 @@ impl TerminalState {
         }
         self.session_dir = session_dir;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
-        crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
+        crate::skills::hook_delivery::remove_all_replies(self.hook_paths().dir());
         self.last_watched_mtime = spec_mtime(&self.live_spec_path);
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
-        self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
-        self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.session_dir.join("agent-events.jsonl"));
+        self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.hook_paths().turn_marks());
+        self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.hook_paths().events());
         self.last_synced_key = None;
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
@@ -2141,6 +2159,17 @@ impl TerminalState {
     }
 
     /// Builds a [`SessionEnv`] snapshot for this terminal state's per-file session.
+    /// Where the hooks of this window's agent tabs report to (`agent_hook_outputs`): nothing a hook writes is in the session folder.
+    pub fn hook_paths(&self) -> crate::agent_hook_outputs::HookPaths {
+        crate::agent_hook_outputs::HookPaths::locate(&self.session_dir)
+    }
+
+    /// [`Self::hook_paths`] with the folder made, for a test that writes what a hook would.
+    #[cfg(test)]
+    pub(crate) fn prepared_hook_paths(&self) -> crate::agent_hook_outputs::HookPaths {
+        crate::agent_hook_outputs::HookPaths::prepare(&self.session_dir).expect("the hook folder is made")
+    }
+
     pub fn session_env(&self) -> SessionEnv {
         SessionEnv {
             session_id: self.session_id.clone(),
@@ -2188,7 +2217,7 @@ impl TerminalState {
     /// Returns `true` once the active `run_id` has already delivered its first-turn `bootstrap.md`
     /// block through the Claude `UserPromptSubmit` hook (which leaves a `bootstrap.delivered.<run_id>` marker).
     pub fn is_run_bootstrap_delivered(&self) -> bool {
-        self.session_dir.join(format!("bootstrap.delivered.{}", self.run_id)).exists()
+        self.hook_paths().delivered_marker(self.run_id).exists()
     }
 
     /// Starts or restarts an agent run, advancing `run_id` so the next prompt / hook invocation
@@ -2245,7 +2274,7 @@ impl TerminalState {
         let job_gen = self.bootstrap_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let gen_bg = Arc::clone(&self.bootstrap_generation);
         let write_lock_bg = Arc::clone(&self.bootstrap_write_lock);
-        let _ = crate::agent_session_files::remove_session_file(&session_dir.join("bootstrap-context-reply.json"));
+        let _ = crate::agent_session_files::remove_session_file(&crate::agent_hook_outputs::HookPaths::locate(&session_dir).bootstrap_reply());
         std::thread::spawn(move || {
             let rules = session_rules_pack(enabled_bg.as_ref());
             if let Ok(_guard) = write_lock_bg.lock() {
@@ -2540,7 +2569,7 @@ impl TerminalState {
             if on_disk == want {
                 continue;
             }
-            write_failed |= !crate::skills::hook_delivery::write_replies(&self.session_dir, id, want, on_disk.len());
+            write_failed |= !crate::skills::hook_delivery::write_replies(self.hook_paths().dir(), id, want, on_disk.len());
             if want.is_empty() {
                 self.reply_skills.remove(&id);
             } else {
@@ -2555,7 +2584,7 @@ impl TerminalState {
     /// Deletes the skills reply files of every tab in the session folder, including any an earlier run left (`#573`).
     fn delete_skills_replies(&mut self) {
         self.reply_skills.clear();
-        crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
+        crate::skills::hook_delivery::remove_all_replies(self.hook_paths().dir());
     }
 
     /// Writes the session's agent files now, on the calling thread (an agent is about to start and reads them
@@ -3135,10 +3164,10 @@ impl TerminalState {
                 Ok(self.active_tab)
             }
             Err(e) => {
-                self.set_aside_note = None;
                 // The tab never started, so nothing will read the hooks file written for it.
                 crate::gemini_status_hooks::remove_tab_file(&self.session_dir, id);
-                self.status_msg = Some(format!("PTY error: {e}"));
+                // What was moved aside before the start failed stays moved: the line says so too.
+                self.status_msg = Some(pty_error_line(&e, self.set_aside_note.take().as_deref()));
                 Err(e)
             }
         }
@@ -3326,7 +3355,7 @@ impl TerminalState {
         }
 
         // Channel 2a: turn-marks.jsonl (written by CLI session hooks before/after agent turns).
-        let expected_marks_path = self.live_patch.path.with_file_name("turn-marks.jsonl");
+        let expected_marks_path = self.hook_paths().turn_marks();
         if self.turn_marks.path() != expected_marks_path {
             self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
         }
@@ -3511,7 +3540,7 @@ impl TerminalState {
         }
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
         // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
-        let status_file = self.session_dir.join("agent-status.json");
+        let status_file = self.hook_paths().status();
         if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
             if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {
                 let is_done = matches!(parsed, AgentTabStatus::Done);
@@ -4784,9 +4813,25 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     // The Ask-mode tab of Grok or Antigravity that is about to start gets its project config made exactly Studio's first, so that
     // is the error the tab reports; the plain writes of that CLI's files below are then skipped.
     let exact = if job.ask_mode { job.exact_project_config } else { None };
-    let status_path = job.session_dir.join("agent-status.json");
-    let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
-    let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
+    // Every hook reports to a folder no agent grant reaches (`agent_hook_outputs`). Without one (no private data folder, or one that
+    // cannot be kept private) no hook that writes or reads a file is installed, and the tabs show no status.
+    let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(&job.session_dir) {
+        Ok(paths) => Some(paths),
+        Err(e) => {
+            eprintln!("design:os studio: no hook can report for this session, so its agent tabs show no status: {e}");
+            None
+        }
+    };
+    let grok_hooks_bytes = match &hook_paths {
+        Some(paths) => serde_json::to_vec_pretty(&session_hooks_settings(paths, None, false)),
+        None => serde_json::to_vec_pretty(&hooks_without_a_folder(None)),
+    }
+    .map_err(invalid_data)?;
+    let agy_hooks_bytes = match &hook_paths {
+        Some(paths) => serde_json::to_vec_pretty(&agy_session_hooks(paths)),
+        None => serde_json::to_vec_pretty(&serde_json::json!({})),
+    }
+    .map_err(invalid_data)?;
     let set_aside_note = match exact {
         Some(ExactProjectConfig::Grok) => {
             let config = grok_session_config_toml(&mcp_config).unwrap_or_default();
@@ -4812,7 +4857,6 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
 
     let page_context = page_context_json(&job.session_id, &job.doc_name, job.file_path.as_deref(), job.current_page_id, &job.current_page_name);
     // Claude's reply to a prompt hook: the page as `additionalContext`, nothing that could block the prompt.
-    let context_reply_path = job.session_dir.join("page-context-reply.json");
     let context_reply = serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
@@ -4820,28 +4864,27 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
         }
     });
     let reply_bytes = serde_json::to_vec_pretty(&context_reply).map_err(invalid_data)?;
-    atomic_write_session_file(&context_reply_path, &reply_bytes)?;
+    if let Some(paths) = &hook_paths {
+        atomic_write_session_file(&paths.page_reply(), &reply_bytes)?;
+    }
 
-    let bootstrap_reply_path = job.session_dir.join("bootstrap-context-reply.json");
-    let delivered_marker_path = job.session_dir.join(format!("bootstrap.delivered.{}", job.bootstrap_run_id));
     // Ask mode: the hook script and the hooks file that names it go to the Studio-private channel folder, the script first.
     // Claude reads that file (not one in the session folder, which the agent can write), so the agent cannot swap the
     // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
     // nothing is installed: Claude starts with the inline settings `{}` and asks in its own terminal prompt.
-    let approve_script_path = private_dir.as_deref().and_then(|dir| match crate::agent_permissions::install_hook_script(dir, &job.session_dir) {
-        Ok(path) => Some(path),
-        Err(e) => {
-            eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
-            None
+    let approve_script_path = private_dir.as_deref().and_then(|dir| {
+        match crate::agent_permissions::install_hook_script(dir, hook_paths.as_ref().map(|paths| paths.status()).as_deref()) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+                None
+            }
         }
     });
-    let transcript_capture_path = job.session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
-    let claude_hooks = session_hooks_settings_with_approval(
-        &status_path,
-        Some((&context_reply_path, &bootstrap_reply_path, &delivered_marker_path)),
-        approve_script_path.as_deref(),
-        Some(&transcript_capture_path),
-    );
+    let claude_hooks = match &hook_paths {
+        Some(paths) => session_hooks_settings_with_approval(paths, Some(job.bootstrap_run_id), approve_script_path.as_deref(), true),
+        None => hooks_without_a_folder(approve_script_path.as_deref()),
+    };
     let hooks_bytes = serde_json::to_vec_pretty(&claude_hooks).map_err(invalid_data)?;
     if job.ask_mode {
         if let Some(dir) = &private_dir {
@@ -4900,20 +4943,29 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     gemini_config.map(|()| None)
 }
 
-/// Shell command that appends one wrapped hook record to `<session_dir>/agent-events.jsonl` (`#683` §3.1)
-/// and updates `agent-status.json` for legacy status readers.
-fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
-    status_hook_command_for_tab(status_path, event, state, None)
+/// Shell command that appends one wrapped hook record to the events file of the hook folder (`agent_hook_outputs`, `#683` §3.1)
+/// and updates the status file there for legacy status readers.
+fn status_hook_command(paths: &crate::agent_hook_outputs::HookPaths, event: &str, state: &str) -> String {
+    status_hook_command_for_tab(paths, event, state, None)
 }
 
 /// [`status_hook_command`] whose record also names tab `tab` (Gemini CLI's hooks; `None` gives the plain command).
-pub(crate) fn status_hook_command_for_tab(status_path: &Path, event: &str, state: &str, tab: Option<usize>) -> String {
-    let events_path = status_path.parent().map(|p| p.join("agent-events.jsonl")).unwrap_or_else(|| status_path.with_file_name("agent-events.jsonl"));
-    let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&events_path, event, tab);
+pub(crate) fn status_hook_command_for_tab(paths: &crate::agent_hook_outputs::HookPaths, event: &str, state: &str, tab: Option<usize>) -> String {
+    let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&paths.events(), event, tab);
     format!(
-        "{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}",
-        crate::agent_turn_status::sh_single_quote(&status_path.display().to_string())
+        "{append_cmd}; {{ printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}; }} 2>/dev/null || true",
+        crate::agent_turn_status::sh_single_quote(&paths.status().display().to_string())
     )
+}
+
+/// The hooks of a CLI when no hook has a folder to report to (`HookPaths::prepare` failed): none that writes or reads anything. Only
+/// the approval handler stays, which reports to the channel folder and not to the hook folder.
+fn hooks_without_a_folder(approval_script: Option<&Path>) -> serde_json::Value {
+    let mut hooks = serde_json::Map::new();
+    if let Some(script) = approval_script {
+        hooks.insert("PermissionRequest".into(), serde_json::json!([{ "matcher": "*", "hooks": [crate::agent_permissions::approval_hook_handler(script)] }]));
+    }
+    serde_json::json!({ "hooks": hooks })
 }
 
 fn command_handler_group(command: String, capture_command: Option<&str>) -> serde_json::Value {
@@ -4924,61 +4976,67 @@ fn command_handler_group(command: String, capture_command: Option<&str>) -> serd
     serde_json::json!([{ "matcher": "*", "hooks": hooks }])
 }
 
-/// Session hooks in Claude's settings shape (`{"hooks": {Event: [{matcher, hooks: [...]}]}}`) for the
-/// status channel. With `context_replies` (`(page_reply, bootstrap_reply, marker)`) the prompt hook
-/// prints `bootstrap_reply` once per run (creating `marker`, or `bootstrap-compact-reply.json` if the
-/// background build exceeds `500 ms`) and `page_reply` on subsequent turns (never the selection).
+/// Session hooks in Claude's settings shape (`{"hooks": {Event: [{matcher, hooks: [...]}]}}`) for the status channel, every file
+/// of them in the hook folder `paths` names. With `bootstrap_run` (the run whose first turn gets the bootstrap block) the prompt hook
+/// prints the bootstrap reply once per run (leaving the delivered marker of that run, or printing the compact reply if the
+/// background build exceeds `500 ms`) and the page reply on subsequent turns (never the selection).
 /// Without it the prompt hook prints nothing: Grok reads any stdout that starts with `{` as a decision
 /// (a context reply shows as a failed hook) and discards an allowing hook's context anyway.
-fn session_hooks_settings(status_path: &Path, context_replies: Option<(&Path, &Path, &Path)>, transcript_capture: Option<&Path>) -> serde_json::Value {
-    session_hooks_settings_with_approval(status_path, context_replies, None, transcript_capture)
+fn session_hooks_settings(paths: &crate::agent_hook_outputs::HookPaths, bootstrap_run: Option<u64>, transcript_capture: bool) -> serde_json::Value {
+    session_hooks_settings_with_approval(paths, bootstrap_run, None, transcript_capture)
 }
 
 /// [`session_hooks_settings`] plus, in `Ask` permission mode (`approval_script` is `Some`), `approve-hook.sh` as a second
 /// handler of the `PermissionRequest` group so one request both records the turn status and raises the in-panel approval (`#656`).
 /// With `transcript_capture`, each Claude hook event also includes a capture handler that records
-/// `session_id` and `transcript_path` once per session to `claude-transcript.json` (`#678`).
+/// `session_id` and `transcript_path` once per session to the transcript file of the hook folder (`#678`).
 fn session_hooks_settings_with_approval(
-    status_path: &Path,
-    context_replies: Option<(&Path, &Path, &Path)>,
+    paths: &crate::agent_hook_outputs::HookPaths,
+    bootstrap_run: Option<u64>,
     approval_script: Option<&Path>,
-    transcript_capture: Option<&Path>,
+    transcript_capture: bool,
 ) -> serde_json::Value {
-    let session_dir = status_path.parent().unwrap_or_else(|| Path::new("/tmp"));
-    let mark_path = session_dir.join("turn-marks.jsonl");
-    let patch_path = session_dir.join("doc-patch.jsonl");
-    let cli = if context_replies.is_some() { "claude" } else { "grok" };
-    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "start", cli);
-    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "end", cli);
-    let prompt = match context_replies {
-        Some((page_reply, boot_reply, marker)) => {
-            let compact_reply = boot_reply.with_file_name("bootstrap-compact-reply.json");
-            let quoted = |path: &Path| crate::agent_turn_status::sh_single_quote(&path.display().to_string());
-            let (marker, boot, compact, page) = (quoted(marker), quoted(boot_reply), quoted(&compact_reply), quoted(page_reply));
+    let patch_log = paths.patch_log();
+    let cli = if bootstrap_run.is_some() { "claude" } else { "grok" };
+    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&paths.turn_marks(), &patch_log, "start", cli);
+    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&paths.turn_marks(), &patch_log, "end", cli);
+    let prompt = match bootstrap_run {
+        Some(run) => {
+            let quoted = |path: PathBuf| crate::agent_turn_status::sh_single_quote(&path.display().to_string());
+            let (dir, marker, boot, compact, page) = (
+                quoted(paths.dir().to_path_buf()),
+                quoted(paths.delivered_marker(run)),
+                quoted(paths.bootstrap_reply()),
+                quoted(paths.compact_reply()),
+                quoted(paths.page_reply()),
+            );
+            // Over a folder that is gone or refuses writes the hook still ends quietly and with success: it waits for a reply only
+            // while the folder is there, makes the marker in brace form, and a reply it cannot read prints nothing. The marker is made with `true >`,
+            // not `: >`: dash, the `sh` of Linux, ends the whole shell (status 2) when a redirect of a special builtin fails, whatever surrounds it.
             format!(
-                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then : > {marker}; cat {boot}; elif [ ! -e {marker} ] && [ -f {compact} ]; then : > {marker}; cat {compact}; else cat {page}; fi",
-                status_hook_command(status_path, "UserPromptSubmit", "working"),
+                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ -d {dir} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then {{ true > {marker}; }} 2>/dev/null || true; cat {boot} 2>/dev/null || true; elif [ ! -e {marker} ] && [ -f {compact} ]; then {{ true > {marker}; }} 2>/dev/null || true; cat {compact} 2>/dev/null || true; else cat {page} 2>/dev/null || true; fi",
+                status_hook_command(paths, "UserPromptSubmit", "working"),
                 start_mark,
             )
         }
-        None => format!("{}; {}", status_hook_command(status_path, "UserPromptSubmit", "working"), start_mark),
+        None => format!("{}; {}", status_hook_command(paths, "UserPromptSubmit", "working"), start_mark),
     };
-    let capture_cmd = transcript_capture.map(crate::agent_usage::claude_transcript_capture_command);
+    let capture_cmd = transcript_capture.then(|| crate::agent_usage::claude_transcript_capture_command(&paths.transcript()));
     let cap = capture_cmd.as_deref();
-    let stop_cmd = |event: &str, state: &str| format!("{}; {}", status_hook_command(status_path, event, state), end_mark);
-    let mut permission_request = command_handler_group(status_hook_command(status_path, "PermissionRequest", "waiting"), cap);
+    let stop_cmd = |event: &str, state: &str| format!("{}; {}", status_hook_command(paths, event, state), end_mark);
+    let mut permission_request = command_handler_group(status_hook_command(paths, "PermissionRequest", "waiting"), cap);
     if let (Some(script), Some(handlers)) = (approval_script, permission_request[0]["hooks"].as_array_mut()) {
         handlers.push(crate::agent_permissions::approval_hook_handler(script));
     }
     let mut prompt_group = command_handler_group(prompt, cap);
-    if context_replies.is_some() {
+    if bootstrap_run.is_some() {
         // Attached skills (`#573`) are `additionalContext` of the prompt hook's own handlers, one per chunk of at most 9,500
         // characters (Claude Code caps each string at 10,000), printed from the files of the tab running the hook. Claude
         // receives every handler's `additionalContext`, so the skills never have to share a reply with the page or bootstrap
         // block, which the first-turn branch above prints instead of the page reply. No file, no output, exit 0.
         if let Some(handlers) = prompt_group[0]["hooks"].as_array_mut() {
             handlers.extend(
-                crate::skills::hook_delivery::handler_commands(session_dir)
+                crate::skills::hook_delivery::handler_commands(paths.dir())
                     .into_iter()
                     .map(|command| serde_json::json!({ "type": "command", "command": command })),
             );
@@ -4987,30 +5045,28 @@ fn session_hooks_settings_with_approval(
     serde_json::json!({
         "hooks": {
             "UserPromptSubmit": prompt_group,
-            "PreToolUse": command_handler_group(status_hook_command(status_path, "PreToolUse", "working"), cap),
-            "PostToolUse": command_handler_group(status_hook_command(status_path, "PostToolUse", "working"), cap),
-            "PostToolUseFailure": command_handler_group(status_hook_command(status_path, "PostToolUseFailure", "working"), None),
+            "PreToolUse": command_handler_group(status_hook_command(paths, "PreToolUse", "working"), cap),
+            "PostToolUse": command_handler_group(status_hook_command(paths, "PostToolUse", "working"), cap),
+            "PostToolUseFailure": command_handler_group(status_hook_command(paths, "PostToolUseFailure", "working"), None),
             "PermissionRequest": permission_request,
-            "Notification": command_handler_group(status_hook_command(status_path, "Notification", "waiting"), None),
+            "Notification": command_handler_group(status_hook_command(paths, "Notification", "waiting"), None),
             "Stop": command_handler_group(stop_cmd("Stop", "done"), cap),
             "StopFailure": command_handler_group(stop_cmd("StopFailure", "error"), None),
             "StopCancelled": command_handler_group(stop_cmd("StopCancelled", "stopped"), None),
-            "SessionStart": command_handler_group(status_hook_command(status_path, "SessionStart", "idle"), None),
+            "SessionStart": command_handler_group(status_hook_command(paths, "SessionStart", "idle"), None),
         }
     })
 }
 
 /// Antigravity's `<workspace>/.agents/hooks.json`: named hook, flat handlers for the invocation, tool,
 /// and stop events (`#683` §3.1). Handlers must answer with a JSON object on stdout.
-fn agy_session_hooks(status_path: &Path) -> serde_json::Value {
-    let session_dir = status_path.parent().unwrap_or_else(|| Path::new("/tmp"));
-    let mark_path = session_dir.join("turn-marks.jsonl");
-    let patch_path = session_dir.join("doc-patch.jsonl");
-    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "start", "agy");
-    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "end", "agy");
+fn agy_session_hooks(paths: &crate::agent_hook_outputs::HookPaths) -> serde_json::Value {
+    let patch_log = paths.patch_log();
+    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&paths.turn_marks(), &patch_log, "start", "agy");
+    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&paths.turn_marks(), &patch_log, "end", "agy");
     let handler = |event: &str, state: &str, mark: Option<&str>| {
         let mark = mark.map(|m| format!("{m}; ")).unwrap_or_default();
-        serde_json::json!([{ "type": "command", "command": format!("{}; {mark}printf '{{}}'", status_hook_command(status_path, event, state)) }])
+        serde_json::json!([{ "type": "command", "command": format!("{}; {mark}printf '{{}}'", status_hook_command(paths, event, state)) }])
     };
     serde_json::json!({
         "designos-status": {
@@ -6518,6 +6574,24 @@ mod ask_mode_tests;
 
 #[cfg(all(test, unix))]
 mod ask_hooks_tests;
+
+#[cfg(all(test, unix))]
+mod hook_output_tests;
+
+#[cfg(all(test, unix))]
+mod unwritable_hook_folder_tests;
+
+#[cfg(all(test, unix))]
+mod capture_lock_tests;
+
+#[cfg(all(test, unix))]
+mod fail_closed_hook_tests;
+
+#[cfg(test)]
+mod pty_error_tests;
+
+#[cfg(all(test, unix))]
+mod hookless_tab_tests;
 
 #[cfg(all(test, unix))]
 mod ask_launch_sources_tests;
@@ -8046,7 +8120,7 @@ mod tests {
     }
 
     fn status_state(session_dir: &std::path::Path) -> Option<String> {
-        let raw = std::fs::read_to_string(session_dir.join("agent-status.json")).ok()?;
+        let raw = std::fs::read_to_string(crate::agent_hook_outputs::HookPaths::locate(session_dir).status()).ok()?;
         serde_json::from_str::<serde_json::Value>(&raw).ok()?.get("state")?.as_str().map(str::to_string)
     }
 
@@ -8057,7 +8131,7 @@ mod tests {
         let a = doc.add_page("Page 2");
         st.sync_live_file_context(&doc, page, &[a], None);
         st.flush_live_sync();
-        let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+        let _ = std::fs::remove_file(st.prepared_hook_paths().status());
         st
     }
 
@@ -8107,14 +8181,14 @@ mod tests {
         for (name, prompt, stop) in
             [("claude", cmd(&claude, "UserPromptSubmit"), cmd(&claude, "Stop")), ("grok", cmd(&grok, "UserPromptSubmit"), cmd(&grok, "Stop"))]
         {
-            let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+            let _ = std::fs::remove_file(st.prepared_hook_paths().status());
             run_hook_command(&prompt);
             assert_eq!(status_state(&st.session_dir).as_deref(), Some("working"), "{name}");
             run_hook_command(&stop);
             assert_eq!(status_state(&st.session_dir).as_deref(), Some("done"), "{name}");
         }
         // Antigravity: model call -> working, execution loop end -> done; handlers answer with a JSON object.
-        let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+        let _ = std::fs::remove_file(st.prepared_hook_paths().status());
         let reply = run_hook_command(&agy_flat("PreInvocation"));
         assert!(serde_json::from_str::<serde_json::Value>(reply.trim()).map(|v| v.is_object()).unwrap_or(false), "agy hook reply: {reply:?}");
         assert_eq!(status_state(&st.session_dir).as_deref(), Some("working"), "agy");
@@ -8662,7 +8736,7 @@ mod tests {
         let sel = [ids[0], ids[1]];
         let mut st = isolated_683_state(68302);
         let _ = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-1"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&events_path).unwrap();
@@ -9233,9 +9307,9 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("designos-683-hook-cmd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
-        let status_path = tmp.join("agent-status.json");
-        let events_path = tmp.join("agent-events.jsonl");
-        let cmd_str = status_hook_command(&status_path, "PreToolUse", "working");
+        let hook_paths = crate::agent_hook_outputs::HookPaths::at(&tmp, &tmp);
+        let events_path = hook_paths.events();
+        let cmd_str = status_hook_command(&hook_paths, "PreToolUse", "working");
 
         let mut child = std::process::Command::new("sh").arg("-c").arg(&cmd_str).stdin(std::process::Stdio::piped()).spawn().expect("spawn hook command");
         {
@@ -9261,7 +9335,7 @@ mod tests {
     fn stub_cli_drives_running_needs_input_done() {
         let mut st = isolated_683_state(68301);
         let _ = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-drive-1"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
 
         let write_rec = |line: &str| {
             use std::io::Write;
@@ -9295,7 +9369,7 @@ mod tests {
         let bg_idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-bg"));
         st.active_tab = active_idx;
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -9374,7 +9448,7 @@ mod tests {
         st.window_focused = false;
         st.surface_visible = true;
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -9414,7 +9488,7 @@ mod tests {
         st.surface_visible = true;
 
         std::fs::write(
-            st.session_dir.join("agent-events.jsonl"),
+            st.prepared_hook_paths().events(),
             concat!(
                 "{\"t\":10.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-notify-perm\"}}\n",
                 "{\"t\":11.0,\"e\":\"PermissionRequest\",\"p\":{\"session_id\":\"sid-notify-perm\",\"tool_name\":\"Bash\"}}\n",
@@ -9471,7 +9545,7 @@ mod tests {
         st.window_focused = true;
         st.surface_visible = true;
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -9488,18 +9562,11 @@ mod tests {
 
     #[test]
     fn hook_files_carry_both_the_event_stream_and_the_turn_marks() {
-        let status_path = std::path::Path::new("/tmp/designos-683-677-hooks/agent-status.json");
+        let status_path =
+            &crate::agent_hook_outputs::HookPaths::at(std::path::Path::new("/tmp/designos-683-session"), std::path::Path::new("/tmp/designos-683-677-hooks"));
         let command_of = |v: &serde_json::Value, event: &str| v["hooks"][event][0]["hooks"][0]["command"].as_str().unwrap_or_default().to_string();
-        let claude = session_hooks_settings(
-            status_path,
-            Some((
-                std::path::Path::new("/tmp/designos-683-677-hooks/reply.json"),
-                std::path::Path::new("/tmp/designos-683-677-hooks/bootstrap-context-reply.json"),
-                std::path::Path::new("/tmp/designos-683-677-hooks/bootstrap.delivered.1"),
-            )),
-            None,
-        );
-        let grok = session_hooks_settings(status_path, None, None);
+        let claude = session_hooks_settings(status_path, Some(1), false);
+        let grok = session_hooks_settings(status_path, None, false);
         for (cli, settings) in [("claude", &claude), ("grok", &grok)] {
             let start = command_of(settings, "UserPromptSubmit");
             assert!(start.contains("agent-events.jsonl") && start.contains("\"turn_mark\":\"start\"") && start.contains(cli), "{cli} prompt hook: {start}");
@@ -9513,7 +9580,7 @@ mod tests {
             }
         }
         assert!(
-            command_of(&claude, "UserPromptSubmit").contains("else cat '/tmp/designos-683-677-hooks/reply.json'; fi"),
+            command_of(&claude, "UserPromptSubmit").contains("else cat '/tmp/designos-683-677-hooks/page-context-reply.json' 2>/dev/null || true; fi"),
             "Claude still answers with the page context once the bootstrap block was delivered"
         );
         // Attached skills are `additionalContext` of the prompt hook's own handlers, one per slot: each prints nothing, and
@@ -9613,7 +9680,12 @@ mod tests {
                 assert_eq!(claude_permission.len(), 1, "Skip mode keeps only the status handler: {claude_permission:?}");
                 assert!(approve.is_empty(), "Skip mode must not install the approval hook");
                 let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).expect("a private channel location");
-                assert!(!channel.exists(), "Skip mode creates no approval channel: {}", channel.display());
+                assert!(
+                    !channel.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME).exists()
+                        && !channel.join(crate::agent_approval_channel::HOOKS_FILE_NAME).exists(),
+                    "Skip mode makes no approval script and no hooks file: {}",
+                    channel.display()
+                );
             }
             assert_eq!(hook_handlers(&grok, "PermissionRequest").len(), 1, "Grok never runs the Claude approval script");
             crate::agent_approval_channel::remove_channel(&st.session_dir);
@@ -9682,7 +9754,7 @@ mod tests {
                 std::fs::write(approvals_dir.join("5001-Bash.request.json"), request.to_string()).unwrap();
             }
             std::fs::write(
-                st.session_dir.join("agent-events.jsonl"),
+                st.prepared_hook_paths().events(),
                 concat!(
                     "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-both\"}}\n",
                     "{\"t\":401.0,\"e\":\"PermissionRequest\",\"p\":{\"session_id\":\"sid-both\",\"tool_name\":\"Bash\"}}\n",
@@ -9781,7 +9853,7 @@ mod tests {
         });
         std::fs::write(approvals_dir.join("6001-Bash.request.json"), request.to_string()).unwrap();
         std::fs::write(
-            st.session_dir.join("agent-events.jsonl"),
+            st.prepared_hook_paths().events(),
             concat!(
                 "{\"t\":500.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-strip-approval\"}}\n",
                 "{\"t\":501.0,\"e\":\"PreToolUse\",\"p\":{\"session_id\":\"sid-strip-approval\",\"tool_name\":\"Bash\"}}\n",
@@ -9986,7 +10058,7 @@ mod tests {
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stack"));
         let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
         std::fs::create_dir_all(&approvals_dir).unwrap();
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         // Turn 1 finished (receipt row), turn 2 is waiting on a permission request (approval card).
         std::fs::write(
             &events_path,
@@ -10032,7 +10104,7 @@ mod tests {
     fn event_stream_status_changes_drive_the_tab_turn_ledger() {
         let mut st = isolated_683_state(68399);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-ledger"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":300.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-ledger\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.ledger_for_tab_mut(idx).turns.len(), 1, "a Working status from the event stream opens a turn");
@@ -10047,8 +10119,9 @@ mod tests {
 
     #[test]
     fn works_for_each_cli_hook_file() {
-        let status_path = std::path::Path::new("/tmp/designos-683-hooks-check/agent-status.json");
-        let claude_grok = session_hooks_settings(status_path, None, None);
+        let status_path =
+            &crate::agent_hook_outputs::HookPaths::at(std::path::Path::new("/tmp/designos-683-session"), std::path::Path::new("/tmp/designos-683-hooks-check"));
+        let claude_grok = session_hooks_settings(status_path, None, false);
         for &(event, _) in crate::agent_turn_status::CLAUDE_GROK_HOOK_EVENTS {
             let cmd = claude_grok["hooks"][event][0]["hooks"][0]["command"].as_str().unwrap_or_default();
             assert!(cmd.contains("agent-events.jsonl"), "Claude/Grok hook for {event} must append to agent-events.jsonl: {cmd}");
@@ -10070,7 +10143,7 @@ mod tests {
         st.active_tab = codex_idx;
 
         // Write an event to agent-events.jsonl: Codex must ignore it.
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":10.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"codex-sid\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
         // The backing shell prints its prompt on start, and a loaded machine can deliver it at any moment during this test. That
@@ -10124,7 +10197,7 @@ mod tests {
         let tab_a = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-a"));
         let tab_b = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-b"));
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -10159,7 +10232,7 @@ mod tests {
         let mut st_mixed = isolated_683_state(68311);
         let claude_idx = spawn_mock_agent_tab(&mut st_mixed, AgentCliPreset::Claude, Some("sid-claude-read"));
         let _codex_idx = spawn_mock_agent_tab(&mut st_mixed, AgentCliPreset::Codex, None);
-        let mixed_events = st_mixed.session_dir.join("agent-events.jsonl");
+        let mixed_events = st_mixed.prepared_hook_paths().events();
         std::fs::write(
             &mixed_events,
             concat!(
@@ -10215,15 +10288,16 @@ mod tests {
         assert_eq!(records.len(), 16, "all 16 concurrent hook records must parse cleanly");
         let _ = std::fs::remove_dir_all(&tmp);
 
-        // Verify spawning a tab removes any stale `.lock` directories in `session_dir`.
+        // Verify spawning a tab removes any stale `.lock` directories in the hook folder of its session.
         let mut st = isolated_683_state(68312);
-        let stale_events_lock = st.session_dir.join("agent-events.jsonl.lock");
-        let stale_status_lock = st.session_dir.join("agent-status.jsonl.lock");
+        let hook_dir = st.prepared_hook_paths();
+        let stale_events_lock = hook_dir.dir().join("agent-events.jsonl.lock");
+        let stale_transcript_lock = hook_dir.dir().join("claude-transcript.json.lock");
         std::fs::create_dir_all(&stale_events_lock).unwrap();
-        std::fs::create_dir_all(&stale_status_lock).unwrap();
+        std::fs::create_dir_all(&stale_transcript_lock).unwrap();
         let _ = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-lock-clean"));
         assert!(!stale_events_lock.exists(), "spawning a tab must remove stale agent-events.jsonl.lock");
-        assert!(!stale_status_lock.exists(), "spawning a tab must remove stale agent-status.jsonl.lock");
+        assert!(!stale_transcript_lock.exists(), "spawning a tab must remove stale claude-transcript.json.lock");
         kill_tabs(&mut st);
     }
 
@@ -10239,7 +10313,7 @@ mod tests {
         st.window_focused = false;
         st.surface_visible = true;
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":10.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-exit-1\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
 
@@ -10265,7 +10339,7 @@ mod tests {
         st.active_tab = tab_idx;
         let tab_id = st.tabs[tab_idx].id;
 
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -10337,7 +10411,7 @@ mod tests {
         st_denied.surface_visible = true;
         st_denied.status_msg = None;
 
-        let events_path = st_denied.session_dir.join("agent-events.jsonl");
+        let events_path = st_denied.prepared_hook_paths().events();
         std::fs::write(
             &events_path,
             concat!(
@@ -10370,7 +10444,7 @@ mod tests {
         st.window_focused = false;
         st.surface_visible = false;
 
-        let events_path2 = st.session_dir.join("agent-events.jsonl");
+        let events_path2 = st.prepared_hook_paths().events();
         std::fs::write(
             &events_path2,
             concat!(
@@ -10841,7 +10915,7 @@ mod tests {
     fn a_late_stop_failure_does_not_overwrite_the_stopped_receipt() {
         let mut st = isolated_683_state(68462);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stop-failure"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stop-failure\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
 
@@ -10867,7 +10941,7 @@ mod tests {
     fn a_user_stop_is_never_classified_as_a_session_failure() {
         let mut st = isolated_683_state(68631);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stop-no-failure"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stop-no-failure\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
 
@@ -10894,7 +10968,7 @@ mod tests {
     fn a_stop_failure_event_sets_the_banner_and_the_next_prompt_clears_it() {
         let mut st = isolated_683_state(68632);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-failure-banner"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":500.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-failure-banner\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
         let append = |line: &str| {
@@ -10924,7 +10998,7 @@ mod tests {
     fn tool_events_in_flight_after_a_stop_do_not_revive_the_tab_until_a_new_prompt() {
         let mut st = isolated_683_state(68461);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stopped"));
-        let events_path = st.session_dir.join("agent-events.jsonl");
+        let events_path = st.prepared_hook_paths().events();
         std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stopped\"}}\n").unwrap();
         let _ = st.poll_live_agent_bridge();
         assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Working(_)));
@@ -12885,7 +12959,7 @@ mod tests {
             assert!(!first_prompt.contains("### `designos_delete_node`"), "the Claude first-turn block must not list a disabled tool");
 
             // The compact fallback the hook prints when the full build is late carries the same pack.
-            let compact_reply = read_json(&st.session_dir.join("bootstrap-compact-reply.json"));
+            let compact_reply = read_json(&st.prepared_hook_paths().compact_reply());
             let compact = compact_reply["hookSpecificOutput"]["additionalContext"].as_str().expect("additionalContext");
             assert!(
                 compact.contains("### `designos_create_node`") && !compact.contains("### `designos_delete_node`"),

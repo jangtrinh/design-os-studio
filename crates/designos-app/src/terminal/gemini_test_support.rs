@@ -155,7 +155,7 @@ pub(super) fn hook_files(st: &TerminalState) -> Vec<PathBuf> {
 /// Appends one hook record that names tab `tab` to the session's event log, as Gemini's handler does, and polls the bridge once.
 pub(super) fn send_record(st: &mut TerminalState, tab: usize, event: &str, payload: &str) {
     use std::io::Write;
-    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(st.session_dir.join("agent-events.jsonl")).unwrap();
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(st.prepared_hook_paths().events()).unwrap();
     writeln!(log, r#"{{"t":10,"e":"{event}","tab":"{tab}","p":{payload}}}"#).unwrap();
     let _ = st.poll_live_agent_bridge();
 }

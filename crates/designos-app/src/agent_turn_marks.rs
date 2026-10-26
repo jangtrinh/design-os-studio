@@ -1,4 +1,4 @@
-//! Hook-written turn boundary marks (`<session_dir>/turn-marks.jsonl`) for agent tabs (`#677`).
+//! Hook-written turn boundary marks (`turn-marks.jsonl` in the hook folder, `agent_hook_outputs`) for agent tabs (`#677`).
 //!
 //! Supported CLIs (`Claude`, `Grok`, `Antigravity`) append a single JSON line with the current
 //! byte length of `doc-patch.jsonl` when a turn starts (`UserPromptSubmit` / `PreInvocation`) and
@@ -42,7 +42,7 @@ impl TurnMarkLine {
     }
 }
 
-/// Incremental byte-offset reader for `<session_dir>/turn-marks.jsonl`.
+/// Incremental byte-offset reader for `turn-marks.jsonl` of the hook folder.
 #[derive(Debug)]
 pub struct TurnMarkLog {
     path: PathBuf,
@@ -144,14 +144,26 @@ fn sh_quote_path(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
 
+/// The program and arguments that print the size in bytes of what a path names, through links, without opening it: `stat(2)` reads the
+/// size from the inode, so a FIFO an agent planted at the path (or a link to one) cannot make the hook wait for a writer, which a
+/// `wc -c <` would (it opens the file). macOS has the BSD `stat`, called by its path so no earlier `stat` on `PATH` is the one that
+/// runs; elsewhere it is GNU `stat`.
+#[cfg(target_os = "macos")]
+pub(crate) const SIZE_OF_COMMAND: &str = "/usr/bin/stat -L -f %z";
+#[cfg(not(target_os = "macos"))]
+pub(crate) const SIZE_OF_COMMAND: &str = "stat -L -c %s";
+
 /// Shell command that appends a `{"v":TURN_MARK_VERSION,"turn_mark":"...","cli":"...","patch_bytes":N}` JSON line
-/// to `mark_path`, where `N` is the current byte length of `patch_log_path` (or `0` when absent).
-/// Produces no stdout so CLI hook output contracts remain untouched.
+/// to `mark_path`, where `N` is the current byte length of `patch_log_path` (or `0` when absent, unreadable or not a number). A link
+/// with nothing behind it is not "absent" on macOS: BSD `stat -L` falls back to the link itself and prints the length of its text. The
+/// patch log is the one an agent can write anyway, and a mark only says where in it a turn began, so a number it chose changes nothing.
+/// `mark_path` lies in the hook folder (`agent_hook_outputs`); `patch_log_path` is the one file in the session folder that a hook
+/// touches, and it is only measured, never opened. Produces no stdout so CLI hook output contracts remain untouched.
 pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &str, cli: &str) -> String {
     let mark_q = sh_quote_path(mark_path);
     let patch_q = sh_quote_path(patch_log_path);
     format!(
-        "n=$( (wc -c < {patch_q}) 2>/dev/null || echo 0); \
-         printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}"
+        "n=$( ({SIZE_OF_COMMAND} {patch_q}) 2>/dev/null || echo 0); case \"$n\" in ''|*[!0-9]*) n=0;; esac; \
+         {{ printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}; }} 2>/dev/null || true"
     )
 }

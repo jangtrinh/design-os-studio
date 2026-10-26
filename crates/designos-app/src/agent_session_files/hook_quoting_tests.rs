@@ -1,5 +1,6 @@
-//! The hook commands Studio writes name files in the session folder. The folder of a Mac user sits under `Application Support`
-//! and can hold an apostrophe (a home folder named after a person), so every path in every hook command must survive both.
+//! The hook commands Studio writes name files in the hook folder next to the approval channel, and measure one file of the session
+//! folder. The data folder of a Mac user sits under `Application Support` and can hold an apostrophe (a home folder named after a
+//! person), and so can the session folder, so every path in every hook command must survive both.
 
 use super::folder_tests::{scratch_dir, Cleanup};
 use super::*;
@@ -64,12 +65,23 @@ fn run_sh(command: &str, session_dir: &Path, stdin: &str) -> std::process::Outpu
 }
 
 #[test]
-fn every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder() {
+fn every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder_and_in_the_data_folder() {
     let scratch = scratch_dir("hook-quoting");
     let _cleanup = Cleanup(vec![scratch.clone()]);
+    let private_root = scratch.join("Jang's Application Support").join("ap");
+    crate::agent_approval_channel::with_private_root_at(&private_root, || every_hook_command_survives_these_folders(&scratch));
+}
+
+fn every_hook_command_survives_these_folders(scratch: &Path) {
     let session_dir = scratch.join("Jang's folder").join("agent-sessions").join("file-1");
     ensure_session_dir(&session_dir).expect("the session folder");
     crate::terminal::write_session_agent_files_for_job(&job_in(&session_dir)).expect("write the session files");
+    let hook_paths = crate::agent_hook_outputs::HookPaths::locate(&session_dir);
+    assert!(
+        hook_paths.dir().starts_with(scratch.join("Jang's Application Support")),
+        "the hooks report below the private root: {}",
+        hook_paths.dir().display()
+    );
 
     let mut commands = Vec::new();
     for hooks_file in ["hooks.json", ".grok/hooks/designos-status.json", ".agents/hooks.json"] {
@@ -87,23 +99,23 @@ fn every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder()
     let mut pre_tool = Vec::new();
     commands_of(&claude["hooks"]["PreToolUse"], &mut pre_tool);
     assert!(run_sh(&pre_tool[0], &session_dir, "{}").status.success(), "the status hook failed");
-    let status = std::fs::read_to_string(session_dir.join("agent-status.json")).expect("the status hook wrote the status file");
+    let status = std::fs::read_to_string(hook_paths.status()).expect("the status hook wrote the status file");
     assert!(status.contains("\"state\":\"working\""), "{status}");
-    assert!(session_dir.join("agent-events.jsonl").is_file(), "the status hook appended its event");
+    assert!(hook_paths.events().is_file(), "the status hook appended its event");
 
     let capture = pre_tool.last().expect("capture command");
     run_sh(capture, &session_dir, r#"{"session_id":"s1","transcript_path":"/x/t.jsonl"}"#);
-    let meta = std::fs::read_to_string(session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME)).expect("the capture wrote its file");
+    let meta = std::fs::read_to_string(hook_paths.transcript()).expect("the capture wrote its file");
     assert!(meta.contains("\"session_id\":\"s1\""), "{meta}");
 
     // The prompt hook: the first turn prints the bootstrap reply and marks it delivered, a later turn prints the page reply.
     let mut prompt = Vec::new();
     commands_of(&claude["hooks"]["UserPromptSubmit"], &mut prompt);
-    std::fs::write(session_dir.join("bootstrap-context-reply.json"), "BOOTSTRAP-REPLY").expect("a bootstrap reply");
+    std::fs::write(hook_paths.bootstrap_reply(), "BOOTSTRAP-REPLY").expect("a bootstrap reply");
     let first = run_sh(&prompt[0], &session_dir, "{}");
     let first_out = String::from_utf8_lossy(&first.stdout);
     assert!(first.status.success() && first_out.contains("BOOTSTRAP-REPLY"), "the first prompt printed {first_out:?}");
-    assert!(session_dir.join("bootstrap.delivered.1").exists(), "the first prompt did not mark the bootstrap as delivered");
+    assert!(hook_paths.delivered_marker(1).exists(), "the first prompt did not mark the bootstrap as delivered");
     let later = run_sh(&prompt[0], &session_dir, "{}");
     let later_out = String::from_utf8_lossy(&later.stdout);
     assert!(
@@ -111,8 +123,8 @@ fn every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder()
         "a later prompt printed {later_out:?}"
     );
 
-    assert!(crate::skills::hook_delivery::write_replies(&session_dir, 1, &["skill reply".to_string()], 0));
-    let handler = &crate::skills::hook_delivery::handler_commands(&session_dir)[0];
+    assert!(crate::skills::hook_delivery::write_replies(hook_paths.dir(), 1, &["skill reply".to_string()], 0));
+    let handler = &crate::skills::hook_delivery::handler_commands(hook_paths.dir())[0];
     let printed = run_sh(handler, &session_dir, "");
     assert!(String::from_utf8_lossy(&printed.stdout).contains("skill reply"), "the handler printed {:?}", String::from_utf8_lossy(&printed.stdout));
 }

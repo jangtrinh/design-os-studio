@@ -1,0 +1,22 @@
+d843fd955d186823f99624ae669a2367a91b677d
+ M plans/reports/v062-fix-1072-evidence/gate-r2-head.txt
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-approval-script-status-write-is-not-silenced.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-event-append-is-not-silenced.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-lock-loop-never-leaves-over-a-folder-it-cannot-write.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-status-write-is-not-silenced.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-transcript-capture-waits-for-a-lock-that-is-not-there.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m1-the-turn-mark-append-is-not-silenced.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m2-a-missing-channel-is-made-with-a-plain-create-dir-all.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m2-every-file-of-the-approval-channel-anchors-again.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m3-a-claude-tab-with-no-hook-folder-still-leaves-skills-for-a-hook.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m3-a-hook-file-ends-in-an-extension-designos-mcp-writes.diff
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m3-a-hook-file-ends-in-an-extension-designos-mcp-writes.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m4-antigravity-gets-session-folder-hooks-when-no-hook-has-a-folder.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m4-claude-gets-session-folder-hooks-when-no-hook-has-a-folder.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m4-gemini-gets-session-folder-hooks-when-no-hook-has-a-folder.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-m4-grok-gets-session-folder-hooks-when-no-hook-has-a-folder.log
+ M plans/reports/v062-fix-1072-evidence/r2-mut-n5-the-neutral-line-names-no-folder-by-path.log
+?? plans/reports/v062-fix-1072-evidence/r2-mut-m3-designos-mcp-gains-a-write-extension-a-hook-file-has.diff
+?? plans/reports/v062-fix-1072-evidence/r2-mut-m3-designos-mcp-gains-a-write-extension-a-hook-file-has.log
+?? plans/reports/v062-fix-1072-evidence/r2-mut-m3-designos-mcp-temporary-names-start-like-a-hook-file.diff
+?? plans/reports/v062-fix-1072-evidence/r2-mut-m3-designos-mcp-temporary-names-start-like-a-hook-file.log

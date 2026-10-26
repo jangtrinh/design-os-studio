@@ -904,7 +904,7 @@ impl Engine {
                     let second_name = false;
                     (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
                 });
-                validate_existing_output_target(target_meta, &a.output_path, "/output_path", "fig", a.overwrite, true)?;
+                validate_existing_output_target(target_meta, &a.output_path, "/output_path", EXPORT_FIG_EXTENSION, a.overwrite, true)?;
                 self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
@@ -1314,13 +1314,15 @@ fn summary(doc: &Document, n: &Node) -> Value {
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&raw)))
+    T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&args)))
 }
 
 pub(crate) fn parse_spec<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&raw)))
+    let parsed = T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&args)))?;
+    if let Some(spec_msg) = crate::tools::errors::describe_spec_args_error(&args) {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, "", format!("Invalid arguments: {spec_msg}")));
+    }
+    Ok(parsed)
 }
 
 use crate::tools::bounded_text;
@@ -1551,6 +1553,23 @@ pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), 
     Ok(())
 }
 
+/// The one file name ending `designos_save_file` writes below the workspace.
+pub const SAVE_EXTENSION: &str = "designos";
+/// The one file name ending `designos_render_png` writes below the workspace.
+pub const RENDER_EXTENSION: &str = "png";
+/// The one file name ending `designos_export_fig_file` writes below the workspace (any case: `.FIG` is accepted).
+pub const EXPORT_FIG_EXTENSION: &str = "fig";
+
+/// Every file name ending the tools of this server create below the workspace (`--workspace`, the open file's folder). A tool refuses
+/// any other, so a file with none of these endings in the workspace is out of its reach, except for the temporary name below. Studio
+/// relies on it: its hook folder lies in the data folder, which can lie inside a workspace, and none of the names kept there ends in
+/// one of these or starts with the temporary prefix (`agent_hook_outputs`).
+pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, EXPORT_FIG_EXTENSION];
+
+/// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
+/// made with `create_new`, so it never replaces an existing file).
+pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
+
 pub(crate) fn validate_existing_output_target(
     target_meta: Option<(bool, bool, bool, bool, bool)>,
     display_path: &str,
@@ -1731,7 +1750,7 @@ pub(crate) fn write_checked_output_file(
     static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = resolved.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
     let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = dir.join(format!(".designos-out-{}-{seq}.tmp", std::process::id()));
+    let tmp = dir.join(format!("{OUTPUT_TEMP_PREFIX}{}-{seq}.tmp", std::process::id()));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]

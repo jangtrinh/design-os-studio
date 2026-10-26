@@ -687,7 +687,7 @@ impl Session {
             let second_name = false;
             (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
         });
-        crate::engine::validate_existing_output_target(target_meta, path, "/path", "designos", overwrite, true)?;
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", crate::engine::SAVE_EXTENSION, overwrite, true)?;
         let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path needs a filename"))?;
         Ok(resolved)
     }
@@ -727,7 +727,7 @@ impl Session {
             let second_name = false;
             (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
         });
-        crate::engine::validate_existing_output_target(target_meta, path, "/path", "png", false, false)?;
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", crate::engine::RENDER_EXTENSION, false, false)?;
         let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path needs a filename"))?;
         Ok(resolved)
     }
@@ -767,7 +767,7 @@ impl Session {
             let second_name = false;
             (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
         });
-        crate::engine::validate_existing_output_target(target_meta, path, "/output_path", "fig", overwrite, true)?;
+        crate::engine::validate_existing_output_target(target_meta, path, "/output_path", crate::engine::EXPORT_FIG_EXTENSION, overwrite, true)?;
         let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path needs a filename"))?;
         Ok(resolved)
     }

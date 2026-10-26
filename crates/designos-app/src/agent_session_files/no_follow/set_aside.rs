@@ -109,9 +109,11 @@ impl Dir {
         Err(io::Error::from_raw_os_error(libc::ENOTSUP))
     }
 
-    /// The refusal for a move the system answered with "permission denied", naming the folder that refuses: the one the entry is in,
-    /// the new folder made for this start, or the entry itself when it is a folder (a folder changes its `..` when it changes parent,
-    /// which needs write permission on itself). Modes are read from the descriptors and never by a path.
+    /// The refusal for a move the system answered with "permission denied", naming what refuses. By mode bits: the folder the entry is
+    /// in, the new folder made for this start, or the entry itself when it is a folder (a folder changes its `..` when it changes
+    /// parent, which needs write permission on itself). By file flags (macOS): whichever of the three an agent locked, which refuses
+    /// with every mode bit set. What is left, an ACL that denies the delete on either side for one, cannot be told from the
+    /// descriptors, so the line names the entry and says to check it and its folder. Nothing is read by a path.
     fn permission_denied(&self, from: &CStr, dest: &Dir, path: &Path, e: io::Error) -> io::Error {
         if !self.owner_can_write() {
             return cannot_write_to(&self.path, e);
@@ -122,7 +124,36 @@ impl Dir {
         if self.entry_is_a_folder_the_owner_cannot_write(from) {
             return cannot("moved", path, e, Fix::MakeWritable);
         }
-        cannot_write_to(&self.path, e)
+        #[cfg(target_vendor = "apple")]
+        {
+            if self.entry_is_locked(from) {
+                return locked(path, "move it");
+            }
+            if self.is_locked() {
+                return locked(&self.path, "move anything out of it");
+            }
+            if dest.is_locked() {
+                return locked(&dest.path, "move anything into it");
+            }
+        }
+        // Neither descriptor shows who refuses, so the line names the folder the entry is in by its path, next to the entry.
+        failed(e.kind(), format!("{} can't be moved out of {}: {e}", path.display(), self.path.display()), Fix::CheckItAndItsFolder)
+    }
+
+    /// Whether this folder is locked: immutable or append-only (Finder's "Locked", `chflags uchg`), which refuses a rename in or out.
+    #[cfg(target_vendor = "apple")]
+    fn is_locked(&self) -> bool {
+        // SAFETY: an all-zero `stat` is a valid value, and `fstat` fills it from the descriptor this folder holds.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        retry(|| unsafe { libc::fstat(self.raw(), &mut st) }).is_ok() && st.st_flags & LOCKED_FLAGS != 0
+    }
+
+    /// Whether the entry `name` is locked, a link included (its flags, never its target's).
+    #[cfg(target_vendor = "apple")]
+    fn entry_is_locked(&self, name: &CStr) -> bool {
+        // SAFETY: an all-zero `stat` is a valid value, and `fstatat` fills it; `name` is NUL-terminated and relative to this folder.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        retry(|| unsafe { libc::fstatat(self.raw(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) }).is_ok() && st.st_flags & LOCKED_FLAGS != 0
     }
 
     /// Whether the owner has write permission on this folder (`true` when that cannot be read, so no folder is named by mistake).
@@ -146,6 +177,16 @@ impl Dir {
     }
 }
 
+/// The file flags that make a rename in or out of a folder, or of an entry, fail with "operation not permitted" whatever its mode.
+#[cfg(target_vendor = "apple")]
+const LOCKED_FLAGS: u32 = libc::UF_IMMUTABLE | libc::UF_APPEND | libc::SF_IMMUTABLE | libc::SF_APPEND;
+
+/// The refusal for something an agent locked: `path`, and what Studio cannot do because of it.
+#[cfg(target_vendor = "apple")]
+fn locked(path: &Path, what: &str) -> io::Error {
+    failed(io::ErrorKind::PermissionDenied, format!("{} is locked, so Studio can't {what}", path.display()), Fix::Unlock)
+}
+
 /// The fix for a move that failed for a reason other than a refused permission: what only the user can move or delete (a mount
 /// point, another file system, a file system that cannot move without replacing) gets that sentence, the rest the permissions one.
 fn fix_for_move(e: &io::Error) -> Fix {
@@ -157,7 +198,7 @@ fn fix_for_move(e: &io::Error) -> Fix {
 
 /// Only a racing agent can take every name of a stamp folder.
 fn names_exhausted(folder: &Path) -> io::Error {
-    failed(io::ErrorKind::AlreadyExists, format!("A new folder can't be made in {}: every name Studio tried was taken", folder.display()), Fix::CloseOtherTabs)
+    failed(io::ErrorKind::AlreadyExists, format!("a new folder can't be made in {}: every name Studio tried was taken", folder.display()), Fix::CloseOtherTabs)
 }
 
 /// Only a racing agent can fill every name `<name>.2` to `<name>.64` of the folder an entry is moved to.
@@ -191,7 +232,7 @@ mod tests {
     fn a_racing_agent_that_takes_every_name_stops_the_start_with_the_fix_that_helps() {
         assert_eq!(
             start_failure_message("Grok Build", &names_exhausted(Path::new("/s/.designos-set-aside"))),
-            "Couldn't start Grok Build: A new folder can't be made in /s/.designos-set-aside: every name Studio tried was taken. Close this file's other agent tabs, then try again."
+            "Couldn't start Grok Build: a new folder can't be made in /s/.designos-set-aside: every name Studio tried was taken. Close this file's other agent tabs, then try again."
         );
         assert_eq!(
             start_failure_message("Grok Build", &too_many_of_that_name(Path::new("/s/.mcp.json"))),

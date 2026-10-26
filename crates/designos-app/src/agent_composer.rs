@@ -561,7 +561,7 @@ impl TerminalState {
                             self.status_msg = tab.composer.notice.clone();
                         }
                         None => {
-                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab) };
+                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir) };
                             let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                             let outcome = write_prompt_to_live_tab(tab, &queued, skills_block, &mut self.status_msg, system);
                             if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -742,7 +742,7 @@ impl TerminalState {
                 self.active_mentions.clear();
                 self.mention_popup.close();
                 // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
-                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab);
+                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
                 let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                 let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
                 if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -2080,7 +2080,7 @@ mod tests {
         assert!(text.contains("Make a pricing card"));
         let reply = hook_reply(&st);
         assert!(reply.contains("designos-skill:claude-only@1.0.0"), "the hook reply must carry the chosen skill: {reply}");
-        let page_reply = std::fs::read_to_string(st.session_dir.join("page-context-reply.json")).expect("page reply file");
+        let page_reply = std::fs::read_to_string(st.prepared_hook_paths().page_reply()).expect("page reply file");
         assert!(!page_reply.contains("designos-skill:"), "the page reply stays the page context alone: {page_reply}");
 
         st.shutdown();
@@ -2276,7 +2276,8 @@ mod tests {
     /// The skills hook replies: what the Claude prompt hook prints for attached skills, every tab's files together; empty while no
     /// skills wait.
     fn hook_reply(st: &TerminalState) -> String {
-        skills_reply_files(&st.session_dir).iter().filter_map(|name| std::fs::read_to_string(st.session_dir.join(name)).ok()).collect::<Vec<_>>().join("\n")
+        let hook_folder = st.hook_paths().dir().to_path_buf();
+        skills_reply_files(&st.session_dir).iter().filter_map(|name| std::fs::read_to_string(hook_folder.join(name)).ok()).collect::<Vec<_>>().join("\n")
     }
 
     /// Lets a submitted prompt's skills leave the reply: they stay a moment after its `UserPromptSubmit` was seen.
@@ -2373,7 +2374,7 @@ mod tests {
         // A run's first prompt also gets the bootstrap block instead of the page reply; the skills are a handler of their own and
         // arrive next to it, not inside a reply the first-turn branch would skip.
         let bootstrap_reply = r#"{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"BOOTSTRAP-BLOCK"}}"#;
-        std::fs::write(st.session_dir.join("bootstrap-context-reply.json"), bootstrap_reply).expect("bootstrap reply");
+        std::fs::write(st.prepared_hook_paths().bootstrap_reply(), bootstrap_reply).expect("bootstrap reply");
         let first_prompt_hook = run_session_hook(&st, "UserPromptSubmit");
         assert!(first_prompt_hook.contains("BOOTSTRAP-BLOCK"), "the first prompt gets the bootstrap block: {first_prompt_hook}");
         assert!(first_prompt_hook.contains("designos-skill:claude-once@1.0.0"), "the first prompt's hook must also return the skills: {first_prompt_hook}");
@@ -2467,9 +2468,10 @@ mod tests {
             .collect()
     }
 
-    /// Names of the skills hook reply files in `dir`, whatever their per-tab or per-part naming.
-    fn skills_reply_files(dir: &Path) -> Vec<String> {
-        crate::skills::hook_delivery::reply_file_names(dir)
+    /// Names of the skills hook reply files of the session folder `session_dir` (they lie in its hook folder), whatever their per-tab
+    /// or per-part naming.
+    fn skills_reply_files(session_dir: &Path) -> Vec<String> {
+        crate::skills::hook_delivery::reply_file_names(crate::agent_hook_outputs::HookPaths::locate(session_dir).dir())
     }
 
     #[test]
@@ -2485,7 +2487,7 @@ mod tests {
         let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
         let tab_id = st.active_tab().expect("tab").id;
         let bootstrap_reply = r#"{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"BOOTSTRAP-BLOCK"}}"#;
-        std::fs::write(st.session_dir.join("bootstrap-context-reply.json"), bootstrap_reply).expect("bootstrap reply");
+        std::fs::write(st.prepared_hook_paths().bootstrap_reply(), bootstrap_reply).expect("bootstrap reply");
 
         assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Written);
 
@@ -2546,14 +2548,15 @@ mod tests {
         let dir = temp_composer_dir("skills-reply-bind");
         let session_dir = dir.join("agent-sessions").join("doc-skills-bind");
         std::fs::create_dir_all(&session_dir).expect("session dir");
+        let hook_folder = crate::agent_hook_outputs::HookPaths::prepare(&session_dir).expect("the hook folder");
         for stale in ["skills-context-reply.json", "skills-context-reply-3-0.json", "skills-context-reply-3-1.json"] {
-            std::fs::write(session_dir.join(stale), "{}").expect("stale reply");
+            std::fs::write(hook_folder.dir().join(stale), "{}").expect("stale reply");
         }
-        std::fs::write(session_dir.join("bootstrap-context-reply.json"), "{}").expect("other reply");
+        std::fs::write(hook_folder.bootstrap_reply(), "{}").expect("other reply");
 
         let st = TerminalState::new_for_session("doc-skills-bind", "Skill Send", Some(&dir));
 
-        assert!(st.session_dir.join("bootstrap-context-reply.json").exists(), "only the skills replies go; the test bound the folder it planted in");
+        assert!(st.prepared_hook_paths().bootstrap_reply().exists(), "only the skills replies go; the test bound the folder it planted in");
         assert_eq!(skills_reply_files(&st.session_dir), Vec::<String>::new(), "a reply left by a quit before the hook settled must not reach this run");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2647,6 +2650,32 @@ mod tests {
         assert!(delay >= OTHER_CLI_BASE_ENTER_DELAY, "a big paste waits as long as for any other CLI: {delay:?}");
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them() {
+        let _turn = one_pty_test_at_a_time();
+        let dir = temp_composer_dir("skills-no-hook-folder");
+        crate::agent_approval_channel::without_private_root(|| {
+            let mut st = TerminalState::new_for_session("doc-skills-no-folder", "Skill Send", Some(&dir));
+            let selector = write_user_skill(&mut st, &dir, "armed-skill", "Keep gutters on the 8px grid.");
+            st.skills.toggle_skill(&selector);
+            assert!(st.skills.hook_chunks().is_some(), "the set is small enough for a hook to carry, if there were one");
+            let sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+            assert!(!crate::agent_hook_outputs::HookPaths::locate(&st.session_dir).dir().exists(), "this session has no hook folder");
+
+            assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Written);
+
+            let text = take_written(&sent);
+            assert!(text.contains("designos-skill:armed-skill@1.0.0\n"), "the skills are pasted, not left for a hook that is not installed: {text:?}");
+            assert!(text.ends_with("Make a pricing card\x1b[201~"));
+            assert!(skills_reply_files(&st.session_dir).is_empty(), "nothing waits in the replies of a hook that is not there");
+            let runs = run_records(&st.session_dir);
+            assert_eq!(runs.len(), 1, "{runs:?}");
+            assert_eq!(record_skill_names(&runs[0]), ["armed-skill"]);
+            st.shutdown();
+        });
         let _ = std::fs::remove_dir_all(&dir);
     }
 

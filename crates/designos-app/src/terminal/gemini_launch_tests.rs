@@ -16,7 +16,7 @@ fn in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file() {
     assert!(!file.starts_with(&st.session_dir), "the file Gemini reads sits in the session folder: {}", file.display());
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let seen: serde_json::Value = serde_json::from_str(&recorded(&st, "defaults-seen.txt")).expect("the stub read the hooks file");
-    assert_eq!(seen, hooks::hooks_settings(&st.session_dir, tab_id));
+    assert_eq!(seen, hooks::hooks_settings(&st.hook_paths(), tab_id));
     assert!(seen.to_string().contains(&format!("\\\"tab\\\":\\\"{tab_id}\\\"")), "the tab id is in the records the handlers write");
     // No hook reaches the session folder, where an agent can write.
     assert!(!recorded(&st, ".gemini/settings.json").contains("hooks"), "the session's Gemini settings carry hooks");

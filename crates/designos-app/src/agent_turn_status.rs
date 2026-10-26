@@ -57,7 +57,7 @@ pub fn event_append_command_for_tab(events_path: &Path, event: &str, tab: Option
     // Digits only, so it can sit inside the single-quoted `printf` format.
     let tab_field = tab.map(|id| format!("\"tab\":\"{id}\",")).unwrap_or_default();
     format!(
-        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",{tab_field}\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\\n' \"$line\" >> {quoted_path}; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
+        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",{tab_field}\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {quoted_lock} ] || break; sleep 0.01; i=$((i+1)); done; {{ printf '%s\\n' \"$line\" >> {quoted_path}; }} 2>/dev/null; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
     )
 }
 
@@ -288,7 +288,7 @@ impl EventFileCursor {
     }
 }
 
-/// Off-UI-thread reader for `<session_dir>/agent-events.jsonl` (`#683` §3.1, §11).
+/// Off-UI-thread reader for `agent-events.jsonl` of the hook folder (`agent_hook_outputs`, `#683` §3.1, §11).
 ///
 /// The background worker sleeps on an `mpsc` channel when idle (`0.00%` CPU) and parses
 /// appended JSON records off the UI thread when signalled; the UI thread drains a channel.

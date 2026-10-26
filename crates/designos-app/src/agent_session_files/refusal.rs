@@ -55,6 +55,12 @@ pub enum Fix {
     /// An entry that is not Studio's stands where a CLI would run it and Studio cannot move it aside (a platform without `openat`, a
     /// mount point, a file system that cannot move without replacing): the user moves or deletes it.
     MoveOrDeleteIt,
+    /// An entry or a folder is locked (macOS "Locked", `chflags uchg`), which no permission bit shows.
+    #[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
+    Unlock,
+    /// Something refused a move and nothing Studio can read says which of an entry and the folder it is in (an ACL that denies the
+    /// delete): the line names both, the folder by its path, and the user checks both.
+    CheckItAndItsFolder,
 }
 
 impl Fix {
@@ -69,6 +75,8 @@ impl Fix {
             Fix::DeleteLink => format!("Delete the link, then {then}"),
             Fix::DeleteIt => format!("Delete it, then {then}"),
             Fix::MoveOrDeleteIt => format!("Move or delete it, then {then}"),
+            Fix::Unlock => format!("Unlock it, then {then}"),
+            Fix::CheckItAndItsFolder => format!("Check its permissions and those of that folder, then {then}"),
         }
     }
 }

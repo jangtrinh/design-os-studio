@@ -622,6 +622,10 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, true, Some(&raw_op));
                     ToolError::batch_op_failed(idx, "apply_spec", cause)
                 })?;
+                if let Some(spec_msg) = crate::tools::errors::describe_spec_args_error(&raw_op) {
+                    let cause = ToolError::new(ErrorCode::InvalidArguments, &op_path, format!("Invalid arguments: {spec_msg}"));
+                    return Err(ToolError::batch_op_failed(idx, "apply_spec", cause));
+                }
                 if let Some(p) = &a.parent {
                     if !matches!(p, NodeRef::Id(0)) {
                         validate_ref_pre_run(p, &declared_as, has_prev, idx, "apply_spec", "parent")?;
@@ -712,6 +716,10 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                     let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, true, Some(&raw_op));
                     ToolError::batch_op_failed(idx, "set_slot", cause)
                 })?;
+                if let Some(spec_msg) = crate::tools::errors::describe_spec_args_error(&raw_op) {
+                    let cause = ToolError::new(ErrorCode::InvalidArguments, &op_path, format!("Invalid arguments: {spec_msg}"));
+                    return Err(ToolError::batch_op_failed(idx, "set_slot", cause));
+                }
                 validate_ref_pre_run(&a.node, &declared_as, has_prev, idx, "set_slot", "node")?;
                 has_prev = true;
                 ParsedOp::SetSlot(a)
