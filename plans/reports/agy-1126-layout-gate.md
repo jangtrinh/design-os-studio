@@ -1087,3 +1087,144 @@ PASS: no count rose above the baseline
   - None.
 
 Status: DONE — Round 5 comparer and test-gap fixes (Items 1–6 fixed red-to-green, Item 7 documented no-change per spec rule 5 item 3) verified on `2b909a5d4` with 0 fmt diffs, 0 clippy warnings, 1,281/0 workspace lib tests, 3,021/0 designos bin tests, 17/17 zero-fake UI gate, and 0 spacing regressions.
+
+---
+
+## Round 6 (Two Comparer Fixes & One Load-Sensitive Test on `4b6dbb5a` -> `efc19e7e`)
+
+### 1. What Could NOT Be Verified First
+
+- **NOT VERIFIED (Deferred by Task Scope to Round 7):** Section 12 steps 8–9 (`scripts/layout_baseline_capture.py` Tier B screenshot/canvas diffing across the 74 headless + 4 kit cases) and the baseline bless (`tests/layout-baseline/*.layout.json` and `cases.json.bless_sha`) were not executed in Round 6 per the explicit task constraint: *"Fixes only. Section 12 steps 8–9 and the bless are round 7. No `*.layout.json` baselines and no `cases.json.bless_sha`."*
+
+### 2. Conclusion & Epistemic Ledger
+
+- **Conclusion:** Round 6 resolves the two accepted comparer findings from `plans/reports/review-1126-pr1206-r5-grok.md` (Major 1 and Minor 1) and the load-sensitive `open_failed_start_fixture_does_not_block_waiting_for_exit` test (Item 3), while preserving the rejected Major 2 ruling and all Round 5 / Findings 1–12 behaviors unchanged. Each comparer fix was landed with a failing `test(app): …` commit first (`r6-red.log`) followed by its `fix(app): …` commit (`r6-green.log`), and Item 3 was verified to fail when the removed 5 s `poll_live_agent_bridge` sleep loop is restored in `terminal.rs` (`bridge_polled=true, elapsed=5.076707375s`) and pass without it (`0.12s`). All acceptance gates pass on `efc19e7e`.
+- **Epistemic Ledger:**
+  - `FACT` — **Controller Ruling on Major 2 (`rejected (ruling)`, no code change):** Per controller ruling against PM blob §8: *"Expected shift. It is the entry's exact `dx`/`dy` (default 0), plus a derived cumulative shift."* It applies to each widget on each axis, so a widget with no covering entry and an unchanged size still gets the derived shift from the rows above (which is how a row below a grown row is allowed to move). Preserved both `None if !size_changed` arms in `crates/designos-app/src/layout_snapshot.rs:766-768` and `789-791`.
+  - `FACT` — **Item 1 (Major 1 — intersect per-widget best allow ranges on row `dh`, `layout_snapshot.rs:715-736`):** Previously `row_covering` took a single winner across the row's widgets via `max_by_key` and chained `best_matching_entry(..., None, row_b_rect)`, letting one widget's wider `max_dh` (`[8, 32]` on `B`) become the whole row's range even when `A`'s best entry was `[8, 8]`. Updated `compare` to take only each widget's best (most specific) entry (`best_matching_entry(allow, case_id, &reg, w.name, w.b_rect)`) and intersect their `[min_dh, max_dh]` ranges (`min_dh = min_dh.max(e.min_dh.unwrap_or(0.0))`, `max_dh = max_dh.min(e.max_dh.unwrap_or(0.0))`, with an unset side defaulting to `0.0`). A one-widget row still uses that widget's best entry so `equally_specific_entries_fail_to_parse` (`name_prefix must beat h_base`) stays green, and Grok's A/B geometry (`A: [0,0,40,24]->[0,0,40,32]`, `B: [0,10,40,24]->[0,18,40,32]` under `{h_base:24, min_dh:8, max_dh:8}` + `{name_prefix:"B", min_dh:8, max_dh:32, dy:8}`) fails with `G3/G4 row #0 [A, B] dh=16 out of allowed [8, 8]`. Verified red (`361656ab`) -> green (`399dfc4a`).
+  - `FACT` — **Item 2 (Minor 1 — restore `gaps_above * gap_dy` on `centre` and `bottom` `y` anchors, `layout_snapshot.rs:475-480`):** PM blob §8 states *"The derived shift also adds the covering entry's `gap_dy` once for each row gap above the widget."* Added `(shifts.gaps_above as f32) * gap_dy` back to `AnchorY::Centre` and `AnchorY::Bottom` while preserving `- shifts.sum_dh_below` on `AnchorY::Bottom`. Verified red (`d897874e`) -> green (`397f5be0`) by `gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance` (`anchor_y: centre` and `anchor_y: bottom` with `gap_dy: 8`, one row above, and an unchanged-size widget moving `+8` passes; `+16` fails).
+  - `FACT` — **Item 3 (Load-sensitive test `open_failed_start_fixture_does_not_block_waiting_for_exit`, `layout_snapshot.rs:2165-2189`):** Replaced the load-sensitive `< 500 ms` assertion (which failed at `1.686 s` during a full-suite parallel run on a loaded machine) with: (a) a time-independent check seeding `terminal.deferred_bridge_actions` and asserting `!terminal.deferred_bridge_actions.is_empty()` after `open_failed_start_fixture(None)` returns (since `poll_live_agent_bridge()` drains `deferred_bridge_actions` via `std::mem::take` on its first call), and (b) `elapsed < Duration::from_secs(4)` (well below the 5 s `START_FAILURE_WINDOW` sleep loop and well above loaded parallel spawn time). Verified in `r6-red.log` that restoring the 5 s sleep loop in `terminal.rs:2537` fails the test (`bridge_polled=true, elapsed=5.076707375s`) and restoring `terminal.rs` passes in `0.12s` (`efc19e7e`).
+  - `FACT` — **Item 4 (No change to Major 2, Round 5 items 3–4, or findings 1–12):** Verified via `git diff 4b6dbb5a..efc19e7e` that only the row `dh` range intersection, `AnchorY` `gap_dy` addition, and the 3 unit tests in `crates/designos-app/src/layout_snapshot.rs` were touched.
+  - **Weakest link (one line):** Until Round 7 runs `scripts/layout_baseline_capture.py` and commits the blessed `*.layout.json` baselines and `cases.json.bless_sha`, `layout_unchanged_d..k` verify live capture + self-comparison (`compare(&snap, &snap, ...)`) rather than cross-commit baseline diffing.
+
+### 3. Skills Loaded & Changes Made Because of Them
+
+- `es:astra-work` & `es:fable-thinking`: Verified every item against PM blob §8 (`origin/pm/spec-ui-revamp:plans/specs/ui-revamp/detail/1126-layout-unchanged-gate-baseline-capture.md`) and controller rulings, stated `PREDICT` before each test and gate run, verified red failures (`r6-red.log`) before green fixes (`r6-green.log`), tested putting the 5 s sleep loop back in `terminal.rs` to prove Item 3 catches it, and ran all acceptance gates on the final code commit (`efc19e7e`).
+- `es:orca-native-orchestration`: Checked coordinator inbox via `orca orchestration check --terminal term_5782569b-a2f3-46b0-89a4-5654a49d8546 --json` at natural checkpoints and sent heartbeats every 5 minutes with `--task-id task_4141f3c043a9` and `--dispatch-id ctx_45d906e0c1c0`.
+- `es:dev` / `es:feature-dev`: Enforced strict Red (`test(app): …`) -> Green (`fix(app): …`) commits for Items 1 and 2 plus `test(app): …` commit for Item 3.
+- `es:rust`: Removed unused `b_min_x`/`b_max_x`/`b_w` row-width temporaries and the unused `DerivedShifts::gaps_below` field when switching `AnchorY::Bottom` to `gaps_above * gap_dy`, ensuring `cargo clippy --workspace --all-targets --locked -- -D warnings` passes with 0 warnings.
+- `es:rust-gpu-canvas`: Preserved all `designos-gpu` and `designos-render` invariants untouched.
+
+### 4. Round 6 Items Table (Items 1–4 & Major 2 Ruling)
+
+| # | Item / Review Finding | Summary | Status | Red Commit | Green / Final Commit |
+|---|---|---|---|---|---|
+| **Major 2** | Uncovered unchanged-size widget inherits derived shift (`layout_snapshot.rs:766-768, 789-791`) | PM blob §8: *"Expected shift. It is the entry's exact `dx`/`dy` (default 0), plus a derived cumulative shift."* Applies to each widget on each axis so a row below a grown row is allowed to move; kept `None if !size_changed` arms per controller ruling. | `rejected (ruling)` | — | — |
+| **1** | **Major 1:** One widget's wider range becomes the whole row's range (`layout_snapshot.rs:715-736`) | Take only each widget's best (most specific) entry in the row and intersect their `[min_dh, max_dh]` ranges (±0.5; unset side is `0.0`). One-widget rows keep `name_prefix > h_base`; Grok's A/B geometry fails naming the row and `dh=16`. | `fixed` | `361656ab` | `399dfc4a` |
+| **2** | **Minor 1:** `gap_dy` was dropped for `centre` and `bottom` (`layout_snapshot.rs:475-480`) | Added `(shifts.gaps_above as f32) * gap_dy` back to `AnchorY::Centre` and `AnchorY::Bottom` while keeping `- shifts.sum_dh_below` on `AnchorY::Bottom`. Tested `anchor_y: centre` and `bottom` with `gap_dy: 8`, 1 row above, and unchanged-size widget moving `+8`. | `fixed` | `d897874e` | `397f5be0` |
+| **3** | **Load-sensitive test:** `open_failed_start_fixture_does_not_block_waiting_for_exit` (`layout_snapshot.rs:2165-2189`) | Asserts both `!bridge_polled` (`deferred_bridge_actions` sentinel not drained by `poll_live_agent_bridge()`) and `elapsed < 4s`. Proven to fail (`bridge_polled=true, elapsed=5.076707375s`) when the 5 s sleep loop is restored in `terminal.rs`. | `fixed` | `r6-red.log` (with 5 s loop restored in `terminal.rs`) | `efc19e7e` |
+| **4** | Preserve Major 2, Round 5 items 3–4, and findings 1–12 | Untouched (`git diff 4b6dbb5a..efc19e7e`). | `no change` | — | — |
+
+---
+
+### 5. Acceptance Verification (Run on Final Code Commit `efc19e7e`)
+
+#### Acceptance 1 — Items 1–4 Table
+See Section 4 above.
+
+#### Acceptance 2 — Red (`r6-red.log`) and Green (`r6-green.log`) Logs
+Full logs are committed at `plans/reports/agy-1126-layout-gate-evidence/r6-red.log` and `plans/reports/agy-1126-layout-gate-evidence/r6-green.log`.
+
+```text
+=== r6-red.log (each test failing before its fix / with the 5s sleep loop restored) ===
+Major 1 (361656ab): test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... FAILED
+  thread 'layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry' (76510932) panicked at crates/designos-app/src/layout_snapshot.rs:1219:9:
+  row dh failure must name the row and dh=16, got: G3 row order mismatch in case f-inspector region 'right_panel': baseline=[["A", "B"]], current=[["A"], ["B"]]
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+Minor 1 (d897874e): test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... FAILED
+  thread 'layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance' (76551899) panicked at crates/designos-app/src/layout_snapshot.rs:1418:37:
+  anchor_y=Centre with gap_dy=8 and 1 row above moving +8 must pass: G3 named widget 'prop-row-1' rect drift in case f-inspector (region 'right_panel'): baseline=[1210.0, 90.0, 200.0, 24.0], current=[1210.0, 98.0, 200.0, 24.0]
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+Item 3 (5s sleep loop put back in terminal.rs): test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... FAILED
+  thread 'layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit' (76594410) panicked at crates/designos-app/src/layout_snapshot.rs:2186:9:
+  open_failed_start_fixture must not block in a 5s poll_live_agent_bridge sleep loop: bridge_polled=true, elapsed=5.076707375s
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 5.16s
+
+=== r6-green.log (each test passing after its fix) ===
+Major 1 (399dfc4a):
+  test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... ok (1 passed; 0 failed; finished in 0.00s)
+  test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... ok (1 passed; 0 failed; finished in 0.01s)
+Minor 1 (397f5be0):
+  test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... ok (1 passed; 0 failed; finished in 0.01s)
+  test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... ok (1 passed; 0 failed; finished in 0.02s)
+Item 3 (efc19e7e):
+  test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok (1 passed; 0 failed; finished in 0.12s)
+```
+
+#### Acceptance 3 & 4 — Clean `PATH` Proof + Full Mandatory Test Harness on `efc19e7e`
+
+```text
+$ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.cargo/bin"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ for c in claude codex gemini grok agy opencode; do command -v $c; done
+(empty output — 0 bytes in r6-clean-path.log)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+(exit 0 — 0 bytes in r6-fmt.log)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.03s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.52s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.66s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.27s
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.31s
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.25s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+running 3029 tests
+...
+test widgets::menu::tests::scrolling_to_the_end_reveals_the_last_row_and_a_click_picks_it ... ok
+test widgets::menu::tests::arrow_keys_keep_the_highlighted_row_in_view ... ok
+test terminal::tests::sim_approval_card_and_permissions_modal_pass_layout_lint ... ok
+test video::tests::garbage_is_not_a_video_and_never_panics ... ok
+test widgets::menu::tests::rows_scrolled_out_of_the_panel_cannot_be_clicked ... ok
+test terminal::tests::touched_layers_do_not_bleed_into_other_active_tab_turn ... ok
+test terminal::tests::pty_injection_fixture_real_shell ... ok
+
+test result: ok. 3021 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 169.17s
+
+$ python3 scripts/zero_fake_ui_gate.py
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1675, inset_literals=45, radius_literals=260, font_literals=25, nonconcentric_pairs=2
+note: 11 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+```
+
+### 6. Assumptions & Unresolved Questions
+
+- **Assumptions:**
+  - `ASSUMPTION` (verified against `crates/designos-app/src/terminal.rs:3175-3178`): `TerminalState::poll_live_agent_bridge` unconditionally drains `self.deferred_bridge_actions` via `std::mem::take` on its first statement, while `spawn_tab_running` never touches `deferred_bridge_actions`. Seeding a sentinel in `deferred_bridge_actions` before `open_failed_start_fixture(None)` therefore provides a clock-independent proof that `open_failed_start_fixture` did not enter the removed `poll_live_agent_bridge` loop, alongside the `< 4 s` bound against raw sleep loops.
+- **Unresolved Questions:**
+  - None.
+
+Status: DONE — Round 6 comparer and test fixes (Major 1 and Minor 1 fixed red-to-green, Item 3 made load-resilient and proven to fail when the 5 s sleep loop is put back, Major 2 rejected per controller ruling) verified on `efc19e7e` with 0 fmt diffs, 0 clippy warnings, 1,281/0 workspace lib tests, 3,021/0 designos bin tests, 17/17 zero-fake UI gate, and 0 spacing regressions.
