@@ -599,6 +599,8 @@ pub struct TerminalTab {
     pub last_user_prompt: Option<String>,
     /// Current uncommitted interactive line typed into the VT100 viewport before `Enter`.
     pub input_line_buffer: String,
+    /// Number of PTY and parser resizes applied to this tab (`#1171`).
+    pub resize_count: usize,
 }
 
 impl TerminalTab {
@@ -880,6 +882,7 @@ impl TerminalTab {
             last_scanned_log_len: 0,
             last_user_prompt: None,
             input_line_buffer: String::new(),
+            resize_count: 0,
         })
     }
 
@@ -998,6 +1001,7 @@ impl TerminalTab {
         }
         self.rows = rows;
         self.cols = cols;
+        self.resize_count += 1;
         let _ = self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
         if let Ok(mut p) = self.parser.lock() {
             p.set_size(rows, cols);
@@ -1337,6 +1341,8 @@ pub struct TerminalState {
     write_backoff: crate::agent_session_files::WriteBackoff,
     /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
     set_aside_note: Option<String>,
+    /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
+    pub viewport_size: (u16, u16),
 }
 
 impl Default for TerminalState {
@@ -1599,6 +1605,7 @@ impl TerminalState {
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
+            viewport_size: (28, 100),
         }
     }
 
@@ -6625,6 +6632,9 @@ mod gemini_range_tests;
 
 #[cfg(all(test, unix))]
 mod real_cli_launch_tests;
+
+#[cfg(all(test, unix))]
+mod zoom_scrollback_tests;
 
 #[cfg(test)]
 mod tests {
