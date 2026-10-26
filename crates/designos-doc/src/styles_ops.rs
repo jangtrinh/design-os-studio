@@ -311,6 +311,34 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
 }
 
+/// Sets the description of style `key` in one [`Command::SetStyles`] undo step, trimming
+/// trailing whitespace. Setting the same text is a no-op (`Command::Batch(Vec::new())`).
+pub fn set_style_description(doc: &Document, key: &str, text: &str) -> Result<Command, StyleOpError> {
+    if !doc.styles.contains_key(key) {
+        return Err(StyleOpError::UnknownStyle(key.into()));
+    }
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
+    let trimmed = text.trim_end();
+    let current = doc.style_meta.get(key).map(|m| m.description.as_str()).unwrap_or("");
+    if trimmed == current {
+        return Ok(Command::Batch(Vec::new()));
+    }
+    let property = style_property(doc, key);
+    let fallback_name = doc.style_name(key).to_string();
+    let mut style_meta = doc.style_meta.clone();
+    style_meta.entry(key.to_string()).and_modify(|m| m.description = trimmed.to_string()).or_insert_with(|| StyleMeta {
+        name: fallback_name,
+        key: None,
+        description: trimmed.to_string(),
+        property,
+        bindings: Default::default(),
+        ..Default::default()
+    });
+    Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
+}
+
 fn clean_folder_path(folder: &str) -> String {
     folder.split('/').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/")
 }
@@ -3245,5 +3273,70 @@ mod tests {
         assert_eq!(d.style_name("s4"), "BrandNew/Untouched");
         assert_eq!(d.style_name("s5"), "Surface");
         assert_eq!(d.style_name("s6"), "Brand / Primary");
+    }
+
+    #[test]
+    fn set_style_description_sets_text_in_one_undo_step_and_keeps_other_fields() {
+        let mut d = Document::new("StyleDescDoc");
+        d.add_page("Page 1");
+        d.styles.insert("s1".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+        let mut bindings = BTreeMap::new();
+        bindings.insert("fills/0".to_string(), "var_primary".to_string());
+        d.style_meta.insert(
+            "s1".into(),
+            StyleMeta {
+                name: "Brand/Primary".into(),
+                key: Some("orig-key".into()),
+                description: "Old description".into(),
+                property: StyleProperty::Fill,
+                bindings: bindings.clone(),
+                sort_position: Some("!~~p~oL".into()),
+            },
+        );
+
+        let mut h = History::default();
+        let cmd = set_style_description(&d, "s1", "Primary brand fill   \n\t ").unwrap();
+        assert!(matches!(cmd, Command::SetStyles { .. }), "changing description must return Command::SetStyles");
+        h.exec(&mut d, cmd).unwrap();
+
+        let meta = &d.style_meta["s1"];
+        assert_eq!(meta.description, "Primary brand fill");
+        assert_eq!(meta.name, "Brand/Primary");
+        assert_eq!(meta.key.as_deref(), Some("orig-key"));
+        assert_eq!(meta.property, StyleProperty::Fill);
+        assert_eq!(meta.bindings, bindings);
+        assert_eq!(meta.sort_position.as_deref(), Some("!~~p~oL"));
+
+        // Setting the same text (after trailing whitespace trim) is a no-op.
+        let noop = set_style_description(&d, "s1", "Primary brand fill   ").unwrap();
+        assert!(matches!(noop, Command::Batch(ref v) if v.is_empty()), "same text must be a no-op batch");
+
+        // One undo restores the old description and keeps all other fields.
+        assert!(h.undo(&mut d).unwrap());
+        let meta = &d.style_meta["s1"];
+        assert_eq!(meta.description, "Old description");
+        assert_eq!(meta.name, "Brand/Primary");
+        assert_eq!(meta.sort_position.as_deref(), Some("!~~p~oL"));
+        assert_eq!(meta.bindings, bindings);
+        assert!(!h.can_undo(), "must be a single undo step");
+    }
+
+    #[test]
+    fn set_style_description_refuses_library_style() {
+        let (mut d, _) = paint_and_text_fixture();
+        d.style_meta.insert(
+            "Brand".into(),
+            StyleMeta { name: "Brand".into(), description: "Published description".into(), property: StyleProperty::Fill, ..Default::default() },
+        );
+        d.library.external.insert(
+            "L1/Brand".into(),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some("Brand".into()) },
+        );
+        let before = d.clone();
+        let err = set_style_description(&d, "Brand", "Local override").unwrap_err();
+        assert!(matches!(err, StyleOpError::LibraryStyle(ref k) if k == "Brand"), "expected LibraryStyle, got {err:?}");
+        assert_eq!(d.style_meta["Brand"].description, "Published description");
+        assert_eq!(d.styles, before.styles);
+        assert_eq!(d.style_meta, before.style_meta);
     }
 }

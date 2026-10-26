@@ -926,3 +926,47 @@ fn mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip() 
     assert_eq!(after[2].1.as_deref(), Some("\"'#"));
     assert!(after[3].1.is_some() && after[4].1.is_some(), "unpositioned styles receive generated sortPosition on round trip");
 }
+
+#[test]
+fn style_description_fig_round_trip_keeps_empty_and_non_empty_descriptions() {
+    let mut d_no_desc = Document::new("NoDescriptions");
+    d_no_desc.add_page("Page 1");
+    for (key, name, prop, style) in [
+        ("fill_1", "Brand/Primary", StyleProperty::Fill, Style::Fill(vec![Paint::solid(Color::rgb(10, 20, 30))])),
+        (
+            "effect_1",
+            "Shadows/sm",
+            StyleProperty::Effect,
+            Style::Effect(vec![Effect::DropShadow {
+                color: Color::rgba(0, 0, 0, 64),
+                offset: Vec2::new(0.0, 2.0),
+                radius: 4.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+            }]),
+        ),
+    ] {
+        d_no_desc.styles.insert(key.into(), style);
+        d_no_desc.style_meta.insert(key.into(), StyleMeta { name: name.into(), property: prop, ..Default::default() });
+    }
+    let bytes_no_desc = export_fig(&d_no_desc).unwrap();
+    let imported_no_desc = import_fig(&bytes_no_desc).unwrap();
+    assert_eq!(imported_no_desc.style_meta.len(), 2);
+    assert!(
+        imported_no_desc.style_meta.values().all(|m| m.description.is_empty()),
+        "a file whose styles have no description must round-trip with every description still empty: {:?}",
+        imported_no_desc.style_meta
+    );
+
+    let mut d_with_desc = d_no_desc.clone();
+    let mut h = History::default();
+    let cmd = set_style_description(&d_with_desc, "fill_1", "Primary brand surface   ").unwrap();
+    h.exec(&mut d_with_desc, cmd).unwrap();
+    let bytes_with_desc = export_fig(&d_with_desc).unwrap();
+    let imported_with_desc = import_fig(&bytes_with_desc).unwrap();
+    let (_, fill_meta) = imported_with_desc.style_meta.iter().find(|(_, m)| m.name == "Brand/Primary").expect("Brand/Primary imported");
+    let (_, fx_meta) = imported_with_desc.style_meta.iter().find(|(_, m)| m.name == "Shadows/sm").expect("Shadows/sm imported");
+    assert_eq!(fill_meta.description, "Primary brand surface");
+    assert_eq!(fx_meta.description, "");
+}
