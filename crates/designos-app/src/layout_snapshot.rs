@@ -414,7 +414,7 @@ fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name:
         .max_by_key(|(_, e)| (entry_specificity(e), e.name_prefix.as_ref().map_or(0, |s| s.len()), usize::from(e.case != "*")))
 }
 
-fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4]) -> bool {
+fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], gaps_above: usize) -> bool {
     let dw = cur[2] - base[2];
     let dh = cur[3] - base[3];
 
@@ -440,10 +440,11 @@ fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4]) 
         AnchorY::Top => base[1],
         AnchorY::Bottom => base[1] + base[3] - cur[3],
         AnchorY::Centre => base[1] + (base[3] - cur[3]) * 0.5,
-    } + e.dy.unwrap_or(0.0);
+    } + e.dy.unwrap_or(0.0)
+        + (gaps_above as f32) * e.gap_dy.unwrap_or(0.0);
 
     let x_tol = 0.5;
-    let y_tol = 0.5 + e.gap_dy.map_or(0.0, |g| g.abs());
+    let y_tol = 0.5;
 
     (cur[0] - expected_x).abs() <= x_tol && (cur[1] - expected_y).abs() <= y_tol
 }
@@ -503,7 +504,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let ov_region = format!("overlay:{}", b_ov.name);
             let mut allowed = false;
             if let Some((idx, e)) = best_matching_entry(allow, case_id, &ov_region, Some(&b_ov.name), b_ov.rect) {
-                if widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect) {
+                if widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, 0) {
                     report.matched_allow_indices.insert(idx);
                     allowed = true;
                 }
@@ -576,21 +577,24 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         row_deltas_by_region.insert(reg, row_deltas);
     }
 
-    let cumulative_dh_above = |region: &str, b_rect: [f32; 4]| -> f32 {
+    let cumulative_dh_and_gaps_above = |region: &str, b_rect: [f32; 4]| -> (f32, usize) {
         let b_cy = b_rect[1] + b_rect[3] * 0.5;
         let b_h = b_rect[3];
         row_deltas_by_region
             .get(region)
             .map(|rows| {
-                rows.iter()
-                    .filter(|(r_cy, r_h, _)| {
-                        let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
-                        *r_cy + thresh < b_cy
-                    })
-                    .map(|(_, _, dh)| *dh)
-                    .sum()
+                let mut sum_dh = 0.0;
+                let mut gaps = 0usize;
+                for (r_cy, r_h, dh) in rows {
+                    let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
+                    if *r_cy + thresh < b_cy {
+                        sum_dh += *dh;
+                        gaps += 1;
+                    }
+                }
+                (sum_dh, gaps)
             })
-            .unwrap_or(0.0)
+            .unwrap_or((0.0, 0))
     };
 
     // G3 — Named widgets: every baseline key must still exist with same count and region; new keys are reported.
@@ -611,13 +615,13 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
 
         if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
-            let sum_dh_above = cumulative_dh_above(&b_w.region, b_w.rect);
+            let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&b_w.region, b_w.rect);
 
             let mut allowed = false;
             if let Some((idx, e)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
                 let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
                 let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
-                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect) {
+                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect, gaps_above) {
                     report.matched_allow_indices.insert(idx);
                     allowed = true;
                 }
@@ -670,12 +674,12 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 ));
             }
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
-                let sum_dh_above = cumulative_dh_above(&reg, b_u.rect);
+                let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&reg, b_u.rect);
                 let mut allowed = false;
                 if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, None, b_u.rect) {
                     let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
                     let shifted_base = [b_u.rect[0], b_u.rect[1] + shift_y, b_u.rect[2], b_u.rect[3]];
-                    if widget_satisfies_allow_bounds(e, shifted_base, c_u.rect) {
+                    if widget_satisfies_allow_bounds(e, shifted_base, c_u.rect, gaps_above) {
                         report.matched_allow_indices.insert(idx);
                         allowed = true;
                     }
