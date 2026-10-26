@@ -640,6 +640,15 @@ pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output
     }
 }
 
+/// Explicit status the PTY-heuristic poll writes back (`#1194`).
+///
+/// Recent PTY bytes promote `Idle`/`Done` to `Working(None)` for display inside
+/// [`resolve_pty_heuristic_status`]. That promotion is not a turn: only a quiet `Working(_)`
+/// decays to an explicit `Done`. Composer echo must not become `Working`, and `Idle` must not either.
+fn persisted_pty_heuristic_status(explicit: &AgentTabStatus, effective: &AgentTabStatus) -> Option<AgentTabStatus> {
+    matches!((explicit, effective), (AgentTabStatus::Working(_), AgentTabStatus::Done)).then(|| effective.clone())
+}
+
 impl TerminalTab {
     /// True when this tab has a queued approval request file or is a non-Claude tab in `Ask` mode waiting for input (`#656`).
     pub fn needs_approval(&self) -> bool {
@@ -3582,13 +3591,11 @@ impl TerminalState {
                 continue;
             }
             let effective = tab.effective_status_at(poll_instant);
-            let mut transitioned = None;
-            if let Ok(mut st) = tab.agent_status.lock() {
-                if matches!((&*st, &effective), (AgentTabStatus::Working(_), AgentTabStatus::Done) | (AgentTabStatus::Done, AgentTabStatus::Working(_))) {
-                    *st = effective.clone();
-                    transitioned = Some(effective.clone());
-                }
-            }
+            let transitioned = tab.agent_status.lock().ok().and_then(|mut st| {
+                let next = persisted_pty_heuristic_status(&st, &effective)?;
+                *st = next.clone();
+                Some(next)
+            });
             if let Some(next_status) = transitioned {
                 self.status_changes.push((tab.id, next_status));
             }
@@ -10311,6 +10318,29 @@ mod tests {
         assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "Stop must hide once Codex turn decays to Done");
         assert!(st.tabs[0].turn_ledger.turns.is_empty(), "active heuristic turn must close on decay");
         kill_tabs(&mut st);
+    }
+
+    /// The PTY-heuristic poll writes back only the quiet `Working → Done` decay. Fresh PTY bytes
+    /// show `Done`/`Idle` as `Working(None)` for display, but composer echo is not a turn, so that
+    /// promotion is never written back or announced (`#1194`).
+    #[test]
+    fn codex_status_poll_persists_only_the_working_to_done_decay() {
+        let working = AgentTabStatus::Working(Some("Working…".into()));
+        let shown_working = AgentTabStatus::Working(None);
+        assert_eq!(persisted_pty_heuristic_status(&working, &AgentTabStatus::Done), Some(AgentTabStatus::Done));
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Done, &shown_working), None, "composer echo after a turn");
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Idle, &shown_working), None, "composer echo before a turn");
+        assert_eq!(persisted_pty_heuristic_status(&working, &working), None);
+        let waiting = AgentTabStatus::WaitingForInput(None);
+        assert_eq!(persisted_pty_heuristic_status(&waiting, &waiting), None);
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Stopped, &AgentTabStatus::Stopped), None);
+
+        let now = std::time::Instant::now();
+        let echo = resolve_pty_heuristic_status(AgentTabStatus::Done, Some(now), now);
+        assert_eq!(echo, shown_working, "output under 600 ms still displays as Working");
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Done, &echo), None);
+        let quiet = resolve_pty_heuristic_status(working.clone(), Some(now - PTY_HEURISTIC_WORKING_DECAY), now);
+        assert_eq!(persisted_pty_heuristic_status(&working, &quiet), Some(AgentTabStatus::Done));
     }
 
     #[test]
