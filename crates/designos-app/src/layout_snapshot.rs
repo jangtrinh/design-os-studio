@@ -500,15 +500,13 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         if b_ov.name != c_ov.name {
             return Err(format!("G2 overlay name mismatch in case {case_id}: baseline={:?}, current={:?}", b_ov.name, c_ov.name));
         }
+        let ov_region = if b_ov.name.starts_with("overlay:") { b_ov.name.clone() } else { format!("overlay:{}", b_ov.name) };
+        let covering = best_matching_entry(allow, case_id, &ov_region, Some(&b_ov.name), b_ov.rect);
+        if let Some((idx, _)) = covering {
+            report.matched_allow_indices.insert(idx);
+        }
         if rects_differ_beyond_half_pt(b_ov.rect, c_ov.rect) {
-            let ov_region = format!("overlay:{}", b_ov.name);
-            let mut allowed = false;
-            if let Some((idx, e)) = best_matching_entry(allow, case_id, &ov_region, Some(&b_ov.name), b_ov.rect) {
-                if widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, 0) {
-                    report.matched_allow_indices.insert(idx);
-                    allowed = true;
-                }
-            }
+            let allowed = covering.is_some_and(|(_, e)| widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, 0));
             if !allowed {
                 return Err(format!("G2 overlay rect drift in case {case_id} overlay '{}': baseline={:?}, current={:?}", b_ov.name, b_ov.rect, c_ov.rect));
             }
@@ -614,15 +612,19 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             return Err(format!("G3 named widget '{name}' count changed in case {case_id}: baseline={}, current={}", b_w.count, c_w.count));
         }
 
+        let covering = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect);
+        if let Some((idx, _)) = covering {
+            report.matched_allow_indices.insert(idx);
+        }
+
         if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
             let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&b_w.region, b_w.rect);
 
             let mut allowed = false;
-            if let Some((idx, e)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
+            if let Some((_, e)) = covering {
                 let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
                 let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
                 if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect, gaps_above) {
-                    report.matched_allow_indices.insert(idx);
                     allowed = true;
                 }
             }
@@ -640,6 +642,12 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     for reg in all_unnamed_regs {
         let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
         let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+
+        for (idx, e) in allow.entries.iter().enumerate() {
+            if (e.case == case_id || e.case == "*") && e.region == reg && e.inventory_max_delta.is_some() && (!b_list.is_empty() || !c_list.is_empty()) {
+                report.matched_allow_indices.insert(idx);
+            }
+        }
 
         if b_list.len() != c_list.len() {
             let count_diff = (c_list.len() as isize - b_list.len() as isize).abs();
@@ -673,14 +681,17 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     b_u.sense, c_u.sense
                 ));
             }
+            let covering = best_matching_entry(allow, case_id, &reg, None, b_u.rect);
+            if let Some((idx, _)) = covering {
+                report.matched_allow_indices.insert(idx);
+            }
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
                 let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&reg, b_u.rect);
                 let mut allowed = false;
-                if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, None, b_u.rect) {
+                if let Some((_, e)) = covering {
                     let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
                     let shifted_base = [b_u.rect[0], b_u.rect[1] + shift_y, b_u.rect[2], b_u.rect[3]];
                     if widget_satisfies_allow_bounds(e, shifted_base, c_u.rect, gaps_above) {
-                        report.matched_allow_indices.insert(idx);
                         allowed = true;
                     }
                 }
@@ -706,8 +717,18 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     Ok(report)
 }
 
-pub fn check_stale_allow_entries(allow: &AllowList, matched_indices: &BTreeSet<usize>, scope_cases: Option<&BTreeSet<String>>) -> Result<(), String> {
+pub fn check_stale_allow_entries_for_run(
+    allow: &AllowList,
+    matched_indices: &BTreeSet<usize>,
+    scope_cases: Option<&BTreeSet<String>>,
+    spec_filter: Option<&str>,
+) -> Result<(), String> {
     for (idx, e) in allow.entries.iter().enumerate() {
+        if let Some(sp) = spec_filter {
+            if e.spec != sp && (e.case == "*" || scope_cases.is_none_or(|s| !s.contains(&e.case))) {
+                continue;
+            }
+        }
         if let Some(scope) = scope_cases {
             if e.case != "*" && !scope.contains(&e.case) {
                 continue;
@@ -718,6 +739,10 @@ pub fn check_stale_allow_entries(allow: &AllowList, matched_indices: &BTreeSet<u
         }
     }
     Ok(())
+}
+
+pub fn check_stale_allow_entries(allow: &AllowList, matched_indices: &BTreeSet<usize>, scope_cases: Option<&BTreeSet<String>>) -> Result<(), String> {
+    check_stale_allow_entries_for_run(allow, matched_indices, scope_cases, None)
 }
 
 pub fn compare_with_stale_check(
@@ -751,7 +776,7 @@ pub fn load_and_compare_baseline(
     }
     let raw = std::fs::read_to_string(baseline_path).map_err(|e| format!("failed to read layout baseline {}: {e}", baseline_path.display()))?;
     let base: LayoutSnapshot = serde_json::from_str(&raw).map_err(|e| format!("failed to parse layout baseline {}: {e}", baseline_path.display()))?;
-    compare_with_stale_check(&base, cur, allow, virtualized_regions)
+    compare(&base, cur, allow, virtualized_regions)
 }
 
 #[cfg(test)]

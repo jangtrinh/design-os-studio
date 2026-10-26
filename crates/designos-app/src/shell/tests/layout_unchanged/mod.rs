@@ -65,6 +65,8 @@ pub fn run_spec_cases(spec_key: &str) {
 
     let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
     let pid = std::process::id();
+    let mut run_matched = std::collections::BTreeSet::new();
+    let mut run_cases = std::collections::BTreeSet::new();
 
     for (idx, case) in spec_cases.into_iter().enumerate() {
         let _ = case.spawns;
@@ -127,13 +129,23 @@ pub fn run_spec_cases(spec_key: &str) {
                 let json = serde_json::to_string_pretty(&snap).expect("serialize layout snapshot");
                 std::fs::write(&baseline_path, format!("{json}\n")).expect("write blessed layout baseline");
             } else if cases_file.bless_sha.as_deref().is_some_and(|s| !s.is_empty()) || baseline_path.exists() {
-                if let Err(err) = crate::layout_snapshot::load_and_compare_baseline(&baseline_path, &snap, &allow_entries, &case.virtualized) {
-                    panic!("case {} failed layout gate:\n{err}", case.id);
+                match crate::layout_snapshot::load_and_compare_baseline(&baseline_path, &snap, &allow_entries, &case.virtualized) {
+                    Ok(report) => {
+                        run_matched.extend(report.matched_allow_indices);
+                        run_cases.insert(case.id.clone());
+                    }
+                    Err(err) => panic!("case {} failed layout gate:\n{err}", case.id),
                 }
             }
         }
 
         let _ = std::fs::remove_dir_all(&case_tmp);
+    }
+
+    if !run_cases.is_empty() {
+        if let Err(err) = crate::layout_snapshot::check_stale_allow_entries_for_run(&allow_entries, &run_matched, Some(&run_cases), Some(spec_key)) {
+            panic!("spec {spec_key} failed stale allow check:\n{err}");
+        }
     }
 }
 
