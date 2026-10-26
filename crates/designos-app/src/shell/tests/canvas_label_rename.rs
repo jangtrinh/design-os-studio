@@ -863,3 +863,36 @@ fn frame_label_hit_testing_covered_part_ignores_label_and_visible_part_selects_f
     s.click(visible_click);
     assert_eq!(s.app().selection, vec![half_covered], "clicking the visible part of a label must select the label's frame");
 }
+
+#[test]
+fn frame_label_measures_with_app_egui_context_fonts() {
+    let mut s = Sim::new();
+    // Replace the app Context's proportional font with a 2x-scaled font tweak while keeping the studio's custom families bound.
+    // If label_rects / label_entries measures with the app's own egui::Context instead of a hidden
+    // thread-local Context, it will see the 2x glyph widths and elide "Wide context check" inside a 110px frame.
+    let mut fonts = egui::FontDefinitions::default();
+    let inter = designos_fonts::bundled().iter().find(|a| a.family == "Inter" && !a.italic).expect("bundled Inter");
+    let tweak = egui::FontTweak { scale: 2.0, ..Default::default() };
+    fonts.font_data.insert("ui-wide".into(), std::sync::Arc::new(egui::FontData::from_static(inter.data).tweak(tweak)));
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "ui-wide".into());
+    let prop_chain = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    fonts.families.insert(egui::FontFamily::Name("designos-strong".into()), prop_chain.clone());
+    fonts.families.insert(egui::FontFamily::Name("designos-medium".into()), prop_chain);
+    s.ctx.set_fonts(fonts);
+
+    let mut doc = Document::new("Issue 1197 Context");
+    let page = doc.add_page("Test");
+    let fid = insert_white_frame(&mut doc, page, "Wide context check", (0.0, 0.0, 110.0, 100.0), false);
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 1.0;
+    s.shell.app.view.offset = DVec2::new(-50.0, -50.0);
+    s.frame(vec![]);
+
+    let (label_r, runs) = painted_label_runs(&s, fid);
+    assert_eq!(runs.len(), 1);
+    let (_, ref text, painted_w) = runs[0];
+    assert!(text.ends_with('…'), "expected 'Wide context check' to elide under 2x app context font, got {text:?}");
+    assert!(painted_w <= 110.0 + 1e-3, "painted label width {painted_w} under app context font must not exceed 110px frame width");
+    assert!((label_r.width() - painted_w).abs() < 0.5, "label_r width {} must match app context painted width {painted_w}", label_r.width());
+}
