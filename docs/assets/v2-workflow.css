@@ -1,0 +1,81 @@
+/* v2-workflow.css: scene "Workflow". Tokens come from index.html :root; the sheet colour is the owner's.
+   Default rules style the static state (no JS, reduced motion, under 800px): one sheet, three chapters side by
+   side on wide screens and stacked on narrow ones, each with its copy and one 0.6.0 capture. No pin.
+   The motion layout is keyed to .workflow.scrub, the class the Tenant engine puts on the section while it is
+   pinned, so a scene that falls back to static is static again.
+   Sticky-stage rule: nothing here puts transform, filter, perspective, contain or a non-visible overflow on an
+   ancestor of .scrub__stage. The sheet, its overflow and the chapter transforms all live inside the stage. */
+
+#workflow { --sheet: #17171C; --rim: rgba(255, 255, 255, .08); --copy-w: clamp(300px, 28vw, 380px); }
+
+/* ---- static state ---- */
+.workflow .wf__scene.sec { padding-block: clamp(32px, 2.8vw, 40px); }
+.wf__sheet {
+  position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: var(--r-lg); background: var(--sheet); overflow: hidden;
+}
+/* the tint layer (set from --tint in motion mode only) and the rim above everything */
+.wf__sheet::before { content: ""; position: absolute; inset: 0; background: rgb(var(--tint) / .05); pointer-events: none; }
+.wf__sheet::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--rim); pointer-events: none; z-index: 3; }
+.wf__chapter { position: relative; z-index: 1; display: flex; flex-direction: column; min-width: 0; padding: 24px 24px 20px; }
+.wf__chapter + .wf__chapter { box-shadow: inset 1px 0 0 var(--rim); }
+
+.wf__kicker { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: .8125rem; line-height: 1.2; font-weight: 600; letter-spacing: .01em; }
+.wf__kicker i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: rgb(var(--tint)); }
+.workflow .wf__chapter h2 { margin-top: 12px; font-size: clamp(1.5rem, 2vw, 1.75rem); line-height: 1.1; letter-spacing: -.03em; font-weight: 700; text-wrap: balance; }
+
+.wf__facts { flex: 1 0 auto; margin-top: 12px; }
+.wf__facts li { padding: 8px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: .875rem; line-height: 1.45; text-wrap: pretty; }
+.wf__facts strong { color: var(--text); font-weight: 600; }
+.wf__facts code { padding: 0 4px; font-size: .875em; white-space: normal; }
+.wf__nb { white-space: nowrap; }
+
+.wf__poster {
+  width: 100%; height: auto; aspect-ratio: 16 / 9; margin-top: 12px; object-fit: cover;
+  border-radius: var(--r-sm); background: var(--bg);
+  outline: 1px solid rgba(255, 255, 255, .1); outline-offset: -1px;
+}
+
+@media (max-width: 999px) {
+  .workflow .wf__scene.sec { padding-block: 40px; }
+  .wf__sheet { grid-template-columns: minmax(0, 1fr); }
+  .wf__chapter { padding: 24px 20px 24px; }
+  .wf__chapter + .wf__chapter { box-shadow: inset 0 1px 0 var(--rim); }
+  .wf__poster { max-width: 560px; margin-top: 16px; }
+}
+
+/* ---- motion layout: the scene is the sticky stage's one child ----
+   Copy on the left, the crossfade stage on the right filling the sheet's right side to its edge. The three
+   chapters share one grid cell, so the sheet never changes height; progress sets which one is visible. */
+.workflow.scrub .wf__scene { height: 100%; display: grid; align-content: center; padding-block: 72px 24px; }
+/* pinned, the sheet takes the stage width with a 16px inset; its width is capped so the 16:10 stage never
+   grows taller than the stage under the header */
+.workflow.scrub .wf__scene.wrap { width: 100%; padding-inline: 16px; }
+.workflow.scrub .wf__sheet {
+  grid-template-columns: var(--copy-w) minmax(0, 1fr);
+  width: 100%; max-width: calc((100dvh - 120px) * 16 / 10 + var(--copy-w)); justify-self: center;
+}
+.workflow.scrub .wf__chapter { grid-area: 1 / 1; align-self: center; padding: 32px; box-shadow: none; }
+.workflow.scrub .wf__view { grid-area: 1 / 2; justify-self: stretch; }
+/* narrower screens: a slimmer, tighter copy column keeps the sheet short, so the frame stays near 16:10 */
+@media (max-width: 1199px) {
+  #workflow { --copy-w: 280px; }
+  .workflow.scrub .wf__chapter { padding: 24px; }
+  .workflow.scrub .wf__chapter h2 { margin-top: 12px; font-size: 1.625rem; }
+  .workflow.scrub .wf__facts { margin-top: 16px; }
+  .workflow.scrub .wf__facts li { padding: 10px 0; font-size: .875rem; }
+}
+.workflow.scrub .wf__chapter:not(:first-child) { opacity: 0; }
+.workflow.scrub .wf__chapter h2 { margin-top: 14px; font-size: clamp(1.75rem, 2.4vw, 2.25rem); }
+.workflow.scrub .wf__facts { flex: none; margin-top: 20px; }
+.workflow.scrub .wf__facts li { padding: 12px 0; font-size: .9375rem; }
+.workflow.scrub .wf__poster { display: none; }
+.workflow.scrub[data-armed="true"] .wf__chapter { will-change: opacity, transform; }
+
+.wf__view { position: relative; align-self: stretch; min-height: 0; aspect-ratio: 16 / 10; background: var(--bg); border-left: 1px solid var(--rim); overflow: hidden; }
+.wf__still {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain;
+}
+.workflow.scrub[data-armed="true"] .wf__still { will-change: opacity; }
+/* the engine's own copy, route rail and progress bar are not used; its chapters only supply scroll distance */
+#workflow .scrub__chapter { min-height: 0; }

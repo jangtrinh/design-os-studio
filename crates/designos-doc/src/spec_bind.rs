@@ -1403,7 +1403,14 @@ pub mod fixtures {
         doc.styles.insert("style_heading_l".to_string(), Style::Text(heading_ts));
         doc.style_meta.insert(
             "style_heading_l".to_string(),
-            StyleMeta { name: "Heading L".to_string(), description: String::new(), property: StyleProperty::Text, key: None, bindings: Default::default() },
+            StyleMeta {
+                name: "Heading L".to_string(),
+                description: String::new(),
+                property: StyleProperty::Text,
+                key: None,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         // Effect style: Elevation/2
@@ -1420,7 +1427,14 @@ pub mod fixtures {
         );
         doc.style_meta.insert(
             "style_elevation_2".to_string(),
-            StyleMeta { name: "Elevation/2".to_string(), description: String::new(), property: StyleProperty::Effect, key: None, bindings: Default::default() },
+            StyleMeta {
+                name: "Elevation/2".to_string(),
+                description: String::new(),
+                property: StyleProperty::Effect,
+                key: None,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         doc

@@ -183,25 +183,31 @@ static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 /// - a symlink (including a dangling symlink) is saved *through*: the target file receives the
 ///   bytes (and is created along with its parent directories if missing) while the link stays a link;
 /// - the existing file's permission mode is applied at temp-file creation time (never briefly wider);
+/// - on macOS, the existing file's ACL, extended attributes and permission mode are copied onto the
+///   temporary file via `fcopyfile(3)` (`COPYFILE_ACL | COPYFILE_XATTR | COPYFILE_STAT`) before the
+///   rename;
 /// - a read-only or non-writable target (including a `0644` file owned by another user or denied by
-///   ACL/flags in a writable folder) is refused with `PermissionDenied` instead of being replaced;
+///   ACL/flags in a writable folder) is refused with `PermissionDenied` by an open probe (`O_NONBLOCK`
+///   on Unix) instead of being replaced, while a `0444` file whose ACL grants write on macOS saves;
 /// - filenames of 249–255 bytes (e.g. ~80+ Vietnamese UTF-8 characters) truncate the temp prefix on
 ///   a char boundary so the temp filename never hits `ENAMETOOLONG`;
 /// - leftover `<prefix>.save-<pid>-<seq>.tmp` files from crashed saves (dead PIDs) are swept on save;
-///   only names this function writes are touched, never a user file that merely ends in `.tmp`;
-/// - a target that is not a regular file (named pipe, socket, device) is refused with `InvalidInput`
-///   before it is opened, so saving onto a pipe does not wait for a reader.
+///   only names this function writes are touched, never a user file that merely ends in `.tmp`
+///   (including `<name>.tmp`);
+/// - a target that is not a regular file (named pipe, socket, device, including one swapped in before
+///   the open probe) is refused with `InvalidInput` without blocking on a reader.
 ///
-/// Limitation: the rename installs a new file, so ACLs, extended attributes, ownership and hard
-/// links of the replaced file are not carried over (the permission mode is).
+/// Limitation: the rename installs a new file owned by the saving process's effective UID (and
+/// group), so another user's ownership and hard links of the replaced file are not carried over
+/// (nor are ACLs or extended attributes on non-macOS platforms).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let (target, existing) = resolve_save_target(path)?;
     let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir)?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let prefix = tmp_prefix(&name);
-    sweep_stale_temps(dir, &name, prefix);
-    write_via_tmp(&target, dir, prefix, bytes, existing.as_ref())
+    sweep_stale_temps(dir, prefix);
+    write_via_tmp(&target, dir, prefix, bytes, existing)
 }
 
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
@@ -261,10 +267,9 @@ fn tmp_file_pid(file_name: &str, prefix: &str) -> Option<u32> {
 }
 
 /// Best-effort sweep of leftover `.tmp` files for `target` left behind by crashed processes.
-fn sweep_stale_temps(dir: &Path, target_name: &str, prefix: &str) {
-    let legacy = dir.join(format!("{target_name}.tmp"));
-    let _ = std::fs::remove_file(legacy);
-
+/// Only files matching `<prefix>.save-<pid>-<seq>.tmp` whose PID is dead are removed; user files
+/// (including `<name>.tmp`) are never touched.
+fn sweep_stale_temps(dir: &Path, prefix: &str) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let fname = entry.file_name();
@@ -275,10 +280,78 @@ fn sweep_stale_temps(dir: &Path, target_name: &str, prefix: &str) {
     }
 }
 
+struct ExistingTarget {
+    #[cfg(target_os = "macos")]
+    file: std::fs::File,
+    meta: std::fs::Metadata,
+}
+
+#[cfg(unix)]
+fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::io::{Error, ErrorKind};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    #[cfg(target_os = "linux")]
+    const O_NONBLOCK: i32 = 0o4000;
+    #[cfg(not(target_os = "linux"))]
+    const O_NONBLOCK: i32 = 0x0004;
+    const F_GETFL: i32 = 3;
+    const F_SETFL: i32 = 4;
+    const ENXIO: i32 = 6;
+
+    unsafe extern "C" {
+        fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    }
+
+    let file = match std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(path) {
+        Ok(f) => f,
+        Err(e) if e.raw_os_error() == Some(ENXIO) => {
+            return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+        }
+        Err(e) => {
+            return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())));
+        }
+    };
+    let meta = file.metadata()?;
+    if meta.is_dir() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+    }
+    if !meta.is_file() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+    }
+    let fd = file.as_raw_fd();
+    let flags = unsafe { fcntl(fd, F_GETFL) };
+    if flags < 0 {
+        return Err(Error::last_os_error());
+    }
+    if unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } < 0 {
+        return Err(Error::last_os_error());
+    }
+    Ok((file, meta))
+}
+
+#[cfg(not(unix))]
+fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::io::{Error, ErrorKind};
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|e| Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())))?;
+    let meta = file.metadata()?;
+    if meta.is_dir() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+    }
+    if !meta.is_file() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+    }
+    Ok((file, meta))
+}
+
 /// Follows symlinks (including dangling chains) to the file that must really change. Returns the
-/// metadata of that file when it exists, and refuses a directory, a non-regular file or a
-/// non-writable file.
-fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs::Metadata>)> {
+/// opened handle and metadata of that file when it exists, and refuses a directory, a non-regular
+/// file or a non-writable file.
+fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<ExistingTarget>)> {
     use std::io::{Error, ErrorKind};
     let mut cur = path.to_path_buf();
     for _ in 0..40 {
@@ -292,23 +365,25 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs:
                 if meta.is_dir() {
                     return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", cur.display())));
                 }
-                // Opening a named pipe for writing waits for a reader, so anything that is not a
-                // regular file is refused before the writability probe below. (A file swapped for
-                // a pipe between this check and that open is not covered.)
                 if !meta.is_file() {
                     return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", cur.display())));
                 }
-                // The mode bits are checked on their own, before the open probe: a file with no
-                // write bit that is writable only through an ACL would be saved once, and the
-                // renamed-in replacement (which carries no ACL) would then refuse every later save.
+                #[cfg(not(target_os = "macos"))]
                 if meta.permissions().readonly() {
-                    return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only", cur.display())));
+                    return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: permission denied", cur.display())));
                 }
-                if let Err(e) = std::fs::OpenOptions::new().write(true).open(&cur) {
-                    return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", cur.display())));
-                }
+                let (file, opened_meta) = open_writable_regular(&cur)?;
+                #[cfg(not(target_os = "macos"))]
+                let _ = file;
                 let real = std::fs::canonicalize(&cur).unwrap_or(cur);
-                return Ok((real, Some(meta)));
+                return Ok((
+                    real,
+                    Some(ExistingTarget {
+                        #[cfg(target_os = "macos")]
+                        file,
+                        meta: opened_meta,
+                    }),
+                ));
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 return Ok((cur, None));
@@ -319,7 +394,28 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs:
     Err(Error::new(ErrorKind::InvalidInput, format!("too many levels of symbolic links: {}", path.display())))
 }
 
-fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<&std::fs::Metadata>) -> std::io::Result<()> {
+#[cfg(target_os = "macos")]
+fn copy_apple_metadata(from: &std::fs::File, to: &std::fs::File) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    const COPYFILE_ACL: u32 = 1 << 0;
+    const COPYFILE_STAT: u32 = 1 << 1;
+    const COPYFILE_XATTR: u32 = 1 << 2;
+    const EACCES: i32 = 13;
+    unsafe extern "C" {
+        fn fcopyfile(from_fd: i32, to_fd: i32, state: *mut std::ffi::c_void, flags: u32) -> i32;
+    }
+    let rc = unsafe { fcopyfile(from.as_raw_fd(), to.as_raw_fd(), std::ptr::null_mut(), COPYFILE_ACL | COPYFILE_XATTR | COPYFILE_STAT) };
+    if rc == 0 {
+        return Ok(());
+    }
+    let err = std::io::Error::last_os_error();
+    if err.raw_os_error() == Some(EACCES) && unsafe { fcopyfile(from.as_raw_fd(), to.as_raw_fd(), std::ptr::null_mut(), COPYFILE_ACL | COPYFILE_STAT) } == 0 {
+        return Ok(());
+    }
+    Err(err)
+}
+
+fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<ExistingTarget>) -> std::io::Result<()> {
     use std::io::{ErrorKind, Write};
     use std::sync::atomic::Ordering;
 
@@ -328,7 +424,7 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
     #[cfg(unix)]
     {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        let initial_mode = existing.map(|m| m.permissions().mode() & 0o7777).unwrap_or(0o666);
+        let initial_mode = existing.as_ref().map(|e| e.meta.permissions().mode() & 0o7777).unwrap_or(0o666);
         opts.mode(initial_mode);
     }
 
@@ -341,10 +437,19 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
         }
     };
     let res = (|| -> std::io::Result<()> {
-        if let Some(meta) = existing {
-            file.set_permissions(meta.permissions())?;
+        if let Some(existing) = existing {
+            #[cfg(target_os = "macos")]
+            {
+                copy_apple_metadata(&existing.file, &file)?;
+                drop(existing);
+            }
+            #[cfg(not(target_os = "macos"))]
+            file.set_permissions(existing.meta.permissions())?;
         }
         file.write_all(bytes)?;
+        if bytes.is_empty() {
+            let _ = file.set_modified(std::time::SystemTime::now());
+        }
         file.sync_all()?;
         drop(file);
         std::fs::rename(&tmp, target)
@@ -488,6 +593,7 @@ mod tests {
         let name = tmp_file_name("doc.designos", 4242, 17);
         assert_eq!(tmp_file_pid(&name, "doc.designos"), Some(4242));
         for other in [
+            "doc.designos.tmp",                    // legacy/plain <name>.tmp: a user's file
             "doc.designos.4242-17.tmp",            // digit pair without the marker: a user's file
             "doc.designos.save-4242.tmp",          // missing seq
             "doc.designos.save--17.tmp",           // empty pid
@@ -520,14 +626,17 @@ mod tests {
         let pid = dead_pid();
         let leftover = dir.join(tmp_file_name("doc.designos", pid, 0));
         let user_file = dir.join(format!("doc.designos.{pid}-0.tmp"));
+        let plain_user_tmp = dir.join("doc.designos.tmp");
         std::fs::write(&leftover, b"partial").unwrap();
         std::fs::write(&user_file, b"mine").unwrap();
+        std::fs::write(&plain_user_tmp, b"plain-tmp").unwrap();
 
         write_atomic(&target, b"v2").unwrap();
 
         assert_eq!(std::fs::read(&target).unwrap(), b"v2");
         assert!(!leftover.exists(), "the leftover of a crashed save is swept");
         assert_eq!(std::fs::read(&user_file).unwrap(), b"mine", "a user file with the same digits is not a leftover");
+        assert_eq!(std::fs::read(&plain_user_tmp).unwrap(), b"plain-tmp", "a user's <name>.tmp is never deleted");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

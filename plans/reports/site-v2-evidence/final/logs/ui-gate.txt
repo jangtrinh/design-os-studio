@@ -1,0 +1,17 @@
+gate: docs/index.html — 1 error(s), 5 warning(s)
+  layout: clean
+  a11y: clean
+  taste: 0 error(s), 5 warning(s)
+    ! [container-nesting-depth] line 533: container-soup chain 3 levels deep (div.wrap > div.install > div) — decorative wrappers nested past 2 levels (rubric Layout anti-pattern: "container soup") add DOM weight with no structural payload; flatten via a single element with combined utility classes or drop the non-semantic wrapper
+    ! [container-nesting-depth] line 563: container-soup chain 5 levels deep (div.wrap > div.install > div > div.panel > div.code) — decorative wrappers nested past 2 levels (rubric Layout anti-pattern: "container soup") add DOM weight with no structural payload; flatten via a single element with combined utility classes or drop the non-semantic wrapper
+    ! [container-nesting-depth] line 568: container-soup chain 5 levels deep (div.wrap > div.install > div > div.panel > div.code) — decorative wrappers nested past 2 levels (rubric Layout anti-pattern: "container soup") add DOM weight with no structural payload; flatten via a single element with combined utility classes or drop the non-semantic wrapper
+    ! [container-nesting-depth] line 576: container-soup chain 5 levels deep (div.wrap > div.install > div > div.panel > div.code) — decorative wrappers nested past 2 levels (rubric Layout anti-pattern: "container soup") add DOM weight with no structural payload; flatten via a single element with combined utility classes or drop the non-semantic wrapper
+    ! [container-nesting-depth] line 623: container-soup chain 3 levels deep (div.wrap > div.get__actions > div.cta) — decorative wrappers nested past 2 levels (rubric Layout anti-pattern: "container soup") add DOM weight with no structural payload; flatten via a single element with combined utility classes or drop the non-semantic wrapper
+  tell: 0 error(s), 0 warning(s)
+    ! [overused-font] line 149: Inter is on so many surfaces it no longer carries personality
+    ! [image-hover-transform] line 219: a transform transition applied across 9 images — motion by default rather than by intent
+    ! [kicker-above-heading] line 567: 3 all-caps kicker lines — one is editorial, one per section is a template
+    ! [line-length] line 671: 1 body run(s) over 400 characters with no container constraint visible to this tier
+  content: clean
+  autofix: 1 error(s), 0 warning(s)
+    ✗ [autofix-not-clean]: the autofixer would still apply 1 repair(s): img-onerror — run `ui autofix --write` first, then gate

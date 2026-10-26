@@ -1,0 +1,46 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.57s
+     Running tests/button_label_centre.rs (out/cargo/debug/deps/button_label_centre-f387cf5f43ec35ff)
+
+running 4 tests
+[create_node in easeui-row] align=(Left, Center) auto_resize=WidthAndHeight
+
+thread 'create_node_in_centred_row_keeps_default_alignment' (56328996) panicked at crates/designos-mcp/tests/button_label_centre.rs:414:5:
+assertion `left == right` failed: designos_create_node must not overwrite text alignment inside a centring parent
+  left: (Left, Center)
+ right: (Left, Top)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test create_node_in_centred_row_keeps_default_alignment ... FAILED
+[sized_text_update] n1.size=Vec2 { x: 69.0, y: 17.0 } ar1=WidthAndHeight n2.size=Vec2 { x: 80.0, y: 20.0 } ar2=WidthAndHeight
+
+thread 'sized_text_update_node_never_resizes_user_sized_text' (56328999) panicked at crates/designos-mcp/tests/button_label_centre.rs:503:5:
+assertion `left == right` failed: text created with width: 240, height: 32 must keep 240x32 on a text-only update_node
+  left: Vec2 { x: 69.0, y: 17.0 }
+ right: Vec2 { x: 240.0, y: 32.0 }
+test sized_text_update_node_never_resizes_user_sized_text ... FAILED
+[Plain Row Button] btn_c=(156.0, 22.0) box_c=(156.0, 22.0) geom_c=(156.0, 22.0) px_c=(155.0, 22.5) dx_geom=0.00 dy_geom=0.00 dx_px=1.00 dy_px=0.50
+[Button/Button label] btn_c=(156.0, 22.0) box_c=(156.0, 22.0) geom_c=(156.0, 22.0) px_c=(155.0, 22.5) dx_geom=0.00 dy_geom=0.00 dx_px=1.00 dy_px=0.50
+[Fill-Width Column] plain_col_align_h=Center welcome_align=(Center, Top)
+
+thread 'plain_spec_frame_with_align_and_justify_center_centres_label_within_1px' (56328997) panicked at crates/designos-mcp/tests/button_label_centre.rs:366:5:
+assertion `left == right` failed: width_sizing: fill text in a centred column must keep Left horizontal alignment
+  left: Center
+ right: Left
+test plain_spec_frame_with_align_and_justify_center_centres_label_within_1px ... FAILED
+[Submit Button/Continue] btn_c=(156.0, 19.0) box_c=(156.0, 19.0) geom_c=(156.0, 19.0) px_c=(155.5, 18.5) dx_geom=0.00 dy_geom=0.00 dx_px=0.50 dy_px=0.50
+[Button/Log in] btn_c=(156.0, 22.0) box_c=(156.0, 22.0) geom_c=(156.0, 22.0) px_c=(155.5, 22.5) dx_geom=0.00 dy_geom=0.00 dx_px=0.50 dy_px=0.50
+test qa_card_button_label_is_centred_within_1px ... ok
+
+failures:
+
+failures:
+    create_node_in_centred_row_keeps_default_alignment
+    plain_spec_frame_with_align_and_justify_center_centres_label_within_1px
+    sized_text_update_node_never_resizes_user_sized_text
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `-p designos-mcp --test button_label_centre`

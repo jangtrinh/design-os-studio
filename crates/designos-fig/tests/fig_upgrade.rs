@@ -60,6 +60,7 @@ fn style_nodes_become_style_meta() {
             description: "Main brand fill".into(),
             property: StyleProperty::Fill,
             bindings: Default::default(),
+            ..Default::default()
         }
     );
     // A FILL style used only through styleIdForStrokeFill is a stroke style.

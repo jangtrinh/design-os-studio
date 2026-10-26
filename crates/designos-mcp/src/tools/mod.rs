@@ -139,8 +139,11 @@ pub(crate) fn build_created_node(
     if let Some(name) = name {
         node.name = name;
     }
-    if let (Some(text), NodeKind::Text(props)) = (text, &mut node.kind) {
-        props.content = text;
+    if let NodeKind::Text(props) = &mut node.kind {
+        props.auto_resize = designos_doc::TextAutoResize::None;
+        if let Some(text) = text {
+            props.content = text;
+        }
     }
     Ok((id, target_index, node))
 }
@@ -235,6 +238,15 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if let Some(height) = u.height {
         node.size.y = height;
     }
+    if let NodeKind::Text(props) = &mut node.kind {
+        if u.height.is_some() {
+            if matches!(props.auto_resize, designos_doc::TextAutoResize::WidthAndHeight | designos_doc::TextAutoResize::Height) {
+                props.auto_resize = designos_doc::TextAutoResize::None;
+            }
+        } else if u.width.is_some() && props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+            props.auto_resize = designos_doc::TextAutoResize::Height;
+        }
+    }
     geometry(node.transform.tx, node.transform.ty, node.size.x, node.size.y)?;
     if let Some(visible) = u.visible {
         node.visible = visible;
@@ -252,6 +264,9 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.content = text;
             props.runs.clear();
             props.lists.clear();
+            if props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
+                node.size = designos_doc::spec::estimate_intrinsic_text_size(props);
+            }
         }
     }
     let changed = doc.get(id) != Some(&node);

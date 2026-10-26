@@ -1,0 +1,90 @@
+--- /Users/jangtrinh/.gemini/antigravity-cli/brain/798ff2d0-1bc7-4b0e-bf3e-4f3c5b613573/scratch/harness/interaction-test-547.mjs	2026-10-25 10:00:02
++++ /Users/jangtrinh/.gemini/antigravity-cli/brain/798ff2d0-1bc7-4b0e-bf3e-4f3c5b613573/scratch/harness/interaction-test.mjs	2026-10-25 10:00:02
+@@ -20,37 +20,7 @@
+ await page.goto(URL, { waitUntil: 'load' });
+ await page.waitForTimeout(800);
+ 
+-// 1. Film autoplay -> pause -> play -> sound toggle
+-const v0 = await page.evaluate(() => {
+-  const v = document.getElementById('film-video');
+-  return { paused: v.paused, muted: v.muted };
+-});
+-check('film autoplays muted', !v0.paused && v0.muted, JSON.stringify(v0));
+-
+-await page.click('#film-play-sm');
+-await page.waitForTimeout(150);
+-const v1 = await page.evaluate(() => ({
+-  paused: document.getElementById('film-video').paused,
+-  label: document.getElementById('film-play-sm').getAttribute('aria-label'),
+-}));
+-check('Pause button pauses', v1.paused && v1.label === 'Play', `label=${v1.label}`);
+-await page.screenshot({ path: path.join(OUT, 'iter-paused.png'), clip: { x: 0, y: 0, width: 1440, height: 900 } });
+-
+-await page.click('#film-play');
+-await page.waitForTimeout(150);
+-check('Play overlay resumes', await page.evaluate(() => !document.getElementById('film-video').paused));
+-
+-await page.click('#film-sound');
+-await page.waitForTimeout(100);
+-const s1 = await page.evaluate(() => ({
+-  muted: document.getElementById('film-video').muted,
+-  pressed: document.getElementById('film-sound').getAttribute('aria-pressed'),
+-}));
+-check('Sound button unmutes', !s1.muted && s1.pressed === 'true', `aria-pressed=${s1.pressed}`);
+-await page.click('#film-sound');
+-check('Sound button mutes again', await page.evaluate(() => document.getElementById('film-video').muted));
+-
+-// 2. Keyboard focus ring on primary CTA
++// 1. Keyboard focus ring on primary CTA
+ await page.locator('header a.brand').focus();
+ for (let i = 0; i < 8; i++) await page.keyboard.press('Tab'); // walk to Download CTA
+ const focusStyle = await page.evaluate(() => {
+@@ -61,7 +31,7 @@
+ check('keyboard focus ring visible on Download button', focusStyle.matchesFV && !focusStyle.outline.startsWith('none'), `${focusStyle.text} | ${focusStyle.outline} offset ${focusStyle.offset} focus-visible=${focusStyle.matchesFV}`);
+ await page.screenshot({ path: path.join(OUT, 'iter-focus-ring.png'), clip: { x: 0, y: 0, width: 1440, height: 340 } });
+ 
+-// 3. Tablist keyboard: ArrowRight / End / Home — scoped to #install in v2
++// 2. Tablist keyboard: ArrowRight / End / Home — scoped to #install in v2
+ await page.locator('#agent-tab-0').focus();
+ await page.keyboard.press('ArrowRight');
+ check('ArrowRight moves to Codex tab', await page.evaluate(() => document.activeElement.id === 'agent-tab-1' && document.getElementById('agent-panel-1').hidden === false));
+@@ -69,9 +39,29 @@
+ check('End key selects last tab', await page.evaluate(() => document.activeElement.id === 'agent-tab-2' && document.getElementById('agent-panel-2').hidden === false));
+ const visibleInstallPanels = await page.evaluate(() => document.querySelectorAll('#install [role=tabpanel]:not([hidden])').length);
+ check('exactly one install tab panel visible', visibleInstallPanels === 1, String(visibleInstallPanels));
+-check('the New in 0.3.0 panel stays visible', await page.evaluate(() => document.querySelectorAll('#new [role=tabpanel]:not([hidden])').length === 1));
+ await page.screenshot({ path: path.join(OUT, 'iter-tab-build.png'), clip: { x: 0, y: 0, width: 1440, height: 900 } });
+ 
++// 3. What's new section (replaces removed film video controls and 0.3.0 tabpanel check)
++const wnBlocks = await page.evaluate(() => {
++  const b061 = document.getElementById('new-in-v061');
++  const b060 = document.getElementById('new-in-v060');
++  const vis = (el) => Boolean(el && el.getBoundingClientRect().height > 0 && getComputedStyle(el).visibility !== 'hidden');
++  return { v061: vis(b061), v060: vis(b060) };
++});
++check('What\'s new 0.6.1 and 0.6.0 blocks are visible', wnBlocks.v061 && wnBlocks.v060, JSON.stringify(wnBlocks));
++
++const wnImgs = await page.evaluate(() => {
++  const imgs = [...document.querySelectorAll('#new-in-v060 img')];
++  return imgs.map((img) => ({ src: img.getAttribute('src'), complete: img.complete, naturalWidth: img.naturalWidth }));
++});
++check('What\'s new 0.6.0 images load (2 captures, naturalWidth > 0)', wnImgs.length === 2 && wnImgs.every((i) => i.complete && i.naturalWidth > 0), wnImgs.map((i) => `${i.src}:${i.naturalWidth}`).join(', '));
++
++const olderDetails = page.locator('#new details.new-fold').first();
++await olderDetails.locator('summary').click();
++check('What\'s new folded <details> (0.5.0) opens on click', await olderDetails.evaluate((el) => el.open === true));
++await page.screenshot({ path: path.join(OUT, 'iter-whats-new-open.png'), clip: { x: 0, y: 0, width: 1440, height: 900 } });
++await olderDetails.locator('summary').click();
++
+ // 4. Copy button writes to clipboard and flips label to Copied
+ await page.click('#agent-panel-2 .copy');
+ await page.waitForTimeout(100);
+@@ -95,7 +85,7 @@
+ 
+ // 7. Release links: 5 distinct files, every macOS link is the .dmg
+ const dl = await page.evaluate(() => {
+-  const links = [...document.querySelectorAll('a[href*="releases/download/v0.3.0/"]')].map((a) => a.getAttribute('href').split('/').pop());
++  const links = [...document.querySelectorAll('a[href*="releases/download/v0.6.1/"]')].map((a) => a.getAttribute('href').split('/').pop());
+   return { count: links.length, unique: [...new Set(links)], macosDmgCount: links.filter((x) => x.endsWith('.dmg')).length };
+ });
+ check('5 distinct release files; every macOS download is the same dmg', dl.unique.length === 5 && dl.macosDmgCount === 4, `${dl.count} links: ${dl.unique.join(', ')}`);

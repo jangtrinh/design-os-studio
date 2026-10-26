@@ -1,0 +1,74 @@
+[
+ {
+  "sel": ".proof-num",
+  "text": "208,610",
+  "x": 153,
+  "y": 345,
+  "w": 311,
+  "h": 80
+ },
+ {
+  "sel": ".proof-label",
+  "text": "nodes in one file",
+  "x": 156,
+  "y": 424,
+  "w": 309,
+  "h": 39
+ },
+ {
+  "sel": ".proof-note",
+  "text": "The Untitled UI PRO v8.0",
+  "x": 158,
+  "y": 459,
+  "w": 310,
+  "h": 58
+ },
+ {
+  "sel": ".proof-num",
+  "text": "22",
+  "x": 564,
+  "y": 341,
+  "w": 312,
+  "h": 66
+ },
+ {
+  "sel": ".proof-label",
+  "text": "MCP tools",
+  "x": 564,
+  "y": 419,
+  "w": 312,
+  "h": 26
+ },
+ {
+  "sel": ".proof-note",
+  "text": "Coding agents edit the d",
+  "x": 564,
+  "y": 455,
+  "w": 312,
+  "h": 90
+ },
+ {
+  "sel": ".proof-num",
+  "text": "7",
+  "x": 976,
+  "y": 345,
+  "w": 311,
+  "h": 80
+ },
+ {
+  "sel": ".proof-label",
+  "text": "code targets",
+  "x": 975,
+  "y": 424,
+  "w": 309,
+  "h": 39
+ },
+ {
+  "sel": ".proof-note",
+  "text": "Dev Mode prints CSS, Tai",
+  "x": 972,
+  "y": 459,
+  "w": 310,
+  "h": 58
+ }
+]

@@ -1,0 +1,43 @@
+/* v2-big-files.css: scene "Built for big files." Tokens come from index.html :root only.
+   Default rules style the static state (no JS, reduced motion, under 800px): the real count, the copy and the
+   kit overview capture, no pin. The motion layout is keyed to .scale.scrub, the class the Tenant engine puts
+   on the section while it is pinned.
+   Sticky-stage rule: nothing here puts transform, filter, perspective, contain or a non-visible overflow on an
+   ancestor of .scrub__stage. The section carries no padding or border either, so its pinned height is exactly
+   the stage plus the pin's travel. */
+
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- static state ---- */
+.scale { background: var(--panel); box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border); }
+.scale .scale__scene.sec { padding-block: clamp(32px, 2.8vw, 40px); }
+.scale .scale__scene { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px); align-items: center; column-gap: clamp(32px, 5vw, 64px); }
+.scale__stat { display: flex; flex-direction: column; margin-top: 16px; }
+.scale__num { color: var(--orange); font-size: clamp(3.5rem, 7.2vw, 6.5rem); line-height: 1; letter-spacing: -.045em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scale__unit { margin-top: 8px; font-size: 1.25rem; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; }
+.scale__copy p:not(.scale__stat) { max-width: 44ch; margin-top: 12px; color: var(--muted); text-wrap: pretty; }
+.scale__copy .scale__stat + p { margin-top: 20px; }
+.scale__copy strong { color: var(--text); font-weight: 600; }
+.scale__view { margin: 0; }
+.scale__stage {
+  position: relative; aspect-ratio: 16 / 10; border-radius: var(--r-md); overflow: hidden;
+  background: var(--bg); outline: 1px solid rgba(255, 255, 255, .1); outline-offset: -1px;
+}
+.scale__poster, .scale__from {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.scale__from { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.scale__poster { position: relative; z-index: 1; }
+.scale__view figcaption { margin-top: 12px; color: var(--muted); font-size: .875rem; line-height: 1.4; }
+
+@media (max-width: 899px) {
+  .scale .scale__scene.sec { padding-block: 48px; }
+  .scale .scale__scene { grid-template-columns: minmax(0, 1fr); row-gap: 32px; }
+}
+
+/* ---- motion layout: the grid is the sticky stage's one child ---- */
+.scale.scrub .scale__scene { height: 100%; align-content: center; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); padding-block: 72px 24px; }
+.scale.scrub .scale__num { font-size: clamp(3.5rem, 8vw, 7rem); }
+.scale.scrub[data-armed="true"] .scale__from { will-change: opacity; }
+/* the engine's own copy, route rail and progress bar are not used; its chapter only supplies scroll distance */
+#scale .scrub__chapter { min-height: 0; }

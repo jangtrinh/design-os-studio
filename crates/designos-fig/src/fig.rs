@@ -309,12 +309,25 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
     if large {
         release_os_memory();
     }
+    let style_sort_positions: HashMap<String, String> = entries
+        .iter()
+        .filter(|e| fstr(&e.json, "styleType").is_some() && !style_soft_deleted(&e.json))
+        .filter_map(|e| {
+            let sp = fstr(&e.json, "sortPosition").map(String::from).filter(|s| !s.is_empty())?;
+            Some((e.id.clone(), sp))
+        })
+        .collect();
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
     let rest = entries_to_rest(entries, &blob_refs, &name);
     if large {
         release_os_memory();
     }
     let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    for (sid, sp) in style_sort_positions {
+        if let Some(meta) = doc.style_meta.get_mut(&sid) {
+            meta.sort_position = Some(sp);
+        }
+    }
     drop(fast_derived);
     drop(blob_refs);
     drop(owned_blobs);

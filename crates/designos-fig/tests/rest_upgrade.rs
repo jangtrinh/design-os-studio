@@ -99,6 +99,7 @@ fn style_metadata_and_property_per_use() {
             description: "Main brand fill".into(),
             property: StyleProperty::Fill,
             bindings: Default::default(),
+            ..Default::default()
         }
     );
     // S:2 is a FILL style that is only referenced as a stroke.

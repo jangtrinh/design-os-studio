@@ -260,7 +260,7 @@ pub const CONTROL_ROW: f32 = 40.0;
 pub const TARGET_MIN: f32 = 24.0;
 
 // ---------------------------------------------------------------- shell layout
-pub const RAIL_WIDTH: f32 = 56.0;
+pub const RAIL_WIDTH: f32 = 48.0;
 pub const BORDER_WIDTH: f32 = 1.0;
 pub const RAIL_MENU_BUTTON_X: f32 = 12.0;
 pub const RAIL_MENU_BUTTON_Y: f32 = 8.0;
@@ -271,10 +271,7 @@ pub const RAIL_GROUP_GAP: f32 = 16.0;
 pub const RAIL_ICON_SIZE: f32 = 20.0;
 /// 1px separators under the logo and before the last group (y relative to the rail top / item cell).
 pub const RAIL_SEPARATOR_Y: f32 = 48.0;
-pub const RAIL_SEPARATOR_INSET: f32 = 20.0;
 pub const RAIL_TILE: f32 = 32.0;
-pub const RAIL_ICON_CENTER_Y: f32 = 20.0;
-pub const RAIL_LABEL_CENTER_Y: f32 = 44.0;
 
 pub const LEFT_PANEL_WIDTH: f32 = 240.0;
 pub const LEFT_HEADER_HEIGHT: f32 = 65.0;
@@ -291,6 +288,14 @@ pub const PAGE_ROW_HEIGHT: f32 = CONTROL_DENSE;
 pub const PAGE_ROW_INSET: f32 = INSET_FRAME;
 pub const PAGE_ROW_TEXT_PAD: f32 = 8.0;
 pub const PAGES_MAX_VISIBLE_ROWS: usize = 5;
+pub const PAGES_SEPARATOR_HIT: f32 = 6.0;
+pub const PAGES_SEPARATOR_HIT_HALF: f32 = PAGES_SEPARATOR_HIT * 0.5;
+pub const PAGES_SEPARATOR_HIGHLIGHT_STROKE: f32 = 2.0;
+pub const PAGES_SEPARATOR_STEP: f32 = 8.0;
+pub const PAGES_SEPARATOR_SHIFT_MULT: f32 = 5.0;
+pub const LAYERS_MIN_HEIGHT: f32 = 120.0;
+pub const LEFT_DEV_READY_SECTION_STEP: f32 = 54.0;
+pub const LAYER_FILTER_ROW_HEIGHT: f32 = CONTROL_TOOL;
 pub const PAGE_MENU_WIDTH: f32 = 160.0;
 pub const LAYER_HEADER_HEIGHT: f32 = CONTROL_ROW;
 pub const LAYER_ROW_HEIGHT: f32 = CONTROL_TOOL;

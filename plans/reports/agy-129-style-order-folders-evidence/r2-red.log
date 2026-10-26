@@ -1,0 +1,105 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.90s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-bccb00bdb05568d2)
+
+running 1 test
+test tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none ... FAILED
+
+failures:
+
+---- tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none stdout ----
+
+thread 'tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none' (56512106) panicked at crates/designos-mcp/src/tools/batch.rs:3574:9:
+assertion `left == right` failed
+  left: None
+ right: Some("!~~p~oL")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tools::batch::tests::set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 223 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test unpositioned_ten_fill_styles_keep_order_through_fig_round_trip ... FAILED
+
+failures:
+
+---- unpositioned_ten_fill_styles_keep_order_through_fig_round_trip stdout ----
+
+thread 'unpositioned_ten_fill_styles_keep_order_through_fig_round_trip' (56512208) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:890:5:
+assertion `left == right` failed: ten unpositioned fill styles S01..S10 must keep their order through .fig export and import
+  left: ["Fill/S09", "Fill/S10", "Fill/S01", "Fill/S02", "Fill/S03", "Fill/S04", "Fill/S05", "Fill/S06", "Fill/S07", "Fill/S08"]
+ right: ["Fill/S01", "Fill/S02", "Fill/S03", "Fill/S04", "Fill/S05", "Fill/S06", "Fill/S07", "Fill/S08", "Fill/S09", "Fill/S10"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    unpositioned_ten_fill_styles_keep_order_through_fig_round_trip
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 1 test
+test mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip ... FAILED
+
+failures:
+
+---- mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip stdout ----
+
+thread 'mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip' (56512356) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:921:5:
+assertion `left == right` failed: positioned styles must come first in sortPosition order, followed by unpositioned styles in stored order
+  left: ["Shadows/xs", "Shadows/sm", "Focus rings/ring", "Custom/Second", "Custom/First"]
+ right: ["Shadows/xs", "Shadows/sm", "Focus rings/ring", "Custom/First", "Custom/Second"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-129-style-order/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 1 test
+test styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all ... FAILED
+
+failures:
+
+---- styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all stdout ----
+
+thread 'styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all' (56512864) panicked at crates/designos-doc/src/styles_ops.rs:3226:9:
+assertion `left == right` failed
+  left: "Theme/Primary"
+ right: "Theme / Primary"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    styles_ops::tests::folder_rename_renames_every_member_and_one_undo_restores_all
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 650 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

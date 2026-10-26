@@ -646,8 +646,34 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
     }
 }
 
+/// Generates a deterministic `sortPosition` key for a style that has no stored `sort_position`
+/// (`None`) in Studio, using the format `"{max_existing}{ordinal:06}"` (where `max_existing` is
+/// the byte-wise largest existing `sort_position` among exported styles, or `""` when none
+/// exists, and `ordinal` is the 1-based position among unpositioned styles in
+/// [`designos_doc::ordered_style_keys`] walk order).
+///
+/// Why this format:
+/// - Appending a non-empty suffix to `max_existing` makes every generated key compare strictly
+///   greater than `max_existing` (and therefore after all positioned styles) under ASCII byte
+///   order (`str::cmp`), while fixed-width 6-digit zero-padded numbers sort the generated keys
+///   among themselves in walk order.
+/// - Using only characters from `0-9A-Za-z` (`0x30..=0x7A`) keeps every byte strictly above
+///   Figma's smallest fractional-index character (`'!'`, `0x21`) and below `'~'` (`0x7E`), so
+///   a key never ends in the smallest character and Figma can always insert between any two keys.
+fn generated_style_sort_position(max_existing: &str, ordinal: usize) -> String {
+    format!("{max_existing}{ordinal:06}")
+}
+
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
-    let styles: Vec<(String, Style)> = cx.doc.styles.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let styles: Vec<(String, Style)> =
+        designos_doc::ordered_style_keys(cx.doc, None).into_iter().filter_map(|k| cx.doc.styles.get(&k).cloned().map(|s| (k, s))).collect();
+    let max_existing_pos: String = styles
+        .iter()
+        .filter_map(|(sid, _)| cx.doc.style_meta.get(sid).and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()))
+        .max()
+        .unwrap_or("")
+        .to_string();
+    let mut unpositioned_ordinal = 0usize;
     let empty_bindings = BTreeMap::new();
     for (sid, style) in styles {
         let sguid = cx.style_guids[&sid];
@@ -674,6 +700,14 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         if let Some(k) = meta.and_then(|m| m.key.as_ref()) {
             fields.push(("key", V::String(k.clone())));
         }
+        let sort_pos = match meta.and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()) {
+            Some(sp) => sp.to_string(),
+            None => {
+                unpositioned_ordinal += 1;
+                generated_style_sort_position(&max_existing_pos, unpositioned_ordinal)
+            }
+        };
+        fields.push(("sortPosition", V::String(sort_pos)));
         match &style {
             Style::Fill(paints) => {
                 fields

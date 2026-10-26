@@ -1279,8 +1279,12 @@ fn apply_set_style_op(
         let name = s_in.name.clone().or_else(|| existing_meta.as_ref().map(|m| m.name.clone())).unwrap_or_else(|| key.clone());
         let description = s_in.description.clone().or_else(|| existing_meta.as_ref().map(|m| m.description.clone())).unwrap_or_default();
         let bindings = existing_meta.as_ref().map(|m| m.bindings.clone()).unwrap_or_default();
+        let (lib_key, sort_position) = match existing_meta {
+            Some(m) => (m.key, m.sort_position),
+            None => (None, None),
+        };
         styles.insert(key.clone(), style_val);
-        style_meta.insert(key.clone(), StyleMeta { name, key: existing_meta.and_then(|m| m.key), description, property: prop, bindings });
+        style_meta.insert(key.clone(), StyleMeta { name, key: lib_key, description, property: prop, bindings, sort_position });
     }
 
     for del_key in &op.delete {
@@ -2791,7 +2795,14 @@ mod tests {
         engine.doc.styles.insert("s_brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
         engine.doc.style_meta.insert(
             "s_brand".into(),
-            StyleMeta { name: "Brand Fill".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Brand Fill".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         engine.owned_frames = Some(vec![leased_frame]);
 
@@ -3530,5 +3541,42 @@ mod tests {
         assert!(session.engine.doc.get_in_progress(NodeId(sframe_id)).is_none(), "session flag must go stale after 15 minutes with no status file");
         let _ = std::fs::remove_dir_all(&tmp_dir);
         designos_doc::set_thread_mock_now_ms(None);
+    }
+
+    #[test]
+    fn set_style_upsert_preserves_existing_sort_position_and_leaves_new_style_none() {
+        let mut engine = Engine::default();
+        let _ = engine.resolve_default_page().unwrap();
+        engine.doc.styles.insert("2:202".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+        engine.doc.style_meta.insert(
+            "2:202".into(),
+            StyleMeta {
+                name: "Brand/Primary".into(),
+                key: Some("lib-key".into()),
+                description: "Primary fill".into(),
+                property: StyleProperty::Fill,
+                sort_position: Some("!~~p~oL".into()),
+                ..Default::default()
+            },
+        );
+
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "set_style",
+                        "upsert": [
+                            { "key": "2:202", "fill": "#112233" },
+                            { "key": "brand:new", "name": "Brand/New", "fill": "#445566" }
+                        ]
+                    }]
+                }),
+            )
+            .expect("set_style batch should succeed");
+
+        assert_eq!(engine.doc.style_meta["2:202"].sort_position.as_deref(), Some("!~~p~oL"));
+        assert_eq!(engine.doc.styles["2:202"], Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
+        assert_eq!(engine.doc.style_meta["brand:new"].sort_position, None);
     }
 }

@@ -1092,14 +1092,28 @@ mod tests {
         doc.styles.insert("Fill/Surface".into(), Style::Fill(vec![Paint::solid(Color::rgb(0xFF, 0xFF, 0xFF))]));
         doc.style_meta.insert(
             "Fill/Surface".into(),
-            StyleMeta { name: "Fill/Surface".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Fill/Surface".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         doc.styles
             .insert("Text/Heading".into(), Style::Text(TextStyle { font_family: "Inter".into(), font_weight: 700, font_size: 24.0, ..TextStyle::default() }));
         doc.style_meta.insert(
             "Text/Heading".into(),
-            StyleMeta { name: "Text/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+            StyleMeta {
+                name: "Text/Heading".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Text,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         doc.styles.insert(
@@ -1121,6 +1135,7 @@ mod tests {
                 description: String::new(),
                 property: StyleProperty::Effect,
                 bindings: Default::default(),
+                ..Default::default()
             },
         );
 

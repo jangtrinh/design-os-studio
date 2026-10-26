@@ -123,10 +123,10 @@ fn editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one
 #[test]
 fn editing_a_grid_style_from_the_style_menu_updates_the_linked_frame() {
     let (mut s, welcome, _card) = welcome_with_styles();
-    // The menu rows: the style, then Create, Rename, Detach and Edit style below the separator.
+    // The menu rows: the style, then Create, Rename, Detach, Delete and Edit style below the separator.
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     assert_eq!(s.app().props.style_edit.as_ref().map(|e| e.key.as_str()), Some("Grid style 1"));
     s.frame(vec![]);
@@ -146,7 +146,7 @@ fn a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing() {
     let (mut s, welcome, _card) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     let field = s.field_rect("se-grid-count");
@@ -209,7 +209,7 @@ fn scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step()
     let (mut s, welcome, _card) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     let count_field = s.field_rect("se-grid-count");
@@ -255,17 +255,66 @@ fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     for (_, key) in props {
         make_library_style(&mut s, key);
     }
-    // A library style: the same row is disabled and says where the style is edited.
+    // A library style: the same row keeps its label, is disabled, and gives its reason on hover.
     for (prop, _) in props {
         let row = style_picker::edit_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the menu row is disabled for a library style");
-        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the row names where to edit");
+        assert_eq!(row.label, "Edit style", "{prop:?}: the Edit style row keeps its normal label");
+        assert_eq!(row.tooltip, "Edit in the library file", "{prop:?}: the Edit style row gives its reason on hover");
     }
     // The linked row's edit button opens nothing either.
     let button = s.rect_of("effect-style-edit");
     s.click(button.center());
     s.frame(vec![]);
     assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
+
+    // In the colour-style menu (properties.rs), a linked library fill style keeps the normal
+    // "Edit style" label (disabled) and shows "Edit in the library file" only as a hover tooltip.
+    fn collect_texts(shape: &egui::epaint::Shape, out: &mut Vec<(String, Rect)>) {
+        match shape {
+            egui::epaint::Shape::Text(t) => out.push((t.galley.job.text.clone(), t.visual_bounding_rect())),
+            egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect_texts(s, out)),
+            _ => {}
+        }
+    }
+    let painted_with_rects = |s: &Sim| -> Vec<(String, Rect)> {
+        let mut out = Vec::new();
+        for cs in &s.shapes {
+            collect_texts(&cs.shape, &mut out);
+        }
+        out
+    };
+    let hero = s.by_name("Hero");
+    s.shell.app.selection = vec![hero];
+    s.shell.app.apply_style(&[hero], "Brand/Primary");
+    make_library_style(&mut s, "Brand/Primary");
+    s.shell.app.props.scroll = 0.0;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.shell.app.props.styles_menu = Some(false);
+    s.mv(Pos2::new(10.0, 10.0));
+    s.frame(vec![]);
+    let items = painted_with_rects(&s);
+    let edit_rect = items
+        .iter()
+        .find(|(t, _)| t == "Edit style")
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("colour-style menu should paint 'Edit style' label, got {:?}", items.iter().map(|(t, _)| t).collect::<Vec<_>>()));
+    assert!(
+        !items.iter().any(|(t, _)| t == "Edit in the library file"),
+        "colour-style menu must not swap the row label to 'Edit in the library file' when not hovered"
+    );
+    let pt = edit_rect.center();
+    s.mv(pt + Vec2::new(0.0, 1.0));
+    s.mv(pt);
+    for _ in 0..30 {
+        s.frame(vec![]);
+    }
+    let hovered_items = painted_with_rects(&s);
+    assert!(
+        hovered_items.iter().any(|(t, _)| t == "Edit in the library file"),
+        "hovering disabled 'Edit style' in colour-style menu should paint 'Edit in the library file'"
+    );
 }
 
 #[test]
@@ -283,7 +332,8 @@ fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
     for (prop, _) in props {
         let row = style_picker::rename_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
-        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the Rename style row names where to edit");
+        assert_eq!(row.label, "Rename style", "{prop:?}: the Rename style row keeps its normal label");
+        assert_eq!(row.tooltip, "Edit in the library file", "{prop:?}: the Rename style row gives its reason on hover");
     }
     // Double-clicking the linked row does not open the inline rename field for a library style.
     let linked = s.rect_of("effect-style-row");
@@ -362,7 +412,7 @@ fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
     let (mut s, ..) = welcome_with_styles();
     let r = s.rect_of("grid-style-button");
     s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 5.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
     s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
     s.frame(vec![]);
     assert_distinct_icons(&s, &["\"se-grid-count\"", "\"se-grid-gutter\"", "\"se-grid-offset\"", "\"se-grid-opacity\""], "Grid style edit popover (Columns)");

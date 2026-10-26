@@ -1,0 +1,52 @@
+{
+  "source": "Untitled UI Figma – PRO VARIABLES (v8.0) (inspected on temporary copy via rea inspect-artifact ev_c31891ebd57179acda1dd4671c497968638cc59e9f63150f48aa2b6302e60f01 and fig-kiwi NodeChange field 320)",
+  "kiwi_field": {
+    "message": "NodeChange",
+    "field_id": 320,
+    "field_name": "sortPosition",
+    "field_type": "string",
+    "encoding": "Printable ASCII fractional-indexing string compared in ascending byte/ASCII lexicographic order (str::cmp)"
+  },
+  "total_live_style_nodes": 1009,
+  "counts_by_style_type": {
+    "FILL": 930,
+    "TEXT": 44,
+    "EFFECT": 26,
+    "GRID": 9
+  },
+  "samples": {
+    "EFFECT": [
+      { "guid": "1165:15950", "name": "Shadows/shadow-xs", "sortPosition": "!~~p~oL" },
+      { "guid": "1165:15951", "name": "Shadows/shadow-sm", "sortPosition": "!~~p~oLf" },
+      { "guid": "1165:15952", "name": "Shadows/shadow-md", "sortPosition": "!~~p~oLr" },
+      { "guid": "1165:15953", "name": "Shadows/shadow-lg", "sortPosition": "!~~p~oLx" },
+      { "guid": "1165:15954", "name": "Shadows/shadow-xl", "sortPosition": "!~~p~oL{" },
+      { "guid": "1165:15955", "name": "Shadows/shadow-2xl", "sortPosition": "!~~p~oL|" },
+      { "guid": "1165:15956", "name": "Shadows/shadow-3xl", "sortPosition": "!~~p~oL}" },
+      { "guid": "1165:15946", "name": "Focus rings/focus-ring", "sortPosition": "\"'#" },
+      { "guid": "1165:15947", "name": "Focus rings/focus-ring-error", "sortPosition": "\"'" },
+      { "guid": "1165:15957", "name": "Backdrop blurs/backdrop-blur-sm", "sortPosition": "\"(" },
+      { "guid": "1165:15958", "name": "Backdrop blurs/backdrop-blur-md", "sortPosition": "\")" },
+      { "guid": "1165:15959", "name": "Backdrop blurs/backdrop-blur-lg", "sortPosition": "\"*" },
+      { "guid": "1165:15960", "name": "Backdrop blurs/backdrop-blur-xl", "sortPosition": "\"+" }
+    ],
+    "TEXT": [
+      { "guid": "1165:15902", "name": "Display 2xl/Regular", "sortPosition": " ~M" },
+      { "guid": "1165:15903", "name": "Display 2xl/Medium", "sortPosition": " ~Mr" },
+      { "guid": "1165:15904", "name": "Display 2xl/Semibold", "sortPosition": " ~M|" },
+      { "guid": "1165:15905", "name": "Display 2xl/Bold", "sortPosition": " ~M}r" },
+      { "guid": "1165:15906", "name": "Display xl/Regular", "sortPosition": " ~N" }
+    ],
+    "GRID": [
+      { "guid": "1165:15961", "name": "Desktop", "sortPosition": "#" },
+      { "guid": "1165:15962", "name": "Tablet", "sortPosition": "\"" },
+      { "guid": "1165:15963", "name": "Phone", "sortPosition": "!" }
+    ],
+    "FILL": [
+      { "guid": "1046:49", "name": "Neutral/50", "sortPosition": " ~}y" },
+      { "guid": "1046:50", "name": "Neutral/100", "sortPosition": " ~}z" },
+      { "guid": "1046:51", "name": "Neutral/200", "sortPosition": " ~}{" },
+      { "guid": "1046:52", "name": "Neutral/300", "sortPosition": " ~}{O" }
+    ]
+  }
+}

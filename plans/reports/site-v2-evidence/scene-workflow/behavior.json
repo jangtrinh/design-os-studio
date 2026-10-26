@@ -1,0 +1,192 @@
+{
+  "anchors": {
+    "code": {
+      "section": "workflow",
+      "progress": 0.717,
+      "chapterOpacities": [
+        0,
+        0,
+        1
+      ],
+      "count": null,
+      "hash": "#code"
+    },
+    "agents": {
+      "section": "workflow",
+      "progress": 0.383,
+      "chapterOpacities": [
+        0,
+        1,
+        0
+      ],
+      "count": null,
+      "hash": "#agents"
+    },
+    "figma": {
+      "section": "workflow",
+      "progress": 0,
+      "chapterOpacities": [
+        1,
+        0,
+        0
+      ],
+      "count": null,
+      "hash": "#figma"
+    },
+    "workflow": {
+      "section": "workflow",
+      "progress": 0,
+      "chapterOpacities": [
+        1,
+        0,
+        0
+      ],
+      "count": null,
+      "hash": "#workflow"
+    },
+    "scale": {
+      "section": "scale",
+      "progress": 0.899,
+      "chapterOpacities": null,
+      "count": "208,610",
+      "hash": "#scale"
+    },
+    "nav:Workflow": {
+      "progress": 0
+    },
+    "nav:Big files": {
+      "progress": 0.899
+    }
+  },
+  "anchorErrors": [],
+  "hashOnLoad": {
+    "code": {
+      "progress": 0.717,
+      "chapterOpacities": [
+        0,
+        0,
+        1
+      ]
+    },
+    "agents": {
+      "progress": 0.383,
+      "chapterOpacities": [
+        0,
+        1,
+        0
+      ]
+    },
+    "scale": {
+      "progress": 0.899,
+      "chapterOpacities": null
+    }
+  },
+  "lifecycle": {
+    "mountedAt1440": {
+      "motion": true,
+      "canvases": 2,
+      "stages": 4,
+      "scrubClass": 4,
+      "wfSectionStyle": "--scrub-progress: 1.0000;",
+      "scaleSectionStyle": "--scrub-progress: 0.1992;",
+      "sheetStyle": "--tint: 227 99 35;",
+      "chapterStyles": [
+        "--tint: 227 99 35; opacity: 1; transform: translate3d(0px, 0px, 0px);",
+        "--tint: 13 153 255; opacity: 0; transform: translate3d(0px, 14px, 0px);",
+        "--tint: 20 174 92; opacity: 0; transform: translate3d(0px, 14px, 0px);"
+      ],
+      "numeral": "208,610",
+      "wfView": true,
+      "anchors": [
+        "workflow",
+        "figma",
+        "agents",
+        "code",
+        "scale"
+      ],
+      "wfH": 2430,
+      "scaleH": 1260
+    },
+    "narrow700": {
+      "motion": false,
+      "canvases": 0,
+      "stages": 0,
+      "scrubClass": 0,
+      "wfSectionStyle": null,
+      "scaleSectionStyle": null,
+      "sheetStyle": null,
+      "chapterStyles": [
+        "--tint: 227 99 35;",
+        "--tint: 13 153 255;",
+        "--tint: 20 174 92;"
+      ],
+      "numeral": "208,610",
+      "wfView": false,
+      "anchors": [],
+      "wfH": 1737,
+      "scaleH": 830
+    },
+    "backTo1440": {
+      "motion": true,
+      "canvases": 2,
+      "stages": 4,
+      "scrubClass": 4,
+      "wfSectionStyle": "--scrub-progress: 1.0000;",
+      "scaleSectionStyle": "--scrub-progress: 0.0000;",
+      "sheetStyle": "--tint: 20 174 92;",
+      "chapterStyles": [
+        "--tint: 227 99 35; opacity: 0; transform: translate3d(0px, -14px, 0px);",
+        "--tint: 13 153 255; opacity: 0; transform: translate3d(0px, -14px, 0px);",
+        "--tint: 20 174 92; opacity: 1; transform: translate3d(0px, 0px, 0px);"
+      ],
+      "numeral": "142,634",
+      "wfView": true,
+      "anchors": [
+        "workflow",
+        "figma",
+        "agents",
+        "code",
+        "scale"
+      ],
+      "wfH": 2430,
+      "scaleH": 1260,
+      "afterScrubProgress": 0.5
+    }
+  },
+  "lifecycleErrors": [],
+  "contrast": {
+    "orange": {
+      "bg": "#211b1c",
+      "text": 15.43,
+      "muted": 6.62,
+      "mutedOnChip": 6.48,
+      "textOnChip": 15.11
+    },
+    "blue": {
+      "bg": "#161e27",
+      "text": 15.3,
+      "muted": 6.56,
+      "mutedOnChip": 6.48,
+      "textOnChip": 15.11
+    },
+    "emerald": {
+      "bg": "#171f1f",
+      "text": 15.26,
+      "muted": 6.54,
+      "mutedOnChip": 6.48,
+      "textOnChip": 15.11
+    },
+    "noTint": {
+      "text": 16.25,
+      "muted": 6.97
+    },
+    "orange-blue-mid": {
+      "text": 15.43,
+      "muted": 6.62
+    },
+    "blue-emerald-mid": {
+      "text": 15.33,
+      "muted": 6.57
+    }
+  }
+}

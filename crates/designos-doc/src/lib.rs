@@ -1534,6 +1534,9 @@ pub struct StyleMeta {
     /// Property key -> variable id bound on this style.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bindings: BTreeMap<String, String>,
+    /// Figma `sortPosition` fractional-indexing key ordering styles within a property.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_position: Option<String>,
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.

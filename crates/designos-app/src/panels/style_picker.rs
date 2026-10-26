@@ -18,6 +18,39 @@ use egui::{Align2, Id, Pos2, Rect, Sense, TextEdit, Ui};
 
 const MENU_W: f32 = 184.0;
 
+const UNDO_SHORTCUT: &str = if cfg!(target_os = "macos") { "Cmd+Z" } else { "Ctrl+Z" };
+const STYLE_DELETED_TOAST: &str = if cfg!(target_os = "macos") { "Style deleted · Cmd+Z to undo" } else { "Style deleted · Ctrl+Z to undo" };
+
+fn style_deleted_toast(fallback_layers: usize) -> String {
+    match fallback_layers {
+        0 => STYLE_DELETED_TOAST.to_string(),
+        1 => format!("Style deleted · 1 layer matches it in this mode only · {UNDO_SHORTCUT} to undo"),
+        n => format!("Style deleted · {n} layers match it in this mode only · {UNDO_SHORTCUT} to undo"),
+    }
+}
+
+fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
+    let Some(key) = linked_style(app, sel, prop) else { return };
+    app.scrub_end();
+    if app.props.style_edit.as_ref().is_some_and(|s| s.key == key) {
+        app.props.style_edit = None;
+    }
+    if app.props.style_rename == Some(prop) {
+        app.props.style_rename = None;
+    }
+    let (op, fallback_layers) = match delete_style_with_fallbacks(&app.doc, &key) {
+        Ok((cmd, fallbacks)) => {
+            let mut ids: Vec<NodeId> = fallbacks.into_iter().map(|(id, _)| id).collect();
+            ids.dedup();
+            (Ok(cmd), ids.len())
+        }
+        Err(e) => (Err(e), 0),
+    };
+    if app.run_style_op(op) {
+        app.show_toast(style_deleted_toast(fallback_layers), false);
+    }
+}
+
 /// Fill and stroke styles have their own buttons, so anything but effect and text is a grid here.
 fn kind_of(prop: StyleProperty) -> StyleKind {
     match prop {
@@ -82,7 +115,9 @@ enum Pick {
     Apply(String),
     Create,
     Rename,
+    RenameFolder(String),
     Detach,
+    Delete,
     Edit,
 }
 
@@ -96,8 +131,15 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     };
     let mut items = Vec::new();
     let mut picks = Vec::new();
+    let mut last_folder: Option<String> = None;
     for e in style_entries_of(&app.doc, kind_of(prop)) {
-        items.push(MenuItem::new(app.doc.style_name(&e.key)).checked(current.as_deref() == Some(e.key.as_str())));
+        if !e.folder.is_empty() && last_folder.as_deref() != Some(e.folder.as_str()) {
+            items.push(MenuItem::new(e.folder.clone()).disabled(true));
+            picks.push(None);
+        }
+        last_folder = Some(e.folder.clone());
+        let label = if e.folder.is_empty() { e.leaf } else { format!("  {}", e.leaf) };
+        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())));
         picks.push(Some(Pick::Apply(e.key)));
     }
     if items.is_empty() {
@@ -108,14 +150,25 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         last.separator_after = true;
     }
     let linked = current.is_some();
-    // A library style is edited and renamed in its library file.
+    // A library style is edited, renamed and deleted in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
+    let ro_tip = if read_only { style_edit::LIBRARY_STYLE_TIP } else { "" };
+    let delete_ro = read_only || current.as_deref().is_some_and(|k| used_on_library_page(&app.doc, k));
+    let delete_tip = if delete_ro { style_edit::LIBRARY_STYLE_TIP } else { "" };
+    let linked_folder = current.as_deref().map(|k| crate::styles::split_name(app.doc.style_name(k)).0).filter(|f| !f.is_empty());
     let (create_off, create_tip) = create_state(app, sel, prop, linked);
     items.push(MenuItem::new(create).disabled(create_off).tooltip(create_tip));
-    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Rename style" }).disabled(!linked || read_only));
+    picks.push(Some(Pick::Create));
+    items.push(MenuItem::new("Rename style").disabled(!linked || read_only).tooltip(ro_tip));
+    picks.push(Some(Pick::Rename));
+    if let Some(folder) = linked_folder {
+        items.push(MenuItem::new("Rename folder").disabled(read_only).tooltip(ro_tip));
+        picks.push(Some(Pick::RenameFolder(folder)));
+    }
     items.push(MenuItem::new("Detach style").disabled(!linked));
-    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
-    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
+    items.push(MenuItem::new("Delete style").disabled(!linked || delete_ro).tooltip(delete_tip));
+    items.push(MenuItem::new("Edit style").disabled(!linked || read_only).tooltip(ro_tip));
+    picks.extend([Some(Pick::Detach), Some(Pick::Delete), Some(Pick::Edit)]);
     (items, picks)
 }
 
@@ -137,6 +190,13 @@ pub(crate) fn create_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -
 pub(crate) fn rename_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
     let (items, picks) = menu_model(app, sel, prop);
     items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Rename)).then_some(item)).expect("the menu always has a Rename style row")
+}
+
+/// The "Delete style" row of the menu, so tests can read its label, tooltip and state.
+#[cfg(test)]
+pub(crate) fn delete_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    let (items, picks) = menu_model(app, sel, prop);
+    items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Delete)).then_some(item)).expect("the menu always has a Delete style row")
 }
 
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and
@@ -174,11 +234,21 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                 }
                 Some(Pick::Rename) => {
                     if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
+                        ui.data_mut(|d| d.remove_temp::<String>(Id::new(("style-folder-rename", key))));
+                        app.props.style_rename = Some(prop);
+                    }
+                }
+                Some(Pick::RenameFolder(folder)) => {
+                    if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
+                        ui.data_mut(|d| d.insert_temp(Id::new(("style-folder-rename", key)), folder));
                         app.props.style_rename = Some(prop);
                     }
                 }
                 Some(Pick::Detach) => {
                     app.detach_style_of(sel, prop);
+                }
+                Some(Pick::Delete) => {
+                    delete_linked_style(app, sel, prop);
                 }
                 Some(Pick::Edit) => {
                     if let Some(style) = linked_style(app, sel, prop) {
@@ -197,29 +267,37 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
 /// button that detaches it. Leaves `pane` below the row.
 pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], prop: StyleProperty, key: &str) {
     let tag = tag(prop);
+    let folder_mode_id = Id::new(("style-folder-rename", button_key(prop)));
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
     widgets::record(ui, &format!("{tag}-row"), row);
     let name = app.doc.style_name(key).to_string();
     let id = Id::new((tag, "name"));
     let read_only = style_edit::is_read_only(app, key);
     if app.props.style_rename == Some(prop) && !read_only {
+        let folder_target = ui.data(|d| d.get_temp::<String>(folder_mode_id));
+        let initial = folder_target.as_deref().unwrap_or(&name);
         let started = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
         field::field_bg(ui, row, id);
-        let committed = field::edit_text(ui, row, id, &name, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
+        let committed = field::edit_text(ui, row, id, initial, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
         if !started {
             // Focus the field with its text selected once it exists; it ends the rename when it loses focus again.
             ui.memory_mut(|m| m.request_focus(id));
             let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(name.chars().count()))));
+            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(initial.chars().count()))));
             state.store(ui.ctx(), id);
             ui.data_mut(|d| d.insert_temp(id, true));
         }
         if committed.is_some() || (started && !ui.memory(|m| m.has_focus(id))) {
             ui.data_mut(|d| d.remove_temp::<bool>(id));
+            ui.data_mut(|d| d.remove_temp::<String>(folder_mode_id));
             app.props.style_rename = None;
         }
         if let Some(text) = committed {
-            app.rename_style_to(key, &text);
+            if let Some(old_folder) = folder_target {
+                app.rename_style_folder_to(&old_folder, &text);
+            } else {
+                app.rename_style_to(key, &text);
+            }
         }
     } else {
         let resp = ui.interact(row, id, Sense::click());

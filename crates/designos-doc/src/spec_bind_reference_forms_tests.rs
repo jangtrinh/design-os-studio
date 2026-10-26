@@ -44,7 +44,10 @@ fn add_variable(doc: &mut Document, coll_id: &str, coll_name: &str, var_id: &str
 
 fn add_style(doc: &mut Document, key: &str, name: &str, property: StyleProperty, style: Style) {
     doc.styles.insert(key.to_string(), style);
-    doc.style_meta.insert(key.to_string(), StyleMeta { name: name.to_string(), description: String::new(), property, key: None, bindings: Default::default() });
+    doc.style_meta.insert(
+        key.to_string(),
+        StyleMeta { name: name.to_string(), description: String::new(), property, key: None, bindings: Default::default(), ..Default::default() },
+    );
 }
 
 fn text_style(size: f32) -> Style {

@@ -1871,7 +1871,14 @@ mod tests {
         main.styles.insert("brand/accent".into(), Style::Fill(vec![Paint::solid(Color::rgb(10, 40, 220))]));
         main.style_meta.insert(
             "brand/accent".into(),
-            StyleMeta { name: "Main Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Main Accent".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         let col_id = "col-tokens".to_string();
         let mode_id = "mode-light".to_string();
@@ -1967,7 +1974,14 @@ mod tests {
         branch.styles.insert("brand/accent".into(), Style::Fill(vec![Paint::solid(Color::rgb(230, 50, 20))]));
         branch.style_meta.insert(
             "brand/accent".into(),
-            StyleMeta { name: "Branch Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Branch Accent".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         let alias_var_id = "var-alias".to_string();
         branch.variable_collections.insert(

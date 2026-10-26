@@ -1,0 +1,1 @@
+card1-3 .proof-num 14.2-14.4:1, .proof-label 14.6-14.7:1, .proof-note 6.5:1 (375x812, static swipe row, rendered pixels: 99.5th vs 30th percentile luminance in each text box)

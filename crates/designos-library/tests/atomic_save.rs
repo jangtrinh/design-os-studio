@@ -86,7 +86,7 @@ fn read_only_target_is_refused_and_left_untouched() {
 
     let err = write_atomic(&file, b"new").expect_err("a read-only file must not be replaced");
 
-    assert!(err.to_string().contains("read-only"), "error names the cause: {err}");
+    assert!(err.to_string().contains("is read-only or not writable:"), "error names the cause: {err}");
     assert_eq!(std::fs::read(&file).unwrap(), b"old");
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o444);
     assert!(leftover_tmp_files(&dir).is_empty());
@@ -269,10 +269,10 @@ fn crashed_save_leftover_tmp_files_are_swept_on_next_save() {
     let file = dir.join("doc.designos");
     std::fs::write(&file, b"v1").unwrap();
 
-    // Simulate leftover temp files from crashed processes (legacy .tmp on every platform, dead
-    // PIDs where the platform can tell that a process is gone).
-    let legacy_tmp = dir.join("doc.designos.tmp");
-    std::fs::write(&legacy_tmp, b"partial-legacy").unwrap();
+    // Simulate leftover temp files from crashed processes (dead PIDs where the platform can tell
+    // that a process is gone), alongside a user file named `<name>.tmp`.
+    let user_plain_tmp = dir.join("doc.designos.tmp");
+    std::fs::write(&user_plain_tmp, b"user-plain-tmp").unwrap();
     #[cfg(unix)]
     let (dead_tmp_1, dead_tmp_2) = {
         let pid = dead_pid();
@@ -303,7 +303,7 @@ fn crashed_save_leftover_tmp_files_are_swept_on_next_save() {
         assert!(!dead_tmp_1.exists(), "dead PID temp file 1 must be swept");
         assert!(!dead_tmp_2.exists(), "dead PID temp file 2 must be swept");
     }
-    assert!(!legacy_tmp.exists(), "legacy .tmp must be swept");
+    assert_eq!(std::fs::read(&user_plain_tmp).unwrap(), b"user-plain-tmp", "user file doc.designos.tmp must never be deleted");
     assert_eq!(std::fs::read(&user_notes_tmp).unwrap(), b"keep-user-notes", "user file doc.designos.my-notes.tmp must never be deleted");
     assert_eq!(std::fs::read(&live_self_tmp).unwrap(), b"in-flight-save", "live process temp file must never be deleted");
     #[cfg(unix)]
@@ -387,4 +387,82 @@ fn a_user_file_named_like_a_digit_pair_temp_is_never_swept() {
 
     assert_eq!(std::fs::read(&file).unwrap(), b"v2");
     assert_eq!(std::fs::read(&user_file).unwrap(), b"keep-me", "a file only shaped like a crashed save must not be deleted");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn acl_granting_write_on_0444_file_allows_save_and_survives() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = scratch("acl-0444-allow-write");
+    let file = dir.join("doc.designos");
+    std::fs::write(&file, b"v1").unwrap();
+
+    let user_out = std::process::Command::new("/usr/bin/id").arg("-un").output().unwrap();
+    assert!(user_out.status.success());
+    let user = String::from_utf8(user_out.stdout).unwrap().trim().to_string();
+    let acl_rule = format!("user:{user} allow write");
+
+    let status = std::process::Command::new("/bin/chmod").args(["+a", &acl_rule, file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success(), "chmod +a failed");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+    let res1 = write_atomic(&file, b"v2");
+    let res2 = write_atomic(&file, b"v3");
+
+    let ls_out = std::process::Command::new("/bin/ls").args(["-le", file.to_str().unwrap()]).output().unwrap();
+    let ls_text = String::from_utf8_lossy(&ls_out.stdout).into_owned();
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    let bytes = std::fs::read(&file).unwrap();
+
+    let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
+    let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+
+    res1.expect("first save on 0444 file with write ACL must succeed");
+    res2.expect("second save on 0444 file with write ACL must succeed");
+    assert_eq!(bytes, b"v3");
+    assert_eq!(mode, 0o444, "0444 mode must survive save");
+    assert!(ls_text.contains(&acl_rule), "ACL must survive save, got ls -le:\n{ls_text}");
+    assert!(leftover_tmp_files(&dir).is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn extended_attribute_survives_atomic_save() {
+    let dir = scratch("xattr-survives");
+    let file = dir.join("doc.designos");
+    std::fs::write(&file, b"v1").unwrap();
+
+    let status =
+        std::process::Command::new("/usr/bin/xattr").args(["-w", "com.designos.test-xattr", "xattr-payload", file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success(), "xattr -w failed");
+
+    write_atomic(&file, b"v2").unwrap();
+
+    let out = std::process::Command::new("/usr/bin/xattr").args(["-p", "com.designos.test-xattr", file.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "xattr must survive save: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "xattr-payload");
+    assert_eq!(std::fs::read(&file).unwrap(), b"v2");
+    assert!(leftover_tmp_files(&dir).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_named_pipe_with_an_open_reader_is_still_refused() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    #[cfg(target_os = "linux")]
+    const O_NONBLOCK: i32 = 0o4000;
+    #[cfg(not(target_os = "linux"))]
+    const O_NONBLOCK: i32 = 0x0004;
+
+    let dir = scratch("fifo-with-reader");
+    let fifo = dir.join("doc.designos");
+    make_fifo(&fifo);
+    let _reader = std::fs::OpenOptions::new().read(true).custom_flags(O_NONBLOCK).open(&fifo).unwrap();
+
+    let outcome = save_within_deadline(&fifo, b"saved");
+    let res = outcome.expect("saving onto a named pipe with a reader must return");
+    assert!(res.is_err(), "a named pipe must be refused even when a reader has it open");
+    assert!(leftover_tmp_files(&dir).is_empty());
 }

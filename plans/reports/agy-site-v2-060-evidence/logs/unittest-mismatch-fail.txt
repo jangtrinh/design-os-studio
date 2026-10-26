@@ -1,0 +1,54 @@
+test_numeric_compare_refuses_0_10_0_to_0_9_0 (scripts.tests.test_release_sync_pages.GuardTests.test_numeric_compare_refuses_0_10_0_to_0_9_0) ... ok
+test_refuses_downgrade (scripts.tests.test_release_sync_pages.GuardTests.test_refuses_downgrade) ... ok
+test_refuses_prerelease_and_bad_version (scripts.tests.test_release_sync_pages.GuardTests.test_refuses_prerelease_and_bad_version) ... ok
+test_size_label_rounds_decimal_megabytes (scripts.tests.test_release_sync_pages.GuardTests.test_size_label_rounds_decimal_megabytes) ... ok
+test_version_compare_is_numeric_not_lexicographic (scripts.tests.test_release_sync_pages.GuardTests.test_version_compare_is_numeric_not_lexicographic) ... ok
+test_final_assertion_catches_leftover_old_link (scripts.tests.test_release_sync_pages.MissingAssetTests.test_final_assertion_catches_leftover_old_link) ... ok
+test_missing_asset_in_markdown_fails (scripts.tests.test_release_sync_pages.MissingAssetTests.test_missing_asset_in_markdown_fails) ... ok
+test_missing_required_dmg_fails (scripts.tests.test_release_sync_pages.MissingAssetTests.test_missing_required_dmg_fails) ... ok
+test_optional_assets_missing_are_dropped_with_warning (scripts.tests.test_release_sync_pages.MissingAssetTests.test_optional_assets_missing_are_dropped_with_warning) ... ok
+test_cli_exit_code_matches (scripts.tests.test_release_sync_pages.PublishJobTests.test_cli_exit_code_matches) ... ok
+test_cli_unusable_answer_exits_2_not_skip (scripts.tests.test_release_sync_pages.PublishJobTests.test_cli_unusable_answer_exits_2_not_skip) ... ok
+test_publish_skipped_or_failed_or_missing (scripts.tests.test_release_sync_pages.PublishJobTests.test_publish_skipped_or_failed_or_missing) ... ok
+test_publish_succeeded_while_a_platform_leg_failed (scripts.tests.test_release_sync_pages.PublishJobTests.test_publish_succeeded_while_a_platform_leg_failed) ... ok
+test_accepts_v_prefix (scripts.tests.test_release_sync_pages.RewriteTests.test_accepts_v_prefix) ... ok
+test_idempotent (scripts.tests.test_release_sync_pages.RewriteTests.test_idempotent) ... ok
+test_marketing_copy_is_not_rewritten (scripts.tests.test_release_sync_pages.RewriteTests.test_marketing_copy_is_not_rewritten) ... ok
+test_report_lists_manual_followups (scripts.tests.test_release_sync_pages.RewriteTests.test_report_lists_manual_followups) ... ok
+test_rewrites_every_download_link_and_size (scripts.tests.test_release_sync_pages.RewriteTests.test_rewrites_every_download_link_and_size) ... ok
+test_updates_readme_install_and_sitemap (scripts.tests.test_release_sync_pages.RewriteTests.test_updates_readme_install_and_sitemap) ... ok
+test_mismatch_is_detected (scripts.tests.test_release_sync_pages.WhatsNewParityTests.test_mismatch_is_detected) ... ok
+test_readme_and_homepage_whats_new_versions_match (scripts.tests.test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match) ... FAIL
+
+======================================================================
+FAIL: test_readme_and_homepage_whats_new_versions_match (scripts.tests.test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-site-v2-060/scripts/tests/test_release_sync_pages.py", line 259, in test_readme_and_homepage_whats_new_versions_match
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        r_vers,
+        ^^^^^^^
+        h_vers,
+        ^^^^^^^
+        f"What's new versions differ between README.md ({r_vers}) and docs/index.html ({h_vers})",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['0.6.1', '0.6.0', '0.5.0', '0.4.0', '0.3.0'] != ['0.6.9', '0.6.0', '0.5.0', '0.4.0', '0.3.0']
+
+First differing element 0:
+'0.6.1'
+'0.6.9'
+
+- ['0.6.1', '0.6.0', '0.5.0', '0.4.0', '0.3.0']
+?       ^
+
++ ['0.6.9', '0.6.0', '0.5.0', '0.4.0', '0.3.0']
+?       ^
+ : What's new versions differ between README.md (['0.6.1', '0.6.0', '0.5.0', '0.4.0', '0.3.0']) and docs/index.html (['0.6.9', '0.6.0', '0.5.0', '0.4.0', '0.3.0'])
+
+----------------------------------------------------------------------
+Ran 21 tests in 1.414s
+
+FAILED (failures=1)

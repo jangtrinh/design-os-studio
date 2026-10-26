@@ -1,0 +1,96 @@
+{
+ "viewport": "1440x900",
+ "clock": "playwright fake clock (rAF and timers advance only through clock.runFor)",
+ "head": "ea8c8b0",
+ "frames": [
+  {
+   "clock_ms": 0,
+   "file": "s1-load-t0000ms.png",
+   "pill": "0 × 0",
+   "d": "M120.5 49.5H1225.5V184.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 500,
+   "file": "s1-load-t0500ms.png",
+   "pill": "777 × 95",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 1000,
+   "file": "s1-load-t1000ms.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 1500,
+   "file": "s1-load-t1500ms.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 2600,
+   "file": "s1-load-t2600ms.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 4000,
+   "file": "s1-load-t4000ms.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  }
+ ],
+ "scroll": [
+  {
+   "y": 0,
+   "file": "s1-scroll-y0000.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "y": 150,
+   "file": "s1-scroll-y0150.png",
+   "pill": "1114 × 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "y": 420,
+   "file": "s1-scroll-y0420.png",
+   "pill": "1212 × 687",
+   "d": "M114.5 468.5H1325.5V1154.5H114.5Z",
+   "on": true
+  },
+  {
+   "y": 700,
+   "file": "s1-scroll-y0700.png",
+   "pill": "1212 × 687",
+   "d": "M114.5 468.5H1325.5V1154.5H114.5Z",
+   "on": true
+  },
+  {
+   "y": 1000,
+   "file": "s1-scroll-y1000.png",
+   "pill": "1212 × 687",
+   "d": "M114.5 468.5H1325.5V1154.5H114.5Z",
+   "on": true
+  }
+ ],
+ "errors": [],
+ "nav": [
+  "Inside",
+  "Workflow",
+  "Big files",
+  "What’s new",
+  "Install",
+  "FAQ"
+ ],
+ "filmSrc": "designos-studio-v030-16x9.mp4"
+}

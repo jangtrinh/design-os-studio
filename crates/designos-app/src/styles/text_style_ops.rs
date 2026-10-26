@@ -63,7 +63,14 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
     styles.insert(name.clone(), Style::Text(style));
     style_meta.insert(
         name.clone(),
-        StyleMeta { name: name.clone(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+        StyleMeta {
+            name: name.clone(),
+            key: None,
+            description: String::new(),
+            property: StyleProperty::Text,
+            bindings: Default::default(),
+            ..Default::default()
+        },
     );
     let mut cmds = vec![Command::SetStyles { styles, style_meta }];
     for (n, _) in layers {

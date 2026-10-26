@@ -3363,6 +3363,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
                 description: fstr(m, "description").unwrap_or("").to_string(),
                 property,
                 bindings,
+                ..Default::default()
             },
         );
     }

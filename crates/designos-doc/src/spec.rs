@@ -32,10 +32,10 @@ pub struct LayoutSpec {
     /// `[top, right, bottom, left]` padding in px or `"var:..."` references.
     #[serde(default)]
     pub padding: [NumberOrVar; 4],
-    /// `"start"`, `"center"`, `"end"`, `"space-between"`, `"space-around"`, `"space-evenly"`, or `"baseline"`.
+    /// `"start"`, `"center"`, `"end"`, `"space-between"`, `"space-around"`, `"space-evenly"`, or `"baseline"` (alias: `"justify"`).
     #[serde(default, alias = "justify", skip_serializing_if = "String::is_empty")]
     pub primary_align: String,
-    /// `"start"`, `"center"`, `"end"`, or `"baseline"`.
+    /// `"start"`, `"center"`, `"end"`, or `"baseline"` (alias: `"align"`).
     #[serde(default, alias = "align", skip_serializing_if = "String::is_empty")]
     pub counter_align: String,
     /// Grid column count when using grid layout.
@@ -1325,9 +1325,19 @@ impl Document {
             self.bind_characters(id, &node_kind, raw_ref, &spec.name, spec.preset.is_some(), &format!("{path}.text"), index, libraries, report)?;
         }
 
-        // Re-estimate intrinsic text bounds after text_style / font_size / line_height application
+        // Re-estimate intrinsic text bounds after text_style / font_size / line_height application,
+        // and align the glyph box with any centring on the parent auto-layout frame when the text hugs that axis.
+        let (parent_centre_h, parent_centre_v) = self.parent_centres_children(parent);
+        let hugs_h = spec.width.is_none() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
+        let hugs_v = spec.height.is_none() && spec.height_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
         if let Some(n) = self.get_mut(id) {
             if let NodeKind::Text(tp) = &mut n.kind {
+                if parent_centre_h && spec.text_style.is_none() && tp.style.align_h == TextAlignH::Left && hugs_h {
+                    tp.style.align_h = TextAlignH::Center;
+                }
+                if parent_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top && hugs_v {
+                    tp.style.align_v = TextAlignV::Center;
+                }
                 let est = estimate_intrinsic_text_size(tp);
                 if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
@@ -1350,6 +1360,7 @@ impl Document {
         // automatically insert a child Text node inside it!
         if !is_text_kind {
             if let Some(label) = &spec.text {
+                let (self_centre_h, self_centre_v) = self.parent_centres_children(id);
                 let tid = self.try_alloc_id().ok_or_else(|| SpecBindError {
                     code: "ID_EXHAUSTED".to_string(),
                     message: "Document has exhausted node IDs".to_string(),
@@ -1431,7 +1442,13 @@ impl Document {
                     self.bind_characters(tid, &tkind, raw_ref, "", false, &format!("{path}.text"), index, libraries, report)?;
                 }
                 if let Some(tn) = self.get_mut(tid) {
-                    if let NodeKind::Text(tp) = &tn.kind {
+                    if let NodeKind::Text(tp) = &mut tn.kind {
+                        if self_centre_h && spec.text_style.is_none() && tp.style.align_h == TextAlignH::Left {
+                            tp.style.align_h = TextAlignH::Center;
+                        }
+                        if self_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top {
+                            tp.style.align_v = TextAlignV::Center;
+                        }
                         tn.size = estimate_intrinsic_text_size(tp);
                     }
                 }
@@ -1884,9 +1901,22 @@ impl Document {
         });
         hit
     }
+
+    /// Returns `(centre_h, centre_v)` indicating whether `parent` is an auto-layout
+    /// container that centres its children horizontally and/or vertically.
+    pub fn parent_centres_children(&self, parent: NodeId) -> (bool, bool) {
+        let Some(al) = self.get(parent).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()) else {
+            return (false, false);
+        };
+        if al.primary_is_horizontal() {
+            (al.primary_align == LayoutAlign::Center, al.counter_align == LayoutAlign::Center)
+        } else {
+            (al.counter_align == LayoutAlign::Center, al.primary_align == LayoutAlign::Center)
+        }
+    }
 }
 
-pub(crate) fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
+pub fn estimate_intrinsic_text_size(tp: &TextProps) -> Vec2 {
     let lines: Vec<&str> = tp.content.split('\n').collect();
     let fs = tp.style.font_size.max(8.0);
     let weight_boost = if tp.style.font_weight >= 600 { 1.05 } else { 1.0 };

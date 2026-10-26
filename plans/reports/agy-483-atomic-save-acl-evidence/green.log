@@ -1,0 +1,230 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 94 tests
+test io::dialog_probe::tests::a_pick_is_a_pick_however_fast ... ok
+test io::dialog_probe::tests::nothing_picked_and_no_backend_is_unavailable ... ok
+test io::dialog_probe::tests::a_pick_never_runs_the_probe ... ok
+test io::dialog_probe::tests::nothing_picked_after_a_person_could_have_acted_with_a_backend_is_a_cancel ... ok
+test io::dialog_probe::tests::nothing_picked_at_once_is_unavailable_even_when_the_probe_sees_a_backend ... ok
+test io::dialog_probe::tests::the_cutoff_is_exact ... ok
+test io::dialog_probe::tests::off_linux_a_dialog_that_returns_nothing_is_always_a_cancel ... ok
+test io::dialog_probe::tests::a_sandboxed_app_always_counts_as_having_a_portal ... ok
+test io::dialog_probe::tests::an_empty_machine_has_no_backend ... ok
+test io::comments_in_saved_files_tests::the_rule_counts_every_thread_including_resolved_ones_and_carries_the_pinned_copy ... ok
+test io::dialog_probe::tests::a_zenity_file_that_cannot_run_is_not_a_backend ... ok
+test io::dialog_probe::tests::an_executable_zenity_on_the_path_is_a_backend ... ok
+test io::fallback_save::tests::a_long_name_of_wide_characters_is_cut_on_a_character_boundary_within_the_byte_limit ... ok
+test io::dialog_probe::tests::a_portal_that_implements_the_file_chooser_is_a_backend ... ok
+test io::dialog_probe::tests::a_portal_without_a_file_chooser_is_not_a_backend ... ok
+test io::dialog_probe::tests::the_environment_falls_back_to_the_standard_data_dirs ... ok
+test io::fallback_save::tests::the_fallback_is_downloads_when_it_exists ... ok
+test io::fallback_save::tests::a_name_without_an_extension_gets_a_plain_number ... ok
+test io::fallback_save::tests::taken_names_get_a_number_before_the_extension ... ok
+test io::fallback_save::tests::the_fallback_is_home_when_downloads_is_missing_or_a_file ... ok
+test io::fallback_save::tests::a_cut_name_still_never_overwrites ... ok
+test io::fallback_save::tests::a_long_tail_after_a_dot_is_not_kept_as_an_extension ... ok
+test io::fallback_save::tests::a_long_name_is_cut_to_fit_the_file_system ... ok
+test io::fallback_save::tests::a_missing_folder_is_an_error_not_a_panic ... ok
+test io::fallback_save::tests::a_free_name_is_used_as_is ... ok
+test io::fallback_save::tests::a_name_cannot_leave_the_folder ... ok
+test io::file_dialog_flow_tests::export_selection_cancel_is_silent_and_writes_nothing ... ok
+test io::file_dialog_flow_tests::open_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::export_selection_asks_for_a_png_named_after_the_layer ... ok
+test io::file_dialog_flow_tests::open_without_a_dialog_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_writes_to_the_path_the_dialog_picked ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_says_so_and_saves_to_the_fallback_folder ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_never_overwrites_an_existing_file ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_keeps_a_layer_name_inside_the_folder ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_saves_a_layer_with_a_very_long_name ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_says_so_and_leaves_the_paint_alone ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_says_so_and_starts_no_import ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_says_so_and_adds_nothing ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_export_says_so_and_starts_no_export ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_and_export_are_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::save_as_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::the_linux_install_docs_say_what_the_file_dialog_needs ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::save_as_without_a_dialog_says_so_and_saves_nothing ... ok
+test io::file_dialog_flow_tests::the_deb_recommends_a_dialog_backend ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::web_capture_import_cancel_is_silent ... ok
+test io::tests::empty_doc_gets_a_page ... ok
+test io::file_dialog_flow_tests::web_capture_import_without_a_dialog_says_so ... ok
+test io::tests::errors_are_readable ... ok
+test io::tests::an_import_warning_is_returned_for_pen_files_and_for_pen_text_in_a_json_file ... ok
+test io::tests::documents_without_a_warning_open_with_the_plain_toast ... ok
+test io::tests::file_with_a_node_id_at_u64_max_opens_and_new_ids_stay_distinct ... ok
+test io::tests::cyclic_file_loads_into_a_consistent_tree ... ok
+test io::tests::json_falls_back_to_native ... ok
+test io::tests::hot_reload_surfaces_non_finite_warning_even_when_repaired_hash_matches_saved_hash ... ok
+test io::comments_in_saved_files_tests::a_resolved_thread_is_still_a_comment_the_file_cannot_keep ... ok
+test io::tests::only_the_native_extension_is_the_native_format ... ok
+test io::tests::load_path_resolves_relative_pen_library_imports_and_images_via_base_dir ... ok
+test io::tests::failed_save_leaves_original_intact ... ok
+test io::tests::opening_a_finite_rest_json_builds_no_native_json_text ... ok
+test io::tests::fig_roundtrip ... ok
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+test io::tests::clean_native_open_has_no_warning_and_writes_no_backup_on_save ... ok
+test io::tests::native_roundtrip ... ok
+test io::tests::extended_attribute_survives_atomic_save ... ok
+test io::comments_in_saved_files_tests::every_save_to_fig_tells_again_because_every_save_leaves_the_comments_out_again ... ok
+test io::tests::opening_a_rest_json_with_overflowing_numbers_replaces_them_and_tells_the_user_once ... ok
+test io::tests::acl_granting_write_on_0444_file_allows_save_and_survives ... ok
+test io::tests::opening_rest_json_with_overflow_neutralizes_in_place_without_running_migrate_text ... ok
+test io::tests::svg_loads_as_a_document_named_after_the_file ... ok
+test io::comments_in_saved_files_tests::only_the_fig_and_pen_writers_leave_comments_out_and_the_rule_matches_the_writer ... ok
+test io::tests::saving_to_a_path_builds_one_json_text_and_reports_the_replaced_numbers ... ok
+test io::comments_in_saved_files_tests::saving_comments_to_fig_or_pen_says_they_are_not_kept_and_still_saves ... ok
+test io::tests::web_capture_json_opens_via_open_any_and_load_path ... ok
+test io::tests::truly_unwritable_0444_file_is_refused ... ok
+test io::tests::saving_repaired_document_never_overwrites_existing_bak_files ... ok
+test io::tests::malformed_native_open_reports_what_was_repaired_and_backs_up_original_bytes_on_save ... ok
+test io::tests::user_file_named_target_dot_tmp_survives_save ... ok
+test io::comments_in_saved_files_tests::a_save_that_loses_no_comment_says_nothing_about_comments ... ok
+test io::tests::importing_several_files_names_each_one_that_had_numbers_replaced ... ok
+test io::tests::switching_documents_preserves_flush_autosave_non_finite_notice ... ok
+test io::tests::counted_save_neutralizes_open_document_and_saved_hash_matches_disk ... ok
+test io::tests::non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save ... ok
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast has been running for over 60 seconds
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast ... ok
+
+test result: ok. 93 passed; 0 failed; 1 ignored; 0 measured; 2848 filtered out; finished in 152.58s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.18s
+     Running tests/atomic_save.rs (out/cargo/debug/deps/atomic_save-0fc589cd006d9af6)
+
+running 19 tests
+test read_only_target_is_refused_and_left_untouched ... ok
+test directory_target_is_refused ... ok
+test a_named_pipe_target_is_refused_without_blocking ... ok
+test missing_file_and_parent_directories_are_created ... ok
+test file_with_0644_mode_and_a_write_deny_acl_is_refused ... ok
+test a_symlink_to_a_named_pipe_is_refused_without_blocking ... ok
+test a_named_pipe_with_an_open_reader_is_still_refused ... ok
+test saving_through_a_dangling_symlink_creates_the_target_and_keeps_the_link ... ok
+test publish_and_font_cache_use_the_shared_hardened_write_atomic ... ok
+test extended_attribute_survives_atomic_save ... ok
+test a_user_file_named_like_a_digit_pair_temp_is_never_swept ... ok
+test saving_keeps_the_existing_permission_mode ... ok
+test saving_through_a_symlink_into_another_directory_writes_next_to_the_real_file ... ok
+test saving_through_a_symlink_updates_the_real_file_and_keeps_the_link ... ok
+test acl_granting_write_on_0444_file_allows_save_and_survives ... ok
+test filename_of_249_or_more_bytes_succeeds_without_enametoolong ... ok
+test crashed_save_leftover_tmp_files_are_swept_on_next_save ... ok
+test forty_concurrent_saves_of_one_file_all_succeed_and_none_is_torn ... ok
+test temp_file_is_never_world_readable_while_saving_a_0600_document ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-d8a4d3c2a3602c1a)
+
+running 30 tests
+test cache::tests::default_dir_is_under_designos_fonts ... ok
+test cache::tests::temp_names_round_trip_and_nothing_else_is_taken_for_a_crashed_save ... ok
+test fontsource::tests::falls_back_when_no_latin_or_no_italic ... ok
+test fontsource::tests::license_as_object_is_tolerated ... ok
+test ensure::tests::requests_empty_without_text ... ok
+test cache::tests::unknown_family_maps_to_not_found ... ok
+test ensure::tests::requests_collect_nodes_and_runs ... ok
+test ensure::tests::ensure_substitutes_and_reports_offline_failures ... ok
+test fontsource::tests::ids ... ok
+test fontsource::tests::rejects_garbage_and_missing_ttf ... ok
+test fontsource::tests::css_weight_matching ... ok
+test cache::tests::closed_license_is_rejected_and_nothing_is_cached ... ok
+test cache::tests::non_font_payload_is_rejected ... ok
+test cache::tests::offline_miss_is_an_error_not_a_panic ... ok
+test fontsource::tests::open_licenses ... ok
+test fontsource::tests::parses_real_fixture ... ok
+test request::tests::a_bold_run_is_a_new_face ... ok
+test request::tests::faces_already_in_use_and_dropped_faces_are_not_new ... ok
+test request::tests::a_weight_between_the_steps_asks_for_the_face_css_matching_picks ... ok
+test request::tests::italic_and_family_changes_are_new_faces ... ok
+test scripts::tests::classifies_scripts ... ok
+test scripts::tests::missing_script_font_offline_is_a_reported_failure ... ok
+test scripts::tests::requests_follow_the_text_that_uses_the_script ... ok
+test subst::tests::maps_known_families ... ok
+test subst::tests::unknown_and_open_families_are_untouched ... ok
+test subst::tests::table_keys_are_lowercase_and_unique ... ok
+test cache::tests::bundled_inter_needs_no_cache_or_network ... ok
+test cache::tests::fetches_stores_then_serves_from_cache ... ok
+test scripts::tests::script_fonts_come_from_their_own_subset_via_a_temp_cache ... ok
+test cache::tests::leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-b2571777eb05dd2b)
+
+running 37 tests
+test store::tests::default_root_honours_the_env_override ... ok
+test publish::tests::a_published_version_with_non_finite_numbers_still_loads ... ok
+test publish::tests::unpublish_is_soft_delete ... ok
+test publish::tests::publish_list_load_and_changelog ... ok
+test publish::tests::round_trip_between_two_documents_preserves_overrides ... ok
+test store::tests::folders_nest_rename_and_refuse_cycles ... ok
+test store::tests::first_run_seeds_once ... ok
+test store::tests::sanitize_in_memory_touches_only_affected_entries ... ok
+test branches::tests::create_saves_branch_point_and_same_ids ... ok
+test store::tests::times_are_strictly_increasing ... ok
+test store::tests::rollback_unlisted_file_keeps_stored_file_when_manifest_already_lists_it ... ok
+test store::tests::project_crud_and_trash ... ok
+test versions::tests::a_damaged_index_is_rebuilt_from_the_snapshots ... ok
+test store::tests::atomic_save_leaves_no_temp_file_and_survives_a_stale_one ... ok
+test branches::tests::branch_versions_separate ... ok
+test versions::tests::named_versions_are_always_kept ... ok
+test versions::tests::index_has_the_documented_fields ... ok
+test versions::tests::retention_keeps_everything_in_the_last_hour ... ok
+test versions::tests::retention_thins_to_one_per_day_for_a_month_and_drops_older ... ok
+test versions::tests::retention_thins_to_one_per_hour_for_a_day ... ok
+test versions::tests::delete_moves_to_trash_and_numbers_are_not_reused ... ok
+test versions::tests::rename_names_a_version_and_keeps_it ... ok
+test versions::tests::saves_lists_and_loads_versions ... ok
+test versions::tests::saving_an_auto_version_prunes_old_ones_on_disk ... ok
+test store::tests::import_native_json_and_svg ... ok
+test branches::tests::legacy_index_loads ... ok
+test branches::tests::failure_leaves_manifest_unchanged ... ok
+test store::tests::trash_empty_removes_the_session_folder ... ok
+test store::tests::restoring_a_file_of_a_trashed_project_asks_for_the_project_first ... ok
+test store::tests::trash_restore_and_empty ... ok
+test store::tests::thumbnails_are_stored_and_follow_moves ... ok
+test branches::tests::archived_is_read_only ... ok
+test branches::tests::versions_before_after_and_one_undo ... ok
+test branches::tests::edge_cases_name_taken_trash_and_duplicate ... ok
+test store::tests::file_crud_roundtrip ... ok
+test store::tests::search_and_recents_order ... ok
+test branches::tests::branch_archived_after_merge ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-mcp)
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-483-atomic-save-acl/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.46s

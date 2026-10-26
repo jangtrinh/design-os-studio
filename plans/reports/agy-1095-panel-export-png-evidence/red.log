@@ -1,0 +1,139 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1095-panel-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1095-panel-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1095-panel-export/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1095-panel-export/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.11s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 94 tests
+test cli::tests::the_help_text_names_the_export_fig_rules ... ok
+test cmdk::tests::the_palette_names_the_fig_export_like_the_file_menu ... ok
+test agent_cli_export_fig_tests::the_writer_refuses_on_its_own_without_the_up_front_check ... ok
+test decks::export::tests::export_filename_is_safe_and_keeps_readable_unicode ... ok
+test decks::export::tests::pdf_export_preserves_document_selection_history_and_unsaved_notes ... ok
+test agent_presence::tests::cpu_export_is_pixel_identical_with_and_without_an_active_agent ... ok
+test decks::export::tests::non_decks_and_empty_decks_cannot_export_pdf ... ok
+test decks::export::tests::pdf_scope_uses_active_slide_or_every_document_page_in_order ... ok
+test decks::export::tests::write_demo_pdf_preview ... ignored, writes review artifacts only when explicitly requested
+test agent_cli_export_fig_tests::a_directory_is_never_replaced ... ok
+test agent_cli_export_fig_tests::an_existing_file_is_not_replaced_without_the_overwrite_flag ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_keeps_the_permissions_of_the_replaced_file ... ok
+test agent_cli_export_fig_tests::a_symlink_to_a_file_is_never_written_through ... ok
+test agent_cli_export_fig_tests::a_target_without_the_fig_extension_is_refused_and_left_alone ... ok
+test agent_cli_export_fig_tests::a_symlink_to_a_missing_target_is_never_written_through ... ok
+test fig_export::tests::a_document_with_no_file_and_no_library_asks_to_save_first ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_does_not_replace_a_read_only_file ... ok
+test agent_cli_export_fig_tests::the_fig_extension_is_accepted_in_any_letter_case ... ok
+test agent_cli_export_fig_tests::a_new_file_is_created_with_its_missing_folders ... ok
+test agent_cli_export_fig_tests::a_refused_target_stops_the_command_before_it_changes_the_document ... ok
+test fig_export::tests::a_relative_file_path_still_exports_to_a_full_path ... ok
+test fig_export::comment_notice_tests::an_export_of_a_document_with_comments_says_they_are_not_kept ... ok
+test fig_export::comment_notice_tests::an_export_of_a_document_without_comments_stays_quiet_about_them ... ok
+test fig_export::tests::a_test_never_opens_a_real_file_manager ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_replaces_a_regular_file_and_leaves_no_temporary_file ... ok
+test fig_export::tests::export_new_names_the_file_it_cannot_write ... ok
+test fig_export::tests::export_copy_reports_a_failed_write ... ok
+test fig_export::comment_notice_tests::export_new_counts_the_comment_threads_the_file_leaves_out ... ok
+test fig_export::tests::export_new_cuts_a_name_that_is_too_long_for_the_file_system ... ok
+test fig_export::tests::export_new_names_the_folder_it_cannot_create ... ok
+test fig_export::tests::export_new_creates_a_missing_folder ... ok
+test fig_export::tests::reveal_command_selects_the_file_in_each_file_manager ... ok
+test fig_export::tests::the_toast_says_what_the_format_could_not_carry_without_a_parenthesised_count ... ok
+test io::file_dialog_flow_tests::export_selection_asks_for_a_png_named_after_the_layer ... ok
+test fig_export::tests::export_new_takes_the_next_free_name_and_keeps_what_is_there ... ok
+test fig_export::tests::a_second_palette_export_does_not_replace_the_first ... ok
+test fig_export::tests::palette_export_reports_a_failed_write ... ok
+test io::file_dialog_flow_tests::export_selection_cancel_is_silent_and_writes_nothing ... ok
+test fig_export::tests::palette_export_leaves_the_open_fig_file_untouched ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_saves_a_layer_with_a_very_long_name ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_keeps_a_layer_name_inside_the_folder ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_says_so_and_saves_to_the_fallback_folder ... ok
+test io::file_dialog_flow_tests::export_selection_writes_to_the_path_the_dialog_picked ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_never_overwrites_an_existing_file ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_export_says_so_and_starts_no_export ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_and_export_are_silent_on_cancel ... ok
+test panels::export::tests::every_format_is_in_the_dropdown_and_round_trips_to_the_stored_format ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test panels::export::tests::export_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test panels::export::tests::export_cancel_is_silent_and_writes_nothing ... ok
+test panels::export::tests::fingerprint_changes_with_the_subtree ... ok
+test panels::export::tests::format_labels_fit_their_dropdown ... ok
+test panels::export::tests::multi_selection_shows_and_edits_shared_rows_only ... ok
+test panels::export::tests::a_very_long_layer_name_still_saves_to_the_fallback_folder ... ok
+test panels::export::tests::one_file_without_a_save_dialog_lands_in_the_fallback_folder_and_says_so ... ok
+test panels::export::tests::oversized_frame_in_a_pdf_row_reports_an_error ... ok
+test panels::export::tests::pdf_rows_mix_with_image_rows_and_repeat_rows_add_no_page ... ok
+test panels::export::tests::plus_adds_a_row_and_shows_preview_and_button ... ok
+test panels::export::tests::scale_strings_round_trip_through_constraints ... ok
+test panels::export::tests::one_file_in_the_fallback_folder_never_overwrites ... ok
+test panels::export::tests::selected_frames_with_pdf_rows_export_as_one_multi_page_file ... ok
+test panels::export::tests::export_writes_where_the_dialog_picked ... ok
+test icon_tests::agent_cli_apply_comment_and_export_roundtrip ... ok
+test panels::export::tests::rows_add_edit_remove_are_undoable_and_survive_save_and_load ... ok
+test panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder ... ok
+test fig_export::tests::a_document_name_never_leaves_the_exports_folder ... ok
+test shell::tests::fig_export_toast::a_failed_reveal_says_so ... ok
+test shell::tests::fig_export_toast::show_in_folder_reveals_the_exported_file ... ok
+test shell::tests::fig_export_toast::a_long_path_toast_stays_inside_the_window ... ok
+test live_sync_tests::bind_then_merge_then_export_spec_round_trips ... ok
+test shell::tests::fig_export_toast::a_click_on_a_plain_toast_reaches_the_canvas_below ... ok
+test agent_composer::tests::two_armed_claude_tabs_each_get_only_their_own_chunks_under_the_id_their_process_exports ... ok
+test shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason ... FAILED
+test shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast ... FAILED
+test terminal::tests::export_selection_paste_does_not_race_under_parallel_stress ... ok
+test variables::tests::export_toast_keeps_counts_out_of_parentheses_and_agrees_in_number ... ok
+test shell::tests::fig_export_toast::a_click_on_the_toast_body_reaches_the_canvas_below ... ok
+test fig_export::tests::export_copy_of_a_library_file_goes_to_the_library_exports_folder ... ok
+test shell::tests::panel_export::panel_export_never_overwrites_an_existing_file ... FAILED
+test fig_export::tests::an_unsafe_library_file_name_still_exports_into_the_exports_folder ... ok
+test terminal::tests::export_selection_pastes_fixed_sentence_only ... ok
+test fig_export::tests::a_library_file_with_a_very_long_name_exports_with_a_cut_file_name ... ok
+test shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path ... FAILED
+test fig_export::tests::home_export_reports_a_failed_write_and_does_not_retry_in_the_temp_folder ... ok
+test fig_export::tests::home_export_reports_a_file_that_cannot_be_loaded ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf ... ok
+test fig_export::tests::home_export_writes_to_the_library_exports_folder_and_shows_the_full_path ... ok
+test fig_export::tests::palette_export_of_a_library_file_goes_to_the_library_exports_folder ... ok
+test shell::tests::fig_export_toast::show_in_folder_works_on_the_home_screen_after_an_export ... ok
+test fig_export::comment_notice_tests::a_home_export_reads_the_comments_of_the_exported_file_not_of_the_open_document ... ok
+test shell::tests::relayout_budget::an_export_reads_the_finished_layout ... ok
+
+failures:
+
+---- shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason stdout ----
+
+thread 'shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason' (55206971) panicked at crates/designos-app/src/shell/tests/panel_export.rs:161:9:
+failed write to Downloads must never fall back to ~
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast stdout ----
+
+thread 'shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast' (55206972) panicked at crates/designos-app/src/shell/tests/panel_export.rs:206:9:
+both PNG and SVG settings must be written to ~/Downloads
+
+---- shell::tests::panel_export::panel_export_never_overwrites_an_existing_file stdout ----
+
+thread 'shell::tests::panel_export::panel_export_never_overwrites_an_existing_file' (55207136) panicked at crates/designos-app/src/shell/tests/panel_export.rs:141:9:
+assertion `left == right` failed
+  left: None
+ right: Some("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.INeaci/designos_panel_export_13873_no_overwrite/Downloads/Hero 2.png")
+
+---- shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path stdout ----
+
+thread 'shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path' (55208282) panicked at crates/designos-app/src/shell/tests/panel_export.rs:93:9:
+panel Export must never write silently to ~ (/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.INeaci/designos_panel_export_13873_fallback_not_home/Hero.png)
+
+
+failures:
+    shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason
+    shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast
+    shell::tests::panel_export::panel_export_never_overwrites_an_existing_file
+    shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path
+
+test result: FAILED. 89 passed; 4 failed; 1 ignored; 0 measured; 2861 filtered out; finished in 2.91s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -294,14 +294,14 @@ Auto-Layout 5.0 configuration for a container frame.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `counter_align` | `string` | `"start"`, `"center"`, `"end"`, or `"baseline"`. |
+| `counter_align` | `string` | `"start"`, `"center"`, `"end"`, or `"baseline"` (alias: `"align"`). |
 | `counter_gap` | `NumberOrVar` | Cross-axis spacing between wrapped lines in px (or `"var:..."`). |
 | `direction` | `string` | `"row"` / `"horizontal"` or `"column"` / `"vertical"`. |
 | `gap` | `NumberOrVar` | Primary-axis child gap in px (or `"var:&lt;collection&gt;/&lt;name&gt;"`). |
 | `grid_columns` | `integer` | Grid column count when using grid layout. |
 | `grid_rows` | `integer` | Grid row count when using grid layout. |
 | `padding` | `[NumberOrVar]` | `[top, right, bottom, left]` padding in px or `"var:..."` references. |
-| `primary_align` | `string` | `"start"`, `"center"`, `"end"`, `"space-between"`, `"space-around"`, `"space-evenly"`, or `"baseline"`. |
+| `primary_align` | `string` | `"start"`, `"center"`, `"end"`, `"space-between"`, `"space-around"`, `"space-evenly"`, or `"baseline"` (alias: `"justify"`). |
 | `wrap` | `boolean` | Wrap overflowing children onto additional lines when `true`. |
 
 ### `OverrideSpec` Fields
@@ -351,9 +351,9 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 Enforce these qualitative standards alongside automated linting:
 
-- **Visual hierarchy**: Establish one primary action per view and one focal point per screen. Keep at least a 3:1 size ratio between display headlines and body copy. Never give primary, secondary, and tertiary actions equal visual weight.
-- **Layout rhythm & cards**: Do not wrap every group in a card, and never nest cards inside cards. Avoid a uniform grid of identical cards when a domain-specific layout fits. Use the file's type scale and spacing scale (`var:` / `style:` tokens), with <= 3 gap values per screen and padding increasing with hierarchy (`page >= section >= card >= control`).
-- **Surface & colour discipline**: Keep gradients, shadows, and corner radii restrained and consistent with tokens. Use one primary accent per screen, reserve red/amber/green for semantic status, and express dark-mode depth via surface luminance and subtle borders.
-- **Icons, logos & illustrations**: Never hand-draw logos, illustrations, or icons with vector paths — instantiate library components (`kind: "instance"`) or use a labelled placeholder frame.
-- **Typography**: Use the file's type scale (<= 2 font families, <= 4 font sizes per screen). Keep body line length 45–75 chars, and use `tabular-nums` for prices, metrics, timestamps, and tables.
-- **Content realism**: Use real content, never lorem ipsum (`placeholder-text` flags `"Lorem ipsum"`, `"Card 1 / Card 2 / Card 3"`, `"John Doe"`, `"$99.99"`, `"123456"`). Populate screens with domain-specific labels, realistic uneven numbers, and varied states.
+- **Visual hierarchy**: Establish one primary action per view and one focal point per screen, with >= 3:1 size ratio between display headlines and body copy.
+- **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards when a domain layout fits. Use the file's type scale and spacing scale (`var:` / `style:` tokens), <= 3 gap values per screen, and padding increasing with hierarchy (`page >= section >= card >= control`).
+- **Buttons & centred controls**: Build buttons, pills, and badges with `"preset": "easeui-button-primary"` / `"easeui-button-secondary"` / `"easeui-badge"` or `"layout": {"direction": "row", "justify": "center", "align": "center"}` (a plain `"frame"` without `preset` or `layout` places labels at top-left).
+- **Surface & colour discipline**: Keep gradients, shadows, and corner radii restrained. Use one primary accent per screen, reserve red/amber/green for status, and express dark-mode depth via surface luminance and borders.
+- **Icons & illustrations**: Never hand-draw logos, illustrations, or icons with vector paths — use library instances (`kind: "instance"`) or labelled placeholders.
+- **Typography & content realism**: Use <= 2 font families, <= 4 font sizes, 45–75 char lines, and `tabular-nums` for numbers. Use real domain copy, never lorem ipsum.

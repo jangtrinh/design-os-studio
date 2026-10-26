@@ -1,0 +1,216 @@
+=== cargo test -p designos-doc --locked styles_ops ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 20 tests
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_deleted_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file ... ok
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... ok
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... ok
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... ok
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+test styles_ops::tests::deleting_a_text_style_keeps_a_bold_run ... FAILED
+test styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches ... FAILED
+test styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step ... FAILED
+test styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run ... FAILED
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref ... FAILED
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+
+failures:
+
+---- styles_ops::tests::deleting_a_text_style_keeps_a_bold_run stdout ----
+
+thread 'styles_ops::tests::deleting_a_text_style_keeps_a_bold_run' (48551417) panicked at crates/designos-doc/src/styles_ops.rs:1011:9:
+assertion `left == right` failed: every run keeps its weight after deleting the text style
+  left: [([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 16.0), ([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 16.0)]
+ right: [([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 16.0), ([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 700, 16.0)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches stdout ----
+
+thread 'styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches' (48551416) panicked at crates/designos-doc/src/styles_ops.rs:1082:9:
+assertion `left == right` failed
+  left: None
+ right: Some("v_surface")
+
+---- styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step stdout ----
+
+thread 'styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step' (48551418) panicked at crates/designos-doc/src/styles_ops.rs:860:9:
+assertion `left == right` failed
+  left: None
+ right: Some("v_fill")
+
+---- styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run stdout ----
+
+thread 'styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run' (48551415) panicked at crates/designos-doc/src/styles_ops.rs:984:9:
+assertion `left == right` failed: every run keeps its colour after deleting the fill style
+  left: [([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 12.0), ([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 12.0)]
+ right: [([Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 12.0), ([Paint { kind: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], 400, 12.0)]
+
+---- styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref stdout ----
+
+thread 'styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref' (48551427) panicked at crates/designos-doc/src/styles_ops.rs:1128:41:
+called `Result::unwrap_err()` on an `Ok` value: Batch([SetStyles { styles: {}, style_meta: {} }, Update { node: Node { id: NodeId(6), source_id: None, name: "Child", kind: Rectangle, parent: Some(NodeId(5)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 10.0, y: 10.0 }, fills: [Paint { kind: Solid(Color { r: 0.8509804, g: 0.8509804, b: 0.8509804, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [LayerBlur { radius: 4.0, visible: true }], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 0, row_span: 0, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: Some(NodeId(4)), overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} } }])
+
+
+failures:
+    styles_ops::tests::deleting_a_colour_style_on_text_keeps_a_highlighted_run
+    styles_ops::tests::deleting_a_fill_style_linked_as_fill_and_stroke_moves_both_variable_bindings_and_follows_mode_switches
+    styles_ops::tests::deleting_a_text_style_keeps_a_bold_run
+    styles_ops::tests::deleting_fill_text_effect_and_grid_styles_keeps_layer_values_drops_refs_and_undoes_in_one_step
+    styles_ops::tests::reset_instance_after_refused_delete_of_library_page_style_leaves_no_dangling_ref
+
+test result: FAILED. 15 passed; 5 failed; 0 ignored; 0 measured; 617 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+=== cargo test -p designos-fig --test fig_effect_grid_styles --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-46a2f99555638b59)
+
+running 14 tests
+test style_values_and_metadata_are_imported ... ok
+test a_soft_deleted_style_is_ignored ... ok
+test a_stroke_style_node_is_a_stroke_style ... ok
+test text_style_paragraph_indent_and_weight_round_trip ... ok
+test consumers_take_effect_and_grid_values_from_the_style_node ... ok
+test a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted ... FAILED
+test legacy_inherit_refs_resolve_to_the_style_nodes ... ok
+test fill_style_gradient_stop_binding_round_trips ... ok
+test effect_style_shadow_vars_round_trip ... ok
+test fig_style_colorvar_round_trips ... ok
+test export_then_import_keeps_effect_and_grid_styles_and_their_links ... ok
+test noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport ... ok
+test deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip ... ok
+test deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels ... FAILED
+
+failures:
+
+---- a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted stdout ----
+
+thread 'a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted' (48551807) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:618:41:
+called `Result::unwrap_err()` on an `Ok` value: Batch([SetStyles { styles: {}, style_meta: {} }, Update { node: Node { id: NodeId(2), source_id: Some("2:1"), name: "Local", kind: Frame(FrameProps { clips_content: true, auto_layout: None, grids: [] }), parent: Some(NodeId(1)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 }, size: Vec2 { x: 100.0, y: 100.0 }, fills: [], stroke: Stroke { paints: [], weight: 1.0, side_weights: None, align: Inside, cap: None, join: Miter, miter_limit: 4.0, dashes: [] }, effects: [DropShadow { color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.25 }, offset: Vec2 { x: 0.0, y: 4.0 }, radius: 8.0, spread: 0.0, visible: true, show_behind: false }], corner_radii: [0.0, 0.0, 0.0, 0.0], corner_smoothing: 0.0, constraints: Constraints { horizontal: Min, vertical: Min }, layout_child: LayoutChild { absolute: false, horizontal: Fixed, vertical: Fixed, grow: 0.0, align_self: Auto, min_w: None, max_w: None, min_h: None, max_h: None, grid_column: None, grid_row: None, col_span: 1, row_span: 1, grid_align_h: Start, grid_align_v: Start, margin: [0.0, 0.0, 0.0, 0.0], stretched: StretchedAxes { w: None, h: None, last_parent_horiz: None } }, is_mask: false, style_refs: {}, fill_geometry: None, stroke_geometry: None, component: ComponentLink { source: None, overrides: {}, props: [], values: {}, slot_configs: {}, is_slot: false, is_slot_content: false, slot_content_id: None, slot_content_ids: {}, bindings: {}, description: "", expose_nested_instances: false, variant_props: {}, override_level: None, detached_symbol_id: None, grid_align_overrides: [false, false], layout_cleared: false }, prototype: PrototypeProps { reactions: [], overflow: None, fixed_children: [], videos: [] }, variables: NodeVariables { bindings: {}, modes: {} }, export_settings: [], dev: DevInfo { status: None, status_updated: None, links: [], annotations: [], fingerprint: None, snapshot_version: None, snapshot: None }, slide: None, lock_aspect: false, hyperlink: None, plugin_data: {}, detached_symbol_id: None, fig_metadata: {} } }])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels stdout ----
+
+thread 'deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels' (48551810) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:671:5:
+assertion `left == right` failed: rendered pixels of mixed-colour text must not change after deleting its fill style (351 bytes differed)
+  left: 351
+ right: 0
+
+
+failures:
+    a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted
+    deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+=== cargo test -p designos-app --bin designos --locked effect_grid_styles ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.54s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 8 tests
+test shell::tests::effect_grid_styles::local_styles_list_effect_and_grid_groups ... ok
+test shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu ... FAILED
+test shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu ... FAILED
+test shell::tests::effect_grid_styles::creating_an_effect_style_links_the_layer_in_one_undo_step ... ok
+test shell::tests::effect_grid_styles::renaming_an_effect_style_from_the_menu ... ok
+test shell::tests::effect_grid_styles::creating_detaching_and_applying_a_grid_style ... ok
+test shell::tests::effect_grid_styles::detaching_and_applying_an_effect_style_from_the_menu ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_from_the_style_menu_detaches_linked_layers_shows_toast_and_undoes_in_one_step ... ok
+
+failures:
+
+---- shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu stdout ----
+
+thread 'shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu' (48553351) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:216:5:
+Delete style row is disabled when a node on the hidden library page uses the style
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu stdout ----
+
+thread 'shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu' (48553350) panicked at crates/designos-app/src/shell/tests/effect_grid_styles.rs:189:9:
+assertion `left == right` failed: Effect: the Delete style row keeps its normal label
+  left: "Edit in the library file"
+ right: "Delete style"
+
+
+failures:
+    shell::tests::effect_grid_styles::a_library_style_cannot_be_deleted_from_the_style_menu
+    shell::tests::effect_grid_styles::a_style_used_on_the_hidden_library_page_is_disabled_in_the_style_menu
+
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 2933 filtered out; finished in 0.68s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== cargo test -p designos-app --bin designos --locked style_edit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-127-delete-style/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.62s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 15 tests
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test canvas::textsession::tests::inspector_style_edits_request_the_new_face_with_or_without_a_session ... ok
+test canvas::textsession::tests::undoing_a_second_quick_style_edit_finds_the_face_of_the_first ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row ... FAILED
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu ... FAILED
+test shell::tests::style_edit::a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_the_list ... ok
+test shell::tests::style_edit::deleted_variable_bound_on_a_style_renders_detachable_pill_and_emits_broken_style_binding_lint ... ok
+test shell::tests::style_edit::editing_a_color_style_from_the_list_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::a_drag_is_recorded_once_when_the_pointer_is_released ... ok
+test shell::tests::style_edit::editing_a_text_style_from_the_list_restyles_every_linked_text_layer ... ok
+test shell::tests::style_edit::editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::editing_a_grid_style_from_the_style_menu_updates_the_linked_frame ... ok
+test shell::tests::style_edit::scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step ... ok
+test shell::tests::style_edit::popover_number_fields_use_distinct_non_duplicate_prefixes ... ok
+
+failures:
+
+---- shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row stdout ----
+
+thread 'shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row' (48555312) panicked at crates/designos-app/src/shell/tests/style_edit.rs:287:9:
+assertion `left == right` failed: Effect: the Rename style row keeps its normal label
+  left: "Edit in the library file"
+ right: "Rename style"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu stdout ----
+
+thread 'shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu' (48555310) panicked at crates/designos-app/src/shell/tests/style_edit.rs:262:9:
+assertion `left == right` failed: Effect: the Edit style row keeps its normal label
+  left: "Edit in the library file"
+ right: "Edit style"
+
+
+failures:
+    shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu
+    shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 2926 filtered out; finished in 1.15s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

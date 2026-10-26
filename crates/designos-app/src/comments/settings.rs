@@ -155,6 +155,30 @@ pub fn save_default_skills(root: &Path, names: &[String]) -> Result<(), String> 
     designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
 }
 
+/// Loads the persisted Pages section list height (`pages_height`) from `settings.json`, if set and finite.
+pub fn load_pages_height(root: &Path) -> Option<f32> {
+    read(root).get("pages_height").and_then(|v| v.as_f64()).map(|v| v as f32).filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// Saves or clears (`None`) the Pages section list height (`pages_height`) in `settings.json`,
+/// preserving all other keys.
+pub fn save_pages_height(root: &Path, height: Option<f32>) -> Result<(), String> {
+    let mut map = read(root);
+    match height.filter(|v| v.is_finite() && *v > 0.0) {
+        Some(h) => {
+            if let Some(num) = serde_json::Number::from_f64(f64::from(h)) {
+                map.insert("pages_height".into(), serde_json::Value::Number(num));
+            }
+        }
+        None => {
+            map.remove("pages_height");
+        }
+    }
+    let _ = std::fs::create_dir_all(root);
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,6 +264,17 @@ mod tests {
         assert_eq!(save_in_progress_stale_minutes(&d, 99_999).unwrap(), 1440);
         assert_eq!(load_in_progress_stale_minutes(&d), 1440);
         designos_doc::set_in_progress_stale_minutes(None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn pages_height_roundtrip_and_clear() {
+        let d = tmp("pages_h");
+        assert_eq!(load_pages_height(&d), None);
+        save_pages_height(&d, Some(96.0)).unwrap();
+        assert_eq!(load_pages_height(&d), Some(96.0));
+        save_pages_height(&d, None).unwrap();
+        assert_eq!(load_pages_height(&d), None);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

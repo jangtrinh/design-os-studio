@@ -736,6 +736,7 @@ mod tests {
                 description: String::new(),
                 property: StyleProperty::Fill,
                 bindings: Default::default(),
+                ..Default::default()
             },
         );
 

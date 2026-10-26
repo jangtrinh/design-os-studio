@@ -633,6 +633,7 @@ fn check_designs_counts_bound() {
             description: String::new(),
             property: designos_doc::StyleProperty::Fill,
             bindings: [("fills/0".to_string(), surface.clone())].into_iter().collect(),
+            ..Default::default()
         },
     );
     f.doc.styles.insert("Body".into(), Style::Text(TextStyle::default()));
@@ -644,6 +645,7 @@ fn check_designs_counts_bound() {
             description: String::new(),
             property: designos_doc::StyleProperty::Text,
             bindings: [("strokeWeight".to_string(), border_w.clone())].into_iter().collect(),
+            ..Default::default()
         },
     );
     let frame = f.frame(f.page, "Container", None);

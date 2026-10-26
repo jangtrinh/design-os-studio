@@ -689,7 +689,14 @@ mod tests {
         doc.styles.insert("Text/Primary".into(), Style::Fill(vec![Paint::solid(light_c)]));
         doc.style_meta.insert(
             "Text/Primary".into(),
-            StyleMeta { name: "Text/Primary".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "Text/Primary".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         bind_style_property(&doc, "Text/Primary", "fills/0", "surface").unwrap().apply(&mut doc).unwrap();
 

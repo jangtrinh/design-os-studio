@@ -1,0 +1,85 @@
+/* v2-new.css: scene "What's new". Tokens come from index.html :root only.
+   Mirrors README.md's What's new section: 0.6.1 and 0.6.0 open side by side on wide screens, with the two
+   0.6.0 captures in a 2-up grid and 0.5.0, 0.4.0 and 0.3.0 folded in <details> rows. */
+
+.new.sec { padding-block: 16px 12px; }
+.new-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 32px; }
+.new-head .lead { margin-top: 0; max-width: var(--measure); font-size: .9375rem; line-height: 1.38; }
+
+.new-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 8px; align-items: start; }
+
+.new-release { min-width: 0; }
+.new-ver {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 1rem; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; color: var(--text);
+}
+.new-release > .new-ver::before {
+  content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--orange);
+}
+.new-release--060 > .new-ver::before { background: var(--blue); }
+
+.new-note { margin-top: 3px; max-width: var(--measure); color: var(--muted); font-size: .75rem; line-height: 1.32; text-wrap: pretty; }
+.new-note code, .new-bullets code { padding: 0 4px; font-size: .875em; white-space: normal; }
+
+.new-shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
+.new-shot { margin: 0; display: flex; flex-direction: column; }
+.new-shot__link {
+  display: block; position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-sm);
+  background: var(--bg); overflow: hidden; outline: 1px solid rgba(255, 255, 255, .1); outline-offset: -1px;
+}
+.new-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.new-shot figcaption {
+  padding-top: 4px; color: var(--muted); font-size: .75rem; line-height: 1.3;
+  max-width: var(--measure); text-wrap: pretty;
+}
+.new-shot figcaption strong { color: var(--text); font-weight: 600; }
+
+.new-subhead { margin-top: 6px; font-size: .75rem; line-height: 1.3; color: var(--text); }
+
+.new-bullets { display: grid; gap: 3px; margin-top: 4px; }
+.new-bullets li {
+  position: relative; padding-left: 10px; max-width: var(--measure);
+  color: var(--muted); font-size: .75rem; line-height: 1.32; text-wrap: pretty;
+}
+.new-bullets li::before {
+  content: ""; position: absolute; left: 0; top: .52em; width: 4px; height: 4px;
+  border-radius: 1px; background: var(--line);
+}
+.new-bullets strong { color: var(--text); font-weight: 600; }
+
+.new-older { padding-block: 8px; border-top: 1px solid var(--border); }
+.new-fold { border-bottom: 1px solid var(--border); padding-block: 4px; }
+.new-fold summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 6px 0;
+  cursor: pointer; list-style: none;
+}
+.new-fold summary::-webkit-details-marker { display: none; }
+.new-fold summary .new-ver { flex: none; font-size: .9375rem; }
+.new-fold summary .ico { flex: none; color: var(--muted); transition: transform .2s ease-out; }
+.new-fold[open] summary .ico { transform: rotate(180deg); }
+.new-fold .new-bullets { margin-top: 4px; padding-bottom: 8px; }
+
+.new-changelog { margin-top: 4px; }
+.new-changelog a { display: inline-flex; align-items: center; min-height: 44px; font-size: .875rem; font-weight: 600; }
+
+@media (hover: hover) {
+  .new-fold summary:hover .new-ver { color: #fff; }
+}
+
+@media (min-width: 960px) {
+  .new-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 8px clamp(20px, 2.5vw, 32px); }
+  .new-release--061 { grid-column: 1; grid-row: 1; }
+  .new-older {
+    grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 0 14px; align-items: start;
+  }
+  .new-release--060 { grid-column: 2; grid-row: 1 / span 2; }
+  .new-release--061 .new-bullets { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; }
+  .new-release--060 .new-bullets { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 12px; }
+  .new-fold { border-bottom: 0; padding-block: 0; }
+  .new-changelog { margin-top: 0; }
+}
+
+@media (max-width: 640px) {
+  .new-shots { grid-template-columns: minmax(0, 1fr); }
+}

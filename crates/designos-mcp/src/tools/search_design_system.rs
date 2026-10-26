@@ -1348,6 +1348,7 @@ mod tests {
                 description: "Large section heading".into(),
                 property: StyleProperty::Text,
                 bindings: Default::default(),
+                ..Default::default()
             },
         );
 
@@ -1516,12 +1517,26 @@ mod tests {
         host.styles.insert("st_fill".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
         host.style_meta.insert(
             "st_fill".into(),
-            StyleMeta { name: "SurfaceFill".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+            StyleMeta {
+                name: "SurfaceFill".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Fill,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
         host.styles.insert("st_grid".into(), Style::Grid(vec![LayoutGrid::columns(12, 16.0, 24.0, Color::rgba(255, 0, 0, 25))]));
         host.style_meta.insert(
             "st_grid".into(),
-            StyleMeta { name: "Grid12Col".into(), key: None, description: String::new(), property: StyleProperty::Grid, bindings: Default::default() },
+            StyleMeta {
+                name: "Grid12Col".into(),
+                key: None,
+                description: String::new(),
+                property: StyleProperty::Grid,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         let mut engine = crate::engine::Engine { doc: host, active_page_id: Some(page), ..Default::default() };
@@ -1986,6 +2001,7 @@ mod tests {
                 description: "Warm orange fill".into(),
                 property: StyleProperty::Fill,
                 bindings: Default::default(),
+                ..Default::default()
             },
         );
 
@@ -2291,6 +2307,7 @@ mod tests {
                     property: StyleProperty::Text,
                     key: None,
                     bindings: Default::default(),
+                    ..Default::default()
                 },
             );
 
@@ -2356,7 +2373,14 @@ mod tests {
         host.styles.insert("z_local_heading".into(), Style::Text(local_ts));
         host.style_meta.insert(
             "z_local_heading".into(),
-            StyleMeta { name: "Heading L".into(), description: "Local heading".into(), property: StyleProperty::Text, key: None, bindings: Default::default() },
+            StyleMeta {
+                name: "Heading L".into(),
+                description: "Local heading".into(),
+                property: StyleProperty::Text,
+                key: None,
+                bindings: Default::default(),
+                ..Default::default()
+            },
         );
 
         // Add a local variable `Color/Accent` so `Color/Accent` falls back to `var:id:...`.

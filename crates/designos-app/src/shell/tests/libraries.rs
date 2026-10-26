@@ -303,7 +303,14 @@ fn publish_red(root: &Path) -> (Sim, String) {
     a.shell.app.doc.styles.insert("Brand/Red".into(), Style::Fill(vec![Paint::solid(Color::rgb(255, 0, 0))]));
     a.shell.app.doc.style_meta.insert(
         "Brand/Red".into(),
-        StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+        StyleMeta {
+            name: "Brand/Red".into(),
+            key: None,
+            description: String::new(),
+            property: StyleProperty::Fill,
+            bindings: Default::default(),
+            ..Default::default()
+        },
     );
     assert!(a.shell.app.publish_file());
     let lib_id = a.app().doc.library.published.clone().unwrap().library_id;
@@ -386,6 +393,7 @@ fn library_variables_bind_to_a_style_through_the_picker_in_one_undo_step() {
             description: String::new(),
             property: designos_doc::StyleProperty::Fill,
             bindings: Default::default(),
+            ..Default::default()
         },
     );
     b.shell.app.apply_style(&[id], "Card/Fill");
@@ -774,7 +782,14 @@ fn selection_styles_section_shows_library_styles_when_file_has_no_local_styles()
     a.shell.app.doc.styles.insert("Brand/Heading".into(), Style::Text(TextStyle { font_size: 28.0, ..TextStyle::default() }));
     a.shell.app.doc.style_meta.insert(
         "Brand/Heading".into(),
-        StyleMeta { name: "Brand/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+        StyleMeta {
+            name: "Brand/Heading".into(),
+            key: None,
+            description: String::new(),
+            property: StyleProperty::Text,
+            bindings: Default::default(),
+            ..Default::default()
+        },
     );
     assert!(a.shell.app.publish_file());
 
@@ -800,7 +815,14 @@ fn selection_styles_section_shows_library_styles_when_file_has_no_local_styles()
     a_text.shell.app.doc.styles.insert("Brand/Heading".into(), Style::Text(TextStyle { font_size: 28.0, ..TextStyle::default() }));
     a_text.shell.app.doc.style_meta.insert(
         "Brand/Heading".into(),
-        StyleMeta { name: "Brand/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+        StyleMeta {
+            name: "Brand/Heading".into(),
+            key: None,
+            description: String::new(),
+            property: StyleProperty::Text,
+            bindings: Default::default(),
+            ..Default::default()
+        },
     );
     assert!(a_text.shell.app.publish_file());
     let text_lib_id = a_text.app().doc.library.published.clone().unwrap().library_id;

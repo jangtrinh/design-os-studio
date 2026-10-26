@@ -1,0 +1,106 @@
+/* design:os studio homepage v2: scroll story (host layer).
+   Scenes 1-3: hero narrator, proof cards, anatomy. Dark tokens come from index.html :root.
+   Rules this file keeps: no position:fixed anywhere; sticky stages only; no transform, filter,
+   perspective, contain or non-visible overflow on any ancestor of a sticky stage. */
+
+/* ---- host: smooth scroll (Lenis) and the narrator's coordinate frame ---- */
+main { position: relative; }
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* ---- scene 1: cascade entrance (hidden state only while the cascade is pending) ---- */
+@media (prefers-reduced-motion: no-preference) {
+  html.v2-pre .topbar .brand,
+  html.v2-pre .topbar .navlinks li,
+  html.v2-pre .topbar .btn,
+  html.v2-pre .hero h1,
+  html.v2-pre .hero .sub,
+  html.v2-pre .hero .cta,
+  html.v2-pre .hero .cta-note,
+  html.v2-pre .hero .film { opacity: 0; }
+}
+
+/* the narrator draws the hero box in motion mode; the CSS box above stays for no-JS and reduced motion */
+html.v2-motion .hero .sel-box { border-color: transparent; }
+html.v2-motion .hero .sel-box::before,
+html.v2-motion .hero .pill { display: none; }
+
+/* ---- Tenant layout contract for pinned scenes (names come from the emitted engine) ----
+   The pin is the browser's own position:sticky on the stage. The story layer only supplies scroll
+   distance; the engine's progress bar, route rail and poster are not used here. */
+.scrub { position: relative; isolation: isolate; }
+.scrub__stage { position: sticky; top: 0; height: 100dvh; overflow: hidden; z-index: 1; }
+.scrub__story { position: relative; z-index: 3; margin-top: -100dvh; pointer-events: none; }
+.scrub__progress, .scrub__route, .scrub__poster { display: none; }
+
+/* ---- scene 2: proof cards ---- */
+.proof { --card-w: clamp(272px, 26vw, 368px); --card-h: calc(var(--card-w) * 1.25); }
+.proof-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 40px; }
+.proof-card {
+  position: relative; display: flex; flex-direction: column; height: 100%;
+  border-radius: 16px; background: var(--surface); overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.proof-face { margin: 0; }
+.proof-face--front {
+  padding: 28px 28px 26px;
+  background: linear-gradient(180deg, rgb(var(--tint) / .07), transparent 70%);
+}
+.proof-num { font-size: clamp(2.75rem, 4.6vw, 4.25rem); line-height: 1; letter-spacing: -.045em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.proof-label { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 1.25rem; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; }
+.proof-label i { flex: none; width: 8px; height: 8px; border-radius: 2px; background: rgb(var(--tint)); }
+.proof-note { margin-top: 10px; color: var(--muted); font-size: .9375rem; line-height: 1.5; text-wrap: pretty; }
+.proof-note code { white-space: normal; }
+.proof-face--back { position: relative; }
+.proof-face--back img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; object-position: top; border-radius: 0; }
+.proof-slot:nth-child(2) .proof-face--back img { object-position: left top; }
+.proof-slot:nth-child(3) .proof-face--back img { object-position: right top; }
+/* static (no pin): the render is a band under the fact; its caption would repeat the front label */
+html:not(.v2-motion) .proof-face--back figcaption { display: none; }
+html:not(.v2-motion) .proof-face--back { flex: 1 1 auto; display: flex; flex-direction: column; }
+html:not(.v2-motion) .proof-face--back img { flex: 1 1 auto; }
+.proof-face--back figcaption {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px;
+  background: var(--surface); color: var(--text); font-size: .9375rem; line-height: 1.2; font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.proof-face--back figcaption::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: rgb(var(--tint)); }
+@media (max-width: 799px) {
+  .proof-cards { display: flex; gap: 16px; margin-inline: calc(var(--gutter) * -1); padding-inline: var(--gutter); overflow-x: auto; scroll-snap-type: x mandatory; }
+  .proof-slot { flex: 0 0 min(78vw, 320px); scroll-snap-align: start; }
+}
+/* pinned (motion) layout: the card is a two-faced 3D object inside the sticky stage */
+html.v2-motion .proof__scene { height: 100%; display: flex; flex-direction: column; justify-content: center; padding-block: 72px 24px; }
+html.v2-motion .proof-cards { grid-template-columns: repeat(3, var(--card-w)); justify-content: center; margin-top: 32px; perspective: 1600px; }
+html.v2-motion .proof-slot { height: var(--card-h); }
+html.v2-motion .proof-card { position: absolute; inset: 0; display: block; overflow: visible; background: none; box-shadow: none; transform-style: preserve-3d; }
+html.v2-motion .proof-slot { position: relative; }
+html.v2-motion .scrub[data-armed="true"] .proof-card { will-change: transform; }
+html.v2-motion .proof-face {
+  position: absolute; inset: 0; border-radius: 16px; overflow: hidden;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+  background-color: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+html.v2-motion .proof-face--back { display: flex; flex-direction: column; transform: rotateY(180deg); }
+html.v2-motion .proof-face--back img { flex: 1 1 0; min-height: 0; height: auto; aspect-ratio: auto; object-position: center top; }
+html.v2-motion .proof-slot:nth-child(2) .proof-face--back img { object-position: left top; }
+html.v2-motion .proof-slot:nth-child(3) .proof-face--back img { object-position: right top; }
+@media (prefers-reduced-motion: reduce) { .proof-card { transition: none; } }
+
+/* ---- the narrator: one selection box (blue hairline, 4 handles, live W x H pill) ---- */
+.narrator {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease-out;
+}
+.narrator.is-on { opacity: 1; }
+.narrator svg { position: absolute; left: 0; top: 0; width: 1px; height: 1px; max-width: none; overflow: visible; }
+.narrator__frame { fill: none; stroke: var(--blue); stroke-width: 1; shape-rendering: crispEdges; }
+.narrator__handle-rim { fill: var(--blue); }
+.narrator__handle-fill { fill: var(--text); }
+.narrator__pill {
+  position: absolute; left: 0; top: 0; padding: 5px 10px; border-radius: var(--r-sm);
+  background: var(--blue); color: var(--ink); font: 600 .8125rem/1.2 var(--font);
+  letter-spacing: 0; white-space: nowrap; font-variant-numeric: tabular-nums;
+}

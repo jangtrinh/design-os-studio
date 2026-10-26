@@ -1,0 +1,29 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1098-button-label/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.67s
+     Running tests/button_label_centre.rs (out/cargo/debug/deps/button_label_centre-f387cf5f43ec35ff)
+
+running 2 tests
+[Plain Row Button] btn_c=(156.0, 22.0) box_c=(156.0, 22.0) geom_c=(151.92432, 20.469727) px_c=(151.0, 21.5) dx_geom=4.08 dy_geom=1.53 dx_px=5.00
+
+thread 'plain_spec_frame_with_align_and_justify_center_centres_label_within_1px' (55307588) panicked at crates/designos-mcp/tests/button_label_centre.rs:334:5:
+Plain Row Label shaped glyph centre (151.92432, 20.469727) is more than 1 px from button centre (156.0, 22.0) (dx=4.08, dy=1.53)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test plain_spec_frame_with_align_and_justify_center_centres_label_within_1px ... FAILED
+[Button/Button label] btn_c=(156.0, 22.0) box_c=(156.0, 22.0) geom_c=(151.92432, 20.469727) px_c=(151.0, 21.5) dx_geom=4.08 dy_geom=1.53 dx_px=5.00 dy_px=0.50
+
+thread 'qa_card_button_label_is_centred_within_1px' (55307589) panicked at crates/designos-mcp/tests/button_label_centre.rs:229:9:
+Button/Button label shaped glyph centre (151.92432, 20.469727) is more than 1 px from button centre (156.0, 22.0) (dx=4.08, dy=1.53)
+test qa_card_button_label_is_centred_within_1px ... FAILED
+
+failures:
+
+failures:
+    plain_spec_frame_with_align_and_justify_center_centres_label_within_1px
+    qa_card_button_label_is_centred_within_1px
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p designos-mcp --test button_label_centre`

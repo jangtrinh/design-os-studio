@@ -251,13 +251,20 @@ fn press_release_press_in_one_frame_leaves_the_second_draw_open() {
     assert_eq!(s.count(), before, "undo removes the shape");
 }
 
+/// Two empty-canvas points at `b.y`, horizontally centered and mirrored across `canvas_rect` so they stay clear of
+/// the drawn shape `a..b`, the demo frames above `a`, and the floating toolbars at the bottom of the canvas.
+fn empty_canvas_points(s: &Sim, b: Pos2) -> (Pos2, Pos2) {
+    let cr = s.app().canvas_rect;
+    (Pos2::new(cr.center().x, b.y), Pos2::new(cr.right() - (b.x - cr.left()), b.y))
+}
+
 #[test]
 fn release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released() {
     let mut s = sim_with(Tool::Rectangle);
     s.shell.app.keep_tool = true; // the tool stays armed, so the new press draws as well
     let known = all_nodes(&s);
     let (a, b) = ends(&s);
-    let elsewhere = s.screen(700.0, 950.0);
+    let (_, elsewhere) = empty_canvas_points(&s, b);
     s.mv(a);
     s.button(true);
     s.mv(a + (b - a) * 0.5);
@@ -284,8 +291,7 @@ fn the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several() {
     s.shell.app.keep_tool = true; // the tool stays armed, so the last press draws as well
     let known = all_nodes(&s);
     let (a, b) = ends(&s);
-    let c = s.screen(620.0, 930.0);
-    let d = s.screen(700.0, 950.0);
+    let (c, d) = empty_canvas_points(&s, b);
     s.mv(a);
     s.button(true);
     s.mv(a + (b - a) * 0.5);

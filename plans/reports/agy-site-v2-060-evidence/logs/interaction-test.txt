@@ -1,0 +1,17 @@
+PASS  keyboard focus ring visible on Download button  (Download for macOS | solid 2px rgb(13, 153, 255) offset 3px focus-visible=true)
+PASS  ArrowRight moves to Codex tab
+PASS  End key selects last tab
+PASS  exactly one install tab panel visible  (1)
+PASS  What's new 0.6.1 and 0.6.0 blocks are visible  ({"v061":true,"v060":true})
+PASS  What's new 0.6.0 images load (2 captures, naturalWidth > 0)  (images/v0.6/check-designs-color-fixes.png:2880, images/v0.6/ask-before-acting-approval.png:2880)
+PASS  What's new folded <details> (0.5.0) opens on click
+PASS  Copy button puts the snippet on the clipboard  (git clone https://github.com/jangtrinh/design-os-studio /tmp/design-os-studio)
+PASS  FAQ item opens
+PASS  #figma exists
+PASS  #agents exists
+PASS  #scale exists
+PASS  #new exists
+PASS  #install exists
+PASS  #faq exists
+PASS  #film exists
+PASS  5 distinct release files; every macOS download is the same dmg  (8 links: designos-0.6.1-macos.dmg, designos-0.6.1-macos-universal.tar.gz, designos-0.6.1-x86_64-pc-windows-msvc.zip, designos_0.6.1_amd64.deb, designos-0.6.1-x86_64-unknown-linux-gnu.tar.gz)

@@ -100,6 +100,10 @@ impl Shell {
         let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
+        if shell.app.ui.pages_height.is_none() {
+            let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
+            shell.app.ui.pages_height = crate::comments::settings::load_pages_height(&settings_root);
+        }
         if !screenshot && panel_was_none && !has_file {
             shell.app.ui.rail = Some(crate::app::RailItem::Agents);
             shell.app.ui.left_collapsed = false;
@@ -994,11 +998,14 @@ impl Shell {
         if self.shot.as_ref().is_some_and(|s| s.no_toast) {
             return;
         }
-        let Some(t) = &self.app.toast else { return };
-        if self.app.now > t.until {
-            self.app.toast = None;
-            return;
+        if self.app.now > self.app.toast.as_ref().map_or(0.0, |t| t.until) {
+            self.app.toast = self.app.toast_queue.pop_front().map(|mut next| {
+                let duration = if next.reveal.is_some() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
+                next.until = self.app.now + duration;
+                next
+            });
         }
+        let Some(t) = &self.app.toast else { return };
         let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
         let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
@@ -1027,6 +1034,7 @@ impl Shell {
         }
         if let (true, Some(file)) = (reveal_clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
+                self.app.toast = None;
                 self.app.show_toast(e, true);
             }
         }

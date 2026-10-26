@@ -76,16 +76,46 @@ pub trait FileDialogs {
 /// The operating system's dialog, through `rfd`.
 pub struct SystemDialogs;
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_HOME: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+impl SystemDialogs {
+    pub fn with_test_home<R>(home: &std::path::Path, f: impl FnOnce() -> R) -> R {
+        struct Guard(Option<PathBuf>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                TEST_HOME.with(|slot| *slot.borrow_mut() = self.0.take());
+            }
+        }
+        let prev = TEST_HOME.with(|slot| slot.borrow_mut().replace(home.to_path_buf()));
+        let _guard = Guard(prev);
+        f()
+    }
+}
+
 impl FileDialogs for SystemDialogs {
     fn pick(&self, request: &FileRequest) -> DialogOutcome {
+        if cfg!(test) {
+            return DialogOutcome::Unavailable;
+        }
         dialog_outcome(|| show_with_rfd(request))
     }
 
     fn pick_many(&self, request: &FileRequest) -> DialogOutcome<Vec<PathBuf>> {
+        if cfg!(test) {
+            return DialogOutcome::Unavailable;
+        }
         dialog_outcome(|| rfd_dialog(request).pick_files())
     }
 
     fn fallback_dir(&self) -> Option<PathBuf> {
+        #[cfg(test)]
+        if let Some(home) = TEST_HOME.with(|slot| slot.borrow().clone()) {
+            return Some(fallback_dir_in(&home));
+        }
         user_home().map(|home| fallback_dir_in(&home))
     }
 }
@@ -138,17 +168,25 @@ impl App {
         }
     }
 
+    /// Reports an export file write failure with the target path and the OS reason.
+    pub fn show_export_write_error(&mut self, without_dialog: bool, path: &std::path::Path, err: &std::io::Error) {
+        let lead = if without_dialog { "No save dialog. " } else { "" };
+        self.show_toast(format!("{lead}Export failed: {}: {err}", path.display()), true);
+    }
+
     /// The export had no save dialog: puts `bytes` in the fallback folder under a name that is not taken,
     /// and says where it went, or why it could not.
     pub fn save_without_dialog(&mut self, dialogs: &dyn FileDialogs, file_name: &str, bytes: &[u8]) {
-        let text = match dialogs.fallback_dir() {
-            None => NO_FALLBACK_FOLDER.to_string(),
+        match dialogs.fallback_dir() {
+            None => self.show_toast(NO_FALLBACK_FOLDER, true),
             Some(dir) => match write_new_in(&dir, file_name, bytes) {
-                Ok(path) => format!("No save dialog. Saved to {}", path.display()),
-                Err(e) => format!("No save dialog. Export failed: {e}"),
+                Ok(path) => {
+                    let text = format!("No save dialog. Saved to {}", path.display());
+                    self.show_toast_with_reveal_status(text, true, path);
+                }
+                Err(e) => self.show_export_write_error(true, &dir.join(file_name), &e),
             },
-        };
-        self.show_toast(text, true);
+        }
     }
 }
 

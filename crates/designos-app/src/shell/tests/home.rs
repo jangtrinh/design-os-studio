@@ -123,6 +123,8 @@ fn the_editor_header_shows_project_and_file_and_none_of_the_account_labels() {
     let (mut s, _d) = home_sim();
     open(&mut s, "Welcome");
     let r = s.rect_of("file-header");
+    assert_eq!(theme::RAIL_WIDTH, 48.0, "the icon-only rail uses the 48px token width");
+    assert_eq!(r.left(), theme::RAIL_WIDTH + theme::BORDER_WIDTH + theme::INSET_FRAME, "the header sits in the left panel right after the rail");
     assert!(r.left() >= theme::RAIL_WIDTH, "the header sits in the left panel");
     // the second line is the save state, not a plan
     assert_eq!(s.app().lib_file.as_ref().unwrap().project, "Getting started");

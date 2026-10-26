@@ -1,0 +1,11 @@
+{
+  "version": "4.12.1",
+  "violations": [],
+  "passes": 30,
+  "incomplete": [
+    "aria-prohibited-attr",
+    "color-contrast",
+    "video-caption"
+  ]
+}
+axe-core 4.12.1 at 1440x900: 0 violation(s), 30 rules passed, incomplete: aria-prohibited-attr, color-contrast, video-caption
