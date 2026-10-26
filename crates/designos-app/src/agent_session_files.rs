@@ -1197,14 +1197,18 @@ mod tests {
             if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("_tests.rs")) || path.components().any(|c| c.as_os_str() == "tests") {
                 continue;
             }
-            let shipped = src.split("#[cfg(test)]\nmod tests").next().unwrap_or(&src);
-            for line in shipped.lines() {
-                let code_line = line.split("//").next().unwrap_or("");
-                assert!(
-                    !code_line.contains("/tmp/designos-live-"),
-                    "{} still contains global /tmp/designos-live- path in shipped code: {line}",
-                    path.display()
-                );
+            let crlf_src = src.replace("\r\n", "\n").replace('\n', "\r\n");
+            for candidate in [src.as_str(), crlf_src.as_str()] {
+                let shipped =
+                    candidate.split("#[cfg(test)]\r\nmod tests").next().unwrap_or(candidate).split("#[cfg(test)]\nmod tests").next().unwrap_or(candidate);
+                for line in shipped.lines() {
+                    let code_line = line.split("//").next().unwrap_or("");
+                    assert!(
+                        !code_line.contains("/tmp/designos-live-"),
+                        "{} still contains global /tmp/designos-live- path in shipped code: {line}",
+                        path.display()
+                    );
+                }
             }
         }
     }

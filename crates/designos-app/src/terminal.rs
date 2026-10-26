@@ -1418,9 +1418,7 @@ fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>
         }
     }
     match enabled_tools {
-        Some(set) => designos_mcp::rules::generate_rules_pack(Some(set))
-            .map(std::borrow::Cow::Owned)
-            .unwrap_or_else(|_| fallback_rules_pack()),
+        Some(set) => designos_mcp::rules::generate_rules_pack(Some(set)).map(std::borrow::Cow::Owned).unwrap_or_else(|_| fallback_rules_pack()),
         None => fallback_rules_pack(),
     }
 }
@@ -8061,8 +8059,12 @@ mod tests {
         }
 
         let terminal_src = include_str!("terminal.rs");
-        let shipped_part = terminal_src.split("#[cfg(test)]\nmod tests").next().unwrap_or(terminal_src);
-        assert!(!shipped_part.contains("fn is_design_creation_prompt"), "is_design_creation_prompt must not exist in terminal.rs");
+        let crlf_terminal_src = terminal_src.replace("\r\n", "\n").replace('\n', "\r\n");
+        for candidate in [terminal_src, crlf_terminal_src.as_str()] {
+            let shipped_part =
+                candidate.split("#[cfg(test)]\r\nmod tests").next().unwrap_or(candidate).split("#[cfg(test)]\nmod tests").next().unwrap_or(candidate);
+            assert!(!shipped_part.contains("fn is_design_creation_prompt"), "is_design_creation_prompt must not exist in terminal.rs");
+        }
         kill_tabs(&mut st);
     }
 
@@ -12386,10 +12388,7 @@ mod tests {
             let crlf_rules = designos_mcp::rules::GENERATED_RULES_MD.replace("\r\n", "\n").replace('\n', "\r\n");
             assert!(crlf_rules.contains("\r\n"), "precondition: CRLF rules input");
 
-            let opts = designos_export::agent_context::BootstrapOptions {
-                current_page_id: Some(page),
-                ..Default::default()
-            };
+            let opts = designos_export::agent_context::BootstrapOptions { current_page_id: Some(page), ..Default::default() };
             let boot = designos_export::agent_context::bootstrap(&doc, &opts, &doc.library.enabled, &crlf_rules);
             let rules_sec = boot.sections.iter().find(|s| s.id == "rules").expect("rules section");
             assert!(
