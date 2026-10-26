@@ -56,14 +56,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Linux system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+          sudo fallocate -l 16G /tmp/swapfile && sudo chmod 600 /tmp/swapfile && sudo mkswap /tmp/swapfile && sudo swapon /tmp/swapfile || true
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - name: Library unit tests
-        run: cargo test --workspace --lib --locked
+        run: RUST_TEST_THREADS=1 cargo test --workspace --lib --locked
 
   gate-result:
     name: PR Gate (result artifact)
