@@ -251,6 +251,9 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
     }
 
     let widgets = ctx.viewport(|vp| vp.prev_pass.widgets.clone());
+    let global_style = ctx.global_style();
+    let widget_info_enabled = cfg!(debug_assertions) && global_style.debug.show_interactive_widgets;
+    let bar_width = global_style.spacing.scroll.bar_width;
     let mut unnamed = Vec::new();
     let mut scroll_set: BTreeSet<(String, String, bool)> = BTreeSet::new();
 
@@ -267,13 +270,26 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
             let q4 = rect_to_q4(global_rect);
             let region = classify_point(global_rect.center(), regions, &overlays);
 
-            if rect_entry.sense.contains(egui::Sense::DRAG) && !rect_entry.sense.contains(egui::Sense::CLICK) {
+            if widget_info_enabled {
+                if widgets.info(rect_entry.id).is_some_and(|info| info.typ == egui::WidgetType::ScrollBar) {
+                    let axis = if global_rect.height() >= global_rect.width() { "y" } else { "x" };
+                    scroll_set.insert((region, axis.to_string(), false));
+                    continue;
+                }
+            } else if rect_entry.sense.contains(egui::Sense::DRAG) {
                 let w = global_rect.width();
                 let h = global_rect.height();
-                if w <= 16.0 && h >= 24.0 {
-                    scroll_set.insert((region.clone(), "v".to_string(), false));
-                } else if h <= 16.0 && w >= 24.0 {
-                    scroll_set.insert((region.clone(), "h".to_string(), false));
+                let is_drag_only = !rect_entry.sense.contains(egui::Sense::CLICK);
+                let narrow_axis = if w <= 16.0 && h >= 24.0 && (is_drag_only || (w - bar_width).abs() <= 0.5) {
+                    Some("y")
+                } else if h <= 16.0 && w >= 24.0 && (is_drag_only || (h - bar_width).abs() <= 0.5) {
+                    Some("x")
+                } else {
+                    None
+                };
+                if let Some(axis) = narrow_axis {
+                    scroll_set.insert((region, axis.to_string(), true));
+                    continue;
                 }
             }
 
