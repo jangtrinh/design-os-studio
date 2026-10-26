@@ -1716,6 +1716,9 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let Some(former_parent) = cur_node.parent else {
                     return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be deleted by this tool"));
                 };
+                if let Some(cause) = crate::tools::errors::check_not_instance_child(&trial, id, &op_path) {
+                    return Err(ToolError::batch_op_failed(op_idx, op_name, cause));
+                }
                 let deleted_bounds = node_page_bounds(&trial, id);
                 let parent_bounds_before = {
                     let pb = node_page_bounds(&trial, former_parent);

@@ -1,0 +1,16 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.91s
+     Running tests/instance_child_delete.rs (out/cargo/debug/deps/instance_child_delete-9d44b443ae810025)
+
+running 5 tests
+test delete_node_refuses_nested_instance_and_grandchild_in_nested_instance ... ok
+test delete_node_refuses_direct_child_of_instance ... ok
+test batch_delete_refuses_instance_child_and_nested_grandchild_atomically ... ok
+test instance_root_and_main_component_children_stay_deletable ... ok
+test slot_added_content_stays_deletable_in_delete_node_and_batch ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

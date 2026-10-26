@@ -525,6 +525,9 @@ impl Engine {
                 };
                 let id = n.id;
                 self.check_owned_frames(id, "/node_id")?;
+                if let Some(err) = crate::tools::errors::check_not_instance_child(&self.doc, id, "/node_id") {
+                    return Err(err);
+                }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture(&self.doc, &[former_parent], &self.session_options.issues, a.lint, self.lint_env());

@@ -1,0 +1,47 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-985-instance-child-delete/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.33s
+     Running tests/instance_child_delete.rs (out/cargo/debug/deps/instance_child_delete-9d44b443ae810025)
+
+running 5 tests
+test delete_node_refuses_direct_child_of_instance ... FAILED
+test delete_node_refuses_nested_instance_and_grandchild_in_nested_instance ... FAILED
+test batch_delete_refuses_instance_child_and_nested_grandchild_atomically ... FAILED
+test slot_added_content_stays_deletable_in_delete_node_and_batch ... FAILED
+test instance_root_and_main_component_children_stay_deletable ... ok
+
+failures:
+
+---- delete_node_refuses_direct_child_of_instance stdout ----
+
+thread 'delete_node_refuses_direct_child_of_instance' (50351952) panicked at crates/designos-mcp/tests/instance_child_delete.rs:107:10:
+deleting a direct child of an instance must be refused: Object {"deleted": Bool(true), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "node_id": Number(11)}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- delete_node_refuses_nested_instance_and_grandchild_in_nested_instance stdout ----
+
+thread 'delete_node_refuses_nested_instance_and_grandchild_in_nested_instance' (50351953) panicked at crates/designos-mcp/tests/instance_child_delete.rs:139:10:
+deleting a grandchild inside a nested instance must be refused: Object {"deleted": Bool(true), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "node_id": Number(10)}
+
+---- batch_delete_refuses_instance_child_and_nested_grandchild_atomically stdout ----
+
+thread 'batch_delete_refuses_instance_child_and_nested_grandchild_atomically' (50351951) panicked at crates/designos-mcp/tests/instance_child_delete.rs:189:10:
+batch containing an instance-child delete must fail as a whole: Object {"changed": Object {"deleted": Number(1), "inserted": Number(1), "moved": Number(0), "styles": Number(0), "updated": Number(1), "variables": Number(0)}, "created": Array [Number(12)], "created_count": Number(1), "dry_run": Bool(false), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "name_to_id": Object {"extra": Number(12)}, "touched_bounds": Object {"height": Number(116.0), "width": Number(400.0), "x": Number(0.0), "y": Number(0.0)}, "touched_roots": Array [Object {"bounds": Object {"height": Number(100.0), "width": Number(100.0), "x": Number(0.0), "y": Number(0.0)}, "node_id": Number(12), "op": Number(0)}, Object {"bounds": Object {"height": Number(0.0), "width": Number(0.0), "x": Number(320.0), "y": Number(100.0)}, "node_id": Number(8), "op": Number(1)}, Object {"bounds": Object {"height": Number(16.0), "width": Number(60.0), "x": Number(340.0), "y": Number(100.0)}, "node_id": Number(8), "op": Number(2)}], "undo_label": String("Agent: designos-mcp")}
+
+---- slot_added_content_stays_deletable_in_delete_node_and_batch stdout ----
+
+thread 'slot_added_content_stays_deletable_in_delete_node_and_batch' (50351955) panicked at crates/designos-mcp/tests/instance_child_delete.rs:320:10:
+slot container itself is an instance child and cannot be deleted: Object {"deleted": Bool(true), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "node_id": Number(18)}
+
+
+failures:
+    batch_delete_refuses_instance_child_and_nested_grandchild_atomically
+    delete_node_refuses_direct_child_of_instance
+    delete_node_refuses_nested_instance_and_grandchild_in_nested_instance
+    slot_added_content_stays_deletable_in_delete_node_and_batch
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --test instance_child_delete`
