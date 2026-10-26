@@ -151,7 +151,10 @@ pub(crate) fn forced_unavailable_in(debug_or_test: bool, raw: Option<&OsStr>) ->
 
 fn is_probe_timeout(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
-    lower.contains("timed out") || lower.contains("timeout") || lower.contains("org.freedesktop.dbus.error.noreply")
+    lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("org.freedesktop.dbus.error.noreply")
+        || lower.contains("org.freedesktop.dbus.error.timedout")
 }
 
 /// Runs `show` and maps what it returned to an outcome. `backend_present` runs only when nothing was picked.
@@ -848,5 +851,46 @@ mod tests {
         assert!(!forced_unavailable_in(true, Some(OsStr::new("0"))));
         assert!(!forced_unavailable_in(true, Some(OsStr::new(""))));
         assert!(!forced_unavailable_in(true, None));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show() {
+        let _ = take_last_backend_error();
+        let root = scratch("round4_zenity_dbus_timedout");
+        write_zenity(&root, 0o755);
+        let env = env_in(&root);
+
+        let show_called = std::cell::Cell::new(false);
+        let outcome = dialog_outcome_bounded(
+            || Err("org.freedesktop.DBus.Error.TimedOut: no details".to_string()),
+            Duration::from_millis(100),
+            || {
+                show_called.set(true);
+                Some(PathBuf::from("/tmp/should-not-open-r4.fig"))
+            },
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(outcome, DialogOutcome::Unavailable);
+        assert!(!show_called.get(), "show must never run when the portal probe returns org.freedesktop.DBus.Error.TimedOut, even with zenity installed");
+        let err = take_last_backend_error().expect("timeout error recorded");
+        assert!(err.to_ascii_lowercase().contains("org.freedesktop.dbus.error.timedout"), "unexpected error: {err}");
+
+        let show_called_via_map = std::cell::Cell::new(false);
+        let outcome_via_map = dialog_outcome_bounded(
+            || map_portal_probe(|| Ok(()), |(), _| Ok(false), |(), _, _, _| Err("org.freedesktop.DBus.Error.TimedOut: no details".to_string())),
+            Duration::from_millis(100),
+            || {
+                show_called_via_map.set(true);
+                Some(PathBuf::from("/tmp/should-not-open-r4-map.fig"))
+            },
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(outcome_via_map, DialogOutcome::Unavailable);
+        assert!(!show_called_via_map.get());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

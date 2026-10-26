@@ -623,3 +623,170 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; f
 - None.
 
 Status: DONE
+
+---
+
+## Round 4
+
+### What Could NOT Be Verified (Stated First)
+
+1. **Live Linux desktop D-Bus session returning a body-less `org.freedesktop.DBus.Error.TimedOut` error:** This worktree runs on macOS (`aarch64-apple-darwin`), so a live Linux `dbus-daemon` / `dbus-broker` session returning `org.freedesktop.DBus.Error.TimedOut` with an empty body (`zbus` formatting `org.freedesktop.DBus.Error.TimedOut: no details`) could not be executed against a real Linux session bus locally; it is verified deterministically via `round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` (both directly through `dialog_outcome_bounded` and through `map_portal_probe`) and Ubuntu CI on PR `#1201`.
+
+---
+
+### Conclusion
+
+Extended `is_probe_timeout` in [`crates/designos-app/src/io/dialog_probe.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/io/dialog_probe.rs#L152-L158) to match the full D-Bus error name `org.freedesktop.dbus.error.timedout` case-insensitively alongside the existing `"timed out"`, `"timeout"`, and `"org.freedesktop.dbus.error.noreply"` checks, and added unit test `round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` verifying Red (`r4-red.log` on `d7134ac7`) before Green (`r4-green.log`).
+
+---
+
+### Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **FACT:** Starting head was `d7134ac7` (`git rev-parse --short HEAD`) on branch `jangtrinh/agy-1192-linux-import` with a clean working tree.
+- **FACT:** On `d7134ac7` (before updating `is_probe_timeout`), feeding `"org.freedesktop.DBus.Error.TimedOut: no details"` with an executable `zenity` in `ProbeEnv` failed `io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` (`left: Picked("/tmp/should-not-open-r4.fig")`, `right: Unavailable` — `plans/reports/agy-1192-linux-import-evidence/r4-red.log`).
+- **FACT:** After adding `lower.contains("org.freedesktop.dbus.error.timedout")` to `is_probe_timeout` in [`crates/designos-app/src/io/dialog_probe.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/io/dialog_probe.rs#L152-L158), `round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` passes (`1 passed; 0 failed` in `0.01s` — `plans/reports/agy-1192-linux-import-evidence/r4-green.log`), confirming both direct `dialog_outcome_bounded` and `map_portal_probe` return `DialogOutcome::Unavailable` with `show` never called even when `zenity` is executable on `PATH`.
+- **FACT:** Under the mandatory test harness, `cargo fmt --all -- --check` exited `0`, `cargo clippy --workspace --all-targets --locked -- -D warnings` exited `0`, `cargo test -p designos-app --bin designos --locked dialog` passed (`81 passed; 0 failed`), `cargo test -p designos-app --bin designos --locked` passed (`3325 passed; 0 failed; 11 ignored`), and `python3 scripts/zero_fake_ui_gate.py` passed (`17/17 invariants satisfied`).
+- **INFERENCE:** Matching the full lowercase D-Bus error name `org.freedesktop.dbus.error.timedout` prevents a body-less `zbus::Error::MethodError` (`org.freedesktop.DBus.Error.TimedOut: no details`) from falling through to `NameHasOwner` in `map_portal_probe` or to the `has_zenity` fallback in `check_chooser_ready_bounded`.
+- **ASSUMPTION:** None.
+
+---
+
+### Skills Loaded & What Changed Because of Them (Round 4)
+
+1. **`es:dev` / `es:feature-dev`**: Executed the DEV-phase Red-Green-Verify loop directly against the accepted Round 4 ruling without stopping for brainstorm or plan gates: wrote `round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` first, captured `r4-red.log` on `d7134ac7`, applied the minimal fix in `is_probe_timeout`, and captured `r4-green.log`.
+2. **`es:rust` & `es:rust-gpu-canvas`**: Kept `is_probe_timeout` allocation-minimal (`to_ascii_lowercase()` once, matching the exact full D-Bus error name `"org.freedesktop.dbus.error.timedout"` alongside existing patterns) and touched zero GPU/render or UI files.
+3. **`es:fable-thinking` & `es:astra-work`**: Tested both call sites of `is_probe_timeout` (`check_chooser_ready_bounded` directly and `map_portal_probe` when `NameHasOwner` would return `Ok(false)`) inside `round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show` so neither path can mask `org.freedesktop.DBus.Error.TimedOut`.
+4. **`es:orca-native-orchestration`**: Sent periodic heartbeats and checked the Orca terminal inbox at natural checkpoints without spawning sub-workers.
+
+---
+
+### Weakest Link (Round 4)
+
+- If `org.freedesktop.portal.Desktop` answers `Properties.Get("org.freedesktop.portal.FileChooser", "version")` within `1500 ms` and then wedges inside `OpenFile` without emitting the `Response` signal, `rfd` still blocks waiting for the portal response.
+
+---
+
+### Unresolved Questions (Round 4)
+
+- None.
+
+---
+
+### Acceptance Table (Round 4)
+
+| # | Gate / Check | Verdict | Evidence |
+|---|---|---|---|
+| **1** | Red first: unit test feeds `org.freedesktop.DBus.Error.TimedOut: no details` with executable `zenity` in `ProbeEnv`, expects `Unavailable` with `show` never called; fails on `d7134ac7` (`r4-red.log`) and passes after fix (`r4-green.log`) | **PASS** | `plans/reports/agy-1192-linux-import-evidence/r4-red.log` (`1 failed`, exit `101`), `plans/reports/agy-1192-linux-import-evidence/r4-green.log` (`1 passed; 0 failed`, exit `0`) |
+| **2a** | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` exit `0` on final commit | **PASS** | Both exit `0`, pasted below |
+| **2b** | `cargo test -p designos-app --bin designos --locked dialog` passes | **PASS** | `81 passed; 0 failed`, exit `0`, pasted below |
+| **2c** | Full `cargo test -p designos-app --bin designos --locked` passes | **PASS** | `3325 passed; 0 failed; 11 ignored`, exit `0`, pasted below |
+| **3** | Commit as `fix(app): …` (no AI references), push, add a "Round 4" line to PR `#1201` body (no `[skip ci]`), and delete `out/` at the end | **PASS** | Committed, pushed to `jangtrinh/agy-1192-linux-import`, PR `#1201` updated, `out/` deleted |
+
+---
+
+### Exact Commands and Output (Round 4)
+
+#### 1. Red (`r4-red.log`) and Green (`r4-green.log`)
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked round4_ 2>&1 | tee plans/reports/agy-1192-linux-import-evidence/r4-red.log
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 1 test
+test io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show ... FAILED
+
+failures:
+
+---- io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show' (70972592) panicked at crates/designos-app/src/io/dialog_probe.rs:872:9:
+assertion `left == right` failed
+  left: Picked("/tmp/should-not-open-r4.fig")
+ right: Unavailable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3335 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+RED_EXIT=101
+```
+
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked round4_ 2>&1 | tee plans/reports/agy-1192-linux-import-evidence/r4-green.log
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.97s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 1 test
+test io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3335 filtered out; finished in 0.01s
+GREEN_EXIT=0
+```
+
+#### 2. Gates Under the Mandatory Test Harness (`fmt`, `clippy`, `dialog`, full `designos` bin tests, `zero_fake_ui_gate.py`)
+
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+FMT_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.51s
+CLIPPY_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked dialog
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.26s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 81 tests
+test io::dialog_probe::tests::a_pick_is_a_pick_however_fast ... ok
+test io::dialog_probe::tests::a_pick_never_runs_the_probe ... ok
+test io::dialog_probe::tests::a_portal_that_implements_the_file_chooser_is_a_backend ... ok
+test io::dialog_probe::tests::a_portal_without_a_file_chooser_is_not_a_backend ... ok
+test io::dialog_probe::tests::a_sandboxed_app_always_counts_as_having_a_portal ... ok
+test io::dialog_probe::tests::a_zenity_file_that_cannot_run_is_not_a_backend ... ok
+test io::dialog_probe::tests::an_empty_machine_has_no_backend ... ok
+test io::dialog_probe::tests::an_executable_zenity_on_the_path_is_a_backend ... ok
+test io::dialog_probe::tests::hanging_portal_check_times_out_within_bound_and_never_calls_show ... ok
+test io::dialog_probe::tests::nothing_picked_after_a_person_could_have_acted_with_a_backend_is_a_cancel ... ok
+test io::dialog_probe::tests::nothing_picked_and_no_backend_is_unavailable ... ok
+test io::dialog_probe::tests::nothing_picked_at_once_is_unavailable_even_when_the_probe_sees_a_backend ... ok
+test io::dialog_probe::tests::off_linux_a_dialog_that_returns_nothing_is_always_a_cancel ... ok
+test io::dialog_probe::tests::portal_probe_result_mapping_covers_no_owner_error_timeout_and_ready ... ok
+test io::dialog_probe::tests::portal_without_session_bus_owner_is_unavailable_and_records_backend_error ... ok
+test io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show ... ok
+test io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show ... ok
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... ok
+test io::dialog_probe::tests::round3_f_release_build_hook_is_off ... ok
+test io::dialog_probe::tests::round4_dbus_error_timedout_with_zenity_is_unavailable_and_never_runs_show ... ok
+test io::dialog_probe::tests::the_cutoff_is_exact ... ok
+test io::dialog_probe::tests::the_environment_falls_back_to_the_standard_data_dirs ... ok
+...
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 3255 filtered out; finished in 9.88s
+DIALOG_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.94s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+...
+test result: ok. 3325 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 426.35s
+BIN_TEST_EXIT=0
+
+$ python3 scripts/zero_fake_ui_gate.py
+Gate Verdict: PASS (17/17 invariants satisfied)
+ZERO_FAKE_EXIT=0
+```
+
+Status: DONE
