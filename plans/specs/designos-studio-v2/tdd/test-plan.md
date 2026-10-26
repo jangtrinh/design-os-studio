@@ -53,7 +53,7 @@ This document maps all **46 acceptance scenarios (`SCN-01-01` .. `SCN-15-03`)** 
 | **SCN-11-04** | `US-11` · `AC-04` | `S01`, `S05..S10` | `auto` | `passed` | `cargo test -p designos-app` & `designos-fig` (Figma `126.9.13` Functional Gaps A–F closure) |
 | **SCN-12-01** | `US-12` · `AC-01` | `S12` | `auto` | `passed` | `python3 scripts/figma_parity_meter.py` (deterministic 5-pillar weighted parity calculation & `research/parity-scorecard.json`) |
 | **SCN-12-02** | `US-12` · `AC-02` | `S12` | `auto` | `passed` | `cargo test -p designos-app cli::tests` & `designos --parity-report` (headless CLI 5-pillar parity table output) |
-| **SCN-12-03** | `US-12` · `AC-03` | `S02`, `S12` | `auto` | `passed` | `cargo test -p designos-app specs::tests` (Live 5-Pillar Figma Parity Meter card & `Copy Parity Report cho AI`) |
+| **SCN-12-03** | `US-12` · `AC-03` | `S02`, `S12` | `auto` | `passed` | `cargo test -p designos-app specs::tests` (Live 5-Pillar Figma Parity Meter card & `Copy Parity Report for AI`) |
 | **SCN-13-01** | `US-13` · `AC-01` | `S13` | `auto` | `passed` | `cargo test -p designos-app panels::left::tests` (`DIR-17` 1:1 Figma UI3 `Agents` Left Side Panel, inline `>_ Terminal` PTY & `#0D99FF` composer) |
 | **SCN-13-02** | `US-13` · `AC-02` | `S01`, `S06`, `S07`, `S13` | `auto` | `passed` | `cargo test -p designos-app panels::` & `cmdk::tests` & `dev::tests` (`DIR-18` 9 Visual Deltas verification) |
 | **SCN-13-03** | `US-13` · `AC-03..05` | `S01`, `S04`, `S10`, `S13` | `auto` | `passed` | `cargo test -p designos-app shell::tests` (`DIR-18` / `DIR-20` End-to-End Userflows `UF-01..UF-08` state machine verification) |
