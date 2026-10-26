@@ -1686,4 +1686,33 @@ mod tests {
         let err = compare(&base, &cur_w_drift, &allow_with_dw, &[]).expect_err("G1 must reject region width change even when allow entry has max_dw");
         assert!(err.contains("left_panel.w"), "G1 error must name left_panel.w, got: {err}");
     }
+
+    /// Round 4 Minor 9: `open_failed_start_fixture_does_not_block_waiting_for_exit` —
+    /// `open_failed_start_fixture` spawns the tab and returns immediately without a 5 s sleep loop;
+    /// the gate's 2 s `is_alive` poll is the only wait.
+    #[test]
+    #[cfg(unix)]
+    fn open_failed_start_fixture_does_not_block_waiting_for_exit() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("designos-r4-minor9-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp stub dir");
+        let agy_stub = tmp.join("agy");
+        std::fs::write(&agy_stub, "#!/bin/sh\nexec /bin/cat\n").expect("write blocking agy stub");
+        std::fs::set_permissions(&agy_stub, std::fs::Permissions::from_mode(0o755)).expect("chmod +x agy stub");
+
+        let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&tmp);
+        let mut terminal = crate::terminal::TerminalState::default();
+        terminal.path_override = Some(tmp.clone().into_os_string());
+        let started = std::time::Instant::now();
+        terminal.open_failed_start_fixture(None);
+        let elapsed = started.elapsed();
+        terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "open_failed_start_fixture must not block in a 5s sleep loop; took {elapsed:?}"
+        );
+    }
 }
