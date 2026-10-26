@@ -74,7 +74,7 @@ fn collect_shape_texts(shape: &egui::epaint::Shape, target: egui::Rect, out: &mu
 
 /// Reads the actual painted label text emitted by `canvas::draw::overlays` for `node_id` on the last frame.
 fn painted_canvas_label(s: &Sim, node_id: NodeId) -> Option<String> {
-    let labels = crate::canvas::draw::label_rects(s.app(), s.app().canvas_rect);
+    let labels = crate::canvas::draw::label_rects(s.app(), &s.ctx, s.app().canvas_rect);
     let (_, label_rect) = labels.into_iter().find(|(id, _)| *id == node_id)?;
     let mut texts = Vec::new();
     collect_texts_in_rect(&s.shapes, label_rect, &mut texts);
@@ -653,7 +653,7 @@ fn collect_shape_runs_for_label(
 }
 
 fn painted_label_runs(s: &Sim, node_id: NodeId) -> (egui::Rect, Vec<(egui::Rect, String, f32)>) {
-    let labels = crate::canvas::draw::label_rects(s.app(), s.app().canvas_rect);
+    let labels = crate::canvas::draw::label_rects(s.app(), &s.ctx, s.app().canvas_rect);
     let (_, label_r) = labels.into_iter().find(|(id, _)| *id == node_id).expect("node must have a label_rect in viewport");
     let n = s.app().doc.get(node_id).unwrap();
     let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });

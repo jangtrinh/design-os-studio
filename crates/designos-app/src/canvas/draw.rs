@@ -148,28 +148,31 @@ fn subtract_rect(pieces: &mut Vec<ERect>, cover: ERect) {
     }
 }
 
-fn measure_label(n: &Node, w_px: f32) -> (bool, String, f32) {
+fn measure_label(ctx: &egui::Context, n: &Node, w_px: f32) -> (bool, String, f32) {
     let w_px = w_px.max(0.0);
     let font = theme::font_body();
     let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
     let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
-    if is_comp_like {
-        let (_, ellipsis_w) = crate::widgets::elide_measured("…", &font, f32::INFINITY);
-        if COMP_LABEL_GLYPH_W + ellipsis_w <= w_px {
-            let (text, text_w) = crate::widgets::elide_measured(clean_name, &font, w_px - COMP_LABEL_GLYPH_W);
-            (true, text, (COMP_LABEL_GLYPH_W + text_w).min(w_px))
+    ctx.fonts_mut(|f| {
+        let mut width_of = |cand: &str| f.layout_no_wrap(cand.to_string(), font.clone(), Color32::WHITE).size().x;
+        if is_comp_like {
+            let (_, ellipsis_w) = crate::widgets::elide_with(&mut width_of, "…", f32::INFINITY);
+            if COMP_LABEL_GLYPH_W + ellipsis_w <= w_px {
+                let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, w_px - COMP_LABEL_GLYPH_W);
+                (true, text, (COMP_LABEL_GLYPH_W + text_w).min(w_px))
+            } else {
+                (false, "…".to_string(), ellipsis_w.min(w_px))
+            }
         } else {
-            (false, "…".to_string(), ellipsis_w.min(w_px))
+            let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, w_px);
+            (false, text, text_w.min(w_px))
         }
-    } else {
-        let (text, text_w) = crate::widgets::elide_measured(clean_name, &font, w_px);
-        (false, text, text_w.min(w_px))
-    }
+    })
 }
 
 /// Screen rects and visible (uncovered) pieces of the name labels above top-level frames,
 /// components, component sets, instances, and sections.
-pub fn label_entries(app: &App, rect: ERect) -> Vec<LabelEntry> {
+pub fn label_entries(app: &App, ctx: &egui::Context, rect: ERect) -> Vec<LabelEntry> {
     let mut out = Vec::new();
     if app.view.zoom < theme::CANVAS_LABEL_MAX_ZOOM_HIDE {
         return out;
@@ -223,7 +226,7 @@ pub fn label_entries(app: &App, rect: ERect) -> Vec<LabelEntry> {
         if label_y > rect.max.y || label_y + h < rect.min.y || tl.x > rect.max.x || tl.x + w_px.max(0.0) < rect.min.x {
             continue;
         }
-        let (show_glyph, text, w) = measure_label(n, w_px);
+        let (show_glyph, text, w) = measure_label(ctx, n, w_px);
         let r = ERect::from_min_size(Pos2::new(tl.x, label_y), EV::new(w, h));
         if r.intersects(rect) {
             labels_bounds = labels_bounds.union(r);
@@ -255,8 +258,8 @@ pub fn label_entries(app: &App, rect: ERect) -> Vec<LabelEntry> {
 }
 
 /// Screen rects of the name labels above top-level frames, components, instances, and sections.
-pub fn label_rects(app: &App, rect: ERect) -> Vec<(NodeId, ERect)> {
-    label_entries(app, rect).into_iter().map(|e| (e.id, e.rect)).collect()
+pub fn label_rects(app: &App, ctx: &egui::Context, rect: ERect) -> Vec<(NodeId, ERect)> {
+    label_entries(app, ctx, rect).into_iter().map(|e| (e.id, e.rect)).collect()
 }
 
 fn outline(app: &App, p: &Painter, rect: ERect, id: NodeId, col: Color32, width: f32) {
@@ -884,7 +887,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
     // Frame / Component / Instance / Section labels + Dev status pills (`S3-12`).
     let lab_col = if light { theme::CANVAS_LABEL } else { theme::CANVAS_LABEL_DARK };
     let label_clip = rect.expand(40.0);
-    for entry in label_entries(app, rect) {
+    for entry in label_entries(app, ui.ctx(), rect) {
         let (id, r) = (entry.id, entry.rect);
         if !label_clip.intersects(r) {
             continue;
@@ -1405,11 +1408,15 @@ mod tests {
         let targets = super::super::interact::snap_targets(&app, &[leaf]);
         assert!(targets.len() <= 128);
 
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+
         let budget = std::time::Duration::from_millis(5);
         let (elapsed, (labels, hit, marquee, snapped)) = crate::test_timing::fastest_within(budget, std::time::Duration::from_secs(2), || {
             // Every sample times the cache-miss path, as the single sample did before.
             LABEL_RECTS_CACHE.with(|c| *c.borrow_mut() = None);
-            let labels = label_rects(&app, screen_rect);
+            let labels = label_rects(&app, &ctx, screen_rect);
             let hit = super::super::hit::hit_test_with_index(&app.doc, app.page, v2(25.0, 25.0), 2.0, false, &[], Some(&idx));
             let marquee = super::super::hit::marquee_select_with_index(&app.doc, app.page, &Rect::new(0.0, 0.0, 120.0, 100.0), Some(&idx));
             let snapped = super::super::snap::snap_rect(&Rect::new(71.0, 10.0, 48.0, 36.0), &targets, 4.0);
@@ -1604,8 +1611,11 @@ mod tests {
 
         // 6. Canvas Overlay Chrome, Label Rects & Hover Hit-Test at zoom=1.0
         app.view.zoom = 1.0;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
         let t_labels = std::time::Instant::now();
-        let _labels = super::label_rects(&app, app.canvas_rect);
+        let _labels = super::label_rects(&app, &ctx, app.canvas_rect);
         let labels_ms = t_labels.elapsed().as_secs_f64() * 1000.0;
 
         let t_chrome = std::time::Instant::now();
@@ -1757,7 +1767,10 @@ mod tests {
         );
 
         let viewport = ERect::from_min_size(Pos2::ZERO, EV::new(1280.0, 800.0));
-        let labels = label_rects(&app, viewport);
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let labels = label_rects(&app, &ctx, viewport);
         let (_, label_r) = labels.into_iter().find(|(id, _)| *id == frame_id).expect("root frame must have a label rect");
         let node = app.doc.get(frame_id).unwrap();
         let (badge_r, ip) = in_progress_badge_rect(&app.doc, frame_id, node, label_r).expect("flagged frame must produce an in_progress badge rect");

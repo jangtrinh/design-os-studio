@@ -201,7 +201,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
     }
     let p = ui.painter().with_clip_rect(rect);
     // Flow flags above the labels of starting frames.
-    let labels = label_rects(app, rect);
+    let labels = label_rects(app, ui.ctx(), rect);
     for f in app.doc.flows.iter().filter(|f| f.page == app.page) {
         let Some((_, lr)) = labels.iter().find(|(id, _)| *id == f.start) else { continue };
         let font = theme::font_canvas_strong();

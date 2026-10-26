@@ -34,7 +34,7 @@ pub fn text_width(p: &Painter, s: &str, font: &FontId) -> f32 {
     p.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE).size().x
 }
 
-fn elide_with(mut width_of: impl FnMut(&str) -> f32, s: &str, max_w: f32) -> (String, f32) {
+pub(crate) fn elide_with(mut width_of: impl FnMut(&str) -> f32, s: &str, max_w: f32) -> (String, f32) {
     let full_w = width_of(s);
     if full_w <= max_w {
         return (s.to_string(), full_w);
@@ -58,20 +58,6 @@ fn elide_with(mut width_of: impl FnMut(&str) -> f32, s: &str, max_w: f32) -> (St
 /// Shortens `s` with an ellipsis so that it fits `max_w`.
 pub fn elide(p: &Painter, s: &str, font: &FontId, max_w: f32) -> String {
     elide_with(|cand| text_width(p, cand, font), s, max_w).0
-}
-
-/// Shortens `s` with an ellipsis so that it fits `max_w`, measured with the installed UI fonts
-/// without needing a `Painter`, and returns the elided string and its width.
-pub fn elide_measured(s: &str, font: &FontId, max_w: f32) -> (String, f32) {
-    thread_local! {
-        static CTX: egui::Context = {
-            let ctx = egui::Context::default();
-            crate::theme::install_fonts(&ctx);
-            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
-            ctx
-        };
-    }
-    CTX.with(|ctx| ctx.fonts_mut(|f| elide_with(|cand| f.layout_no_wrap(cand.to_string(), font.clone(), Color32::WHITE).size().x, s, max_w)))
 }
 
 pub fn hline(p: &Painter, x0: f32, x1: f32, y: f32, color: Color32) {
