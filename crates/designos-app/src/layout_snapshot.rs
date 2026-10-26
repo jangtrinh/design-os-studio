@@ -1528,4 +1528,74 @@ mod tests {
         assert_eq!(written.named, headless.named, "--layout-json named widgets must equal headless capture");
         assert!(!written.named.is_empty(), "--layout-json named map must not be empty");
     }
+
+    /// Round 4 Minor 6: `scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release` —
+    /// When widget info is enabled (`show_interactive_widgets = true`), scroll detection uses
+    /// `WidgetType::ScrollBar` (so a 16x24 `Sense::drag()` splitter is NOT misclassified as a
+    /// scrollbar, and an actual `ScrollArea` scrollbar emits `axis: "y"`, `maybe: false` and is
+    /// excluded from `unnamed`). When widget info is absent (`show_interactive_widgets = false`,
+    /// matching the release `--layout-json` path), the fallback sets `axis: "y"`, `maybe: true`.
+    #[test]
+    fn scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release() {
+        crate::widgets::clear_pass_records();
+        let ctx = Context::default();
+        ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
+        let regions = ShellRegions {
+            left_panel: Some(Rect::from_min_size(Pos2::new(49.0, 40.0), egui::Vec2::new(241.0, 860.0))),
+            right_panel: Some(Rect::from_min_size(Pos2::new(1199.0, 40.0), egui::Vec2::new(241.0, 860.0))),
+            ..Default::default()
+        };
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), ..Default::default() };
+        for _ in 0..2 {
+            let _ = ctx.run_ui(raw.clone(), |ui| {
+                // Non-scrollbar 16x24 drag handle in left_panel: must stay in unnamed, not scroll.
+                let drag_rect = Rect::from_min_size(Pos2::new(60.0, 100.0), egui::Vec2::new(16.0, 24.0));
+                let _ = ui.interact(drag_rect, egui::Id::new("splitter_drag_handle"), egui::Sense::drag());
+
+                // Overflowing vertical ScrollArea in right_panel: emits WidgetType::ScrollBar.
+                let right_rect = regions.right_panel.unwrap();
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(right_rect));
+                egui::ScrollArea::vertical().id_salt("r4_minor6_scroll").max_height(100.0).show(&mut child, |ui| {
+                    ui.set_min_size(egui::Vec2::new(200.0, 400.0));
+                });
+            });
+        }
+        let snap_info = capture(&ctx, &regions);
+        assert_eq!(
+            snap_info.scroll,
+            vec![ScrollGeom { region: "right_panel".into(), axis: "y".into(), maybe: false }],
+            "with widget_info enabled, only the overflowing ScrollArea in right_panel should emit ScrollGeom(y, maybe=false); got {:?}",
+            snap_info.scroll
+        );
+        assert!(
+            snap_info.unnamed.iter().any(|u| u.region == "left_panel" && u.rect == [60.0, 100.0, 16.0, 24.0]),
+            "non-scrollbar 16x24 drag handle in left_panel must remain in unnamed"
+        );
+        assert!(
+            !snap_info.unnamed.iter().any(|u| u.region == "right_panel" && u.sense.iter().any(|s| s == "click")),
+            "scrollbar widget itself must be excluded from unnamed; got {:?}",
+            snap_info.unnamed
+        );
+
+        // Now simulate the release --layout-json path where widget info is absent.
+        let ctx_no_info = Context::default();
+        ctx_no_info.all_styles_mut(|s| s.debug.show_interactive_widgets = false);
+        for _ in 0..2 {
+            let _ = ctx_no_info.run_ui(raw.clone(), |ui| {
+                let right_rect = regions.right_panel.unwrap();
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(right_rect));
+                egui::ScrollArea::vertical().id_salt("r4_minor6_scroll_release").max_height(100.0).show(&mut child, |ui| {
+                    ui.set_min_size(egui::Vec2::new(200.0, 400.0));
+                });
+            });
+        }
+        let snap_release = capture(&ctx_no_info, &regions);
+        assert_eq!(
+            snap_release.scroll,
+            vec![ScrollGeom { region: "right_panel".into(), axis: "y".into(), maybe: true }],
+            "when widget info is absent, fallback scroll detection must emit axis='y', maybe=true; got {:?}",
+            snap_release.scroll
+        );
+    }
 }
