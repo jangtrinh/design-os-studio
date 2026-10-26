@@ -6,7 +6,7 @@ _12 component(s), regenerated from the registry._
 
 ### Button/Primary
 
-Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6px radius)
+Brand orange primary CTA button (#E36323 fill, #0A0A0A label, 28px min height, 6px radius)
 
 - **Variants:** Size=28px, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
@@ -26,7 +26,7 @@ Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6
 
 ### Button/Secondary
 
-Elevated zinc secondary action button (#27272A fill, #F5F5F7 label, 1px #27272A border)
+Elevated zinc secondary action button (#262626 fill, #FAFAFA label, 1px #262626 border)
 
 - **Variants:** State=Active, State=Default, State=Disabled, State=Focus, State=Hover, Tone=Zinc
 - **States:** —
@@ -109,7 +109,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
 
 ### Input/PropertyField
 
-24px height numeric/text scrubbable inspector input with muted prefix label and #E36323 focus ring
+24px height numeric/text scrubbable inspector input with muted prefix label and #F97316 focus ring
 
 - **Variants:** Axis=Scrub, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
@@ -196,7 +196,7 @@ Floating bottom canvas creation dock with tool triggers and #14AE5C Dev Mode tog
 
 ### Navigation/LeftRail
 
-Home sidebar and 56px editor activity rail with 1px right border and orange active indicator
+Home sidebar and 48px editor activity rail with 1px right border and orange active indicator
 
 - **Variants:** Rail=56px, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
