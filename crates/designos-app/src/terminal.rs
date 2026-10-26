@@ -76,17 +76,30 @@ pub(crate) fn parser_scrollback_len(parser: &mut vt100::Parser) -> usize {
     len
 }
 
-/// Runs `f` on `parser.screen()` while preventing `vt100 0.15.2`'s `rows_len - self.scrollback_offset`
-/// subtraction in `Grid::visible_rows` from underflowing when `scrollback_offset > rows` (`#1171`).
+/// Runs `f` on `parser.screen()` while working around `vt100 0.15.2`'s `rows_len - self.scrollback_offset`
+/// subtraction in `Grid::visible_rows` when `scrollback_offset > rows` (`#1171`).
+///
+/// In debug builds (`cfg(debug_assertions)`), overflow checks are enabled and `rows_len - self.scrollback_offset`
+/// panics whenever `scrollback_offset > rows`, so we temporarily widen `parser` to `offset` rows for `f`.
+/// In release builds (`cfg(not(debug_assertions))`), overflow checks are off: `rows_len - self.scrollback_offset`
+/// wraps to a large `usize`, and because `self.scrollback.iter().skip(scrollback_len - self.scrollback_offset)`
+/// already yields `scrollback_offset` (`> rows`) rows before the chained `self.rows.iter().take(...)`,
+/// `take()` yields the same visible rows with zero per-frame allocation.
 pub(crate) fn with_scrollback_safe_screen<R>(parser: &mut vt100::Parser, f: impl FnOnce(&vt100::Screen) -> R) -> R {
-    let (rows, cols) = parser.screen().size();
-    let offset = parser.screen().scrollback();
-    let widened = offset > usize::from(rows) && offset <= usize::from(u16::MAX);
-    if widened {
-        parser.set_size(offset as u16, cols);
-    }
+    #[cfg(debug_assertions)]
+    let restore = {
+        let (rows, cols) = parser.screen().size();
+        let offset = parser.screen().scrollback();
+        if offset > usize::from(rows) && offset <= usize::from(u16::MAX) {
+            parser.set_size(offset as u16, cols);
+            Some((rows, cols))
+        } else {
+            None
+        }
+    };
     let out = f(parser.screen());
-    if widened {
+    #[cfg(debug_assertions)]
+    if let Some((rows, cols)) = restore {
         parser.set_size(rows, cols);
     }
     out
