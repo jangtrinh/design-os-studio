@@ -1198,6 +1198,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "allocates the full 8M-node clone budget (~14 GB RAM in debug mode); run with --ignored")]
     fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
         let mut children = Vec::with_capacity(207);
         let c0_rects: Vec<String> = (0..99)

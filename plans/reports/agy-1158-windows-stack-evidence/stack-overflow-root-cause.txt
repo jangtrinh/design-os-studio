@@ -1,0 +1,73 @@
+=== 1. Failing Windows CI Log Excerpts ===
+Run 40089917658 / Job 120860483725 (Test (windows-latest)):
+  Running unittests src\main.rs (target\debug\deps\designos-7a6faee3db148204.exe)
+  ...
+  test shell::tests::leave_prompt::closing_a_tab_with_unsaved_edits_asks_and_leaves_the_tab_open ... ok
+  test shell::tests::leave_prompt::dont_save_closes_the_tab_and_drops_the_edits ... ok
+  thread 'shell::tests::leave_prompt::enter_means_save_and_the_action_goes_on' (5932) has overflowed its stack
+  error: test failed, to rerun pass `--bin designos`
+  Caused by:
+    process didn't exit successfully: `D:\a\design-os-studio\design-os-studio\target\debug\deps\designos-7a6faee3db148204.exe` (exit code: 0xc00000fd, STATUS_STACK_OVERFLOW)
+
+Run 40200655326 / Job 121226470244 (Test (windows-latest)):
+  Running unittests src\main.rs (target\debug\deps\designos-d51fc939d89c78f8.exe)
+  ...
+  test shell::tests::leave_prompt::closing_a_tab_with_unsaved_edits_asks_and_leaves_the_tab_open ... ok
+  test shell::tests::leave_prompt::dont_save_closes_the_tab_and_drops_the_edits ... ok
+  thread 'shell::tests::leave_prompt::enter_means_save_and_the_action_goes_on' (8684) has overflowed its stack
+  error: test failed, to rerun pass `--bin designos`
+  Caused by:
+    process didn't exit successfully: `D:\a\design-os-studio\design-os-studio\target\debug\deps\designos-d51fc939d89c78f8.exe` (exit code: 0xc00000fd, STATUS_STACK_OVERFLOW)
+
+=== 2. Struct Size Measurements (lldb on debug binary) ===
+- sizeof(designos_doc::DirtyLog)                      =   9,280 bytes (crates/designos-doc/src/lib.rs:144: ring: [(u64, NodeId); 512] = 8,192 B + removed_ring: [(u64, NodeId); 64] = 1,024 B)
+- sizeof(designos_doc::Document)                      =   9,920 bytes (crates/designos-doc/src/lib.rs:175)
+- sizeof(designos::app::App)                          =  97,200 bytes (crates/designos-app/src/app.rs:95; embeds 8 Document instances across doc, ProtoState, HistoryState, TerminalState)
+- sizeof(designos::shell::Shell)                      = 107,368 bytes (crates/designos-app/src/shell.rs:28; embeds App + Option<Shot> with 1 more Document)
+- sizeof(designos::shell::tests::Sim)                 = 107,576 bytes (crates/designos-app/src/shell/tests.rs:46; embeds Shell)
+
+=== 3. Per-Frame Stack Allocation & 19-Frame Call Chain (Non-Recursive) ===
+Reproduced deterministically under lldb with `RUST_MIN_STACK=1966080` (1.875 MB):
+Total active call-stack depth at guard-page fault (`EXC_BAD_ACCESS` at `sp = 0x16fe03a60` from thread stack top `0x16ffe66be`):
+  0x16ffe66be - 0x16fe03a60 = 1,977,406 bytes (1.886 MB on aarch64-apple-darwin; exceeds 2,097,152 bytes = 2.000 MB libtest worker stack on x86_64-pc-windows-msvc)
+
+Frame-by-frame stack allocation (`sub sp` / `stp ... [sp, #-N]!` in debug build):
+  #16 designos::shell::tests::leave_prompt::enter_means_save_and_the_action_goes_on
+      at crates/designos-app/src/shell/tests/leave_prompt.rs:128-149
+      Frame size: 0x6e0c0 = 450,752 bytes (440.2 KB) — holds two `let (mut s, _d, path) = external_sim_with(&two_rects());` bindings in the same scope (4 Sim slots).
+  #15 designos::shell::tests::unsaved_dot::external_sim_with
+      at crates/designos-app/src/shell/tests/unsaved_dot.rs:64-72
+      Frame size: 0x35050 = 217,168 bytes (212.1 KB) — holds Sim return slot + Sim::with temporary.
+  #14 designos::shell::tests::Sim::with
+      at crates/designos-app/src/shell/tests.rs:73-92
+      Frame size: 0x4ef40 = 323,392 bytes (315.8 KB) — holds Shell::build temporary + Sim construction slot.
+  #13 designos::shell::Shell::build
+      at crates/designos-app/src/shell.rs:132-177
+      Frame size: 0x46830 = 288,816 bytes (282.0 KB) — holds App::new(Document::new("Untitled")) + Shell return slot.
+  #12 designos::ops::<impl designos::app::App>::open_path
+      at crates/designos-app/src/ops.rs:2170
+      Frame size: 0x26610 = 157,200 bytes (153.5 KB).
+  #11 designos::ops::<impl designos::app::App>::open_path_inner
+      at crates/designos-app/src/ops.rs:2174
+      Frame size:     368 bytes.
+  #10 designos::io::load_path_importing_pen
+      at crates/designos-app/src/io.rs:146
+      Frame size:     272 bytes.
+  #9  designos::io::load_path_importing_pen_with_mode
+      at crates/designos-app/src/io.rs:161-256
+      Frame size: 0x57fc0 = 360,384 bytes (351.9 KB) — 8 match arms each allocating unmerged 9,920-byte Document temporaries in opt-level 0.
+  #8  designos::io::parse_native_with_warning
+      at crates/designos-app/src/io.rs:82-114
+      Frame size: 0x0ee00 =  60,928 bytes (59.5 KB).
+  #7  designos_doc::Document::from_json_with_report
+      at crates/designos-doc/src/lib.rs:1463
+      Frame size: 0x14b80 =  84,864 bytes (82.9 KB).
+  #6  designos_doc::finite_json::from_str_repairing
+      at crates/designos-doc/src/finite_json/mod.rs:125
+      Frame size: 0x0c000 =  49,152 bytes (48.0 KB).
+  #5  designos_doc::finite_json::from_str_strict
+      at crates/designos-doc/src/finite_json/mod.rs:113
+      Frame size: 0x0c200 =  49,664 bytes (48.5 KB).
+  #0..#4 <designos_doc::Document as serde::de::Deserialize>::deserialize::__Visitor::visit_map
+      at crates/designos-doc/src/lib.rs:175
+      Frame size: 0x0e890 =  59,536 bytes (58.1 KB) + serde_json::de::Deserializer frames.

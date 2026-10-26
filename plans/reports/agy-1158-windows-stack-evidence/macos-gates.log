@@ -1,0 +1,49 @@
+# macOS Hermetic Test Harness & CI Gate Output (`#1158`)
+
+## 1. Local Hermetic Gates (macOS `aarch64-apple-darwin`)
+
+### `cargo fmt --all -- --check`
+```text
+$ cargo fmt --all -- --check
+(exit 0)
+```
+
+### `cargo clippy --workspace --all-targets --locked -- -D warnings`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 44.02s
+(exit 0)
+```
+
+### `cargo test --workspace --locked --lib`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s (designos-clipboard)
+test result: ok. 651 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.82s (designos-doc)
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s (designos-export)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 52.89s (designos-fig)
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s (designos-fonts)
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.35s (designos-gpu)
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s (designos-library)
+test result: ok. 453 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s (designos-mcp)
+test result: ok. 316 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.60s (designos-render)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s (designos-svg)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.41s (designos-webcapture)
+(exit 0)
+```
+
+### `cargo test -p designos-app --bin designos --locked`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+running 2963 tests
+...
+test result: ok. 2955 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 149.29s
+(exit 0)
+```
+
+## 2. GitHub Actions CI Run `40228699310` (`Test (macos-14)`, job `121275597613`)
+- Run URL: https://github.com/jangtrinh/design-os-studio/actions/runs/40228699310/job/121275597613
+- Result: `SUCCESS` (`45m25s`)
+  - `designos`: `test result: ok. 2955 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 772.06s`
+  - `designos-studio`: `test result: ok. 2955 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 783.38s`
+  - All workspace library and integration test suites: `ok` (`0 failed`).
