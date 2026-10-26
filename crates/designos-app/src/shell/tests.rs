@@ -70,11 +70,12 @@ impl Sim {
     fn new() -> Self {
         Self::with(Options::default())
     }
-    fn with(opts: Options) -> Self {
+    /// The shell after `Shell::build`, before any frame. A preset toast raised during build has not been painted.
+    fn built(opts: Options) -> Self {
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
         script_empty_clipboard(&mut shell.app);
-        let mut s = Sim {
+        Sim {
             ctx,
             shell,
             t: 0.0,
@@ -85,7 +86,10 @@ impl Sim {
             accesskit_update: None,
             commands: Vec::new(),
             sent_commands: Vec::new(),
-        };
+        }
+    }
+    fn with(opts: Options) -> Self {
+        let mut s = Self::built(opts);
         s.frame(vec![]);
         s.frame(vec![]);
         s

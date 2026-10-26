@@ -1015,8 +1015,19 @@ impl Shell {
         if self.shot.as_ref().is_some_and(|s| s.no_toast) {
             return;
         }
+        // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
+        // dialog, a large file opening) must not spend the toast before anyone sees it.
+        if let Some(t) = &mut self.app.toast {
+            if !t.armed {
+                t.armed = true;
+                t.until = self.app.now + t.duration;
+            }
+        }
+        // A capture waits out the load and, on the GPU, the idle refine. Hold the latest toast
+        // through the paint that asks for the screenshot. `--no-toast` already returned above.
+        let hold_for_capture = self.shot.as_ref().is_some_and(|s| !s.requested);
         let Some(t) = &self.app.toast else { return };
-        if self.app.now > t.until {
+        if !hold_for_capture && self.app.now > t.until {
             self.app.toast = None;
             return;
         }

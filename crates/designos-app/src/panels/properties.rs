@@ -2325,8 +2325,47 @@ fn find_node_in_page(doc: &Document, root: NodeId, pred: &dyn Fn(&Node) -> bool)
     None
 }
 
+/// `--panel export-toast`: the first frame, the Design tab, and the real no-dialog export toast.
+fn apply_export_toast_preset(app: &mut App) {
+    app.ui.right_tab = Some(crate::app::RightTab::Design);
+    let Some(id) = first_frame(&app.doc) else { return };
+    if let Some(page) = app.doc.page_of(id) {
+        app.doc.ensure_page_hydrated(page);
+        app.page = page;
+    }
+    app.selection = vec![id];
+    if app.doc.get(id).is_some_and(|n| n.export_settings.is_empty()) {
+        app.edit_export_rows(&[id], &super::export::RowEdit::Add(ExportPreset::default()));
+    }
+    let dir = std::env::temp_dir().join(format!("designos-export-toast-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let dialogs = crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable).with_fallback(dir);
+    super::export::run_export_with(app, &[id], &dialogs);
+}
+
+/// The first frame in page order. Pages themselves are not frames.
+fn first_frame(doc: &Document) -> Option<NodeId> {
+    fn walk(doc: &Document, id: NodeId) -> Option<NodeId> {
+        let n = doc.get(id)?;
+        if matches!(n.kind, NodeKind::Frame(_)) {
+            return Some(id);
+        }
+        for &child in &n.children {
+            if let Some(found) = walk(doc, child) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    doc.pages.iter().copied().find_map(|page| walk(doc, page))
+}
+
 /// Opens an inspector popup on the current selection (`--panel`, for screenshots).
 pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
+    if spec == "export-toast" {
+        apply_export_toast_preset(app);
+        return;
+    }
     if spec == "variables" {
         app.vars.open = true;
         app.vars.full = true;

@@ -9,7 +9,6 @@ mod file_dialog;
 mod file_dialog_flow_tests;
 
 pub use fallback_save::write_new_in;
-#[cfg(test)]
 pub use file_dialog::ScriptedDialogs;
 pub use file_dialog::{DialogOutcome, FileDialogs, FileRequest, SystemDialogs, NO_FALLBACK_FOLDER};
 
