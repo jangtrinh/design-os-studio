@@ -109,13 +109,7 @@ pub fn run_spec_cases(spec_key: &str) {
             if case.id == "i-agents-start-failure" {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
                 while std::time::Instant::now() < deadline {
-                    let done = sim
-                        .shell
-                        .app
-                        .terminal
-                        .tabs
-                        .first_mut()
-                        .is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
+                    let done = sim.shell.app.terminal.tabs.first_mut().is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
                     if done {
                         break;
                     }

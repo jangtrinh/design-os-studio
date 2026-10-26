@@ -561,8 +561,9 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     }
 
     // Build per-region row bounding-box height deltas (named + unnamed widgets) so G3 and G4 share the same derived cumulative row shift.
+    type RectPair = ([f32; 4], [f32; 4]);
     let mut row_deltas_by_region: BTreeMap<String, Vec<(f32, f32, f32)>> = BTreeMap::new();
-    let mut paired_by_region: BTreeMap<String, Vec<([f32; 4], [f32; 4])>> = BTreeMap::new();
+    let mut paired_by_region: BTreeMap<String, Vec<RectPair>> = BTreeMap::new();
     for (name, b_w) in &base.named {
         if let Some(c_w) = cur.named.get(name) {
             if b_w.region == c_w.region {
@@ -737,6 +738,65 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     return Err(format!("G4 unnamed widget #{i} rect drift in case {case_id} region '{reg}': baseline={:?}, current={:?}", b_u.rect, c_u.rect));
                 }
             }
+        }
+    }
+
+    // G3 Order — Per region, cluster widgets into rows (centres within max(4, 0.5*min(h1,h2))), sort by x,
+    // and verify the name sequence per row (with "_" for unnamed widgets) is equal.
+    let cluster_row_names = |mut items: Vec<([f32; 4], &str)>| -> Vec<Vec<String>> {
+        items.sort_by(|(ra, na), (rb, nb)| {
+            let cya = ra[1] + ra[3] * 0.5;
+            let cyb = rb[1] + rb[3] * 0.5;
+            cya.total_cmp(&cyb).then_with(|| cmp_q4(ra, rb)).then_with(|| na.cmp(nb))
+        });
+        let mut rows: Vec<Vec<([f32; 4], &str)>> = Vec::new();
+        for (r, name) in items {
+            let cy = r[1] + r[3] * 0.5;
+            let h = r[3];
+            let joins_last = rows.last().is_some_and(|row| {
+                let first_r = row[0].0;
+                let cy0 = first_r[1] + first_r[3] * 0.5;
+                let h0 = first_r[3];
+                (cy - cy0).abs() <= (4.0_f32).max(0.5 * h0.min(h))
+            });
+            if joins_last {
+                rows.last_mut().unwrap().push((r, name));
+            } else {
+                rows.push(vec![(r, name)]);
+            }
+        }
+        rows.into_iter()
+            .map(|mut row| {
+                row.sort_by(|(ra, na), (rb, nb)| ra[0].total_cmp(&rb[0]).then_with(|| cmp_q4(ra, rb)).then_with(|| na.cmp(nb)));
+                row.into_iter().map(|(_, name)| name.to_string()).collect()
+            })
+            .collect()
+    };
+
+    let mut order_regions: BTreeSet<String> = base.named.values().map(|w| w.region.clone()).collect();
+    order_regions.extend(base_unnamed_by_reg.keys().cloned());
+    for reg in order_regions {
+        let mut base_items: Vec<([f32; 4], &str)> = Vec::new();
+        let mut cur_items: Vec<([f32; 4], &str)> = Vec::new();
+        for (name, b_w) in &base.named {
+            if b_w.region == reg {
+                if let Some(c_w) = cur.named.get(name) {
+                    base_items.push((b_w.rect, name.as_str()));
+                    cur_items.push((c_w.rect, name.as_str()));
+                }
+            }
+        }
+        let b_u_list = base_unnamed_by_reg.get(&reg).map(Vec::as_slice).unwrap_or(&[]);
+        let c_u_list = cur_unnamed_by_reg.get(&reg).map(Vec::as_slice).unwrap_or(&[]);
+        let shared_len = b_u_list.len().min(c_u_list.len());
+        for (b_u, c_u) in b_u_list[..shared_len].iter().zip(c_u_list[..shared_len].iter()) {
+            base_items.push((b_u.rect, "_"));
+            cur_items.push((c_u.rect, "_"));
+        }
+        let base_rows = cluster_row_names(base_items);
+        let cur_rows = cluster_row_names(cur_items);
+        if base_rows != cur_rows {
+            return Err(format!("G3 row order mismatch in case {case_id} region '{reg}': baseline={base_rows:?}, current={cur_rows:?}"));
         }
     }
 
@@ -1058,17 +1118,11 @@ mod tests {
         // Row 0 has no row above it (`gaps_above = 0`), so moving it by +8 or -8 must fail.
         let mut cur_row0_plus8 = base.clone();
         cur_row0_plus8.named.get_mut("prop-row-0").unwrap().rect[1] += 8.0;
-        assert!(
-            compare(&base, &cur_row0_plus8, &allow, &[]).is_err(),
-            "widget with 0 rows above it must not be allowed to move +8pt under gap_dy=8"
-        );
+        assert!(compare(&base, &cur_row0_plus8, &allow, &[]).is_err(), "widget with 0 rows above it must not be allowed to move +8pt under gap_dy=8");
 
         let mut cur_row0_minus8 = base.clone();
         cur_row0_minus8.named.get_mut("prop-row-0").unwrap().rect[1] -= 8.0;
-        assert!(
-            compare(&base, &cur_row0_minus8, &allow, &[]).is_err(),
-            "widget with 0 rows above it must not be allowed to move -8pt under gap_dy=8"
-        );
+        assert!(compare(&base, &cur_row0_minus8, &allow, &[]).is_err(), "widget with 0 rows above it must not be allowed to move -8pt under gap_dy=8");
 
         // Rows 0, 1, 2 have 0, 1, 2 row gaps above them -> expected y shifts of +0, +8, +16.
         let mut cur_valid = base.clone();
@@ -1080,10 +1134,7 @@ mod tests {
         // Row 1 moving by -8 (wrong direction) must fail even though |dy| == 8.
         let mut cur_wrong_dir = cur_valid.clone();
         cur_wrong_dir.named.get_mut("prop-row-1").unwrap().rect[1] = 82.0;
-        assert!(
-            compare(&base, &cur_wrong_dir, &allow, &[]).is_err(),
-            "row 1 moving -8pt instead of +8pt under gap_dy=8 must fail"
-        );
+        assert!(compare(&base, &cur_wrong_dir, &allow, &[]).is_err(), "row 1 moving -8pt instead of +8pt under gap_dy=8 must fail");
     }
 
     /// Round 4 Major 3: `inventory_max_delta` forgives only the count delta and still compares
@@ -1203,24 +1254,15 @@ mod tests {
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), ..Default::default() };
             for _ in 0..2 {
                 let _ = ctx.run_ui(raw.clone(), |ui| {
-                    egui::Area::new(egui::Id::new(id_mid))
-                        .order(egui::Order::Middle)
-                        .fixed_pos(Pos2::new(100.0, 100.0))
-                        .show(ui.ctx(), |ui| {
-                            ui.allocate_exact_size(egui::Vec2::new(120.0, 80.0), egui::Sense::click());
-                        });
-                    egui::Area::new(egui::Id::new(id_fg0))
-                        .order(egui::Order::Foreground)
-                        .fixed_pos(Pos2::new(300.0, 100.0))
-                        .show(ui.ctx(), |ui| {
-                            ui.allocate_exact_size(egui::Vec2::new(140.0, 90.0), egui::Sense::click());
-                        });
-                    egui::Area::new(egui::Id::new(id_fg1))
-                        .order(egui::Order::Foreground)
-                        .fixed_pos(Pos2::new(500.0, 100.0))
-                        .show(ui.ctx(), |ui| {
-                            ui.allocate_exact_size(egui::Vec2::new(160.0, 100.0), egui::Sense::click());
-                        });
+                    egui::Area::new(egui::Id::new(id_mid)).order(egui::Order::Middle).fixed_pos(Pos2::new(100.0, 100.0)).show(ui.ctx(), |ui| {
+                        ui.allocate_exact_size(egui::Vec2::new(120.0, 80.0), egui::Sense::click());
+                    });
+                    egui::Area::new(egui::Id::new(id_fg0)).order(egui::Order::Foreground).fixed_pos(Pos2::new(300.0, 100.0)).show(ui.ctx(), |ui| {
+                        ui.allocate_exact_size(egui::Vec2::new(140.0, 90.0), egui::Sense::click());
+                    });
+                    egui::Area::new(egui::Id::new(id_fg1)).order(egui::Order::Foreground).fixed_pos(Pos2::new(500.0, 100.0)).show(ui.ctx(), |ui| {
+                        ui.allocate_exact_size(egui::Vec2::new(160.0, 100.0), egui::Sense::click());
+                    });
                 });
             }
             let mut snap = capture(&ctx, &ShellRegions::default());
@@ -1448,12 +1490,7 @@ mod tests {
                 if id == "i-agents-start-failure" {
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
                     while std::time::Instant::now() < deadline {
-                        let done = shell
-                            .app
-                            .terminal
-                            .tabs
-                            .first_mut()
-                            .is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
+                        let done = shell.app.terminal.tabs.first_mut().is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
                         if done {
                             break;
                         }
@@ -1814,10 +1851,7 @@ mod tests {
         terminal.shutdown();
         let _ = std::fs::remove_dir_all(&tmp);
 
-        assert!(
-            elapsed < std::time::Duration::from_millis(500),
-            "open_failed_start_fixture must not block in a 5s sleep loop; took {elapsed:?}"
-        );
+        assert!(elapsed < std::time::Duration::from_millis(500), "open_failed_start_fixture must not block in a 5s sleep loop; took {elapsed:?}");
     }
 
     /// Round 4 Nit 10: `negative_dw_or_dh_requires_r5_in_reason` —
