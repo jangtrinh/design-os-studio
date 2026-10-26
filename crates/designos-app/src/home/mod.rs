@@ -178,6 +178,9 @@ pub struct Home {
     pub sort_alpha: bool,
     /// Dual-Layer Auto-Update & Upstream Figma Watchdog state (`US-09`).
     pub updater: updater::UpdaterState,
+    /// Test-only (`#1126` §3 rules 6–7): fixed wall-clock milliseconds for deterministic Home views.
+    #[cfg(test)]
+    pub fixed_now: Option<u64>,
 }
 
 /// Alias for callers/tests referencing `HomeState`.
@@ -215,7 +218,17 @@ impl Home {
             kind_filter: None,
             sort_alpha: false,
             updater: updater::UpdaterState::new(),
+            #[cfg(test)]
+            fixed_now: None,
         }
+    }
+
+    pub fn now_ms(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(t) = self.fixed_now {
+            return t;
+        }
+        time::wall_ms()
     }
 
     pub fn refresh(&mut self, lib: &Library) {
@@ -1194,7 +1207,7 @@ mod sidebar {
 // Inline Main Area (Top Header, Creation Strip, Filter/Sort Bar, Grid/List Cards)
 // ─────────────────────────────────────────────────────────────────────────────
 mod main_view {
-    use super::time::{edited, relative, wall_ms};
+    use super::time::{edited, relative};
     use super::{Act, DropTo, Home, Section, Target, ViewMode};
     use crate::icons::{self, Icon};
     use crate::theme;
@@ -1433,7 +1446,7 @@ mod main_view {
     /// Blank creation cards (`Blank design`, `Blank board`, `Blank deck`), `DESIGN-OS Studio Starter`, and user's matching template/spec files below.
     fn templates_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         let files = h.files();
-        let now = wall_ms();
+        let now = h.now_ms();
         let pad = theme::HOME_PAD;
         let list = h.view == ViewMode::List;
         let inner_w = (content.width() - pad * 2.0).max(240.0);
@@ -1614,7 +1627,7 @@ mod main_view {
     /// Section 3: Files in Folders.
     fn all_projects_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         let files = h.files();
-        let now = wall_ms();
+        let now = h.now_ms();
         let pad = theme::HOME_PAD;
         let list = h.view == ViewMode::List;
         let inner_w = (content.width() - pad * 2.0).max(260.0);
@@ -1863,7 +1876,7 @@ mod main_view {
     fn resources_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         let files = h.files();
         let published_libs = lib.list_libraries().unwrap_or_default();
-        let now = wall_ms();
+        let now = h.now_ms();
         let pad = theme::HOME_PAD;
         let list = h.view == ViewMode::List;
         let inner_w = (content.width() - pad * 2.0).max(260.0);
@@ -2195,7 +2208,7 @@ mod main_view {
             empty_state(h, ui, content);
             return;
         }
-        let now = wall_ms();
+        let now = h.now_ms();
         let pad = theme::HOME_PAD;
         let list = h.view == ViewMode::List;
         let inner_w = content.width() - pad * 2.0;
@@ -2594,7 +2607,7 @@ mod main_view {
             empty_state(h, ui, content);
             return;
         }
-        let now = wall_ms();
+        let now = h.now_ms();
         let pad = theme::HOME_PAD;
         let row_h = 52.0;
         let note_h = 36.0;

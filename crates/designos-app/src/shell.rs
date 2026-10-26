@@ -150,6 +150,8 @@ impl Shell {
     }
 
     pub fn build(ctx: &Context, opts: Options) -> Self {
+        #[cfg(test)]
+        let _scoped_cli_dirs = opts.agent_cli_dir.as_deref().map(crate::cli_resolve::ScopedCliDirs::enter);
         let launch_had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         theme::install_fonts(ctx);
         theme::apply(ctx);
@@ -186,8 +188,45 @@ impl Shell {
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
-        let session_id = app.tabs.active_session_id();
-        app.terminal.bind_session(&session_id);
+        #[cfg(test)]
+        if let Some(ref cli_dir) = opts.agent_cli_dir {
+            static GATE_CASE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = GATE_CASE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let case_id = format!("gate-{}-{seq}", std::process::id());
+            let case_temp = std::env::temp_dir().join("designos-gate-cases").join(&case_id);
+            let settings_dir = case_temp.join("settings");
+            let fallback_lib_dir = case_temp.join("lib");
+            let _ = std::fs::create_dir_all(&settings_dir);
+            let _ = std::fs::create_dir_all(&fallback_lib_dir);
+            let lib_root = opts.library.clone().unwrap_or(fallback_lib_dir);
+            app.terminal.path_override = Some(cli_dir.as_os_str().to_os_string());
+            app.terminal.picker.settings_root_override = Some(settings_dir);
+            app.libs.set_root(lib_root.clone());
+            app.terminal.library_root = Some(lib_root.clone());
+            app.terminal.skills.set_library_root(lib_root);
+            crate::terminal::pin_installed_catalog_clis(
+                &mut app.terminal,
+                &[
+                    crate::terminal::AgentCliPreset::Claude,
+                    crate::terminal::AgentCliPreset::Codex,
+                    crate::terminal::AgentCliPreset::Antigravity,
+                    crate::terminal::AgentCliPreset::Grok,
+                    crate::terminal::AgentCliPreset::Gemini,
+                    crate::terminal::AgentCliPreset::OpenCode,
+                ],
+            );
+            app.terminal.picker.opencode_installed = Some(true);
+            app.terminal.picker.probe_started = true;
+            app.terminal.bind_session(&case_id);
+        } else {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
+        #[cfg(not(test))]
+        {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
         #[cfg(any(test, feature = "fixtures"))]
         {
             if !matches!(
@@ -239,6 +278,10 @@ impl Shell {
                 } else if mode == "dialog" {
                     app.open_import_path_dialog();
                 }
+            }
+            #[cfg(test)]
+            if let (Some(fixed_now), Some(home)) = (opts.fixed_now, app.home.as_mut()) {
+                home.fixed_now = Some(fixed_now);
             }
         }
         let mut select_miss = None;
@@ -367,14 +410,6 @@ impl Shell {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-                while std::time::Instant::now() < deadline {
-                    let _ = app.terminal.poll_live_agent_bridge();
-                    if app.terminal.active_composer().pending_send.is_none() {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(30));
-                }
             }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -445,7 +480,10 @@ impl Shell {
                 app.plugins.install_form = panel == "plugin-install";
                 app.plugins.fresh = app.plugins.install_form;
             }
-            Some("version-history") => crate::history::preset::apply(&mut app, opts.library.clone()),
+            Some("version-history") => {
+                let hist_lib = opts.library.clone().or_else(|| app.libs.root.clone());
+                crate::history::preset::apply(&mut app, hist_lib);
+            }
             Some(p @ ("dev-annotate" | "dev-compare")) => crate::dev::preset::panel(&mut app, p),
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
