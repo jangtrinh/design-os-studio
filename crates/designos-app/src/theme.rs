@@ -18,78 +18,161 @@ pub const fn rgba(c: u32, a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a)
 }
 
-// ---------------------------------------------------------------- colors (EaseUI BrainWave 2.0 Dark + DESIGN:OS)
-pub const BG: Color32 = rgb(0x121215);
-pub const BG_PRIMARY: Color32 = rgb(0x18181B);
-pub const BG_SECONDARY: Color32 = rgb(0x1E1E22);
-pub const BG_TERTIARY: Color32 = rgb(0x27272A);
-pub const BG_HOVER: Color32 = rgb(0x232329);
-pub const BG_PRESSED: Color32 = rgb(0x2E2E36);
-pub const BG_MENU: Color32 = rgb(0x18181B);
+// ---------------------------------------------------------------- colors (Untitled UI PRO v8.0 Dark + DESIGN:OS)
+pub const BG: Color32 = rgb(0x0A0A0A);
+pub const BG_PRIMARY: Color32 = rgb(0x0A0A0A);
+pub const BG_SECONDARY: Color32 = rgb(0x171717);
+pub const BG_TERTIARY: Color32 = rgb(0x262626);
+pub const BG_HOVER: Color32 = rgb(0x171717);
+pub const BG_PRESSED: Color32 = rgb(0x404040);
+pub const BG_MENU: Color32 = rgb(0x0A0A0A);
 // Selection is a neutral fill (P2): the selected tool, tab and row. Accent colour is for the
 // one primary action and for live state; canvas selection stays blue.
-pub const BG_SELECTED: Color32 = BG_PRESSED;
-pub const BG_SELECTED_HOVER: Color32 = rgb(0x383840);
-pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x24242A);
+pub const BG_SELECTED: Color32 = rgb(0x262626);
+pub const BG_SELECTED_HOVER: Color32 = rgb(0x262626);
+pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x171717);
 /// Highlight of selected text inside a text field (egui `selection.bg_fill`).
-pub const BG_TEXT_SELECTION: Color32 = rgb(0x2B1D16);
+pub const BG_TEXT_SELECTION: Color32 = rgb(0x431407);
 pub const BG_BRAND: Color32 = rgb(0xE36323);
-pub const BG_BRAND_HOVER: Color32 = rgb(0xF06D2B);
-pub const BG_BRAND_PRESSED: Color32 = rgb(0xC85217);
-pub const BG_TOOLBAR: Color32 = rgb(0x18181B);
-pub const BG_TOOLBAR_HOVER: Color32 = rgb(0x27272A);
+pub const BG_BRAND_HOVER: Color32 = rgb(0xF97316);
+pub const BG_BRAND_PRESSED: Color32 = rgb(0xEA580C);
+pub const BG_TOOLBAR: Color32 = rgb(0x0A0A0A);
+pub const BG_TOOLBAR_HOVER: Color32 = rgb(0x171717);
 pub const BG_TOOLBAR_SELECTED: Color32 = BG_SELECTED;
-pub const BG_TOOLBAR_MODE_SWITCHER: Color32 = rgb(0x27272A);
+pub const BG_TOOLBAR_MODE_SWITCHER: Color32 = rgb(0x171717);
 pub const BG_SELECTED_AREA: Color32 = rgba(0x3582FF, 0x33);
-pub const BORDER: Color32 = rgb(0x27272A);
+pub const BORDER: Color32 = rgb(0x262626);
 #[allow(dead_code)]
-pub const BORDER_SUBTLE: Color32 = rgb(0x222226);
-pub const BORDER_MENU: Color32 = rgb(0x2E2E34);
-pub const BORDER_SELECTED: Color32 = rgb(0xE36323);
-pub const BORDER_TRANSLUCENT: Color32 = rgba(0xFFFFFF, 0x16);
-pub const TEXT: Color32 = rgb(0xF4F4F5);
-pub const TEXT_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
-pub const TEXT_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
-pub const TEXT_DISABLED: Color32 = rgba(0xF4F4F5, 0x55);
-pub const TEXT_BRAND: Color32 = rgb(0xFF9E66);
+pub const BORDER_SUBTLE: Color32 = rgb(0x262626);
+pub const BORDER_MENU: Color32 = rgb(0x262626);
+pub const BORDER_SELECTED: Color32 = rgb(0xFB923C);
+pub const BORDER_TRANSLUCENT: Color32 = rgba(0xFFFFFF, 0x1A);
+pub const TEXT: Color32 = rgb(0xFAFAFA);
+pub const TEXT_SECONDARY: Color32 = rgb(0xD4D4D4);
+pub const TEXT_TERTIARY: Color32 = rgb(0xA3A3A3);
+pub const TEXT_DISABLED: Color32 = rgba(0xD4D4D4, 0x80);
+pub const TEXT_BRAND: Color32 = rgb(0xF97316);
 pub const TEXT_COMPONENT: Color32 = rgb(0x22D3EE);
-pub const ICON: Color32 = rgb(0xF4F4F5);
-pub const ICON_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
-pub const ICON_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
+pub const ICON: Color32 = rgb(0xFFFFFF);
+pub const ICON_SECONDARY: Color32 = rgb(0xD4D4D4);
+pub const ICON_TERTIARY: Color32 = rgb(0xA3A3A3);
 pub const ICON_SELECTED: Color32 = ICON;
-pub const DANGER: Color32 = rgb(0xFE5938);
+pub const DANGER: Color32 = rgb(0xEF4444);
 pub const INFO: Color32 = rgb(0x0D99FF);
-pub const SUCCESS: Color32 = rgb(0x14AE5C);
-pub const WARNING: Color32 = rgb(0xF59E0B);
+pub const SUCCESS: Color32 = rgb(0x22C55E);
+pub const WARNING: Color32 = rgb(0xEAB308);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_ELEVATED: Color32 = rgb(0x18181B);
+pub const BG_MENU_HOVER: Color32 = rgb(0x171717);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_MENU_HOVER: Color32 = rgb(0x27272A);
+pub const BG_TRANSPARENT_HOVER: Color32 = rgba(0xFFFFFF, 0x1A);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_DISABLED: Color32 = rgb(0x71717A);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_TRANSPARENT_HOVER: Color32 = rgba(0xFFFFFF, 0x0D);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BORDER_STRONG: Color32 = rgb(0x3F3F46);
+pub const BORDER_STRONG: Color32 = rgb(0x404040);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const COMPONENT: Color32 = rgb(0x06B6D4);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgba(0x000000, 0xE5);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_LIGHT_CANVAS_SECONDARY: Color32 = rgba(0x000000, 0x4D);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_DARK_CANVAS: Color32 = rgba(0xFFFFFF, 0xE5);
-pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x66);
-pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x8C);
+pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgb(0x0A0A0A);
+pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x00);
+pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x00);
 /// Elevation 400: drop shadow colour, 0.5px inset ring (#ffffff59 at half coverage) and top edge.
-pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x66);
-pub const ELEVATION_400_RING: Color32 = rgba(0xFFFFFF, 0x16);
-pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x0C);
-pub const INNER_HIGHLIGHT: Color32 = rgba(0xFFFFFF, 0x16);
-#[allow(dead_code)]
-pub const LOGO_GRADIENT_A: Color32 = rgb(0xE36323);
+pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x00);
+pub const ELEVATION_400_RING: Color32 = rgb(0x262626);
+pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x00);
+pub const INNER_HIGHLIGHT: Color32 = rgb(0x262626);
 pub const CHECKER_A: Color32 = rgb(0xFFFFFF);
 pub const CHECKER_B: Color32 = rgb(0xCCCCCC);
+
+// Untitled UI PRO v8.0 dark roles added in Spec A (N1..N46)
+pub const BG_SECONDARY_HOVER: Color32 = rgb(0x262626);
+#[allow(dead_code)]
+pub const TEXT_SECONDARY_HOVER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const TEXT_TERTIARY_HOVER: Color32 = rgb(0xD4D4D4);
+#[allow(dead_code)]
+pub const TEXT_QUATERNARY: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const TEXT_PLACEHOLDER: Color32 = rgb(0x737373);
+#[allow(dead_code)]
+pub const ICON_QUATERNARY: Color32 = rgb(0x737373);
+#[allow(dead_code)]
+pub const TEXT_ERROR: Color32 = rgb(0xF87171);
+#[allow(dead_code)]
+pub const TEXT_WARNING: Color32 = rgb(0xFACC15);
+#[allow(dead_code)]
+pub const TEXT_SUCCESS: Color32 = rgb(0x4ADE80);
+#[allow(dead_code)]
+pub const TEXT_ON_BRAND: Color32 = rgb(0x0A0A0A);
+#[allow(dead_code)]
+pub const FOCUS_RING: Color32 = rgb(0xF97316);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID: Color32 = rgb(0xDC2626);
+#[allow(dead_code)]
+pub const TEXT_WHITE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const ICON_BRAND_PRIMARY: Color32 = rgb(0xF97316);
+#[allow(dead_code)]
+pub const ICON_SECONDARY_HOVER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const ICON_QUATERNARY_HOVER: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const ICON_WHITE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const BG_PRIMARY_ALT: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const BG_PRIMARY_SOLID: Color32 = rgb(0x262626);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID_HOVER: Color32 = rgb(0xB91C1C);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_50: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_200: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_700: Color32 = rgb(0xD4D4D4);
+#[allow(dead_code)]
+pub const BG_SUCCESS_PRIMARY: Color32 = rgb(0x052E16);
+#[allow(dead_code)]
+pub const BG_WARNING_PRIMARY: Color32 = rgb(0x422006);
+#[allow(dead_code)]
+pub const BG_ERROR_PRIMARY: Color32 = rgb(0x450A0A);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_200: Color32 = rgb(0x166534);
+#[allow(dead_code)]
+pub const UTILITY_YELLOW_200: Color32 = rgb(0x854D0E);
+#[allow(dead_code)]
+pub const UTILITY_RED_200: Color32 = rgb(0x991B1B);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_700: Color32 = rgb(0x86EFAC);
+#[allow(dead_code)]
+pub const UTILITY_YELLOW_700: Color32 = rgb(0xFDE047);
+#[allow(dead_code)]
+pub const UTILITY_RED_700: Color32 = rgb(0xFCA5A5);
+#[allow(dead_code)]
+pub const BG_OVERLAY: Color32 = rgba(0x262626, 0xB3);
+#[allow(dead_code)]
+pub const PROVIDER_CLAUDE: Color32 = rgb(0xD97757);
+#[allow(dead_code)]
+pub const PROVIDER_CODEX: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const PROVIDER_GROK: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const PROVIDER_GEMINI: Color32 = rgb(0x60A5FA);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID_PRESSED: Color32 = rgb(0x991B1B);
+#[allow(dead_code)]
+pub const UTILITY_BLUE_50: Color32 = rgb(0x172554);
+#[allow(dead_code)]
+pub const UTILITY_BLUE_600: Color32 = rgb(0x60A5FA);
+#[allow(dead_code)]
+pub const UTILITY_AMBER_50: Color32 = rgb(0x451A03);
+#[allow(dead_code)]
+pub const UTILITY_AMBER_600: Color32 = rgb(0xFBBF24);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_50: Color32 = rgb(0x052E16);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_600: Color32 = rgb(0x4ADE80);
+#[allow(dead_code)]
+pub const UTILITY_ORANGE_50: Color32 = rgb(0x431407);
+#[allow(dead_code)]
+pub const UTILITY_ORANGE_600: Color32 = rgb(0xFB923C);
 
 // canvas overlays (EaseUI BrainWave Primary Blue #3582FF & Cyan #06B6D4)
 pub const CANVAS_SELECTION: Color32 = rgb(0x3582FF);
@@ -109,7 +192,7 @@ pub const AGENT_2: Color32 = rgb(0x14AE5C);
 pub const AGENT_3: Color32 = rgb(0xEE46BC);
 pub const AGENT_4: Color32 = rgb(0x38BDF8);
 pub const AGENT_COLORS: [Color32; 4] = [AGENT_1, AGENT_2, AGENT_3, AGENT_4];
-pub const AGENT_LABEL_TEXT: Color32 = rgb(0x09090B);
+pub const AGENT_LABEL_TEXT: Color32 = rgb(0x0A0A0A);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts
@@ -445,7 +528,7 @@ pub const MENU_CHEVRON_PAD: f32 = 8.0;
 pub const MENU_SEP_MARGIN: f32 = 8.0;
 /// Space kept between the label and a right-aligned shortcut / chevron.
 pub const MENU_LABEL_GAP: f32 = 16.0;
-pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgba(0xFFFFFF, 0xCC);
+pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgb(0xE5E5E5);
 pub const MENU_ICON_SIZE: f32 = 16.0;
 pub const MENU_CHEVRON_SIZE: f32 = 12.0;
 /// Submenus overlap their parent by this much horizontally.
@@ -560,14 +643,14 @@ pub const NUDGE_BIG: f32 = 10.0;
 // ---------------------------------------------------------------- dev mode
 /// Syntax colours of the Inspect code blocks.
 pub const SYNTAX_PLAIN: Color32 = TEXT;
-pub const SYNTAX_PROPERTY: Color32 = rgb(0x7CC4F8);
-pub const SYNTAX_KEYWORD: Color32 = rgb(0xC792EA);
-pub const SYNTAX_STRING: Color32 = rgb(0x9CD67D);
-pub const SYNTAX_NUMBER: Color32 = rgb(0xF2A365);
-pub const SYNTAX_TYPE: Color32 = rgb(0xFFCB6B);
-pub const SYNTAX_FUNCTION: Color32 = rgb(0x82AAFF);
-pub const SYNTAX_COMMENT: Color32 = rgb(0x8A8A8A);
-pub const SYNTAX_PUNCT: Color32 = rgb(0xB3B3B3);
+pub const SYNTAX_PROPERTY: Color32 = rgb(0x7DD3FC);
+pub const SYNTAX_KEYWORD: Color32 = rgb(0xF472B6);
+pub const SYNTAX_STRING: Color32 = rgb(0x4ADE80);
+pub const SYNTAX_NUMBER: Color32 = rgb(0xFB923C);
+pub const SYNTAX_TYPE: Color32 = rgb(0xFACC15);
+pub const SYNTAX_FUNCTION: Color32 = rgb(0x60A5FA);
+pub const SYNTAX_COMMENT: Color32 = rgb(0xA3A3A3);
+pub const SYNTAX_PUNCT: Color32 = rgb(0xD4D4D4);
 /// Dev status pills: Ready for dev, Completed, Changed.
 pub const DEV_READY: Color32 = rgb(0x14AE5C);
 pub const DEV_COMPLETED: Color32 = rgb(0x06B6D4);
@@ -600,7 +683,7 @@ pub const PROTO_FLAG_HEIGHT: f32 = 20.0;
 pub const PROTO_FLAG_GAP: f32 = 4.0;
 pub const PROTO_ROW_HEIGHT: f32 = 44.0;
 pub const PROTO_POPOVER_WIDTH: f32 = 240.0;
-pub const PRESENT_BG: Color32 = rgb(0x09090B);
+pub const PRESENT_BG: Color32 = rgb(0x0A0A0A);
 pub const PRESENT_BAR_HEIGHT: f32 = 48.0;
 pub const PRESENT_PADDING: f32 = 32.0;
 /// Thickness of the plain device bezel drawn around the device screen when presenting.
@@ -632,6 +715,8 @@ pub fn apply(ctx: &egui::Context) {
     v.extreme_bg_color = BG_SECONDARY;
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
+    v.window_shadow = egui::Shadow::NONE;
+    v.popup_shadow = egui::Shadow::NONE;
     v.window_stroke = egui::Stroke::new(1.0, BORDER_MENU);
     v.window_corner_radius = cr(RADIUS_CONTROL);
     v.menu_corner_radius = cr(RADIUS_CONTROL);
@@ -647,8 +732,9 @@ pub fn apply(ctx: &egui::Context) {
     }
     v.widgets.inactive.bg_fill = BG_SECONDARY;
     v.widgets.inactive.weak_bg_fill = BG_SECONDARY;
-    v.widgets.hovered.bg_fill = BG_HOVER;
-    v.widgets.hovered.weak_bg_fill = BG_HOVER;
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER_STRONG);
+    v.widgets.hovered.bg_fill = BG_SECONDARY_HOVER;
+    v.widgets.hovered.weak_bg_fill = BG_SECONDARY_HOVER;
     v.widgets.active.bg_fill = BG_PRESSED;
     v.widgets.active.weak_bg_fill = BG_PRESSED;
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);
@@ -706,7 +792,7 @@ pub const HOME_CARD_H: f32 = HOME_THUMB_H + 58.0;
 pub const HOME_CARD_GAP: f32 = 24.0;
 pub const HOME_FOLDER_H: f32 = 48.0;
 pub const HOME_LIST_ROW_H: f32 = 44.0;
-pub const HOME_THUMB_BG: Color32 = rgb(0x3A3A3A);
+pub const HOME_THUMB_BG: Color32 = rgb(0x262626);
 // ---------------------------------------------------------------- variables view
 // Measured on the Figma UI3 local-variables captures (800x600, dpr 1).
 /// Sidebar content width; the 1px border follows it in the full view.
@@ -728,7 +814,7 @@ pub const VAR_MODE_MAX: f32 = 280.0;
 pub const VAR_ADD_COL: f32 = 39.0;
 pub const VAR_BOTTOM_H: f32 = 41.0;
 pub const VAR_SCROLL_H: f32 = 11.0;
-pub const VAR_SCROLL_THUMB: Color32 = rgb(0x707070);
+pub const VAR_SCROLL_THUMB: Color32 = rgb(0x737373);
 pub const VAR_SEARCH_W: f32 = 174.0;
 pub const VAR_FILTER_W: f32 = 25.0;
 pub const VAR_SIDE_ROW: f32 = CONTROL_TOOL;
@@ -916,5 +1002,315 @@ mod tests {
     fn the_monospace_role_is_the_bundled_roboto_mono() {
         assert_eq!(UI_MONO_FAMILY, "Roboto Mono");
         assert!(designos_fonts::bundled().iter().any(|a| a.family == UI_MONO_FAMILY && !a.italic));
+    }
+
+    fn srgb_channel_lum(c: u8) -> f64 {
+        let x = c as f64 / 255.0;
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn relative_luminance(c: Color32) -> f64 {
+        let [r, g, b, _] = c.to_srgba_unmultiplied();
+        0.2126 * srgb_channel_lum(r) + 0.7152 * srgb_channel_lum(g) + 0.0722 * srgb_channel_lum(b)
+    }
+
+    fn composite_over(fg: Color32, bg: Color32) -> Color32 {
+        let [fr, fg_c, fb, fa] = fg.to_srgba_unmultiplied();
+        if fa == 255 {
+            return fg;
+        }
+        let [br, bg_c, bb, _] = bg.to_srgba_unmultiplied();
+        let a = fa as f64 / 255.0;
+        let blend = |f: u8, b: u8| -> u8 { (f as f64 * a + b as f64 * (1.0 - a)).round() as u8 };
+        Color32::from_rgb(blend(fr, br), blend(fg_c, bg_c), blend(fb, bb))
+    }
+
+    fn wcag_contrast(fg: Color32, bg: Color32) -> f64 {
+        let eff_bg = composite_over(bg, BG);
+        let eff_fg = composite_over(fg, eff_bg);
+        let l1 = relative_luminance(eff_fg);
+        let l2 = relative_luminance(eff_bg);
+        let (hi, lo) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    fn rgb_hue_sat(c: Color32) -> (f64, f64) {
+        let [r, g, b, a] = c.to_srgba_unmultiplied();
+        if a == 0 {
+            return (0.0, 0.0);
+        }
+        let (rf, gf, bf) = (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+        let max = rf.max(gf).max(bf);
+        let min = rf.min(gf).min(bf);
+        let d = max - min;
+        if d <= 1e-6 || max <= 1e-6 {
+            return (0.0, 0.0);
+        }
+        let sat = d / max;
+        let mut hue = if (max - rf).abs() < 1e-6 {
+            60.0 * (((gf - bf) / d) % 6.0)
+        } else if (max - gf).abs() < 1e-6 {
+            60.0 * (((bf - rf) / d) + 2.0)
+        } else {
+            60.0 * (((rf - gf) / d) + 4.0)
+        };
+        if hue < 0.0 {
+            hue += 360.0;
+        }
+        (hue, sat)
+    }
+
+    #[test]
+    fn no_chrome_colour_is_purple() {
+        let mut named: Vec<(&str, Color32)> = vec![
+            ("BG", BG),
+            ("BG_PRIMARY", BG_PRIMARY),
+            ("BG_SECONDARY", BG_SECONDARY),
+            ("BG_TERTIARY", BG_TERTIARY),
+            ("BG_HOVER", BG_HOVER),
+            ("BG_PRESSED", BG_PRESSED),
+            ("BG_MENU", BG_MENU),
+            ("BG_SELECTED", BG_SELECTED),
+            ("BG_SELECTED_HOVER", BG_SELECTED_HOVER),
+            ("BG_SELECTED_SECONDARY", BG_SELECTED_SECONDARY),
+            ("BG_TEXT_SELECTION", BG_TEXT_SELECTION),
+            ("BG_BRAND", BG_BRAND),
+            ("BG_BRAND_HOVER", BG_BRAND_HOVER),
+            ("BG_BRAND_PRESSED", BG_BRAND_PRESSED),
+            ("BG_TOOLBAR", BG_TOOLBAR),
+            ("BG_TOOLBAR_HOVER", BG_TOOLBAR_HOVER),
+            ("BG_TOOLBAR_SELECTED", BG_TOOLBAR_SELECTED),
+            ("BG_TOOLBAR_MODE_SWITCHER", BG_TOOLBAR_MODE_SWITCHER),
+            ("BG_SELECTED_AREA", BG_SELECTED_AREA),
+            ("BORDER", BORDER),
+            ("BORDER_SUBTLE", BORDER_SUBTLE),
+            ("BORDER_MENU", BORDER_MENU),
+            ("BORDER_SELECTED", BORDER_SELECTED),
+            ("BORDER_TRANSLUCENT", BORDER_TRANSLUCENT),
+            ("TEXT", TEXT),
+            ("TEXT_SECONDARY", TEXT_SECONDARY),
+            ("TEXT_TERTIARY", TEXT_TERTIARY),
+            ("TEXT_DISABLED", TEXT_DISABLED),
+            ("TEXT_BRAND", TEXT_BRAND),
+            ("TEXT_COMPONENT", TEXT_COMPONENT),
+            ("ICON", ICON),
+            ("ICON_SECONDARY", ICON_SECONDARY),
+            ("ICON_TERTIARY", ICON_TERTIARY),
+            ("ICON_SELECTED", ICON_SELECTED),
+            ("DANGER", DANGER),
+            ("INFO", INFO),
+            ("SUCCESS", SUCCESS),
+            ("WARNING", WARNING),
+            ("BG_MENU_HOVER", BG_MENU_HOVER),
+            ("BG_TRANSPARENT_HOVER", BG_TRANSPARENT_HOVER),
+            ("BORDER_STRONG", BORDER_STRONG),
+            ("COMPONENT", COMPONENT),
+            ("TEXT_ON_LIGHT_CANVAS", TEXT_ON_LIGHT_CANVAS),
+            ("SHADOW_COLOR", SHADOW_COLOR),
+            ("SHADOW_COLOR_STRONG", SHADOW_COLOR_STRONG),
+            ("ELEVATION_400_SHADOW", ELEVATION_400_SHADOW),
+            ("ELEVATION_400_RING", ELEVATION_400_RING),
+            ("ELEVATION_400_TOP", ELEVATION_400_TOP),
+            ("INNER_HIGHLIGHT", INNER_HIGHLIGHT),
+            ("CHECKER_A", CHECKER_A),
+            ("CHECKER_B", CHECKER_B),
+            ("BG_SECONDARY_HOVER", BG_SECONDARY_HOVER),
+            ("TEXT_SECONDARY_HOVER", TEXT_SECONDARY_HOVER),
+            ("TEXT_TERTIARY_HOVER", TEXT_TERTIARY_HOVER),
+            ("TEXT_QUATERNARY", TEXT_QUATERNARY),
+            ("TEXT_PLACEHOLDER", TEXT_PLACEHOLDER),
+            ("ICON_QUATERNARY", ICON_QUATERNARY),
+            ("TEXT_ERROR", TEXT_ERROR),
+            ("TEXT_WARNING", TEXT_WARNING),
+            ("TEXT_SUCCESS", TEXT_SUCCESS),
+            ("TEXT_ON_BRAND", TEXT_ON_BRAND),
+            ("FOCUS_RING", FOCUS_RING),
+            ("BG_ERROR_SOLID", BG_ERROR_SOLID),
+            ("TEXT_WHITE", TEXT_WHITE),
+            ("ICON_BRAND_PRIMARY", ICON_BRAND_PRIMARY),
+            ("ICON_SECONDARY_HOVER", ICON_SECONDARY_HOVER),
+            ("ICON_QUATERNARY_HOVER", ICON_QUATERNARY_HOVER),
+            ("ICON_WHITE", ICON_WHITE),
+            ("BG_PRIMARY_ALT", BG_PRIMARY_ALT),
+            ("BG_PRIMARY_SOLID", BG_PRIMARY_SOLID),
+            ("BG_ERROR_SOLID_HOVER", BG_ERROR_SOLID_HOVER),
+            ("UTILITY_NEUTRAL_50", UTILITY_NEUTRAL_50),
+            ("UTILITY_NEUTRAL_200", UTILITY_NEUTRAL_200),
+            ("UTILITY_NEUTRAL_700", UTILITY_NEUTRAL_700),
+            ("BG_SUCCESS_PRIMARY", BG_SUCCESS_PRIMARY),
+            ("BG_WARNING_PRIMARY", BG_WARNING_PRIMARY),
+            ("BG_ERROR_PRIMARY", BG_ERROR_PRIMARY),
+            ("UTILITY_GREEN_200", UTILITY_GREEN_200),
+            ("UTILITY_YELLOW_200", UTILITY_YELLOW_200),
+            ("UTILITY_RED_200", UTILITY_RED_200),
+            ("UTILITY_GREEN_700", UTILITY_GREEN_700),
+            ("UTILITY_YELLOW_700", UTILITY_YELLOW_700),
+            ("UTILITY_RED_700", UTILITY_RED_700),
+            ("BG_OVERLAY", BG_OVERLAY),
+            ("PROVIDER_CLAUDE", PROVIDER_CLAUDE),
+            ("PROVIDER_CODEX", PROVIDER_CODEX),
+            ("PROVIDER_GROK", PROVIDER_GROK),
+            ("PROVIDER_GEMINI", PROVIDER_GEMINI),
+            ("BG_ERROR_SOLID_PRESSED", BG_ERROR_SOLID_PRESSED),
+            ("UTILITY_BLUE_50", UTILITY_BLUE_50),
+            ("UTILITY_BLUE_600", UTILITY_BLUE_600),
+            ("UTILITY_AMBER_50", UTILITY_AMBER_50),
+            ("UTILITY_AMBER_600", UTILITY_AMBER_600),
+            ("UTILITY_GREEN_50", UTILITY_GREEN_50),
+            ("UTILITY_GREEN_600", UTILITY_GREEN_600),
+            ("UTILITY_ORANGE_50", UTILITY_ORANGE_50),
+            ("UTILITY_ORANGE_600", UTILITY_ORANGE_600),
+            ("CANVAS_SELECTION", CANVAS_SELECTION),
+            ("CANVAS_COMPONENT", CANVAS_COMPONENT),
+            ("CANVAS_HANDLE_FILL", CANVAS_HANDLE_FILL),
+            ("CANVAS_SIZE_BADGE_TEXT", CANVAS_SIZE_BADGE_TEXT),
+            ("CANVAS_LABEL", CANVAS_LABEL),
+            ("CANVAS_LABEL_DARK", CANVAS_LABEL_DARK),
+            ("CANVAS_MARQUEE_FILL", CANVAS_MARQUEE_FILL),
+            ("GUIDE_COLOR", GUIDE_COLOR),
+            ("GUIDE_TEXT", GUIDE_TEXT),
+            ("PEN_POINT", PEN_POINT),
+            ("DROP_INDICATOR", DROP_INDICATOR),
+            ("AGENT_1", AGENT_1),
+            ("AGENT_2", AGENT_2),
+            ("AGENT_3", AGENT_3),
+            ("AGENT_4", AGENT_4),
+            ("AGENT_LABEL_TEXT", AGENT_LABEL_TEXT),
+            ("FIND_HIGHLIGHT", FIND_HIGHLIGHT),
+            ("FIND_HIGHLIGHT_SELECTED", FIND_HIGHLIGHT_SELECTED),
+            ("BG_MENU_SELECTED", BG_MENU_SELECTED),
+            ("MENU_SHORTCUT_HIGHLIGHT", MENU_SHORTCUT_HIGHLIGHT),
+            ("COMMENT_PIN_RESOLVED", COMMENT_PIN_RESOLVED),
+            ("RULER_TEXT", RULER_TEXT),
+            ("RULER_TICK", RULER_TICK),
+            ("RULER_SELECTION_FILL", RULER_SELECTION_FILL),
+            ("RULER_GUIDE", RULER_GUIDE),
+            ("PIXEL_GRID_LIGHT_LINES", PIXEL_GRID_LIGHT_LINES),
+            ("PIXEL_GRID_DARK_LINES", PIXEL_GRID_DARK_LINES),
+            ("TEXT_SELECTION", TEXT_SELECTION),
+            ("FIND_CANVAS_MATCH", FIND_CANVAS_MATCH),
+            ("FIND_CANVAS_MATCH_CURRENT", FIND_CANVAS_MATCH_CURRENT),
+            ("SYNTAX_PLAIN", SYNTAX_PLAIN),
+            ("SYNTAX_PROPERTY", SYNTAX_PROPERTY),
+            ("SYNTAX_KEYWORD", SYNTAX_KEYWORD),
+            ("SYNTAX_STRING", SYNTAX_STRING),
+            ("SYNTAX_NUMBER", SYNTAX_NUMBER),
+            ("SYNTAX_TYPE", SYNTAX_TYPE),
+            ("SYNTAX_FUNCTION", SYNTAX_FUNCTION),
+            ("SYNTAX_COMMENT", SYNTAX_COMMENT),
+            ("SYNTAX_PUNCT", SYNTAX_PUNCT),
+            ("DEV_READY", DEV_READY),
+            ("DEV_COMPLETED", DEV_COMPLETED),
+            ("DEV_CHANGED", DEV_CHANGED),
+            ("STATUS_INFO_TEXT", STATUS_INFO_TEXT),
+            ("STATUS_INFO_BG", STATUS_INFO_BG),
+            ("STATUS_INFO_BORDER", STATUS_INFO_BORDER),
+            ("BOX_MARGIN", BOX_MARGIN),
+            ("BOX_PADDING", BOX_PADDING),
+            ("BOX_CONTENT", BOX_CONTENT),
+            ("BOX_TEXT", BOX_TEXT),
+            ("ANNOTATION_BG", ANNOTATION_BG),
+            ("ANNOTATION_TEXT", ANNOTATION_TEXT),
+            ("ANNOTATION_LINE", ANNOTATION_LINE),
+            ("MEASURE", MEASURE),
+            ("PROTO_BLUE", PROTO_BLUE),
+            ("PRESENT_BG", PRESENT_BG),
+            ("HOME_THUMB_BG", HOME_THUMB_BG),
+            ("VAR_SCROLL_THUMB", VAR_SCROLL_THUMB),
+        ];
+        for c in AGENT_COLORS {
+            named.push(("AGENT_COLORS", c));
+        }
+        for c in AVATAR_COLORS {
+            named.push(("AVATAR_COLORS", c));
+        }
+        for (name, col) in named {
+            let (hue, sat) = rgb_hue_sat(col);
+            assert!(!((255.0..=300.0).contains(&hue) && sat > 0.25), "{name} ({col:?}) violates Purple Ban: hue={hue:.1}°, sat={sat:.2}");
+        }
+    }
+
+    #[test]
+    fn brand_label_passes_aa() {
+        for (bg_name, bg) in [("BG_BRAND", BG_BRAND), ("BG_BRAND_HOVER", BG_BRAND_HOVER), ("BG_BRAND_PRESSED", BG_BRAND_PRESSED)] {
+            let ratio = wcag_contrast(TEXT_ON_BRAND, bg);
+            assert!(ratio >= 4.5, "TEXT_ON_BRAND on {bg_name} fails AA: {ratio:.2}:1 < 4.5:1");
+        }
+    }
+
+    #[test]
+    fn chrome_contrast_pairs() {
+        let pairs: [(&str, Color32, Color32, f64); 62] = [
+            ("C-1.1", TEXT, BG, 4.5),
+            ("C-1.2", TEXT, BG_SECONDARY, 4.5),
+            ("C-1.3", TEXT, BG_SELECTED, 4.5),
+            ("C-1.4", TEXT, BG_PRESSED, 4.5),
+            ("C-1.5", TEXT_SECONDARY, BG, 4.5),
+            ("C-1.6", TEXT_SECONDARY, BG_PRESSED, 4.5),
+            ("C-1.7", TEXT_TERTIARY, BG, 4.5),
+            ("C-1.8", TEXT_TERTIARY, BG_SECONDARY, 4.5),
+            ("C-1.9", TEXT_TERTIARY, BG_SELECTED, 4.5),
+            ("C-1.10", TEXT_BRAND, BG, 4.5),
+            ("C-1.11", TEXT_BRAND, BG_SECONDARY, 4.5),
+            ("C-1.12", TEXT_ERROR, BG, 4.5),
+            ("C-1.13", TEXT_ERROR, BG_SECONDARY, 4.5),
+            ("C-1.14", TEXT_ON_BRAND, BG_BRAND, 4.5),
+            ("C-1.15", TEXT_ON_BRAND, BG_BRAND_HOVER, 4.5),
+            ("C-1.16", TEXT_ON_BRAND, BG_BRAND_PRESSED, 4.5),
+            ("C-1.17", TEXT_WHITE, BG_ERROR_SOLID, 4.5),
+            ("C-1.18", TEXT_WHITE, BG_ERROR_SOLID_HOVER, 4.5),
+            ("C-1.19", TEXT, BG_PRIMARY_SOLID, 4.5),
+            ("C-1.20", TEXT_SECONDARY, BG_PRIMARY_SOLID, 4.5),
+            ("C-1.21", UTILITY_GREEN_700, BG_SUCCESS_PRIMARY, 4.5),
+            ("C-1.22", UTILITY_YELLOW_700, BG_WARNING_PRIMARY, 4.5),
+            ("C-1.23", UTILITY_RED_700, BG_ERROR_PRIMARY, 4.5),
+            ("C-1.24", UTILITY_NEUTRAL_700, UTILITY_NEUTRAL_50, 4.5),
+            ("C-1.25", TEXT_PLACEHOLDER, BG, 3.0),
+            ("C-1.26", TEXT_PLACEHOLDER, BG_SECONDARY, 3.0),
+            ("C-1.27", ICON_TERTIARY, BG_SELECTED, 3.0),
+            ("C-1.28", ICON_QUATERNARY, BG_SECONDARY, 3.0),
+            ("C-1.29", FOCUS_RING, BG, 3.0),
+            ("C-1.30", BORDER_SELECTED, BG_SECONDARY, 3.0),
+            ("C-1.31", UTILITY_BLUE_600, UTILITY_BLUE_50, 4.5),
+            ("C-1.32", UTILITY_AMBER_600, UTILITY_AMBER_50, 4.5),
+            ("C-1.33", UTILITY_GREEN_600, UTILITY_GREEN_50, 4.5),
+            ("C-1.34", UTILITY_ORANGE_600, UTILITY_ORANGE_50, 4.5),
+            ("C-1.35", TEXT_ON_BRAND, DEV_READY, 4.5),
+            ("C-1.36", DEV_READY, BG, 4.5),
+            ("C-1.37", BORDER_SELECTED, BG, 3.0),
+            ("C-1.38", BORDER_SELECTED, HOME_THUMB_BG, 3.0),
+            ("C-1.39", TEXT_SECONDARY, BG_SECONDARY_HOVER, 4.5),
+            ("C-1.40", TEXT_TERTIARY, BG_OVERLAY, 4.5),
+            ("C-1.41", AGENT_LABEL_TEXT, AGENT_1, 4.5),
+            ("C-1.42", AGENT_LABEL_TEXT, AGENT_2, 4.5),
+            ("C-1.43", AGENT_LABEL_TEXT, AGENT_3, 4.5),
+            ("C-1.44", AGENT_LABEL_TEXT, AGENT_4, 4.5),
+            ("C-1.45", TEXT_QUATERNARY, BG_PRIMARY, 4.5),
+            ("C-1.46", STATUS_INFO_TEXT, STATUS_INFO_BG, 4.5),
+            ("C-1.47", PROVIDER_CLAUDE, BG_PRIMARY, 3.0),
+            ("C-1.48", PROVIDER_CODEX, BG_PRIMARY, 3.0),
+            ("C-1.49", PROVIDER_GROK, BG_PRIMARY, 3.0),
+            ("C-1.50", PROVIDER_GEMINI, BG_PRIMARY, 3.0),
+            ("C-1.51", ICON_TERTIARY, BG_PRIMARY, 3.0),
+            ("C-1.52", TEXT_SECONDARY_HOVER, BG_MENU_HOVER, 4.5),
+            ("C-1.53", TEXT_QUATERNARY, BG_MENU, 4.5),
+            ("C-1.54", TEXT, BG_PRIMARY_ALT, 4.5),
+            ("C-1.55", TEXT_TERTIARY, BG_MENU, 4.5),
+            ("C-1.56", TEXT_ON_LIGHT_CANVAS, CANVAS_COMPONENT, 4.5),
+            ("C-1.57", TEXT_SECONDARY, BG_MENU, 4.5),
+            ("C-1.58", TEXT_TERTIARY, BG_SECONDARY_HOVER, 4.5),
+            ("C-1.59", WARNING, BG_MENU, 3.0),
+            ("C-1.60", DANGER, BG_MENU, 3.0),
+            ("C-1.61", INFO, BG_MENU, 3.0),
+            ("C-1.62", SUCCESS, BG_MENU, 3.0),
+        ];
+        for (id, fg, bg, min) in pairs {
+            let ratio = wcag_contrast(fg, bg);
+            assert!(ratio >= min, "{id} contrast {ratio:.2}:1 < min {min:.1}:1 ({fg:?} on {bg:?})");
+        }
     }
 }
