@@ -144,6 +144,8 @@ impl Shell {
         shell
     }
 
+    pub fn apply_launch_defaults(&mut self, _screenshot: bool) {}
+
     pub fn build(ctx: &Context, opts: Options) -> Self {
         theme::install_fonts(ctx);
         theme::apply(ctx);

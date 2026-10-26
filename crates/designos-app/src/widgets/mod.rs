@@ -249,6 +249,20 @@ pub fn labelled(ui: &Ui, id: Id, role: egui::accesskit::Role, name: &str) {
     });
 }
 
+/// Relaxed flag turning on `record` pass listing in release builds (`--layout-json`).
+pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Moves the current pass's recorded `(name, rect)` pairs into `last_pass_names`.
+pub fn finish_pass_records() {}
+
+/// Returns the `(name, rect)` pairs recorded during the last completed pass.
+pub fn last_pass_names() -> Vec<(String, Rect)> {
+    Vec::new()
+}
+
+/// Clears any in-progress pass records and `last_pass_names` on the current thread.
+pub fn clear_pass_records() {}
+
 /// Test hook: remembers where a named widget was drawn so UI tests can find it.
 #[cfg(test)]
 pub fn record(ui: &Ui, name: &str, rect: Rect) {
@@ -329,5 +343,28 @@ mod tests {
         assert_eq!(fmt_num(-0.001), "0");
         assert_eq!(fmt_num(1.239), "1.24");
         assert_eq!(fmt_num(0.0), "0");
+    }
+
+    /// 1b: two calls are listed; none under `RecordDisabled`; the next pass starts empty.
+    #[test]
+    fn record_hook_lists_every_name_of_the_pass() {
+        clear_pass_records();
+        let ctx = egui::Context::default();
+        let r1 = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(30.0, 40.0));
+        let r2 = Rect::from_min_size(Pos2::new(50.0, 60.0), Vec2::new(70.0, 80.0));
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw.clone(), |ui| {
+            record(ui, "alpha", r1);
+            record(ui, "beta", r2);
+            let _disabled = RecordDisabled::begin();
+            record(ui, "ignored", r1);
+        });
+        finish_pass_records();
+        assert_eq!(last_pass_names(), vec![("alpha".to_string(), r1), ("beta".to_string(), r2)], "two calls must be listed and RecordDisabled call ignored");
+
+        let _ = ctx.run_ui(raw, |_ui| {});
+        finish_pass_records();
+        assert!(last_pass_names().is_empty(), "the next pass with no record calls must start empty");
     }
 }

@@ -2081,4 +2081,25 @@ mod tests {
         assert!((p1.x - 280.0).abs() < 1e-3 && (p1.y - 160.0).abs() < 1e-3, "the anchor corner stays: {p1:?}");
         assert!((p0.x - 180.0).abs() < 1e-3 && (p0.y - 80.0).abs() < 1e-3, "the dragged corner followed the pointer: {p0:?}");
     }
+
+    #[test]
+    fn vector_toolbar_uses_widgets_record() {
+        crate::widgets::clear_pass_records();
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let rect = test_rect();
+        let raw = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+        let _ = ctx.run_ui(raw, |ui| {
+            toolbar(&mut app, ui, rect);
+        });
+        crate::widgets::finish_pass_records();
+        let names: Vec<String> = crate::widgets::last_pass_names().into_iter().map(|(n, _)| n).collect();
+        for tool in VTool::ALL {
+            let expected = format!("vtool:{}", tool.label());
+            assert!(names.contains(&expected), "vector::toolbar must record `{expected}` via widgets::record, got: {names:?}");
+        }
+    }
 }
