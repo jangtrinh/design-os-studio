@@ -1,0 +1,36 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.26s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 7 tests
+
+thread 'terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled' (76759228) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:622:5:
+assertion `left == right` failed: agents-approval-open-tab must have no scrollback lines, got 93
+  left: 93
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... FAILED
+test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... ok
+
+thread 'terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows' (76759229) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:721:5:
+with_scrollback_safe_screen must guard parser.set_size widening under cfg(debug_assertions) so release builds do not allocate per frame
+test terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows ... FAILED
+test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... ok
+STEP0_MODE_A_COUNTS: scrollback_len=11 counts={"HISTORY_LINE_01": 1, "HISTORY_LINE_02": 1, "HISTORY_LINE_03": 1, "HISTORY_LINE_04": 1, "HISTORY_LINE_05": 1, "HISTORY_LINE_06": 1, "HISTORY_LINE_07": 1, "HISTORY_LINE_08": 1, "HISTORY_LINE_09": 1, "HISTORY_LINE_10": 1, "HISTORY_LINE_11": 1, "HISTORY_LINE_12": 1, "HISTORY_LINE_13": 1, "HISTORY_LINE_14": 1, "HISTORY_LINE_15": 1, "HISTORY_LINE_16": 1, "HISTORY_LINE_17": 1, "HISTORY_LINE_18": 1, "HISTORY_LINE_19": 1, "HISTORY_LINE_20": 1, "HISTORY_LINE_21": 1, "HISTORY_LINE_22": 1, "HISTORY_LINE_23": 1, "HISTORY_LINE_24": 1, "HISTORY_LINE_25": 1, "HISTORY_LINE_26": 1, "HISTORY_LINE_27": 1, "HISTORY_LINE_28": 1, "HISTORY_LINE_29": 1, "HISTORY_LINE_30": 1}
+test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... ok
+test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... ok
+test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... ok
+
+failures:
+
+failures:
+    terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled
+    terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 2.86s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -266,3 +266,262 @@ PASS: no count rose above the baseline
   - None for DEV scope; `AC-06` live verification with Antigravity `1.4.7` on Windows 11 and macOS is queued for QA.
 
 Status: DONE — all DEV acceptance criteria (Step 0, R1–R4, AC-01–AC-05, edge cases) and verification gates passed.
+
+---
+
+## Round 2
+
+- **Round 2 Base Head:** `22a39a84c`
+- **Round 2 Code Commits:**
+  - `5654aed68` — `test(app): add regression test for agents-approval-open-tab and agents-scrollback presets (#1171)`
+  - `f7099c87a` — `test(app): add deep scrollback painted-rows and release non-widening test (#1171)`
+  - `21c2165f5` — `fix(app): restore agents-approval-open-tab preset and add agents-scrollback (#1171)`
+  - `cb2aa92d0` — `fix(app): widen scrollback screen only under debug_assertions (#1171)`
+- **Evidence Prefix:** `plans/reports/agy-1171-zoom-scrollback-evidence/r2-*`
+
+### 1. What Could NOT Be Verified (Round 2)
+
+1. **AC-06 (Real Antigravity `1.4.7` interactive verification on Windows 11 and macOS):** Remains in QA scope (`claude`, `codex`, `gemini`, `grok`, and `agy` are never executed by DEV).
+2. **Heap-allocator byte counter around `with_scrollback_safe_screen`:** Rust's global allocator is not wrapped in a custom counting `GlobalAlloc` in `designos-app`. Instead, zero per-frame row allocation in release builds is verified structurally (confirming `parser.set_size(offset as u16, cols)` is compiled only under `#[cfg(debug_assertions)]` and `vt100-0.15.2/src/grid.rs:120` `Grid::visible_rows` performs only iterator arithmetic `skip`/`chain`/`take` with zero heap allocation) and functionally by running `deep_scrollback_offset_3000_of_5000_paints_expected_history_rows` under **both** the `test` (`dev`, `debug_assertions = true`) profile (`r2-green.log`) and the `release` (`debug_assertions = false`, `overflow-checks = false`) profile (`r2-green-release.log`).
+
+### 2. Conclusion & Epistemic Ledger (Round 2)
+
+#### Conclusion
+Round 2 resolves both controller review items without touching any accepted Round 1 behavior (`ESC[3J` parser-boundary handling, 120 ms frame-time resize debounce, interactive scrollbar, fake CLI, and AC-01..AC-05 tests):
+1. **Layout-gate preset restored byte-for-byte (`--panel agents-approval-open-tab`) & new `--panel agents-scrollback` preset registered:** The `"agents-approval-open-tab" =>` arm in `crates/designos-app/src/terminal.rs` is restored byte-for-byte to commit `f5d61ae2` (`0` scrollback lines, `0` scrollback offset), preserving its `#1126` layout-gate baseline (`cases.json` id `agents-approval-open-tab`, spec I, PR `#1206`). The 120-line scrollback demo (scrolled to offset `45`) now lives in `--panel agents-scrollback`, registered in `crates/designos-app/src/cli.rs` (`PANELS`), `crates/designos-app/src/shell.rs` panel routing, `crates/designos-app/src/terminal.rs` (`open_approval_fixture`), and `sim_approval_card_and_permissions_modal_pass_layout_lint`.
+2. **Zero per-frame allocation when scrolled deep (`with_scrollback_safe_screen`):** `with_scrollback_safe_screen` in `crates/designos-app/src/terminal.rs` now widens `parser.set_size(offset as u16, cols)` only under `#[cfg(debug_assertions)]`. In release builds (`cfg(not(debug_assertions))`, `overflow-checks = false`), `vt100 0.15.2`'s `Grid::visible_rows` (`src/grid.rs:125`) wraps `rows_len - self.scrollback_offset` to a large `usize`, and because the `self.scrollback.iter().skip(scrollback_len - self.scrollback_offset)` prefix yields `scrollback_offset` (`> rows`) items first, `take()` and `screen.cell(r, c)` for `r in 0..rows` read the exact same history rows with zero `Vec::resize` allocation.
+
+#### Epistemic Ledger (Round 2)
+- **[FACT]** `git diff f5d61ae2 -- crates/designos-app/src/terminal.rs` (`r2-diff-f5d61ae2-terminal.patch`) shows zero diff inside the `"agents-approval-open-tab" =>` arm (lines 1721–1729 of `f5d61ae2` match lines 1896–1904 of `HEAD` byte-for-byte).
+- **[FACT]** In `vt100 0.15.2` (`src/grid.rs:120–126`), `Grid::visible_rows` returns `self.scrollback.iter().skip(scrollback_len - self.scrollback_offset).chain(self.rows.iter().take(rows_len - self.scrollback_offset))`, and `Grid::visible_row(row)` calls `self.visible_rows().nth(usize::from(row))`. When `self.scrollback_offset > rows_len` and `row < rows_len`, `nth(usize::from(row))` is satisfied entirely from the `self.scrollback` iterator before `.chain(...)` ever advances into `self.rows.iter().take(...)`.
+- **[FACT]** Under `cfg(not(debug_assertions))` (`overflow-checks = false`), `rows_len.wrapping_sub(self.scrollback_offset)` does not panic, and `with_scrollback_safe_screen` executes `f(parser.screen())` directly without calling `parser.set_size`, eliminating the `offset - rows` allocation of `vt100::Row` (`cols` cells each) on every paint and copy frame.
+- **[FACT]** At `scrollback_offset = 3_000` of `5_000` lines in a `24`-row × `80`-column viewport (`5,000` total lines `SB_ROW_0001`..`SB_ROW_5000`, so `scrollback_len = 4,976` and `5,000 - 3,000 = 2,000`), the 24 painted rows are `SB_ROW_2001`..`SB_ROW_2024` in both the `test` (`dev`, `debug_assertions = true`) profile (`r2-green.log`) and the `release` (`debug_assertions = false`) profile (`r2-green-release.log`).
+- **[INFERENCE]** Because `with_scrollback_safe_screen` no longer calls `parser.set_size` in release builds, scrolling to offset `4,000` at `100` columns while a CLI streams allocates `0` temporary cells per frame instead of `~400,000` cells per frame.
+- **[ASSUMPTION]** Standard Cargo release profile settings (`debug-assertions = false`, `overflow-checks = false`) remain unmodified in `Cargo.toml` (which defines no custom `[profile.release]` overrides).
+- **Weakest link (one line):** Reliance on `vt100 0.15.2`'s `rows_len - self.scrollback_offset` wrapping arithmetic under `cfg(not(debug_assertions))` is coupled to `vt100 0.15.2` internals and standard release overflow semantics (`overflow-checks = false`).
+
+### 3. Skills Loaded & What Changed Because of Them (Round 2)
+
+| Skill | Path | Concrete Impact on Round 2 |
+|---|---|---|
+| `es:astra-work` | `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md` | Enforced strict file-scope discipline (`terminal.rs`, `terminal/zoom_scrollback_tests.rs`, `cli.rs`, `shell.rs`, report, and `r2-*` evidence) and post-mutation verification on the final commit. |
+| `es:fable-thinking` | `/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md` | Verified `vt100-0.15.2/src/grid.rs:120` iterator chain semantics before editing `with_scrollback_safe_screen` and predicted/caught a `clippy::useless_conversion` warning in the new test before finalizing commits. |
+| `es:dev` / `es:feature-dev` | `/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md` | Landed both Round 2 tests red-first in separate `test(app): …` commits (`5654aed68`, `f7099c87a`, verified failing in `r2-red.log`) before their corresponding `fix(app): …` commits (`21c2165f5`, `cb2aa92d0`, verified passing in `r2-green.log`). |
+| `es:rust` | `/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md` | Guarded the temporary `parser.set_size` widening under `#[cfg(debug_assertions)]` with a clear doc comment explaining release-mode wrapping subtraction and `Iterator::take` behavior, eliminating hot-path per-frame allocations (`CLAUDE.md` §4). |
+| `es:rust-gpu-canvas` | `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md` | Preserved zero per-frame heap allocation in `render_vt100_viewport` when scrolled deep into a 5,000-line history buffer while the PTY streams. |
+| `es-designer` | `/Users/jangtrinh/.gemini/config/skills/es-designer/SKILL.md`, `references/craft-floor.md` | Captured and visually inspected `plans/reports/agy-1171-zoom-scrollback-evidence/r2-agents-scrollback-1440x900.png` (`1440×900` via `--panel agents-scrollback`), confirming the scrollbar thumb sits mid-track for `scrollback = 45` of `83` and `zero_fake_ui_gate.py` passes (`17/17`). |
+
+### 4. Fix Details & Build Profile Coverage
+
+#### 4.1 `"agents-approval-open-tab" =>` Arm Comparison (`f5d61ae2` vs `HEAD`)
+
+- **At `f5d61ae2` (`crates/designos-app/src/terminal.rs:1721–1729`):**
+  ```rust
+            "agents-approval-open-tab" => {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Grok;
+                    tab.title = "Grok CLI #1".into();
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+                    }
+                }
+            }
+  ```
+- **At `HEAD` (`cb2aa92d0`, `crates/designos-app/src/terminal.rs:1896–1904`):**
+  ```rust
+            "agents-approval-open-tab" => {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Grok;
+                    tab.title = "Grok CLI #1".into();
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+                    }
+                }
+            }
+  ```
+- **`git diff f5d61ae2 -- crates/designos-app/src/terminal.rs` around `open_approval_fixture` (`r2-diff-f5d61ae2-terminal.patch` lines 295–319):**
+  ```diff
+  @@ -1727,6 +1902,24 @@ impl TerminalState {
+                       }
+                   }
+               }
+  +            "agents-scrollback" => {
+  +                let mut history = String::new();
+  +                for idx in 1..=120 {
+  +                    history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
+  +                }
+  +                if let Some(tab) = self.active_tab_mut() {
+  +                    tab.preset = AgentCliPreset::Grok;
+  +                    tab.title = "Grok CLI #1".into();
+  +                    if let Ok(mut st) = tab.agent_status.lock() {
+  +                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+  +                    }
+  +                    if let Ok(mut parser) = tab.parser.lock() {
+  +                        parser.process(history.as_bytes());
+  +                        parser.set_scrollback(45);
+  +                    }
+  +                    tab.restore_scrollback.store(45, std::sync::atomic::Ordering::Release);
+  +                }
+  +            }
+               _ => {}
+           }
+       }
+  ```
+
+#### 4.2 Build Profiles Exercised by `deep_scrollback_offset_3000_of_5000_paints_expected_history_rows`
+1. **Default `test` (`dev`) profile (`debug_assertions = true`, `overflow-checks = true`):**
+   - Run via `cargo test -p designos-app --bin designos --locked terminal::zoom_scrollback_tests` (`r2-green.log`).
+   - Exercises the full `render_vt100_viewport` -> `with_scrollback_safe_screen` path at `scrollback = 3_000` of `5_000` lines in a `24`-row × `80`-column viewport (where `#[cfg(debug_assertions)]` widens temporarily to prevent the debug overflow panic and restores `(24, 80)` afterward), plus direct cell reading at `scrollback = 3_000` with `size() == (24, 80)` and source-level verification of the `#[cfg(debug_assertions)]` guard.
+2. **Optimized `release` profile (`debug_assertions = false`, `overflow-checks = false`):**
+   - Run via `cargo test --release -p designos-app --bin designos --locked terminal::zoom_scrollback_tests` (`r2-green-release.log`).
+   - Exercises the exact production `#[cfg(not(debug_assertions))]` branch of `with_scrollback_safe_screen` inside `render_vt100_viewport` at `scrollback = 3_000` of `5_000` lines (`24` rows × `80` cols) with **zero** `parser.set_size` calls and **zero** row allocations, confirming the painted rows equal `SB_ROW_2001`..`SB_ROW_2024`.
+
+### 5. Acceptance Verification & Gate Outputs (Final Commit)
+
+#### 5.1 Red / Green Logs (`r2-red.log`, `r2-green.log`, `r2-green-release.log`)
+
+- **Red (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-red.log` at `f7099c87a`, before the two `fix(app):` commits):**
+  ```text
+  running 7 tests
+
+  thread 'terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled' (76759228) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:622:5:
+  assertion `left == right` failed: agents-approval-open-tab must have no scrollback lines, got 93
+    left: 93
+   right: 0
+  test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... FAILED
+  test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... ok
+
+  thread 'terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows' (76759229) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:721:5:
+  with_scrollback_safe_screen must guard parser.set_size widening under cfg(debug_assertions) so release builds do not allocate per frame
+  test terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows ... FAILED
+  test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... ok
+  test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... ok
+  test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... ok
+  test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... ok
+
+  test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 2.86s
+  ```
+
+- **Green (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-green.log` at `cb2aa92d0`, `test`/`dev` profile with `debug_assertions = true`):**
+  ```text
+  running 7 tests
+  test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... ok
+  test terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows ... ok
+  test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... ok
+  test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... ok
+  test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... ok
+  test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... ok
+  test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... ok
+
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 2.82s
+  ```
+
+- **Green Release (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-green-release.log` at `cb2aa92d0`, `release` profile with `debug_assertions = false`):**
+  ```text
+       Running unittests src/main.rs (out/cargo/release/deps/designos-e6441832b78550da)
+
+  running 7 tests
+  test terminal::zoom_scrollback_tests::deep_scrollback_offset_3000_of_5000_paints_expected_history_rows ... ok
+  test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... ok
+  test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... ok
+  test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... ok
+  test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... ok
+  test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... ok
+  test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... ok
+
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.76s
+  ```
+
+#### 5.2 Workspace Gates under the Mandatory Harness
+
+1. **`cargo fmt --all -- --check`:**
+   ```sh
+   cargo fmt --all -- --check
+   ```
+   Output:
+   ```text
+   (exited with code 0, zero diff)
+   ```
+
+2. **`cargo clippy --workspace --all-targets --locked -- -D warnings` (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-clippy.log`):**
+   ```sh
+   env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+   ```
+   Final lines:
+   ```text
+   warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+     * `bin` target `designos`
+     * `bin` target `designos-studio`
+      Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-mcp)
+       Checking designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app)
+       Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.07s
+   ```
+
+3. **`cargo test --workspace --locked --lib` (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-cargo-test-lib.log`):**
+   ```sh
+   env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+   ```
+   Output summary:
+   ```text
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-e9fb9a3e00ecdbf3)
+   test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-a0c6cf32749620e6)
+   test result: ok. 633 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-029cd168a180af6a)
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-f5a81d86319362e2)
+   test result: ok. 136 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.61s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-648cb6f438830bb1)
+   test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.11s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-8afb0f60e41df5a3)
+   test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-49227ce26b5d6686)
+   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-d39027c82797cc1e)
+   test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.36s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-189215ed087510e0)
+   test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.34s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-39473ba3e638dab1)
+   test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 52.02s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-125a628128d3698e)
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+        Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-a59ae055a8fa52f0)
+   test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+   ```
+
+4. **`cargo test -p designos-app --bin designos --locked` (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-cargo-test-bin-designos.log`):**
+   ```sh
+   env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+   ```
+   Output:
+   ```text
+   test result: ok. 3332 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 342.92s
+   ```
+
+5. **`python3 scripts/zero_fake_ui_gate.py` (`plans/reports/agy-1171-zoom-scrollback-evidence/r2-zero-fake-ui-gate.log`):**
+   ```sh
+   python3 scripts/zero_fake_ui_gate.py
+   ```
+   Output:
+   ```text
+   ------------------------------------------------------------------------------------------------------------
+    Gate Verdict: PASS (17/17 invariants satisfied)
+   ============================================================================================================
+   ```
+
+6. **1440×900 Screenshot Capture (`--panel agents-scrollback`):**
+   - **Command:**
+     ```sh
+     out/cargo/debug/designos --panel agents-scrollback --size 1440x900 --screenshot plans/reports/agy-1171-zoom-scrollback-evidence/r2-agents-scrollback-1440x900.png
+     ```
+   - **File:** `plans/reports/agy-1171-zoom-scrollback-evidence/r2-agents-scrollback-1440x900.png` (`1440×900`, inspected with `es-designer` loaded: `Grok CLI #1` tab is open and scrolled into history showing lines `[049]..[085]`, the `↑ Scrollback` pill in the bottom-right corner, and the `4 px` scrollbar thumb positioned mid-track at `scrollback = 45` of `83`).
+
+### 6. Assumptions & Unresolved Questions (Round 2)
+
+- **Assumptions:**
+  1. `vt100` remains pinned at `0.15.2` (as enforced by the task contract: "No vt100 version change and no `Cargo.toml` change").
+  2. Standard Cargo release profile settings (`overflow-checks = false`, `debug_assertions = false`) apply to release builds.
+- **Unresolved Questions:**
+  - None.
+
+Status: DONE — Round 2 fixes (byte-for-byte restoration of `agents-approval-open-tab`, addition of `--panel agents-scrollback`, and `cfg(debug_assertions)`-guarded scrollback screen reading with zero release per-frame allocation) and all verification gates passed.
