@@ -61,6 +61,7 @@ mod icons;
 mod image_jobs;
 mod io;
 mod layout;
+pub mod layout_snapshot;
 mod libraries;
 #[cfg(test)]
 mod lint;

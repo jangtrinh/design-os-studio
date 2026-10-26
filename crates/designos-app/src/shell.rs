@@ -92,7 +92,7 @@ pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
 }
 
 pub struct Shell {
-    app: App,
+    pub(crate) app: App,
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
