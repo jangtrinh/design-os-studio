@@ -993,4 +993,135 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Round 3 Part 1.1: With a parent `DESIGNOS_MCP_BIN=/usr/bin/true` (and a conflicting
+    /// `DESIGNOS_WORKSPACE` and `DESIGNOS_FILE`), the hermetic Codex argv carries
+    /// `designos_mcp_binary()` and the session workspace, matching the PTY child env.
+    #[test]
+    fn hermetic_codex_expansion_uses_tab_env_not_parent_env() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let root = make_temp_dir("r3-p1-codex-env");
+        let stubs = root.join("stubs");
+        let ws_dir = root.join("session-ws");
+        std::fs::create_dir_all(&stubs).unwrap();
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        std::fs::write(stubs.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+        write_exec_stub(&stubs, "codex", "#!/bin/sh\nexit 0\n");
+        let doc_file = ws_dir.join("board.designos");
+        std::fs::write(&doc_file, b"{}").unwrap();
+
+        let prev_mcp = std::env::var_os("DESIGNOS_MCP_BIN");
+        let prev_ws = std::env::var_os("DESIGNOS_WORKSPACE");
+        let prev_file = std::env::var_os("DESIGNOS_FILE");
+        std::env::set_var("DESIGNOS_MCP_BIN", "/usr/bin/true");
+        std::env::set_var("DESIGNOS_WORKSPACE", "/tmp/conflicting-parent-workspace");
+        std::env::set_var("DESIGNOS_FILE", "/tmp/conflicting-parent-file.designos");
+
+        let codex_launch = AgentCliPreset::Codex.cli_launch_command_for_mode(crate::agent_permissions::AgentPermissionMode::Ask);
+        let cmd_res = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", codex_launch, Some(&stubs));
+
+        let mut pty_cmd = portable_pty::CommandBuilder::new("/bin/sh");
+        crate::terminal::configure_pty_env_with_session_and_hermetic(&mut pty_cmd, AgentCliPreset::Codex, None, None, Some(&stubs));
+        let expected_mcp_bin = pty_cmd.get_env("DESIGNOS_MCP_BIN").and_then(|v| v.to_str()).expect("PTY DESIGNOS_MCP_BIN").to_string();
+        let expected_ws = pty_cmd.get_env("DESIGNOS_WORKSPACE").and_then(|v| v.to_str()).expect("PTY DESIGNOS_WORKSPACE").to_string();
+
+        match prev_mcp {
+            Some(v) => std::env::set_var("DESIGNOS_MCP_BIN", v),
+            None => std::env::remove_var("DESIGNOS_MCP_BIN"),
+        }
+        match prev_ws {
+            Some(v) => std::env::set_var("DESIGNOS_WORKSPACE", v),
+            None => std::env::remove_var("DESIGNOS_WORKSPACE"),
+        }
+        match prev_file {
+            Some(v) => std::env::set_var("DESIGNOS_FILE", v),
+            None => std::env::remove_var("DESIGNOS_FILE"),
+        }
+
+        let cmd = cmd_res.expect("hermetic Codex preset command must build");
+        let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let joined = argv.join(" ");
+
+        assert_ne!(expected_mcp_bin, "/usr/bin/true", "PTY DESIGNOS_MCP_BIN must be designos_mcp_binary(), not parent /usr/bin/true");
+        assert!(!joined.contains("/usr/bin/true"), "hermetic Codex argv must not use parent DESIGNOS_MCP_BIN=/usr/bin/true, got argv: {argv:?}");
+        assert!(!joined.contains("/tmp/conflicting-parent-workspace"), "hermetic Codex argv must not use parent DESIGNOS_WORKSPACE, got argv: {argv:?}");
+        assert!(joined.contains(&expected_mcp_bin), "hermetic Codex argv must contain designos_mcp_binary() ({expected_mcp_bin}), got argv: {argv:?}");
+        assert!(joined.contains(&expected_ws), "hermetic Codex argv must contain session workspace ({expected_ws}), got argv: {argv:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Round 3 Part 1.2: A symlinked `DESIGNOS_AGENT_CLI_DIR` that passed startup, retargeted
+    /// afterwards at another dir holding a `claude`, still resolves to the original stub dir
+    /// (or refuses if passed the retargeted path without marker). It never runs the retargeted `claude`.
+    #[test]
+    #[cfg(unix)]
+    fn hermetic_startup_dir_is_pinned_after_symlink_retarget() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = make_temp_dir("r3-p1-retarget");
+        let orig_stubs = root.join("orig-stubs");
+        let retargeted = root.join("retargeted");
+        let lib = root.join("lib");
+        let tmp = root.join("tmp");
+        let home = root.join("home");
+        for d in [&orig_stubs, &lib, &tmp, &home] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+        }
+        std::fs::create_dir_all(&retargeted).unwrap();
+
+        let orig_claude = write_exec_stub(&orig_stubs, "claude", "#!/bin/sh\nexit 0\n");
+        let retargeted_claude = write_exec_stub(&retargeted, "claude", "#!/bin/sh\nexit 0\n");
+        let orig_canon = std::fs::canonicalize(&orig_stubs).unwrap();
+        let orig_claude_canon = std::fs::canonicalize(&orig_claude).unwrap();
+        let retargeted_claude_canon = std::fs::canonicalize(&retargeted_claude).unwrap();
+
+        let link_dir = root.join("cli-link");
+        std::os::unix::fs::symlink(&orig_stubs, &link_dir).expect("symlink cli-link -> orig_stubs");
+
+        let mut env = BTreeMap::new();
+        env.insert("DESIGNOS_AGENT_CLI_DIR".into(), link_dir.display().to_string());
+        env.insert("DESIGNOS_LIBRARY".into(), lib.display().to_string());
+        env.insert("TMPDIR".into(), tmp.display().to_string());
+        env.insert("HOME".into(), home.display().to_string());
+        let shot_opts = crate::cli::Options { screenshot: Some(root.join("out.png")), ..Default::default() };
+
+        enforce_hermetic_startup(&env, &shot_opts, 98765).expect("startup with valid symlinked stub dir must succeed");
+
+        // Retarget cli-link at `retargeted` (which has no .designos-hermetic marker).
+        std::fs::remove_file(&link_dir).expect("remove cli-link");
+        std::os::unix::fs::symlink(&retargeted, &link_dir).expect("retarget cli-link -> retargeted");
+
+        // 1. Without the `or_else(canonicalize)` fallback, passing `&link_dir` directly must be refused.
+        let res = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", Some(&link_dir));
+        assert!(res.is_err(), "passing a retargeted symlink without .designos-hermetic must be refused, got argv: {:?}", res.map(|c| c.get_argv().to_vec()));
+
+        // 2. Even if `retargeted` also has `.designos-hermetic` and `DESIGNOS_AGENT_CLI_DIR` still points at `link_dir`,
+        // `hermetic_agent_cli_dir()` and spawn must use the canonical `orig_stubs` pinned at startup, never `retargeted`.
+        std::fs::write(retargeted.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+        let prev_env = std::env::var_os("DESIGNOS_AGENT_CLI_DIR");
+        std::env::set_var("DESIGNOS_AGENT_CLI_DIR", &link_dir);
+        let pinned_dir = hermetic_agent_cli_dir();
+        let cmd_from_pinned = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", pinned_dir.as_deref());
+        match prev_env {
+            Some(v) => std::env::set_var("DESIGNOS_AGENT_CLI_DIR", v),
+            None => std::env::remove_var("DESIGNOS_AGENT_CLI_DIR"),
+        }
+
+        assert_eq!(
+            pinned_dir.as_deref(),
+            Some(orig_canon.as_path()),
+            "hermetic_agent_cli_dir() must return the canonical path validated at startup ({}), not the retargeted symlink",
+            orig_canon.display()
+        );
+        let cmd = cmd_from_pinned.expect("spawn with startup-pinned hermetic dir must succeed");
+        let argv0 = cmd.get_argv().first().map(PathBuf::from).unwrap_or_default();
+        assert_ne!(argv0, retargeted_claude_canon, "hermetic spawn must never resolve to retargeted claude");
+        assert_eq!(argv0, orig_claude_canon, "hermetic spawn must resolve to the original startup-validated claude");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
