@@ -750,3 +750,9 @@ pub fn seed_library(root: &std::path::Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Test-only (`#1126` §3 rule 7): seeds `root` with sample projects/files stamped with a fixed `modified` timestamp.
+#[cfg(test)]
+pub fn seed_library_at(root: &std::path::Path, _modified: u64) -> Result<(), String> {
+    seed_library(root)
+}

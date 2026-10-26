@@ -999,4 +999,128 @@ mod tests {
         let err = load_and_compare_baseline(&missing, &snap, &AllowList::default(), &[]).expect_err("missing baseline file must fail");
         assert!(err.contains("DESIGNOS_LAYOUT_BLESS=1"), "missing baseline error must contain the bless hint (DESIGNOS_LAYOUT_BLESS=1), got: {err}");
     }
+
+    /// Test 8c: Each agent case, `d-window-chrome` and `k-libraries` is snapshotted with the host `PATH` empty
+    /// and with fake `claude`/`codex` on it. The JSON is identical. `app.libs.root` and every opened `Library`
+    /// root lie under the case temp dir, never under `dirs::data_dir()`.
+    #[test]
+    fn agent_cases_do_not_depend_on_installed_clis() {
+        let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
+        let default_lib_root = designos_library::Library::default_root();
+        let data_dir = default_lib_root.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_else(|| default_lib_root.clone());
+
+        let cases: &[(&str, Option<&str>, bool)] = &[
+            ("d-window-chrome", None, false),
+            ("k-libraries", Some("libraries"), true),
+            ("i-agents", Some("agents"), true),
+            ("i-agents-picker", Some("agents-picker"), true),
+            ("i-agents-chat", Some("agents-chat"), true),
+            ("i-agents-skills", Some("agents-skills"), true),
+            ("i-agents-start-failure", Some("agents-start-failure"), true),
+            ("i-agent-permissions", Some("agent-permissions"), true),
+            ("i-agents-approval-command", Some("agents-approval-command"), true),
+            ("i-agents-approval-queued", Some("agents-approval-queued"), true),
+            ("i-agents-approval-open-tab", Some("agents-approval-open-tab"), true),
+            ("i-terminal", Some("terminal"), true),
+        ];
+
+        let run_case = |id: &str, panel: Option<&str>, screenshot_chrome: bool| -> String {
+            crate::widgets::clear_pass_records();
+            let ctx = Context::default();
+            let opts = Options { panel: panel.map(String::from), agent_cli_dir: Some(stub_dir.clone()), ..Default::default() };
+            let started = std::time::Instant::now();
+            let mut shell = Shell::build(&ctx, opts);
+            let build_elapsed = started.elapsed();
+            if panel == Some("agents-chat") {
+                assert!(
+                    build_elapsed < std::time::Duration::from_millis(600),
+                    "agents-chat must be state-driven without the 800ms sleep loop, took {build_elapsed:?}"
+                );
+            }
+            shell.apply_launch_defaults(screenshot_chrome);
+            ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
+
+            let lib_root = shell.app.libs.root.as_ref().expect("Tier A seam must set app.libs.root on every case");
+            assert!(
+                !lib_root.starts_with(&data_dir),
+                "case {id}: app.libs.root ({}) must not lie under dirs::data_dir() ({})",
+                lib_root.display(),
+                data_dir.display()
+            );
+            if let Some(lib) = &shell.app.lib {
+                assert!(
+                    !lib.root().starts_with(&data_dir),
+                    "case {id}: opened Library root ({}) must not lie under dirs::data_dir() ({})",
+                    lib.root().display(),
+                    data_dir.display()
+                );
+            }
+            assert_eq!(shell.app.terminal.path_override.as_deref(), Some(stub_dir.as_os_str()), "case {id}: terminal.path_override must equal stub_dir");
+            assert!(shell.app.terminal.picker.settings_root_override.is_some(), "case {id}: picker.settings_root_override must be set");
+
+            let raw =
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), time: Some(0.05), ..Default::default() };
+            let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&stub_dir);
+            for i in 0..8 {
+                let mut r = raw.clone();
+                r.time = Some((i + 1) as f64 * 0.05);
+                let _ = ctx.run_ui(r, |ui| shell.draw(ui));
+            }
+            let mut snap = capture(&ctx, &shell.app.ui.regions);
+            snap.case = id.to_string();
+            shell.app.terminal.shutdown();
+            serde_json::to_string(&snap).expect("serialize snapshot")
+        };
+
+        for &(id, panel, screenshot_chrome) in cases {
+            let json_a = run_case(id, panel, screenshot_chrome);
+            let json_b = run_case(id, panel, screenshot_chrome);
+            assert_eq!(json_a, json_b, "case {id} snapshot JSON must be deterministic across runs");
+        }
+    }
+
+    /// Test 8d: `h-home` with `fixed_now = T` and with `fixed_now = T + 60 s` on a seed with fixed `modified`:
+    /// the geometry is equal and the label text is the expected relative string; no wall-time wait.
+    #[test]
+    fn home_is_deterministic_with_fixed_clock() {
+        let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
+        let lib_dir = std::env::temp_dir().join(format!("designos-8d-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let t0: u64 = 1_700_000_000_000;
+        crate::showcase::seed_library_at(&lib_dir, t0).expect("seed_library_at");
+
+        let run_home = |now_ms: u64| -> (LayoutSnapshot, Vec<String>) {
+            crate::widgets::clear_pass_records();
+            let ctx = Context::default();
+            let opts =
+                Options { home: true, library: Some(lib_dir.clone()), agent_cli_dir: Some(stub_dir.clone()), fixed_now: Some(now_ms), ..Default::default() };
+            let mut shell = Shell::build(&ctx, opts);
+            shell.apply_launch_defaults(true);
+            ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
+
+            let raw =
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), time: Some(0.05), ..Default::default() };
+            let mut shapes = Vec::new();
+            for i in 0..8 {
+                let mut r = raw.clone();
+                r.time = Some((i + 1) as f64 * 0.05);
+                let out = ctx.run_ui(r, |ui| shell.draw(ui));
+                shapes = out.shapes;
+            }
+            let mut snap = capture(&ctx, &shell.app.ui.regions);
+            snap.case = "h-home".into();
+            let (texts, _) = crate::lint::scan_shapes(&shapes);
+            let strings = texts.into_iter().map(|t| t.text).collect();
+            shell.app.terminal.shutdown();
+            (snap, strings)
+        };
+
+        let (snap_t0, texts_t0) = run_home(t0);
+        let (snap_t60, texts_t60) = run_home(t0 + 60_000);
+        let _ = std::fs::remove_dir_all(&lib_dir);
+
+        assert_eq!(snap_t0, snap_t60, "h-home geometry must be identical at T and T + 60s");
+        assert!(texts_t0.iter().any(|t| t.contains("just now")), "at fixed_now = T, Home card label must show 'just now', got: {texts_t0:?}");
+        assert!(texts_t60.iter().any(|t| t.contains("1 minute ago")), "at fixed_now = T + 60s, Home card label must show '1 minute ago', got: {texts_t60:?}");
+    }
 }

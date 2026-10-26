@@ -109,6 +109,12 @@ pub struct Options {
     pub help: bool,
     /// `--version` / `-V`: print the release version and exit.
     pub version: bool,
+    /// Test-only Tier A seam (`#1126` §3 rule 6): stub CLI directory applied to `Shell::build`.
+    #[cfg(test)]
+    pub agent_cli_dir: Option<PathBuf>,
+    /// Test-only Tier A seam (`#1126` §3 rules 6–7): fixed wall-clock milliseconds for Home.
+    #[cfg(test)]
+    pub fixed_now: Option<u64>,
 }
 
 impl Options {
