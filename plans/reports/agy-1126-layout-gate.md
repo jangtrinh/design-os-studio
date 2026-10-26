@@ -926,3 +926,164 @@ PASS: no count rose above the baseline
   - None.
 
 Status: DONE — Round 4 comparer and fixture fixes (11 fixed, 1 no-change per controller ruling) verified red-to-green with 0 fmt diffs, 0 clippy warnings, 1,281/0 workspace lib tests, 3,019/0 designos bin tests, 17/17 zero-fake UI gate, and 0 spacing regressions.
+
+---
+
+## Round 5
+
+### 1. What Could NOT Be Verified (Stated First)
+
+- **Section 12 Steps 8–9 (`scripts/layout_baseline_capture.py`, Tier B PNG/wireframe run) and the `*.layout.json` / `cases.json.bless_sha` bless were NOT run or committed in Round 5 (`FACT`).** By explicit controller instruction in the Round 5 task prompt, Round 5 fixes the Round 4 Grok review findings only; Section 12 Steps 8–9 and the baseline bless move to Round 6.
+- **Nothing in Round 5's scope (Items 1–7 from Grok's Round 4 review checked against the canonical PM blob `origin/pm/spec-ui-revamp:plans/specs/ui-revamp/detail/1126-layout-unchanged-gate-baseline-capture.md`, sections 8 and 9) was left unverified (`FACT`).** Windows/Linux CI targets run on GitHub Actions rather than locally on this macOS (`aarch64-apple-darwin`) worker.
+
+### 2. Conclusion & Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **Conclusion (`FACT`):** All 6 actionable findings/test-gaps from Grok's Round 4 review (`plans/reports/review-1126-pr1206-r4-grok.md`) have been implemented with red-before-green commit discipline (`plans/reports/agy-1126-layout-gate-evidence/r5-red.log` and `r5-green.log`), and Item 7 is documented as `no change` per spec rule 5 item 3. Every gate passed on the final code commit (`2b909a5d4`): `0` fmt diffs, `0` clippy warnings, `1,281 passed; 0 failed` in `--workspace --lib`, `3,021 passed; 0 failed` in `designos` bin, `17/17` zero-fake UI gate, and `0` spacing regressions.
+- **Epistemic Ledger:**
+  - `FACT` — `git fetch origin` at session start confirmed `origin/main` had 0 new commits relative to `4ff960279` (`git rev-list --count HEAD..origin/main == 0`).
+  - `FACT` — **Item 1 (Major A — row's own `dh` is range-checked):** PM blob §8 (`G4/G5`) states *"Each row's own `dh` must also lie in its covering entry's `[min_dh, max_dh]`."* Previously only individual widget `dh` was checked (`layout_snapshot.rs:449-452`), while `compute_row_shifts` (`layout_snapshot.rs:604-612`) summed `row_dh = c_h - b_h` without range-checking the row bounding box itself. Added `RowShift { base_min_y, base_max_y, dh, label, covering_idx }` and a row bounding-box `dh` check in `compare_region` (`layout_snapshot.rs:762-795`) before per-widget rect drift and G3 order checks: any G3 row with `|row_dh| > 0.5` whose `row_dh` lies outside its covering entry's `[min_dh - 0.5, max_dh + 0.5]` (or has no covering entry) fails with an error naming the row (`G3/G4 row #0 [A, B] dh=16 out of allowed [8, 8] ...`). Verified red (`ec8e25ba8`) -> green (`2607ec1bf`) with Grok's scenario (`A [0,0,40,24] -> [0,0,40,32]`, `B [0,10,40,24] -> [0,18,40,32]` under `{h_base:24, min_dh:8, max_dh:8}`, where row `dh` is `+16`).
+  - `FACT` — **Item 2 (Major B — derived cumulative shift covers `anchor_x: left`, `anchor_x: right`, `anchor_y: bottom`, and `anchor_y: top`):** PM blob §8 (`G4/G5`) states *"For `anchor_x: left` it is the sum of the observed `dw` of the widgets to the left in the same row. `bottom`/`right` sum from the other end. The sum is not a range."* Replaced `row_cum_dh` + `count_row_gaps_above` with `DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above, gaps_below }` (`layout_snapshot.rs:604-725`) and updated `check_rect_with_allow` (`layout_snapshot.rs:365-439`) so:
+    - `AnchorX::Left` checks `cur[0]` against `base[0] + sum_dw_left + dx`;
+    - `AnchorX::Right` checks `cur[0]` against `base[0] + base[2] - cur[2] - sum_dw_right + dx`;
+    - `AnchorY::Top` checks `cur[1]` against `base[1] + sum_dh_above + gaps_above * gap_dy + dy`;
+    - `AnchorY::Bottom` checks `cur[1]` against `base[1] + base[3] - cur[3] - sum_dh_below - gaps_below * gap_dy + dy`;
+    - `AnchorX::Centre` / `AnchorY::Centre` keep the existing centre-point rule.
+    Verified red (`dd0516f39`) -> green (`134b90f36`) by `layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors` (left button `32->40` + right button `x +8` passes; right button `x +12` fails on its edge; right-anchored mirror passes/fails; bottom-anchored stack mirror passes/fails).
+  - `FACT` — **Item 3 & Item 6b (Major C — `"*"` entry stale-checked in any spec run that applies it + stale test passes spec filter `Some("F")`):** PM blob §9 states *"An entry that matched nothing in a run is stale and fails, with its index."* Previously `check_stale_allow_entries_for_run` skipped `e.case == "*"` whenever `e.spec != spec_key` (`layout_snapshot.rs:825-828`), even though `compare` applies `e.case == "*"` regardless of `e.spec`. Removed `e.case == "*"` from the `spec_filter` skip in `check_stale_allow_entries_for_run` (`layout_snapshot.rs:922-925`) so wildcard entries are stale-checked against the cases that ran in any spec run. Extended `stale_check_counts_covering_entries_and_runs_over_union_of_run` with Grok's scenario (`check_stale_allow_entries_for_run(..., Some("F"))` with `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}` whose only match is an F case: fails as stale when unmatched and passes when matched). Verified red (`3efaae491`) -> green (`5a637742e`).
+  - `FACT` — **Item 4 (Minor, finding 6 — scroll detection agrees on both paths for 16×24 drag-only splitter):** In `egui 0.35.0` (`scroll_area.rs:1324-1336`), `ScrollArea` registers `WidgetType::ScrollBar` with `Sense::CLICK | Sense::DRAG` and cross-axis thickness `scroll_style.bar_width` (`10.0`). On the release fallback path (`!has_any_widget_info`), `is_drag_only || ((w - bar_width).abs() <= 0.5 && ...)` previously classified a `16×24` drag-only splitter as `ScrollGeom { maybe: true }` while the widget-info path left it in `unnamed`. Tightened the release fallback in `capture` (`layout_snapshot.rs:230-252`) to require `(w - bar_width).abs() <= 0.5 && h >= 24.0` (vertical) or `(h - bar_width).abs() <= 0.5 && w >= 24.0` (horizontal), so both paths classify the `16×24` drag-only splitter into `unnamed` and only emit `ScrollGeom` for the scrollbar. Verified red (`c8ebbfd49`) -> green (`0f4449b34`) by `scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release`.
+  - `FACT` — **Item 5 (Nit — match `R5` as a token in `reason` so `R50` does not pass):** Updated `validate_allow_entries` (`layout_snapshot.rs:348-353`) to tokenize `e.reason` on non-`[A-Za-z0-9_]` characters (`e.reason.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|tok| tok == "R5")`). Verified red (`24c012610`) -> green (`678e3e5bf`) by `negative_dw_or_dh_requires_r5_in_reason`.
+  - `FACT` — **Item 6a (Test gap — inventory test builds a count delta above `inventory_max_delta` and fails with G4 count error):** Extended `inventory_max_delta_forgives_count_only_and_compares_shared_prefix` (`layout_snapshot.rs:1487-1499`) to add 3 unnamed widgets (`count_delta = 3 > inventory_max_delta = 2`) and assert `compare` fails with the `G4 unnamed widget count mismatch` error. Committed at `2b909a5d4`.
+  - `FACT` — **Item 7 (No change — `agy` spawn wait at `terminal.rs:2948-2957`):** Inspected `crates/designos-app/src/terminal.rs:2945-2960` and PM blob §3.3 rule 5 item 3 (`git show origin/pm/spec-ui-revamp:plans/specs/ui-revamp/detail/1126-layout-unchanged-gate-baseline-capture.md`). The 20 × 10 ms (`200ms` max) `try_wait` poll in `terminal.rs:2948-2957` is explicitly cited by spec rule 5 item 3 (`terminal.rs:2947-2953`) as the intentional non-PTY `agy` immediate-exit check (`exit 127` in `~20ms` when the stub exits immediately), not an unupheld sleep loop. No code change required.
+  - **Weakest link (one line):** Until Round 6 runs `scripts/layout_baseline_capture.py` and commits the blessed `*.layout.json` baselines and `cases.json.bless_sha`, `layout_unchanged_d..k` verify live capture + self-comparison (`compare(&snap, &snap, ...)`) rather than cross-commit baseline diffing.
+
+### 3. Skills Loaded & Changes Made Because of Them
+
+- `es:astra-work` & `es:fable-thinking`: Checked each of Grok's Round 4 findings against the canonical PM blob (`origin/pm/spec-ui-revamp:plans/specs/ui-revamp/detail/1126-layout-unchanged-gate-baseline-capture.md`, §8 and §9), stated `PREDICT` before every test and gate command, verified every red commit failed for the exact expected reason (`r5-red.log`) before applying its fix (`r5-green.log`), and ran the full acceptance suite on the final code commit (`2b909a5d4`).
+- `es:orca-native-orchestration`: Checked coordinator inbox via `orca orchestration check --terminal term_7216dbdb-2fde-4248-b764-20e7f5c4bd94 --json` at natural checkpoints and sent heartbeats every 5 minutes with `--task-id task_7adc1e178ee7` and `--dispatch-id ctx_369d0dde9849`.
+- `es:dev` / `es:feature-dev`: Enforced strict Red (`test(app): …`) -> Green (`fix(app): …`) commit pairs for Items 1–5 plus dedicated test commit `2b909a5d4` for Item 6a.
+- `es:rust`: Used zero-allocation token splitting (`split(|c: char| !c.is_ascii_alphanumeric() && c != '_')`) for `R5` token matching, structured `DerivedShifts` (`Copy`) to pass clean borrowed value bundles into `check_rect_with_allow` without triggering `clippy::too_many_arguments`, and inspected `egui-0.35.0/src/containers/scroll_area.rs:1314-1336` to verify `ScrollBar`'s exact `Sense` and `bar_width` invariants.
+- `es:rust-gpu-canvas`: Preserved all `designos-gpu` and `designos-render` invariants untouched.
+
+### 4. Round 5 Findings Table (Items 1–7 Checked Against PM Blob)
+
+| # | Severity | Finding Summary | PM Blob Check (`origin/pm/spec-ui-revamp:...`) | Status | Red Commit | Green Commit |
+|---|---|---|---|---|---|---|
+| **1** | Major A | Row's own bounding-box `dh` (`c_h - b_h`) is never range-checked against its covering entry's `[min_dh, max_dh]` | PM blob §8 (`G4/G5`): *"Each row's own `dh` must also lie in its covering entry's `[min_dh, max_dh]`."* Rejects any row whose `dh` (`\|row_dh\| > 0.5`) falls outside `[min_dh - 0.5, max_dh + 0.5]` with an error naming the row. | `fixed` | `ec8e25ba8` | `2607ec1bf` |
+| **2** | Major B | Derived shift covers only `anchor_y: top` instead of `anchor_x: left`, `anchor_x: right`, and `anchor_y: bottom` | PM blob §8 (`G4/G5`): *"For `anchor_x: left` it is the sum of the observed `dw` of the widgets to the left in the same row. `bottom`/`right` sum from the other end. The sum is not a range."* | `fixed` | `dd0516f39` | `134b90f36` |
+| **3** | Major C (Finding 4) | `"*"` entry is skipped by per-spec stale check when `e.spec != spec_key`, even though `compare` applies it | PM blob §9: *"An entry that matched nothing in a run is stale and fails, with its index."* Removed `e.case == "*"` from the `spec_filter` skip so wildcard entries are stale-checked against the cases that ran. | `fixed` | `3efaae491` | `5a637742e` |
+| **4** | Minor (Finding 6) | Release-path scroll detection classifies a `16×24` drag-only splitter as `scroll {maybe: true}` while widget-info path keeps it in `unnamed` | PM blob §3 rule 3: tightened release-path scrollbar fallback to require `(w - bar_width).abs() <= 0.5 && h >= 24.0` (or horizontal mirror), so both paths keep the `16×24` splitter in `unnamed`. | `fixed` | `c8ebbfd49` | `0f4449b34` |
+| **5** | Nit | `"R5"` substring check in `reason` lets `"R50"` pass | Matches `"R5"` as an alphanumeric/underscore-delimited token in `validate_allow_entries`, rejecting `"R50"`. | `fixed` | `24c012610` | `678e3e5bf` |
+| **6a** | Test gap | Inventory test did not build a count delta above `inventory_max_delta` and assert the G4 count error | Added count delta `+3 > inventory_max_delta (2)` assertion in `inventory_max_delta_forgives_count_only_and_compares_shared_prefix`. | `fixed` | — (test-only gap) | `2b909a5d4` |
+| **6b** | Test gap | Stale test did not pass a spec filter `Some("F")` with a `case: "*", spec: "D"` entry | Added `check_stale_allow_entries_for_run(..., Some("F"))` with `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}` in `stale_check_counts_covering_entries_and_runs_over_union_of_run`. | `fixed` | `3efaae491` | `5a637742e` |
+| **7** | Note | `agy` spawn wait at `crates/designos-app/src/terminal.rs:2948-2957` | Explicitly cited by PM blob §3.3 rule 5 item 3 (`terminal.rs:2947-2953`) as the intentional 20 × 10 ms non-PTY `try_wait` check for immediate `exit 127`. | `no change` | — | — |
+
+---
+
+### 5. Acceptance Verification (Run on Final Code Commit `2b909a5d4`)
+
+#### Acceptance 1 — Findings Table
+See Section 4 above.
+
+#### Acceptance 2 — Red (`r5-red.log`) and Green (`r5-green.log`) Logs
+Full logs are committed at `plans/reports/agy-1126-layout-gate-evidence/r5-red.log` and `plans/reports/agy-1126-layout-gate-evidence/r5-green.log`.
+
+```text
+=== r5-red.log (each test failing on its RED commit before its fix) ===
+Major A (ec8e25ba8): test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... FAILED
+  panicked at crates/designos-app/src/layout_snapshot.rs:1087:9:
+  row dh failure must name the row and report dh out of range, got: G3 named widget 'B' rect drift in case f-inspector (region 'right_panel'): baseline=[0.0, 10.0, 40.0, 24.0], current=[0.0, 18.0, 40.0, 32.0]
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3027 filtered out; finished in 0.01s
+
+Major B (dd0516f39): test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... FAILED
+  panicked at crates/designos-app/src/layout_snapshot.rs:1216:14:
+  left button widening 32->40 and right button shifting x +8 must pass: "G3 named widget 'btn-right' rect drift in case f-inspector (region 'right_panel'): baseline=[1250.0, 60.0, 32.0, 24.0], current=[1258.0, 60.0, 32.0, 24.0]"
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+Major C & 6b (3efaae491): test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... FAILED
+  panicked at crates/designos-app/src/layout_snapshot.rs:1509:14:
+  spec D wildcard entry that compare can apply in Some("F") run must fail as stale when unmatched: ()
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+Minor 4 (c8ebbfd49): test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... FAILED
+  panicked at crates/designos-app/src/layout_snapshot.rs:2035:9:
+  assertion `left == right` failed: when widget info is absent, fallback scroll detection must emit only right_panel axis='y', maybe=true; got [ScrollGeom { region: "left_panel", axis: "y", maybe: true }, ScrollGeom { region: "right_panel", axis: "y", maybe: true }]
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.02s
+
+Nit 5 (24c012610): test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... FAILED
+  panicked at crates/designos-app/src/layout_snapshot.rs:2176:10:
+  R50 must not satisfy the R5 token requirement in reason: AllowList { entries: [AllowEntry { case: "f-inspector", region: "right_panel", name_prefix: Some("prop-row-0"), h_base: None, anchor_x: None, anchor_y: None, min_dw: None, max_dw: None, min_dh: Some(-4.0), max_dh: None, dx: None, dy: None, gap_dy: None, inventory_max_delta: None, spec: "F", reason: "R50: tighten inspector row" }] }
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.00s
+
+=== r5-green.log (each test passing on its GREEN commit after its fix) ===
+Major A (2607ec1bf):      test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... ok (1 passed; 0 failed; finished in 0.01s)
+Major B (134b90f36):      test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... ok (1 passed; 0 failed; finished in 0.01s)
+Major C & 6b (5a637742e): test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... ok (1 passed; 0 failed; finished in 0.00s)
+Minor 4 (0f4449b34):      test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... ok (1 passed; 0 failed; finished in 0.02s)
+Nit 5 (678e3e5bf):        test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... ok (1 passed; 0 failed; finished in 0.00s)
+Test Gap 6a (2b909a5d4):  test layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix ... ok (1 passed; 0 failed; finished in 0.01s)
+```
+
+#### Acceptance 3 & 4 — Clean `PATH` Proof + Full Mandatory Test Harness on `2b909a5d4`
+
+```text
+$ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.cargo/bin"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ for c in claude codex gemini grok agy opencode; do command -v $c; done
+(empty output — 0 bytes in r5-clean-path.log)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+(exit 0 — 0 bytes in r5-fmt.log)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 52.42s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.96s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.39s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.59s
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.61s
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.96s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+running 3029 tests
+...
+test video::tests::posters ... ok
+test video::tests::garbage_is_not_a_video_and_never_panics ... ok
+test terminal::tests::sim_approval_card_and_permissions_modal_pass_layout_lint ... ok
+test widgets::menu::tests::rows_scrolled_out_of_the_panel_cannot_be_clicked ... ok
+test terminal::tests::touched_layers_do_not_bleed_into_other_active_tab_turn ... ok
+test terminal::tests::pty_injection_fixture_real_shell ... ok
+
+test result: ok. 3021 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 192.27s
+
+$ python3 scripts/zero_fake_ui_gate.py
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1675, inset_literals=45, radius_literals=260, font_literals=25, nonconcentric_pairs=2
+note: 11 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+```
+
+### 6. Assumptions & Unresolved Questions
+
+- **Assumptions:**
+  - `ASSUMPTION` (verified against `egui-0.35.0/src/containers/scroll_area.rs:1314-1336`): On the release `--layout-json` path (`!has_any_widget_info`), `egui::ScrollArea`'s scrollbar response always has cross-axis dimension equal to `spacing.scroll.bar_width` (`10.0pt`) and main-axis `>= 24.0pt`, whereas panel/inspector splitters use wider drag rects (e.g. `16×24`). Requiring `(w - bar_width).abs() <= 0.5 && h >= 24.0` (or horizontal mirror) on the release fallback makes both paths classify `16×24` drag-only splitters into `unnamed`.
+- **Unresolved Questions:**
+  - None.
+
+Status: DONE — Round 5 comparer and test-gap fixes (Items 1–6 fixed red-to-green, Item 7 documented no-change per spec rule 5 item 3) verified on `2b909a5d4` with 0 fmt diffs, 0 clippy warnings, 1,281/0 workspace lib tests, 3,021/0 designos bin tests, 17/17 zero-fake UI gate, and 0 spacing regressions.
