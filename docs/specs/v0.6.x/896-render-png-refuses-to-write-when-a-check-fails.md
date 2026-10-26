@@ -123,7 +123,7 @@ Independent of #897 and #898, except that all three next-patch items draw on the
 
 - 2026-10-22 (pack): "Small items (#896, #897, #898) are next-patch work."
 - Standing: new MCP params go through the generated docs and the drift test (`gen-tool-docs`, `tools_snapshot.rs`, `rules.rs`).
-- 2026-09-22: "Làm cái gì trên toàn bộ project cũng phải chụp hình chứng minh" (visual evidence in every PR).
+- 2026-09-22: "Whatever you do anywhere in the project, take a screenshot as proof" (visual evidence in every PR).
 - Standing: `main` is protected (PR, green macOS test, clippy and rustfmt, squash); releases are verified on macOS.
 
 ## Decisions on the open questions (controller, 2026-10-22)
