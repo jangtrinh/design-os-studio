@@ -2163,6 +2163,18 @@ mod tests {
             ..Default::default()
         }])
         .expect("negative min_dh citing R5 in reason must pass validate_allow_entries");
+
+        let r50_not_r5 = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-0".into()),
+            min_dh: Some(-4.0),
+            spec: "F".into(),
+            reason: "R50: tighten inspector row".into(),
+            ..Default::default()
+        }])
+        .expect_err("R50 must not satisfy the R5 token requirement in reason");
+        assert!(r50_not_r5.contains("R5"), "error must mention R5, got: {r50_not_r5}");
     }
 
     /// Round 4 Nit 12: `g3_checks_row_name_sequence_with_underscore_for_unnamed` —
