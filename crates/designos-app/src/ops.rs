@@ -2175,6 +2175,13 @@ impl App {
                 self.replace_document(doc, (!svg).then_some(p));
                 // What the replaced document left (a change no history holds) is not this one's.
                 self.autosave.dot.adopt(false);
+                if self.home.take().is_some() {
+                    self.ui.menu = None;
+                    self.tabs.parked_in_home = true;
+                    let mut tabs = std::mem::take(&mut self.tabs);
+                    tabs.reconcile_frame(self);
+                    self.tabs = tabs;
+                }
                 self.show_toast(io::opened_toast_text(&name, warning.as_deref()), warning.is_some());
             }
             Err(e) => self.show_toast(e, true),

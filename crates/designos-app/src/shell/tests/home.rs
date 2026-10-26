@@ -589,3 +589,29 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
         let _ = tab.child.kill();
     }
 }
+
+#[test]
+fn import_without_a_dialog_opens_path_prompt_from_toast_and_imports_file() {
+    let (mut s, d) = home_sim();
+    let sub = d.0.join("Thư mục 2026");
+    std::fs::create_dir_all(&sub).unwrap();
+    let file = sub.join("Thiết kế mẫu.designos");
+    let mut doc = Document::new("Thiết kế mẫu");
+    doc.add_page("Trang 1");
+    crate::io::save_path(&doc, &file).unwrap();
+
+    crate::home::import_files_dialog(&mut s.shell.app, &crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable));
+    s.frame(vec![]);
+    assert!(s.app().toast.as_ref().is_some_and(|t| t.enter_path));
+
+    click_rect(&mut s, "toast-enter-path");
+    assert!(s.app().toast.is_none());
+    assert_eq!(s.app().dialog.as_ref().map(|dlg| dlg.intent.clone()), Some(Intent::ImportPath));
+
+    s.type_text(&file.display().to_string());
+    s.key(Key::Enter);
+    assert!(s.app().dialog.is_none());
+    assert!(s.app().home.is_none(), "entering a path opens the file in a tab");
+    assert_eq!(s.app().doc.name, "Thiết kế mẫu");
+    assert_eq!(s.app().file_path.as_deref(), Some(file.as_path()));
+}

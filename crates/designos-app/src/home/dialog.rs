@@ -32,6 +32,8 @@ pub enum Intent {
     DiskChanged,
     /// A document with edits no save has written is about to be closed or replaced: Save, Don't save or Cancel.
     SaveChanges,
+    /// Opens / imports a file by path when no system file dialog could open (`#1192`).
+    ImportPath,
 }
 
 /// One row of the project picker: a project or one of its folders.
@@ -221,6 +223,11 @@ impl App {
             &["This opens the design:os studio source code page in your web browser.", super::GITHUB_URL],
             "Open",
         ));
+    }
+
+    /// Opens the in-app file path prompt when the system file chooser is unavailable (`#1192`).
+    pub fn open_import_path_dialog(&mut self) {
+        self.dialog = Some(Dialog::prompt(Intent::ImportPath, "Import file", "", "Import"));
     }
 }
 
@@ -433,6 +440,19 @@ pub fn finish(app: &mut App, d: Dialog) {
     if crate::history::finish_dialog(app, &d) || crate::dev::finish_dialog(app, &d) {
         return;
     }
+    if d.intent == Intent::ImportPath {
+        let raw = d.input.unwrap_or_default();
+        let trimmed = raw.trim();
+        let unquoted = trimmed
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+            .unwrap_or(trimmed);
+        if !unquoted.is_empty() {
+            app.open_path(std::path::PathBuf::from(unquoted));
+        }
+        return;
+    }
     let Some(lib) = app.lib.clone() else { return };
     let text = d.input.clone().unwrap_or_default().trim().to_string();
     let choice = d.picked.and_then(|i| d.choices.get(i)).cloned();
@@ -491,7 +511,8 @@ pub fn finish(app: &mut App, d: Dialog) {
         | Intent::NameVersion(_)
         | Intent::OpenDevLink(_)
         | Intent::DiskChanged
-        | Intent::SaveChanges => {
+        | Intent::SaveChanges
+        | Intent::ImportPath => {
             dirty = false;
             Ok(())
         }
