@@ -411,6 +411,260 @@ class PrLabelsTests(unittest.TestCase):
             (1190, ["sensitive-path"]),
         )
 
+    def test_two_head_label_matches_with_different_diffs_label_each_from_own_diff(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        head_pulls = [
+            *make_commits_pulls(pr_number=2001, head_sha=SHA_A, head_repo=fork_repo),
+            *make_commits_pulls(pr_number=2000, head_sha=SHA_A, head_repo=fork_repo),
+        ]
+        pulls_by_number = {
+            2001: make_pull(
+                pr_number=2001, head_sha=SHA_A, head_repo=fork_repo,
+                additions=5, deletions=0, changed_files=1,
+            ),
+            2000: make_pull(
+                pr_number=2000, head_sha=SHA_A, head_repo=fork_repo,
+                additions=500, deletions=0, changed_files=1,
+            ),
+        }
+        files_by_number = {
+            2001: make_files(["README.md"]),
+            2000: make_files([".github/workflows/pr-gate.yml"]),
+        }
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=head_pulls,
+                pulls=[],
+                pull=pulls_by_number[2001],
+                files=files_by_number[2001],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            ),
+            (2001, []),
+        )
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=head_pulls,
+                pulls=[],
+                pull=pulls_by_number[2000],
+                files=files_by_number[2000],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            ),
+            (2000, ["size/L", "sensitive-path"]),
+        )
+        self.assertEqual(
+            pr_labels.resolve_pr_numbers(
+                head_pulls=head_pulls,
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            ),
+            [2001, 2000],
+        )
+        results, errors = pr_labels.evaluate_all_pr_labels(
+            head_pulls=head_pulls,
+            pulls=[],
+            pulls_by_number=pulls_by_number,
+            files_by_number=files_by_number,
+            head_sha=SHA_A,
+            head_repo=fork_repo,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            results,
+            [
+                (2001, []),
+                (2000, ["size/L", "sensitive-path"]),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            hp_p = tmp_dir / "head-pulls.json"
+            pulls_p = tmp_dir / "pulls.json"
+            hp_p.write_text(json.dumps(head_pulls), encoding="utf-8")
+            pulls_p.write_text("[]\n", encoding="utf-8")
+            for num in (2001, 2000):
+                (tmp_dir / f"pull-{num}.json").write_text(json.dumps(pulls_by_number[num]), encoding="utf-8")
+                (tmp_dir / f"files-{num}.json").write_text(json.dumps(files_by_number[num]), encoding="utf-8")
+            res_proc = subprocess.run(
+                [
+                    sys.executable, "-B", str(Path(__file__).with_name("pr_labels.py")),
+                    "--resolve-pr",
+                    "--head-pulls", str(hp_p),
+                    "--pulls", str(pulls_p),
+                    "--head-sha", SHA_A,
+                    "--head-repo", fork_repo,
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_proc.returncode, 0)
+            self.assertEqual(res_proc.stdout.strip().splitlines(), ["2001", "2000"])
+            batch_proc = subprocess.run(
+                [
+                    sys.executable, "-B", str(Path(__file__).with_name("pr_labels.py")),
+                    "--head-pulls", str(hp_p),
+                    "--pulls", str(pulls_p),
+                    "--pulls-dir", str(tmp_dir),
+                    "--head-sha", SHA_A,
+                    "--head-repo", fork_repo,
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(batch_proc.returncode, 0)
+            self.assertEqual(
+                json.loads(batch_proc.stdout),
+                {
+                    "results": [
+                        {"pr_number": 2001, "labels": []},
+                        {"pr_number": 2000, "labels": ["size/L", "sensitive-path"]},
+                    ],
+                    "errors": [],
+                },
+            )
+
+    def test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        head_pulls = [
+            *make_commits_pulls(pr_number=2001, head_sha=SHA_B, head_repo=fork_repo),
+            *make_commits_pulls(pr_number=2000, head_sha=SHA_A, head_repo=fork_repo),
+        ]
+        pulls_by_number = {
+            2001: make_pull(
+                pr_number=2001, head_sha=SHA_B, head_repo=fork_repo,
+                additions=500, deletions=0, changed_files=1,
+            ),
+            2000: make_pull(
+                pr_number=2000, head_sha=SHA_A, head_repo=fork_repo,
+                additions=20, deletions=0, changed_files=1,
+            ),
+        }
+        files_by_number = {
+            2001: make_files([".github/workflows/pr-gate.yml"]),
+            2000: make_files([".github/workflows/pr-labeller.yml"]),
+        }
+        self.assertEqual(
+            pr_labels.resolve_pr_numbers(
+                head_pulls=head_pulls,
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            ),
+            [2000],
+        )
+        results, errors = pr_labels.evaluate_all_pr_labels(
+            head_pulls=head_pulls,
+            pulls=[],
+            pulls_by_number=pulls_by_number,
+            files_by_number=files_by_number,
+            head_sha=SHA_A,
+            head_repo=fork_repo,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [(2000, ["sensitive-path"])])
+
+    def test_fallback_uses_all_matches_from_commits_pulls_then_artifact(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        commits_pulls = [
+            *make_commits_pulls(pr_number=1184, head_sha=SHA_A, head_repo=fork_repo),
+            *make_commits_pulls(pr_number=1185, head_sha=SHA_A, head_repo=fork_repo),
+        ]
+        self.assertEqual(
+            pr_labels.resolve_pr_numbers(
+                head_pulls=[],
+                pulls=commits_pulls,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact={"pr_number": 1190},
+            ),
+            [1184, 1185],
+        )
+        self.assertEqual(
+            pr_labels.resolve_pr_numbers(
+                head_pulls=[],
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact={"pr_number": 1190},
+            ),
+            [1190],
+        )
+
+    def test_one_failed_pr_validation_still_labels_rest_and_fails_job(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        head_pulls = [
+            *make_commits_pulls(pr_number=2001, head_sha=SHA_A, head_repo=fork_repo),
+            *make_commits_pulls(pr_number=2000, head_sha=SHA_A, head_repo=fork_repo),
+        ]
+        pulls_by_number = {
+            2001: make_pull(pr_number=2001, head_sha=SHA_B, head_repo=fork_repo),
+            2000: make_pull(
+                pr_number=2000, head_sha=SHA_A, head_repo=fork_repo,
+                additions=500, deletions=0, changed_files=1,
+            ),
+        }
+        files_by_number = {
+            2001: make_files(["README.md"]),
+            2000: make_files([".github/workflows/pr-gate.yml"]),
+        }
+        results, errors = pr_labels.evaluate_all_pr_labels(
+            head_pulls=head_pulls,
+            pulls=[],
+            pulls_by_number=pulls_by_number,
+            files_by_number=files_by_number,
+            head_sha=SHA_A,
+            head_repo=fork_repo,
+        )
+        self.assertEqual(results, [(2000, ["size/L", "sensitive-path"])])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("2001", errors[0])
+
+    def test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        pr_nums = list(range(1001, 1023))  # 22 matching PRs
+        head_pulls = [
+            entry
+            for n in pr_nums
+            for entry in make_commits_pulls(pr_number=n, head_sha=SHA_A, head_repo=fork_repo)
+        ]
+        pulls_by_number = {
+            n: make_pull(pr_number=n, head_sha=SHA_A, head_repo=fork_repo, additions=10, deletions=0, changed_files=1)
+            for n in pr_nums
+        }
+        files_by_number = {n: make_files([".github/workflows/pr-gate.yml"]) for n in pr_nums}
+        results, errors = pr_labels.evaluate_all_pr_labels(
+            head_pulls=head_pulls,
+            pulls=[],
+            pulls_by_number=pulls_by_number,
+            files_by_number=files_by_number,
+            head_sha=SHA_A,
+            head_repo=fork_repo,
+        )
+        self.assertEqual([n for n, _ in results], pr_nums[:20])
+        self.assertTrue(all(labels == ["sensitive-path"] for _, labels in results))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("22", errors[0])
+
+    def test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array(self) -> None:
+        self.assertEqual(
+            pr_labels.parse_paginated_arrays('[{"id": 1}][{"id": 2}, {"id": 3}]'),
+            [{"id": 1}, {"id": 2}, {"id": 3}],
+        )
+        self.assertEqual(
+            pr_labels.parse_paginated_arrays('[{"id": 1}]\n[{"id": 2}]\n'),
+            [{"id": 1}, {"id": 2}],
+        )
+        for bad in [
+            '[{"id": 1}] trailing',
+            '{"id": 1}',
+            '[{"id": 1}]\n{"id": 2}',
+            '123',
+            '',
+        ]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    pr_labels.parse_paginated_arrays(bad)
+
 
 if __name__ == "__main__":
     unittest.main()

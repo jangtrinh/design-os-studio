@@ -8,6 +8,7 @@ from pathlib import Path
 MAX_LINES_WITHOUT_SIZE_L = 400
 MAX_FILES_WITHOUT_SIZE_L = 10
 MAX_ARTIFACT_BYTES = 65536
+MAX_MATCHING_PRS = 20
 
 SENSITIVE_PATH_PREFIXES: tuple[str, ...] = (
     ".github/", "packaging/", "scripts/build-release.sh", "scripts/package.sh",
@@ -64,13 +65,14 @@ def is_sensitive_path(raw_path: str) -> bool:
     return any(p.startswith(pfx) for p in expand_rename_paths(raw_path) for pfx in SENSITIVE_PATH_PREFIXES)
 
 
-def resolve_pr_from_commits_pulls(
+def resolve_prs_from_commits_pulls(
     pulls: object, expected_head_sha: str, expected_head_repo: str,
-) -> int | None:
+) -> list[int]:
     sha = _validate_sha(expected_head_sha)
     repo = _validate_repo(expected_head_repo)
     if not isinstance(pulls, list):
         raise ValueError("commits/pulls payload must be a JSON array")
+    matched: list[int] = []
     for entry in pulls:
         if not isinstance(entry, dict):
             raise ValueError("commits/pulls entry must be a JSON object")
@@ -83,8 +85,17 @@ def resolve_pr_from_commits_pulls(
             num = entry.get("number")
             if not _is_int(num) or int(num) <= 0:
                 raise ValueError("matching PR has invalid number")
-            return int(num)
-    return None
+            pr_num = int(num)
+            if pr_num not in matched:
+                matched.append(pr_num)
+    return matched
+
+
+def resolve_pr_from_commits_pulls(
+    pulls: object, expected_head_sha: str, expected_head_repo: str,
+) -> int | None:
+    matched = resolve_prs_from_commits_pulls(pulls, expected_head_sha, expected_head_repo)
+    return matched[0] if matched else None
 
 
 def candidate_pr_from_artifact(artifact: object) -> int:
@@ -96,6 +107,30 @@ def candidate_pr_from_artifact(artifact: object) -> int:
     return int(pr_number)
 
 
+def resolve_pr_numbers(
+    *,
+    head_pulls: object | None = None,
+    pulls: object | None = None,
+    head_sha: str,
+    head_repo: str,
+    artifact: object | None = None,
+) -> list[int]:
+    if head_pulls is not None:
+        resolved = resolve_prs_from_commits_pulls(head_pulls, head_sha, head_repo)
+        if resolved:
+            return resolved
+    if pulls is not None:
+        resolved = resolve_prs_from_commits_pulls(pulls, head_sha, head_repo)
+        if resolved:
+            return resolved
+    if head_pulls is None and pulls is None:
+        _validate_sha(head_sha)
+        _validate_repo(head_repo)
+    if artifact is not None:
+        return [candidate_pr_from_artifact(artifact)]
+    return []
+
+
 def resolve_pr_number(
     *,
     head_pulls: object | None = None,
@@ -104,20 +139,14 @@ def resolve_pr_number(
     head_repo: str,
     artifact: object | None = None,
 ) -> int | None:
-    if head_pulls is not None:
-        resolved = resolve_pr_from_commits_pulls(head_pulls, head_sha, head_repo)
-        if resolved is not None:
-            return resolved
-    if pulls is not None:
-        resolved = resolve_pr_from_commits_pulls(pulls, head_sha, head_repo)
-        if resolved is not None:
-            return resolved
-    if head_pulls is None and pulls is None:
-        _validate_sha(head_sha)
-        _validate_repo(head_repo)
-    if artifact is not None:
-        return candidate_pr_from_artifact(artifact)
-    return None
+    resolved = resolve_pr_numbers(
+        head_pulls=head_pulls,
+        pulls=pulls,
+        head_sha=head_sha,
+        head_repo=head_repo,
+        artifact=artifact,
+    )
+    return resolved[0] if resolved else None
 
 
 def validate_pull(
@@ -196,24 +225,32 @@ def evaluate_pr_labels(
     head_sha: str,
     head_repo: str,
     artifact: object | None = None,
+    expected_pr_number: int | None = None,
 ) -> tuple[int | None, list[str]]:
     expected_sha = _validate_sha(head_sha)
     expected_repo = _validate_repo(head_repo)
-    pr_number = resolve_pr_number(
+    pr_numbers = resolve_pr_numbers(
         head_pulls=head_pulls,
         pulls=pulls,
         head_sha=expected_sha,
         head_repo=expected_repo,
         artifact=artifact,
     )
-    if pr_number is None:
-        if pull is not None:
-            cand = pull.get("number") if isinstance(pull, dict) else None
-            if not _is_int(cand) or int(cand) <= 0:
-                raise ValueError("candidate pull must have a positive integer number")
+    if expected_pr_number is not None:
+        if not _is_int(expected_pr_number) or int(expected_pr_number) <= 0:
+            raise ValueError("expected_pr_number must be a positive integer")
+        target_pr = int(expected_pr_number)
+        if target_pr not in pr_numbers[:MAX_MATCHING_PRS]:
+            raise ValueError(f"PR #{target_pr} is not in resolved matching PRs")
+        pr_number = target_pr
+    elif not pr_numbers:
+        return None, []
+    else:
+        cand = pull.get("number") if isinstance(pull, dict) else None
+        if _is_int(cand) and int(cand) in pr_numbers[:MAX_MATCHING_PRS]:
             pr_number = int(cand)
         else:
-            return None, []
+            pr_number = pr_numbers[0]
     if pull is None or files is None:
         raise ValueError("pull and files payloads are required when a PR is resolved")
     v = validate_pull(
@@ -224,6 +261,87 @@ def evaluate_pr_labels(
         additions=v["additions"], deletions=v["deletions"], changed_files=v["changed_files"], paths=paths,
     )
     return pr_number, labels
+
+
+def evaluate_all_pr_labels(
+    *,
+    head_pulls: object | None = None,
+    pulls: object | None = None,
+    pulls_by_number: dict[int, object] | None = None,
+    files_by_number: dict[int, object] | None = None,
+    head_sha: str,
+    head_repo: str,
+    artifact: object | None = None,
+    max_prs: int = MAX_MATCHING_PRS,
+) -> tuple[list[tuple[int, list[str]]], list[str]]:
+    expected_sha = _validate_sha(head_sha)
+    expected_repo = _validate_repo(head_repo)
+    pr_numbers = resolve_pr_numbers(
+        head_pulls=head_pulls,
+        pulls=pulls,
+        head_sha=expected_sha,
+        head_repo=expected_repo,
+        artifact=artifact,
+    )
+    if not pr_numbers:
+        return [], []
+    total_matches = len(pr_numbers)
+    capped_numbers = pr_numbers[:max_prs]
+    results: list[tuple[int, list[str]]] = []
+    errors: list[str] = []
+    p_map = pulls_by_number or {}
+    f_map = files_by_number or {}
+    for pr_num in capped_numbers:
+        try:
+            if pr_num not in p_map or pr_num not in f_map:
+                raise ValueError(f"missing pull or files payload for PR #{pr_num}")
+            p_val, f_val = p_map[pr_num], f_map[pr_num]
+            if isinstance(p_val, Exception):
+                raise ValueError(str(p_val))
+            if isinstance(f_val, Exception):
+                raise ValueError(str(f_val))
+            v = validate_pull(
+                p_val,
+                expected_pr_number=pr_num,
+                expected_head_sha=expected_sha,
+                expected_head_repo=expected_repo,
+            )
+            paths = extract_file_paths(f_val)
+            labels = compute_labels(
+                additions=v["additions"],
+                deletions=v["deletions"],
+                changed_files=v["changed_files"],
+                paths=paths,
+            )
+            results.append((pr_num, labels))
+        except ValueError as exc:
+            errors.append(f"PR #{pr_num}: {exc}")
+    if total_matches > max_prs:
+        errors.append(
+            f"matched {total_matches} PRs, exceeding cap of {max_prs} (labelled first {max_prs})"
+        )
+    return results, errors
+
+
+def parse_paginated_arrays(raw: str, *, source: str = "<memory>") -> list[object]:
+    try:
+        dec = json.JSONDecoder()
+        idx, n, merged, saw_array = 0, len(raw), [], False
+        while idx < n:
+            while idx < n and raw[idx].isspace():
+                idx += 1
+            if idx >= n:
+                break
+            val, idx = dec.raw_decode(raw, idx)
+            if not isinstance(val, list):
+                raise ValueError(f"expected JSON array in {source}")
+            saw_array = True
+            merged.extend(val)
+        if not saw_array:
+            raise ValueError(f"expected JSON array in {source}")
+        return merged
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON in {source}: {exc}") from exc
 
 
 def _load_json_file(
@@ -239,18 +357,7 @@ def _load_json_file(
         raw = p.read_text(encoding="utf-8")
         if not allow_paginated_arrays:
             return json.loads(raw)
-        dec = json.JSONDecoder()
-        idx, n, merged = 0, len(raw), []
-        while idx < n:
-            while idx < n and raw[idx].isspace():
-                idx += 1
-            if idx >= n:
-                break
-            val, idx = dec.raw_decode(raw, idx)
-            if not isinstance(val, list):
-                raise ValueError(f"expected JSON array in {p}")
-            merged.extend(val)
-        return merged
+        return parse_paginated_arrays(raw, source=str(p))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid JSON in {p}: {exc}") from exc
 
@@ -259,12 +366,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Resolve PR and compute labels from GitHub API JSON.")
     parser.add_argument("--head-pulls", help="Path to pulls?state=open&head=<owner>:<branch> JSON")
     parser.add_argument("--pulls", help="Path to commits/<sha>/pulls JSON")
+    parser.add_argument("--pr-number", type=int, help="Specific resolved PR number to validate")
     parser.add_argument("--pull", help="Path to pulls/<n> JSON")
     parser.add_argument("--files", help="Path to pulls/<n>/files JSON")
+    parser.add_argument("--pulls-dir", help="Directory with pull-<n>.json and files-<n>.json for all matched PRs")
     parser.add_argument("--head-sha", required=True, help="Expected workflow_run.head_sha")
     parser.add_argument("--head-repo", required=True, help="Expected workflow_run.head_repository.full_name")
     parser.add_argument("--artifact", help="Optional path to candidate pr-gate-result.json")
-    parser.add_argument("--resolve-pr", action="store_true", help="Only print resolved/candidate PR number")
+    parser.add_argument("--resolve-pr", action="store_true", help="Print resolved/candidate PR number(s), one per line")
     args = parser.parse_args(argv)
     if not args.head_pulls and not args.pulls:
         parser.error("at least one of --head-pulls or --pulls is required")
@@ -279,16 +388,58 @@ def main(argv: list[str] | None = None) -> int:
             _load_json_file(args.artifact, max_bytes=MAX_ARTIFACT_BYTES) if args.artifact else None
         )
         if args.resolve_pr:
-            pr_num = resolve_pr_number(
+            pr_nums = resolve_pr_numbers(
                 head_pulls=head_pulls_data,
                 pulls=pulls_data,
                 head_sha=args.head_sha,
                 head_repo=args.head_repo,
                 artifact=artifact_data,
             )
-            if pr_num is not None:
+            for pr_num in pr_nums:
                 print(pr_num)
             return 0
+        if args.pulls_dir:
+            pr_nums = resolve_pr_numbers(
+                head_pulls=head_pulls_data,
+                pulls=pulls_data,
+                head_sha=args.head_sha,
+                head_repo=args.head_repo,
+                artifact=artifact_data,
+            )
+            pulls_dir = Path(args.pulls_dir)
+            pulls_by_num: dict[int, object] = {}
+            files_by_num: dict[int, object] = {}
+            for pr_num in pr_nums[:MAX_MATCHING_PRS]:
+                p_file = pulls_dir / f"pull-{pr_num}.json"
+                f_file = pulls_dir / f"files-{pr_num}.json"
+                try:
+                    pulls_by_num[pr_num] = _load_json_file(p_file)
+                except ValueError as exc:
+                    pulls_by_num[pr_num] = exc
+                try:
+                    files_by_num[pr_num] = _load_json_file(f_file, allow_paginated_arrays=True)
+                except ValueError as exc:
+                    files_by_num[pr_num] = exc
+            results, errors = evaluate_all_pr_labels(
+                head_pulls=head_pulls_data,
+                pulls=pulls_data,
+                pulls_by_number=pulls_by_num,
+                files_by_number=files_by_num,
+                head_sha=args.head_sha,
+                head_repo=args.head_repo,
+                artifact=artifact_data,
+            )
+            print(
+                json.dumps(
+                    {
+                        "results": [{"pr_number": n, "labels": l} for n, l in results],
+                        "errors": errors,
+                    }
+                )
+            )
+            for err in errors:
+                print(f"error: {err}", file=sys.stderr)
+            return 1 if errors else 0
         pull_data = _load_json_file(args.pull) if args.pull else None
         files_data = _load_json_file(args.files, allow_paginated_arrays=True) if args.files else None
         pr_num, labels = evaluate_pr_labels(
@@ -299,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
             head_sha=args.head_sha,
             head_repo=args.head_repo,
             artifact=artifact_data,
+            expected_pr_number=args.pr_number,
         )
         print(json.dumps({"pr_number": pr_num, "labels": labels}))
     except ValueError as exc:

@@ -710,4 +710,283 @@ resolved_candidate_pr_1184=1184
 + rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n
 ```
 
+---
+
+## Round 4
+
+### R4.1 What Could NOT Be Verified (Stated First)
+
+1. **Automatic pre-merge `on: workflow_run` trigger on GitHub Actions:**
+   - By GitHub Actions' platform rules, `on: workflow_run` workflows only register and fire automatically after `.github/workflows/pr-labeller.yml` and `scripts/pr_labels.py` land on the default branch (`main`).
+   - Verified pre-merge via a live read-only dry run (no POST) using the workflow's exact commands against open fork PR [`#1175`](https://github.com/jangtrinh/design-os-studio/pull/1175) (`NamAIEngineer:fix/issue-1086-apply-spec`, `c53c55060d51327fc6a3d1f0f02a8157a6b10e6a`, `NamAIEngineer/design-os-studio`, no artifact) and same-repo PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) (`jangtrinh:jangtrinh/agy-1163-fork-gate`, `0713e169710fa083055de6fd0c3c114f4853e472`, `jangtrinh/design-os-studio`, no artifact) (`plans/reports/agy-1163-fork-gate-evidence/r4-dry-run.log`).
+
+### R4.2 Conclusion, Epistemic Ledger, Weakest Link & Assumptions
+
+- **Conclusion:** `.github/workflows/pr-labeller.yml`, `scripts/pr_labels.py`, and `scripts/test_pr_labels.py` have been updated per all 5 controller rulings for Round 4 while preserving everything from Round 3 (`0713e169`):
+  1. **Collect every match:** `resolve_prs_from_commits_pulls` and `resolve_pr_numbers` collect every matching PR whose `head.sha` and `head.repo.full_name` match the `workflow_run`, and `.github/workflows/pr-labeller.yml` (as well as `evaluate_all_pr_labels` / `--pulls-dir`) fetches and validates `pulls/{n}` and `pulls/{n}/files` for each matched PR independently.
+  2. **Fallback order stays:** When `pulls?state=open&head=<owner>:<branch>` has no match, every match from `commits/{sha}/pulls` is used; only when both are empty is the `pr-gate-result` artifact candidate used, validated against `pulls/{n}`.
+  3. **One failure stops the job:** If any matched PR fails validation (or API fetch/label post), the workflow and `evaluate_all_pr_labels` continue trying the remaining matched PRs first so no valid PR is left unlabelled, and then exit `1`.
+  4. **Cap the list at 20:** `MAX_MATCHING_PRS = 20`. At most 20 matching PRs are labelled; if more than 20 match, the first 20 are labelled and the job exits `1` with an error naming the total matched count.
+  5. **Tests:** Added 6 new Round 4 tests covering two head-label matches with different diffs (`README.md` -> `[]`, `.github/` 500 lines -> `["size/L", "sensitive-path"]`), one matching + one non-matching head-label entry, multi-match fallback order (`commits/{sha}/pulls` -> artifact), one failed PR validation still labelling the rest before failing, the 20-PR cap naming the count, and `parse_paginated_arrays` merging `][` and `]\n[` in order while refusing trailing junk or non-array values.
+- **Epistemic Ledger:**
+  - `FACT:` On Round 3 head `0713e169`, running `python3 -B -m unittest scripts/test_pr_labels.py -v` failed on all 6 new Round 4 tests while passing all 15 existing tests (`Ran 21 tests in 0.128s — FAILED (errors=6)` in `plans/reports/agy-1163-fork-gate-evidence/r4-red.log`), including `ValueError: pull number 2000 does not match expected 2001` when evaluating the second matched PR.
+  - `FACT:` After updating `scripts/pr_labels.py`, all 21 unit tests (`15` existing + `6` new Round 4) passed (`Ran 21 tests in 0.190s — OK` in `plans/reports/agy-1163-fork-gate-evidence/r4-green.log`).
+  - `FACT:` `$HOME/.local/bin/actionlint -verbose .github/workflows/pr-gate.yml .github/workflows/pr-labeller.yml` passed with `Found 0 errors in 2 files` (`plans/reports/agy-1163-fork-gate-evidence/r4-actionlint.log`).
+  - `FACT:` In the live read-only dry run (`plans/reports/agy-1163-fork-gate-evidence/r4-dry-run.log`), fork PR [`#1175`](https://github.com/jangtrinh/design-os-studio/pull/1175) resolved `1175` with `{"pr_number": 1175, "labels": []}` (`{"results": [{"pr_number": 1175, "labels": []}], "errors": []}`), and same-repo PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) resolved `1184` with `{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}` (`{"results": [{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}], "errors": []}`).
+  - `INFERENCE:` Once PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) merges to `main`, opening a second decoy PR from the same `owner:branch` into another base branch cannot shadow or suppress `size/L` or `sensitive-path` labels on the PR targeting `main`.
+- **Weakest Link:** If a single head has more than 20 open PRs simultaneously, only the first 20 are labelled before the job exits `1` (by design per Ruling 4).
+- **Assumptions:** None.
+- **Unresolved Questions:** None.
+
+### R4.3 Round 4 Acceptance Table
+
+| # | Acceptance Check | Evidence File | Result |
+|---|---|---|---|
+| **1a** | Red first: 6 new Round 4 unit tests fail on Round 3 head (`0713e169`) while all 15 Round 2/3 tests pass | `plans/reports/agy-1163-fork-gate-evidence/r4-red.log` | **PASS (Red):** `Ran 21 tests in 0.128s — FAILED (errors=6)` |
+| **1b** | Green: all 21 unit tests (`15` Round 2/3 + `6` Round 4) pass | `plans/reports/agy-1163-fork-gate-evidence/r4-green.log` | **PASS (Green):** `Ran 21 tests in 0.190s — OK` |
+| **2** | `actionlint` clean on `.github/workflows/pr-gate.yml` and `.github/workflows/pr-labeller.yml` | `plans/reports/agy-1163-fork-gate-evidence/r4-actionlint.log` | **PASS:** `Found 0 errors in 2 files` (exit `0`) |
+| **3** | Live read-only dry run (no POST) using the workflow's commands against fork PR `#1175` (no artifact) and same-repo PR `#1184` (no artifact) | `plans/reports/agy-1163-fork-gate-evidence/r4-dry-run.log` | **PASS:** `#1175` resolves `1175` -> `{"pr_number": 1175, "labels": []}`; `#1184` resolves `1184` -> `{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}` |
+
+### R4.4 Skills Loaded in Round 4 & What Changed Because of Them
+
+1. **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`):
+   - Enforced red-first TDD on `0713e169` (`r4-red.log`) before editing `scripts/pr_labels.py`, preserved all 15 existing tests, and kept changes strictly within the allowed file scope.
+2. **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`):
+   - Loaded per owner instruction; no Rust crates were modified in Round 4.
+3. **`es:astra-work` & `es:fable-thinking`** (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`):
+   - Guided adversarial verification of `evaluate_pr_labels` and `evaluate_all_pr_labels` (catching and removing a fallback that could have inspected `pulls_by_number` when `resolve_pr_numbers` returned `[]`, and tightening `parse_paginated_arrays` to reject empty/whitespace-only inputs as well as trailing junk and non-array JSON values).
+
+### R4.5 Pasted Commands & Verbatim Outputs (Round 4)
+
+#### 1. Red-First Unit Tests on `0713e169` (`plans/reports/agy-1163-fork-gate-evidence/r4-red.log`)
+
+```text
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count (scripts.test_pr_labels.PrLabelsTests.test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count) ... ERROR
+test_fallback_uses_all_matches_from_commits_pulls_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_fallback_uses_all_matches_from_commits_pulls_then_artifact) ... ERROR
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching (scripts.test_pr_labels.PrLabelsTests.test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching) ... ERROR
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ok
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ok
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ok
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_one_failed_pr_validation_still_labels_rest_and_fails_job (scripts.test_pr_labels.PrLabelsTests.test_one_failed_pr_validation_still_labels_rest_and_fails_job) ... ERROR
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array (scripts.test_pr_labels.PrLabelsTests.test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array) ... ERROR
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+test_two_head_label_matches_with_different_diffs_label_each_from_own_diff (scripts.test_pr_labels.PrLabelsTests.test_two_head_label_matches_with_different_diffs_label_each_from_own_diff) ... ERROR
+
+======================================================================
+ERROR: test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count (scripts.test_pr_labels.PrLabelsTests.test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 635, in test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count
+    results, errors = pr_labels.evaluate_all_pr_labels(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_all_pr_labels'. Did you mean: 'evaluate_pr_labels'?
+
+======================================================================
+ERROR: test_fallback_uses_all_matches_from_commits_pulls_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_fallback_uses_all_matches_from_commits_pulls_then_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 573, in test_fallback_uses_all_matches_from_commits_pulls_then_artifact
+    pr_labels.resolve_pr_numbers(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'resolve_pr_numbers'. Did you mean: 'resolve_pr_number'?
+
+======================================================================
+ERROR: test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching (scripts.test_pr_labels.PrLabelsTests.test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 547, in test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching
+    pr_labels.resolve_pr_numbers(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'resolve_pr_numbers'. Did you mean: 'resolve_pr_number'?
+
+======================================================================
+ERROR: test_one_failed_pr_validation_still_labels_rest_and_fails_job (scripts.test_pr_labels.PrLabelsTests.test_one_failed_pr_validation_still_labels_rest_and_fails_job)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 610, in test_one_failed_pr_validation_still_labels_rest_and_fails_job
+    results, errors = pr_labels.evaluate_all_pr_labels(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_all_pr_labels'. Did you mean: 'evaluate_pr_labels'?
+
+======================================================================
+ERROR: test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array (scripts.test_pr_labels.PrLabelsTests.test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 650, in test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array
+    pr_labels.parse_paginated_arrays('[{"id": 1}][{"id": 2}, {"id": 3}]'),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'parse_paginated_arrays'
+
+======================================================================
+ERROR: test_two_head_label_matches_with_different_diffs_label_each_from_own_diff (scripts.test_pr_labels.PrLabelsTests.test_two_head_label_matches_with_different_diffs_label_each_from_own_diff)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 446, in test_two_head_label_matches_with_different_diffs_label_each_from_own_diff
+    pr_labels.evaluate_pr_labels(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        head_repo=fork_repo,
+        ^^^^^^^^^^^^^^^^^^^^
+    ),
+    ^
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/pr_labels.py", line 219, in evaluate_pr_labels
+    v = validate_pull(
+        pull, expected_pr_number=pr_number, expected_head_sha=expected_sha, expected_head_repo=expected_repo,
+    )
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/pr_labels.py", line 130, in validate_pull
+    raise ValueError(f"pull number {num!r} does not match expected {expected_pr_number}")
+ValueError: pull number 2000 does not match expected 2001
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.128s
+
+FAILED (errors=6)
+```
+
+#### 2. Green Unit Tests (`plans/reports/agy-1163-fork-gate-evidence/r4-green.log`)
+
+```text
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count (scripts.test_pr_labels.PrLabelsTests.test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count) ... ok
+test_fallback_uses_all_matches_from_commits_pulls_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_fallback_uses_all_matches_from_commits_pulls_then_artifact) ... ok
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching (scripts.test_pr_labels.PrLabelsTests.test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching) ... ok
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ok
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ok
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ok
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_one_failed_pr_validation_still_labels_rest_and_fails_job (scripts.test_pr_labels.PrLabelsTests.test_one_failed_pr_validation_still_labels_rest_and_fails_job) ... ok
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array (scripts.test_pr_labels.PrLabelsTests.test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array) ... ok
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+test_two_head_label_matches_with_different_diffs_label_each_from_own_diff (scripts.test_pr_labels.PrLabelsTests.test_two_head_label_matches_with_different_diffs_label_each_from_own_diff) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.190s
+
+OK
+```
+
+#### 3. `actionlint` on Both Workflows (`plans/reports/agy-1163-fork-gate-evidence/r4-actionlint.log`)
+
+```text
+$ $HOME/.local/bin/actionlint -verbose .github/workflows/pr-gate.yml .github/workflows/pr-labeller.yml
+verbose: Linting 2 files
+verbose: Linting .github/workflows/pr-labeller.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Linting .github/workflows/pr-gate.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Found 0 errors in 2 files
+```
+
+#### 4. Live Read-Only Dry Run Against Fork PR `#1175` and Same-Repo PR `#1184` (`plans/reports/agy-1163-fork-gate-evidence/r4-dry-run.log`)
+
+```text
++ GH_REPO=jangtrinh/design-os-studio
+++ mktemp -d
++ work_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU
++ trap 'rm -rf "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU"' EXIT
+++ gh pr view 1175 --json headRefOid --jq .headRefOid
++ SHA_1175=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ run_dry_for_head 1175 NamAIEngineer fix/issue-1086-apply-spec c53c55060d51327fc6a3d1f0f02a8157a6b10e6a NamAIEngineer/design-os-studio
++ local tag=1175
++ local HEAD_OWNER=NamAIEngineer
++ local HEAD_BRANCH=fix/issue-1086-apply-spec
++ local EXPECTED_HEAD_SHA=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ local EXPECTED_HEAD_REPO=NamAIEngineer/design-os-studio
++ local sub_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175
++ mkdir -p /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175
++ local head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json
++ local pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=NamAIEngineer:fix/issue-1086-apply-spec --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
++ candidate_prs=1175
++ '[' -z 1175 ']'
++ matched_prs=()
++ IFS=
++ read -r candidate_pr
++ '[' -z 1175 ']'
++ matched_prs+=("$candidate_pr")
++ IFS=
++ read -r candidate_pr
++ max_prs=20
++ prs_to_label=("${matched_prs[@]:0:$max_prs}")
++ for candidate_pr in '"${prs_to_label[@]}"'
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/pull-1175.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/files-1175.json
++ gh api repos/jangtrinh/design-os-studio/pulls/1175
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1175/files
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --pr-number 1175 --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/pull-1175.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/files-1175.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"pr_number": 1175, "labels": []}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --pulls-dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175 --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"results": [{"pr_number": 1175, "labels": []}], "errors": []}
+++ gh pr view 1184 --json headRefOid --jq .headRefOid
++ SHA_1184=0713e169710fa083055de6fd0c3c114f4853e472
++ run_dry_for_head 1184 jangtrinh jangtrinh/agy-1163-fork-gate 0713e169710fa083055de6fd0c3c114f4853e472 jangtrinh/design-os-studio
++ local tag=1184
++ local HEAD_OWNER=jangtrinh
++ local HEAD_BRANCH=jangtrinh/agy-1163-fork-gate
++ local EXPECTED_HEAD_SHA=0713e169710fa083055de6fd0c3c114f4853e472
++ local EXPECTED_HEAD_REPO=jangtrinh/design-os-studio
++ local sub_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184
++ mkdir -p /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184
++ local head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json
++ local pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=jangtrinh:jangtrinh/agy-1163-fork-gate --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
++ candidate_prs=1184
++ '[' -z 1184 ']'
++ matched_prs=()
++ IFS=
++ read -r candidate_pr
++ '[' -z 1184 ']'
++ matched_prs+=("$candidate_pr")
++ IFS=
++ read -r candidate_pr
++ max_prs=20
++ prs_to_label=("${matched_prs[@]:0:$max_prs}")
++ for candidate_pr in '"${prs_to_label[@]}"'
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/pull-1184.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/files-1184.json
++ gh api repos/jangtrinh/design-os-studio/pulls/1184
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1184/files
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --pr-number 1184 --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/pull-1184.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/files-1184.json --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --pulls-dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184 --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
+{"results": [{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}], "errors": []}
++ rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU
+```
+
 Status: DONE

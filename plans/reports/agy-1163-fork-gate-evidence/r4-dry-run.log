@@ -1,0 +1,75 @@
++ GH_REPO=jangtrinh/design-os-studio
+++ mktemp -d
++ work_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU
++ trap 'rm -rf "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU"' EXIT
+++ gh pr view 1175 --json headRefOid --jq .headRefOid
++ SHA_1175=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ run_dry_for_head 1175 NamAIEngineer fix/issue-1086-apply-spec c53c55060d51327fc6a3d1f0f02a8157a6b10e6a NamAIEngineer/design-os-studio
++ local tag=1175
++ local HEAD_OWNER=NamAIEngineer
++ local HEAD_BRANCH=fix/issue-1086-apply-spec
++ local EXPECTED_HEAD_SHA=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ local EXPECTED_HEAD_REPO=NamAIEngineer/design-os-studio
++ local sub_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175
++ mkdir -p /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175
++ local head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json
++ local pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=NamAIEngineer:fix/issue-1086-apply-spec --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
++ candidate_prs=1175
++ '[' -z 1175 ']'
++ matched_prs=()
++ IFS=
++ read -r candidate_pr
++ '[' -z 1175 ']'
++ matched_prs+=("$candidate_pr")
++ IFS=
++ read -r candidate_pr
++ max_prs=20
++ prs_to_label=("${matched_prs[@]:0:$max_prs}")
++ for candidate_pr in '"${prs_to_label[@]}"'
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/pull-1175.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/files-1175.json
++ gh api repos/jangtrinh/design-os-studio/pulls/1175
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1175/files
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --pr-number 1175 --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/pull-1175.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/files-1175.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"pr_number": 1175, "labels": []}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175/commits-pulls.json --pulls-dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1175 --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"results": [{"pr_number": 1175, "labels": []}], "errors": []}
+++ gh pr view 1184 --json headRefOid --jq .headRefOid
++ SHA_1184=0713e169710fa083055de6fd0c3c114f4853e472
++ run_dry_for_head 1184 jangtrinh jangtrinh/agy-1163-fork-gate 0713e169710fa083055de6fd0c3c114f4853e472 jangtrinh/design-os-studio
++ local tag=1184
++ local HEAD_OWNER=jangtrinh
++ local HEAD_BRANCH=jangtrinh/agy-1163-fork-gate
++ local EXPECTED_HEAD_SHA=0713e169710fa083055de6fd0c3c114f4853e472
++ local EXPECTED_HEAD_REPO=jangtrinh/design-os-studio
++ local sub_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184
++ mkdir -p /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184
++ local head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json
++ local pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=jangtrinh:jangtrinh/agy-1163-fork-gate --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
++ candidate_prs=1184
++ '[' -z 1184 ']'
++ matched_prs=()
++ IFS=
++ read -r candidate_pr
++ '[' -z 1184 ']'
++ matched_prs+=("$candidate_pr")
++ IFS=
++ read -r candidate_pr
++ max_prs=20
++ prs_to_label=("${matched_prs[@]:0:$max_prs}")
++ for candidate_pr in '"${prs_to_label[@]}"'
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/pull-1184.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/files-1184.json
++ gh api repos/jangtrinh/design-os-studio/pulls/1184
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1184/files
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --pr-number 1184 --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/pull-1184.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/files-1184.json --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184/commits-pulls.json --pulls-dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU/1184 --head-sha 0713e169710fa083055de6fd0c3c114f4853e472 --head-repo jangtrinh/design-os-studio
+{"results": [{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}], "errors": []}
++ rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.MpiMYfxFUU
