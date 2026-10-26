@@ -436,34 +436,48 @@ fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name:
         .max_by_key(|(_, e)| (entry_specificity(e), e.name_prefix.as_ref().map_or(0, |s| s.len()), usize::from(e.case != "*")))
 }
 
-fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], gaps_above: usize) -> bool {
+#[derive(Clone, Copy, Debug, Default)]
+struct DerivedShifts {
+    sum_dw_left: f32,
+    sum_dw_right: f32,
+    sum_dh_above: f32,
+    sum_dh_below: f32,
+    gaps_above: usize,
+    gaps_below: usize,
+}
+
+fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], shifts: DerivedShifts) -> bool {
     let dw = cur[2] - base[2];
     let dh = cur[3] - base[3];
 
-    let min_dw = e.min_dw.unwrap_or(0.0);
-    let max_dw = e.max_dw.unwrap_or(0.0);
-    if dw < min_dw - 0.5 || dw > max_dw + 0.5 {
-        return false;
+    if dw.abs() > 0.5 {
+        let min_dw = e.min_dw.unwrap_or(0.0);
+        let max_dw = e.max_dw.unwrap_or(0.0);
+        if dw < min_dw - 0.5 || dw > max_dw + 0.5 {
+            return false;
+        }
     }
 
-    let min_dh = e.min_dh.unwrap_or(0.0);
-    let max_dh = e.max_dh.unwrap_or(0.0);
-    if dh < min_dh - 0.5 || dh > max_dh + 0.5 {
-        return false;
+    if dh.abs() > 0.5 {
+        let min_dh = e.min_dh.unwrap_or(0.0);
+        let max_dh = e.max_dh.unwrap_or(0.0);
+        if dh < min_dh - 0.5 || dh > max_dh + 0.5 {
+            return false;
+        }
     }
 
     let expected_x = match e.anchor_x.unwrap_or_default() {
-        AnchorX::Left => base[0],
-        AnchorX::Right => base[0] + base[2] - cur[2],
+        AnchorX::Left => base[0] + shifts.sum_dw_left,
+        AnchorX::Right => base[0] + base[2] - cur[2] - shifts.sum_dw_right,
         AnchorX::Centre => base[0] + (base[2] - cur[2]) * 0.5,
     } + e.dx.unwrap_or(0.0);
 
+    let gap_dy = e.gap_dy.unwrap_or(0.0);
     let expected_y = match e.anchor_y.unwrap_or_default() {
-        AnchorY::Top => base[1],
-        AnchorY::Bottom => base[1] + base[3] - cur[3],
+        AnchorY::Top => base[1] + shifts.sum_dh_above + (shifts.gaps_above as f32) * gap_dy,
+        AnchorY::Bottom => base[1] + base[3] - cur[3] - shifts.sum_dh_below - (shifts.gaps_below as f32) * gap_dy,
         AnchorY::Centre => base[1] + (base[3] - cur[3]) * 0.5,
-    } + e.dy.unwrap_or(0.0)
-        + (gaps_above as f32) * e.gap_dy.unwrap_or(0.0);
+    } + e.dy.unwrap_or(0.0);
 
     let x_tol = 0.5;
     let y_tol = 0.5;
@@ -503,7 +517,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     return Err(format!("G1 region mismatch in case {case_id} on {key}.{field}: baseline={}, current={}", b[idx], c[idx]));
                 }
             }
-            if (b[1] != c[1] || b[3] != c[3]) && matched.is_some_and(|(_, entry)| widget_satisfies_allow_bounds(entry, b, c, 0)) {
+            if (b[1] != c[1] || b[3] != c[3]) && matched.is_some_and(|(_, entry)| widget_satisfies_allow_bounds(entry, b, c, DerivedShifts::default())) {
                 return Ok(());
             }
             for (idx, field) in [(1, "y"), (3, "h")] {
@@ -544,7 +558,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             report.matched_allow_indices.insert(idx);
         }
         if rects_differ_beyond_half_pt(b_ov.rect, c_ov.rect) {
-            let allowed = covering.is_some_and(|(_, e)| widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, 0));
+            let allowed = covering.is_some_and(|(_, e)| widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, DerivedShifts::default()));
             if !allowed {
                 return Err(format!("G2 overlay rect drift in case {case_id} overlay '{}': baseline={:?}, current={:?}", b_ov.name, b_ov.rect, c_ov.rect));
             }
@@ -631,14 +645,14 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
     }
 
-    // Build per-region row bounding-box height deltas (named + unnamed widgets) and range-check each row's own `dh`.
+    // Build per-region G3 rows (named + unnamed widgets), range-check each row's own `dh`, and compute derived shifts for all anchors.
     struct RowWidget<'a> {
         label: String,
         name: Option<&'a str>,
         b_rect: [f32; 4],
         c_rect: [f32; 4],
     }
-    let mut row_deltas_by_region: BTreeMap<String, Vec<(f32, f32, f32)>> = BTreeMap::new();
+    let mut shifts_by_widget: BTreeMap<(String, String), DerivedShifts> = BTreeMap::new();
     let mut paired_by_region: BTreeMap<String, Vec<RowWidget<'_>>> = BTreeMap::new();
     for (name, b_w) in &base.named {
         if let Some(c_w) = cur.named.get(name) {
@@ -687,8 +701,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 rows.push(vec![w]);
             }
         }
-        let mut row_deltas = Vec::with_capacity(rows.len());
-        for (row_idx, mut row) in rows.into_iter().enumerate() {
+        let mut row_dhs = Vec::with_capacity(rows.len());
+        for (row_idx, row) in rows.iter_mut().enumerate() {
             row.sort_by(|a, b| a.b_rect[0].total_cmp(&b.b_rect[0]).then_with(|| cmp_q4(&a.b_rect, &b.b_rect)).then_with(|| a.label.cmp(&b.label)));
             let b_min_x = row.iter().map(|w| w.b_rect[0]).fold(f32::INFINITY, f32::min);
             let b_max_x = row.iter().map(|w| w.b_rect[0] + w.b_rect[2]).fold(f32::NEG_INFINITY, f32::max);
@@ -699,7 +713,6 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let b_w = (b_max_x - b_min_x).max(0.0);
             let b_h = (b_max_y - b_min_y).max(0.0);
             let c_h = (c_max_y - c_min_y).max(0.0);
-            let b_cy = (b_min_y + b_max_y) * 0.5;
             let row_dh = c_h - b_h;
 
             let row_b_rect = [b_min_x, b_min_y, b_w, b_h];
@@ -732,47 +745,40 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 }
             }
 
-            row_deltas.push((b_cy, b_h, row_dh));
+            row_dhs.push(row_dh);
         }
-        row_deltas_by_region.insert(reg, row_deltas);
+
+        let num_rows = rows.len();
+        for (row_idx, row) in rows.into_iter().enumerate() {
+            let sum_dh_above: f32 = row_dhs[..row_idx].iter().sum();
+            let sum_dh_below: f32 = row_dhs[(row_idx + 1)..].iter().sum();
+            let gaps_above = row_idx;
+            let gaps_below = num_rows.saturating_sub(row_idx + 1);
+            for (col_idx, w) in row.iter().enumerate() {
+                let sum_dw_left: f32 = row[..col_idx].iter().map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
+                let sum_dw_right: f32 = row[(col_idx + 1)..].iter().map(|rw| rw.c_rect[2] - rw.b_rect[2]).sum();
+                shifts_by_widget.insert(
+                    (reg.clone(), w.label.clone()),
+                    DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above, gaps_below },
+                );
+            }
+        }
     }
 
-    let cumulative_dh_and_gaps_above = |region: &str, b_rect: [f32; 4]| -> (f32, usize) {
-        let b_cy = b_rect[1] + b_rect[3] * 0.5;
-        let b_h = b_rect[3];
-        row_deltas_by_region
-            .get(region)
-            .map(|rows| {
-                let mut sum_dh = 0.0;
-                let mut gaps = 0usize;
-                for (r_cy, r_h, dh) in rows {
-                    let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
-                    if *r_cy + thresh < b_cy {
-                        sum_dh += *dh;
-                        gaps += 1;
-                    }
-                }
-                (sum_dh, gaps)
-            })
-            .unwrap_or((0.0, 0))
-    };
-
+    let default_entry = AllowEntry::default();
     for (name, b_w) in &base.named {
         let Some(c_w) = cur.named.get(name) else {
             continue;
         };
         let covering = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect);
         if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
-            let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&b_w.region, b_w.rect);
-
-            let mut allowed = false;
-            if let Some((_, e)) = covering {
-                let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
-                let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
-                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect, gaps_above) {
-                    allowed = true;
-                }
-            }
+            let shifts = shifts_by_widget.get(&(b_w.region.clone(), name.clone())).copied().unwrap_or_default();
+            let size_changed = (c_w.rect[2] - b_w.rect[2]).abs() > 0.5 || (c_w.rect[3] - b_w.rect[3]).abs() > 0.5;
+            let allowed = match covering {
+                Some((_, e)) => widget_satisfies_allow_bounds(e, b_w.rect, c_w.rect, shifts),
+                None if !size_changed => widget_satisfies_allow_bounds(&default_entry, b_w.rect, c_w.rect, shifts),
+                None => false,
+            };
             if !allowed {
                 return Err(format!(
                     "G3 named widget '{name}' rect drift in case {case_id} (region '{}'): baseline={:?}, current={:?}",
@@ -789,15 +795,13 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
             let covering = best_matching_entry(allow, case_id, &reg, None, b_u.rect);
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
-                let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&reg, b_u.rect);
-                let mut allowed = false;
-                if let Some((_, e)) = covering {
-                    let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
-                    let shifted_base = [b_u.rect[0], b_u.rect[1] + shift_y, b_u.rect[2], b_u.rect[3]];
-                    if widget_satisfies_allow_bounds(e, shifted_base, c_u.rect, gaps_above) {
-                        allowed = true;
-                    }
-                }
+                let shifts = shifts_by_widget.get(&(reg.clone(), format!("unnamed#{i}"))).copied().unwrap_or_default();
+                let size_changed = (c_u.rect[2] - b_u.rect[2]).abs() > 0.5 || (c_u.rect[3] - b_u.rect[3]).abs() > 0.5;
+                let allowed = match covering {
+                    Some((_, e)) => widget_satisfies_allow_bounds(e, b_u.rect, c_u.rect, shifts),
+                    None if !size_changed => widget_satisfies_allow_bounds(&default_entry, b_u.rect, c_u.rect, shifts),
+                    None => false,
+                };
                 if !allowed {
                     return Err(format!("G4 unnamed widget #{i} rect drift in case {case_id} region '{reg}': baseline={:?}, current={:?}", b_u.rect, c_u.rect));
                 }
