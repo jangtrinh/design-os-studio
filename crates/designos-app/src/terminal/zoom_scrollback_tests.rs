@@ -648,3 +648,78 @@ fn agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_sc
     assert!(sb_len > 0, "agents-scrollback must have scrollback history (sb_len={sb_len})");
     assert_eq!(sb_offset, 45, "agents-scrollback must have its view scrolled into history at offset 45, got {sb_offset}");
 }
+
+#[test]
+fn deep_scrollback_offset_3000_of_5000_paints_expected_history_rows() {
+    let (mut st, idx) = spawn_fake_cli_tab("b", 24, 80);
+    wait_for_marker(&st, idx, "[winch_seq=0 rows=24 cols=80]");
+
+    // Populate 5,024 lines on a 24-row screen so 5,000 lines sit in scrollback (SB_ROW_0001..SB_ROW_5000)
+    // and 24 lines sit on the active grid (SB_ROW_5001..SB_ROW_5024), then scroll back to offset 3,000.
+    {
+        let mut p = st.tabs[idx].parser.lock().unwrap();
+        let mut bulk = String::from("\x1b[2J\x1b[H");
+        for i in 1..=5024 {
+            if i > 1 {
+                bulk.push_str("\r\n");
+            }
+            bulk.push_str(&format!("SB_ROW_{i:04}"));
+        }
+        p.process(bulk.as_bytes());
+        assert_eq!(parser_scrollback_len(&mut p), 5000, "scrollback buffer must hold 5,000 lines");
+        p.set_scrollback(3000);
+        assert_eq!(p.screen().scrollback(), 3000);
+    }
+
+    // At offset 3,000 of 5,000 scrollback lines on a 24-row viewport, `skip(5000 - 3000) = skip(2000)`
+    // yields `SB_ROW_2001`..`SB_ROW_2024`.
+    let expected_rows: Vec<String> = (2001..=2024).map(|i| format!("SB_ROW_{i:04}")).collect();
+
+    let (size_in_callback, callback_rows, copied_rows) = {
+        let mut p = st.tabs[idx].parser.lock().unwrap();
+        with_scrollback_safe_screen(&mut p, |screen| {
+            let rows_vec: Vec<String> = (0..24).map(|r| row_text(screen, r, 80)).collect();
+            let copied = extract_selected_terminal_text(screen, ((0, 0), (23, 79)), 24, 80);
+            let copied_vec: Vec<String> = copied.lines().map(|l| l.trim().to_string()).collect();
+            (screen.size(), rows_vec, copied_vec)
+        })
+    };
+    assert_eq!(callback_rows, expected_rows, "with_scrollback_safe_screen rows at offset 3,000 of 5,000 must equal SB_ROW_2001..SB_ROW_2024");
+    assert_eq!(copied_rows, expected_rows, "extract_selected_terminal_text at offset 3,000 of 5,000 must equal SB_ROW_2001..SB_ROW_2024");
+
+    #[cfg(not(debug_assertions))]
+    assert_eq!(
+        size_in_callback,
+        (24, 80),
+        "release build must not call parser.set_size(offset, cols) inside with_scrollback_safe_screen, got {size_in_callback:?}"
+    );
+    #[cfg(debug_assertions)]
+    assert_eq!(size_in_callback.1, 80);
+
+    // Paint a 24x80 viewport frame (`80 * 7.8 + 24 = 648`, `24 * 16 + 16 = 400`) and verify the 24 painted text rows.
+    let ctx = super::gemini_test_support::panel_ctx();
+    let vp_24x80 = Rect::from_min_size(Pos2::new(48.0, 40.0), Vec2::new(648.0, 400.0));
+    let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), time: Some(1.0), ..Default::default() };
+    let out = ctx.run_ui(raw, |ui| {
+        render_vt100_viewport(&mut st, ui, vp_24x80, None, "test-pty-vp");
+    });
+    let resolved_vp_size = st.viewport_size;
+    cleanup_state(st);
+
+    assert_eq!(resolved_vp_size, (24, 80), "viewport_rect must resolve to (rows=24, cols=80)");
+    let (mut texts, _) = crate::lint::scan_shapes(&out.shapes);
+    texts.retain(|t| t.text.starts_with("SB_ROW_"));
+    texts.sort_by(|a, b| a.rect.top().total_cmp(&b.rect.top()));
+    let painted_rows: Vec<String> = texts.into_iter().map(|t| t.text.trim().to_string()).collect();
+    assert_eq!(painted_rows, expected_rows, "painted rows at offset 3,000 of 5,000 (24 rows) must equal SB_ROW_2001..SB_ROW_2024");
+
+    // Verify `with_scrollback_safe_screen` only widens `parser.set_size` under `cfg(debug_assertions)`.
+    let term_src = include_str!("../terminal.rs");
+    let fn_start = term_src.find("fn with_scrollback_safe_screen").expect("find with_scrollback_safe_screen");
+    let fn_end = term_src[fn_start..].find("fn clear_parser_scrollback").map(|i| fn_start + i).unwrap_or(term_src.len());
+    let fn_body = &term_src[fn_start..fn_end];
+    assert!(
+        fn_body.contains("cfg(debug_assertions)") || fn_body.contains("cfg!(debug_assertions)"),
+        "with_scrollback_safe_screen must guard parser.set_size widening under cfg(debug_assertions) so release builds do not allocate per frame"
+    );
+}
