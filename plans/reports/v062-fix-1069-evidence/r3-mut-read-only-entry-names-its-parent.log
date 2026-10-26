@@ -1,0 +1,117 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+warning: unused variable: `from`
+   --> crates/designos-app/src/agent_session_files/no_follow/set_aside.rs:115:33
+    |
+115 |     fn permission_denied(&self, from: &CStr, dest: &Dir, path: &Path, e: io::Error) -> io::Error {
+    |                                 ^^^^ help: if this is intentional, prefix it with an underscore: `_from`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `path`
+   --> crates/designos-app/src/agent_session_files/no_follow/set_aside.rs:115:58
+    |
+115 |     fn permission_denied(&self, from: &CStr, dest: &Dir, path: &Path, e: io::Error) -> io::Error {
+    |                                                          ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+warning: method `entry_is_a_folder_the_owner_cannot_write` is never used
+   --> crates/designos-app/src/agent_session_files/no_follow/set_aside.rs:136:8
+    |
+ 28 | impl Dir {
+    | -------- method in this implementation
+...
+136 |     fn entry_is_a_folder_the_owner_cannot_write(&self, name: &CStr) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 3 warnings (run `cargo fix --bin "designos" -p designos-app --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.73s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 55 tests
+test agent_session_files::fallback_set_aside_tests::the_fallback_only_lists_and_a_folder_swapped_for_a_link_loses_nothing_that_is_not_studios_to_remove ... ok
+test agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched ... ok
+test agent_session_files::fallback_set_aside_tests::where_studio_moves_nothing_a_folder_with_only_studios_entries_is_fine ... ok
+test agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too ... FAILED
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_its_hooks_do_not_read_back_as_written ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_it_cannot_move_a_plugin_out_of_a_read_only_folder ... ok
+test agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside ... ok
+test agent_session_files::grok_config_tests::a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_it_cannot_move_a_hook_file_out_of_a_read_only_folder ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_its_config_does_not_read_back_as_written ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_studio_cannot_write_its_hooks_into_a_read_only_folder ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_plugin_an_agent_added_and_starts ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_subagent_definition_that_declares_servers_and_a_command_policy ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks ... ok
+test agent_session_files::no_follow::set_aside::tests::a_move_the_user_has_to_make_gets_the_sentence_that_says_so ... ok
+test agent_session_files::no_follow::set_aside::tests::a_racing_agent_that_takes_every_name_stops_the_start_with_the_fix_that_helps ... ok
+test agent_session_files::no_follow::set_aside::tests::a_stamp_is_the_utc_date_and_time ... ok
+test agent_session_files::refusal_tests::a_failure_with_a_known_fix_puts_the_consequence_before_the_recovery ... ok
+test agent_session_files::refusal_tests::a_note_on_what_was_moved_aside_comes_after_the_cause_and_its_fix_and_changes_neither ... ok
+test agent_session_files::refusal_tests::a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery ... ok
+test agent_session_files::refusal_tests::another_error_carries_its_own_next_step_and_is_not_a_refusal ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_workspace_mcp_config_an_agent_added_and_starts ... ok
+test agent_session_files::refusal_tests::every_fix_names_what_to_do_and_a_missing_home_folder_always_needs_a_restart ... ok
+test agent_session_files::refusal_tests::the_line_of_files_not_updated_names_the_path_once ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_studio_cannot_rewrite_its_hooks_in_a_read_only_agents_folder ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent ... FAILED
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_a_hook_file_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::set_aside_tests::a_fifo_where_the_set_aside_folder_goes_stops_the_tab_at_once_without_being_opened ... ok
+test agent_session_files::set_aside_tests::a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in ... ok
+test agent_session_files::set_aside_tests::a_link_or_a_file_where_the_set_aside_folder_goes_stops_the_tab ... ok
+test terminal::tests::grok_pty_env_disables_folder_trust_only_for_grok ... ok
+test terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_agent_definition_that_shadows_a_built_in_subagent ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_mcp_json_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_rewrites_a_project_config_an_agent_edited ... ok
+test agent_session_files::set_aside_tests::a_fifo_is_moved_without_being_opened ... ok
+test agent_session_files::set_aside_tests::a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced ... ok
+test agent_session_files::set_aside_tests::a_folder_and_a_link_are_moved_whole_without_being_walked_or_followed ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one ... ok
+test agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure ... ok
+test agent_session_files::set_aside_tests::an_entry_is_moved_with_its_content_below_a_new_folder_under_a_name_made_of_its_path ... ok
+test agent_session_files::set_aside_tests::the_spawned_line_says_nothing_about_a_set_aside_when_nothing_was_moved ... ok
+test agent_session_files::set_aside_tests::each_start_makes_a_new_folder_and_the_earlier_ones_stay ... ok
+test agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where ... ok
+test agent_session_files::agy_config_tests::an_agy_tab_in_skip_mode_starts_whatever_the_agents_folder_holds ... ok
+test agent_session_files::grok_config_tests::a_grok_tab_in_skip_mode_starts_whatever_the_project_folder_holds ... ok
+
+failures:
+
+---- agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too stdout ----
+design:os studio: moved <tmp>/b1061.ahadIo/designos test data/78548/sessions/p78548-tab-16854817/.mcp.json to .designos-set-aside/20261024-230419-e89ae2/.mcp.json, so Grok won't run it
+
+thread 'agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too' (42308997) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:252:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.ahadIo/designos test data/78548/sessions/p78548-tab-16854817/.grok can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again. Moved .mcp.json to .designos-set-aside/20261024-230419-e89ae2 in this file's agent folder, so Grok won't run it."
+ right: "Couldn't start Grok Build: <tmp>/b1061.ahadIo/designos test data/78548/sessions/p78548-tab-16854817/.grok/agents can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again. Moved .mcp.json to .designos-set-aside/20261024-230419-e89ae2 in this file's agent folder, so Grok won't run it."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent stdout ----
+
+thread 'agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent' (42309196) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:231:5:
+assertion `left == right` failed: it is the entry that is read-only, so the line names it
+  left: "Couldn't start Grok Build: <tmp>/b1061.ahadIo/designos test data/78548/sessions/p78548-tab-16854838/.grok can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.ahadIo/designos test data/78548/sessions/p78548-tab-16854838/.grok/agents can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again."
+
+
+failures:
+    agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too
+    agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent
+
+test result: FAILED. 53 passed; 2 failed; 0 ignored; 0 measured; 3220 filtered out; finished in 1.91s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -218,32 +218,6 @@ pub fn strip_busy_metadata_from_copy(doc: &mut Document, frame_owners: &mut BTre
     }
 }
 
-/// Computes the top-level serialized field names that differ between `before` and `after` (`§3.5`).
-pub fn diff_node_fields(before: &Node, after: &Node) -> Vec<String> {
-    let (Ok(serde_json::Value::Object(b_map)), Ok(serde_json::Value::Object(a_map))) = (serde_json::to_value(before), serde_json::to_value(after)) else {
-        return Vec::new();
-    };
-    let mut changed = Vec::new();
-    for (k, v_after) in &a_map {
-        if matches!(k.as_str(), "id" | "parent" | "children") {
-            continue;
-        }
-        if b_map.get(k) != Some(v_after) {
-            changed.push(k.clone());
-        }
-    }
-    for k in b_map.keys() {
-        if matches!(k.as_str(), "id" | "parent" | "children") {
-            continue;
-        }
-        if !a_map.contains_key(k) && !changed.contains(k) {
-            changed.push(k.clone());
-        }
-    }
-    changed.sort();
-    changed
-}
-
 impl AgentBusyFrames {
     pub fn clear(&mut self) {
         self.dismissed.clear();
@@ -321,16 +295,21 @@ impl AgentBusyFrames {
         }
     }
 
-    /// Records a user `Command::Update` diff (`before` vs `after`) for concurrent-edit reporting (`§3.5`).
+    /// Records a user `Command::Update` diff (`before` vs `after`) for concurrent-edit reporting (`§3.5`): one
+    /// `(node, field)` entry for each top-level serialized field of the node that the edit changed, `id`,
+    /// `parent` and `children` left out. A step can hold tens of thousands of nodes, so nothing is turned into
+    /// JSON to find the fields (see [`crate::node_field_diff`]) and a node that did not change costs one comparison.
     pub fn record_user_node_update(&mut self, before: &Node, after: &Node) {
         let turn = self.current_turn;
-        for field in diff_node_fields(before, after) {
-            let key = (after.id, field);
-            self.user_edited_fields.insert(key.clone(), turn);
-            if self.agent_edited_fields.get(&key) == Some(&turn) {
-                self.both_changed.insert(key, turn);
+        let id = after.id;
+        let (user_edited, agent_edited, both) = (&mut self.user_edited_fields, &self.agent_edited_fields, &mut self.both_changed);
+        crate::node_field_diff::for_each_changed_field(before, after, |field| {
+            let key = (id, field.to_owned());
+            if agent_edited.get(&key) == Some(&turn) {
+                both.insert(key.clone(), turn);
             }
-        }
+            user_edited.insert(key, turn);
+        });
     }
 
     /// Records agent `LiveOp::Update` field writes for concurrent-edit reporting (`§3.5`).
@@ -370,6 +349,9 @@ impl AgentBusyFrames {
         Some(format!("{} changed by you and the agent", fields.join(", ")))
     }
 }
+
+#[cfg(test)]
+mod field_diff_tests;
 
 #[cfg(test)]
 mod tests {

@@ -246,7 +246,8 @@ pub struct ClaudeTranscriptMeta {
 /// transcript file, and writes via an atomic temporary file under a lock directory so concurrent tabs cannot
 /// clobber each other.
 pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
-    let dest = capture_path.display();
+    let quoted = |suffix: &str| crate::agent_turn_status::sh_single_quote(&format!("{}{suffix}", capture_path.display()));
+    let (dest, lock, tmp) = (quoted(""), quoted(".lock"), quoted(".tmp."));
     format!(
         "in=$(tr -d '\\r\\n'); \
          sid=$(printf '%s' \"$in\" | sed -n 's/.*\"session_id\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p'); \
@@ -254,11 +255,11 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
          if [ -n \"$sid\" ] && [ -n \"$tp\" ]; then \
            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
-           if [ ! -f '{dest}' ] || ! grep -Fq \"$pair\" '{dest}' 2>/dev/null; then \
-             i=0; while ! mkdir '{dest}.lock' 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
+           if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
+             i=0; while ! mkdir {lock} 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
              prev=\"\"; \
-             if [ -f '{dest}' ]; then \
-               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' '{dest}' 2>/dev/null); \
+             if [ -f {dest} ]; then \
+               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
                prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
              fi; \
              if [ -n \"$prev\" ]; then \
@@ -266,11 +267,11 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
              else \
                entries=\"$pair\"; \
              fi; \
-             tmp='{dest}.tmp.'$$; \
+             tmp={tmp}$$; \
              if printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\" 2>/dev/null; then \
-               mv -f \"$tmp\" '{dest}' 2>/dev/null || rm -f \"$tmp\"; \
+               mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
              fi; \
-             rmdir '{dest}.lock' 2>/dev/null || true; \
+             rmdir {lock} 2>/dev/null || true; \
            fi; \
          fi"
     )
@@ -278,7 +279,7 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
 
 /// Reads `<session_dir>/claude-transcript.json` if present and valid.
 pub fn read_claude_transcript_meta(capture_path: &Path) -> Option<ClaudeTranscriptMeta> {
-    let raw = std::fs::read_to_string(capture_path).ok()?;
+    let raw = crate::agent_session_files::read_session_text(capture_path)?;
     let meta: ClaudeTranscriptMeta = serde_json::from_str(raw.trim()).ok()?;
     if meta.session_id.trim().is_empty() || meta.transcript_path.as_os_str().is_empty() {
         return None;
@@ -465,7 +466,8 @@ impl ClaudeTranscriptReader {
         if len == 0 {
             return Some(Vec::new());
         }
-        let mut file = std::fs::File::open(&self.path).ok()?;
+        // The transcript is the file the CLI names, outside the session folder: only a FIFO is refused.
+        let mut file = crate::agent_session_files::open_plain_file(&self.path).ok()?;
         file.seek(SeekFrom::Start(start)).ok()?;
         let mut buf = Vec::with_capacity(len.min(64 << 10) as usize);
         file.take(len).read_to_end(&mut buf).ok()?;
@@ -606,6 +608,11 @@ pub fn resolve_grok_binary(extra_dirs: &[PathBuf]) -> PathBuf {
             return p;
         }
     }
+    // A test finds a `grok` only in the folders it names, never on the user's lookup path. The path returned names nothing, so
+    // starting it fails at once.
+    if cfg!(test) {
+        return PathBuf::from("/designos-test-no-such-folder").join(candidate_name);
+    }
     if let Some(path_os) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path_os) {
             let p = dir.join(candidate_name);
@@ -629,27 +636,26 @@ struct UsageCacheFile {
     entries: BTreeMap<String, UsageReading>,
 }
 
-/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4).
+/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4). The file is written through the session folder's
+/// handle, so a link the agent planted at `usage.json` or in the path to it is never followed.
 pub fn save_cached_usage(session_dir: &Path, key: &str, reading: &UsageReading) {
-    static WRITE_LOCK: Mutex<u64> = Mutex::new(0);
+    static WRITE_LOCK: Mutex<()> = Mutex::new(());
     if key.trim().is_empty() || !reading.has_documented_source() {
         return;
     }
-    let Ok(mut seq_guard) = WRITE_LOCK.lock() else {
+    let Ok(_guard) = WRITE_LOCK.lock() else {
         return;
     };
-    *seq_guard = seq_guard.wrapping_add(1);
-    let seq = *seq_guard;
     let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let mut cache = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<UsageCacheFile>(&s).ok()).unwrap_or_default();
+    let mut cache = read_usage_cache(&path).unwrap_or_default();
     cache.entries.insert(key.trim().to_string(), reading.clone());
     if let Ok(bytes) = serde_json::to_vec_pretty(&cache) {
-        let _ = std::fs::create_dir_all(session_dir);
-        let tmp = path.with_extension(format!("tmp.{}.{seq}", std::process::id()));
-        if std::fs::write(&tmp, &bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        let _ = crate::agent_session_files::atomic_write_session_file(&path, &bytes);
     }
+}
+
+fn read_usage_cache(path: &Path) -> Option<UsageCacheFile> {
+    serde_json::from_slice(&crate::agent_session_files::read_session_file(path).ok()?).ok()
 }
 
 /// Loads a previously cached [`UsageReading`] for `key` from `<session_dir>/usage.json`.
@@ -658,10 +664,7 @@ pub fn load_cached_usage(session_dir: &Path, key: &str) -> Option<UsageReading> 
     if clean.is_empty() {
         return None;
     }
-    let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let cache: UsageCacheFile = serde_json::from_str(&raw).ok()?;
-    cache.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
+    read_usage_cache(&session_dir.join(USAGE_CACHE_FILENAME))?.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
 }
 
 #[derive(Debug, Default)]

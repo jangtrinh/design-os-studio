@@ -1,6 +1,7 @@
 //! Dev mode: code languages, Ready for dev status, annotations, dev links and Compare changes.
 
 pub mod annot;
+pub mod code_view;
 pub mod color;
 pub mod compare;
 pub mod data;

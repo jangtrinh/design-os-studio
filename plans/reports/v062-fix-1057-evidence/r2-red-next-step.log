@@ -1,0 +1,43 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked -- folder_message_tests::the_status_line fol
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.77s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 2 tests
+test agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do ... FAILED
+test agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step ... FAILED
+
+failures:
+
+---- agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do stdout ----
+
+thread 'agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do' (29924824) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:110:5:
+assertion `left == right` failed
+  left: Some("Failed to create session dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-tab-11275603: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-tab-11275603 is a link, not a folder")
+ right: Some("Failed to create session dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-tab-11275603: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-tab-11275603 is a link, not a folder. Delete the link and try again")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step' (29924823) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:130:5:
+assertion `left == right` failed
+  left: "Couldn't use this file's agent folder: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-message-double-library-11275604/agent-sessions/file-1 is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen the file. The temporary session folder can't be used either: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-msg-11275602 is a link, not a folder."
+ right: "Couldn't use this file's agent folder: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-message-double-library-11275604/agent-sessions/file-1 is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen the file. The temporary session folder can't be used either: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/22756/sessions/p22756-msg-11275602 is a link, not a folder. Delete the link and try again."
+
+
+failures:
+    agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step
+    agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3096 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked -- folder_message_tests::the_status_line fold
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json

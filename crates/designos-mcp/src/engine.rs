@@ -218,7 +218,8 @@ fn read_session_json_field(env_file_var: &str, session_rel: &str, pointer: &str)
     let path = std::env::var_os(env_file_var).map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).or_else(|| {
         std::env::var_os("DESIGNOS_SESSION_DIR").map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).map(|d| d.join(session_rel))
     })?;
-    let raw = std::fs::read_to_string(path).ok()?;
+    // The session reads these files itself through `session_file_io` and tells the agent when one is refused (a link, a FIFO), so here a refusal is only `None`.
+    let raw = crate::session_file_io::read_to_string(&path).ok()?;
     let val: Value = serde_json::from_str(&raw).ok()?;
     non_empty_trimmed(val.pointer(pointer).and_then(Value::as_str))
 }
@@ -896,14 +897,18 @@ impl Engine {
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: ExportFigArgs = parse(args)?;
                 let path = std::path::Path::new(&a.output_path);
-                if path.extension().and_then(|x| x.to_str()) != Some("fig") {
-                    return Err(ToolError::new(ErrorCode::UnsupportedExtension, "/output_path", "output_path must end in .fig")
-                        .with_valid_options(vec![".fig"])
-                        .with_corrected_example(json!({ "output_path": "export.fig" })));
-                }
+                let target_meta = std::fs::symlink_metadata(path).ok().map(|m| {
+                    #[cfg(unix)]
+                    let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+                    #[cfg(not(unix))]
+                    let second_name = false;
+                    (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+                });
+                validate_existing_output_target(target_meta, &a.output_path, "/output_path", "fig", a.overwrite, true)?;
+                self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
-                    .map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Failed to export .fig: {e}")))?;
-                std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot write .fig file: {e}")))?;
+                    .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
+                write_checked_output_file(path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
                     "output_path": a.output_path,
@@ -1508,6 +1513,250 @@ struct SetInProgressArgs {
 pub(crate) struct ExportFigArgs {
     #[serde(alias = "path")]
     pub output_path: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+pub(crate) fn has_control_or_bidi_char(s: &str) -> bool {
+    s.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{200E}'
+                    | '\u{200F}'
+                    | '\u{061C}'
+            )
+    })
+}
+
+pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
+    if has_control_or_bidi_char(display_path) {
+        return Err(ToolError::new(
+            ErrorCode::InvalidArguments,
+            ptr,
+            format!("{display_path} has a name with a line break or a direction-control character. Rename it, then try again."),
+        )
+        .with_received(json!(display_path)));
+    }
+    for comp in std::path::Path::new(display_path).components() {
+        if let std::path::Component::Normal(part) = comp {
+            if part.len() > 255 {
+                return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
+                    .with_received(json!(display_path)));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_existing_output_target(
+    target_meta: Option<(bool, bool, bool, bool, bool)>,
+    display_path: &str,
+    ptr: &str,
+    ext: &str,
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
+    let field_name = ptr.trim_start_matches('/');
+    let case_insensitive_ext = ext == "fig";
+    validate_output_name(display_path, ptr)?;
+    if target_meta.is_some_and(|(is_symlink, _, _, _, _)| is_symlink) {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+            .with_received(json!(display_path)));
+    }
+    let looks_like_dir = target_meta.is_some_and(|(_, is_dir, _, _, _)| is_dir)
+        || display_path == "."
+        || display_path.ends_with('/')
+        || display_path.ends_with("/.")
+        || (cfg!(windows) && (display_path.ends_with('\\') || display_path.ends_with("\\.")));
+    if looks_like_dir {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a folder, not a file. Choose a file path, then try again."))
+            .with_received(json!(display_path)));
+    }
+    let ext_ok = std::path::Path::new(display_path).extension().and_then(|x| x.to_str()).is_some_and(|actual| {
+        if case_insensitive_ext {
+            actual.eq_ignore_ascii_case(ext)
+        } else {
+            actual == ext
+        }
+    });
+    if !ext_ok {
+        return Err(ToolError::new(
+            ErrorCode::InvalidArguments,
+            ptr,
+            format!("{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."),
+        )
+        .with_received(json!(display_path))
+        .with_expected(format!("*.{ext}")));
+    }
+    if let Some((_, _, is_file, is_readonly, second_name)) = target_meta {
+        if !is_file {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if !overwrite {
+            if supports_overwrite {
+                return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                    .with_received(json!(display_path))
+                    .with_corrected_example(json!({ field_name: display_path, "overwrite": true })));
+            }
+            return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if second_name {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} has a second name (a hard link). Delete it, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if is_readonly {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
+            )
+            .with_received(json!(display_path)));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn write_checked_output_file(
+    resolved: &std::path::Path,
+    display_path: &str,
+    ptr: &str,
+    bytes: &[u8],
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
+    use std::io::Write;
+    let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
+        Some(crate::session_file_io::Refusal::Link) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::SecondName) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::NotPlainFile) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        None => ToolError::new(
+            ErrorCode::InternalError,
+            ptr,
+            format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
+        ),
+    };
+    if !overwrite {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        let field_name = ptr.trim_start_matches('/');
+        let mut file = opts.open(resolved).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                if supports_overwrite {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                        .with_received(json!(display_path))
+                        .with_corrected_example(json!({ field_name: display_path, "overwrite": true }))
+                } else {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                        .with_received(json!(display_path))
+                }
+            } else {
+                map_io_err(e)
+            }
+        })?;
+        if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+            drop(file);
+            let removed = std::fs::remove_file(resolved).is_ok();
+            return Err(map_io_err(e).with_safe_to_retry(removed));
+        }
+        return Ok(());
+    }
+
+    let old = match std::fs::symlink_metadata(resolved) {
+        Ok(m) => Some(m),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(map_io_err(e)),
+    };
+    if let Some(ref m) = old {
+        if m.file_type().is_symlink() {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if m.is_dir() {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is a folder, not a file. Choose a file path, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if !m.file_type().is_file() {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path)));
+        }
+        #[cfg(unix)]
+        let second_name = std::os::unix::fs::MetadataExt::nlink(m) > 1;
+        #[cfg(not(unix))]
+        let second_name = false;
+        if second_name {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} has a second name (a hard link). Delete it, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if m.permissions().readonly() {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
+            )
+            .with_received(json!(display_path)));
+        }
+    }
+
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = resolved.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".designos-out-{}-{seq}.tmp", std::process::id()));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+        if old.is_some() {
+            opts.mode(0o600);
+        }
+    }
+    let mut file = opts.open(&tmp).map_err(&map_io_err)?;
+    let write_res = (|| -> std::io::Result<()> {
+        if let Some(ref old) = old {
+            file.set_permissions(old.permissions())?;
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, resolved)
+    })();
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(map_io_err(e));
+    }
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1848,7 +2097,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "export_fig_file",
         "Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace.",
-        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."}}),
+        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."},"overwrite":{"type":"boolean","default":false}}),
         vec!["output_path"],
         json!({
             "output_path": {"type": "string"},

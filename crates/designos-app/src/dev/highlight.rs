@@ -6,6 +6,7 @@
 use super::Language;
 use crate::theme;
 use egui::Color32;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tok {
@@ -60,9 +61,22 @@ fn is_ident_start(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_' || c == '@'
 }
 
-/// Tokenizes `code` line by line.
+/// Columns a tab takes on screen. egui draws `\t` as four spaces, so the code view lays tabs out as four spaces too:
+/// every character is one column, tokens never overlap and a line's width is its true width.
+const TAB_COLUMNS: usize = 4;
+
+/// The text of `src` as shown: each tab becomes `TAB_COLUMNS` spaces. The code that is copied keeps its tabs.
+fn expand_tabs(src: &str) -> Cow<'_, str> {
+    if src.contains('\t') {
+        Cow::Owned(src.replace('\t', &" ".repeat(TAB_COLUMNS)))
+    } else {
+        Cow::Borrowed(src)
+    }
+}
+
+/// Tokenizes `code` line by line, with tabs expanded to spaces for display.
 pub fn highlight(lang: Language, code: &str) -> Vec<Vec<Span>> {
-    code.lines().map(|l| line(lang, l)).collect()
+    code.lines().map(|l| line(lang, &expand_tabs(l))).collect()
 }
 
 fn line(lang: Language, src: &str) -> Vec<Span> {
@@ -171,32 +185,9 @@ fn line(lang: Language, src: &str) -> Vec<Span> {
     out
 }
 
-/// Splits a tokenized line into rows of at most `cols` characters, breaking at spaces and
-/// indenting continuation rows two columns deeper than the line.
-pub fn wrap(line: &[Span], cols: usize) -> Vec<Vec<Span>> {
-    let cols = cols.max(8);
-    let len = |row: &[Span]| row.iter().map(|s| s.text.chars().count()).sum::<usize>();
-    let indent = line.first().filter(|s| s.tok == Tok::Plain && s.text.trim().is_empty()).map(|s| s.text.chars().count()).unwrap_or(0);
-    let mut rows: Vec<Vec<Span>> = vec![Vec::new()];
-    for s in line {
-        for piece in s.text.split_inclusive(' ') {
-            let w = piece.chars().count();
-            let row_len = len(rows.last().unwrap());
-            // closing brackets and commas may hang over the edge instead of wrapping alone
-            let hang = piece.trim().chars().count() <= 2 && piece.trim().chars().all(|c| "),;]}".contains(c));
-            if row_len + w > cols && row_len > indent + 2 && !piece.trim().is_empty() && !hang {
-                rows.push(vec![span(Tok::Plain, " ".repeat(indent + 2))]);
-            }
-            rows.last_mut().unwrap().push(span(s.tok, piece));
-        }
-    }
-    if rows.last().is_some_and(|r| r.is_empty()) {
-        rows.pop();
-    }
-    if rows.is_empty() {
-        rows.push(Vec::new());
-    }
-    rows
+/// Width of a tokenized line in characters (the code font is monospace, so this is also its width in columns).
+pub fn line_len(line: &[Span]) -> usize {
+    line.iter().map(|s| s.text.chars().count()).sum()
 }
 
 #[cfg(test)]
@@ -269,14 +260,21 @@ mod tests {
     }
 
     #[test]
-    fn wrapping_keeps_every_character_and_indents_continuations() {
-        let l = &highlight(Language::Css, "    box-shadow: 0px 4px 8px 0px rgba(0, 0, 0, 0.25), 0px 1px 2px 0px rgba(0, 0, 0, 0.5);")[0];
-        let rows = wrap(l, 30);
-        assert!(rows.len() > 2);
-        let joined: String = rows.iter().map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>()).collect::<Vec<_>>().join("");
-        let orig: String = l.iter().map(|s| s.text.as_str()).collect();
-        // continuation rows add indentation only
-        assert_eq!(joined.replace("      ", "").replace(' ', ""), orig.replace(' ', ""));
-        assert!(rows[1][0].text.starts_with("      "));
+    fn a_line_is_as_wide_as_its_characters_and_keeps_its_indent() {
+        let lines = highlight(Language::AndroidXml, "<A\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\n\n</A>");
+        assert_eq!(lines.len(), 4, "a blank line stays a row");
+        assert_eq!(line_len(&lines[0]), 2);
+        assert_eq!(line_len(&lines[1]), 4 + "xmlns:android=\"http://schemas.android.com/apk/res/android\"".chars().count());
+        assert_eq!(line_len(&lines[2]), 0);
+        assert_eq!(lines[1][0].text, "    ");
+    }
+
+    #[test]
+    fn tabs_become_four_columns_wherever_they_are() {
+        let lines = highlight(Language::Css, "\tcontent: \"x\ty\"; /* a\tb */");
+        let shown: String = lines[0].iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(shown, "    content: \"x    y\"; /* a    b */");
+        assert!(!shown.contains('\t'));
+        assert_eq!(line_len(&lines[0]), shown.chars().count());
     }
 }

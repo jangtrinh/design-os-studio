@@ -1,0 +1,148 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked -- agent_session_files:: gemini hook
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.53s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 130 tests
+test agent_permissions::tests::an_ask_launch_that_still_names_the_session_hooks_file_is_caught_in_debug_builds - should panic ... ok
+test agent_permissions::tests::a_stale_session_hooks_json_goes_only_when_it_names_the_approval_hook ... ok
+test agent_permissions::tests::the_hook_script_puts_the_system_commands_first_on_path ... ok
+test agent_session_failure::tests::hook_class_wins_over_output_patterns ... ok
+test agent_permissions::tests::claude_settings_value_is_the_private_hooks_file_or_inline_empty_settings ... ok
+test agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same ... ok
+test agent_permissions::approval_channel_tests::the_hook_declines_without_a_plain_tab_number ... ok
+test agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check ... ok
+test agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete ... ok
+test agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it ... ok
+test agent_session_files::folder_tests::a_file_at_a_session_path_is_refused ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link ... ok
+test agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do ... ok
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_gets_no_lock_file ... ok
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_is_refused ... ok
+test agent_session_files::folder_tests::a_link_planted_at_the_next_ephemeral_session_path_is_refused ... ok
+test agent_session_files::folder_tests::a_tab_does_not_start_in_a_planted_link_and_says_why ... ok
+test agent_permissions::tests::hook_script_allow_prints_the_documented_decision ... ok
+test agent_permissions::tests::hook_script_preserves_escaped_quotes_in_command_summary ... ok
+test agent_session_files::folder_tests::an_existing_real_session_folder_is_accepted_again ... ok
+test agent_permissions::approval_channel_tests::a_request_removed_by_studio_ends_the_hook_without_a_decision ... ok
+test agent_permissions::tests::hook_script_preserves_multibyte_utf8_at_200_char_boundary ... ok
+test agent_permissions::tests::hook_script_deny_carries_a_message ... ok
+test agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own ... ok
+test agent_session_files::folder_unit_tests::a_folder_of_another_user_is_refused ... ok
+test agent_session_files::folder_unit_tests::only_a_direct_child_of_the_root_is_ephemeral_and_an_id_cannot_leave_the_root ... ok
+test agent_session_files::folder_unit_tests::the_production_root_sits_next_to_the_approval_channel_in_the_data_folder ... ok
+test agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do ... ok
+test agent_session_files::folder_unit_tests::without_a_private_data_folder_no_session_folder_is_made ... ok
+test agent_session_files::folder_tests::new_session_folders_are_private_to_their_owner ... ok
+test agent_session_files::refusal::tests::a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery ... ok
+test agent_session_files::refusal::tests::another_error_carries_its_own_next_step_and_is_not_a_refusal ... ok
+test agent_session_files::folder_unit_tests::the_sweep_never_removes_a_folder_in_the_temp_folder_where_earlier_versions_kept_sessions ... ok
+test agent_session_files::folder_unit_tests::a_file_written_into_a_real_session_folder_may_create_its_subfolders ... ok
+test agent_permissions::approval_channel_tests::a_command_planted_early_on_path_is_not_run_by_the_hook ... ok
+test agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder ... ok
+test agent_session_files::folder_unit_tests::a_link_in_place_of_the_sessions_folder_is_refused_and_a_loose_one_is_made_private ... ok
+test agent_session_files::folder_unit_tests::a_session_file_is_not_written_through_a_link_at_its_folder ... ok
+test agent_session_files::test_root::tests::a_link_named_like_a_dead_process_is_not_followed ... ok
+test agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty ... ok
+test agent_permissions::tests::hook_script_timeout_prints_nothing ... ok
+test agent_session_files::tests::dropping_spec_into_window_a_never_applies_in_window_b ... ok
+test agent_session_files::tests::mcp_without_a_session_dir_has_no_live_paths ... ok
+test agent_session_files::tests::no_global_tmp_path_in_shipped_code ... ok
+test agent_session_files::tests::parse_ps_etime_secs_and_query_process_started_ms_work_on_unix ... ok
+test agent_session_files::folder_tests::a_library_file_whose_folder_is_a_planted_link_runs_in_the_private_fallback_and_writes_nothing_through_the_link ... ok
+test agent_session_files::tests::a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots ... ok
+test agent_session_files::tests::snapshot_write_failure_does_not_mark_key_synced ... ok
+test agent_session_files::tests::startup_sweep_removes_only_dead_sessions_older_than_7_days ... ok
+test agent_session_files::tests::a_failing_write_is_not_retried_every_frame ... ok
+test agent_session_files::tests::closing_a_tab_removes_its_ephemeral_session_dir ... ok
+test agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder ... ok
+test agent_session_files::tests::write_backoff_pauses_the_same_content_with_a_growing_delay_and_reports_it_once ... ok
+test agent_session_files::tests::sweep_never_touches_library_agent_sessions ... ok
+test agent_session_files::tests::snapshot_is_written_off_the_ui_thread ... ok
+test agent_session_files::tests::shutdown_removes_an_ephemeral_session_dir ... ok
+test agent_turn_status::tests::a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug ... ok
+test agent_session_files::tests::coalesces_rapid_snapshots_to_the_latest_document ... ok
+test skills::hook_delivery::tests::a_line_longer_than_a_chunk_is_cut_inside_the_line_without_losing_a_character ... ok
+test agent_usage::tests::hook_capture_writes_session_and_transcript_path_once ... ok
+test skills::hook_delivery::tests::a_skill_over_one_chunk_is_split_at_line_breaks_into_labelled_parts_that_rebuild_it ... ok
+test skills::hook_delivery::tests::a_set_the_slots_cannot_hold_is_not_hook_deliverable ... ok
+test skills::hook_delivery::tests::backticks_in_a_part_get_a_fence_that_outgrows_them_and_the_chunk_still_fits ... ok
+test skills::hook_delivery::tests::small_skills_stay_whole_in_one_chunk_in_the_usual_block_format ... ok
+test agent_session_files::tests::a_publish_after_shutdown_does_not_recreate_the_session_folder ... ok
+test terminal::ask_hooks_tests::a_launch_outside_ask_mode_never_passes_on_claude_values_it_inherited ... ok
+test skills::hook_delivery::tests::the_slots_hold_the_largest_set_the_picker_allows_however_its_lines_fall ... ok
+test agent_composer::tests::a_skill_edited_after_the_last_scan_reaches_claude_through_the_hook_reply ... ok
+test agent_turn_ledger::tests::hook_command_writes_the_current_log_size ... ok
+test agent_session_files::tests::two_windows_never_touch_each_others_session_files ... ok
+test skills::hook_delivery::tests::every_slot_has_a_handler_that_prints_only_its_tab_and_slot_file ... ok
+test agent_turn_ledger::tests::works_for_each_cli_hook_file ... ok
+test agent_session_files::tests::a_bootstrap_build_that_finishes_after_shutdown_does_not_recreate_the_session_folder ... ok
+test agent_permissions::approval_channel_tests::an_environment_pointing_the_hook_at_an_agent_writable_folder_changes_nothing ... ok
+test agent_composer::tests::a_12_kb_skill_reaches_claude_whole_in_hook_replies_that_each_stay_under_the_cap ... ok
+test agent_stop::tests::stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet ... ok
+test agent_session_files::tests::a_publish_after_the_last_tab_closed_does_not_recreate_the_session_folder ... ok
+test agent_session_files::tests::ui_thread_cost_on_a_24k_node_document_stays_under_budget ... ok
+test agent_composer::tests::claude_gets_skills_from_its_hook_file_and_not_in_the_prompt ... ok
+test terminal::ask_hooks_tests::an_ask_session_leaves_the_status_hooks_a_skip_session_left ... ok
+test terminal::ask_hooks_tests::the_permission_mode_is_read_once_per_spawn_and_once_per_resume ... ok
+test terminal::gemini_launch_tests::off_unix_a_gemini_tab_gets_no_hooks_file ... ok
+test terminal::ask_hooks_tests::in_skip_mode_claude_still_reads_hooks_json_in_the_session_folder ... ok
+test terminal::gemini_launch_tests::the_defaults_variable_is_set_only_for_a_tab_with_a_hooks_file ... ok
+test terminal::ask_mode_tests::gemini_launches_in_the_mode_asked_for_and_never_trusts_the_server ... ok
+test terminal::gemini_status_tests::a_tool_permission_notification_waits_for_approval ... ok
+test terminal::gemini_status_tests::agy_records_still_route_with_a_gemini_tab_open ... ok
+test terminal::gemini_status_tests::an_untagged_record_never_lands_on_a_gemini_tab ... ok
+test terminal::gemini_status_tests::gemini_tool_permission_record_routes_to_its_tab_beside_a_claude_tab ... ok
+test terminal::gemini_status_tests::the_claude_grok_and_agy_status_hooks_stay_byte_identical ... ok
+test terminal::gemini_status_tests::the_status_hooks_cover_five_events_name_the_tab_and_print_nothing ... ok
+test terminal::ask_hooks_tests::an_ask_session_removes_the_hooks_an_earlier_build_left_with_the_approval_handler ... ok
+test terminal::ask_mode_tests::golden::gemini_launch_and_config_match_the_golden_and_never_trust_the_server ... ok
+test terminal::ask_hooks_tests::in_ask_mode_claude_reads_its_hooks_from_the_private_folder ... ok
+test terminal::gemini_launch_tests::a_failed_spawn_leaves_no_hooks_file_behind ... ok
+test terminal::tests::a_gemini_only_machine_is_not_told_that_no_agent_cli_was_found ... ok
+test terminal::ask_mode_tests::gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab ... ok
+test terminal::ask_hooks_tests::rewriting_the_session_hooks_json_in_ask_mode_changes_nothing_claude_reads ... ok
+test terminal::ask_hooks_tests::without_a_private_folder_ask_claude_starts_with_empty_inline_settings ... ok
+test terminal::tests::bootstrap::claude_prompt_hook_waits_at_most_half_a_second_for_the_full_bootstrap ... ok
+test terminal::tests::gemini_launch_uses_only_flags_its_help_lists ... ok
+test terminal::tests::claude_hooks_file_is_a_valid_settings_file_and_the_launch_loads_it ... ok
+test terminal::ask_hooks_tests::the_private_hooks_file_is_owner_only_and_rewritten_by_every_sync ... ok
+test terminal::tests::gemini_project_settings_written_in_the_session_folder_only ... ok
+test terminal::tests::hook_command_appends_one_wrapped_record ... ok
+test terminal::tests::hook_files_carry_both_the_event_stream_and_the_turn_marks ... ok
+test terminal::tests::generated_claude_hooks_carry_status_marks_and_approval_in_ask_mode ... ok
+test terminal::tests::concurrent_hook_commands_do_not_interleave_records ... ok
+test terminal::tests::per_file_session_isolation_auto_provisions_mcp_hooks_skills_and_syncs_live_doc ... ok
+test terminal::tests::prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection ... ok
+test terminal::tests::pre_and_post_tool_use_hooks_do_not_clear_live_classified_failure_or_advance_offset ... ok
+test terminal::tests::the_live_check_of_gemini_uses_a_scratch_home ... ok
+test terminal::tests::works_for_each_cli_hook_file ... ok
+test terminal::gemini_launch_tests::gemini_hook_records_drive_the_tab_through_waiting_working_and_done ... ok
+test terminal::tests::session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli ... ok
+test terminal::tests::the_header_names_the_status_not_the_hook_detail_or_the_raw_failure_slug ... ok
+test terminal::tests::gemini_live_check ... ok
+test terminal::tests::bootstrap::first_prompt_during_edit_in_progress_or_slow_hook_delivers_real_document_bootstrap ... ok
+test terminal::gemini_launch_tests::skip_mode_gemini_gets_no_hooks_file_and_keeps_its_environment ... ok
+test agent_composer::tests::claude_hook_reply_carries_the_skills_until_the_first_prompt_is_submitted ... ok
+test terminal::gemini_launch_tests::in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file ... ok
+test terminal::gemini_wait_tests::a_key_that_answers_geminis_dialog_ends_a_hook_wait_and_other_keys_do_not ... ok
+test terminal::gemini_wait_tests::a_working_gemini_ask_tab_paints_no_stop_button ... ok
+test terminal::gemini_wait_tests::gemini_ask_tab_waiting_needs_approval_and_shows_open_tab ... ok
+test agent_composer::tests::a_set_the_hook_cannot_carry_is_pasted_into_claude_with_the_size_scaled_enter_delay ... ok
+test terminal::gemini_launch_tests::the_hooks_file_goes_with_its_tab_and_a_stale_one_goes_when_a_tab_starts ... ok
+test terminal::gemini_wait_tests::the_output_check_wait_of_a_gemini_tab_with_no_hooks_ends_on_an_answer_too ... ok
+test terminal::gemini_launch_tests::gemini_with_system_defaults_of_its_own_gets_no_hooks_and_the_output_heuristic ... ok
+
+test result: ok. 130 passed; 0 failed; 0 ignored; 0 measured; 2988 filtered out; finished in 6.13s
+
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked -- agent_session_files:: gemini hook
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json

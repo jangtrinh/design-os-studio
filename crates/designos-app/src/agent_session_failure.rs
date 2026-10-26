@@ -544,8 +544,21 @@ pub fn warm_cli_version_cache(preset: AgentCliPreset) {
     let _ = probe_installed_cli_version(preset);
 }
 
+/// The installed CLI's `--version` as the probe of [`warm_cli_version_cache`] found it: `None` until that probe has finished, and
+/// when the CLI is not found or prints no version.
+#[cfg_attr(test, allow(dead_code))] // tests name the version themselves (`gemini_dialog::with_gemini_version`)
+pub(crate) fn installed_cli_version(preset: AgentCliPreset) -> Option<String> {
+    probe_installed_cli_version(preset)
+}
+
 fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     if matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
+        return None;
+    }
+    // A test never starts a real CLI, not even for `--version`: nothing in a test depends on the installed version, and a CLI
+    // found on the developer's machine would run against whatever home it finds. (`version_probe_command` still gives the
+    // probe a scratch home, as defense in depth.)
+    if cfg!(test) {
         return None;
     }
     let bin = preset.binary_name();
@@ -559,7 +572,7 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     }
     std::thread::spawn(move || {
         let Some(resolved_bin) = resolve_cli_executable(bin) else { return };
-        let Ok(out) = std::process::Command::new(resolved_bin).arg("--version").output() else { return };
+        let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
         if let Ok(mut guard) = version_cache().lock() {
@@ -567,6 +580,17 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         }
     });
     None
+}
+
+/// The `--version` command for the installed CLI of `_preset` at `bin`. It is the same for every CLI.
+pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std::process::Command {
+    let mut cmd = std::process::Command::new(bin);
+    cmd.arg("--version");
+    // Opening an agent tab runs this probe, and a CLI writes under the user's home even for `--version` (Gemini registers the
+    // project, for one). A test must not do that to the real home, so the probe gets a scratch one.
+    #[cfg(test)]
+    crate::scratch_cli_home::isolate_cli_homes(&mut cmd);
+    cmd
 }
 
 fn resolve_cli_executable(bin: &str) -> Option<PathBuf> {

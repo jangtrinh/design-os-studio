@@ -451,7 +451,9 @@ impl ToolError {
     }
 
     pub fn with_received(mut self, received: impl Into<Value>) -> Self {
-        self.received = Some(received.into());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            self.received = Some(received.into());
+        }
         self
     }
 
@@ -522,8 +524,10 @@ impl ToolError {
         map.insert("code".into(), json!(self.code.as_str()));
         map.insert("message".into(), json!(self.message));
         map.insert("path".into(), json!(self.path));
-        if let Some(received) = &self.received {
-            map.insert("received".into(), received.clone());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            if let Some(received) = &self.received {
+                map.insert("received".into(), received.clone());
+            }
         }
         if let Some(expected) = &self.expected {
             map.insert("expected".into(), json!(expected));
@@ -1009,6 +1013,13 @@ fn build_unknown_field_corrected_example(
             obj.insert("component".into(), v);
         }
     }
+    if let Some(top) = fixed.as_object_mut() {
+        top.remove("path");
+        top.remove("output_path");
+        if top.is_empty() {
+            return None;
+        }
+    }
     Some(fixed)
 }
 
@@ -1075,7 +1086,7 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
                 err.corrected_example = Some(full);
             }
         }
-    } else {
+    } else if err.code != ErrorCode::UnknownField {
         let mut full = original_args.clone();
         if let Value::Object(ref mut m) = full {
             for (k, v) in ex_map {
@@ -1083,6 +1094,19 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
             }
         }
         err.corrected_example = Some(full);
+    }
+    if err.code != ErrorCode::FileExists && err.code != ErrorCode::UnsavedChanges {
+        if let Some(Value::Object(ref mut m)) = err.corrected_example {
+            m.remove("path");
+            m.remove("output_path");
+            if m.is_empty() {
+                err.corrected_example = None;
+            }
+        }
+        if let Some(Value::Object(ref mut m)) = err.received {
+            m.remove("path");
+            m.remove("output_path");
+        }
     }
 }
 

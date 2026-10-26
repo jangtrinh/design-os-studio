@@ -1,0 +1,455 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.62
+   Compiling thiserror v2.0.21
+   Compiling version_check v0.9.5
+   Compiling crc32fast v1.5.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling miniz_oxide v0.9.1
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v1.3.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling num-traits v0.2.19
+   Compiling fdeflate v0.3.7
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling core_maths v0.1.1
+   Compiling linebender_resource_handle v0.1.1
+   Compiling cc v1.7.0
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling objc2-foundation v0.3.2
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling equivalent v1.0.3
+   Compiling zune-core v0.5.3
+   Compiling serde_json v1.0.154
+   Compiling quick-error v2.0.1
+   Compiling percent-encoding v2.3.2
+   Compiling weezl v0.1.12
+   Compiling flate2 v1.1.10
+   Compiling zeroize v1.9.1
+   Compiling itoa v1.0.18
+   Compiling indexmap v2.14.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling form_urlencoded v1.2.2
+   Compiling synstructure v0.14.0
+   Compiling zune-jpeg v0.5.15
+   Compiling slotmap v1.1.1
+   Compiling color_quant v1.1.0
+   Compiling ref-cast v1.0.27
+   Compiling fax v0.2.7
+   Compiling self_cell v1.3.0
+   Compiling either v1.19.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling byteorder-lite v0.1.0
+   Compiling pxfm v0.1.30
+   Compiling unicode-segmentation v1.13.3
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.1
+   Compiling getrandom v0.2.17
+   Compiling serde_derive_internals v0.30.0
+   Compiling ring v0.17.14
+   Compiling png v0.18.1
+   Compiling moxcms v0.8.1
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling untrusted v0.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling parking_lot_core v0.9.12
+   Compiling getrandom v0.4.3
+   Compiling crossbeam-epoch v0.9.21
+   Compiling float-cmp v0.9.0
+   Compiling raw-window-handle v0.6.2
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling unicode-script v0.5.8
+   Compiling objc-sys v0.3.5
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustc-hash v2.1.3
+   Compiling arrayref v0.3.9
+   Compiling regex-syntax v0.8.11
+   Compiling base64 v0.22.1
+   Compiling dyn-clone v1.0.20
+   Compiling scopeguard v1.2.0
+   Compiling rustls v0.23.45
+   Compiling tinyvec v1.13.3
+   Compiling lock_api v0.4.14
+   Compiling fontdb v0.23.0
+   Compiling regex-automata v0.4.18
+   Compiling webpki-roots v1.0.9
+   Compiling subtle v2.6.1
+   Compiling option-ext v0.2.0
+   Compiling rayon-core v1.13.0
+   Compiling unicode-bidi v0.3.18
+   Compiling dirs-sys v0.4.1
+   Compiling uuid v1.28.0
+   Compiling webpki-roots v0.26.11
+   Compiling png v0.17.16
+   Compiling regex v1.13.1
+   Compiling parking_lot v0.12.5
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling yazi v0.2.1
+   Compiling bit-vec v0.9.1
+   Compiling zeno v0.3.3
+   Compiling unicode-width v0.2.2
+   Compiling profiling v1.0.18
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling objc2 v0.5.3
+   Compiling i_shape v5.0.0
+   Compiling dirs v5.0.1
+   Compiling rustls-webpki v0.103.15
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling sys-locale v0.3.2
+   Compiling rustc-hash v1.1.0
+   Compiling rangemap v1.8.0
+   Compiling smol_str v0.3.6
+   Compiling hexf-parse v0.2.1
+   Compiling i_key_sort v0.12.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling i_tree v0.20.0
+   Compiling kurbo v0.13.1
+   Compiling rayon v1.12.0
+   Compiling i_overlay v9.1.0
+   Compiling block2 v0.5.1
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling objc2-quartz-core v0.3.2
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling utf8parse v0.2.2
+   Compiling siphasher v1.0.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling dispatch v0.2.0
+   Compiling raw-window-metal v1.1.0
+   Compiling core-foundation v0.9.4
+   Compiling objc2-foundation v0.2.2
+   Compiling svgtypes v0.15.3
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling foreign-types-shared v0.3.1
+   Compiling futures-sink v0.3.34
+   Compiling unicode-general-category v1.1.0
+   Compiling unicode-vo v0.1.0
+   Compiling fearless_simd v0.4.1
+   Compiling pico-args v0.5.0
+   Compiling xmlwriter v0.1.0
+   Compiling imagesize v0.13.0
+   Compiling data-url v0.3.2
+   Compiling roxmltree v0.20.0
+   Compiling futures-core v0.3.34
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling nix v0.31.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling wgpu-core v29.0.4
+   Compiling winit v0.30.13
+   Compiling winnow v1.0.4
+   Compiling litrs v1.0.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling cursor-icon v1.2.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling document-features v0.2.12
+   Compiling futures-macro v0.3.34
+   Compiling epaint_default_fonts v0.35.0
+   Compiling dpi v0.1.2
+   Compiling anstyle-query v1.1.5
+   Compiling nohash-hasher v0.2.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling futures-task v0.3.34
+   Compiling smol_str v0.2.2
+   Compiling colorchoice v1.0.5
+   Compiling bumpalo v3.20.3
+   Compiling anstyle v1.0.14
+   Compiling futures-io v0.3.34
+   Compiling slab v0.4.12
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling tokio-macros v2.7.2
+   Compiling foreign-types v0.5.0
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling core-graphics v0.23.2
+   Compiling memoffset v0.6.5
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling tracing v0.1.44
+   Compiling static_assertions v1.1.0
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.1
+   Compiling typed-path v0.12.3
+   Compiling bytes v1.12.1
+   Compiling twox-hash v2.1.5
+   Compiling ruzstd v0.9.1
+   Compiling bytemuck v1.25.2
+   Compiling zip v9.0.4
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling color v0.3.3
+   Compiling tiny-skia v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling futures-util v0.3.34
+   Compiling vello_cpu v0.0.9
+   Compiling ecolor v0.35.0
+   Compiling zerofrom v0.1.8
+   Compiling harfrust v0.5.2
+   Compiling yoke v0.8.3
+   Compiling half v2.7.1
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tiff v0.11.3
+   Compiling image v0.25.10
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling chrono v0.4.45
+   Compiling swash v0.2.10
+   Compiling usvg v0.45.1
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling schemars v1.2.3
+   Compiling cosmic-text v0.19.0
+   Compiling idna_adapter v1.2.2
+   Compiling harfrust v0.7.0
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling ureq v2.12.1
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling skrifa v0.42.1
+   Compiling epaint v0.35.0
+   Compiling egui v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling tokio v1.53.2
+   Compiling clap_builder v4.6.7
+   Compiling clap_derive v4.6.7
+   Compiling accesskit_macos v0.26.3
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling thiserror-impl v1.0.69
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling rmcp v3.5.1
+   Compiling web-time v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (<worktree>/crates/designos-render)
+   Compiling tokio-util v0.7.20
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling winresource v0.1.34
+   Compiling accesskit_winit v0.32.2
+   Compiling futures v0.3.34
+   Compiling designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+   Compiling webbrowser v1.2.4
+   Compiling designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+   Compiling arboard v3.6.1
+   Compiling designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling pollster v0.4.0
+   Compiling rfd v0.17.2
+   Compiling float_next_after v1.0.0
+   Compiling pastey v0.2.3
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling pin-utils v0.1.1
+   Compiling nix v0.25.1
+   Compiling clap v4.6.7
+   Compiling filedescriptor v0.8.3
+   Compiling designos-diff v0.6.1 (<worktree>/crates/designos-diff)
+   Compiling vte v0.11.1
+   Compiling lyon_tessellation v1.0.22
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-library v0.6.1 (<worktree>/crates/designos-library)
+   Compiling egui-winit v0.35.0
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+   Compiling designos-export v0.6.1 (<worktree>/crates/designos-export)
+   Compiling serial v0.4.0
+   Compiling rgb v0.8.53
+   Compiling dispatch2 v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling downcast-rs v1.2.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling shell-words v1.1.1
+   Compiling portable-pty v0.8.1
+   Compiling vt100 v0.15.2
+   Compiling resvg v0.45.1
+   Compiling eframe v0.35.0
+   Compiling designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+   Compiling open v5.4.4
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 22s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 21 tests
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_private_field_with_a_generic_type_does_not_hide_the_code_after_its_struct ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_writes_files_is_reported_with_or_without_a_path_and_a_space ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_a_shipped_module_declares_is_scanned_whatever_a_test_gated_path_says ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_only_a_test_gated_module_declares_is_skipped ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_with_test_among_its_own_arguments_is_test_only ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_item_is_still_skipped_and_so_is_the_code_it_holds ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_name_joined_with_a_format_to_a_session_path_must_be_a_known_session_file_name ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_that_gates_itself_with_an_inner_cfg_test_is_skipped_even_when_a_shipped_module_declares_it ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_renames_or_globs_std_fs_is_reported ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_an_enum_variant_does_not_hide_the_code_after_its_enum ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::the_names_of_the_image_job_and_plugin_files_are_session_file_names ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_at_the_top_of_a_file_hides_that_whole_file ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::every_shell_redirect_form_in_a_string_is_reported ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file ... FAILED
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_does_not_name_std_fs_is_not_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_does_not_write_files_is_not_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::text_with_an_arrow_an_angle_pair_or_a_character_is_not_taken_for_a_redirect ... ok
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... ok
+
+failures:
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_private_field_with_a_generic_type_does_not_hide_the_code_after_its_struct stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_private_field_with_a_generic_type_does_not_hide_the_code_after_its_struct' (38769469) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:59:5:
+[]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only' (38769464) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:87:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_writes_files_is_reported_with_or_without_a_path_and_a_space stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_writes_files_is_reported_with_or_without_a_path_and_a_space' (38769472) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:140:9:
+not reported: Command::new("cp")
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct' (38769467) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:52:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_a_shipped_module_declares_is_scanned_whatever_a_test_gated_path_says stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_a_shipped_module_declares_is_scanned_whatever_a_test_gated_path_says' (38769473) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:103:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_name_joined_with_a_format_to_a_session_path_must_be_a_known_session_file_name stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_name_joined_with_a_format_to_a_session_path_must_be_a_known_session_file_name' (38769476) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:183:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it' (38769468) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:73:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_renames_or_globs_std_fs_is_reported stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_renames_or_globs_std_fs_is_reported' (38769478) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:123:9:
+not reported: use std::fs as f;
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_an_enum_variant_does_not_hide_the_code_after_its_enum stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_an_enum_variant_does_not_hide_the_code_after_its_enum' (38769470) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:66:5:
+[]
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::the_names_of_the_image_job_and_plugin_files_are_session_file_names stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::the_names_of_the_image_job_and_plugin_files_are_session_file_names' (38769483) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:175:9:
+not reported: input.png
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::every_shell_redirect_form_in_a_string_is_reported stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::every_shell_redirect_form_in_a_string_is_reported' (38769481) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:157:9:
+not reported: echo hi>out
+
+---- agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file' (38769480) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests/scanner_tests.rs:38:5:
+[]
+
+
+failures:
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_private_field_with_a_generic_type_does_not_hide_the_code_after_its_struct
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_an_enum_variant_does_not_hide_the_code_after_its_enum
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_writes_files_is_reported_with_or_without_a_path_and_a_space
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_a_shipped_module_declares_is_scanned_whatever_a_test_gated_path_says
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_name_joined_with_a_format_to_a_session_path_must_be_a_known_session_file_name
+    agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_renames_or_globs_std_fs_is_reported
+    agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file
+    agent_session_files::fs_sites_scan_tests::scanner_tests::every_shell_redirect_form_in_a_string_is_reported
+    agent_session_files::fs_sites_scan_tests::scanner_tests::the_names_of_the_image_job_and_plugin_files_are_session_file_names
+
+test result: FAILED. 9 passed; 12 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 9.36s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

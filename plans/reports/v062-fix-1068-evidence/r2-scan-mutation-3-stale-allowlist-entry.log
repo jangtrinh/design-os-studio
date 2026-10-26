@@ -1,0 +1,36 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.00s
+     Running tests/session_file_sites/main.rs (out/cargo-1068/debug/deps/session_file_sites-1a885e87e98ff7af)
+
+running 9 tests
+test a_stale_entry_and_an_entry_without_a_reason_fail ... ok
+test a_file_named_like_a_test_but_not_gated_is_scanned ... ok
+test an_unlisted_session_file_name_fails_and_a_listed_one_does_not ... ok
+test a_call_through_the_helper_needs_no_entry ... ok
+test a_raw_call_that_is_not_listed_fails ... ok
+test a_raw_call_on_a_session_file_fails_even_in_a_listed_function ... ok
+test the_helper_files_and_test_code_are_not_flagged ... ok
+test the_scan_finds_the_sites_it_is_there_for ... ok
+test every_filesystem_call_and_session_file_name_is_accounted_for ... FAILED
+
+failures:
+
+---- every_filesystem_call_and_session_file_name_is_accounted_for stdout ----
+
+thread 'every_filesystem_call_and_session_file_name_is_accounted_for' (36815336) panicked at crates/designos-mcp/tests/session_file_sites/main.rs:17:5:
+
+stale fs-call allowlist entry: src/tools/libraries.rs fn Some("a_function_that_was_removed") matches nothing
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_filesystem_call_and_session_file_name_is_accounted_for
+
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p designos-mcp --test session_file_sites`
+exit=101 scratch_removed=yes

@@ -1,0 +1,41 @@
+{
+  "format": "2",
+  "title": "Hardening 2026-10: #1165, #1158, #1159, #1072",
+  "language": "vi (EN product terms kept)",
+  "date": "2026-10-25",
+  "tests_root": "tests",
+  "ui_contract": "optional",
+  "artifacts": [
+    {
+      "id": "intake",
+      "folder": "intake",
+      "name": "Intake",
+      "status": "Draft for G1",
+      "owner_role": "PM"
+    },
+    {
+      "id": "prd",
+      "folder": "prd",
+      "name": "PRD",
+      "status": "Draft",
+      "owner_role": "PM"
+    },
+    {
+      "id": "us",
+      "folder": "us",
+      "name": "Stories",
+      "status": "Draft",
+      "owner_role": "PM"
+    },
+    {
+      "id": "decisions",
+      "folder": "decisions",
+      "name": "Glossary",
+      "status": "Draft",
+      "owner_role": "PM"
+    }
+  ],
+  "glossary": {
+    "document": "decisions/glossary.md"
+  }
+}

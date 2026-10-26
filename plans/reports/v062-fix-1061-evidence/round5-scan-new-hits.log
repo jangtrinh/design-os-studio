@@ -1,0 +1,84 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.25s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 21 tests
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_item_is_still_skipped_and_so_is_the_code_it_holds ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_only_a_test_gated_module_declares_is_skipped ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_name_joined_with_a_format_to_a_session_path_must_be_a_known_session_file_name ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_with_test_among_its_own_arguments_is_test_only ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_that_gates_itself_with_an_inner_cfg_test_is_skipped_even_when_a_shipped_module_declares_it ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_an_enum_variant_does_not_hide_the_code_after_its_enum ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_cfg_test_on_a_private_field_with_a_generic_type_does_not_hide_the_code_after_its_struct ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_file_a_shipped_module_declares_is_scanned_whatever_a_test_gated_path_says ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::an_inner_cfg_test_at_the_top_of_a_file_hides_that_whole_file ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_does_not_name_std_fs_is_not_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_does_not_write_files_is_not_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_use_that_renames_or_globs_std_fs_is_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::text_with_an_arrow_an_angle_pair_or_a_character_is_not_taken_for_a_redirect ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::the_names_of_the_image_job_and_plugin_files_are_session_file_names ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::every_shell_redirect_form_in_a_string_is_reported ... ok
+test agent_session_files::fs_sites_scan_tests::scanner_tests::a_command_that_writes_files_is_reported_with_or_without_a_path_and_a_space ... ok
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... FAILED
+
+failures:
+
+---- agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed' (38804215) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests.rs:124:5:
+38 problem(s) in the scan of shipped code:
+not listed: LINE	agent_permissions.rs	1	REQ_FILE="$APPROVALS_DIR/$REQ_ID.request.json"	REASON
+not listed: LINE	agent_permissions.rs	1	REQ_ID="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"	REASON
+not listed: LINE	agent_permissions.rs	1	if !name.ends_with(".request.json") {	REASON
+not listed: LINE	agent_permissions.rs	1	if let Some(id) = name.strip_suffix(".request.json") {	REASON
+not listed: LINE	agent_usage.rs	1	if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \	REASON
+not listed: LINE	agent_usage.rs	1	prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \	REASON
+not listed: LINE	cmdk.rs	1	"$ designos --apply-spec examples/specs/easeui-agent-console.spec.json --export-code react",	REASON
+not listed: LINE	cmdk.rs	1	rule: "Tap Target (>=32px)",	REASON
+not listed: LINE	cmdk.rs	1	rule: "Text Readability (>=11px)",	REASON
+not listed: LINE	image_jobs.rs	1	format!("Erase '{}' in mask region [x={x}, y={y}, w={w}, h={h}] (white in mask.png) and inpaint cleanly", instruction.trim())	REASON
+not listed: LINE	image_jobs.rs	1	let input_path = job_dir.join("input.png");	REASON
+not listed: LINE	image_jobs.rs	1	let mp = job_dir.join("mask.png");	REASON
+not listed: LINE	image_jobs.rs	1	let mut c = std::process::Command::new("/bin/sh");	REASON
+not listed: LINE	image_jobs.rs	1	let output_path = job_dir.join("output.png");	REASON
+not listed: LINE	image_jobs.rs	1	let request_path = job_dir.join("request.json");	REASON
+not listed: LINE	image_jobs.rs	1	reason: format!("Cannot read output.png: {}", crate::agent_session_files::with_next_step(&e)),	REASON
+not listed: LINE	image_jobs.rs	1	self.show_toast(format!("Cannot serialize request.json: {e}"), true);	REASON
+not listed: LINE	panels/menus.rs	1	leaf("Increase font size", "Ctrl+Shift+>", Action::TextSizeUp).off(!has_text),	REASON
+not listed: LINE	panels/properties.rs	1	if widgets::icon_button(ui, row.move_btn, format!("grid-{tag}-mv-{idx}"), icon, false, tip).clicked() {	REASON
+not listed: LINE	panels/proto_actions.rs	1	if widgets::icon_button(ui, b, ("pop-rm-action", k.as_str()), Icon::Minus, false, "Remove action").clicked() {	REASON
+not listed: LINE	panels/proto_actions.rs	1	if widgets::icon_button(ui, b, ("pop-rm-branch", bk.as_str()), Icon::Minus, false, "Remove condition").clicked() {	REASON
+not listed: LINE	panels/proto_actions.rs	1	record(ui, &format!("proto-pop-rm-action-{k}"), b);	REASON
+not listed: LINE	panels/proto_actions.rs	1	record(ui, &format!("proto-pop-rm-branch-{bk}"), b);	REASON
+not listed: LINE	skills/mod.rs	1	SkillStatus::TooLarge(_) => Some("Too large (> 64 KB)"),	REASON
+not listed: LINE	specs.rs	1	">".to_string()	REASON
+not listed: LINE	specs.rs	1	"easeui-agent-console.spec.json".to_string(),	REASON
+not listed: LINE	specs.rs	2	Err(e) => app.show_toast(format!("Invalid .spec.json: {}", designos_doc::format_spec_serde_error(&e)), true),	REASON
+not listed: LINE	specs.rs	1	PathBuf::from("examples/specs/easeui-agent-console.spec.json"),	REASON
+not listed: LINE	specs.rs	1	app.apply_node_spec(&node_spec, "figma-spec-card.spec.json");	REASON
+not listed: LINE	specs.rs	1	const FALLBACK_SPEC_JSON: &str = include_str!("../../../examples/specs/easeui-agent-console.spec.json");	REASON
+not listed: LINE	specs.rs	1	format!("> {t}")	REASON
+not listed: LINE	specs.rs	1	if name.ends_with(".spec.json") {	REASON
+not listed: LINE	specs.rs	1	items.push(("3. Declarative .spec.json Blueprints".to_string(), 620.0));	REASON
+not listed: LINE	specs.rs	1	let b2_txt = widgets::elide(&p, "Export Frame -> .spec.json", &theme::font_caption_medium(), (btn2.width() - 14.0).max(36.0));	REASON
+not listed: LINE	specs.rs	1	let filename = format!("{}.spec.json", if slug.is_empty() { "canvas-screen" } else { &slug });	REASON
+not listed: LINE	terminal.rs	1	atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes)	REASON
+not listed: LINE	terminal.rs	1	atomic_write_session_file(&plugin_dir.join("plugin.json"), manifest)?;	REASON
+not listed: LINE	terminal.rs	1	if let Some(dir) = tab.approvals_dir.as_ref().filter(|dir| dir.join(format!("{request_id}.request.json")).exists()) {	REASON
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+
+test result: FAILED. 20 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.88s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

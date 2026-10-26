@@ -161,11 +161,8 @@ pub fn reply_file(session_dir: &Path, tab_id: usize, slot: usize) -> PathBuf {
 /// The shell commands of the prompt hook's skills handlers, one per slot. Each prints its slot's file for the tab named by the
 /// environment (`DESIGNOS_TAB_ID`), and nothing, with exit 0, while that file does not exist.
 pub fn handler_commands(session_dir: &Path) -> Vec<String> {
-    (0..HOOK_SKILL_SLOTS)
-        .map(|slot| {
-            format!("f='{}/{REPLY_FILE_PREFIX}-'\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi", session_dir.display())
-        })
-        .collect()
+    let prefix = crate::agent_turn_status::sh_single_quote(&format!("{}/{REPLY_FILE_PREFIX}-", session_dir.display()));
+    (0..HOOK_SKILL_SLOTS).map(|slot| format!("f={prefix}\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi")).collect()
 }
 
 /// Writes `chunks` as the reply files of `tab_id`, one `additionalContext` each, and deletes the slots from `chunks.len()` up to
@@ -176,7 +173,7 @@ pub fn write_replies(session_dir: &Path, tab_id: usize, chunks: &[String], previ
         let reply = serde_json::json!({ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit", "additionalContext": chunk } });
         let written = serde_json::to_vec_pretty(&reply).map_err(|e| e.to_string()).and_then(|bytes| {
             let path = reply_file(session_dir, tab_id, slot);
-            designos_library::write_atomic(&path, &bytes).map_err(|e| e.to_string())
+            crate::agent_session_files::atomic_write_session_file(&path, &bytes).map_err(|e| crate::agent_session_files::with_next_step(&e))
         });
         all_written &= written.is_ok();
     }
@@ -187,7 +184,7 @@ pub fn write_replies(session_dir: &Path, tab_id: usize, chunks: &[String], previ
 /// Deletes the reply files of `tab_id` for the given `slots`.
 pub fn remove_replies(session_dir: &Path, tab_id: usize, slots: std::ops::Range<usize>) {
     for slot in slots {
-        let _ = std::fs::remove_file(reply_file(session_dir, tab_id, slot));
+        let _ = crate::agent_session_files::remove_session_file(&reply_file(session_dir, tab_id, slot));
     }
 }
 
@@ -196,7 +193,7 @@ pub fn remove_replies(session_dir: &Path, tab_id: usize, slots: std::ops::Range<
 pub fn remove_all_replies(session_dir: &Path) {
     for entry in std::fs::read_dir(session_dir).into_iter().flatten().flatten() {
         if entry.file_name().to_string_lossy().starts_with(REPLY_FILE_PREFIX) {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = crate::agent_session_files::remove_session_file(&entry.path());
         }
     }
 }

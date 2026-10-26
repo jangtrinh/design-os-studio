@@ -1,5 +1,6 @@
 mod agent_a11y;
 mod agent_approval_card;
+pub mod agent_approval_channel;
 mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
@@ -13,6 +14,7 @@ pub mod agent_open_flow;
 pub mod agent_permissions;
 pub mod agent_picker;
 mod agent_presence;
+mod agent_project_config;
 mod agent_sample_prompts;
 mod agent_selection_chip;
 mod agent_session_failure;
@@ -45,6 +47,9 @@ mod fig_export;
 mod find;
 mod font_refit;
 mod fonts;
+mod gemini_dialog;
+mod gemini_screen;
+mod gemini_status_hooks;
 mod history;
 mod home;
 mod icons;
@@ -67,6 +72,7 @@ mod live_sync_interaction_tests;
 mod live_sync_tests;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+mod node_field_diff;
 mod ops;
 mod panels;
 mod paste_placement;
@@ -75,6 +81,8 @@ mod present;
 mod proto;
 mod protovars;
 mod richtext;
+#[cfg(test)]
+mod scratch_cli_home;
 mod shell;
 mod showcase;
 mod skills;
@@ -84,6 +92,10 @@ mod system_paste;
 mod tabs;
 mod terminal;
 mod terminal_undo_chord;
+#[cfg(test)]
+mod test_agent_path;
+#[cfg(test)]
+mod test_alloc_count;
 #[cfg(test)]
 mod test_timing;
 mod textedit;

@@ -794,6 +794,10 @@
         "output_path": {
           "description": "Destination .fig path inside the workspace.",
           "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [

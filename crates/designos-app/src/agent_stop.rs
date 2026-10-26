@@ -134,9 +134,16 @@ pub fn is_tab_turn_running(tab: &TerminalTab) -> bool {
     }
 }
 
-/// Number of tabs in `state` whose turn is currently running (`§3.6`).
+/// True when the Stop control can stop `tab`: its turn is running and its CLI has an interrupt row. A CLI with no row gets no
+/// control, since pressing it would send nothing. Gemini CLI is one: a second Ctrl+C exits it, so the usual Esc then Ctrl+C is
+/// not safe to copy for it. [`is_tab_turn_running`] stays as it is, because it also marks where a turn starts in the undo stack.
+pub fn is_tab_stoppable(tab: &TerminalTab) -> bool {
+    interrupt_row_for(tab.spawn_preset).is_some() && is_tab_turn_running(tab)
+}
+
+/// Number of tabs in `state` whose turn is currently running and can be stopped (`§3.6`).
 pub fn running_tab_count(state: &TerminalState) -> usize {
-    state.tabs.iter().filter(|t| is_tab_turn_running(t)).count()
+    state.tabs.iter().filter(|t| is_tab_stoppable(t)).count()
 }
 
 /// Starts the stop sequence on `tab` at `now_ms` (`§3.3`).
@@ -384,7 +391,7 @@ pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth:
 pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut TerminalState, bar_r: Rect, right_anchor_x: f32) -> f32 {
     let now = designos_doc::now_ms();
     let running_count = running_tab_count(state);
-    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_turn_running);
+    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_stoppable);
     let active_stopping = state.tabs.get(state.active_tab).is_some_and(|t| t.stop_state.is_some());
 
     if !active_running && running_count < 2 {
@@ -453,19 +460,23 @@ mod tests {
         App::new(doc)
     }
 
-    /// Spawns `script` in a PTY-backed tab that reports `READY`, then marks the tab as running a turn.
+    /// Spawns `script` in a PTY-backed tab that reports `READY`, then marks the tab as running a turn. It returns once `READY` is on
+    /// the tab's screen: the stub has put its terminal in raw mode by then, so a key sent next reaches it as a key. A runner whose
+    /// `python3` starts slowly (a first call of the macOS shim takes seconds) gets up to 10 s, and a stub that never reports fails here.
     fn spawn_script_stub_tab(id: usize, preset: AgentCliPreset, script: &str) -> TerminalTab {
         let mut cmd = CommandBuilder::new("sh");
         cmd.arg("-c");
         cmd.arg(script);
         let mut tab = TerminalTab::spawn_test_stub(id, preset, cmd).expect("spawn stub tab");
-        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while std::time::Instant::now() < ready_deadline {
-            if tab.raw_log.lock().ok().is_some_and(|l| l.contains("READY")) {
-                break;
+        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut ready = false;
+        while !ready && std::time::Instant::now() < ready_deadline {
+            ready = tab.raw_log.lock().ok().is_some_and(|l| l.contains("READY"));
+            if !ready {
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(ready, "the stub never printed READY: its python3 did not start within 10 s");
         if let Ok(mut st) = tab.agent_status.lock() {
             *st = AgentTabStatus::Working(Some("Editing layers…".into()));
         }
@@ -1242,7 +1253,7 @@ mod tests {
     }
 
     fn hook_record(t: f64, event: &str) -> crate::agent_turn_status::AgentEventRecord {
-        crate::agent_turn_status::AgentEventRecord { t, e: event.to_string(), p: serde_json::json!({ "session_id": "sess-684" }) }
+        crate::agent_turn_status::AgentEventRecord { t, e: event.to_string(), tab: None, p: serde_json::json!({ "session_id": "sess-684" }) }
     }
 
     #[test]
