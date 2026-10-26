@@ -1,0 +1,22 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.65s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 10 tests
+test shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap ... ok
+test shell::tests::agent_turn_card_scroll::ac01_wheel_over_terminal_scrolls_scrollback_with_82_row_expanded_card ... ok
+test shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen ... ok
+test shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible ... ok
+test shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer ... ok
+test shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll ... ok
+test shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic ... ok
+test shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn ... ok
+test shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout ... ok
+test shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3343 filtered out; finished in 5.39s
+
