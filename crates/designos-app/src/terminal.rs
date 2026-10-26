@@ -2766,16 +2766,20 @@ impl TerminalState {
                 cfg!(target_os = "macos")
             }
         };
-        let preset = self.focused_tab().map(|t| t.preset).unwrap_or(self.active_runtime);
-        let tab_is_agent = preset.is_agent();
+        // When no tab is open yet (e.g. the new-session picker after a palette auto-fix), there is no Shell PTY
+        // reserving `Ctrl+Z` for `SIGTSTP`, so `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` reach document Undo/Redo.
+        let (tab_is_agent, default_uses_ctrl_z) = match self.focused_tab() {
+            Some(tab) => (tab.preset.is_agent(), tab.preset.uses_ctrl_z()),
+            None => (true, false),
+        };
         let cli_uses_ctrl_z = {
             #[cfg(test)]
             {
-                self.cli_uses_ctrl_z_override.unwrap_or_else(|| preset.uses_ctrl_z())
+                self.cli_uses_ctrl_z_override.unwrap_or(default_uses_ctrl_z)
             }
             #[cfg(not(test))]
             {
-                preset.uses_ctrl_z()
+                default_uses_ctrl_z
             }
         };
         (is_mac, tab_is_agent, cli_uses_ctrl_z)
