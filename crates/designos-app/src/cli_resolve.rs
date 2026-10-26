@@ -591,4 +591,76 @@ mod tests {
         assert_eq!(resolved, Some(Some(claude)), "warm_cli_version_cache must resolve on the calling thread inside ScopedCliDirs before spawning");
         let _ = std::fs::remove_dir_all(&stub);
     }
+
+    /// H8: Each checked-in stub: `--version` exit 0 with a fixed string; `auth status` and
+    /// `login status` exit 0 with fixed strings; `agy --mcp-config x` exit 1 with one error line;
+    /// anything else logs `$0 $*` to `DESIGNOS_STUB_LOG` and runs `cat`. Also verifies `shell/tests.rs`
+    /// uses `stub_dir()` instead of writing dynamic stubs.
+    #[test]
+    #[cfg(unix)]
+    fn stub_scripts_behave() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command, Stdio};
+
+        let dir = super::stub_dir();
+        let expected_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/layout-baseline/stubs");
+        assert_eq!(dir, expected_dir.as_path(), "stub_dir() must point to checked-in tests/layout-baseline/stubs");
+
+        let tmp = make_temp_dir("h8-log");
+        let log_path = tmp.join("invocations.log");
+
+        for bin in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
+            let script = dir.join(bin);
+            assert!(script.is_file(), "missing checked-in stub {}", script.display());
+            let mode = std::fs::metadata(&script).expect("stub metadata").permissions().mode();
+            assert_ne!(mode & 0o111, 0, "stub {} must be executable", script.display());
+
+            let ver = Command::new(&script).arg("--version").env("DESIGNOS_STUB_LOG", &log_path).output().expect("run --version");
+            assert!(ver.status.success(), "{bin} --version must exit 0");
+            assert!(!String::from_utf8_lossy(&ver.stdout).trim().is_empty(), "{bin} --version must print fixed string");
+
+            let auth = Command::new(&script).args(["auth", "status"]).env("DESIGNOS_STUB_LOG", &log_path).output().expect("run auth status");
+            assert!(auth.status.success(), "{bin} auth status must exit 0");
+
+            let login = Command::new(&script).args(["login", "status"]).env("DESIGNOS_STUB_LOG", &log_path).output().expect("run login status");
+            assert!(login.status.success(), "{bin} login status must exit 0");
+
+            let mut child = Command::new(&script)
+                .args(["--flag", "arg"])
+                .env("DESIGNOS_STUB_LOG", &log_path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn stub cat mode");
+            child.stdin.take().expect("stdin").write_all(b"ping\n").expect("write stdin");
+            let out = child.wait_with_output().expect("wait stub cat mode");
+            assert!(out.status.success(), "{bin} cat mode must exit 0");
+            assert_eq!(String::from_utf8_lossy(&out.stdout), "ping\n", "{bin} must exec /bin/cat");
+            assert!(out.stderr.is_empty(), "{bin} cat mode must print no extra output");
+
+            let log_text = std::fs::read_to_string(&log_path).expect("read stub log");
+            let expected_line = format!("{} --flag arg", script.display());
+            assert!(log_text.lines().any(|l| l == expected_line), "expected stub log to contain `{expected_line}`, got:\n{log_text}");
+        }
+
+        let agy_fail = Command::new(dir.join("agy")).args(["--mcp-config", "x"]).env("DESIGNOS_STUB_LOG", &log_path).output().expect("run agy --mcp-config x");
+        assert_eq!(agy_fail.status.code(), Some(1), "agy --mcp-config x must exit 1");
+        let combined = format!("{}{}", String::from_utf8_lossy(&agy_fail.stdout), String::from_utf8_lossy(&agy_fail.stderr));
+        let non_empty_lines: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(non_empty_lines.len(), 1, "agy --mcp-config x must print one error line, got: {combined:?}");
+
+        let shell_tests = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/shell/tests.rs")).expect("read shell/tests.rs");
+        assert!(!shell_tests.contains("designos-stub-agent-clis"), "shell/tests.rs must use checked-in stub_dir() instead of writing dynamic stubs");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+/// Returns the path to the checked-in POSIX agent CLI stubs in `tests/layout-baseline/stubs`.
+#[cfg(test)]
+pub fn stub_dir() -> &'static Path {
+    static STUB_DIR: OnceLock<PathBuf> = OnceLock::new();
+    STUB_DIR.get_or_init(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/layout-baseline/stubs"))
 }
