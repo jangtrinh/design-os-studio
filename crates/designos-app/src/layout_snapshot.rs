@@ -1186,6 +1186,109 @@ mod tests {
         );
     }
 
+    /// Round 5 Major B: Derived cumulative shift covers `anchor_x: left` (sum of `dw` to the left
+    /// in the same G3 row), `anchor_x: right` (sum of `dw` to the right in the same G3 row), and
+    /// `anchor_y: bottom` (sum of `dh` of the rows below), while `centre` keeps today's rule.
+    #[test]
+    fn derived_shift_covers_left_right_and_bottom_anchors() {
+        // 1. anchor_x: left — left button widens 32->40 under max_dw: 8, right button moves x +8: passes; +12 fails on edge.
+        let mut base_x = sample_snapshot("f-inspector");
+        base_x.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base_x.named.insert("btn-left".into(), NamedWidget { region: "right_panel".into(), rect: [1210.0, 60.0, 32.0, 24.0], count: 1 });
+        base_x.named.insert("btn-right".into(), NamedWidget { region: "right_panel".into(), rect: [1250.0, 60.0, 32.0, 24.0], count: 1 });
+
+        let mut cur_x_ok = base_x.clone();
+        cur_x_ok.named.get_mut("btn-left").unwrap().rect = [1210.0, 60.0, 40.0, 24.0];
+        cur_x_ok.named.get_mut("btn-right").unwrap().rect = [1258.0, 60.0, 32.0, 24.0];
+
+        let allow_x_left = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            h_base: Some(24.0),
+            max_dw: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: left button widens 32->40".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base_x, &cur_x_ok, &allow_x_left, &[])
+            .expect("left button widening 32->40 and right button shifting x +8 must pass");
+
+        let mut cur_x_bad = cur_x_ok.clone();
+        cur_x_bad.named.get_mut("btn-right").unwrap().rect[0] = 1262.0; // +12 instead of +8
+        let err_x = compare(&base_x, &cur_x_bad, &allow_x_left, &[]).expect_err("right button moving x +12 when left button widened +8 must fail on edge");
+        assert!(err_x.contains("btn-right"), "edge failure must name btn-right, got: {err_x}");
+
+        // 2. anchor_x: right — right button widens 32->40 anchored right, left button shifts x -8: passes; -12 fails on edge.
+        let mut base_xr = sample_snapshot("f-inspector");
+        base_xr.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base_xr.named.insert("btn-left".into(), NamedWidget { region: "right_panel".into(), rect: [1328.0, 60.0, 32.0, 24.0], count: 1 });
+        base_xr.named.insert("btn-right".into(), NamedWidget { region: "right_panel".into(), rect: [1368.0, 60.0, 32.0, 24.0], count: 1 });
+
+        let mut cur_xr_ok = base_xr.clone();
+        cur_xr_ok.named.get_mut("btn-right").unwrap().rect = [1360.0, 60.0, 40.0, 24.0];
+        cur_xr_ok.named.get_mut("btn-left").unwrap().rect = [1320.0, 60.0, 32.0, 24.0];
+
+        let allow_x_right = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            h_base: Some(24.0),
+            anchor_x: Some(AnchorX::Right),
+            max_dw: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: right-anchored button widens 32->40".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base_xr, &cur_xr_ok, &allow_x_right, &[])
+            .expect("right-anchored button widening 32->40 and left neighbor shifting x -8 must pass");
+
+        let mut cur_xr_bad = cur_xr_ok.clone();
+        cur_xr_bad.named.get_mut("btn-left").unwrap().rect[0] = 1316.0; // -12 instead of -8
+        let err_xr = compare(&base_xr, &cur_xr_bad, &allow_x_right, &[]).expect_err("left button moving x -12 when right button widened +8 must fail on edge");
+        assert!(err_xr.contains("btn-left"), "edge failure must name btn-left, got: {err_xr}");
+
+        // 3. anchor_y: bottom — mirror of top-anchor test: rows 24->32 (+8 each) stack upward from bottom.
+        let base_yb = sample_snapshot("f-inspector");
+        let mut cur_yb = base_yb.clone();
+        // Row 2 (bottom): y=120, h=24 (bottom=144) -> y=112, h=32 (bottom=144, dh=+8, shift_below=0)
+        cur_yb.named.get_mut("prop-row-2").unwrap().rect = [1210.0, 112.0, 200.0, 32.0];
+        // Row 1 (middle): y=90, h=24 (bottom=114) -> y=74, h=32 (bottom=106, dh=+8, shift_below=-8 from row 2)
+        cur_yb.named.get_mut("prop-row-1").unwrap().rect = [1210.0, 74.0, 200.0, 32.0];
+        // Row 0 (top): y=60, h=24 (bottom=84) -> y=36, h=32 (bottom=68, dh=+8, shift_below=-16 from rows 1+2)
+        cur_yb.named.get_mut("prop-row-0").unwrap().rect = [1210.0, 36.0, 200.0, 32.0];
+
+        let allow_yb = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            h_base: Some(24.0),
+            anchor_y: Some(AnchorY::Bottom),
+            min_dh: Some(8.0),
+            max_dh: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: bottom-anchored editor rows 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base_yb, &cur_yb, &allow_yb, &[])
+            .expect("bottom-anchored rows shifting by derived cumulative sum (0, -8, -16) must pass");
+
+        // Bottom row growing by +16 (24 -> 40) must fail on its own dh.
+        let mut cur_yb_plus16 = cur_yb.clone();
+        cur_yb_plus16.named.get_mut("prop-row-2").unwrap().rect = [1210.0, 104.0, 200.0, 40.0];
+        let err_yb_dh = compare(&base_yb, &cur_yb_plus16, &allow_yb, &[]).expect_err("+16 bottom-anchored row in a [8,8] region must fail on its own dh");
+        assert!(err_yb_dh.contains("prop-row-2"), "dh failure must name prop-row-2, got: {err_yb_dh}");
+
+        // Top row shifting 8pt higher than derived sum explains (y=28 instead of 36) must fail on its edge.
+        let mut cur_yb_extra = cur_yb.clone();
+        cur_yb_extra.named.get_mut("prop-row-0").unwrap().rect[1] = 28.0;
+        let err_yb_edge = compare(&base_yb, &cur_yb_extra, &allow_yb, &[]).expect_err("widget 8pt higher than derived bottom-anchor shift must fail on edge");
+        assert!(err_yb_edge.contains("prop-row-0"), "edge failure must name prop-row-0, got: {err_yb_edge}");
+    }
+
     /// Round 4 Major 1: Three unnamed inspector rows go 24->32 and step down by +0, +8, +16
     /// under `{h_base: 24, min_dh: 8, max_dh: 8}`; G4 applies the cumulative row-box `dh` shift.
     #[test]
