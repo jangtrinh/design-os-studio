@@ -1,0 +1,88 @@
+# cargo-nextest configuration for DESIGN:OS Studio (#1160).
+#
+# - `default` profile: local and fallback profile with retries = 2, fail-fast = false,
+#   slow-test reporting, and FLAKY reporting when a test passes on retry.
+# - `ci` profile: used by GitHub Actions (`cargo nextest run --workspace --locked --profile ci`).
+# - `quarantine` test-group: confirmed flaky tests remain in the run (never skipped),
+#   run with retries = 4, and serialize in the `quarantine` group to avoid load contention.
+
+[profile.default]
+retries = 2
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 10 }
+status-level = "pass"
+final-status-level = "slow"
+
+[profile.ci]
+retries = 2
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 10 }
+status-level = "pass"
+final-status-level = "slow"
+
+[profile.ci.junit]
+path = "junit.xml"
+report-name = "design-os-studio-ci"
+store-success-output = false
+store-failure-output = true
+
+[test-groups.quarantine]
+max-threads = 1
+
+# `designos-webcapture::capture_tests` spawns Playwright into a shared `$CARGO_TARGET_TMPDIR/webcapture-live`
+# directory after calling `remove_dir_all`, so concurrent test processes in that binary race on the directory.
+[test-groups.webcapture-serial]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = "package(designos-webcapture) & binary(capture_tests)"
+test-group = "webcapture-serial"
+
+# Heavy 8M-node clone-budget expansion tests and tight wall-clock / frame-budget benchmarks contend for CPU and
+# memory bandwidth when run concurrently across process-per-test workers on 3-vCPU CI runners.
+[[profile.default.overrides]]
+filter = "test(=io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast) | test(=rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget) | test(=tools::batch::tests::trial_clone_budget_on_large_synthetic)"
+threads-required = "num-cpus"
+slow-timeout = { period = "60s", terminate-after = 12 }
+
+[[profile.default.overrides]]
+filter = "test(=large_fixture_off_thread_budget) | test(=bootstrap_is_reproducible) | test(=agent_mention::tests::search_is_budgeted_on_a_huge_document) | test(=pen::tests::skipped_refs_do_not_re_walk_a_huge_component)"
+threads-required = "num-cpus"
+
+# Quarantine list (#1160) — each entry links to its tracking issue and stays in the run with retries = 4.
+
+# Tracking issue: #996 (https://github.com/jangtrinh/design-os-studio/issues/996)
+[[profile.default.overrides]]
+filter = "test(=shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one)"
+retries = 4
+test-group = "quarantine"
+
+# Tracking issue: #1179 (https://github.com/jangtrinh/design-os-studio/issues/1179)
+[[profile.default.overrides]]
+filter = "test(=terminal::gemini_narrow_tests::output_the_cli_prints_through_its_own_terminal_is_read)"
+retries = 4
+test-group = "quarantine"
+
+# Tracking issue: #1180 (https://github.com/jangtrinh/design-os-studio/issues/1180)
+[[profile.default.overrides]]
+filter = "package(designos-fig) & test(=variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count)"
+retries = 4
+test-group = "quarantine"
+
+# Tracking issue: #1181 (https://github.com/jangtrinh/design-os-studio/issues/1181)
+[[profile.default.overrides]]
+filter = "test(=agent_session_files::inner_link_race_tests::no_byte_lands_in_the_target_of_a_link_swapped_in_while_studio_rewrites_the_session_files)"
+retries = 4
+test-group = "quarantine"
+
+# Tracking issue: #1182 (https://github.com/jangtrinh/design-os-studio/issues/1182)
+[[profile.default.overrides]]
+filter = "test(=terminal::tests::stub_cli_drives_running_needs_input_done)"
+retries = 4
+test-group = "quarantine"
+
+# Tracking issue: #1183 (https://github.com/jangtrinh/design-os-studio/issues/1183)
+[[profile.default.overrides]]
+filter = "test(=terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized)"
+retries = 4
+test-group = "quarantine"

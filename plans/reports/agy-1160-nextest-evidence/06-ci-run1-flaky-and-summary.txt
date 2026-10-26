@@ -1,0 +1,20 @@
+2026-10-26T01:40:51.7742820Z [35;1m  TRY 1 FAIL[0m [   1.141s] (─────────) [35;1mdesignos-app::bin/designos-studio[0m [36magent_mention::tests[0m[36m::[0m[34;1msearch_is_budgeted_on_a_huge_document[0m
+2026-10-26T01:40:52.5544580Z [33;1m  TRY 2 PASS[0m [   0.779s] (3059/8084) [35;1mdesignos-app::bin/designos-studio[0m [36magent_mention::tests[0m[36m::[0m[34;1msearch_is_budgeted_on_a_huge_document[0m
+2026-10-26T01:49:38.8350120Z [31;1m   TRY 3 TMT[0m [ 302.044s] (5059/8084) [35;1mdesignos-app::bin/designos[0m [36mio::tests[0m[36m::[0m[34;1mopening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast[0m
+2026-10-26T01:52:56.9336560Z [35;1m  TRY 1 FAIL[0m [   1.988s] (─────────) [35;1mdesignos-eval::harness[0m [34;1mbootstrap_is_reproducible[0m
+2026-10-26T01:52:59.5262090Z [33;1m  TRY 3 PASS[0m [   0.707s] (6594/8084) [35;1mdesignos-eval::harness[0m [34;1mbootstrap_is_reproducible[0m
+2026-10-26T01:53:41.1784260Z [35;1m  TRY 1 FAIL[0m [   1.654s] (─────────) [35;1mdesignos-fig[0m [36mpen::tests[0m[36m::[0m[34;1mskipped_refs_do_not_re_walk_a_huge_component[0m
+2026-10-26T01:53:41.6360670Z [33;1m  TRY 2 PASS[0m [   0.456s] (6928/8084) [35;1mdesignos-fig[0m [36mpen::tests[0m[36m::[0m[34;1mskipped_refs_do_not_re_walk_a_huge_component[0m
+2026-10-26T01:56:53.4480780Z [31;1m   TRY 3 TMT[0m [ 301.978s] (7502/8084) [35;1mdesignos-app::bin/designos-studio[0m [36mio::tests[0m[36m::[0m[34;1mopening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast[0m
+2026-10-26T01:58:53.4443060Z [35;1m  TRY 1 FAIL[0m [  10.459s] (─────────) [35;1mdesignos-webcapture::capture_tests[0m [34;1mcomponent_hint[0m
+2026-10-26T01:59:09.7934960Z [31;1m  TRY 3 FAIL[0m [   8.594s] (8080/8084) [35;1mdesignos-webcapture::capture_tests[0m [34;1mcomponent_hint[0m
+2026-10-26T01:59:19.8239700Z [35;1m  TRY 1 FAIL[0m [  10.028s] (─────────) [35;1mdesignos-webcapture::capture_tests[0m [34;1mrust_parses_capture[0m
+2026-10-26T01:59:27.5314190Z [33;1m  TRY 2 PASS[0m [   7.708s] (8084/8084) [35;1mdesignos-webcapture::capture_tests[0m [34;1mrust_parses_capture[0m
+2026-10-26T01:59:27.5372230Z [31;1m     Summary[0m [1536.041s] [1m8084[0m tests run: [1m8081[0m [32;1mpassed[0m ([1m7[0m [33;1mslow[0m, [1m4[0m [33;1mflaky[0m), [1m1[0m [31;1mfailed[0m, [1m2[0m [31;1mtimed out[0m, [1m33[0m [33;1mskipped[0m
+2026-10-26T01:59:27.5387970Z [33;1m   FLAKY 2/3[0m [   0.779s] (3059/8084) [35;1mdesignos-app::bin/designos-studio[0m [36magent_mention::tests[0m[36m::[0m[34;1msearch_is_budgeted_on_a_huge_document[0m
+2026-10-26T01:59:27.5390240Z [33;1m   FLAKY 3/3[0m [   0.707s] (6594/8084) [35;1mdesignos-eval::harness[0m [34;1mbootstrap_is_reproducible[0m
+2026-10-26T01:59:27.5391460Z [33;1m   FLAKY 2/3[0m [   0.456s] (6928/8084) [35;1mdesignos-fig[0m [36mpen::tests[0m[36m::[0m[34;1mskipped_refs_do_not_re_walk_a_huge_component[0m
+2026-10-26T01:59:27.5392920Z [33;1m   FLAKY 2/3[0m [   7.708s] (8084/8084) [35;1mdesignos-webcapture::capture_tests[0m [34;1mrust_parses_capture[0m
+2026-10-26T01:59:27.5394800Z [31;1m   TRY 3 TMT[0m [ 302.044s] (5059/8084) [35;1mdesignos-app::bin/designos[0m [36mio::tests[0m[36m::[0m[34;1mopening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast[0m
+2026-10-26T01:59:27.5397730Z [31;1m   TRY 3 TMT[0m [ 301.978s] (7502/8084) [35;1mdesignos-app::bin/designos-studio[0m [36mio::tests[0m[36m::[0m[34;1mopening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast[0m
+2026-10-26T01:59:27.5400250Z [31;1m  TRY 3 FAIL[0m [   8.594s] (8080/8084) [35;1mdesignos-webcapture::capture_tests[0m [34;1mcomponent_hint[0m

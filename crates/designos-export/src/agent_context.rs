@@ -38,10 +38,10 @@ pub const CAP_STYLE_TOKENS: usize = 200;
 pub const CAP_RULES_TOKENS: usize = 6_000;
 pub const CAP_SELECTION_TOKENS: usize = 300;
 
-/// Estimates token count using the project's `chars / 4` rule (`§3.1`).
+/// Estimates token count using the project's `chars / 4` rule (`§3.1`), ignoring `\r` so CRLF and LF count identically.
 #[inline]
 pub fn estimate_tokens(s: &str) -> usize {
-    s.chars().count().div_ceil(4)
+    s.chars().filter(|&c| c != '\r').count().div_ceil(4)
 }
 
 /// Formats `SystemTime` (or `SystemTime::now()`) as an UTC RFC 3339 timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
@@ -1441,7 +1441,9 @@ fn build_style_section(doc: &Document, current_page: Option<NodeId>, explicit_st
 }
 
 fn build_rules_section(rules: &str, cap_tokens: usize) -> BootstrapSection {
-    let body = rules.trim();
+    let normalized: std::borrow::Cow<'_, str> =
+        if rules.contains('\r') { std::borrow::Cow::Owned(rules.replace("\r\n", "\n").replace('\r', "\n")) } else { std::borrow::Cow::Borrowed(rules) };
+    let body = normalized.trim();
     if body.is_empty() {
         let content = "No rules pack was supplied; call designos_get_guidelines {\"topic\":\"rules\"}.".to_string();
         return BootstrapSection {

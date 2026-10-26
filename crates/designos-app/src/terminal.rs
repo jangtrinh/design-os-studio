@@ -1410,11 +1410,16 @@ fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTr
 /// first-turn bootstrap block (section 7, full and compact) all take their rules from here, so they cannot
 /// disagree and a disabled tool is never listed (`E15-16 §8.6`).
 fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>) -> std::borrow::Cow<'static, str> {
+    fn fallback_rules_pack() -> std::borrow::Cow<'static, str> {
+        if designos_mcp::rules::GENERATED_RULES_MD.contains('\r') {
+            std::borrow::Cow::Owned(designos_mcp::rules::GENERATED_RULES_MD.replace("\r\n", "\n").replace('\r', "\n"))
+        } else {
+            std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)
+        }
+    }
     match enabled_tools {
-        Some(set) => designos_mcp::rules::generate_rules_pack(Some(set))
-            .map(std::borrow::Cow::Owned)
-            .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)),
-        None => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
+        Some(set) => designos_mcp::rules::generate_rules_pack(Some(set)).map(std::borrow::Cow::Owned).unwrap_or_else(|_| fallback_rules_pack()),
+        None => fallback_rules_pack(),
     }
 }
 
@@ -2761,16 +2766,20 @@ impl TerminalState {
                 cfg!(target_os = "macos")
             }
         };
-        let preset = self.focused_tab().map(|t| t.preset).unwrap_or(self.active_runtime);
-        let tab_is_agent = preset.is_agent();
+        // When no tab is open yet (e.g. the new-session picker after a palette auto-fix), there is no Shell PTY
+        // reserving `Ctrl+Z` for `SIGTSTP`, so `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` reach document Undo/Redo.
+        let (tab_is_agent, default_uses_ctrl_z) = match self.focused_tab() {
+            Some(tab) => (tab.preset.is_agent(), tab.preset.uses_ctrl_z()),
+            None => (true, false),
+        };
         let cli_uses_ctrl_z = {
             #[cfg(test)]
             {
-                self.cli_uses_ctrl_z_override.unwrap_or_else(|| preset.uses_ctrl_z())
+                self.cli_uses_ctrl_z_override.unwrap_or(default_uses_ctrl_z)
             }
             #[cfg(not(test))]
             {
-                preset.uses_ctrl_z()
+                default_uses_ctrl_z
             }
         };
         (is_mac, tab_is_agent, cli_uses_ctrl_z)
@@ -8054,8 +8063,12 @@ mod tests {
         }
 
         let terminal_src = include_str!("terminal.rs");
-        let shipped_part = terminal_src.split("#[cfg(test)]\nmod tests").next().unwrap_or(terminal_src);
-        assert!(!shipped_part.contains("fn is_design_creation_prompt"), "is_design_creation_prompt must not exist in terminal.rs");
+        let crlf_terminal_src = terminal_src.replace("\r\n", "\n").replace('\n', "\r\n");
+        for candidate in [terminal_src, crlf_terminal_src.as_str()] {
+            let shipped_part =
+                candidate.split("#[cfg(test)]\r\nmod tests").next().unwrap_or(candidate).split("#[cfg(test)]\nmod tests").next().unwrap_or(candidate);
+            assert!(!shipped_part.contains("fn is_design_creation_prompt"), "is_design_creation_prompt must not exist in terminal.rs");
+        }
         kill_tabs(&mut st);
     }
 
@@ -12371,6 +12384,25 @@ mod tests {
             let skill_md = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read SKILL.md");
             assert!(skill_md.trim_end().ends_with(&rules), "SKILL.md and the first-turn block must carry the same rules text");
             kill_tabs(&mut st);
+        }
+
+        #[test]
+        fn first_turn_rules_with_crlf_line_endings_fit_under_token_cap_and_normalize_to_lf() {
+            let (doc, page) = light_rules_doc();
+            let crlf_rules = designos_mcp::rules::GENERATED_RULES_MD.replace("\r\n", "\n").replace('\n', "\r\n");
+            assert!(crlf_rules.contains("\r\n"), "precondition: CRLF rules input");
+
+            let opts = designos_export::agent_context::BootstrapOptions { current_page_id: Some(page), ..Default::default() };
+            let boot = designos_export::agent_context::bootstrap(&doc, &opts, &doc.library.enabled, &crlf_rules);
+            let rules_sec = boot.sections.iter().find(|s| s.id == "rules").expect("rules section");
+            assert!(
+                !rules_sec.truncated && rules_sec.tokens <= designos_export::agent_context::CAP_RULES_TOKENS,
+                "CRLF rules pack must not exceed the 6,000-token cap: truncated={}, tokens={}",
+                rules_sec.truncated,
+                rules_sec.tokens
+            );
+            assert!(!rules_sec.content.contains('\r'), "rules section must normalize CRLF to LF");
+            assert_eq!(rules_sec.content, designos_mcp::rules::GENERATED_RULES_MD.trim());
         }
 
         #[test]

@@ -1,0 +1,14 @@
+=== out/tools/bin/actionlint -verbose .github/workflows/ci.yml ===
+verbose: Linting .github/workflows/ci.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest
+verbose: Found 0 parse errors in 0 ms for .github/workflows/ci.yml
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 1 ms for .github/workflows/ci.yml
+=== go run github.com/rhysd/actionlint/cmd/actionlint@latest -verbose .github/workflows/ci.yml ===
+verbose: Linting .github/workflows/ci.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest
+verbose: Found 0 parse errors in 0 ms for .github/workflows/ci.yml
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 0 ms for .github/workflows/ci.yml

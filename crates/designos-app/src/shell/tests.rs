@@ -167,7 +167,8 @@ impl Sim {
         self.frame(vec![Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers: m }]);
     }
     fn cmd_key(&mut self, key: Key) {
-        self.mods = Modifiers::COMMAND;
+        let is_mac = self.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        self.mods = Modifiers { alt: false, ctrl: !is_mac, shift: false, mac_cmd: is_mac, command: true };
         self.key(key);
         self.mods = Modifiers::NONE;
     }

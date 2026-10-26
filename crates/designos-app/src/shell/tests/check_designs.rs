@@ -134,3 +134,26 @@ fn fix_all_disabled_while_scanning() {
     assert!(!s.app().hist.can_undo(), "Fix all is disabled while scanning and does not push an undo step");
     assert_eq!(report(&s).findings.len(), 8, "no findings were modified while scanning");
 }
+
+#[test]
+fn preempted_slice_still_finishes_small_fixture_in_one_frame() {
+    use crate::check_designs::{audit_step_at, LibrarySources, ScanCursor, SLICE_BUDGET};
+    use std::time::{Duration, Instant};
+
+    let s = sim();
+    let doc = &s.app().doc;
+    let scope = Scope::Page(s.app().page);
+    let mut cur = ScanCursor::with_libraries(doc, scope, LibrarySources::default());
+    // Simulate a 20ms OS thread preemption (1 Windows scheduler quantum = 15.6ms) during a 2ms slice.
+    let preempted_start = Instant::now() - Duration::from_millis(20);
+    let done = audit_step_at(doc, &mut cur, SLICE_BUDGET, preempted_start);
+    assert!(
+        done,
+        "a small fixture ({} nodes) under the normal 2ms slice budget must finish in one slice even if the OS scheduler preempts the thread (stopped at phase {:?}, scanned {}/{})",
+        doc.nodes.len(),
+        cur.phase,
+        cur.scanned,
+        cur.total
+    );
+    assert_eq!(cur.into_report(doc).findings.len(), 8);
+}

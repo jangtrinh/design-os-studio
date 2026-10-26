@@ -1,0 +1,56 @@
+Test (macos-14)	Test workspace	2026-10-26T04:01:55.5360210Z     Starting 8091 tests across 128 binaries (33 tests skipped)
+Test (macos-14)	Test workspace	2026-10-26T04:03:32.7135050Z         SLOW [> 60.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:04:32.7125610Z         SLOW [>120.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:05:32.7168700Z         SLOW [>180.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:06:32.7443940Z         SLOW [>240.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:07:32.7360110Z         SLOW [>300.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:08:32.7451360Z         SLOW [>360.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:09:32.7655250Z         SLOW [>420.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:10:32.7710330Z         SLOW [>480.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:11:32.7663650Z         SLOW [>540.000s] (─────────) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:16:51.0627120Z         SLOW [> 60.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:17:51.0781370Z         SLOW [>120.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:18:51.0898260Z         SLOW [>180.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:19:51.0812490Z         SLOW [>240.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:20:51.1032240Z         SLOW [>300.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:21:51.1024800Z         SLOW [>360.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:22:51.1051980Z         SLOW [>420.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:23:51.1301640Z         SLOW [>480.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:24:51.1058160Z         SLOW [>540.000s] (─────────) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:31:02.6021680Z         SLOW [> 60.000s] (─────────) designos-fig rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget
+Test (macos-14)	Test workspace	2026-10-26T04:32:02.6162170Z         SLOW [>120.000s] (─────────) designos-fig rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget
+Test (macos-14)	Test workspace	2026-10-26T04:33:02.6019270Z         SLOW [>180.000s] (─────────) designos-fig rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget
+Test (macos-14)	Test workspace	2026-10-26T04:36:03.4003680Z         SLOW [> 30.000s] (─────────) designos-render blur::tests::downsampled_within_two_levels
+Test (macos-14)	Test workspace	2026-10-26T04:36:07.3217280Z         SLOW [> 30.000s] (─────────) designos-render shadow_tests::rrect_shadow_matches_generic
+Test (macos-14)	Test workspace	2026-10-26T04:36:37.3263940Z         SLOW [> 60.000s] (─────────) designos-render shadow_tests::rrect_shadow_matches_generic
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7281630Z      Summary [2168.192s] 8091 tests run: 8091 passed (5 slow), 33 skipped
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7284470Z         SLOW [ 578.276s] (1115/8091) designos-app::bin/designos io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7287450Z         SLOW [ 580.619s] (4072/8091) designos-app::bin/designos-studio io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7289130Z         SLOW [ 236.827s] (6943/8091) designos-fig rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7290710Z         SLOW [  43.695s] (7951/8091) designos-render blur::tests::downsampled_within_two_levels
+Test (macos-14)	Test workspace	2026-10-26T04:38:03.7291880Z         SLOW [  60.411s] (7952/8091) designos-render shadow_tests::rrect_shadow_matches_generic
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:15.1667330Z    Doc-tests designos_diff
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:15.2980500Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:15.2988460Z    Doc-tests designos_doc
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:16.5068950Z    Doc-tests designos_eval
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:16.5078760Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:16.7828860Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:16.7844530Z    Doc-tests designos_export
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.1054960Z    Doc-tests designos_fig
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.1261040Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.7253810Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.7273790Z    Doc-tests designos_fonts
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.8144150Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:17.8156820Z    Doc-tests designos_gpu
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.0684320Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.0698010Z    Doc-tests designos_library
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.2143630Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.2158150Z    Doc-tests designos_mcp
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.8393870Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:18.8410110Z    Doc-tests designos_render
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:19.0519100Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:19.0531250Z    Doc-tests designos_svg
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:19.1301930Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:19.1313170Z    Doc-tests designos_webcapture
+Test (macos-14)	Test workspace doctests	2026-10-26T04:38:19.2805260Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Test (macos-14)	Lint budget on a release build (large fixture)	2026-10-26T04:40:24.1657800Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 4.09s
