@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "result": {
+    "userAgent": "designos-studio-spike-A/0.164.0 (OS; arch) xterm-256color (designos-studio-spike-A; 0.0.0)",
+    "codexHome": "/codex-home",
+    "platformFamily": "unix",
+    "platformOs": "macos"
+  }
+}

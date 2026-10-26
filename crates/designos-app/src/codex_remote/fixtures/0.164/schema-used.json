@@ -1,0 +1,303 @@
+{
+  "codex": "0.164.0",
+  "files": {
+    "CommandExecutionRequestApprovalParams.json": {
+      "required": [
+        "itemId",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ],
+      "properties": [
+        "approvalId",
+        "command",
+        "commandActions",
+        "cwd",
+        "environmentId",
+        "itemId",
+        "kind",
+        "networkApprovalContext",
+        "proposedExecpolicyAmendment",
+        "proposedNetworkPolicyAmendments",
+        "reason",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "CommandExecutionRequestApprovalResponse.json": {
+      "required": [
+        "decision"
+      ],
+      "properties": [
+        "decision"
+      ]
+    },
+    "FileChangeRequestApprovalParams.json": {
+      "required": [
+        "itemId",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ],
+      "properties": [
+        "grantRoot",
+        "itemId",
+        "reason",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "FileChangeRequestApprovalResponse.json": {
+      "required": [
+        "decision"
+      ],
+      "properties": [
+        "decision"
+      ]
+    },
+    "McpServerElicitationRequestParams.json": {
+      "required": [
+        "serverName",
+        "threadId"
+      ],
+      "properties": [
+        "_meta",
+        "elicitationId",
+        "message",
+        "mode",
+        "requestedSchema",
+        "serverName",
+        "threadId",
+        "turnId",
+        "url"
+      ]
+    },
+    "McpServerElicitationRequestResponse.json": {
+      "required": [
+        "action"
+      ],
+      "properties": [
+        "_meta",
+        "action",
+        "content"
+      ]
+    },
+    "v2/ItemCompletedNotification.json": {
+      "required": [
+        "completedAtMs",
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "properties": [
+        "completedAtMs",
+        "item",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "v2/ItemStartedNotification.json": {
+      "required": [
+        "item",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ],
+      "properties": [
+        "item",
+        "startedAtMs",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "v2/ServerRequestResolvedNotification.json": {
+      "required": [
+        "requestId",
+        "threadId"
+      ],
+      "properties": [
+        "requestId",
+        "threadId"
+      ]
+    },
+    "v2/ThreadItemsListParams.json": {
+      "required": [
+        "threadId"
+      ],
+      "properties": [
+        "cursor",
+        "limit",
+        "sortDirection",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "v2/ThreadItemsListResponse.json": {
+      "required": [
+        "data"
+      ],
+      "properties": [
+        "backwardsCursor",
+        "data",
+        "nextCursor"
+      ]
+    },
+    "v2/ThreadLoadedListParams.json": {
+      "required": [],
+      "properties": [
+        "cursor",
+        "limit"
+      ]
+    },
+    "v2/ThreadLoadedListResponse.json": {
+      "required": [
+        "data"
+      ],
+      "properties": [
+        "data",
+        "nextCursor"
+      ]
+    },
+    "v2/ThreadReadParams.json": {
+      "required": [
+        "threadId"
+      ],
+      "properties": [
+        "includeTurns",
+        "threadId"
+      ]
+    },
+    "v2/ThreadResumeParams.json": {
+      "required": [
+        "threadId"
+      ],
+      "properties": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "baseInstructions",
+        "config",
+        "cwd",
+        "developerInstructions",
+        "excludeTurns",
+        "model",
+        "modelProvider",
+        "personality",
+        "sandbox",
+        "serviceTier",
+        "threadId"
+      ]
+    },
+    "v2/ThreadStartedNotification.json": {
+      "required": [
+        "thread"
+      ],
+      "properties": [
+        "thread"
+      ]
+    },
+    "v2/ThreadStatusChangedNotification.json": {
+      "required": [
+        "status",
+        "threadId"
+      ],
+      "properties": [
+        "status",
+        "threadId"
+      ]
+    },
+    "v2/TurnCompletedNotification.json": {
+      "required": [
+        "threadId",
+        "turn"
+      ],
+      "properties": [
+        "threadId",
+        "turn"
+      ]
+    }
+  },
+  "enums": {
+    "CommandExecutionApprovalDecision": [
+      "accept",
+      "acceptForSession",
+      "cancel",
+      "decline",
+      "{acceptWithExecpolicyAmendment}",
+      "{applyNetworkPolicyAmendment}"
+    ],
+    "FileChangeApprovalDecision": [
+      "accept",
+      "acceptForSession",
+      "cancel",
+      "decline"
+    ],
+    "McpServerElicitationAction": [
+      "accept",
+      "cancel",
+      "decline"
+    ],
+    "McpToolCallStatus": [
+      "completed",
+      "failed",
+      "inProgress"
+    ],
+    "PatchApplyStatus": [
+      "completed",
+      "declined",
+      "failed",
+      "inProgress"
+    ],
+    "SortDirection": [
+      "asc",
+      "desc"
+    ],
+    "ThreadActiveFlag": [
+      "waitingOnApproval",
+      "waitingOnUserInput"
+    ]
+  },
+  "items": {
+    "fileChange": {
+      "required": [
+        "changes",
+        "id",
+        "status",
+        "type"
+      ],
+      "properties": [
+        "changes",
+        "id",
+        "status",
+        "type"
+      ]
+    },
+    "mcpToolCall": {
+      "required": [
+        "arguments",
+        "id",
+        "server",
+        "status",
+        "tool",
+        "type"
+      ],
+      "properties": [
+        "appContext",
+        "arguments",
+        "durationMs",
+        "error",
+        "id",
+        "mcpAppResourceUri",
+        "mcpAppUi",
+        "pluginId",
+        "readOnlyHint",
+        "result",
+        "server",
+        "status",
+        "tool",
+        "type"
+      ]
+    }
+  }
+}
