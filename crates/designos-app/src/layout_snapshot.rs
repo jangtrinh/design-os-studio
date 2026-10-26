@@ -560,80 +560,6 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         cur_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
     }
 
-    // Build per-region row bounding-box height deltas (named + unnamed widgets) so G3 and G4 share the same derived cumulative row shift.
-    type RectPair = ([f32; 4], [f32; 4]);
-    let mut row_deltas_by_region: BTreeMap<String, Vec<(f32, f32, f32)>> = BTreeMap::new();
-    let mut paired_by_region: BTreeMap<String, Vec<RectPair>> = BTreeMap::new();
-    for (name, b_w) in &base.named {
-        if let Some(c_w) = cur.named.get(name) {
-            if b_w.region == c_w.region {
-                paired_by_region.entry(b_w.region.clone()).or_default().push((b_w.rect, c_w.rect));
-            }
-        }
-    }
-    for (reg, b_list) in &base_unnamed_by_reg {
-        if let Some(c_list) = cur_unnamed_by_reg.get(reg) {
-            for (b_u, c_u) in b_list.iter().zip(c_list.iter()) {
-                paired_by_region.entry(reg.clone()).or_default().push((b_u.rect, c_u.rect));
-            }
-        }
-    }
-    for (reg, mut pairs) in paired_by_region {
-        pairs.sort_by(|(ba, _), (bb, _)| {
-            let cya = ba[1] + ba[3] * 0.5;
-            let cyb = bb[1] + bb[3] * 0.5;
-            cya.total_cmp(&cyb).then_with(|| cmp_q4(ba, bb))
-        });
-        let mut rows: Vec<Vec<([f32; 4], [f32; 4])>> = Vec::new();
-        for (b_r, c_r) in pairs {
-            let cy = b_r[1] + b_r[3] * 0.5;
-            let h = b_r[3];
-            let joins_last = rows.last().is_some_and(|row| {
-                let first_b = row[0].0;
-                let cy0 = first_b[1] + first_b[3] * 0.5;
-                let h0 = first_b[3];
-                (cy - cy0).abs() <= (4.0_f32).max(0.5 * h0.min(h))
-            });
-            if joins_last {
-                rows.last_mut().unwrap().push((b_r, c_r));
-            } else {
-                rows.push(vec![(b_r, c_r)]);
-            }
-        }
-        let mut row_deltas = Vec::with_capacity(rows.len());
-        for row in rows {
-            let b_min_y = row.iter().map(|(b, _)| b[1]).fold(f32::INFINITY, f32::min);
-            let b_max_y = row.iter().map(|(b, _)| b[1] + b[3]).fold(f32::NEG_INFINITY, f32::max);
-            let c_min_y = row.iter().map(|(_, c)| c[1]).fold(f32::INFINITY, f32::min);
-            let c_max_y = row.iter().map(|(_, c)| c[1] + c[3]).fold(f32::NEG_INFINITY, f32::max);
-            let b_h = (b_max_y - b_min_y).max(0.0);
-            let c_h = (c_max_y - c_min_y).max(0.0);
-            let b_cy = (b_min_y + b_max_y) * 0.5;
-            row_deltas.push((b_cy, b_h, c_h - b_h));
-        }
-        row_deltas_by_region.insert(reg, row_deltas);
-    }
-
-    let cumulative_dh_and_gaps_above = |region: &str, b_rect: [f32; 4]| -> (f32, usize) {
-        let b_cy = b_rect[1] + b_rect[3] * 0.5;
-        let b_h = b_rect[3];
-        row_deltas_by_region
-            .get(region)
-            .map(|rows| {
-                let mut sum_dh = 0.0;
-                let mut gaps = 0usize;
-                for (r_cy, r_h, dh) in rows {
-                    let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
-                    if *r_cy + thresh < b_cy {
-                        sum_dh += *dh;
-                        gaps += 1;
-                    }
-                }
-                (sum_dh, gaps)
-            })
-            .unwrap_or((0.0, 0))
-    };
-
     // G3 — Named widgets: every baseline key must still exist with same count and region; new keys are reported.
     for (name, c_w) in &cur.named {
         if !base.named.contains_key(name) {
@@ -650,50 +576,29 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         if b_w.count != c_w.count {
             return Err(format!("G3 named widget '{name}' count changed in case {case_id}: baseline={}, current={}", b_w.count, c_w.count));
         }
-
-        let covering = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect);
-        if let Some((idx, _)) = covering {
+        if let Some((idx, _)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
             report.matched_allow_indices.insert(idx);
-        }
-
-        if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
-            let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&b_w.region, b_w.rect);
-
-            let mut allowed = false;
-            if let Some((_, e)) = covering {
-                let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
-                let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
-                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect, gaps_above) {
-                    allowed = true;
-                }
-            }
-            if !allowed {
-                return Err(format!(
-                    "G3 named widget '{name}' rect drift in case {case_id} (region '{}'): baseline={:?}, current={:?}",
-                    b_w.region, b_w.rect, c_w.rect
-                ));
-            }
         }
     }
 
-    // G4 — Unnamed widgets: group by region, compare sorted rects and senses.
+    // G4 — Unnamed widgets: check per-region inventory count and sense before building rows.
     let all_unnamed_regs: BTreeSet<String> = base_unnamed_by_reg.keys().chain(cur_unnamed_by_reg.keys()).cloned().collect();
-    for reg in all_unnamed_regs {
-        let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
-        let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+    for reg in &all_unnamed_regs {
+        let b_list = base_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
+        let c_list = cur_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
 
         for (idx, e) in allow.entries.iter().enumerate() {
-            if (e.case == case_id || e.case == "*") && e.region == reg && e.inventory_max_delta.is_some() && (!b_list.is_empty() || !c_list.is_empty()) {
+            if (e.case == case_id || e.case == "*") && &e.region == reg && e.inventory_max_delta.is_some() && (!b_list.is_empty() || !c_list.is_empty()) {
                 report.matched_allow_indices.insert(idx);
             }
         }
 
         if b_list.len() != c_list.len() {
             let count_diff = (c_list.len() as isize - b_list.len() as isize).abs();
-            let is_virt = virtualized_regions.iter().any(|vr| vr == &reg);
+            let is_virt = virtualized_regions.iter().any(|vr| vr == reg);
             let mut inv_allowed = false;
             for (idx, e) in allow.entries.iter().enumerate() {
-                if (e.case == case_id || e.case == "*") && e.region == reg {
+                if (e.case == case_id || e.case == "*") && &e.region == reg {
                     if let Some(max_delta) = e.inventory_max_delta {
                         if count_diff <= max_delta {
                             report.matched_allow_indices.insert(idx);
@@ -720,10 +625,169 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     b_u.sense, c_u.sense
                 ));
             }
-            let covering = best_matching_entry(allow, case_id, &reg, None, b_u.rect);
-            if let Some((idx, _)) = covering {
+            if let Some((idx, _)) = best_matching_entry(allow, case_id, reg, None, b_u.rect) {
                 report.matched_allow_indices.insert(idx);
             }
+        }
+    }
+
+    // Build per-region row bounding-box height deltas (named + unnamed widgets) and range-check each row's own `dh`.
+    struct RowWidget<'a> {
+        label: String,
+        name: Option<&'a str>,
+        b_rect: [f32; 4],
+        c_rect: [f32; 4],
+    }
+    let mut row_deltas_by_region: BTreeMap<String, Vec<(f32, f32, f32)>> = BTreeMap::new();
+    let mut paired_by_region: BTreeMap<String, Vec<RowWidget<'_>>> = BTreeMap::new();
+    for (name, b_w) in &base.named {
+        if let Some(c_w) = cur.named.get(name) {
+            if b_w.region == c_w.region {
+                paired_by_region.entry(b_w.region.clone()).or_default().push(RowWidget {
+                    label: name.clone(),
+                    name: Some(name.as_str()),
+                    b_rect: b_w.rect,
+                    c_rect: c_w.rect,
+                });
+            }
+        }
+    }
+    for (reg, b_list) in &base_unnamed_by_reg {
+        if let Some(c_list) = cur_unnamed_by_reg.get(reg) {
+            let shared_len = b_list.len().min(c_list.len());
+            for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
+                paired_by_region.entry(reg.clone()).or_default().push(RowWidget {
+                    label: format!("unnamed#{i}"),
+                    name: None,
+                    b_rect: b_u.rect,
+                    c_rect: c_u.rect,
+                });
+            }
+        }
+    }
+    for (reg, mut pairs) in paired_by_region {
+        pairs.sort_by(|a, b| {
+            let cya = a.b_rect[1] + a.b_rect[3] * 0.5;
+            let cyb = b.b_rect[1] + b.b_rect[3] * 0.5;
+            cya.total_cmp(&cyb).then_with(|| cmp_q4(&a.b_rect, &b.b_rect)).then_with(|| a.label.cmp(&b.label))
+        });
+        let mut rows: Vec<Vec<RowWidget<'_>>> = Vec::new();
+        for w in pairs {
+            let cy = w.b_rect[1] + w.b_rect[3] * 0.5;
+            let h = w.b_rect[3];
+            let joins_last = rows.last().is_some_and(|row| {
+                let first_b = row[0].b_rect;
+                let cy0 = first_b[1] + first_b[3] * 0.5;
+                let h0 = first_b[3];
+                (cy - cy0).abs() <= (4.0_f32).max(0.5 * h0.min(h))
+            });
+            if joins_last {
+                rows.last_mut().unwrap().push(w);
+            } else {
+                rows.push(vec![w]);
+            }
+        }
+        let mut row_deltas = Vec::with_capacity(rows.len());
+        for (row_idx, mut row) in rows.into_iter().enumerate() {
+            row.sort_by(|a, b| a.b_rect[0].total_cmp(&b.b_rect[0]).then_with(|| cmp_q4(&a.b_rect, &b.b_rect)).then_with(|| a.label.cmp(&b.label)));
+            let b_min_x = row.iter().map(|w| w.b_rect[0]).fold(f32::INFINITY, f32::min);
+            let b_max_x = row.iter().map(|w| w.b_rect[0] + w.b_rect[2]).fold(f32::NEG_INFINITY, f32::max);
+            let b_min_y = row.iter().map(|w| w.b_rect[1]).fold(f32::INFINITY, f32::min);
+            let b_max_y = row.iter().map(|w| w.b_rect[1] + w.b_rect[3]).fold(f32::NEG_INFINITY, f32::max);
+            let c_min_y = row.iter().map(|w| w.c_rect[1]).fold(f32::INFINITY, f32::min);
+            let c_max_y = row.iter().map(|w| w.c_rect[1] + w.c_rect[3]).fold(f32::NEG_INFINITY, f32::max);
+            let b_w = (b_max_x - b_min_x).max(0.0);
+            let b_h = (b_max_y - b_min_y).max(0.0);
+            let c_h = (c_max_y - c_min_y).max(0.0);
+            let b_cy = (b_min_y + b_max_y) * 0.5;
+            let row_dh = c_h - b_h;
+
+            let row_b_rect = [b_min_x, b_min_y, b_w, b_h];
+            let row_covering = row
+                .iter()
+                .filter_map(|w| best_matching_entry(allow, case_id, &reg, w.name, w.b_rect))
+                .chain(best_matching_entry(allow, case_id, &reg, None, row_b_rect))
+                .max_by_key(|(_, e)| {
+                    (
+                        usize::from(e.min_dh.is_some() || e.max_dh.is_some()),
+                        entry_specificity(e),
+                        e.name_prefix.as_ref().map_or(0, |s| s.len()),
+                        usize::from(e.case != "*"),
+                    )
+                });
+            if let Some((idx, _)) = row_covering {
+                report.matched_allow_indices.insert(idx);
+            }
+            if row_dh.abs() > 0.5 {
+                let (min_dh, max_dh, has_covering) = match row_covering {
+                    Some((_, e)) => (e.min_dh.unwrap_or(0.0), e.max_dh.unwrap_or(0.0), true),
+                    None => (0.0, 0.0, false),
+                };
+                if !has_covering || row_dh < min_dh - 0.5 || row_dh > max_dh + 0.5 {
+                    let row_names: Vec<&str> = row.iter().map(|w| w.label.as_str()).collect();
+                    return Err(format!(
+                        "G3/G4 row #{row_idx} [{}] dh={row_dh} out of allowed [{min_dh}, {max_dh}] in case {case_id} region '{reg}': baseline_h={b_h}, current_h={c_h}",
+                        row_names.join(", ")
+                    ));
+                }
+            }
+
+            row_deltas.push((b_cy, b_h, row_dh));
+        }
+        row_deltas_by_region.insert(reg, row_deltas);
+    }
+
+    let cumulative_dh_and_gaps_above = |region: &str, b_rect: [f32; 4]| -> (f32, usize) {
+        let b_cy = b_rect[1] + b_rect[3] * 0.5;
+        let b_h = b_rect[3];
+        row_deltas_by_region
+            .get(region)
+            .map(|rows| {
+                let mut sum_dh = 0.0;
+                let mut gaps = 0usize;
+                for (r_cy, r_h, dh) in rows {
+                    let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
+                    if *r_cy + thresh < b_cy {
+                        sum_dh += *dh;
+                        gaps += 1;
+                    }
+                }
+                (sum_dh, gaps)
+            })
+            .unwrap_or((0.0, 0))
+    };
+
+    for (name, b_w) in &base.named {
+        let Some(c_w) = cur.named.get(name) else {
+            continue;
+        };
+        let covering = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect);
+        if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
+            let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&b_w.region, b_w.rect);
+
+            let mut allowed = false;
+            if let Some((_, e)) = covering {
+                let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
+                let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
+                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect, gaps_above) {
+                    allowed = true;
+                }
+            }
+            if !allowed {
+                return Err(format!(
+                    "G3 named widget '{name}' rect drift in case {case_id} (region '{}'): baseline={:?}, current={:?}",
+                    b_w.region, b_w.rect, c_w.rect
+                ));
+            }
+        }
+    }
+
+    for reg in all_unnamed_regs {
+        let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+        let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+        let shared_len = b_list.len().min(c_list.len());
+        for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
+            let covering = best_matching_entry(allow, case_id, &reg, None, b_u.rect);
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
                 let (sum_dh_above, gaps_above) = cumulative_dh_and_gaps_above(&reg, b_u.rect);
                 let mut allowed = false;
