@@ -106,8 +106,16 @@ jobs:
           fi
           echo "NODE_PATH=$harness_dir/node_modules" >> "$GITHUB_ENV"
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2.87.31
+        with:
+          tool: nextest@0.9.149
+
       - name: Test workspace
-        run: cargo test --workspace --locked
+        run: cargo nextest run --workspace --locked --profile ci
+
+      - name: Test workspace doctests
+        run: cargo test --workspace --doc --locked
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
