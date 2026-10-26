@@ -5,9 +5,9 @@ use crate::terminal::TerminalAction;
 use std::path::PathBuf;
 
 fn tmp(name: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!("designos_stray_layers_{}_{name}", std::process::id()));
-    p
+    let dir = std::env::temp_dir().join(format!("designos_stray_layers_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create stray_layers scratch dir");
+    dir.join(name)
 }
 
 fn spec_json(root: &str, label: &str) -> String {

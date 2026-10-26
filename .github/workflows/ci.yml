@@ -57,6 +57,30 @@ jobs:
           python3 -B scripts/check_vendor_skills.py map-coverage
           python3 -B -m unittest scripts/test_check_vendor_skills.py
 
+      - name: Configure Linux swap and debuginfo
+        if: runner.os == 'Linux'
+        run: |
+          if sudo modprobe zram 2>/dev/null && command -v zramctl >/dev/null 2>&1; then
+            zdev=$(sudo zramctl --find --size 24G --algorithm zstd 2>/dev/null || sudo zramctl --find --size 24G 2>/dev/null || true)
+            if [ -n "$zdev" ]; then
+              sudo mkswap "$zdev" && sudo swapon -p 100 "$zdev" || true
+            fi
+          fi
+          if [ -d /sys/module/zswap/parameters ]; then
+            echo zstd | sudo tee /sys/module/zswap/parameters/compressor >/dev/null 2>&1 || true
+            echo 50 | sudo tee /sys/module/zswap/parameters/max_pool_percent >/dev/null 2>&1 || true
+            echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null 2>&1 || true
+          fi
+          sudo fallocate -l 24G /swapfile_ci
+          sudo chmod 600 /swapfile_ci
+          sudo mkswap /swapfile_ci
+          sudo swapon -p 10 /swapfile_ci
+          swapon --show
+          free -m
+          df -h /
+          echo "CARGO_PROFILE_DEV_DEBUG=0" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_TEST_DEBUG=0" >> "$GITHUB_ENV"
+
       - name: Build workspace (designos-studio, designos, designos-mcp, designos-diff)
         run: cargo build --workspace --all-targets --locked
 
@@ -79,7 +103,16 @@ jobs:
           echo "NODE_PATH=$harness_dir/node_modules" >> "$GITHUB_ENV"
 
       - name: Test workspace
+        if: runner.os != 'Linux'
         run: cargo test --workspace --locked
+
+      - name: Test workspace crates (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test --workspace --exclude designos-app --locked -- --test-threads=2
+
+      - name: Test designos-app (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test -p designos-app --bin designos --test cli_version --locked -- --test-threads=2
 
       # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
       - name: Lint budget on a release build (large fixture)
