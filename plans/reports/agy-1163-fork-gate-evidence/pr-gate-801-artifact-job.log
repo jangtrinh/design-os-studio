@@ -1,0 +1,310 @@
+﻿2026-10-26T02:09:43.5880443Z Current runner version: '2.338.0'
+2026-10-26T02:09:43.5901229Z ##[group]Runner Image Provisioner
+2026-10-26T02:09:43.5902046Z Hosted Compute Agent
+2026-10-26T02:09:43.5902535Z Version: 20261021.618
+2026-10-26T02:09:43.5903061Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-26T02:09:43.5903715Z Build Date: 2026-10-21T00:45:21Z
+2026-10-26T02:09:43.5904276Z Worker ID: {336ee1f4-3dff-42ca-a8de-6bb99ec958b9}
+2026-10-26T02:09:43.5904882Z Region: westus3
+2026-10-26T02:09:43.5905354Z Cloud: Azure
+2026-10-26T02:09:43.5905832Z ##[endgroup]
+2026-10-26T02:09:43.5906955Z ##[group]Operating System
+2026-10-26T02:09:43.5907474Z Ubuntu
+2026-10-26T02:09:43.5907993Z 24.04.5
+2026-10-26T02:09:43.5908442Z LTS
+2026-10-26T02:09:43.5908905Z ##[endgroup]
+2026-10-26T02:09:43.5909718Z ##[group]Runner Image
+2026-10-26T02:09:43.5910237Z Image: ubuntu-24.04
+2026-10-26T02:09:43.5910703Z Version: 20261012.334.1
+2026-10-26T02:09:43.5911843Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-26T02:09:43.5913140Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+2026-10-26T02:09:43.5913921Z ##[endgroup]
+2026-10-26T02:09:43.5914876Z ##[group]GITHUB_TOKEN Permissions
+2026-10-26T02:09:43.5916420Z Contents: read
+2026-10-26T02:09:43.5916892Z Metadata: read
+2026-10-26T02:09:43.5917454Z ##[endgroup]
+2026-10-26T02:09:43.5919255Z Secret source: Actions
+2026-10-26T02:09:43.5920177Z Cache mode: write
+2026-10-26T02:09:43.5920763Z Prepare workflow directory
+2026-10-26T02:09:43.6263528Z Prepare all required actions
+2026-10-26T02:09:43.6302033Z Getting action download info
+2026-10-26T02:09:43.9141310Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-26T02:09:44.0053530Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-26T02:09:44.2177881Z Complete job name: PR Gate (result artifact)
+2026-10-26T02:09:44.2846551Z ##[group]Run actions/checkout@v4
+2026-10-26T02:09:44.2847254Z with:
+2026-10-26T02:09:44.2847605Z   fetch-depth: 0
+2026-10-26T02:09:44.2847996Z   repository: jangtrinh/design-os-studio
+2026-10-26T02:09:44.2851203Z   token: ***
+2026-10-26T02:09:44.2851565Z   ssh-strict: true
+2026-10-26T02:09:44.2851917Z   ssh-user: git
+2026-10-26T02:09:44.2852278Z   persist-credentials: true
+2026-10-26T02:09:44.2852672Z   clean: true
+2026-10-26T02:09:44.2853043Z   sparse-checkout-cone-mode: true
+2026-10-26T02:09:44.2853457Z   fetch-tags: false
+2026-10-26T02:09:44.2853812Z   show-progress: true
+2026-10-26T02:09:44.2854165Z   lfs: false
+2026-10-26T02:09:44.2854500Z   submodules: false
+2026-10-26T02:09:44.2854863Z   set-safe-directory: true
+2026-10-26T02:09:44.2855266Z   allow-unsafe-pr-checkout: false
+2026-10-26T02:09:44.2855827Z env:
+2026-10-26T02:09:44.2856154Z   RUST_VERSION: 1.93.1
+2026-10-26T02:09:44.2856530Z   CARGO_TERM_COLOR: always
+2026-10-26T02:09:44.2856902Z ##[endgroup]
+2026-10-26T02:09:44.3704730Z Syncing repository: jangtrinh/design-os-studio
+2026-10-26T02:09:44.3706401Z ##[group]Getting Git version info
+2026-10-26T02:09:44.3707047Z Working directory is '/home/runner/work/design-os-studio/design-os-studio'
+2026-10-26T02:09:44.3707950Z [command]/usr/bin/git version
+2026-10-26T02:09:44.3749448Z git version 2.55.0
+2026-10-26T02:09:44.3765390Z ##[endgroup]
+2026-10-26T02:09:44.3777870Z Temporarily overriding HOME='/home/runner/work/_temp/0ad96b80-4541-4276-8e0f-c0ea6c8ea925' before making global git config changes
+2026-10-26T02:09:44.3780018Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-26T02:09:44.3795040Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/design-os-studio/design-os-studio
+2026-10-26T02:09:44.3836130Z Deleting the contents of '/home/runner/work/design-os-studio/design-os-studio'
+2026-10-26T02:09:44.3844159Z ##[group]Initializing the repository
+2026-10-26T02:09:44.3850109Z [command]/usr/bin/git init /home/runner/work/design-os-studio/design-os-studio
+2026-10-26T02:09:44.3927669Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-26T02:09:44.3929264Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-26T02:09:44.3930439Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-26T02:09:44.3931332Z hint: call:
+2026-10-26T02:09:44.3932018Z hint:
+2026-10-26T02:09:44.3932642Z hint: 	git config --global init.defaultBranch <name>
+2026-10-26T02:09:44.3933369Z hint:
+2026-10-26T02:09:44.3934056Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-26T02:09:44.3935175Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-26T02:09:44.3936082Z hint:
+2026-10-26T02:09:44.3936601Z hint: 	git branch -m <name>
+2026-10-26T02:09:44.3937153Z hint:
+2026-10-26T02:09:44.3937886Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-26T02:09:44.3939282Z Initialized empty Git repository in /home/runner/work/design-os-studio/design-os-studio/.git/
+2026-10-26T02:09:44.3941505Z [command]/usr/bin/git remote add origin https://github.com/jangtrinh/design-os-studio
+2026-10-26T02:09:44.3979805Z ##[endgroup]
+2026-10-26T02:09:44.3980723Z ##[group]Disabling automatic garbage collection
+2026-10-26T02:09:44.3983667Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-26T02:09:44.4018577Z ##[endgroup]
+2026-10-26T02:09:44.4019669Z ##[group]Setting up auth
+2026-10-26T02:09:44.4020501Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-26T02:09:44.4048448Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-26T02:09:44.4349803Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-26T02:09:44.4384341Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-26T02:09:44.4570568Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-26T02:09:44.4601565Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-26T02:09:44.4790039Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-26T02:09:44.4826713Z ##[endgroup]
+2026-10-26T02:09:44.4827467Z ##[group]Fetching the repository
+2026-10-26T02:09:44.4835309Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +fc8e73bc86720b09d48f6bf2fafd73aa72db6c2e:refs/remotes/pull/1184/merge
+2026-10-26T02:09:55.3085568Z From https://github.com/jangtrinh/design-os-studio
+2026-10-26T02:09:55.3086206Z  * [new branch]      capture-flags-gpu-submit -> origin/capture-flags-gpu-submit
+2026-10-26T02:09:55.3086709Z  * [new branch]      claude/nice-mclaren-1eb50b -> origin/claude/nice-mclaren-1eb50b
+2026-10-26T02:09:55.3087261Z  * [new branch]      docs/698-sync-specs-and-task-sources -> origin/docs/698-sync-specs-and-task-sources
+2026-10-26T02:09:55.3087791Z  * [new branch]      docs/spec-ready-gate    -> origin/docs/spec-ready-gate
+2026-10-26T02:09:55.3088326Z  * [new branch]      docs/specs-untitled-ui-dark -> origin/docs/specs-untitled-ui-dark
+2026-10-26T02:09:55.3088858Z  * [new branch]      evidence/kit-render-audit-2026-10-18 -> origin/evidence/kit-render-audit-2026-10-18
+2026-10-26T02:09:55.3089703Z  * [new branch]      evidence/release-040    -> origin/evidence/release-040
+2026-10-26T02:09:55.3090462Z  * [new branch]      feat/930-codex-approval-cards -> origin/feat/930-codex-approval-cards
+2026-10-26T02:09:55.3091038Z  * [new branch]      fix/1072-private-hook-outputs -> origin/fix/1072-private-hook-outputs
+2026-10-26T02:09:55.3091779Z  * [new branch]      jangtrinh/agy-1159-rules-lock-lf -> origin/jangtrinh/agy-1159-rules-lock-lf
+2026-10-26T02:09:55.3092264Z  * [new branch]      jangtrinh/agy-1160-nextest -> origin/jangtrinh/agy-1160-nextest
+2026-10-26T02:09:55.3092772Z  * [new branch]      jangtrinh/agy-1163-fork-gate -> origin/jangtrinh/agy-1163-fork-gate
+2026-10-26T02:09:55.3093426Z  * [new branch]      jangtrinh/agy-130-style-descriptions -> origin/jangtrinh/agy-130-style-descriptions
+2026-10-26T02:09:55.3094140Z  * [new branch]      jangtrinh/agy-985-instance-child-delete -> origin/jangtrinh/agy-985-instance-child-delete
+2026-10-26T02:09:55.3094749Z  * [new branch]      jangtrinh/agy-e-cli-spec-errors -> origin/jangtrinh/agy-e-cli-spec-errors
+2026-10-26T02:09:55.3095192Z  * [new branch]      main                    -> origin/main
+2026-10-26T02:09:55.3095589Z  * [new branch]      pm/spec-ui-revamp       -> origin/pm/spec-ui-revamp
+2026-10-26T02:09:55.3096001Z  * [new branch]      pm/spec-v0.7            -> origin/pm/spec-v0.7
+2026-10-26T02:09:55.3096440Z  * [new branch]      ref/66-independent-tests -> origin/ref/66-independent-tests
+2026-10-26T02:09:55.3096869Z  * [new branch]      ref/66-review-probes    -> origin/ref/66-review-probes
+2026-10-26T02:09:55.3097362Z  * [new branch]      release/v0.6.2          -> origin/release/v0.6.2
+2026-10-26T02:09:55.3097733Z  * [new branch]      release/v0.6.3          -> origin/release/v0.6.3
+2026-10-26T02:09:55.3098257Z  * [new branch]      review-fixes-261016     -> origin/review-fixes-261016
+2026-10-26T02:09:55.3098660Z  * [new branch]      site/v2-scroll-story    -> origin/site/v2-scroll-story
+2026-10-26T02:09:55.3099422Z  * [new branch]      task/107-real-preferred-values-object -> origin/task/107-real-preferred-values-object
+2026-10-26T02:09:55.3100347Z  * [new branch]      task/108-slot-content-id-per-property -> origin/task/108-slot-content-id-per-property
+2026-10-26T02:09:55.3101280Z  * [new branch]      task/109-clipboard-remap-slot-and-swap-ids -> origin/task/109-clipboard-remap-slot-and-swap-ids
+2026-10-26T02:09:55.3101883Z  * [new branch]      task/110-fig-real-kiwi-numbering -> origin/task/110-fig-real-kiwi-numbering
+2026-10-26T02:09:55.3102518Z  * [new branch]      task/111-reject-slot-raw-number-fallback -> origin/task/111-reject-slot-raw-number-fallback
+2026-10-26T02:09:55.3103177Z  * [new branch]      task/112-slots-doc-ops-and-unknown-keys -> origin/task/112-slots-doc-ops-and-unknown-keys
+2026-10-26T02:09:55.3103866Z  * [new branch]      task/150-empty-slot-placeholder-picker-stretch -> origin/task/150-empty-slot-placeholder-picker-stretch
+2026-10-26T02:09:55.3104444Z  * [new branch]      task/151-migrate-to-slots -> origin/task/151-migrate-to-slots
+2026-10-26T02:09:55.3105092Z  * [new branch]      task/152-slots-codegen-and-dev-inspect -> origin/task/152-slots-codegen-and-dev-inspect
+2026-10-26T02:09:55.3105829Z  * [new branch]      task/154-check-designs-number-variables -> origin/task/154-check-designs-number-variables
+2026-10-26T02:09:55.3106810Z  * [new branch]      task/155-check-designs-library-suggestions -> origin/task/155-check-designs-library-suggestions
+2026-10-26T02:09:55.3107674Z  * [new branch]      task/157-check-designs-incremental-scan -> origin/task/157-check-designs-incremental-scan
+2026-10-26T02:09:55.3108313Z  * [new branch]      task/158-check-designs-rules-thresholds-ignore -> origin/task/158-check-designs-rules-thresholds-ignore
+2026-10-26T02:09:55.3109265Z  * [new branch]      task/159-dev-mode-component-playground -> origin/task/159-dev-mode-component-playground
+2026-10-26T02:09:55.3109863Z  * [new branch]      task/160-verify-vsf-pcp-slots-fixture -> origin/task/160-verify-vsf-pcp-slots-fixture
+2026-10-26T02:09:55.3110425Z  * [new branch]      task/240-shared-design-context-data -> origin/task/240-shared-design-context-data
+2026-10-26T02:09:55.3110897Z  * [new branch]      task/247-get-libraries  -> origin/task/247-get-libraries
+2026-10-26T02:09:55.3111324Z  * [new branch]      task/276-web-capture-script -> origin/task/276-web-capture-script
+2026-10-26T02:09:55.3111942Z  * [new branch]      task/32-slots-authoring-ui -> origin/task/32-slots-authoring-ui
+2026-10-26T02:09:55.3112453Z  * [new branch]      task/34-edit-slot-content-in-instances -> origin/task/34-edit-slot-content-in-instances
+2026-10-26T02:09:55.3112945Z  * [new branch]      task/343-branch-storage -> origin/task/343-branch-storage
+2026-10-26T02:09:55.3113342Z  * [new branch]      task/344-three-way-diff -> origin/task/344-three-way-diff
+2026-10-26T02:09:55.3113732Z  * [new branch]      task/345-branch-merge   -> origin/task/345-branch-merge
+2026-10-26T02:09:55.3114146Z  * [new branch]      task/37-progressive-blur -> origin/task/37-progressive-blur
+2026-10-26T02:09:55.3114659Z  * [new branch]      task/505-repaired-original-cache-eviction -> origin/task/505-repaired-original-cache-eviction
+2026-10-26T02:09:55.3115283Z  * [new branch]      task/506-non-finite-notice-consistency -> origin/task/506-non-finite-notice-consistency
+2026-10-26T02:09:55.3115981Z  * [new branch]      task/507-relayout-bound-stroke-weight -> origin/task/507-relayout-bound-stroke-weight
+2026-10-26T02:09:55.3116582Z  * [new branch]      task/509-relayout-queue-undo-and-live-sync -> origin/task/509-relayout-queue-undo-and-live-sync
+2026-10-26T02:09:55.3117232Z  * [new branch]      task/511-kiwi-passthrough-children-and-structs -> origin/task/511-kiwi-passthrough-children-and-structs
+2026-10-26T02:09:55.3117882Z  * [new branch]      task/516-color-variable-alpha-once -> origin/task/516-color-variable-alpha-once
+2026-10-26T02:09:55.3118442Z  * [new branch]      task/517-auto-layout-reverse-z-stacking -> origin/task/517-auto-layout-reverse-z-stacking
+2026-10-26T02:09:55.3119145Z  * [new branch]      task/518-instance-text-overrides -> origin/task/518-instance-text-overrides
+2026-10-26T02:09:55.3119738Z  * [new branch]      task/52-audit-text-and-overrides-inside-inst -> origin/task/52-audit-text-and-overrides-inside-inst
+2026-10-26T02:09:55.3120540Z  * [new branch]      task/522-resized-instance-constraints -> origin/task/522-resized-instance-constraints
+2026-10-26T02:09:55.3121082Z  * [new branch]      task/523-soft-line-break-u2028 -> origin/task/523-soft-line-break-u2028
+2026-10-26T02:09:55.3121603Z  * [new branch]      task/525-nested-instance-swap-shell -> origin/task/525-nested-instance-swap-shell
+2026-10-26T02:09:55.3122167Z  * [new branch]      task/526-per-side-stroke-corner-radius -> origin/task/526-per-side-stroke-corner-radius
+2026-10-26T02:09:55.3122715Z  * [new branch]      task/527-hero-heading-mask-pattern -> origin/task/527-hero-heading-mask-pattern
+2026-10-26T02:09:55.3123280Z  * [new branch]      task/529-radial-gradient-background-masks -> origin/task/529-radial-gradient-background-masks
+2026-10-26T02:09:55.3123847Z  * [new branch]      task/530-child-margins-fill-measure -> origin/task/530-child-margins-fill-measure
+2026-10-26T02:09:55.3124445Z  * [new branch]      task/531-grid-codegen-normalised-placement -> origin/task/531-grid-codegen-normalised-placement
+2026-10-26T02:09:55.3125042Z  * [new branch]      task/532-align-self-direction-and-css -> origin/task/532-align-self-direction-and-css
+2026-10-26T02:09:55.3125615Z  * [new branch]      task/539-grid-v106-instance-anchor-remap -> origin/task/539-grid-v106-instance-anchor-remap
+2026-10-26T02:09:55.3126233Z  * [new branch]      task/541-grid-child-align-migration-and-sync -> origin/task/541-grid-child-align-migration-and-sync
+2026-10-26T02:09:55.3126924Z  * [new branch]      task/546-fig-roundtrip-node-count-and-instance-align -> origin/task/546-fig-roundtrip-node-count-and-instance-align
+2026-10-26T02:09:55.3127600Z  * [new branch]      task/56-library-import-in-memory-sanitize -> origin/task/56-library-import-in-memory-sanitize
+2026-10-26T02:09:55.3128242Z  * [new branch]      task/562-grid-track-implicit-row-and-chevron-up -> origin/task/562-grid-track-implicit-row-and-chevron-up
+2026-10-26T02:09:55.3128891Z  * [new branch]      task/572-parallel-agents-frame-ownership -> origin/task/572-parallel-agents-frame-ownership
+2026-10-26T02:09:55.3129774Z  * [new branch]      task/578-codegen-counter-fill-hugging-parent -> origin/task/578-codegen-counter-fill-hugging-parent
+2026-10-26T02:09:55.3130346Z  * [new branch]      task/580-chrome-design-standard -> origin/task/580-chrome-design-standard
+2026-10-26T02:09:55.3130916Z  * [new branch]      task/581-windows-pty-injection-test-tempdir -> origin/task/581-windows-pty-injection-test-tempdir
+2026-10-26T02:09:55.3131433Z  * [new branch]      task/598-engine-auto-fix -> origin/task/598-engine-auto-fix
+2026-10-26T02:09:55.3131927Z  * [new branch]      task/599-auto-fix-settings-and-report-ui -> origin/task/599-auto-fix-settings-and-report-ui
+2026-10-26T02:09:55.3132583Z  * [new branch]      task/605-react-codegen-variant-and-property-props -> origin/task/605-react-codegen-variant-and-property-props
+2026-10-26T02:09:55.3133241Z  * [new branch]      task/611-eval-and-skills-licence-register -> origin/task/611-eval-and-skills-licence-register
+2026-10-26T02:09:55.3133787Z  * [new branch]      task/613-designos-eval-harness -> origin/task/613-designos-eval-harness
+2026-10-26T02:09:55.3134260Z  * [new branch]      task/636-adopt-mit-ui-skills -> origin/task/636-adopt-mit-ui-skills
+2026-10-26T02:09:55.3134860Z  * [new branch]      task/639-codegen-grid-child-counter-fill-solved-size -> origin/task/639-codegen-grid-child-counter-fill-solved-size
+2026-10-26T02:09:55.3135471Z  * [new branch]      task/642-agy-launch-flags -> origin/task/642-agy-launch-flags
+2026-10-26T02:09:55.3135965Z  * [new branch]      task/644-slot-stretch-drag-drop-media -> origin/task/644-slot-stretch-drag-drop-media
+2026-10-26T02:09:55.3136550Z  * [new branch]      task/645-migrate-to-slot-unbound-variant -> origin/task/645-migrate-to-slot-unbound-variant
+2026-10-26T02:09:55.3137172Z  * [new branch]      task/65-recover-contrast-findings-over-opaqu -> origin/task/65-recover-contrast-findings-over-opaqu
+2026-10-26T02:09:55.3137931Z  * [new branch]      task/673-agent-start-failure-classify-output -> origin/task/673-agent-start-failure-classify-output
+2026-10-26T02:09:55.3138571Z  * [new branch]      task/68-recolour-text-runs-apply-style-in -> origin/task/68-recolour-text-runs-apply-style-in
+2026-10-26T02:09:55.3139323Z  * [new branch]      task/685-terminal-focus-undo-redo -> origin/task/685-terminal-focus-undo-redo
+2026-10-26T02:09:55.3139845Z  * [new branch]      task/691-shared-constraint-solver -> origin/task/691-shared-constraint-solver
+2026-10-26T02:09:55.3140267Z  * [new tag]         v0.2.0                  -> v0.2.0
+2026-10-26T02:09:55.3140565Z  * [new tag]         v0.3.0                  -> v0.3.0
+2026-10-26T02:09:55.3140847Z  * [new tag]         v0.4.0                  -> v0.4.0
+2026-10-26T02:09:55.3141123Z  * [new tag]         v0.4.1                  -> v0.4.1
+2026-10-26T02:09:55.3141399Z  * [new tag]         v0.5.0                  -> v0.5.0
+2026-10-26T02:09:55.3141672Z  * [new tag]         v0.6.0                  -> v0.6.0
+2026-10-26T02:09:55.3141951Z  * [new tag]         v0.6.1                  -> v0.6.1
+2026-10-26T02:09:55.3142227Z  * [new tag]         v0.6.2                  -> v0.6.2
+2026-10-26T02:09:55.3142570Z  * [new ref]         fc8e73bc86720b09d48f6bf2fafd73aa72db6c2e -> pull/1184/merge
+2026-10-26T02:09:55.3143865Z ##[endgroup]
+2026-10-26T02:09:55.3144236Z ##[group]Determining the checkout info
+2026-10-26T02:09:55.3144621Z ##[endgroup]
+2026-10-26T02:09:55.3144887Z [command]/usr/bin/git sparse-checkout disable
+2026-10-26T02:09:55.3154988Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-26T02:09:55.3181612Z ##[group]Checking out the ref
+2026-10-26T02:09:55.3185846Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1184/merge
+2026-10-26T02:09:55.8043646Z Note: switching to 'refs/remotes/pull/1184/merge'.
+2026-10-26T02:09:55.8045028Z 
+2026-10-26T02:09:55.8045331Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-26T02:09:55.8045960Z changes and commit them, and you can discard any commits you make in this
+2026-10-26T02:09:55.8046463Z state without impacting any branches by switching back to a branch.
+2026-10-26T02:09:55.8046944Z 
+2026-10-26T02:09:55.8047123Z If you want to create a new branch to retain commits you create, you may
+2026-10-26T02:09:55.8047540Z do so (now or later) by using -c with the switch command. Example:
+2026-10-26T02:09:55.8047771Z 
+2026-10-26T02:09:55.8047886Z   git switch -c <new-branch-name>
+2026-10-26T02:09:55.8048057Z 
+2026-10-26T02:09:55.8048171Z Or undo this operation with:
+2026-10-26T02:09:55.8048320Z 
+2026-10-26T02:09:55.8048430Z   git switch -
+2026-10-26T02:09:55.8048563Z 
+2026-10-26T02:09:55.8048833Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-26T02:09:55.8049382Z 
+2026-10-26T02:09:55.8049732Z HEAD is now at fc8e73b Merge bc500b2b05b3cd9baef545cff81b407600c391ea into ef26bccfd6128f8eb641179dfc3f3361edc4ec67
+2026-10-26T02:09:55.8139251Z ##[endgroup]
+2026-10-26T02:09:55.8156137Z [command]/usr/bin/git log -1 --format=%H
+2026-10-26T02:09:55.8156663Z fc8e73bc86720b09d48f6bf2fafd73aa72db6c2e
+2026-10-26T02:09:55.8335619Z ##[group]Run git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true
+2026-10-26T02:09:55.8336185Z [36;1mgit fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true[0m
+2026-10-26T02:09:55.8336568Z [36;1mpython3 -B - <<'PY'[0m
+2026-10-26T02:09:55.8336824Z [36;1mimport json, os, subprocess[0m
+2026-10-26T02:09:55.8337090Z [36;1mfrom pathlib import Path[0m
+2026-10-26T02:09:55.8337480Z [36;1mbase_sha, head_sha = os.environ["BASE_SHA"].strip(), os.environ["HEAD_SHA"].strip()[0m
+2026-10-26T02:09:55.8338045Z [36;1mraw = subprocess.check_output(["git", "-c", "core.quotePath=false", "diff", "--numstat", base_sha, head_sha], text=True)[0m
+2026-10-26T02:09:55.8338508Z [36;1madditions, deletions, paths = 0, 0, [][0m
+2026-10-26T02:09:55.8338818Z [36;1mfor line in raw.splitlines():[0m
+2026-10-26T02:09:55.8339311Z [36;1m    parts = line.split("\t", 2)[0m
+2026-10-26T02:09:55.8339580Z [36;1m    if len(parts) == 3:[0m
+2026-10-26T02:09:55.8339918Z [36;1m        additions += int(parts[0]) if parts[0].isdigit() else 0[0m
+2026-10-26T02:09:55.8340307Z [36;1m        deletions += int(parts[1]) if parts[1].isdigit() else 0[0m
+2026-10-26T02:09:55.8340624Z [36;1m        paths.append(parts[2])[0m
+2026-10-26T02:09:55.8341267Z [36;1mresult = {"pr_number": int(os.environ["PR_NUMBER"]), "head_sha": head_sha, "additions": additions, "deletions": deletions, "lines_changed": additions + deletions, "changed_files": len(paths), "paths": paths}[0m
+2026-10-26T02:09:55.8342018Z [36;1mout = Path(os.environ["RUNNER_TEMP"]) / "pr-gate-result" / "pr-gate-result.json"[0m
+2026-10-26T02:09:55.8342459Z [36;1mout.parent.mkdir(parents=True, exist_ok=True)[0m
+2026-10-26T02:09:55.8342832Z [36;1mout.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")[0m
+2026-10-26T02:09:55.8343194Z [36;1mprint(out.read_text(encoding="utf-8"))[0m
+2026-10-26T02:09:55.8343457Z [36;1mPY[0m
+2026-10-26T02:09:55.9086436Z shell: /usr/bin/bash -e {0}
+2026-10-26T02:09:55.9086765Z env:
+2026-10-26T02:09:55.9087022Z   RUST_VERSION: 1.93.1
+2026-10-26T02:09:55.9087252Z   CARGO_TERM_COLOR: always
+2026-10-26T02:09:55.9087504Z   PR_NUMBER: 1184
+2026-10-26T02:09:55.9087746Z   BASE_SHA: 1095704db75c601bda0615cfeddedf87ba21a687
+2026-10-26T02:09:55.9088063Z   HEAD_SHA: bc500b2b05b3cd9baef545cff81b407600c391ea
+2026-10-26T02:09:55.9088339Z ##[endgroup]
+2026-10-26T02:09:55.9489073Z {
+2026-10-26T02:09:55.9489453Z   "pr_number": 1184,
+2026-10-26T02:09:55.9489894Z   "head_sha": "bc500b2b05b3cd9baef545cff81b407600c391ea",
+2026-10-26T02:09:55.9490372Z   "additions": 801,
+2026-10-26T02:09:55.9490731Z   "deletions": 0,
+2026-10-26T02:09:55.9491058Z   "lines_changed": 801,
+2026-10-26T02:09:55.9491395Z   "changed_files": 5,
+2026-10-26T02:09:55.9491725Z   "paths": [
+2026-10-26T02:09:55.9492067Z     ".github/workflows/pr-gate.yml",
+2026-10-26T02:09:55.9492521Z     ".github/workflows/pr-labeller.yml",
+2026-10-26T02:09:55.9493064Z     "plans/reports/agy-1163-fork-gate-evidence/temp-401-lines.txt",
+2026-10-26T02:09:55.9493904Z     "scripts/pr_labels.py",
+2026-10-26T02:09:55.9494278Z     "scripts/test_pr_labels.py"
+2026-10-26T02:09:55.9494613Z   ]
+2026-10-26T02:09:55.9494869Z }
+2026-10-26T02:09:55.9495013Z 
+2026-10-26T02:09:55.9600495Z ##[group]Run actions/upload-artifact@v4
+2026-10-26T02:09:55.9600781Z with:
+2026-10-26T02:09:55.9600994Z   name: pr-gate-result
+2026-10-26T02:09:55.9601299Z   path: /home/runner/work/_temp/pr-gate-result/pr-gate-result.json
+2026-10-26T02:09:55.9601636Z   if-no-files-found: error
+2026-10-26T02:09:55.9601869Z   retention-days: 7
+2026-10-26T02:09:55.9602081Z   compression-level: 6
+2026-10-26T02:09:55.9602303Z   overwrite: false
+2026-10-26T02:09:55.9602514Z   include-hidden-files: false
+2026-10-26T02:09:55.9602736Z env:
+2026-10-26T02:09:55.9602937Z   RUST_VERSION: 1.93.1
+2026-10-26T02:09:55.9603156Z   CARGO_TERM_COLOR: always
+2026-10-26T02:09:55.9603378Z ##[endgroup]
+2026-10-26T02:09:56.0868773Z (node:2139) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-26T02:09:56.0869922Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-26T02:09:56.0919990Z With the provided path, there will be 1 file uploaded
+2026-10-26T02:09:56.0921152Z Artifact name is valid!
+2026-10-26T02:09:56.0921730Z Root directory input is valid!
+2026-10-26T02:09:56.4260866Z Beginning upload of artifact content to blob storage
+2026-10-26T02:09:56.4397352Z (node:2139) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-26T02:09:56.6355321Z Uploaded bytes 386
+2026-10-26T02:09:56.6917229Z Finished uploading artifact content to blob storage!
+2026-10-26T02:09:56.6918076Z SHA256 digest of uploaded artifact zip is f0141d31d821d60a688e518ff0ff7c0789d33ceb85f1c36057ada3444fcade0c
+2026-10-26T02:09:56.6920050Z Finalizing artifact upload
+2026-10-26T02:09:57.1961937Z Artifact pr-gate-result.zip successfully finalized. Artifact ID 12622329393
+2026-10-26T02:09:57.1963008Z Artifact pr-gate-result has been successfully uploaded! Final size is 386 bytes. Artifact ID is 12622329393
+2026-10-26T02:09:57.1967673Z Artifact download URL: https://github.com/jangtrinh/design-os-studio/actions/runs/40256484143/artifacts/12622329393
+2026-10-26T02:09:57.2157358Z Post job cleanup.
+2026-10-26T02:09:57.2819849Z [command]/usr/bin/git version
+2026-10-26T02:09:57.2852559Z git version 2.55.0
+2026-10-26T02:09:57.2882372Z Temporarily overriding HOME='/home/runner/work/_temp/d44a0446-3f36-43d8-94fc-6201778b8344' before making global git config changes
+2026-10-26T02:09:57.2883654Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-26T02:09:57.2887034Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/design-os-studio/design-os-studio
+2026-10-26T02:09:57.2919344Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-26T02:09:57.2947342Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-26T02:09:57.3154841Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-26T02:09:57.3182552Z http.https://github.com/.extraheader
+2026-10-26T02:09:57.3191953Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-26T02:09:57.3220919Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-26T02:09:57.3433427Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-26T02:09:57.3467382Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-26T02:09:57.3777278Z Cleaning up orphan processes
+2026-10-26T02:09:57.4087847Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

@@ -1,0 +1,19 @@
+artifact_id=12622329393
+{
+  "pr_number": 1184,
+  "head_sha": "bc500b2b05b3cd9baef545cff81b407600c391ea",
+  "additions": 801,
+  "deletions": 0,
+  "lines_changed": 801,
+  "changed_files": 5,
+  "paths": [
+    ".github/workflows/pr-gate.yml",
+    ".github/workflows/pr-labeller.yml",
+    "plans/reports/agy-1163-fork-gate-evidence/temp-401-lines.txt",
+    "scripts/pr_labels.py",
+    "scripts/test_pr_labels.py"
+  ]
+}
+jq_validation=ok
+labels_output=size/L,sensitive-path
+{"labels":["sensitive-path","size/L"],"number":1184}

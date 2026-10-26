@@ -1,0 +1,45 @@
+﻿2026-10-26T01:20:20.2918197Z Current runner version: '2.338.0'
+2026-10-26T01:20:20.2939307Z ##[group]Runner Image Provisioner
+2026-10-26T01:20:20.2939988Z Hosted Compute Agent
+2026-10-26T01:20:20.2940572Z Version: 20261021.618
+2026-10-26T01:20:20.2941088Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-26T01:20:20.2941786Z Build Date: 2026-10-21T00:45:21Z
+2026-10-26T01:20:20.2942338Z Worker ID: {7b0db335-8fd5-4e76-8b6d-b4a70bfb9658}
+2026-10-26T01:20:20.2942897Z Region: westus3
+2026-10-26T01:20:20.2943406Z Cloud: Azure
+2026-10-26T01:20:20.2944018Z ##[endgroup]
+2026-10-26T01:20:20.2945160Z ##[group]Operating System
+2026-10-26T01:20:20.2945708Z Ubuntu
+2026-10-26T01:20:20.2946141Z 24.04.5
+2026-10-26T01:20:20.2946606Z LTS
+2026-10-26T01:20:20.2947031Z ##[endgroup]
+2026-10-26T01:20:20.2947567Z ##[group]Runner Image
+2026-10-26T01:20:20.2948071Z Image: ubuntu-24.04
+2026-10-26T01:20:20.2948537Z Version: 20261012.334.1
+2026-10-26T01:20:20.2949657Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-26T01:20:20.2950936Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+2026-10-26T01:20:20.2951734Z ##[endgroup]
+2026-10-26T01:20:20.2952588Z ##[group]GITHUB_TOKEN Permissions
+2026-10-26T01:20:20.2954330Z Contents: read
+2026-10-26T01:20:20.2954816Z Metadata: read
+2026-10-26T01:20:20.2955387Z ##[endgroup]
+2026-10-26T01:20:20.2957148Z Secret source: Actions
+2026-10-26T01:20:20.2958022Z Cache mode: write
+2026-10-26T01:20:20.2958598Z Prepare workflow directory
+2026-10-26T01:20:20.3297524Z Prepare all required actions
+2026-10-26T01:20:20.3337392Z Getting action download info
+2026-10-26T01:20:20.6008065Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-26T01:20:20.7787027Z Download action repository 'dtolnay/rust-toolchain@master' (SHA:683b588c487a69d01f6c6ddf40f036ff682cc2c8)
+2026-10-26T01:20:21.1250237Z Download action repository 'Swatinem/rust-cache@v2' (SHA:d1527c8f67ef9af357290475d4af4b0fab8f12e0)
+2026-10-26T01:20:22.0449845Z Complete job name: PR Gate (rustfmt)
+2026-10-26T01:20:22.1242394Z ##[group]Run actions/checkout@v4
+2026-10-26T01:20:22.1243639Z with:
+2026-10-26T01:20:22.1244392Z   repository: jangtrinh/design-os-studio
+2026-10-26T01:20:22.1250767Z   token: ***
+2026-10-26T01:20:22.1251465Z   ssh-strict: true
+2026-10-26T01:20:22.1252177Z   ssh-user: git
+2026-10-26T01:20:22.1252911Z   persist-credentials: true
+2026-10-26T01:20:22.1253779Z   clean: true
+2026-10-26T01:20:22.1254496Z   sparse-checkout-cone-mode: true
+2026-10-26T01:20:22.1255349Z   fetch-depth: 1
+2026-10-26T01:20:22.1256047Z   fetch-tags: false
