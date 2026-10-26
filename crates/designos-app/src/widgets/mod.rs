@@ -286,8 +286,9 @@ pub fn record(ui: &Ui, name: &str, rect: Rect) {
         return;
     }
     let _ = RECORDING.load(std::sync::atomic::Ordering::Relaxed);
+    let global_rect = ui.ctx().layer_transform_to_global(ui.layer_id()).map_or(rect, |t| t * rect);
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", name.to_string())), rect));
-    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
+    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), global_rect)));
 }
 
 /// True when [`record`] will store the widget's name and rect on this pass.
@@ -326,9 +327,10 @@ impl Drop for RecordDisabled {
 }
 #[cfg(not(test))]
 #[inline]
-pub fn record(_ui: &Ui, name: &str, rect: Rect) {
+pub fn record(ui: &Ui, name: &str, rect: Rect) {
     if RECORDING.load(std::sync::atomic::Ordering::Relaxed) {
-        CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
+        let global_rect = ui.ctx().layer_transform_to_global(ui.layer_id()).map_or(rect, |t| t * rect);
+        CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), global_rect)));
     }
 }
 

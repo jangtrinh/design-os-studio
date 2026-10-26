@@ -138,33 +138,524 @@ pub fn q4_to_rect(q: [f32; 4]) -> Rect {
     Rect::from_min_size(Pos2::new(q[0], q[1]), egui::Vec2::new(q[2], q[3]))
 }
 
-pub fn capture(_ctx: &Context, _regions: &ShellRegions) -> LayoutSnapshot {
-    LayoutSnapshot {
-        schema: SNAPSHOT_SCHEMA,
-        case: String::new(),
-        size: [0, 0],
-        scale: 1.0,
-        regions: BTreeMap::new(),
-        overlays: Vec::new(),
-        named: BTreeMap::new(),
-        unnamed: Vec::new(),
-        scroll: Vec::new(),
+fn region_entries(regions: &ShellRegions) -> [(&'static str, Option<Rect>); 10] {
+    [
+        ("title_bar", regions.title_bar),
+        ("tab_bar", regions.tab_bar),
+        ("rail", regions.rail),
+        ("left_panel", regions.left_panel),
+        ("canvas", regions.canvas),
+        ("notes", regions.notes),
+        ("right_panel", regions.right_panel),
+        ("home", regions.home),
+        ("present", regions.present),
+        ("variables_full", regions.variables_full),
+    ]
+}
+
+fn classify_point(pos: Pos2, regions: &ShellRegions, overlays: &[OverlayGeom]) -> String {
+    for ov in overlays {
+        let r = q4_to_rect(ov.rect);
+        if r.contains(pos) {
+            return format!("overlay:{}", ov.name);
+        }
+    }
+    let mut best: Option<(&str, f32)> = None;
+    for (name, opt_rect) in region_entries(regions) {
+        if let Some(r) = opt_rect {
+            if r.contains(pos) {
+                let area = r.width().max(0.0) * r.height().max(0.0);
+                if best.map_or(true, |(_, best_area)| area < best_area) {
+                    best = Some((name, area));
+                }
+            }
+        }
+    }
+    if let Some((name, _)) = best {
+        return name.to_string();
+    }
+    if let Some(ov) = overlays.first() {
+        return format!("overlay:{}", ov.name);
+    }
+    "unknown".to_string()
+}
+
+fn sense_list(sense: egui::Sense) -> Vec<String> {
+    let mut out = Vec::new();
+    if sense.contains(egui::Sense::CLICK) {
+        out.push("click".to_string());
+    }
+    if sense.contains(egui::Sense::DRAG) {
+        out.push("drag".to_string());
+    }
+    if sense.contains(egui::Sense::FOCUSABLE) {
+        out.push("focus".to_string());
+    }
+    out
+}
+
+fn cmp_q4(a: &[f32; 4], b: &[f32; 4]) -> std::cmp::Ordering {
+    a[1].total_cmp(&b[1]).then_with(|| a[0].total_cmp(&b[0])).then_with(|| a[2].total_cmp(&b[2])).then_with(|| a[3].total_cmp(&b[3]))
+}
+
+fn rects_match_within_half_pt(a: [f32; 4], b: [f32; 4]) -> bool {
+    (a[0] - b[0]).abs() <= 0.5 && (a[1] - b[1]).abs() <= 0.5 && (a[2] - b[2]).abs() <= 0.5 && (a[3] - b[3]).abs() <= 0.5
+}
+
+/// Capture a deterministic `LayoutSnapshot` after the settle frame.
+pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
+    let screen = ctx.content_rect();
+    let scale = round_quarter(ctx.pixels_per_point());
+    let size = [screen.width().round().max(0.0) as u32, screen.height().round().max(0.0) as u32];
+
+    let mut region_map = BTreeMap::new();
+    for (name, opt_rect) in region_entries(regions) {
+        region_map.insert(name.to_string(), opt_rect.map(rect_to_q4));
+    }
+
+    let area_layers: Vec<(egui::LayerId, Rect)> = ctx.memory(|m| {
+        m.layer_ids()
+            .filter(|layer| layer.order != egui::Order::Background && m.areas().is_visible(layer))
+            .filter_map(|layer| m.area_rect(layer.id).map(|r| (layer, r)))
+            .collect()
+    });
+
+    let mut overlays: Vec<OverlayGeom> = area_layers
+        .iter()
+        .filter(|(_, r)| r.width() > 0.0 && r.height() > 0.0)
+        .map(|(layer, r)| {
+            let global_r = ctx.layer_transform_to_global(*layer).map_or(*r, |t| t * *r);
+            OverlayGeom { name: format!("{:?}:{:?}", layer.order, layer.id), rect: rect_to_q4(global_r) }
+        })
+        .collect();
+    overlays.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| cmp_q4(&a.rect, &b.rect)));
+
+    let recorded_pairs = crate::widgets::last_pass_names();
+    let mut recorded: BTreeMap<String, (Rect, usize)> = BTreeMap::new();
+    for (name, rect) in recorded_pairs {
+        let entry = recorded.entry(name).or_insert((rect, 0));
+        entry.0 = rect;
+        entry.1 += 1;
+    }
+    let mut named = BTreeMap::new();
+    let mut named_q4_rects: Vec<[f32; 4]> = Vec::with_capacity(recorded.len());
+    for (name, (rect, count)) in recorded {
+        let q4 = rect_to_q4(rect);
+        let center = rect.center();
+        let region = classify_point(center, regions, &overlays);
+        named.insert(name, NamedWidget { region, rect: q4, count });
+        named_q4_rects.push(q4);
+    }
+
+    let widgets = ctx.viewport(|vp| vp.prev_pass.widgets.clone());
+    let mut unnamed = Vec::new();
+    let mut scroll_set: BTreeSet<(String, String, bool)> = BTreeSet::new();
+
+    for (&layer_id, rect_entries) in widgets.layers() {
+        let to_global = ctx.layer_transform_to_global(layer_id);
+        for rect_entry in rect_entries {
+            if !rect_entry.enabled {
+                continue;
+            }
+            let global_rect = to_global.map_or(rect_entry.interact_rect, |t| t * rect_entry.interact_rect);
+            if global_rect.width() <= 0.0 || global_rect.height() <= 0.0 {
+                continue;
+            }
+            let q4 = rect_to_q4(global_rect);
+            let region = classify_point(global_rect.center(), regions, &overlays);
+
+            if rect_entry.sense.contains(egui::Sense::DRAG) && !rect_entry.sense.contains(egui::Sense::CLICK) {
+                let w = global_rect.width();
+                let h = global_rect.height();
+                if w <= 16.0 && h >= 24.0 {
+                    scroll_set.insert((region.clone(), "v".to_string(), false));
+                } else if h <= 16.0 && w >= 24.0 {
+                    scroll_set.insert((region.clone(), "h".to_string(), false));
+                }
+            }
+
+            let senses = sense_list(rect_entry.sense);
+            if senses.is_empty() {
+                continue;
+            }
+            if named_q4_rects.iter().any(|nr| rects_match_within_half_pt(*nr, q4)) {
+                continue;
+            }
+            unnamed.push(UnnamedWidget { region, rect: q4, sense: senses });
+        }
+    }
+
+    unnamed.sort_by(|a, b| a.region.cmp(&b.region).then_with(|| cmp_q4(&a.rect, &b.rect)).then_with(|| a.sense.cmp(&b.sense)));
+    unnamed.dedup_by(|a, b| a.region == b.region && a.rect == b.rect && a.sense == b.sense);
+
+    let scroll = scroll_set.into_iter().map(|(region, axis, maybe)| ScrollGeom { region, axis, maybe }).collect();
+
+    LayoutSnapshot { schema: SNAPSHOT_SCHEMA, case: String::new(), size, scale, regions: region_map, overlays, named, unnamed, scroll }
+}
+
+pub fn parse_allow_list(json: &str) -> Result<AllowList, String> {
+    let entries: Vec<AllowEntry> = serde_json::from_str(json).map_err(|e| format!("failed to parse allow.json: {e}"))?;
+    validate_allow_entries(entries)
+}
+
+fn entry_specificity(e: &AllowEntry) -> u8 {
+    if e.name_prefix.is_some() {
+        2
+    } else if e.h_base.is_some() {
+        1
+    } else {
+        0
     }
 }
 
-pub fn parse_allow_list(_json: &str) -> Result<AllowList, String> {
-    Ok(AllowList { entries: Vec::new() })
+pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, String> {
+    let valid_specs = ["D", "E", "F", "G", "H", "I", "J", "K"];
+    for (idx, e) in entries.iter().enumerate() {
+        if e.case.trim().is_empty() {
+            return Err(format!("allow.json[{idx}]: case must be non-empty"));
+        }
+        if e.case == "*" {
+            if e.name_prefix.is_none() && e.h_base.is_none() {
+                return Err(format!("allow.json[{idx}]: wildcard case '*' requires name_prefix or h_base"));
+            }
+        } else if e.case.contains('*') {
+            return Err(format!("allow.json[{idx}]: partial wildcard case {:?} is not allowed", e.case));
+        }
+        if e.region.trim().is_empty() || e.region.contains('*') {
+            return Err(format!("allow.json[{idx}]: region must be non-empty (no wildcards), got {:?}", e.region));
+        }
+        if !valid_specs.contains(&e.spec.as_str()) {
+            return Err(format!("allow.json[{idx}]: spec must be one of D..K, got {:?}", e.spec));
+        }
+        if e.reason.trim().is_empty() {
+            return Err(format!("allow.json[{idx}]: reason must be non-empty"));
+        }
+        if let Some(inv_delta) = e.inventory_max_delta {
+            if inv_delta < 0 {
+                return Err(format!("allow.json[{idx}]: inventory_max_delta must be non-negative, got {inv_delta}"));
+            }
+        }
+        let check_delta = |field: &str, val: Option<f32>| -> Result<(), String> {
+            if let Some(v) = val {
+                if !v.is_finite() {
+                    return Err(format!("allow.json[{idx}]: {field}={v} must be finite"));
+                }
+            }
+            Ok(())
+        };
+        check_delta("min_dw", e.min_dw)?;
+        check_delta("max_dw", e.max_dw)?;
+        check_delta("min_dh", e.min_dh)?;
+        check_delta("max_dh", e.max_dh)?;
+        check_delta("dx", e.dx)?;
+        check_delta("dy", e.dy)?;
+        check_delta("gap_dy", e.gap_dy)?;
+    }
+
+    for i in 0..entries.len() {
+        for j in (i + 1)..entries.len() {
+            let a = &entries[i];
+            let b = &entries[j];
+            let cases_overlap = a.case == b.case || a.case == "*" || b.case == "*";
+            if !cases_overlap || a.region != b.region {
+                continue;
+            }
+            let sa = entry_specificity(a);
+            let sb = entry_specificity(b);
+            if sa != sb {
+                continue;
+            }
+            let same_target = match sa {
+                2 => {
+                    let pa = a.name_prefix.as_deref().unwrap_or("");
+                    let pb = b.name_prefix.as_deref().unwrap_or("");
+                    pa.starts_with(pb) || pb.starts_with(pa)
+                }
+                1 => {
+                    let ha = a.h_base.unwrap_or(0.0);
+                    let hb = b.h_base.unwrap_or(0.0);
+                    (ha - hb).abs() <= 0.5
+                }
+                _ => true,
+            };
+            if same_target {
+                return Err(format!("allow.json[{i}] and allow.json[{j}]: equally specific entries covering case='{}' region='{}'", b.case, b.region));
+            }
+        }
+    }
+
+    Ok(AllowList { entries })
 }
 
-pub fn validate_allow_entries(_entries: Vec<AllowEntry>) -> Result<AllowList, String> {
-    Ok(AllowList { entries: Vec::new() })
+fn entry_matches_widget(e: &AllowEntry, case: &str, region: &str, name: Option<&str>, base_rect: [f32; 4]) -> bool {
+    if (e.case != case && e.case != "*") || e.region != region {
+        return false;
+    }
+    if let Some(prefix) = &e.name_prefix {
+        match name {
+            Some(n) if n.starts_with(prefix.as_str()) => {}
+            _ => return false,
+        }
+    } else if let Some(hb) = e.h_base {
+        if (base_rect[3] - hb).abs() > 0.5 {
+            return false;
+        }
+    }
+    true
 }
 
-pub fn compare(_base: &LayoutSnapshot, _cur: &LayoutSnapshot, _allow: &AllowList, _virtualized_regions: &[String]) -> Result<CompareReport, String> {
-    Ok(CompareReport::default())
+fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name: Option<&str>, base_rect: [f32; 4]) -> Option<(usize, &'a AllowEntry)> {
+    allow
+        .entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| entry_matches_widget(e, case, region, name, base_rect))
+        .max_by_key(|(_, e)| (entry_specificity(e), e.name_prefix.as_ref().map_or(0, |s| s.len()), usize::from(e.case != "*")))
 }
 
-pub fn check_stale_allow_entries(_allow: &AllowList, _matched_indices: &BTreeSet<usize>, _scope_cases: Option<&BTreeSet<String>>) -> Result<(), String> {
+fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4]) -> bool {
+    let dw = cur[2] - base[2];
+    let dh = cur[3] - base[3];
+
+    let min_dw = e.min_dw.unwrap_or(0.0);
+    let max_dw = e.max_dw.unwrap_or(0.0);
+    if dw < min_dw - 0.5 || dw > max_dw + 0.5 {
+        return false;
+    }
+
+    let min_dh = e.min_dh.unwrap_or(0.0);
+    let max_dh = e.max_dh.unwrap_or(0.0);
+    if dh < min_dh - 0.5 || dh > max_dh + 0.5 {
+        return false;
+    }
+
+    let expected_x = match e.anchor_x.unwrap_or_default() {
+        AnchorX::Left => base[0],
+        AnchorX::Right => base[0] + base[2] - cur[2],
+        AnchorX::Centre => base[0] + (base[2] - cur[2]) * 0.5,
+    } + e.dx.unwrap_or(0.0);
+
+    let expected_y = match e.anchor_y.unwrap_or_default() {
+        AnchorY::Top => base[1],
+        AnchorY::Bottom => base[1] + base[3] - cur[3],
+        AnchorY::Centre => base[1] + (base[3] - cur[3]) * 0.5,
+    } + e.dy.unwrap_or(0.0);
+
+    let x_tol = 0.5;
+    let y_tol = 0.5 + e.gap_dy.map_or(0.0, |g| g.abs());
+
+    (cur[0] - expected_x).abs() <= x_tol && (cur[1] - expected_y).abs() <= y_tol
+}
+
+fn rects_differ_beyond_half_pt(a: [f32; 4], b: [f32; 4]) -> bool {
+    !rects_match_within_half_pt(a, b)
+}
+
+/// Compare `cur` against `base` enforcing Rules G1–G5.
+pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, virtualized_regions: &[String]) -> Result<CompareReport, String> {
+    let case_id = if !cur.case.is_empty() { cur.case.as_str() } else { base.case.as_str() };
+
+    if base.size != cur.size {
+        return Err(format!("case {case_id}: viewport size changed from {:?} to {:?}", base.size, cur.size));
+    }
+    if (base.scale - cur.scale).abs() > 0.01 {
+        return Err(format!("case {case_id}: scale changed from {} to {}", base.scale, cur.scale));
+    }
+
+    let mut report = CompareReport::default();
+
+    // G1 — Regions: exact match (0.0 pt tolerance).
+    let check_region_pair = |key: &str, b_reg: Option<[f32; 4]>, c_reg: Option<[f32; 4]>| -> Result<(), String> {
+        if b_reg == c_reg {
+            return Ok(());
+        }
+        if let (Some(b), Some(c)) = (b_reg, c_reg) {
+            for (idx, field) in [(0, "x"), (1, "y"), (2, "w"), (3, "h")] {
+                if b[idx] != c[idx] {
+                    return Err(format!("G1 region mismatch in case {case_id} on {key}.{field}: baseline={}, current={}", b[idx], c[idx]));
+                }
+            }
+        }
+        Err(format!("G1 region mismatch in case {case_id} for region '{key}': baseline={b_reg:?}, current={c_reg:?}"))
+    };
+    for key in REGION_KEYS {
+        let b_reg = base.regions.get(key).copied().flatten();
+        let c_reg = cur.regions.get(key).copied().flatten();
+        check_region_pair(key, b_reg, c_reg)?;
+    }
+    for (key, b_val) in &base.regions {
+        let c_val = cur.regions.get(key).copied().flatten();
+        check_region_pair(key, *b_val, c_val)?;
+    }
+
+    // G2 — Overlays: same names and rects within ±0.5 pt unless matched by an allow entry.
+    if base.overlays.len() != cur.overlays.len() {
+        let b_names: Vec<&str> = base.overlays.iter().map(|o| o.name.as_str()).collect();
+        let c_names: Vec<&str> = cur.overlays.iter().map(|o| o.name.as_str()).collect();
+        return Err(format!("G2 overlay count/name mismatch in case {case_id}: baseline={b_names:?}, current={c_names:?}"));
+    }
+    for (b_ov, c_ov) in base.overlays.iter().zip(cur.overlays.iter()) {
+        if b_ov.name != c_ov.name {
+            return Err(format!("G2 overlay name mismatch in case {case_id}: baseline={:?}, current={:?}", b_ov.name, c_ov.name));
+        }
+        if rects_differ_beyond_half_pt(b_ov.rect, c_ov.rect) {
+            let ov_region = format!("overlay:{}", b_ov.name);
+            let mut allowed = false;
+            if let Some((idx, e)) = best_matching_entry(allow, case_id, &ov_region, Some(&b_ov.name), b_ov.rect) {
+                if widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect) {
+                    report.matched_allow_indices.insert(idx);
+                    allowed = true;
+                }
+            }
+            if !allowed {
+                return Err(format!("G2 overlay rect drift in case {case_id} overlay '{}': baseline={:?}, current={:?}", b_ov.name, b_ov.rect, c_ov.rect));
+            }
+        }
+    }
+
+    // Collect vertical shift regions where allow entry has gap_dy or dh != 0.
+    // Build per-region list of baseline named widgets that changed height under an allow rule so we can accumulate Σ dh_above.
+    let mut height_deltas_by_region: BTreeMap<String, Vec<(f32, f32)>> = BTreeMap::new();
+    for (name, b_w) in &base.named {
+        if let Some(c_w) = cur.named.get(name) {
+            if b_w.region == c_w.region {
+                let dh = c_w.rect[3] - b_w.rect[3];
+                if dh.abs() > 0.0 {
+                    height_deltas_by_region.entry(b_w.region.clone()).or_default().push((b_w.rect[1], dh));
+                }
+            }
+        }
+    }
+
+    // G3 — Named widgets: every baseline key must still exist with same count and region; new keys are reported.
+    for (name, c_w) in &cur.named {
+        if !base.named.contains_key(name) {
+            report.new_names.push(format!("{case_id}:{name} (region={})", c_w.region));
+        }
+    }
+    for (name, b_w) in &base.named {
+        let Some(c_w) = cur.named.get(name) else {
+            return Err(format!("G3 missing baseline named widget '{name}' in case {case_id} (region '{}')", b_w.region));
+        };
+        if b_w.region != c_w.region {
+            return Err(format!("G3 named widget '{name}' changed region in case {case_id}: baseline='{}', current='{}'", b_w.region, c_w.region));
+        }
+        if b_w.count != c_w.count {
+            return Err(format!("G3 named widget '{name}' count changed in case {case_id}: baseline={}, current={}", b_w.count, c_w.count));
+        }
+
+        if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
+            let sum_dh_above: f32 = height_deltas_by_region
+                .get(&b_w.region)
+                .map(|list| list.iter().filter(|(y_above, _)| *y_above + 0.25 < b_w.rect[1]).map(|(_, dh)| *dh).sum())
+                .unwrap_or(0.0);
+
+            let mut allowed = false;
+            if let Some((idx, e)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
+                let shifted_base = [b_w.rect[0], b_w.rect[1] + sum_dh_above, b_w.rect[2], b_w.rect[3]];
+                if widget_satisfies_allow_bounds(e, b_w.rect, c_w.rect)
+                    || (sum_dh_above.abs() > 0.0 && widget_satisfies_allow_bounds(e, shifted_base, c_w.rect))
+                {
+                    report.matched_allow_indices.insert(idx);
+                    allowed = true;
+                }
+            }
+            if !allowed {
+                return Err(format!(
+                    "G3 named widget '{name}' rect drift in case {case_id} (region '{}'): baseline={:?}, current={:?}",
+                    b_w.region, b_w.rect, c_w.rect
+                ));
+            }
+        }
+    }
+
+    // G4 — Unnamed widgets: group by region, compare sorted rects and senses.
+    let mut base_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
+    let mut cur_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
+    for u in &base.unnamed {
+        base_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
+    }
+    for u in &cur.unnamed {
+        cur_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
+    }
+    let all_unnamed_regs: BTreeSet<String> = base_unnamed_by_reg.keys().chain(cur_unnamed_by_reg.keys()).cloned().collect();
+    for reg in all_unnamed_regs {
+        let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+        let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+
+        if b_list.len() != c_list.len() {
+            let count_diff = (c_list.len() as isize - b_list.len() as isize).abs();
+            let is_virt = virtualized_regions.iter().any(|vr| vr == &reg);
+            let mut inv_allowed = false;
+            for (idx, e) in allow.entries.iter().enumerate() {
+                if (e.case == case_id || e.case == "*") && e.region == reg {
+                    if let Some(max_delta) = e.inventory_max_delta {
+                        if count_diff <= max_delta {
+                            report.matched_allow_indices.insert(idx);
+                            inv_allowed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if !inv_allowed {
+                return Err(format!(
+                    "G4 unnamed widget count mismatch in case {case_id} region '{reg}': baseline={}, current={} (virtualized={is_virt})",
+                    b_list.len(),
+                    c_list.len()
+                ));
+            }
+            continue;
+        }
+
+        for (i, (b_u, c_u)) in b_list.iter().zip(c_list.iter()).enumerate() {
+            if b_u.sense != c_u.sense {
+                return Err(format!(
+                    "G4 unnamed widget #{i} sense mismatch in case {case_id} region '{reg}': baseline={:?}, current={:?}",
+                    b_u.sense, c_u.sense
+                ));
+            }
+            if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
+                let mut allowed = false;
+                if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, None, b_u.rect) {
+                    if widget_satisfies_allow_bounds(e, b_u.rect, c_u.rect) {
+                        report.matched_allow_indices.insert(idx);
+                        allowed = true;
+                    }
+                }
+                if !allowed {
+                    return Err(format!("G4 unnamed widget #{i} rect drift in case {case_id} region '{reg}': baseline={:?}, current={:?}", b_u.rect, c_u.rect));
+                }
+            }
+        }
+    }
+
+    // Rule 8 G2: scroll entries are reported, never failed.
+    let base_scroll: BTreeMap<(&str, &str), bool> = base.scroll.iter().map(|s| ((s.region.as_str(), s.axis.as_str()), s.maybe)).collect();
+    let cur_scroll: BTreeMap<(&str, &str), bool> = cur.scroll.iter().map(|s| ((s.region.as_str(), s.axis.as_str()), s.maybe)).collect();
+    let all_scroll_keys: BTreeSet<(&str, &str)> = base_scroll.keys().chain(cur_scroll.keys()).copied().collect();
+    for (reg, axis) in all_scroll_keys {
+        let b_s = base_scroll.get(&(reg, axis)).copied();
+        let c_s = cur_scroll.get(&(reg, axis)).copied();
+        if b_s != c_s {
+            report.scroll_changes.push(format!("{case_id}:{reg}:{axis} (baseline={b_s:?}, current={c_s:?})"));
+        }
+    }
+
+    Ok(report)
+}
+
+pub fn check_stale_allow_entries(allow: &AllowList, matched_indices: &BTreeSet<usize>, scope_cases: Option<&BTreeSet<String>>) -> Result<(), String> {
+    for (idx, e) in allow.entries.iter().enumerate() {
+        if let Some(scope) = scope_cases {
+            if e.case != "*" && !scope.contains(&e.case) {
+                continue;
+            }
+        }
+        if !matched_indices.contains(&idx) {
+            return Err(format!("stale allow.json[{idx}] entry (case='{}', region='{}', spec='{}'): matched 0 widgets", e.case, e.region, e.spec));
+        }
+    }
     Ok(())
 }
 
@@ -186,12 +677,20 @@ pub fn compare_with_stale_check(
 }
 
 pub fn load_and_compare_baseline(
-    _baseline_path: &Path,
-    _cur: &LayoutSnapshot,
-    _allow: &AllowList,
-    _virtualized_regions: &[String],
+    baseline_path: &Path,
+    cur: &LayoutSnapshot,
+    allow: &AllowList,
+    virtualized_regions: &[String],
 ) -> Result<CompareReport, String> {
-    Ok(CompareReport::default())
+    if !baseline_path.exists() {
+        return Err(format!(
+            "missing layout baseline file: {} — run `DESIGNOS_LAYOUT_BLESS=1` or `python3 scripts/layout_baseline_capture.py --bless` to capture baselines",
+            baseline_path.display()
+        ));
+    }
+    let raw = std::fs::read_to_string(baseline_path).map_err(|e| format!("failed to read layout baseline {}: {e}", baseline_path.display()))?;
+    let base: LayoutSnapshot = serde_json::from_str(&raw).map_err(|e| format!("failed to parse layout baseline {}: {e}", baseline_path.display()))?;
+    compare_with_stale_check(&base, cur, allow, virtualized_regions)
 }
 
 #[cfg(test)]
