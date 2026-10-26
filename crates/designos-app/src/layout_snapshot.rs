@@ -1,6 +1,7 @@
 //! Layout-unchanged gate (`#1126`, Spec L): deterministic geometry snapshot capture and G1–G5 comparer.
 
 use crate::app::ShellRegions;
+pub use crate::widgets::RECORDING;
 use egui::{Context, Pos2, Rect};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -165,7 +166,7 @@ fn classify_point(pos: Pos2, regions: &ShellRegions, overlays: &[OverlayGeom]) -
         if let Some(r) = opt_rect {
             if r.contains(pos) {
                 let area = r.width().max(0.0) * r.height().max(0.0);
-                if best.map_or(true, |(_, best_area)| area < best_area) {
+                if best.is_none_or(|(_, best_area)| area < best_area) {
                     best = Some((name, area));
                 }
             }

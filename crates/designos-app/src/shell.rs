@@ -76,6 +76,8 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    /// --layout-json: output path for the deterministic `LayoutSnapshot` JSON.
+    layout_json: Option<PathBuf>,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -523,6 +525,10 @@ impl Shell {
                 seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0, no_caption: opts.no_caption });
             }
         }
+        if opts.layout_json.is_some() {
+            crate::layout_snapshot::RECORDING.store(true, Ordering::Relaxed);
+        }
+        let layout_json = opts.layout_json;
         let shot = opts.screenshot.map(|path| Shot {
             path,
             size: opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32)),
@@ -535,6 +541,7 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            layout_json,
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
@@ -595,6 +602,23 @@ impl Shell {
                         match buf.save(&shot.path) {
                             Ok(()) => SHOT_OK.store(true, Ordering::SeqCst),
                             Err(e) => eprintln!("designos: cannot write {}: {e}", shot.path.display()),
+                        }
+                        if let Some(layout_path) = &shot.layout_json {
+                            if let Some(dir) = layout_path.parent() {
+                                let _ = std::fs::create_dir_all(dir);
+                            }
+                            let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
+                            if snap.case.is_empty() {
+                                snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
+                            }
+                            match serde_json::to_string_pretty(&snap) {
+                                Ok(json) => {
+                                    if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
+                                        eprintln!("designos: cannot write {}: {e}", layout_path.display());
+                                    }
+                                }
+                                Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                            }
                         }
                     }
                 }

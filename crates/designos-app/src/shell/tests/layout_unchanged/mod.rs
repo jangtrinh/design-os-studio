@@ -51,7 +51,9 @@ pub fn run_spec_cases(spec_key: &str) {
     if option_env!("CARGO_BIN_NAME") != Some("designos") {
         return;
     }
-    assert!(cfg!(debug_assertions), "Tier A layout gate requires debug_assertions");
+    const {
+        assert!(cfg!(debug_assertions), "Tier A layout gate requires debug_assertions");
+    };
 
     let bdir = baseline_dir();
     let cases_file = load_cases_file();

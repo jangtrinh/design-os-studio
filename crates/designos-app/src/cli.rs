@@ -273,6 +273,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     while let Some(a) = it.next() {
         match a.as_str() {
             "--screenshot" => o.screenshot = Some(it.next().ok_or("--screenshot needs an output path")?.into()),
+            "--layout-json" => o.layout_json = Some(it.next().ok_or("--layout-json needs an output path")?.into()),
             "--size" => {
                 let v = it.next().ok_or("--size needs WxH")?;
                 o.size = Some(parse_size(&v).ok_or_else(|| format!("invalid size '{v}' (expected WxH, e.g. 1600x1088)"))?);
@@ -415,6 +416,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     if o.select.is_some() && o.home {
         return Err("--select needs a file".into());
     }
+    if o.layout_json.is_some() && o.screenshot.is_none() {
+        return Err("--layout-json needs --screenshot".into());
+    }
     Ok(o)
 }
 
@@ -436,7 +440,7 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout-json OUT.json] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
   --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number is a layer name, else a node id. A selector that matches nothing exits 2 and changes nothing
   --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
