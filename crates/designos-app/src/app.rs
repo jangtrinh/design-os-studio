@@ -139,12 +139,25 @@ pub struct CopiedStyle {
 
 pub struct Toast {
     pub text: String,
+    /// When the toast leaves. Armed on the first paint (`armed`), so a blocked frame before that paint does not spend it.
     pub until: f64,
     pub error: bool,
     /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
     pub reveal: Option<PathBuf>,
     /// True when no file dialog could open and the toast carries an "Enter a path…" fallback action.
     pub enter_path: bool,
+    /// How long the toast stays once it has been painted.
+    pub(crate) duration: f64,
+    /// False until the shell has painted this toast and set `until` from `duration`.
+    pub(crate) armed: bool,
+}
+
+impl Toast {
+    /// Keeps this toast up for `seconds` from `now`. The first paint arms the same duration again.
+    pub(crate) fn stay_for(&mut self, now: f64, seconds: f64) {
+        self.duration = seconds;
+        self.until = now + seconds;
+    }
 }
 
 pub struct App {
@@ -352,7 +365,8 @@ impl App {
                 error = true;
             }
         }
-        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false });
+        self.toast =
+            Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false });
     }
 
     /// A toast that stays long enough to read and offers to show `path` in its folder.
@@ -360,7 +374,7 @@ impl App {
         self.show_toast(text, false);
         if let Some(toast) = self.toast.as_mut() {
             toast.reveal = Some(path);
-            toast.until = self.now + theme::TOAST_REVEAL_SECONDS;
+            toast.stay_for(self.now, theme::TOAST_REVEAL_SECONDS);
         }
     }
 

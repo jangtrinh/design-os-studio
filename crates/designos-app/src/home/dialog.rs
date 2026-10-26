@@ -7,6 +7,7 @@ use crate::theme;
 use crate::widgets::{self, menu_panel};
 use designos_library::Library;
 use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, Vec2};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Intent {
@@ -452,14 +453,20 @@ pub fn finish(app: &mut App, d: Dialog) {
     }
     if d.intent == Intent::ImportPath {
         let raw = d.input.unwrap_or_default();
-        let trimmed = raw.trim();
-        let unquoted = trimmed
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-            .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-            .unwrap_or(trimmed);
-        if !unquoted.is_empty() {
-            app.open_path(std::path::PathBuf::from(unquoted));
+        let shown = unquote_typed(&raw);
+        if shown.is_empty() {
+            return;
+        }
+        match typed_import_path(&raw) {
+            Ok(path) => {
+                if let Err(reason) = app.try_open_path(path.clone()) {
+                    warn_import_path(app, &path, &reason);
+                }
+            }
+            Err(reason) => {
+                warn_import_path(app, Path::new(shown), &reason);
+                app.show_toast(reason, true);
+            }
         }
         return;
     }
@@ -534,5 +541,192 @@ pub fn finish(app: &mut App, d: Dialog) {
         if let Some(h) = app.home.as_mut() {
             h.dirty = true;
         }
+    }
+}
+
+const TYPE_THE_FULL_PATH: &str = "Type the full path to the file, starting with / or ~/.";
+
+/// The path a person typed into the import prompt, before `~` and `file://` resolution.
+fn unquote_typed(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')).or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\''))).unwrap_or(trimmed)
+}
+
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(home) = TEST_IMPORT_HOME.with(|slot| slot.borrow().clone()) {
+        return Some(home);
+    }
+    crate::io::user_home()
+}
+
+/// One line on stderr when a typed import path cannot be opened. The error toast still shows.
+fn warn_import_path(app: &mut App, path: &Path, reason: &str) {
+    let line = format!("designos: warn: import path {}: {reason}", path.display());
+    eprintln!("{line}");
+    app.last_dialog_warn = Some(line);
+}
+
+fn strip_file_scheme(text: &str) -> Option<&str> {
+    const SCHEME: &str = "file://";
+    if text.len() >= SCHEME.len() && text[..SCHEME.len()].eq_ignore_ascii_case(SCHEME) {
+        Some(&text[SCHEME.len()..])
+    } else {
+        None
+    }
+}
+
+fn hex_val(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Decodes `%XX` in a `file://` path. A `%` that is not two hex digits stays as written.
+fn percent_decode(text: &str) -> Result<String, String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if let (Some(hi), Some(lo)) = (bytes.get(i + 1).copied().and_then(hex_val), bytes.get(i + 2).copied().and_then(hex_val)) {
+                out.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).map_err(|_| "The file link is not valid text.".to_string())
+}
+
+/// `file:///tmp/a%20b.fig` is `/tmp/a b.fig`. On Windows, `file:///C:/...` drops the extra slash.
+fn path_from_file_url(decoded: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let trimmed = decoded.strip_prefix('/').filter(|rest| rest.as_bytes().get(1) == Some(&b':')).unwrap_or(decoded);
+        return PathBuf::from(trimmed);
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(decoded)
+    }
+}
+
+/// `~` or `~/…` (and `~\…` on Windows) becomes the home folder. Anything else is `None`.
+fn expand_tilde(text: &str) -> Result<Option<PathBuf>, String> {
+    let rest = if text == "~" {
+        ""
+    } else if let Some(rest) = text.strip_prefix("~/").or_else(|| text.strip_prefix("~\\")) {
+        rest
+    } else {
+        return Ok(None);
+    };
+    let Some(home) = home_dir() else {
+        return Err("The home folder is not set.".to_string());
+    };
+    if rest.is_empty() {
+        Ok(Some(home))
+    } else {
+        Ok(Some(home.join(rest)))
+    }
+}
+
+/// Resolves a path typed into the import prompt.
+///
+/// Trims, strips one pair of matching quotes, expands `~` / `~/…` to the home folder, and turns a
+/// `file://` link (as pasted from a file manager) into a path with `%XX` decoded. A path that is
+/// still not absolute is refused: the prompt has no shell to expand a relative path.
+pub(crate) fn typed_import_path(raw: &str) -> Result<PathBuf, String> {
+    let text = unquote_typed(raw);
+    if text.is_empty() {
+        return Err(TYPE_THE_FULL_PATH.to_string());
+    }
+    let path = if let Some(rest) = strip_file_scheme(text) {
+        path_from_file_url(&percent_decode(rest)?)
+    } else if let Some(expanded) = expand_tilde(text)? {
+        expanded
+    } else {
+        PathBuf::from(text)
+    };
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(TYPE_THE_FULL_PATH.to_string())
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_IMPORT_HOME: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Restores the typed-import home when the test ends, including on a panic.
+#[cfg(test)]
+pub struct ImportHomeGuard;
+
+#[cfg(test)]
+impl Drop for ImportHomeGuard {
+    fn drop(&mut self) {
+        TEST_IMPORT_HOME.with(|slot| *slot.borrow_mut() = None);
+    }
+}
+
+/// This thread's home folder for `~/` in the import prompt. Other tests keep the process `HOME`.
+#[cfg(test)]
+pub fn set_import_home_for_test(home: PathBuf) -> ImportHomeGuard {
+    TEST_IMPORT_HOME.with(|slot| *slot.borrow_mut() = Some(home));
+    ImportHomeGuard
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FULL_PATH: &str = "Type the full path to the file, starting with / or ~/.";
+
+    fn home() -> (PathBuf, ImportHomeGuard) {
+        let home = PathBuf::from("/home/designer");
+        let guard = set_import_home_for_test(home.clone());
+        (home, guard)
+    }
+
+    #[test]
+    fn typed_import_path_expands_tilde_file() {
+        let (home, _guard) = home();
+        assert_eq!(typed_import_path("~/x.fig").unwrap(), home.join("x.fig"));
+    }
+
+    #[test]
+    fn typed_import_path_expands_tilde_alone() {
+        let (home, _guard) = home();
+        assert_eq!(typed_import_path("~").unwrap(), home);
+    }
+
+    #[test]
+    fn typed_import_path_expands_quoted_tilde_with_space() {
+        let (home, _guard) = home();
+        assert_eq!(typed_import_path("'~/a b.fig'").unwrap(), home.join("a b.fig"));
+    }
+
+    #[test]
+    fn typed_import_path_decodes_file_url() {
+        assert_eq!(typed_import_path("file:///tmp/a%20b.fig").unwrap(), PathBuf::from("/tmp/a b.fig"));
+    }
+
+    #[test]
+    fn typed_import_path_refuses_relative() {
+        let err = typed_import_path("docs/x.fig").unwrap_err();
+        assert_eq!(err, FULL_PATH);
+    }
+
+    #[test]
+    fn typed_import_path_keeps_absolute() {
+        let abs = PathBuf::from("/tmp/x.fig");
+        assert_eq!(typed_import_path(abs.to_str().unwrap()).unwrap(), abs);
     }
 }

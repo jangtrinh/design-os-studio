@@ -618,6 +618,53 @@ fn import_without_a_dialog_opens_path_prompt_from_toast_and_imports_file() {
     assert_eq!(s.app().file_path.as_deref(), Some(file.as_path()));
 }
 
+fn open_import_prompt(s: &mut Sim) {
+    crate::home::import_files_dialog(&mut s.shell.app, &crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable));
+    s.frame(vec![]);
+    click_rect(s, "toast-enter-path");
+    assert_eq!(s.app().dialog.as_ref().map(|dlg| dlg.intent.clone()), Some(Intent::ImportPath));
+}
+
+fn toast_is_painted(s: &Sim, text: &str) -> bool {
+    s.shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.text() == text))
+}
+
+#[test]
+fn typed_import_path_from_home_opens_the_fig() {
+    let (mut s, d) = home_sim();
+    let home = d.0.join("typed-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _guard = crate::home::dialog::set_import_home_for_test(home.clone());
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../designos-fig/tests/fixtures/legacy-0.4.0-rich.fig");
+    let name = "legacy-0.4.0-rich.fig";
+    let dest = home.join(name);
+    std::fs::copy(&src, &dest).expect("copy the .fig into the test home");
+
+    open_import_prompt(&mut s);
+    s.type_text(&format!("~/{name}"));
+    s.key(Key::Enter);
+
+    assert!(s.app().dialog.is_none(), "the prompt closes");
+    assert!(s.app().home.is_none(), "entering ~/file.fig opens the file");
+    assert_eq!(s.app().file_path.as_deref(), Some(dest.as_path()));
+}
+
+#[test]
+fn typed_import_path_relative_shows_the_message() {
+    let (mut s, _d) = home_sim();
+    open_import_prompt(&mut s);
+    s.type_text("docs/x.fig");
+    s.key(Key::Enter);
+    s.frame(vec![]);
+
+    assert!(s.app().dialog.is_none(), "the prompt closes");
+    assert!(s.app().home.is_some(), "Home stays open");
+    let toast = s.app().toast.as_ref().expect("an error toast");
+    assert!(toast.error, "the toast is an error");
+    assert_eq!(toast.text, "Type the full path to the file, starting with / or ~/.");
+    assert!(toast_is_painted(&s, &toast.text), "the message is painted on the next frame");
+}
+
 #[test]
 fn round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it() {
     const NO_FILE_DIALOG: &str = "No file dialog. Install zenity or xdg-desktop-portal.";

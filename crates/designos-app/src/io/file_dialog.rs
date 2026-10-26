@@ -145,7 +145,7 @@ impl App {
         if enter_path {
             if let Some(toast) = self.toast.as_mut() {
                 toast.enter_path = true;
-                toast.until = self.now + crate::theme::TOAST_REVEAL_SECONDS;
+                toast.stay_for(self.now, crate::theme::TOAST_REVEAL_SECONDS);
             }
         }
     }
