@@ -288,8 +288,10 @@ pub fn generate_rules_pack_with_inputs(
 
     // 5. Design quality & anti-generic rules (§3.3)
     let quality_body = strip_leading_html_comment(design_quality_md).trim();
-    out.push_str(quality_body);
-    out.push('\n');
+    for line in quality_body.lines() {
+        out.push_str(line);
+        out.push('\n');
+    }
 
     let chars = out.chars().count();
     let tokens = chars.div_ceil(4);
@@ -856,6 +858,13 @@ mod tests {
         let err = generate_rules_pack_with_inputs(&crate::server::tools(), &SpecSchemas::default(), WORKFLOW_TEMPLATE, &oversized_quality, None)
             .expect_err("generator must fail when rules pack exceeds the 6000-token / 24000-char budget");
         assert!(err.contains("RULES_BUDGET_EXCEEDED"), "{err}");
+
+        let crlf_workflow = WORKFLOW_TEMPLATE.replace("\r\n", "\n").replace('\n', "\r\n");
+        let crlf_quality = DESIGN_QUALITY_MD.replace("\r\n", "\n").replace('\n', "\r\n");
+        let from_crlf = generate_rules_pack_with_inputs(&crate::server::tools(), &SpecSchemas::default(), &crlf_workflow, &crlf_quality, None)
+            .expect("CRLF inputs must normalize to LF and stay within the 6000-token budget");
+        assert!(!from_crlf.contains('\r'), "generated rules pack must not contain carriage returns");
+        assert_eq!(from_crlf, GENERATED_RULES_MD);
     }
 
     /// The section of the rules pack for `tool`, from its heading to the next one.

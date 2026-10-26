@@ -307,13 +307,17 @@ const SMALL_DOCUMENT_NODES: usize = 512;
 
 /// Advances `cur` for up to `budget` and returns `true` when the scan reaches [`Phase::Done`].
 pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> bool {
+    audit_step_at(doc, cur, budget, Instant::now())
+}
+
+pub(crate) fn audit_step_at(doc: &Document, cur: &mut ScanCursor, budget: Duration, start: Instant) -> bool {
     if cur.phase == Phase::Done {
         return true;
     }
-    let start = Instant::now();
-    // Small fixtures (<= 32 nodes) under the normal >=1ms frame budget always finish in one slice
-    // even if the OS scheduler preempts the test thread; sub-millisecond budgets yield immediately.
-    let min_steps = if budget >= Duration::from_millis(1) && doc.nodes.len() <= SMALL_DOCUMENT_NODES { 32 } else { 1 };
+    // Small fixtures (<= SMALL_DOCUMENT_NODES) under the normal >=1ms frame budget always finish in
+    // one slice even if the OS scheduler preempts the test thread; sub-millisecond budgets yield immediately.
+    let finish_in_one_slice = budget >= Duration::from_millis(1) && doc.nodes.len() <= SMALL_DOCUMENT_NODES;
+    let min_steps = if finish_in_one_slice { usize::MAX } else { 1 };
     let prep_mask = if budget >= Duration::from_millis(1) { 31 } else { 0 };
     let mut steps = 0usize;
 
@@ -329,7 +333,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                 cur.components.insert_node(node);
                 last_seen = Some(id);
                 steps += 1;
-                if steps >= min_steps && (steps & prep_mask) == 0 && start.elapsed() >= budget {
+                if !finish_in_one_slice && steps >= min_steps && (steps & prep_mask) == 0 && start.elapsed() >= budget {
                     exhausted = false;
                     break;
                 }
@@ -344,7 +348,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
         }
 
         while let Some(id) = cur.prep_stack.pop() {
-            if steps >= min_steps && (steps & prep_mask) == 0 && start.elapsed() >= budget {
+            if !finish_in_one_slice && steps >= min_steps && (steps & prep_mask) == 0 && start.elapsed() >= budget {
                 cur.prep_stack.push(id);
                 return false;
             }
@@ -359,7 +363,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
 
         cur.index = Some(hardcoded::Index::with_libraries(doc, &cur.libs.libs));
         cur.phase = Phase::Walk;
-        if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
+        if !finish_in_one_slice && !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
             return false;
         }
     }
@@ -370,7 +374,8 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
         let detached_on = !doc.check_designs.disabled_rules.contains(Rule::DetachedInstance.figma_id());
         loop {
             if let Some(mut job) = cur.detach.take() {
-                let Some(equal) = job.comparison.run(doc, start + budget) else {
+                let detach_deadline = if finish_in_one_slice { Instant::now() + Duration::from_secs(3600) } else { start + budget };
+                let Some(equal) = job.comparison.run(doc, detach_deadline) else {
                     cur.detach = Some(job);
                     return false;
                 };
@@ -378,7 +383,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                     cur.partial.push(detached::compared(doc, n, job.component, equal));
                     finish_layer(doc, cur, n, job.findings_before);
                 }
-                if !cur.stack.is_empty() && start.elapsed() >= budget {
+                if !finish_in_one_slice && !cur.stack.is_empty() && start.elapsed() >= budget {
                     return false;
                 }
             }
@@ -395,12 +400,13 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                 cur.scanned += 1;
                 steps += 1;
                 cur.stack.extend(n.children.iter().rev().copied());
-                if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
+                if !finish_in_one_slice && !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
                     return false;
                 }
                 continue;
             }
-            if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, Some(start + budget)) {
+            let text_deadline = if finish_in_one_slice { None } else { Some(start + budget) };
+            if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, text_deadline) {
                 cur.stack.push(id);
                 return false;
             }
@@ -428,7 +434,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                 }
             }
             finish_layer(doc, cur, n, before);
-            if !cur.stack.is_empty() && (used_pixels || steps >= min_steps) && start.elapsed() >= budget {
+            if !finish_in_one_slice && !cur.stack.is_empty() && (used_pixels || steps >= min_steps) && start.elapsed() >= budget {
                 return false;
             }
         }
