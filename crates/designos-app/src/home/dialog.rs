@@ -689,8 +689,9 @@ mod tests {
 
     const FULL_PATH: &str = "Type the full path to the file, starting with / or ~/.";
 
+    /// An absolute path on every platform: `/home/designer` is not absolute on Windows.
     fn home() -> (PathBuf, ImportHomeGuard) {
-        let home = PathBuf::from("/home/designer");
+        let home = std::env::temp_dir().join("designer-home");
         let guard = set_import_home_for_test(home.clone());
         (home, guard)
     }
@@ -713,6 +714,8 @@ mod tests {
         assert_eq!(typed_import_path("'~/a b.fig'").unwrap(), home.join("a b.fig"));
     }
 
+    // A Unix file URL; Windows drive-letter URLs (`file:///C:/…`) are not covered here.
+    #[cfg(unix)]
     #[test]
     fn typed_import_path_decodes_file_url() {
         assert_eq!(typed_import_path("file:///tmp/a%20b.fig").unwrap(), PathBuf::from("/tmp/a b.fig"));
@@ -726,7 +729,7 @@ mod tests {
 
     #[test]
     fn typed_import_path_keeps_absolute() {
-        let abs = PathBuf::from("/tmp/x.fig");
+        let abs = std::env::temp_dir().join("x.fig");
         assert_eq!(typed_import_path(abs.to_str().unwrap()).unwrap(), abs);
     }
 }
