@@ -2937,19 +2937,9 @@ impl TerminalState {
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
-    /// `agy` invocation that exits at once with a usage error, then waits for the failure panel.
+    /// `agy` invocation that exits at once with a usage error; the gate's 2 s `is_alive` poll waits for exit.
     pub fn open_failed_start_fixture(&mut self, file_path: Option<&Path>) {
-        if self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(START_FAILURE_FIXTURE_COMMAND)).is_err() {
-            return;
-        }
-        let deadline = std::time::Instant::now() + agent_start_failure::START_FAILURE_WINDOW;
-        while std::time::Instant::now() < deadline {
-            let _ = self.poll_live_agent_bridge();
-            if self.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
+        let _ = self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(START_FAILURE_FIXTURE_COMMAND));
     }
 
     /// Test helper: polls the bridge until the active tab records a start failure or `budget` passes.
