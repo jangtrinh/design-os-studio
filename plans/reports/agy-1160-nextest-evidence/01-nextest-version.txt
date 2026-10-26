@@ -1,0 +1,5 @@
+cargo-nextest 0.9.149 (3fe4ef319 2026-10-20)
+release: 0.9.149
+commit-hash: 3fe4ef31972f24e0c94cfe291718eab0fe678260
+commit-date: 2026-10-20
+host: aarch64-apple-darwin
