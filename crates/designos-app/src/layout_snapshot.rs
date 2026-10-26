@@ -1468,7 +1468,7 @@ mod tests {
             union_matched.extend(r.matched_allow_indices);
             scope_cases.insert(b.case.clone());
         }
-        check_stale_allow_entries(&allow_wild, &union_matched, Some(&scope_cases))
+        check_stale_allow_entries_for_run(&allow_wild, &union_matched, Some(&scope_cases), Some("F"))
             .expect("wildcard entry matched in at least one case of the run must not be stale");
 
         // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails.
@@ -1477,9 +1477,37 @@ mod tests {
         let r_home = compare(&base_home, &cur_home, &allow_wild, &[]).expect("home compare");
         empty_matched.extend(r_home.matched_allow_indices);
         home_only_scope.insert("h-home".into());
-        let err = check_stale_allow_entries(&allow_wild, &empty_matched, Some(&home_only_scope))
+        let err = check_stale_allow_entries_for_run(&allow_wild, &empty_matched, Some(&home_only_scope), Some("F"))
             .expect_err("wildcard entry unused by every case in the run must fail as stale");
         assert!(err.contains("stale allow.json[0]"), "unexpected error: {err}");
+
+        // 3. Round 5 Major C (Grok's scenario): `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}`
+        //    whose only match is an F case, checked under `check_stale_allow_entries_for_run(..., Some("F"))`.
+        let allow_d_wild = validate_allow_entries(vec![AllowEntry {
+            case: "*".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-".into()),
+            max_dh: Some(8.0),
+            spec: "D".into(),
+            reason: "R5: row height 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid wildcard allow list with spec D");
+
+        let mut f_scope = BTreeSet::new();
+        f_scope.insert("f-inspector".into());
+        let rep_f = compare(&base_insp, &cur_insp, &allow_d_wild, &[]).expect("compare applies spec D wildcard entry to F case");
+        assert!(rep_f.matched_allow_indices.contains(&0));
+        check_stale_allow_entries_for_run(&allow_d_wild, &rep_f.matched_allow_indices, Some(&f_scope), Some("F"))
+            .expect("spec D wildcard entry matched by F case in Some(\"F\") run must pass");
+
+        let mut base_f_no_match = base_insp.clone();
+        base_f_no_match.named.clear();
+        let cur_f_no_match = base_f_no_match.clone();
+        let rep_f_empty = compare(&base_f_no_match, &cur_f_no_match, &allow_d_wild, &[]).expect("compare with no matching widgets");
+        let err_d_in_f = check_stale_allow_entries_for_run(&allow_d_wild, &rep_f_empty.matched_allow_indices, Some(&f_scope), Some("F"))
+            .expect_err("spec D wildcard entry that compare can apply in Some(\"F\") run must fail as stale when unmatched");
+        assert!(err_d_in_f.contains("stale allow.json[0]"), "unexpected error: {err_d_in_f}");
     }
 
     /// Round 4 Minor 5: Overlay names are `overlay:{order}/{index}` in `areas().order()`,
