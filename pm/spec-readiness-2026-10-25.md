@@ -1,4 +1,4 @@
-# Spec readiness 2026-10-25 (cập nhật 23:55 UTC+7, batch 3)
+# Spec readiness 2026-10-25 (cập nhật 26/10 09:40 UTC+7, batch 4)
 
 Nguồn: GitHub open issues, milestone v0.6.3–v0.7.x (v0.6.2 đang ship, không tính). Tiêu chí *ready*: Spec Driven v2 (kit v2.4.0), lint 0 lỗi, có AC + test steps + edge cases + mockup, không OPEN chặn. Gate G1–G5: AI không ghi APPROVED; tất cả PENDING Jang.
 
@@ -7,6 +7,7 @@ Nguồn: GitHub open issues, milestone v0.6.3–v0.7.x (v0.6.2 đang ship, khôn
 Batch 2: UI Revamp slice 2 (C–K + #1121 #1125 #1127 #1140 #1141 #1154) thành US-04..18 trên PR #1166 (commit 7447bd5), pack tự đủ với `detail/` copy từ `docs/specs-untitled-ui-dark`; lint 48 doc, 89 AC, 0 lỗi. Pack mới `plans/specs/hardening-2026-10` trên `pm/spec-v0.6` (commit 7e2d7be): #1165, #1158, #1159, #1072, 21 AC, 0 lỗi. 19 issue có comment + nhãn `spec:ready`; #1122 chỉ comment (chờ owner).
 
 Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, commit 283ff6a; lint 49 AC, 0 lỗi). v0.7.0–v0.7.3 thành PRD + US-01..14 trong `v0.7-effects-export` (pm/spec-v0.7 PR #1115, commit c594f60; lint 52 AC, 0 lỗi). 21 issue có comment + nhãn `spec:ready`.
+Batch 4 (26/10): #1171 → US-12, #1173 → US-13 trong `v0.6-stabilize` (epic #585, `delivery/backlog.md`; pm/spec-v0.6 commit b1d38b5; lint 61 AC, 0 lỗi). #1122 → US-19 trong `ui-revamp` (PR #1166, commit d57cad6; lint 94 AC, 0 lỗi): ghi verdict A theo R6, check chặn file Untitled, register licence; mục owner 7.1/7.2 vẫn chờ Jang. 3 issue có comment + nhãn `spec:ready`.
 
 ## Tổng theo bản
 | Release | ready | partial | missing |
@@ -19,11 +20,12 @@ Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, co
 | v0.6.8 | 3 | 0 | 0 |
 | v0.6.9 | 3 | 0 | 0 |
 | v0.6.10 | 2 | 0 | 0 |
-| v0.6.11 | 1 | 1 | 0 |
+| v0.6.11 | 2 | 0 | 0 |
 | v0.7 | 3 | 0 | 0 |
 | v0.7.1 | 6 | 0 | 0 |
 | v0.7.2 | 5 | 0 | 0 |
 | v0.7.3 | 2 | 0 | 0 |
+| Backlog | 2 | 0 | 0 |
 
 ## Chi tiết
 | Release | Issue | Spec status | Gaps |
@@ -54,7 +56,7 @@ Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, co
 | v0.6.9 | #1144 Surface: Agents panel, terminal and agent cards (Untitled UI dark)   | ready | — `ui-revamp` US-10 (gate G1–G5 PENDING Jang) |
 | v0.6.10 | #1146 Surface: command bar, dialogs, toasts, context menu, Find, comments, h   | ready | — `ui-revamp` US-11 (gate G1–G5 PENDING Jang) |
 | v0.6.10 | #1155 Surface: Assets panel, Variables, Libraries and Plugins dialogs (Untit   | ready | — `ui-revamp` US-12 (gate G1–G5 PENDING Jang) |
-| v0.6.11 | #1122 Research: can a public PolyForm Shield repo ship Untitled UI Icons?   | partial | research; chờ owner chọn licence (FC-UIR SC-08, đề xuất Option A) |
+| v0.6.11 | #1122 Research: can a public PolyForm Shield repo ship Untitled UI Icons?   | ready | — `ui-revamp` US-19 (licence close-out; mục owner 7.1/7.2 vẫn OPEN; gate G1–G5 PENDING Jang) |
 | v0.6.11 | #1125 Docs and screenshot refresh after the Untitled UI dark sweep   | ready | — `ui-revamp` US-14 (gate G1–G5 PENDING Jang) |
 | v0.7 | #520 Drop shadows and layer effects differ from Figma on shadowed device mo  | ready | — `v0.7-effects-export` US-01 (gate G1–G5 PENDING Jang) |
 | v0.7 | #528 Export bounds differ from Figma by 1 to 84 px on 10 kit frames  | ready | — `v0.7-effects-export` US-02 (gate G1–G5 PENDING Jang) |
@@ -72,6 +74,8 @@ Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, co
 | v0.7.2 | #1163 [PM] Contributor quality: CONTRIBUTING + PR template + fork-safe gate  | ready | — `v0.7-effects-export` US-12 (gate G1–G5 PENDING Jang) |
 | v0.7.3 | #1047 Gemini in Ask mode reads tools.allowed from the session folder's .gemi  | ready | — `v0.7-effects-export` US-13 (gate G1–G5 PENDING Jang) |
 | v0.7.3 | #1048 agy, Gemini and Grok start MCP servers from agent-writable session con  | ready | — `v0.7-effects-export` US-14 (gate G1–G5 PENDING Jang) |
+| Backlog | #1171 Antigravity CLI tab repeats output endlessly and scroll stops working after UI zoom | ready | — `v0.6-stabilize` US-12 (Bước 0 PTY capture; gate G1–G5 PENDING Jang) |
+| Backlog | #1173 Agents panel: cannot scroll the terminal or the changed-layers card | ready | — `v0.6-stabilize` US-13 (Bước 0 wheel; gate G1–G5 PENDING Jang) |
 
 ## Blockers / ghi chú
 - Gate G1–G5 cần Jang duyệt; ready = sẵn cho dev, không phải gate APPROVED. FC-UIR v0.2 chờ Jang duyệt.
@@ -83,4 +87,6 @@ Batch 3: v0.6.4/v0.6.5 thành US-05..11 trong `v0.6-stabilize` (pm/spec-v0.6, co
 - PR trùng đã được PM chọn (25/10, theo uỷ quyền 13:27 của Jang): #985 → PR #1130 (bỏ #1034); #1050 → PR #1085 (bỏ #1070). Đóng PR bị bỏ là việc của Jang.
 - Routing cho Claude: làm #1130 (retarget sang main, đổi mã lỗi `INSTANCE_CHILD`, chạy lại CI Ubuntu) và #1085 (thêm `Closes #1050`). Dừng #1034 và #1070; label `for:claude` trên hai PR này còn đó vì PM chỉ được comment.
 - #1101 cần decision record (write nào qua Ask) trước khi code. #1160/#1161/#1163 đổi `.github/workflows`: cần Jang review merge.
-- Còn lại: #1122 (chờ owner chọn licence), v0.7.4 effects và Backlog chưa thuộc batch này.
+- #1122: story US-19 làm được ngay; owner vẫn phải xác nhận mục 7.1/7.2 trong note (không ai email Untitled UI nếu Jang chưa quyết).
+- #1171/#1173: nguyên nhân chưa chứng minh; story bắt Bước 0 trước khi code. Chưa gán release (Backlog).
+- Còn lại: v0.7.4 effects và phần Backlog khác chưa thuộc batch nào.
