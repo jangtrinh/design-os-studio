@@ -255,3 +255,173 @@ fn ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom() {
     }
 }
 
+pub(super) fn recorded_rect(ctx: &egui::Context, name: &str) -> Option<Rect> {
+    ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string()))))
+}
+
+pub(super) fn run_viewport_frame(st: &mut TerminalState, ctx: &egui::Context, viewport_rect: Rect, time: Option<f64>, events: Vec<egui::Event>) {
+    for tag in ["term-scrollbar-track", "term-scrollbar-thumb"] {
+        ctx.data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", tag.to_string()))));
+    }
+    let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), time, events, ..Default::default() };
+    let _ = ctx.run_ui(raw, |ui| {
+        render_vt100_viewport(st, ui, viewport_rect, None, "test-pty-vp");
+    });
+}
+
+#[test]
+fn ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size() {
+    let (mut st, idx) = spawn_fake_cli_tab("b", 24, 80);
+    wait_for_marker(&st, idx, "[winch_seq=0 rows=24 cols=80]");
+
+    // Fill the scrollback to its full 5,000-line capacity (5,024 total lines on a 24-row screen).
+    {
+        let mut p = st.tabs[idx].parser.lock().unwrap();
+        let mut bulk = String::from("\x1b[2J\x1b[H");
+        for i in 1..=5024 {
+            if i > 1 {
+                bulk.push_str("\r\n");
+            }
+            bulk.push_str(&format!("SB_ROW_{i:04}"));
+        }
+        p.process(bulk.as_bytes());
+        let (sb_len, _) = all_terminal_lines(&mut p);
+        assert_eq!(sb_len, 5000, "scrollback must hold the full 5,000 lines");
+        p.set_scrollback(0);
+    }
+
+    let ctx = super::gemini_test_support::panel_ctx();
+    let normal_vp = Rect::from_min_size(Pos2::new(48.0, 40.0), Vec2::new(560.0, 400.0));
+    run_viewport_frame(&mut st, &ctx, normal_vp, Some(1.0), Vec::new());
+
+    let track =
+        recorded_rect(&ctx, "term-scrollbar-track").unwrap_or_else(|| panic!("AC-02: terminal scrollbar track must be recorded when scrollback_len > 0"));
+    let thumb_bottom =
+        recorded_rect(&ctx, "term-scrollbar-thumb").unwrap_or_else(|| panic!("AC-02: terminal scrollbar thumb must be recorded when scrollback_len > 0"));
+    assert!(track.width() >= crate::theme::TARGET_MIN - 0.5, "AC-02 / P3: scrollbar track pointer target width must be >= 24px, got {}", track.width());
+    assert!(
+        (thumb_bottom.bottom() - track.bottom()).abs() <= 1.5,
+        "AC-02: at scrollback_offset=0 the thumb must sit at the bottom of the track (thumb={thumb_bottom:?}, track={track:?})"
+    );
+
+    // 1. Drag from the bottom thumb to the top of the track -> scrollback_offset reaches 5,000.
+    let start_pos = thumb_bottom.center();
+    let top_pos = Pos2::new(track.center().x, track.top() + 2.0);
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        normal_vp,
+        Some(1.02),
+        vec![
+            egui::Event::PointerMoved(start_pos),
+            egui::Event::PointerButton { pos: start_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerMoved(top_pos),
+            egui::Event::PointerButton { pos: top_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    let sb_top = st.tabs[idx].parser.lock().unwrap().screen().scrollback();
+    let thumb_top = recorded_rect(&ctx, "term-scrollbar-thumb").expect("thumb at top");
+    assert_eq!(sb_top, 5000, "AC-02: dragging to the top of the track must reach scrollback_offset=5000");
+    assert!(
+        (thumb_top.top() - track.top()).abs() <= 1.5,
+        "AC-02: at scrollback_offset=5000 the thumb must sit at the top of the track (thumb={thumb_top:?}, track={track:?})"
+    );
+    assert!(st.tabs[idx].selection.is_none(), "AC-02: dragging the scrollbar must not select terminal text");
+
+    // 2. Click mid-track -> scrollback_offset lands near 2,500 (proving real 5,000-line mapping, not / 500).
+    let mid_pos = track.center();
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        normal_vp,
+        Some(1.04),
+        vec![
+            egui::Event::PointerMoved(mid_pos),
+            egui::Event::PointerButton { pos: mid_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos: mid_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    let sb_mid = st.tabs[idx].parser.lock().unwrap().screen().scrollback();
+    let thumb_mid = recorded_rect(&ctx, "term-scrollbar-thumb").expect("thumb at mid");
+    assert!((2400..=2600).contains(&sb_mid), "AC-02: clicking mid-track on a 5,000-line scrollback must land near 2,500, got {sb_mid}");
+    assert!(
+        thumb_mid.top() > thumb_top.top() + 50.0 && thumb_mid.bottom() < thumb_bottom.bottom() - 50.0,
+        "AC-02: mid-track thumb must sit mid-track between top and bottom (mid={thumb_mid:?}, top={thumb_top:?}, bottom={thumb_bottom:?})"
+    );
+
+    // 3. Verify offset=500 vs offset=5000 thumb separation (proving / 500 saturation is gone).
+    st.tabs[idx].parser.lock().unwrap().set_scrollback(500);
+    run_viewport_frame(&mut st, &ctx, normal_vp, Some(1.05), Vec::new());
+    let thumb_500 = recorded_rect(&ctx, "term-scrollbar-thumb").expect("thumb at 500");
+    assert!(
+        thumb_500.top() > thumb_mid.top() + 50.0,
+        "AC-02: offset 500 of 5,000 must sit near 10% from bottom, well below mid-track (thumb_500={thumb_500:?}, thumb_mid={thumb_mid:?})"
+    );
+
+    // 4. Drag/click to the bottom of the track -> scrollback_offset reaches 0.
+    let bot_pos = Pos2::new(track.center().x, track.bottom() - 2.0);
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        normal_vp,
+        Some(1.06),
+        vec![
+            egui::Event::PointerMoved(bot_pos),
+            egui::Event::PointerButton { pos: bot_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos: bot_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    assert_eq!(st.tabs[idx].parser.lock().unwrap().screen().scrollback(), 0, "AC-02: clicking bottom of track must reach offset 0");
+
+    // 5. Repeat at the smallest viewport size (rows=4, cols=16 -> 16*7.2 + 24 = 139.2w, 4*16 + 16 = 80h).
+    let min_vp = Rect::from_min_size(Pos2::new(48.0, 40.0), Vec2::new(139.0, 80.0));
+    run_viewport_frame(&mut st, &ctx, min_vp, Some(1.10), Vec::new());
+    let min_track = recorded_rect(&ctx, "term-scrollbar-track").expect("min size track");
+    assert!(min_track.width() >= crate::theme::TARGET_MIN - 0.5, "min size track width >= 24px");
+
+    let min_top = Pos2::new(min_track.center().x, min_track.top() + 1.0);
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        min_vp,
+        Some(1.12),
+        vec![
+            egui::Event::PointerMoved(min_top),
+            egui::Event::PointerButton { pos: min_top, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos: min_top, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    assert_eq!(st.tabs[idx].parser.lock().unwrap().screen().scrollback(), 5000, "AC-02 min size: reach top (5000)");
+
+    let min_mid = min_track.center();
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        min_vp,
+        Some(1.14),
+        vec![
+            egui::Event::PointerMoved(min_mid),
+            egui::Event::PointerButton { pos: min_mid, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos: min_mid, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    let min_sb_mid = st.tabs[idx].parser.lock().unwrap().screen().scrollback();
+    assert!((2300..=2700).contains(&min_sb_mid), "AC-02 min size: click mid-track lands near 2500, got {min_sb_mid}");
+
+    let min_bot = Pos2::new(min_track.center().x, min_track.bottom() - 1.0);
+    run_viewport_frame(
+        &mut st,
+        &ctx,
+        min_vp,
+        Some(1.16),
+        vec![
+            egui::Event::PointerMoved(min_bot),
+            egui::Event::PointerButton { pos: min_bot, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos: min_bot, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ],
+    );
+    assert_eq!(st.tabs[idx].parser.lock().unwrap().screen().scrollback(), 0, "AC-02 min size: reach bottom (0)");
+
+    cleanup_state(st);
+}
+
