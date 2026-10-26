@@ -1185,6 +1185,41 @@ mod tests {
             err2.contains("row") && err2.contains("dh") && (err2.contains("A") || err2.contains("B")),
             "row dh failure must name the row and report dh out of range, got: {err2}"
         );
+
+        // Round 6 Major 1: B has a wider max_dh (32) than A's best entry (h_base=24 -> [8,8]).
+        // The row's dh (+16) must lie in the intersection of each widget's best entry ([8,8] ∩ [8,32] = [8,8]),
+        // so it must fail naming the row and dh=16.
+        let allow_wider_b = validate_allow_entries(vec![
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                h_base: Some(24.0),
+                min_dh: Some(8.0),
+                max_dh: Some(8.0),
+                spec: "F".into(),
+                reason: "R5: row height 24->32".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                name_prefix: Some("B".into()),
+                dy: Some(8.0),
+                min_dh: Some(8.0),
+                max_dh: Some(32.0),
+                spec: "F".into(),
+                reason: "R5: B shifts +8 and allows up to +32".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid allow list");
+
+        let err3 = compare(&base, &cur, &allow_wider_b, &[])
+            .expect_err("row with bounding-box dh=+16 must fail when A's best entry is [8,8] even if B allows [8,32]");
+        assert!(
+            err3.contains("row") && err3.contains("dh=16") && err3.contains("A") && err3.contains("B"),
+            "row dh failure must name the row and dh=16, got: {err3}"
+        );
     }
 
     /// Round 5 Major B: Derived cumulative shift covers `anchor_x: left` (sum of `dw` to the left
