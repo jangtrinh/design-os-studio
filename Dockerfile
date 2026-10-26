@@ -14,4 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libfontconfig1 libxkbcommon0 libgl1 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/designos-mcp /usr/local/bin/designos-mcp
-ENTRYPOINT ["designos-mcp"]
+RUN mkdir -p /workspace
+WORKDIR /workspace
+ENTRYPOINT ["designos-mcp", "--workspace", "/workspace"]
