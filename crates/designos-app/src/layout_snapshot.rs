@@ -1614,4 +1614,60 @@ mod tests {
             snap_release.scroll
         );
     }
+
+    /// Round 4 Minor 7: `g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact` —
+    /// G1 keeps `x` and `w` exact (even when an allow entry covers the region), while allowing
+    /// `y` and `h` changes covered by the allow entry's bounds.
+    #[test]
+    fn g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact() {
+        let base = sample_snapshot("c-title-bar");
+        let mut cur = base.clone();
+        // tab_bar grows h by +4 (40 -> 44), shifting left_panel y by +4 (40 -> 44) and shrinking its h by -4 (860 -> 856).
+        cur.regions.insert("tab_bar".into(), Some([0.0, 0.0, 1440.0, 44.0]));
+        cur.regions.insert("left_panel".into(), Some([49.0, 44.0, 241.0, 856.0]));
+
+        let allow = validate_allow_entries(vec![
+            AllowEntry {
+                case: "c-title-bar".into(),
+                region: "tab_bar".into(),
+                min_dh: Some(4.0),
+                max_dh: Some(4.0),
+                spec: "D".into(),
+                reason: "R5: tab bar height 40->44".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "c-title-bar".into(),
+                region: "left_panel".into(),
+                dy: Some(4.0),
+                min_dh: Some(-4.0),
+                max_dh: Some(-4.0),
+                spec: "D".into(),
+                reason: "R5: left panel shifts down +4 and shrinks -4 under 44pt tab bar".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid allow list");
+
+        // With covering allow entries, y and h changes on tab_bar and left_panel pass G1 (and are not stale).
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("covered region y/h changes must pass G1");
+
+        // Even with max_dw in an allow entry, G1 must reject a region w change (x and w are always 0.0pt exact).
+        let mut cur_w_drift = cur.clone();
+        cur_w_drift.regions.insert("left_panel".into(), Some([49.0, 44.0, 249.0, 856.0]));
+        let allow_with_dw = validate_allow_entries(vec![AllowEntry {
+            case: "c-title-bar".into(),
+            region: "left_panel".into(),
+            dy: Some(4.0),
+            min_dh: Some(-4.0),
+            max_dh: Some(-4.0),
+            max_dw: Some(8.0),
+            spec: "D".into(),
+            reason: "R5: attempt to allow region width change".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+        let err = compare(&base, &cur_w_drift, &allow_with_dw, &[]).expect_err("G1 must reject region width change even when allow entry has max_dw");
+        assert!(err.contains("left_panel.w"), "G1 error must name left_panel.w, got: {err}");
+    }
 }
