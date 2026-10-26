@@ -136,7 +136,14 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.2. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.3. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v063"></a>
+### 0.6.3
+
+- **Agents panel.** Hook outputs (`agent-status.json`, `agent-events.jsonl`, `turn-marks.jsonl`, `claude-transcript.json`) and Claude's prompt-hook replies live in a Studio-private `hook-out` folder outside the session folder, `$TMPDIR`, `/tmp`, `/var/tmp` and every folder an agent CLI is granted, and the turn-mark hook reads `doc-patch.jsonl` size with `stat -L` instead of opening it.
+- **CLI and MCP.** `--screenshot` on a missing, empty or corrupt file exits 1 with an error message and writes no PNG. `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` report invalid `NodeSpec` fields in plain words instead of serde type errors, and the docs note that Ask covers agent tabs started from Studio while your own `designos` CLI and external `designos-mcp` hosts approve their own calls.
+- **Linux.** Home › `Import` opens the file chooser when `org.freedesktop.portal.Desktop` starts on first use or when `zenity` is installed, and when no file dialog can open it names the cause and offers `Enter a path…`.
 
 <a id="new-in-v062"></a>
 ### 0.6.2
@@ -594,6 +601,7 @@ design-os-studio/
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
+- The Windows test suite is advisory for 0.6.3. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
