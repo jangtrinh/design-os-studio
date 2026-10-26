@@ -976,6 +976,7 @@ dependencies = [
  "uuid",
  "vt100",
  "winresource",
+ "zbus",
 ]
 
 [[package]]

@@ -191,6 +191,14 @@ impl Shell {
             app.open_library_file(id);
         } else if opts.home {
             app.go_home();
+            #[cfg(any(debug_assertions, test))]
+            if let Some(mode) = std::env::var_os("DESIGNOS_FORCE_NO_FILE_DIALOG") {
+                if mode == "toast" || mode == "1" {
+                    crate::home::import_files_dialog(&mut app, &crate::io::SystemDialogs);
+                } else if mode == "dialog" {
+                    app.open_import_path_dialog();
+                }
+            }
         }
         if let Some(name) = opts.select.as_ref().filter(|n| n.as_str() != "none") {
             // a top-level layer (screen) wins over same-named layers deeper in the tree
@@ -1012,14 +1020,21 @@ impl Shell {
             self.app.toast = None;
             return;
         }
-        let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
+        let (text, error, reveal, enter_path) = (t.text.clone(), t.error, t.reveal.clone(), t.enter_path);
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
+        let action_meta = if reveal.is_some() {
+            Some(("toast-reveal", REVEAL_LABEL))
+        } else if enter_path {
+            Some(("toast-enter-path", "Enter a path\u{2026}"))
+        } else {
+            None
+        };
+        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, action_meta.map(|(_, l)| l));
         let (r, ctx) = (lay.rect, ui.ctx().clone());
         // Only the "Details" link and the action take clicks, each as its own small Area. The body has no widget at all:
         // any widget in the layer, even a hover-only one, hides the canvas and the cards below it from the pointer.
         let details_clicked = details && toast_click_target(&ctx, "toast-details", r, "Details").clicked();
-        let action = lay.action.map(|(target, label)| (toast_click_target(&ctx, "toast-reveal", target, REVEAL_LABEL), target, label));
+        let action = lay.action.zip(action_meta).map(|((target, label), (id, text_lbl))| (toast_click_target(&ctx, id, target, text_lbl), target, label));
         // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
         // hide the toast. No fade-in: the toast has always appeared at full strength.
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast")));
@@ -1027,21 +1042,25 @@ impl Shell {
         p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
         p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
         p.galley(lay.text_pos, lay.text, theme::TEXT);
-        let mut reveal_clicked = false;
+        let mut action_clicked = false;
         if let Some((button, target, label)) = action {
             if button.hovered() {
                 p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             p.galley(Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0), label, theme::TEXT_BRAND);
-            reveal_clicked = button.clicked();
+            action_clicked = button.clicked();
         }
         if details_clicked {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
-        if let (true, Some(file)) = (reveal_clicked, reveal) {
+        if let (true, Some(file)) = (action_clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
                 self.app.show_toast(e, true);
             }
+        } else if action_clicked && enter_path {
+            self.app.toast = None;
+            self.app.open_import_path_dialog();
+            ctx.request_repaint();
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }

@@ -589,3 +589,74 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
         let _ = tab.child.kill();
     }
 }
+
+#[test]
+fn import_without_a_dialog_opens_path_prompt_from_toast_and_imports_file() {
+    let (mut s, d) = home_sim();
+    let sub = d.0.join("Thư mục 2026");
+    std::fs::create_dir_all(&sub).unwrap();
+    let file = sub.join("Thiết kế mẫu.designos");
+    let mut doc = Document::new("Thiết kế mẫu");
+    doc.add_page("Trang 1");
+    crate::io::save_path(&doc, &file).unwrap();
+
+    crate::home::import_files_dialog(&mut s.shell.app, &crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable));
+    s.frame(vec![]);
+    assert!(s.app().toast.as_ref().is_some_and(|t| t.enter_path));
+
+    click_rect(&mut s, "toast-enter-path");
+    assert!(s.app().toast.is_none());
+    assert_eq!(s.app().dialog.as_ref().map(|dlg| dlg.intent.clone()), Some(Intent::ImportPath));
+    assert_eq!(s.app().dialog.as_ref().and_then(|dlg| dlg.hint.as_deref()), Some("Path to a .fig, .designos, .json or .svg file"));
+    assert!(!s.app().dialog.as_ref().unwrap().can_submit(), "Import stays off while the field is empty");
+
+    s.type_text(&file.display().to_string());
+    s.key(Key::Enter);
+    assert!(s.app().dialog.is_none());
+    assert!(s.app().home.is_none(), "entering a path opens the file in a tab");
+    assert_eq!(s.app().doc.name, "Thiết kế mẫu");
+    assert_eq!(s.app().file_path.as_deref(), Some(file.as_path()));
+}
+
+#[test]
+fn round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it() {
+    const NO_FILE_DIALOG: &str = "No file dialog. Install zenity or xdg-desktop-portal.";
+    let (mut s, _d) = home_sim();
+    let unavailable = crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable);
+
+    // 1. Save As with Unavailable file dialog shows plain NO_FILE_DIALOG toast with no Enter a path… action.
+    s.shell.app.save_with(true, &unavailable);
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("Save As unavailable must show NO_FILE_DIALOG toast");
+    assert_eq!(toast.text, NO_FILE_DIALOG);
+    assert!(!toast.enter_path, "Save As toast must not attach Enter a path… action");
+    assert!(
+        s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "toast-enter-path".to_string())))).is_none(),
+        "toast-enter-path button must not render for Save As"
+    );
+
+    // 2. Image fill with Unavailable file dialog also shows plain NO_FILE_DIALOG toast with no Enter a path… action.
+    s.shell.app.toast = None;
+    let mut paint = designos_doc::Paint::solid(designos_doc::Color::WHITE);
+    assert!(!crate::panels::properties::choose_image_fill(&mut s.shell.app, &mut paint, &unavailable));
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("Image fill unavailable must show NO_FILE_DIALOG toast");
+    assert_eq!(toast.text, NO_FILE_DIALOG);
+    assert!(!toast.enter_path, "Image fill toast must not attach Enter a path… action");
+    assert!(
+        s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "toast-enter-path".to_string())))).is_none(),
+        "toast-enter-path button must not render for image fill"
+    );
+
+    // 3. Home > Import with Unavailable file dialog still attaches Enter a path… action.
+    s.shell.app.toast = None;
+    crate::home::import_files_dialog(&mut s.shell.app, &unavailable);
+    s.frame(vec![]);
+    let toast = s.app().toast.as_ref().expect("Home > Import unavailable must show NO_FILE_DIALOG toast");
+    assert_eq!(toast.text, NO_FILE_DIALOG);
+    assert!(toast.enter_path, "Home > Import toast must keep Enter a path… action");
+    assert!(
+        s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "toast-enter-path".to_string())))).is_some(),
+        "toast-enter-path button must render for Home > Import"
+    );
+}

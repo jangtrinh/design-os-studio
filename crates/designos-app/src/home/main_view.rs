@@ -44,7 +44,7 @@ pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec
         }
         right -= 8.0;
         let r = button(ui, &p, &mut right, head.center().y, "Import\u{2026}", Kind::Secondary, "home-import");
-        if r.clicked() {
+        if r.clicked() && !r.double_clicked() {
             acts.push(Act::Import);
         }
     }

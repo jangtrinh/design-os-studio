@@ -143,6 +143,8 @@ pub struct Toast {
     pub error: bool,
     /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
     pub reveal: Option<PathBuf>,
+    /// True when no file dialog could open and the toast carries an "Enter a path…" fallback action.
+    pub enter_path: bool,
 }
 
 pub struct App {
@@ -246,6 +248,10 @@ pub struct App {
     /// Last web capture import report (`T8.27`) and whether its `Details` sheet is open.
     pub web_capture_report: Option<designos_webcapture::ImportReport>,
     pub web_capture_report_open: bool,
+    /// Last `warn` log line emitted when a system file dialog could not open (`#1192`).
+    pub last_dialog_warn: Option<String>,
+    /// Per-window guard so a second click on Import while a chooser is opening opens nothing new (`#1192`).
+    pub dialog_opening: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl App {
@@ -315,6 +321,8 @@ impl App {
             pending_flush_notice: None,
             web_capture_report: None,
             web_capture_report_open: false,
+            last_dialog_warn: None,
+            dialog_opening: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -344,7 +352,7 @@ impl App {
                 error = true;
             }
         }
-        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None });
+        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false });
     }
 
     /// A toast that stays long enough to read and offers to show `path` in its folder.

@@ -32,6 +32,8 @@ pub enum Intent {
     DiskChanged,
     /// A document with edits no save has written is about to be closed or replaced: Save, Don't save or Cancel.
     SaveChanges,
+    /// Opens / imports a file by path when no system file dialog could open (`#1192`).
+    ImportPath,
 }
 
 /// One row of the project picker: a project or one of its folders.
@@ -43,6 +45,8 @@ pub struct Choice {
     pub depth: usize,
 }
 
+pub const IMPORT_PATH_HINT: &str = "Path to a .fig, .designos, .json or .svg file";
+
 #[derive(Clone, Debug)]
 pub struct Dialog {
     pub intent: Intent,
@@ -51,6 +55,8 @@ pub struct Dialog {
     pub lines: Vec<(String, String)>,
     /// Text field content (for prompts).
     pub input: Option<String>,
+    /// Placeholder shown inside the text field while `input` is empty.
+    pub hint: Option<String>,
     pub choices: Vec<Choice>,
     pub picked: Option<usize>,
     pub ok: String,
@@ -79,6 +85,7 @@ impl Dialog {
             title: title.into(),
             lines: vec![],
             input: None,
+            hint: None,
             choices: vec![],
             picked: None,
             ok: ok.into(),
@@ -222,6 +229,13 @@ impl App {
             "Open",
         ));
     }
+
+    /// Opens the in-app file path prompt when the system file chooser is unavailable (`#1192`).
+    pub fn open_import_path_dialog(&mut self) {
+        let mut d = Dialog::prompt(Intent::ImportPath, "Import file", "", "Import");
+        d.hint = Some(IMPORT_PATH_HINT.into());
+        self.dialog = Some(d);
+    }
 }
 
 /// Draws the open dialog (if any) and runs its outcome. Call once per frame.
@@ -281,7 +295,7 @@ pub fn show(app: &mut App, ctx: &Context) {
             let r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, 32.0));
             p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             let id = Id::new("dialog-input");
-            let te = egui::TextEdit::singleline(text)
+            let mut te = egui::TextEdit::singleline(text)
                 .id(id)
                 .font(font.clone())
                 .text_color(theme::TEXT)
@@ -290,6 +304,9 @@ pub fn show(app: &mut App, ctx: &Context) {
                 .vertical_align(egui::Align::Center)
                 .min_size(r.size())
                 .desired_width(r.width());
+            if let Some(hint) = d.hint.as_deref() {
+                te = te.hint_text(egui::RichText::new(hint).font(font.clone()).color(theme::TEXT_TERTIARY));
+            }
             let out = ui.put(r, te);
             if d.fresh {
                 out.request_focus();
@@ -433,6 +450,19 @@ pub fn finish(app: &mut App, d: Dialog) {
     if crate::history::finish_dialog(app, &d) || crate::dev::finish_dialog(app, &d) {
         return;
     }
+    if d.intent == Intent::ImportPath {
+        let raw = d.input.unwrap_or_default();
+        let trimmed = raw.trim();
+        let unquoted = trimmed
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+            .unwrap_or(trimmed);
+        if !unquoted.is_empty() {
+            app.open_path(std::path::PathBuf::from(unquoted));
+        }
+        return;
+    }
     let Some(lib) = app.lib.clone() else { return };
     let text = d.input.clone().unwrap_or_default().trim().to_string();
     let choice = d.picked.and_then(|i| d.choices.get(i)).cloned();
@@ -491,7 +521,8 @@ pub fn finish(app: &mut App, d: Dialog) {
         | Intent::NameVersion(_)
         | Intent::OpenDevLink(_)
         | Intent::DiskChanged
-        | Intent::SaveChanges => {
+        | Intent::SaveChanges
+        | Intent::ImportPath => {
             dirty = false;
             Ok(())
         }

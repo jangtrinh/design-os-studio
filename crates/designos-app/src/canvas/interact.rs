@@ -2205,7 +2205,7 @@ fn place_image(app: &mut App, page: DV) {
 pub(crate) fn place_image_with(app: &mut App, page: DV, dialogs: &dyn crate::io::FileDialogs) {
     let exts: Vec<&str> = IMAGE_EXTENSIONS.iter().chain(crate::video::VIDEO_EXTENSIONS.iter()).copied().collect();
     let outcome = dialogs.pick(&crate::io::FileRequest::open().filter("Images and video", &exts));
-    let Some(path) = app.picked_path(outcome) else { return };
+    let Some(path) = app.picked_path(outcome, false) else { return };
     let Ok(bytes) = std::fs::read(&path) else {
         app.show_toast("Cannot read file", true);
         return;
