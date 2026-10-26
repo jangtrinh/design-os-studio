@@ -427,8 +427,17 @@ pub struct StyleItem {
     pub key: String,
     pub name: String,
     pub paint: Paint,
+    /// Hover text from the style description. Empty when there is nothing to show.
+    pub description: String,
     /// (library id, library name) for styles that still live in an enabled library.
     pub library: Option<(String, String)>,
+}
+
+static SCREENSHOT_LIBRARIES_HOVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Headless `--panel fill-picker-libraries:hover` paints the first described row's tooltip.
+pub fn set_screenshot_libraries_hover(on: bool) {
+    SCREENSHOT_LIBRARIES_HOVER.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 const STYLE_ROW: f32 = 32.0;
@@ -1216,6 +1225,7 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
         return;
     }
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(body));
+    let mut shot_tip: Option<(Rect, String)> = None;
     egui::ScrollArea::vertical().id_salt("picker-styles").auto_shrink([false, false]).show(&mut child, |ui| {
         ui.spacing_mut().item_spacing = Vec2::ZERO;
         for (i, row) in style_rows(env.styles).into_iter().enumerate() {
@@ -1230,7 +1240,8 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
                     let (full, _) = ui.allocate_exact_size(Vec2::new(body.width(), STYLE_ROW), Sense::hover());
                     let r = full.shrink2(Vec2::new(8.0, 0.0));
                     let resp = ui.interact(r, ui.id().with(("picker-style", i)), Sense::click());
-                    if resp.hovered() {
+                    let force_tip = shot_tip.is_none() && !s.description.is_empty() && SCREENSHOT_LIBRARIES_HOVER.load(std::sync::atomic::Ordering::Relaxed);
+                    if resp.hovered() || force_tip {
                         ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     let c = Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y);
@@ -1239,6 +1250,12 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
                     let name = elide(ui.painter(), &s.name, &font, r.width() - 36.0);
                     text_on_baseline(ui.painter(), r.left() + theme::STYLE_LABEL_X, centered_baseline(r, &font), &name, font, theme::TEXT);
                     crate::widgets::record(ui, &format!("picker-style:{}", s.name), r);
+                    if !s.description.is_empty() {
+                        resp.clone().on_hover_text(&s.description);
+                    }
+                    if force_tip {
+                        shot_tip = Some((r, s.description.clone()));
+                    }
                     if resp.clicked() {
                         match &s.library {
                             Some((lib, _)) => out.apply_library_style = Some((lib.clone(), s.key.clone())),
@@ -1249,6 +1266,17 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
             }
         }
     });
+    if let Some((r, tip_text)) = shot_tip {
+        egui::Area::new(egui::Id::new("picker-libraries-hover-tip"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(Pos2::new(r.left() + theme::MENU_PADDING, r.bottom()))
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(tip_text);
+                });
+            });
+    }
 }
 
 /// 24px dropdown button with the picker's look (bg + 1px border). Returns the picked index.
