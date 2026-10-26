@@ -872,6 +872,48 @@ mod tests {
         assert!(err_edge.contains("prop-row-2"), "edge failure must name prop-row-2, got: {err_edge}");
     }
 
+    /// Round 4 Major 1: Three unnamed inspector rows go 24->32 and step down by +0, +8, +16
+    /// under `{h_base: 24, min_dh: 8, max_dh: 8}`; G4 applies the cumulative row-box `dh` shift.
+    #[test]
+    fn unnamed_rows_shift_by_cumulative_row_box_dh() {
+        let mut base = sample_snapshot("f-inspector");
+        base.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base.unnamed = vec![
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 60.0, 90.0, 24.0], sense: vec!["click".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1310.0, 60.0, 90.0, 24.0], sense: vec!["click".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 90.0, 200.0, 24.0], sense: vec!["click".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 120.0, 200.0, 24.0], sense: vec!["click".into()] },
+        ];
+
+        let mut cur = base.clone();
+        // Row 0 has two unnamed widgets at y=60, h=24 -> y=60, h=32 (row-box dh = +8, not +16).
+        cur.unnamed[0].rect = [1210.0, 60.0, 90.0, 32.0];
+        cur.unnamed[1].rect = [1310.0, 60.0, 90.0, 32.0];
+        // Row 1 shifts down by +8 (90 -> 98) and grows 24 -> 32.
+        cur.unnamed[2].rect = [1210.0, 98.0, 200.0, 32.0];
+        // Row 2 shifts down by +16 (120 -> 136) and grows 24 -> 32.
+        cur.unnamed[3].rect = [1210.0, 136.0, 200.0, 32.0];
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            h_base: Some(24.0),
+            min_dh: Some(8.0),
+            max_dh: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: unnamed editor rows 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("unnamed rows shifting by cumulative row-box dh (+0, +8, +16) must pass G4");
+
+        let mut cur_extra = cur.clone();
+        cur_extra.unnamed[3].rect[1] = 144.0;
+        let err = compare(&base, &cur_extra, &allow, &[]).expect_err("unnamed row 8pt below derived sum must fail G4");
+        assert!(err.contains("G4"), "expected G4 error, got: {err}");
+    }
+
     /// Test 4d: 24->32 makes the right panel overflow: a `scroll` entry appears; G2 passes.
     #[test]
     fn inspector_overflow_does_not_fail_g2() {
