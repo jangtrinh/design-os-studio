@@ -2016,11 +2016,14 @@ mod tests {
             snap_info.unnamed
         );
 
-        // Now simulate the release --layout-json path where widget info is absent.
+        // Now simulate the release --layout-json path where widget info is absent, including the same 16x24 splitter.
         let ctx_no_info = Context::default();
         ctx_no_info.all_styles_mut(|s| s.debug.show_interactive_widgets = false);
         for _ in 0..2 {
             let _ = ctx_no_info.run_ui(raw.clone(), |ui| {
+                let drag_rect = Rect::from_min_size(Pos2::new(60.0, 100.0), egui::Vec2::new(16.0, 24.0));
+                let _ = ui.interact(drag_rect, egui::Id::new("splitter_drag_handle"), egui::Sense::drag());
+
                 let right_rect = regions.right_panel.unwrap();
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(right_rect));
                 egui::ScrollArea::vertical().id_salt("r4_minor6_scroll_release").max_height(100.0).show(&mut child, |ui| {
@@ -2032,8 +2035,12 @@ mod tests {
         assert_eq!(
             snap_release.scroll,
             vec![ScrollGeom { region: "right_panel".into(), axis: "y".into(), maybe: true }],
-            "when widget info is absent, fallback scroll detection must emit axis='y', maybe=true; got {:?}",
+            "when widget info is absent, fallback scroll detection must emit only right_panel axis='y', maybe=true; got {:?}",
             snap_release.scroll
+        );
+        assert_eq!(
+            snap_release.unnamed, snap_info.unnamed,
+            "both gate and release paths must classify the 16x24 splitter in left_panel as unnamed"
         );
     }
 
