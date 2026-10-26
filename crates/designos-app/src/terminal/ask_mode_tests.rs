@@ -40,7 +40,7 @@ fn session_in(mode: PermissionMode) -> TerminalState {
     let _ = std::fs::remove_dir_all(&st.session_dir);
     std::fs::create_dir_all(&st.session_dir).expect("session dir");
     st.permission_mode = mode;
-    st.provision_session_agent_files(None);
+    st.provision_session_agent_files(None, true).expect("session files");
     st
 }
 
@@ -221,7 +221,7 @@ fn gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab() {
     let mut st = session_in(PermissionMode::Ask);
     for mode in [PermissionMode::Skip, PermissionMode::Ask, PermissionMode::Skip] {
         st.permission_mode = mode;
-        st.provision_session_agent_files(None);
+        st.provision_session_agent_files(None, true).expect("session files");
         let settings = read_json(&st, ".gemini/settings.json");
         assert!(settings["mcpServers"]["designos"].get("trust").is_none(), "after switching to {mode:?}: {settings}");
     }

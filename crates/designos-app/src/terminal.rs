@@ -23,6 +23,8 @@ use egui::{
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -406,7 +408,7 @@ impl SessionEnv {
             live_canvas_path: session_dir.join("canvas.designos"),
             context_json_path: session_dir.join("context.json"),
             selection_spec_path: session_dir.join("selection.spec.json"),
-            mcp_config_path: session_dir.join("mcp-config.json"),
+            mcp_config_path: studio_mcp_config_path(&session_dir),
             hooks_json_path: session_dir.join("hooks.json"),
             skill_md_path: session_dir.join("SKILL.md"),
             session_dir,
@@ -1290,6 +1292,10 @@ pub struct TerminalState {
     session_closed: bool,
     /// Pauses the retry of a snapshot write that failed (`#690` edge case 5).
     write_backoff: crate::agent_session_files::WriteBackoff,
+    /// User tool restrictions loaded by Studio before agents can edit the session folder.
+    studio_tool_block: Option<serde_json::Value>,
+    /// Once an agent starts, session-file edits no longer update the Studio-owned policy.
+    studio_tool_config_locked: bool,
 }
 
 impl Default for TerminalState {
@@ -1399,11 +1405,106 @@ fn page_context_json(session_id: &str, doc_name: &str, file_path: Option<&Path>,
     })
 }
 
-/// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
-/// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
+/// Studio-owned MCP config path. The session folder is an agent workspace, so it cannot be the
+/// source of tool policy. The stable hash keeps one private config per session without exposing
+/// the session path in the filename.
+fn studio_mcp_config_path(session_dir: &Path) -> PathBuf {
+    // Keep the protected copy outside the agent workspace. If the platform has no
+    // application-data directory, use an intentionally unavailable path so a launch
+    // fails closed instead of falling back to an agent-writable temp folder.
+    let root = designos_library::app_data_dir().unwrap_or_else(|| {
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"C:\Windows\System32\designos-unavailable")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/nonexistent/designos-unavailable")
+        }
+    });
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in session_dir.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    root.join("agent-mcp").join(format!("{hash:016x}")).join("mcp-config.json")
+}
+
+fn studio_tool_policy_path(session_dir: &Path) -> PathBuf {
+    studio_mcp_config_path(session_dir).with_file_name("policy.json")
+}
+
+fn write_studio_mcp_config(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+    }
+    designos_library::write_atomic(path, bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+fn write_studio_tool_policy(session_dir: &Path, block: Option<&serde_json::Value>) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec(&block.map_or_else(|| serde_json::json!({"designos": null}), |value| serde_json::json!({"designos": value})))
+        .map_err(invalid_data)?;
+    write_studio_mcp_config(&studio_tool_policy_path(session_dir), &bytes)
+}
+
 fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
     let raw = std::fs::read_to_string(mcp_config_path).ok();
     designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
+}
+
+fn read_studio_tool_policy(session_dir: &Path) -> std::io::Result<Option<Option<serde_json::Value>>> {
+    let path = studio_tool_policy_path(session_dir);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if studio_mcp_config_path(session_dir).exists() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP config exists without its policy"));
+            }
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let value = serde_json::from_str::<serde_json::Value>(&raw).map_err(invalid_data)?;
+    let object = value.as_object().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy must be a JSON object"))?;
+    let block =
+        object.get("designos").ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy is missing the designos key"))?;
+    if !block.is_null() && !block.is_object() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy designos value must be an object or null"));
+    }
+    if let Some(block) = block.as_object() {
+        let enabled_tools =
+            block.get("enabled_tools").ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy is missing enabled_tools"))?;
+        let Some(enabled_tools) = enabled_tools.as_array() else {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy enabled_tools must be an array"));
+        };
+        if enabled_tools.iter().any(|tool| tool.as_str().is_none()) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy enabled_tools must contain only strings"));
+        }
+        if let Some(known_tools) = block.get("known_tools") {
+            let Some(known_tools) = known_tools.as_array() else {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy known_tools must be an array"));
+            };
+            if known_tools.iter().any(|tool| tool.as_str().is_none()) {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "protected MCP policy known_tools must contain only strings"));
+            }
+        }
+    }
+    Ok(Some((!block.is_null()).then(|| block.clone())))
+}
+
+fn enabled_tools_from_block(block: Option<&serde_json::Value>) -> Option<std::collections::BTreeSet<String>> {
+    let raw = block.map(|designos| serde_json::json!({"designos": designos}).to_string());
+    designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
+}
+
+fn trusted_designos_block_from_config(raw: Option<&str>) -> Option<serde_json::Value> {
+    let custom = designos_mcp::rules::reconcile_designos_block(raw)?;
+    Some(custom.block)
 }
 
 /// The `E15-15` rules pack for the tools a session enables. The session `SKILL.md` / `AGENTS.md` and the
@@ -1419,6 +1520,32 @@ fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>
 }
 
 impl TerminalState {
+    fn reload_studio_tool_config(&mut self) -> std::io::Result<()> {
+        if self.studio_tool_config_locked {
+            return Ok(());
+        }
+        match read_studio_tool_policy(&self.session_dir)? {
+            Some(block) => self.studio_tool_block = block,
+            None => {
+                if let Ok(session) = std::fs::read_to_string(self.session_dir.join("mcp-config.json")) {
+                    self.studio_tool_block = trusted_designos_block_from_config(Some(&session));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn studio_enabled_tools(&self) -> Option<std::collections::BTreeSet<String>> {
+        enabled_tools_from_block(self.studio_tool_block.as_ref())
+    }
+
+    fn capture_studio_tool_config(&mut self) -> std::io::Result<()> {
+        if !self.studio_tool_config_locked {
+            self.reload_studio_tool_config()?;
+        }
+        Ok(())
+    }
+
     /// Creates an isolated `TerminalState` bound to document tab `tab_id` of this process
     /// (`/tmp/designos-sessions/p<pid>-tab-{tab_id}`). A window's terminal is bound to its own
     /// instance (`TabsState::session_id_for_tab`) before any shell starts in it.
@@ -1538,6 +1665,8 @@ impl TerminalState {
             snapshot_worker: crate::agent_session_files::SnapshotWorker::new(),
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
+            studio_tool_block: None,
+            studio_tool_config_locked: false,
         }
     }
 
@@ -1843,6 +1972,8 @@ impl TerminalState {
         self.bootstrap_md_path = session_dir.join("bootstrap.md");
         self.bootstrap_json_path = session_dir.join("bootstrap.json");
         self.session_dir = session_dir;
+        self.studio_tool_block = None;
+        self.studio_tool_config_locked = false;
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
@@ -2108,7 +2239,7 @@ impl TerminalState {
             live_canvas_path: self.live_canvas_path.clone(),
             context_json_path: self.context_json_path.clone(),
             selection_spec_path: self.selection_spec_path.clone(),
-            mcp_config_path: self.session_dir.join("mcp-config.json"),
+            mcp_config_path: studio_mcp_config_path(&self.session_dir),
             hooks_json_path: self.session_dir.join("hooks.json"),
             skill_md_path: self.session_dir.join("SKILL.md"),
             current_page_id: self.current_page_id,
@@ -2145,12 +2276,12 @@ impl TerminalState {
 
     /// Starts or restarts an agent run, advancing `run_id` so the next prompt / hook invocation
     /// delivers the 7-section `bootstrap.md` block once (`E15-16 §3.2`, `§10`).
-    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) {
+    pub fn reset_agent_run(&mut self, file_path: Option<&Path>) -> std::io::Result<()> {
         self.run_id = self.run_id.saturating_add(1);
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
         self.bootstrap_job = None;
-        self.provision_session_agent_files(file_path);
+        self.provision_session_agent_files(file_path, true)
     }
 
     /// Spawns a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`) with a lazy
@@ -2180,7 +2311,8 @@ impl TerminalState {
             active_style: None,
             in_progress: Default::default(),
         };
-        let enabled_tools = session_enabled_tools(&self.session_dir.join("mcp-config.json"));
+        let enabled_tools =
+            if self.studio_tool_config_locked { self.studio_enabled_tools() } else { session_enabled_tools(&self.session_dir.join("mcp-config.json")) };
         let doc = Arc::new(doc);
         let doc_bg = Arc::clone(&doc);
         let opts_bg = opts.clone();
@@ -2369,7 +2501,9 @@ impl TerminalState {
             if self.last_bootstrap_key.is_none() && !self.is_run_bootstrap_delivered() {
                 self.last_bootstrap_key = Some((doc.mutation_epoch(), page.0));
                 self.start_bootstrap_job(doc.clone_without_images(), page, file_path.map(Path::to_path_buf), None);
-                self.provision_session_agent_files(file_path);
+                if let Err(error) = self.provision_session_agent_files(file_path, false) {
+                    self.status_msg = Some(format!("Failed to provision session files: {error}"));
+                }
             }
             return;
         }
@@ -2448,6 +2582,8 @@ impl TerminalState {
                 bootstrap_run_id: self.run_id,
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
                 ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
+                trusted_designos_block: self.studio_tool_block.clone(),
+                trusted_designos_config_locked: self.studio_tool_config_locked,
                 unread_probe: Some(self.live_patch.unread_probe()),
             });
         }
@@ -2508,7 +2644,14 @@ impl TerminalState {
     /// at once). A snapshot queued earlier carries the run id and permission mode of before this start, so it
     /// is dropped (or waited for, when already writing) and `last_synced_key` is cleared: the next sync queues
     /// a fresh one instead of letting the stale one overwrite these files.
-    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
+    fn provision_session_agent_files(&mut self, file_path: Option<&Path>, lock_policy: bool) -> std::io::Result<()> {
+        if lock_policy {
+            // Freeze policy before constructing the launch snapshot. The protected
+            // copy must exist before the child agent can read its environment.
+            self.capture_studio_tool_config()?;
+            write_studio_tool_policy(&self.session_dir, self.studio_tool_block.as_ref())?;
+            self.studio_tool_config_locked = true;
+        }
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
         self.write_backoff.clear();
@@ -2532,9 +2675,16 @@ impl TerminalState {
             bootstrap_run_id: self.run_id,
             agent_runtime: self.active_mcp_runtime_name().to_string(),
             ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
+            trusted_designos_block: self.studio_tool_block.clone(),
+            trusted_designos_config_locked: self.studio_tool_config_locked,
             unread_probe: None,
         };
-        let _ = write_session_agent_files_for_job(&job);
+        let result = write_session_agent_files_for_job(&job);
+        if result.is_err() && lock_policy {
+            // A failed protected write must not leave this state marked as trusted for a later retry.
+            self.studio_tool_config_locked = false;
+        }
+        result
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
@@ -2845,7 +2995,7 @@ impl TerminalState {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let _ = std::fs::create_dir_all(&self.session_dir);
-        self.provision_session_agent_files(file_path);
+        self.provision_session_agent_files(file_path, true).map_err(|e| e.to_string())?;
         let env = self.session_env();
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
         #[cfg(test)]
@@ -2924,9 +3074,9 @@ impl TerminalState {
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
         let _ = crate::agent_session_files::ensure_session_dir(&self.session_dir);
         if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-            self.reset_agent_run(file_path);
+            self.reset_agent_run(file_path).map_err(|e| e.to_string())?;
         } else {
-            self.provision_session_agent_files(file_path);
+            self.provision_session_agent_files(file_path, true).map_err(|e| e.to_string())?;
         }
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
@@ -4552,13 +4702,20 @@ fn invalid_data(e: serde_json::Error) -> std::io::Error {
 pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files::SnapshotJob) -> std::io::Result<()> {
     let mcp_bin = designos_mcp_binary();
     let workspace_dir = session_workspace_dir(job.file_path.as_deref());
-    let mcp_config_path = job.session_dir.join("mcp-config.json");
+    let session_mcp_config_path = job.session_dir.join("mcp-config.json");
+    let mcp_config_path = studio_mcp_config_path(&job.session_dir);
 
     // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
-    // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
-    // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
-    let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
-    let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
+    // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is supplied by
+    // Studio-owned state; the agent-writable session copy is never consulted here.
+    let custom_tools = if job.trusted_designos_config_locked {
+        job.trusted_designos_block
+            .as_ref()
+            .map(|block| designos_mcp::rules::DesignosConfigBlock { enabled: enabled_tools_from_block(Some(block)).unwrap_or_default(), block: block.clone() })
+    } else {
+        let existing_config = std::fs::read_to_string(&session_mcp_config_path).ok();
+        designos_mcp::rules::reconcile_designos_block(existing_config.as_deref())
+    };
 
     let mut mcp_config = serde_json::json!({
         "mcpServers": {
@@ -4588,7 +4745,10 @@ pub(crate) fn write_session_agent_files_for_job(job: &crate::agent_session_files
         root.insert("designos".into(), custom.block.clone());
     }
     let bytes = serde_json::to_vec_pretty(&mcp_config).map_err(invalid_data)?;
-    atomic_write_session_file(&mcp_config_path, &bytes)?;
+    atomic_write_session_file(&session_mcp_config_path, &bytes)?;
+    if job.trusted_designos_config_locked && mcp_config_path != session_mcp_config_path {
+        write_studio_mcp_config(&mcp_config_path, &bytes)?;
+    }
     write_agy_session_plugin(&job.session_dir, &bytes)?;
     write_gemini_session_config(&job.session_dir, &mcp_config);
     write_grok_session_config(&job.session_dir, &mcp_config)?;
@@ -7180,7 +7340,7 @@ mod tests {
         st.next_run_seq = run_seq + 1;
         st.active_run_id = format!("{}-{}-{}", st.session_id, id, run_seq);
         let _ = std::fs::create_dir_all(&st.session_dir);
-        st.provision_session_agent_files(None);
+        st.provision_session_agent_files(None, true).expect("session files");
         let env = st.session_env();
         let tab = TerminalTab::spawn_exiting_stub_agent(id, 28, 100, None, Some(&env)).expect("spawn stub agent");
         st.tabs.push(tab);
@@ -7608,18 +7768,17 @@ mod tests {
         let mut doc = Document::new("Enabled Tools Session File");
         let page1 = doc.add_page("Page 1");
         let page2 = doc.add_page("Page 2");
+        let mcp_cfg_path = st.session_dir.join("mcp-config.json");
+        std::fs::create_dir_all(&st.session_dir).unwrap();
+        let mut preexisting_cfg = serde_json::json!({"mcpServers": {"designos": {"env": {}}}});
+        preexisting_cfg["designos"] = serde_json::json!({"enabled_tools": ["designos_get_document", "designos_list_nodes"]});
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&preexisting_cfg).unwrap()).unwrap();
         st.sync_live_file_context(&doc, page1, &[], None);
         st.flush_live_sync();
 
-        let mcp_cfg_path = st.session_dir.join("mcp-config.json");
         let initial_cfg = read_json(&mcp_cfg_path);
-        assert!(initial_cfg.get("designos").is_none(), "the default (every tool) is never written down: {initial_cfg}");
-        assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(mcp_cfg_path.display().to_string().as_str()));
-
-        // A restricted tool list written into mcp-config.json survives the next page sync.
-        let mut custom_cfg = initial_cfg.clone();
-        custom_cfg["designos"] = serde_json::json!({"enabled_tools": ["designos_get_document", "designos_list_nodes"]});
-        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&custom_cfg).unwrap()).unwrap();
+        let protected_path = st.session_env().mcp_config_path;
+        assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(protected_path.display().to_string().as_str()));
 
         st.sync_live_file_context(&doc, page2, &[], None);
         st.flush_live_sync();
@@ -7641,6 +7800,62 @@ mod tests {
             assert!(!content.contains("### `designos_render_png`"), "{rel} must omit disabled render_png section");
         }
         let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn session_agent_files_do_not_reenable_tools_from_agent_edited_config() {
+        let mut st = isolated_683_state(1049);
+        let mut doc = Document::new("Trusted Tools Session File");
+        let page1 = doc.add_page("Page 1");
+        let _page2 = doc.add_page("Page 2");
+        let page3 = doc.add_page("Page 3");
+        let mcp_cfg_path = st.session_dir.join("mcp-config.json");
+        std::fs::create_dir_all(&st.session_dir).unwrap();
+        let initial = serde_json::json!({"designos": {"enabled_tools": ["designos_get_document"]}});
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
+        st.sync_live_file_context(&doc, page1, &[], None);
+        st.flush_live_sync();
+
+        let mut restricted_cfg = read_json(&mcp_cfg_path);
+        restricted_cfg["designos"] = serde_json::json!({"enabled_tools": ["designos_get_document"]});
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&restricted_cfg).unwrap()).unwrap();
+        st.provision_session_agent_files(None, true).expect("session files");
+
+        // An agent can write the session file. Removing the restriction must not change the
+        // Studio-owned list used for the next generated config and rules pack.
+        let mut forged_cfg = read_json(&mcp_cfg_path);
+        forged_cfg["designos"] =
+            serde_json::json!({"enabled_tools": designos_mcp::server::tools().into_iter().map(|t| t.name.to_string()).collect::<Vec<_>>()});
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&forged_cfg).unwrap()).unwrap();
+        st.sync_live_file_context(&doc, page3, &[], None);
+        st.flush_live_sync();
+
+        let after_cfg = read_json(&mcp_cfg_path);
+        assert_eq!(after_cfg["designos"]["enabled_tools"], serde_json::json!(["designos_get_document"]));
+        let skill = std::fs::read_to_string(st.session_dir.join("SKILL.md")).unwrap();
+        assert!(!skill.contains("### `designos_create_node`"));
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn malformed_protected_tool_policy_fails_closed() {
+        let mut st = isolated_683_state(10491);
+        let policy_path = studio_tool_policy_path(&st.session_dir);
+        std::fs::create_dir_all(policy_path.parent().expect("policy parent")).expect("policy parent");
+
+        for malformed in [
+            serde_json::json!({"designos": {}}),
+            serde_json::json!({"designos": {"enabled_tools": "all"}}),
+            serde_json::json!({"designos": {"enabled_tools": ["designos_get_document", 7]}}),
+        ] {
+            std::fs::write(&policy_path, serde_json::to_vec(&malformed).expect("policy JSON")).expect("policy write");
+            let error = st.provision_session_agent_files(None, true).expect_err("malformed policy must block launch provisioning");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert!(!st.studio_tool_config_locked, "failed policy capture must not lock the session");
+        }
+
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+        let _ = std::fs::remove_dir_all(policy_path.parent().expect("policy parent"));
     }
 
     #[test]
@@ -9152,7 +9367,7 @@ mod tests {
         for mode in [crate::agent_permissions::AgentPermissionMode::Ask, crate::agent_permissions::AgentPermissionMode::Skip] {
             let mut st = isolated_683_state(68410);
             st.permission_mode = mode;
-            st.provision_session_agent_files(None);
+            st.provision_session_agent_files(None, true).expect("session files");
             let ask = mode == crate::agent_permissions::AgentPermissionMode::Ask;
             let read = |rel: &str| -> serde_json::Value {
                 let raw = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
@@ -9454,7 +9669,7 @@ mod tests {
     fn skill_text_documents_the_grammar() {
         let mut st = isolated_683_state(65501);
         let _ = std::fs::create_dir_all(&st.session_dir);
-        st.provision_session_agent_files(None);
+        st.provision_session_agent_files(None, true).expect("session files");
         let skill_text = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read generated SKILL.md");
         assert!(skill_text.contains("designos:node/"), "SKILL.md must document designos:node/: {skill_text}");
         assert!(skill_text.contains("designos:variable/"), "SKILL.md must document designos:variable/: {skill_text}");
@@ -12673,7 +12888,7 @@ mod tests {
             assert!(hook_turn_2.contains("DESIGN:OS Studio page context:"));
 
             // Resetting the agent run delivers a fresh bootstrap block once again
-            st.reset_agent_run(None);
+            st.reset_agent_run(None).expect("agent run reset");
             assert!(!st.is_run_bootstrap_delivered());
             let hook_r2_turn_1 = run_prompt_hook(&st);
             let hook_r2_turn_2 = run_prompt_hook(&st);
@@ -12760,7 +12975,7 @@ mod tests {
             let mut st_claude = isolated_683_state(8610);
             st_claude.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
             settle_bootstrap(&mut st_claude);
-            st_claude.reset_agent_run(Some(&file_path));
+            st_claude.reset_agent_run(Some(&file_path)).expect("agent run reset");
             // The full build stays held back until the hook has answered, so the hook has to fall back to the compact block.
             let (release_build, hold) = held_bootstrap_build();
             st_claude.start_bootstrap_job_held(fx.doc.clone_without_images(), fx.page1, Some(file_path.clone()), Some(hold));
@@ -12814,7 +13029,7 @@ mod tests {
             }
 
             // Starting a new agent run rebuilds bootstrap with the post-turn edits included.
-            st.reset_agent_run(None);
+            st.reset_agent_run(None).expect("agent run reset");
             st.sync_live_file_context(&fx.doc, fx.page1, &[], None);
             settle_bootstrap(&mut st);
             let run2_prompt = run_prompt_hook(&st);
@@ -12917,7 +13132,7 @@ mod tests {
             let _ = fx.doc.insert(fx.page1, pf);
             st.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
 
-            st.reset_agent_run(Some(&file_path));
+            st.reset_agent_run(Some(&file_path)).expect("agent run reset");
             st.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
             settle_bootstrap(&mut st);
             let run2_prompt = run_prompt_hook(&st);

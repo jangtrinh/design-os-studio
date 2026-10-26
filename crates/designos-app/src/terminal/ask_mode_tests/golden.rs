@@ -107,6 +107,11 @@ fn normalized(st: &TerminalState, rel: &str) -> String {
     if let Ok(canon) = st.session_dir.canonicalize() {
         paths.push((canon.display().to_string(), "<SESSION>"));
     }
+    let protected = st.session_env().mcp_config_path;
+    if let Ok(canon) = protected.canonicalize() {
+        paths.push((canon.display().to_string(), "<MCP_CONFIG>"));
+    }
+    paths.push((protected.display().to_string(), "<MCP_CONFIG>"));
     paths.push((st.session_dir.display().to_string(), "<SESSION>"));
     if let Ok(cwd) = std::env::current_dir() {
         paths.push((cwd.display().to_string(), "<WORKSPACE>"));
@@ -147,7 +152,7 @@ fn golden_server_entry() -> Value {
             "DESIGNOS_LIVE_DOC_PATCH": "<SESSION>/doc-patch.jsonl",
             "DESIGNOS_LIVE_DOC_SYNC": "<SESSION>/doc-sync.designos",
             "DESIGNOS_LIVE_SPEC": "<SESSION>/live-spec.json",
-            "DESIGNOS_MCP_CONFIG": "<SESSION>/mcp-config.json",
+            "DESIGNOS_MCP_CONFIG": "<MCP_CONFIG>",
             "DESIGNOS_SESSION_DIR": "<SESSION>",
             "DESIGNOS_TARGET_PAGE_ID": "1",
             "DESIGNOS_TARGET_PAGE_NAME": "Page 1"
@@ -300,7 +305,7 @@ fn grok_launch_and_config_match_the_golden() {
             .collect::<Vec<_>>()
             .join("\n");
         let toml = toml.replace("DESIGNOS_IN_PROGRESS_STALE_MINUTES = \"15\"", "DESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"");
-        let golden = "[mcp_servers.designos]\ncommand = \"<MCP_BIN>\"\nargs = [\"--workspace\", \"<WORKSPACE>\"]\nenabled = true\n\n[mcp_servers.designos.env]\nDESIGNOS_AGENT_RUNTIME = \"claude\"\nDESIGNOS_AGENT_RUN_ID = \"<SESSION_ID>-1-1\"\nDESIGNOS_CONTEXT_JSON = \"<SESSION>/context.json\"\nDESIGNOS_DOC_NAME = \"Untitled\"\nDESIGNOS_FILE = \"\"\nDESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"\nDESIGNOS_LIVE_CANVAS = \"<SESSION>/canvas.designos\"\nDESIGNOS_LIVE_DOC_PATCH = \"<SESSION>/doc-patch.jsonl\"\nDESIGNOS_LIVE_DOC_SYNC = \"<SESSION>/doc-sync.designos\"\nDESIGNOS_LIVE_SPEC = \"<SESSION>/live-spec.json\"\nDESIGNOS_MCP_CONFIG = \"<SESSION>/mcp-config.json\"\nDESIGNOS_SESSION_DIR = \"<SESSION>\"\nDESIGNOS_TARGET_PAGE_ID = \"1\"\nDESIGNOS_TARGET_PAGE_NAME = \"Page 1\"";
+        let golden = "[mcp_servers.designos]\ncommand = \"<MCP_BIN>\"\nargs = [\"--workspace\", \"<WORKSPACE>\"]\nenabled = true\n\n[mcp_servers.designos.env]\nDESIGNOS_AGENT_RUNTIME = \"claude\"\nDESIGNOS_AGENT_RUN_ID = \"<SESSION_ID>-1-1\"\nDESIGNOS_CONTEXT_JSON = \"<SESSION>/context.json\"\nDESIGNOS_DOC_NAME = \"Untitled\"\nDESIGNOS_FILE = \"\"\nDESIGNOS_IN_PROGRESS_STALE_MINUTES = \"<MINUTES>\"\nDESIGNOS_LIVE_CANVAS = \"<SESSION>/canvas.designos\"\nDESIGNOS_LIVE_DOC_PATCH = \"<SESSION>/doc-patch.jsonl\"\nDESIGNOS_LIVE_DOC_SYNC = \"<SESSION>/doc-sync.designos\"\nDESIGNOS_LIVE_SPEC = \"<SESSION>/live-spec.json\"\nDESIGNOS_MCP_CONFIG = \"<MCP_CONFIG>\"\nDESIGNOS_SESSION_DIR = \"<SESSION>\"\nDESIGNOS_TARGET_PAGE_ID = \"1\"\nDESIGNOS_TARGET_PAGE_NAME = \"Page 1\"";
         assert_eq!(toml.trim_end(), golden, "Grok {mode:?}: .grok/config.toml");
         let expected = expected_shape("/hooks", CLAUDE_EVENTS, CLAUDE_LEAVES);
         assert_eq!(shape_of(&read_json(&st, ".grok/hooks/designos-status.json")), expected, "Grok {mode:?}: the keys of the status hooks changed");

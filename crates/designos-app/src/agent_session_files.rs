@@ -299,6 +299,10 @@ pub struct SnapshotJob {
     pub agent_runtime: String,
     /// True when the session runs in `Ask` permission mode, so its hooks route approvals through the panel.
     pub ask_mode: bool,
+    /// Studio-owned `designos` tool restriction captured before an agent can edit the session folder.
+    pub trusted_designos_block: Option<serde_json::Value>,
+    /// Whether the protected copy must be persisted for an agent launch.
+    pub trusted_designos_config_locked: bool,
     /// Read position of the session's edit log when the job was queued; the writer asks it again just
     /// before the canvas replaces the old one and holds the publish when the agent appended since.
     pub unread_probe: Option<crate::live_patch_log::UnreadProbe>,
@@ -846,6 +850,8 @@ mod tests {
             bootstrap_run_id: 1,
             agent_runtime: "claude".into(),
             ask_mode: false,
+            trusted_designos_block: None,
+            trusted_designos_config_locked: false,
             unread_probe: None,
         }
     }

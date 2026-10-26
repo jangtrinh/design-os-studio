@@ -111,6 +111,11 @@ pub(crate) fn write_lock() -> MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Studio's application-data root (`<data dir>/designos`).
+pub fn app_data_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|dir| dir.join("designos"))
+}
+
 /// Writes `bytes` to `path` via a temporary file next to it, so a crash mid-write never leaves a
 /// truncated file behind.
 ///
