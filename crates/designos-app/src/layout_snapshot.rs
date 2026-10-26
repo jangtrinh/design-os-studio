@@ -970,6 +970,55 @@ mod tests {
         assert!(err.contains("G4"), "expected G4 error, got: {err}");
     }
 
+    /// Round 4 Major 2: `gap_dy` adds `gaps_above * gap_dy` into `expected_y` with a fixed ±0.5 pt tolerance:
+    /// - A widget with no row above it (`gaps_above = 0`) moving ±8 pt under `{gap_dy: 8}` fails.
+    /// - Rows 0, 1, 2 (`gaps_above = 0, 1, 2`) shifting by `+0, +8, +16` under `{gap_dy: 8}` pass;
+    ///   shifting row 1 by 0 or -8 fails.
+    #[test]
+    fn gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance() {
+        let base = sample_snapshot("f-inspector");
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-".into()),
+            gap_dy: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: inspector row gap +8".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        // Row 0 has no row above it (`gaps_above = 0`), so moving it by +8 or -8 must fail.
+        let mut cur_row0_plus8 = base.clone();
+        cur_row0_plus8.named.get_mut("prop-row-0").unwrap().rect[1] += 8.0;
+        assert!(
+            compare(&base, &cur_row0_plus8, &allow, &[]).is_err(),
+            "widget with 0 rows above it must not be allowed to move +8pt under gap_dy=8"
+        );
+
+        let mut cur_row0_minus8 = base.clone();
+        cur_row0_minus8.named.get_mut("prop-row-0").unwrap().rect[1] -= 8.0;
+        assert!(
+            compare(&base, &cur_row0_minus8, &allow, &[]).is_err(),
+            "widget with 0 rows above it must not be allowed to move -8pt under gap_dy=8"
+        );
+
+        // Rows 0, 1, 2 have 0, 1, 2 row gaps above them -> expected y shifts of +0, +8, +16.
+        let mut cur_valid = base.clone();
+        cur_valid.named.get_mut("prop-row-0").unwrap().rect[1] = 60.0;
+        cur_valid.named.get_mut("prop-row-1").unwrap().rect[1] = 98.0;
+        cur_valid.named.get_mut("prop-row-2").unwrap().rect[1] = 136.0;
+        compare_with_stale_check(&base, &cur_valid, &allow, &[]).expect("rows shifting by gaps_above * gap_dy (+0, +8, +16) must pass");
+
+        // Row 1 moving by -8 (wrong direction) must fail even though |dy| == 8.
+        let mut cur_wrong_dir = cur_valid.clone();
+        cur_wrong_dir.named.get_mut("prop-row-1").unwrap().rect[1] = 82.0;
+        assert!(
+            compare(&base, &cur_wrong_dir, &allow, &[]).is_err(),
+            "row 1 moving -8pt instead of +8pt under gap_dy=8 must fail"
+        );
+    }
+
     /// Test 4d: 24->32 makes the right panel overflow: a `scroll` entry appears; G2 passes.
     #[test]
     fn inspector_overflow_does_not_fail_g2() {
