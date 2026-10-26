@@ -1023,6 +1023,47 @@ mod tests {
         );
     }
 
+    /// Round 4 Major 3: `inventory_max_delta` forgives only the count delta and still compares
+    /// the shared prefix (leading `min(n)` widgets) for sense and rect drift.
+    #[test]
+    fn inventory_max_delta_forgives_count_only_and_compares_shared_prefix() {
+        let mut base = sample_snapshot("f-inspector");
+        base.unnamed = vec![
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 200.0, 200.0, 24.0], sense: vec!["click".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 230.0, 200.0, 24.0], sense: vec!["click".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 260.0, 200.0, 24.0], sense: vec!["click".into()] },
+        ];
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            inventory_max_delta: Some(5),
+            spec: "F".into(),
+            reason: "R5: virtualized row count delta".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        // Adding 1 widget at the tail while keeping the leading 3 identical must pass.
+        let mut cur_ok = base.clone();
+        cur_ok.unnamed.push(UnnamedWidget { region: "right_panel".into(), rect: [1210.0, 290.0, 200.0, 24.0], sense: vec!["click".into()] });
+        compare_with_stale_check(&base, &cur_ok, &allow, &["right_panel".into()]).expect("valid count delta with identical leading min(n) must pass");
+
+        // Moving one of the leading min(n) widgets without rect bounds must fail G4 even when count delta <= inventory_max_delta.
+        let mut cur_moved = cur_ok.clone();
+        cur_moved.unnamed[1].rect[1] += 20.0;
+        let err_rect = compare(&base, &cur_moved, &allow, &["right_panel".into()])
+            .expect_err("moving a widget in the shared prefix under inventory_max_delta must fail G4");
+        assert!(err_rect.contains("G4"), "expected G4 rect error, got: {err_rect}");
+
+        // Changing sense of one of the leading min(n) widgets must fail G4 even when count delta <= inventory_max_delta.
+        let mut cur_sense = cur_ok;
+        cur_sense.unnamed[0].sense = vec!["drag".into()];
+        let err_sense = compare(&base, &cur_sense, &allow, &["right_panel".into()])
+            .expect_err("changing sense in the shared prefix under inventory_max_delta must fail G4");
+        assert!(err_sense.contains("G4") && err_sense.contains("sense"), "expected G4 sense error, got: {err_sense}");
+    }
+
     /// Test 4d: 24->32 makes the right panel overflow: a `scroll` entry appears; G2 passes.
     #[test]
     fn inspector_overflow_does_not_fail_g2() {
