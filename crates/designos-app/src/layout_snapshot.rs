@@ -1200,8 +1200,8 @@ mod tests {
         ])
         .expect("valid allow list");
 
-        let err3 = compare(&base, &cur, &allow_wider_b, &[])
-            .expect_err("row with bounding-box dh=+16 must fail when A's best entry is [8,8] even if B allows [8,32]");
+        let err3 =
+            compare(&base, &cur, &allow_wider_b, &[]).expect_err("row with bounding-box dh=+16 must fail when A's best entry is [8,8] even if B allows [8,32]");
         assert!(
             err3.contains("row") && err3.contains("dh=16") && err3.contains("A") && err3.contains("B"),
             "row dh failure must name the row and dh=16, got: {err3}"
@@ -1415,10 +1415,7 @@ mod tests {
 
             let mut cur_two_plus16 = cur_two_plus8.clone();
             cur_two_plus16.named.get_mut("prop-row-1").unwrap().rect[1] += 8.0; // +16 total
-            assert!(
-                compare(&base_two, &cur_two_plus16, &allow_anchor, &[]).is_err(),
-                "anchor_y={anchor:?} with gap_dy=8 and 1 row above moving +16 must fail"
-            );
+            assert!(compare(&base_two, &cur_two_plus16, &allow_anchor, &[]).is_err(), "anchor_y={anchor:?} with gap_dy=8 and 1 row above moving +16 must fail");
         }
     }
 
@@ -2175,13 +2172,18 @@ mod tests {
         let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&tmp);
         let mut terminal = crate::terminal::TerminalState::default();
         terminal.path_override = Some(tmp.clone().into_os_string());
+        terminal.deferred_bridge_actions.push(crate::terminal::TerminalAction::LiveSyncError("sentinel".into()));
         let started = std::time::Instant::now();
         terminal.open_failed_start_fixture(None);
         let elapsed = started.elapsed();
+        let bridge_polled = terminal.deferred_bridge_actions.is_empty();
         terminal.shutdown();
         let _ = std::fs::remove_dir_all(&tmp);
 
-        assert!(elapsed < std::time::Duration::from_millis(500), "open_failed_start_fixture must not block in a 5s sleep loop; took {elapsed:?}");
+        assert!(
+            !bridge_polled && elapsed < std::time::Duration::from_secs(4),
+            "open_failed_start_fixture must not block in a 5s poll_live_agent_bridge sleep loop: bridge_polled={bridge_polled}, elapsed={elapsed:?}"
+        );
     }
 
     /// Round 4 Nit 10: `negative_dw_or_dh_requires_r5_in_reason` —
