@@ -65,6 +65,12 @@ libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
 
+# Linux only: checks the session D-Bus for an active `org.freedesktop.portal.Desktop` owner before calling `rfd`
+# (`src/io/dialog_probe.rs`). Matches the version and features `accesskit_unix` (via `eframe`) already builds, so no
+# package is added to `Cargo.lock`.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }
+
 [build-dependencies]
 winresource = "0.1"
 

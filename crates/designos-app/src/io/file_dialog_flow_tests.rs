@@ -272,7 +272,10 @@ mod other_dialog_sites {
         app.open_import_path_dialog();
         let mut dialog = app.dialog.take().expect("ImportPath dialog open");
         assert_eq!(dialog.intent, crate::home::Intent::ImportPath);
+        assert_eq!(dialog.hint.as_deref(), Some("Path to a .fig, .designos, .json or .svg file"));
+        assert!(!dialog.can_submit(), "Import stays disabled while the field is empty");
         dialog.input = Some(fixture.display().to_string());
+        assert!(dialog.can_submit());
         crate::home::dialog::finish(&mut app, dialog);
 
         assert!(app.home.is_none(), "fallback import must leave Home and open the file in the editor");

@@ -607,6 +607,8 @@ fn import_without_a_dialog_opens_path_prompt_from_toast_and_imports_file() {
     click_rect(&mut s, "toast-enter-path");
     assert!(s.app().toast.is_none());
     assert_eq!(s.app().dialog.as_ref().map(|dlg| dlg.intent.clone()), Some(Intent::ImportPath));
+    assert_eq!(s.app().dialog.as_ref().and_then(|dlg| dlg.hint.as_deref()), Some("Path to a .fig, .designos, .json or .svg file"));
+    assert!(!s.app().dialog.as_ref().unwrap().can_submit(), "Import stays off while the field is empty");
 
     s.type_text(&file.display().to_string());
     s.key(Key::Enter);

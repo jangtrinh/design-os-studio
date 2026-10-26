@@ -16,6 +16,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const FILE_CHOOSER_INTERFACE: &str = "org.freedesktop.impl.portal.FileChooser";
+const PORTAL_BUS_NAME: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
+const PORTAL_FILE_CHOOSER_INTERFACE: &str = "org.freedesktop.portal.FileChooser";
 
 /// Upper bound on probing whether a Linux file chooser backend can open (`< 2 s` per AC-2).
 pub const MAX_DIALOG_OPEN_WAIT: Duration = Duration::from_millis(1500);
@@ -117,6 +120,26 @@ pub fn dialog_outcome<T>(show: impl FnOnce() -> Option<T>) -> DialogOutcome<T> {
     dialog_outcome_bounded(linux_portal_ready, MAX_DIALOG_OPEN_WAIT, show, Instant::now, &env)
 }
 
+/// Maps the three steps of the Linux session-bus portal readiness check into a single result:
+/// 1. connecting to the session bus;
+/// 2. checking `org.freedesktop.DBus.NameHasOwner("org.freedesktop.portal.Desktop")`;
+/// 3. checking `org.freedesktop.DBus.Properties.Get("org.freedesktop.portal.FileChooser", "version")`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn map_portal_probe<C>(
+    connect_session: impl FnOnce() -> Result<C, String>,
+    name_has_owner: impl FnOnce(&C, &str) -> Result<bool, String>,
+    file_chooser_version: impl FnOnce(&C, &str, &str, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    let conn = connect_session().map_err(|e| format!("no D-Bus session bus: {e}"))?;
+    match name_has_owner(&conn, PORTAL_BUS_NAME) {
+        Ok(true) => {}
+        Ok(false) => return Err(format!("{PORTAL_BUS_NAME} has no owner on the session bus")),
+        Err(e) => return Err(format!("org.freedesktop.DBus.NameHasOwner failed: {e}")),
+    }
+    file_chooser_version(&conn, PORTAL_BUS_NAME, PORTAL_OBJECT_PATH, PORTAL_FILE_CHOOSER_INTERFACE)
+        .map_err(|e| format!("{PORTAL_FILE_CHOOSER_INTERFACE} unavailable on {PORTAL_BUS_NAME}: {e}"))
+}
+
 #[cfg(not(target_os = "linux"))]
 fn linux_portal_ready() -> Result<(), String> {
     Ok(())
@@ -126,149 +149,54 @@ fn linux_portal_ready() -> Result<(), String> {
 /// `org.freedesktop.portal.Desktop` has an active owner and exposes `org.freedesktop.portal.FileChooser`.
 #[cfg(target_os = "linux")]
 fn linux_portal_ready() -> Result<(), String> {
-    use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
+    use zbus::proxy::{Builder as ProxyBuilder, CacheProperties, MethodFlags};
+    use zbus::zvariant::OwnedValue;
 
-    #[repr(C)]
-    struct DBusError {
-        name: *const c_char,
-        message: *const c_char,
-        dummy: c_uint,
-        padding: *const c_void,
-    }
+    const CALL_TIMEOUT: Duration = Duration::from_millis(500);
 
-    const DBUS_BUS_SESSION: c_int = 0;
-    const DBUS_TYPE_STRING: c_int = b's' as c_int;
-    const DBUS_TYPE_BOOLEAN: c_int = b'b' as c_int;
-    const DBUS_TYPE_INVALID: c_int = 0;
-    const CALL_TIMEOUT_MS: c_int = 500;
-
-    unsafe {
-        let mut handle = std::ptr::null_mut();
-        for candidate in [c"libdbus-1.so.3", c"libdbus-1.so"] {
-            handle = libc::dlopen(candidate.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
-            if !handle.is_null() {
-                break;
-            }
-        }
-        if handle.is_null() {
-            return Err("libdbus-1.so.3 not available".to_string());
-        }
-
-        macro_rules! sym {
-            ($name:literal, $ty:ty) => {{
-                let c = CStr::from_bytes_with_nul_unchecked(concat!($name, "\0").as_bytes());
-                let ptr = libc::dlsym(handle, c.as_ptr());
-                if ptr.is_null() {
-                    libc::dlclose(handle);
-                    return Err(concat!("missing symbol in libdbus: ", $name).to_string());
-                }
-                std::mem::transmute::<*mut c_void, $ty>(ptr)
-            }};
-        }
-
-        let dbus_error_init = sym!("dbus_error_init", unsafe extern "C" fn(*mut DBusError));
-        let dbus_error_free = sym!("dbus_error_free", unsafe extern "C" fn(*mut DBusError));
-        let dbus_bus_get_private = sym!("dbus_bus_get_private", unsafe extern "C" fn(c_int, *mut DBusError) -> *mut c_void);
-        let dbus_connection_set_exit_on_disconnect = sym!("dbus_connection_set_exit_on_disconnect", unsafe extern "C" fn(*mut c_void, c_uint));
-        let dbus_connection_close = sym!("dbus_connection_close", unsafe extern "C" fn(*mut c_void));
-        let dbus_connection_unref = sym!("dbus_connection_unref", unsafe extern "C" fn(*mut c_void));
-        let dbus_message_new_method_call =
-            sym!("dbus_message_new_method_call", unsafe extern "C" fn(*const c_char, *const c_char, *const c_char, *const c_char) -> *mut c_void);
-        let dbus_message_set_no_start = sym!("dbus_message_set_no_start", unsafe extern "C" fn(*mut c_void, c_uint));
-        let dbus_message_append_args = sym!("dbus_message_append_args", unsafe extern "C" fn(*mut c_void, c_int, ...) -> c_uint);
-        let dbus_message_get_args = sym!("dbus_message_get_args", unsafe extern "C" fn(*mut c_void, *mut DBusError, c_int, ...) -> c_uint);
-        let dbus_message_unref = sym!("dbus_message_unref", unsafe extern "C" fn(*mut c_void));
-        let dbus_connection_send_with_reply_and_block =
-            sym!("dbus_connection_send_with_reply_and_block", unsafe extern "C" fn(*mut c_void, *mut c_void, c_int, *mut DBusError) -> *mut c_void);
-
-        let err_string = |err: &DBusError, fallback: &str| -> String {
-            if !err.message.is_null() {
-                CStr::from_ptr(err.message).to_string_lossy().into_owned()
-            } else {
-                fallback.to_string()
-            }
-        };
-
-        let mut err = std::mem::zeroed::<DBusError>();
-        dbus_error_init(&mut err);
-        let conn = dbus_bus_get_private(DBUS_BUS_SESSION, &mut err);
-        if conn.is_null() {
-            let msg = format!("no D-Bus session bus: {}", err_string(&err, "connection failed"));
-            dbus_error_free(&mut err);
-            libc::dlclose(handle);
-            return Err(msg);
-        }
-        dbus_connection_set_exit_on_disconnect(conn, 0);
-
-        let cleanup = |conn: *mut c_void, err: &mut DBusError| {
-            dbus_error_free(err);
-            dbus_connection_close(conn);
-            dbus_connection_unref(conn);
-            libc::dlclose(handle);
-        };
-
-        // 1. Check that org.freedesktop.portal.Desktop has an active owner on the session bus.
-        let msg = dbus_message_new_method_call(
-            c"org.freedesktop.DBus".as_ptr(),
-            c"/org/freedesktop/DBus".as_ptr(),
-            c"org.freedesktop.DBus".as_ptr(),
-            c"NameHasOwner".as_ptr(),
-        );
-        if msg.is_null() {
-            cleanup(conn, &mut err);
-            return Err("cannot allocate D-Bus NameHasOwner message".to_string());
-        }
-        let portal_name = c"org.freedesktop.portal.Desktop".as_ptr();
-        if dbus_message_append_args(msg, DBUS_TYPE_STRING, &portal_name, DBUS_TYPE_INVALID) == 0 {
-            dbus_message_unref(msg);
-            cleanup(conn, &mut err);
-            return Err("cannot encode D-Bus NameHasOwner arguments".to_string());
-        }
-        let reply = dbus_connection_send_with_reply_and_block(conn, msg, CALL_TIMEOUT_MS, &mut err);
-        dbus_message_unref(msg);
-        if reply.is_null() {
-            let m = format!("org.freedesktop.DBus.NameHasOwner failed: {}", err_string(&err, "no reply"));
-            cleanup(conn, &mut err);
-            return Err(m);
-        }
-        let mut owned: c_uint = 0;
-        let ok = dbus_message_get_args(reply, &mut err, DBUS_TYPE_BOOLEAN, &mut owned, DBUS_TYPE_INVALID);
-        dbus_message_unref(reply);
-        if ok == 0 || owned == 0 {
-            cleanup(conn, &mut err);
-            return Err("org.freedesktop.portal.Desktop has no owner on the session bus".to_string());
-        }
-
-        // 2. Check that org.freedesktop.portal.FileChooser is exposed and responsive (no auto-start).
-        let prop_msg = dbus_message_new_method_call(
-            c"org.freedesktop.portal.Desktop".as_ptr(),
-            c"/org/freedesktop/portal/desktop".as_ptr(),
-            c"org.freedesktop.DBus.Properties".as_ptr(),
-            c"Get".as_ptr(),
-        );
-        if prop_msg.is_null() {
-            cleanup(conn, &mut err);
-            return Err("cannot allocate D-Bus Properties.Get message".to_string());
-        }
-        dbus_message_set_no_start(prop_msg, 1);
-        let iface = c"org.freedesktop.portal.FileChooser".as_ptr();
-        let prop = c"version".as_ptr();
-        if dbus_message_append_args(prop_msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_STRING, &prop, DBUS_TYPE_INVALID) == 0 {
-            dbus_message_unref(prop_msg);
-            cleanup(conn, &mut err);
-            return Err("cannot encode D-Bus Properties.Get arguments".to_string());
-        }
-        let prop_reply = dbus_connection_send_with_reply_and_block(conn, prop_msg, CALL_TIMEOUT_MS, &mut err);
-        dbus_message_unref(prop_msg);
-        if prop_reply.is_null() {
-            let m = format!("org.freedesktop.portal.FileChooser unavailable on org.freedesktop.portal.Desktop: {}", err_string(&err, "no reply"));
-            cleanup(conn, &mut err);
-            return Err(m);
-        }
-        dbus_message_unref(prop_reply);
-        cleanup(conn, &mut err);
-        Ok(())
-    }
+    map_portal_probe(
+        || {
+            zbus::block_on(async {
+                zbus::connection::Builder::session().map_err(|e| e.to_string())?.method_timeout(CALL_TIMEOUT).build().await.map_err(|e| e.to_string())
+            })
+        },
+        |conn, bus_name| {
+            zbus::block_on(async {
+                let dbus_proxy: zbus::Proxy<'_> = ProxyBuilder::new(conn)
+                    .destination("org.freedesktop.DBus")
+                    .map_err(|e| e.to_string())?
+                    .path("/org/freedesktop/DBus")
+                    .map_err(|e| e.to_string())?
+                    .interface("org.freedesktop.DBus")
+                    .map_err(|e| e.to_string())?
+                    .cache_properties(CacheProperties::No)
+                    .build()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let owned: Option<bool> =
+                    dbus_proxy.call_with_flags("NameHasOwner", MethodFlags::NoAutoStart.into(), &(bus_name,)).await.map_err(|e| e.to_string())?;
+                Ok(owned.unwrap_or(false))
+            })
+        },
+        |conn, bus_name, object_path, iface| {
+            zbus::block_on(async {
+                let prop_proxy: zbus::Proxy<'_> = ProxyBuilder::new(conn)
+                    .destination(bus_name)
+                    .map_err(|e| e.to_string())?
+                    .path(object_path)
+                    .map_err(|e| e.to_string())?
+                    .interface("org.freedesktop.DBus.Properties")
+                    .map_err(|e| e.to_string())?
+                    .cache_properties(CacheProperties::No)
+                    .build()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let _version: Option<OwnedValue> =
+                    prop_proxy.call_with_flags("Get", MethodFlags::NoAutoStart.into(), &(iface, "version")).await.map_err(|e| e.to_string())?;
+                Ok(())
+            })
+        },
+    )
 }
 
 /// Where a Linux dialog backend could live.
@@ -487,7 +415,7 @@ mod tests {
         write_portal(&root, "gtk.portal", "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.gtk\nInterfaces=org.freedesktop.impl.portal.FileChooser;\n");
         let env = env_in(&root);
         let out = dialog_outcome_bounded::<PathBuf>(
-            || Err("org.freedesktop.portal.Desktop has no owner on the session bus".to_string()),
+            || map_portal_probe(|| Ok(()), |(), _| Ok(false), |(), _, _, _| panic!("FileChooser check must not run when portal has no owner")),
             Duration::from_millis(100),
             || panic!("show must not run when portal has no owner and zenity is absent"),
             clock_taking(HUMAN),
@@ -517,6 +445,87 @@ mod tests {
         assert_eq!(out, DialogOutcome::Unavailable);
         let err = take_last_backend_error().unwrap_or_default();
         assert!(err.contains("timed out"), "unexpected error: {err}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn portal_probe_result_mapping_covers_no_owner_error_timeout_and_ready() {
+        let root = scratch("portal_mapping");
+        write_portal(&root, "gtk.portal", "[portal]\nDBusName=org.freedesktop.impl.portal.desktop.gtk\nInterfaces=org.freedesktop.impl.portal.FileChooser;\n");
+        let env = env_in(&root);
+
+        // 1. No owner: NameHasOwner returns Ok(false).
+        let no_owner = dialog_outcome_bounded::<PathBuf>(
+            || map_portal_probe(|| Ok(()), |(), _| Ok(false), |(), _, _, _| unreachable!()),
+            Duration::from_millis(100),
+            || panic!("show must not run when portal has no owner"),
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(no_owner, DialogOutcome::Unavailable);
+        assert_eq!(take_last_backend_error().as_deref(), Some("org.freedesktop.portal.Desktop has no owner on the session bus"));
+
+        // 2a. Error on session bus connection (no zenity): Unavailable with session-bus error.
+        let bus_err = dialog_outcome_bounded::<PathBuf>(
+            || map_portal_probe(|| Err::<(), _>("address not set".into()), |(), _| unreachable!(), |(), _, _, _| unreachable!()),
+            Duration::from_millis(100),
+            || panic!("show must not run on session bus error without zenity"),
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(bus_err, DialogOutcome::Unavailable);
+        assert_eq!(take_last_backend_error().as_deref(), Some("no D-Bus session bus: address not set"));
+
+        // 2b. Error on NameHasOwner: Unavailable with NameHasOwner error.
+        let owner_err = dialog_outcome_bounded::<PathBuf>(
+            || map_portal_probe(|| Ok(()), |(), _| Err("bus disconnected".into()), |(), _, _, _| unreachable!()),
+            Duration::from_millis(100),
+            || panic!("show must not run on NameHasOwner error"),
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(owner_err, DialogOutcome::Unavailable);
+        assert_eq!(take_last_backend_error().as_deref(), Some("org.freedesktop.DBus.NameHasOwner failed: bus disconnected"));
+
+        // 2c. Error on FileChooser Properties.Get: Unavailable with FileChooser error.
+        let chooser_err = dialog_outcome_bounded::<PathBuf>(
+            || map_portal_probe(|| Ok(()), |(), _| Ok(true), |(), _, _, _| Err("unknown interface".into())),
+            Duration::from_millis(100),
+            || panic!("show must not run on FileChooser property error"),
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(chooser_err, DialogOutcome::Unavailable);
+        assert_eq!(
+            take_last_backend_error().as_deref(),
+            Some("org.freedesktop.portal.FileChooser unavailable on org.freedesktop.portal.Desktop: unknown interface")
+        );
+
+        // 3. Timeout: portal probe exceeds timeout bound.
+        let timed_out = dialog_outcome_bounded::<PathBuf>(
+            || {
+                std::thread::sleep(Duration::from_millis(250));
+                map_portal_probe(|| Ok(()), |(), _| Ok(true), |(), _, _, _| Ok(()))
+            },
+            Duration::from_millis(50),
+            || panic!("show must not run on portal timeout"),
+            clock_taking(HUMAN),
+            &env,
+        );
+        assert_eq!(timed_out, DialogOutcome::Unavailable);
+        assert!(take_last_backend_error().unwrap_or_default().contains("timed out"));
+
+        // 4. Ready: session bus connects, NameHasOwner is true, FileChooser responds -> show() runs.
+        let ready_picked = dialog_outcome_bounded(
+            || map_portal_probe(|| Ok(()), |(), _| Ok(true), |(), _, _, _| Ok(())),
+            Duration::from_millis(100),
+            || Some(PathBuf::from("/tmp/ready.fig")),
+            clock_taking(FAST),
+            &env,
+        );
+        assert_eq!(ready_picked, DialogOutcome::Picked(PathBuf::from("/tmp/ready.fig")));
+        assert_eq!(take_last_backend_error(), None);
+
         std::fs::remove_dir_all(&root).ok();
     }
 }

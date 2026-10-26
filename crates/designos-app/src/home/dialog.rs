@@ -45,6 +45,8 @@ pub struct Choice {
     pub depth: usize,
 }
 
+pub const IMPORT_PATH_HINT: &str = "Path to a .fig, .designos, .json or .svg file";
+
 #[derive(Clone, Debug)]
 pub struct Dialog {
     pub intent: Intent,
@@ -53,6 +55,8 @@ pub struct Dialog {
     pub lines: Vec<(String, String)>,
     /// Text field content (for prompts).
     pub input: Option<String>,
+    /// Placeholder shown inside the text field while `input` is empty.
+    pub hint: Option<String>,
     pub choices: Vec<Choice>,
     pub picked: Option<usize>,
     pub ok: String,
@@ -81,6 +85,7 @@ impl Dialog {
             title: title.into(),
             lines: vec![],
             input: None,
+            hint: None,
             choices: vec![],
             picked: None,
             ok: ok.into(),
@@ -227,7 +232,9 @@ impl App {
 
     /// Opens the in-app file path prompt when the system file chooser is unavailable (`#1192`).
     pub fn open_import_path_dialog(&mut self) {
-        self.dialog = Some(Dialog::prompt(Intent::ImportPath, "Import file", "", "Import"));
+        let mut d = Dialog::prompt(Intent::ImportPath, "Import file", "", "Import");
+        d.hint = Some(IMPORT_PATH_HINT.into());
+        self.dialog = Some(d);
     }
 }
 
@@ -288,7 +295,7 @@ pub fn show(app: &mut App, ctx: &Context) {
             let r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, 32.0));
             p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             let id = Id::new("dialog-input");
-            let te = egui::TextEdit::singleline(text)
+            let mut te = egui::TextEdit::singleline(text)
                 .id(id)
                 .font(font.clone())
                 .text_color(theme::TEXT)
@@ -297,6 +304,9 @@ pub fn show(app: &mut App, ctx: &Context) {
                 .vertical_align(egui::Align::Center)
                 .min_size(r.size())
                 .desired_width(r.width());
+            if let Some(hint) = d.hint.as_deref() {
+                te = te.hint_text(egui::RichText::new(hint).font(font.clone()).color(theme::TEXT_TERTIARY));
+            }
             let out = ui.put(r, te);
             if d.fresh {
                 out.request_focus();
