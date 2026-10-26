@@ -425,3 +425,35 @@ fn ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size() {
     cleanup_state(st);
 }
 
+#[test]
+fn ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy() {
+    let (mut st, idx) = spawn_fake_cli_tab("table", 20, 100);
+    wait_for_marker(&st, idx, "[winch_seq=0 rows=20 cols=100]");
+
+    // Resize to 70 columns (narrow zoom), then back to 100 columns.
+    st.tabs[idx].resize(20, 70);
+    wait_for_marker(&st, idx, "[winch_seq=1 rows=20 cols=70]");
+
+    st.tabs[idx].resize(20, 100);
+    wait_for_marker(&st, idx, "[winch_seq=2 rows=20 cols=100]");
+
+    let (sb_len, lines) = {
+        let mut p = st.tabs[idx].parser.lock().unwrap();
+        all_terminal_lines(&mut p)
+    };
+    cleanup_state(st);
+
+    let top_100 = format!("┌{}┐", "─".repeat(98));
+    let bot_100 = format!("└{}┘", "─".repeat(98));
+    let top_70 = format!("┌{}┐", "─".repeat(68));
+    let has_stale_70 = lines.iter().any(|l| l.contains("TABLE_WIDTH=70") || l.trim() == top_70);
+    let count_100 = lines.iter().filter(|l| l.contains("TABLE_WIDTH=100")).count();
+    let count_top_100 = lines.iter().filter(|l| l.trim() == top_100).count();
+    let count_bot_100 = lines.iter().filter(|l| l.trim() == bot_100).count();
+
+    assert!(!has_stale_70, "AC-03: no stale narrow 70-column table copy may remain after resizing back to 100 columns (sb_len={sb_len}, lines={lines:?})");
+    assert_eq!(count_100, 1, "AC-03: 100-column table body must appear exactly once, got {count_100}");
+    assert_eq!(count_top_100, 1, "AC-03: 100-column top border must appear exactly once, got {count_top_100}");
+    assert_eq!(count_bot_100, 1, "AC-03: 100-column bottom border must appear exactly once, got {count_bot_100}");
+}
+
