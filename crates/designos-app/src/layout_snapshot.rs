@@ -484,17 +484,33 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
 
     let mut report = CompareReport::default();
 
-    // G1 — Regions: exact match (0.0 pt tolerance).
-    let check_region_pair = |key: &str, b_reg: Option<[f32; 4]>, c_reg: Option<[f32; 4]>| -> Result<(), String> {
-        if b_reg == c_reg {
-            return Ok(());
-        }
+    // G1 — Regions: x and w exact (0.0 pt tolerance); y and h exact unless covered by an allow entry.
+    let mut check_region_pair = |key: &str, b_reg: Option<[f32; 4]>, c_reg: Option<[f32; 4]>| -> Result<(), String> {
         if let (Some(b), Some(c)) = (b_reg, c_reg) {
-            for (idx, field) in [(0, "x"), (1, "y"), (2, "w"), (3, "h")] {
+            let matched = best_matching_entry(allow, case_id, key, None, b);
+            if let Some((idx, _)) = matched {
+                report.matched_allow_indices.insert(idx);
+            }
+            if b == c {
+                return Ok(());
+            }
+            for (idx, field) in [(0, "x"), (2, "w")] {
                 if b[idx] != c[idx] {
                     return Err(format!("G1 region mismatch in case {case_id} on {key}.{field}: baseline={}, current={}", b[idx], c[idx]));
                 }
             }
+            if (b[1] != c[1] || b[3] != c[3]) && matched.is_some_and(|(_, entry)| widget_satisfies_allow_bounds(entry, b, c, 0)) {
+                return Ok(());
+            }
+            for (idx, field) in [(1, "y"), (3, "h")] {
+                if b[idx] != c[idx] {
+                    return Err(format!("G1 region mismatch in case {case_id} on {key}.{field}: baseline={}, current={}", b[idx], c[idx]));
+                }
+            }
+            return Ok(());
+        }
+        if b_reg == c_reg {
+            return Ok(());
         }
         Err(format!("G1 region mismatch in case {case_id} for region '{key}': baseline={b_reg:?}, current={c_reg:?}"))
     };
@@ -1653,7 +1669,7 @@ mod tests {
         compare_with_stale_check(&base, &cur, &allow, &[]).expect("covered region y/h changes must pass G1");
 
         // Even with max_dw in an allow entry, G1 must reject a region w change (x and w are always 0.0pt exact).
-        let mut cur_w_drift = cur.clone();
+        let mut cur_w_drift = base.clone();
         cur_w_drift.regions.insert("left_panel".into(), Some([49.0, 44.0, 249.0, 856.0]));
         let allow_with_dw = validate_allow_entries(vec![AllowEntry {
             case: "c-title-bar".into(),
