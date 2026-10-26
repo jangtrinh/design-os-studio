@@ -1859,4 +1859,45 @@ mod tests {
         }])
         .expect("negative min_dh citing R5 in reason must pass validate_allow_entries");
     }
+
+    /// Round 4 Nit 12: `g3_checks_row_name_sequence_with_underscore_for_unnamed` —
+    /// Per §3 rule 8 G3 Order, widgets are clustered into rows (centres within `max(4, 0.5*min(h1,h2))`)
+    /// and sorted by x; the name sequence per row (with `_` for unnamed widgets) must be equal.
+    #[test]
+    fn g3_checks_row_name_sequence_with_underscore_for_unnamed() {
+        let mut base = sample_snapshot("f-inspector");
+        base.named.retain(|k, _| !k.starts_with("prop-row-"));
+        base.named.insert("btn-align-left".into(), NamedWidget { region: "right_panel".into(), rect: [1210.0, 60.0, 24.0, 24.0], count: 1 });
+        base.unnamed = vec![UnnamedWidget { region: "right_panel".into(), rect: [1242.0, 60.0, 24.0, 24.0], sense: vec!["click".into()] }];
+
+        let mut cur = base.clone();
+        // Swap x positions on the same row: ["btn-align-left", "_"] -> ["_", "btn-align-left"].
+        cur.named.get_mut("btn-align-left").unwrap().rect[0] = 1242.0;
+        cur.unnamed[0].rect[0] = 1210.0;
+
+        let allow = validate_allow_entries(vec![
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                name_prefix: Some("btn-align-left".into()),
+                dx: Some(32.0),
+                spec: "F".into(),
+                reason: "R5: shift named button right".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                h_base: Some(24.0),
+                dx: Some(-32.0),
+                spec: "F".into(),
+                reason: "R5: shift unnamed button left".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid allow list");
+
+        let err = compare(&base, &cur, &allow, &[]).expect_err("swapping named and unnamed widget order on a row must fail G3 Order");
+        assert!(err.contains("G3") && err.contains("row"), "error must report G3 row order mismatch, got: {err}");
+    }
 }
