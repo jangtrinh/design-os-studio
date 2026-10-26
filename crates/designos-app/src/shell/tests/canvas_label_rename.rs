@@ -896,3 +896,48 @@ fn frame_label_measures_with_app_egui_context_fonts() {
     assert!(painted_w <= 110.0 + 1e-3, "painted label width {painted_w} under app context font must not exceed 110px frame width");
     assert!((label_r.width() - painted_w).abs() < 0.5, "label_r width {} must match app context painted width {painted_w}", label_r.width());
 }
+
+#[test]
+fn frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2() {
+    let mut s = Sim::new();
+    let doc = fixture_1197_doc();
+    let page = doc.pages[0];
+    let long_1 = "A frame with a very long name that overflows";
+    let long_2 = "Second frame with a long name too";
+    let narrow_40 = "Narrow frame name";
+    let narrow_30 = "Thirty";
+    let narrow_15 = "Tiny";
+
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    let id_long_1 = s.by_name(long_1);
+    let id_long_2 = s.by_name(long_2);
+    let id_40 = s.by_name(narrow_40);
+    let id_30 = s.by_name(narrow_30);
+    let id_15 = s.by_name(narrow_15);
+
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(-50.0, 500.0);
+    s.frame(vec![]);
+
+    assert_eq!(painted_label_runs(&s, id_long_1).1[0].1, "A frame with a very lon…");
+    assert_eq!(painted_label_runs(&s, id_long_2).1[0].1, "Second frame with a lo…");
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, "N…");
+    assert_eq!(painted_label_runs(&s, id_30).1[0].1, "…");
+    assert_eq!(painted_label_runs(&s, id_15).1[0].1, "…");
+
+    s.shell.app.view.zoom = 2.0;
+    s.shell.app.view.offset = DVec2::new(-20.0, 550.0);
+    s.frame(vec![]);
+
+    assert_eq!(painted_label_runs(&s, id_long_1).1[0].1, long_1);
+    assert_eq!(painted_label_runs(&s, id_long_2).1[0].1, long_2);
+    assert_eq!(painted_label_runs(&s, id_30).1[0].1, narrow_30);
+    assert_eq!(painted_label_runs(&s, id_15).1[0].1, narrow_15);
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, "Narrow fram…");
+
+    s.shell.app.view.zoom = 3.0;
+    s.shell.app.view.offset = DVec2::new(-20.0, 750.0);
+    s.frame(vec![]);
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, narrow_40);
+}
