@@ -136,6 +136,7 @@ LINE	image_jobs.rs	1	let status_file_path = terminal.session_dir.join("agent-sta
 LINE	image_jobs.rs	1	reason: format!("Cannot read output.png: {}", crate::agent_session_files::with_next_step(&e)),	text, not a file or a command
 LINE	image_jobs.rs	1	self.show_toast(format!("Cannot serialize request.json: {e}"), true);	text, not a file or a command
 LINE	image_jobs.rs	1	self.terminal.session_dir.join("image-jobs")	path of a session file: every read, write and delete of it goes through the routed helpers (`read_session_*`, `open_session_file`, `session_file_metadata`, `atomic_write_session_file`, ...)
+LINE	io/fallback_save.rs	1	let _ = std::fs::create_dir(&downloads);	the Downloads folder in the user's home, made when an export falls back to it
 LINE	io/fallback_save.rs	1	match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {	a probe file in the folder the user saves into
 LINE	io/fallback_save.rs	1	std::fs::remove_file(&path).ok();	a probe file in the folder the user saves into
 LINE	live_log_wake.rs	1	let now = std::fs::metadata(&path).ok().map(|m| (m.len(), m.modified().ok()));	one stat per watched file (`doc-patch.jsonl`, `live-spec.json`) on a background thread: stat only: it neither blocks nor writes; the reads of those files are routed
@@ -143,8 +144,8 @@ LINE	live_patch_apply.rs	1	let expected_marks_path = app.terminal.live_patch.pat
 LINE	live_patch_log.rs	1	doc_sync_path: path.with_file_name("doc-sync.designos"),	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
 LINE	live_patch_log.rs	1	fn identity(meta: &std::fs::Metadata) -> FileIdentity {	the name of a type, not a call
 LINE	live_patch_log.rs	1	path.file_name().and_then(|n| n.to_str()).unwrap_or("doc-patch.jsonl").to_string()	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
-LINE	panels/export.rs	1	Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()),	an export the user saves, at a path the user chose
-LINE	panels/export.rs	1	std::fs::write(&path, bytes).map(|()| path)	an export the user saves, at a path the user chose
+LINE	panels/export.rs	1	Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()).map_err(|e| (path.clone(), e)),	an export the user saves, at a path the user chose
+LINE	panels/export.rs	1	std::fs::write(&path, bytes).map(|()| path.clone()).map_err(|e| (path, e))	an export the user saves, at a path the user chose
 LINE	panels/inspect.rs	1	match std::fs::write(&path, bytes) {	an export the user saves, at a path the user chose
 LINE	panels/menus.rs	1	leaf("Increase font size", "Ctrl+Shift+>", Action::TextSizeUp).off(!has_text),	text: the label of a keyboard shortcut
 LINE	panels/properties.rs	1	match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {	an image the user picks

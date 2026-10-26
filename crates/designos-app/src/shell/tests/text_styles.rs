@@ -124,17 +124,18 @@ fn the_menu_lists_the_text_styles_checks_the_linked_one_and_applies_one() {
     let mut s = Sim::with(Options { select: Some("Continue".into()), ..Default::default() });
     let id = s.by_name("Continue");
     // The demo file has the text styles Body/Regular and Heading/Large (and colour styles, not listed here).
+    // Rows: Body, Regular, Heading, Large: each style under the row of its folder.
     open_menu(&mut s);
-    s.rect_of("menu-row-0-0");
     s.rect_of("menu-row-0-1");
-    assert_eq!(s.rect_of("menu-check-0-0"), Rect::NOTHING, "nothing is linked yet");
-    s.click(s.rect_of("menu-row-0-0").center());
+    s.rect_of("menu-row-0-3");
+    assert_eq!(s.rect_of("menu-check-0-1"), Rect::NOTHING, "nothing is linked yet");
+    s.click(s.rect_of("menu-row-0-1").center());
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
     let ts = text_of(&s, id).style;
     assert_eq!((ts.font_size, ts.line_height), (16.0, LineHeight::Pixels(24.0)), "the layer takes the style's values");
     open_menu(&mut s);
-    assert!(s.rect_of("menu-check-0-0").is_positive(), "the linked style is checked");
-    assert_eq!(s.rect_of("menu-check-0-1"), Rect::NOTHING);
+    assert!(s.rect_of("menu-check-0-1").is_positive(), "the linked style is checked");
+    assert_eq!(s.rect_of("menu-check-0-3"), Rect::NOTHING);
 }
 
 #[test]
@@ -258,10 +259,10 @@ fn applying_and_detaching_end_a_text_session_first_too() {
     crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
     s.frame(vec![]);
     s.frame(vec![]);
-    // The first row of the menu is the demo file's Body/Regular.
+    // The second row of the menu, under its folder Body, is the demo file's Body/Regular.
     open_menu(&mut s);
     assert!(s.app().canvas.text.is_some(), "opening the menu leaves the session alone");
-    click_row(&mut s, 0);
+    click_row(&mut s, 1);
     assert!(s.app().canvas.text.is_none(), "applying a style ends the session first");
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
     assert_eq!(text_of(&s, id).content, content);
@@ -428,10 +429,10 @@ fn editing_the_style_from_the_linked_row_while_typing_keeps_undo_exact() {
 
 #[test]
 fn editing_the_style_from_the_menu_while_typing_keeps_undo_exact() {
-    // Rows: the style, Create (off while linked), Rename, Detach, Edit.
+    // Rows: the style, Create (off while linked), Rename, Detach, Delete, Edit.
     editing_the_style_while_typing(|s| {
         open_menu(s);
-        click_row(s, 4);
+        click_row(s, 5);
     });
 }
 
@@ -453,8 +454,8 @@ fn picking_a_style_on_a_new_empty_text_box_keeps_the_box_and_the_typing_uses_the
     let mut s = Sim::new();
     let depth = s.app().hist.undo_depth();
     let id = new_text_box(&mut s);
-    // The first row is the demo file's Body/Regular: 16 px, 24 px line.
-    pick(&mut s, BUTTON, 0, 0);
+    // The second row, under its folder Body, is the demo file's Body/Regular: 16 px, 24 px line.
+    pick(&mut s, BUTTON, 1, 0);
     assert!(s.app().canvas.text.is_some(), "the session stays open");
     assert!(s.app().doc.get(id).is_some(), "the box is still there");
     assert_eq!(s.app().toast.as_ref().map(|t| t.text.as_str()), None, "nothing is announced");
@@ -481,8 +482,8 @@ fn creating_a_style_on_a_new_empty_text_box_is_off_with_a_reason_and_deletes_not
     assert!(row.disabled);
     assert_eq!(row.tooltip, TYPE_FIRST);
     let styles = s.app().doc.styles.len();
-    // Rows: Body/Regular, Heading/Large, then Create.
-    pick(&mut s, BUTTON, 2, 1);
+    // Rows: Body, Regular, Heading, Large, then Create.
+    pick(&mut s, BUTTON, 4, 1);
     assert!(s.app().doc.get(id).is_some(), "the box is still there");
     assert!(s.app().canvas.text.is_some(), "and still being edited");
     assert_eq!(s.app().doc.styles.len(), styles);
@@ -497,7 +498,7 @@ fn creating_a_style_on_a_new_empty_text_box_is_off_with_a_reason_and_deletes_not
 fn detaching_and_editing_the_style_of_a_new_empty_text_box_never_delete_it() {
     let mut s = Sim::new();
     let id = new_text_box(&mut s);
-    pick(&mut s, BUTTON, 0, 0);
+    pick(&mut s, BUTTON, 1, 0);
     s.frame(vec![]);
     // Editing the style would need the box to be committed first, which would drop it.
     assert!(!s.shell.app.update_style_values("Body/Regular", Style::Text(TextStyle { font_size: 30.0, ..Default::default() })));
@@ -522,8 +523,8 @@ fn cmd_z_in_a_new_box_takes_back_the_picked_style_and_its_link_together() {
     let mut s = Sim::new();
     let id = new_text_box(&mut s);
     let start = text_of(&s, id).style;
-    // The second row is the demo file's Heading/Large: 32 px.
-    pick(&mut s, BUTTON, 1, 0);
+    // The fourth row, under its folder Heading, is the demo file's Heading/Large: 32 px.
+    pick(&mut s, BUTTON, 3, 0);
     assert_eq!(picked(&s, id), (Some("Heading/Large".into()), 32.0));
     s.cmd_key(Key::Z);
     assert!(s.app().canvas.text.is_some(), "the undo stays inside the session");
@@ -537,8 +538,8 @@ fn cmd_z_in_a_new_box_takes_back_the_picked_style_and_its_link_together() {
 fn two_picks_undo_one_at_a_time_and_the_committed_box_matches_its_link() {
     let mut s = Sim::new();
     let id = new_text_box(&mut s);
-    pick(&mut s, BUTTON, 0, 0);
     pick(&mut s, BUTTON, 1, 0);
+    pick(&mut s, BUTTON, 3, 0);
     assert_eq!(picked(&s, id), (Some("Heading/Large".into()), 32.0));
     s.cmd_key(Key::Z);
     assert_eq!(picked(&s, id), (Some("Body/Regular".into()), 16.0), "one undo gives the first style with its link");
@@ -561,7 +562,7 @@ fn a_composition_in_a_new_box_is_not_text_so_applying_a_style_keeps_the_box() {
     preedit(&mut s, "vie");
     assert_eq!(text_of(&s, id).content, "vie");
     assert!(s.app().canvas.text.as_ref().is_some_and(|t| t.preedit.is_some()), "the composition is under way");
-    pick(&mut s, BUTTON, 0, 0);
+    pick(&mut s, BUTTON, 1, 0);
     assert!(s.app().doc.get(id).is_some() && s.app().canvas.text.is_some(), "the box and its session stay");
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"));
     // The composition goes on, and what it ends in takes the style.
@@ -632,7 +633,7 @@ fn a_style_picked_for_a_new_box_and_its_sibling_styles_the_box_alone_and_undo_st
     let mut s = Sim::new();
     let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
     let before = look_of(&s, sibling);
-    pick(&mut s, BUTTON, 1, 0);
+    pick(&mut s, BUTTON, 3, 0);
     assert_eq!(link_of(&s, id).as_deref(), Some("Heading/Large"));
     let toast = s.app().toast.as_ref().map(|t| (t.text.clone(), t.error)).expect("the pick says what was and was not styled");
     assert_eq!(toast, (ONLY_NEW_BOX.to_string(), false));
@@ -658,7 +659,7 @@ fn escape_after_a_pick_for_a_new_box_and_its_sibling_leaves_the_sibling_and_the_
     let mut s = Sim::new();
     let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
     let (before, depth) = (look_of(&s, sibling), s.app().hist.undo_depth());
-    pick(&mut s, BUTTON, 1, 0);
+    pick(&mut s, BUTTON, 3, 0);
     s.key(Key::Escape);
     assert!(s.app().doc.get(id).is_none(), "the box is empty, so it goes");
     assert_eq!(look_of(&s, sibling), before);
@@ -670,7 +671,7 @@ fn cmd_z_after_a_pick_for_a_new_box_and_its_sibling_takes_back_the_box_style_onl
     let mut s = Sim::new();
     let (id, sibling) = new_box_in_card_with_its_sibling(&mut s);
     let (before, start) = (look_of(&s, sibling), text_of(&s, id).style);
-    pick(&mut s, BUTTON, 1, 0);
+    pick(&mut s, BUTTON, 3, 0);
     s.cmd_key(Key::Z);
     assert!(s.app().canvas.text.is_some(), "the undo stays inside the session");
     assert_eq!(link_of(&s, id), None, "the box loses the link");
@@ -687,7 +688,7 @@ fn a_new_box_selected_with_another_layer_is_styled_alone_but_detached_together()
     s.shell.app.selection = vec![id, other];
     redraw(&mut s);
     let (before, depth) = (look_of(&s, other), s.app().hist.undo_depth());
-    pick(&mut s, BUTTON, 1, 0);
+    pick(&mut s, BUTTON, 3, 0);
     assert_eq!(link_of(&s, id).as_deref(), Some("Heading/Large"));
     assert_eq!(look_of(&s, other), before, "the other layer keeps Body/Regular");
     assert_eq!(s.app().hist.undo_depth(), depth, "nothing is recorded for it");
