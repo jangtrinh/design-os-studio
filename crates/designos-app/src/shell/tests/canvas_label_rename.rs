@@ -1,11 +1,17 @@
-//! Integration tests for #1193: canvas frame label stays in sync with Layers, Properties,
-//! and the Agents tab selection chip across user, agent/MCP (`designos_update_node` / `doc-patch.jsonl`),
-//! undo, redo, and Revert on the agent's Revert/Keep card.
+//! Integration tests for #1193 (Round 2):
+//! - Clicking a one-shape component selects the component itself; double-clicking enters the shape.
+//! - Component and child shape names stay independent.
+//! - Main-component renames update un-renamed instances while preserving directly renamed instances.
+//! - Canvas frame label, Layers, Properties, and the Agents selection chip stay in sync across
+//!   user, agent/MCP (`designos_update_node` / `doc-patch.jsonl`), undo, redo, and Revert.
 
 use super::*;
 use crate::agent_selection_chip::SelectionSummary;
 use crate::live_sync_tests::unique_tab_id;
-use designos_doc::{Document, Node, NodeId, NodeKind, PageHydrator, Rect as DRect, Vec2 as DVec2};
+use designos_doc::{
+    ArcData, BlendMode, BooleanOp, Document, FillRule, ImageScaleMode, Node, NodeId, NodeKind, PageHydrator, Paint, PaintKind, Path, PathCmd, Rect as DRect,
+    TextProps, Vec2 as DVec2,
+};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -113,20 +119,105 @@ fn setup_rectangle_component_via_ctrl_alt_k(s: &mut Sim) -> (NodeId, NodeId) {
 }
 
 #[test]
+fn click_selects_one_shape_component_and_double_click_enters_shape() {
+    let mut s = Sim::new();
+    let (comp_id, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
+
+    s.shell.app.clear_selection();
+    s.frame(vec![]);
+    assert!(s.app().selection.is_empty());
+
+    let p = s.screen(180.0, 160.0);
+
+    // 1. A single click on a one-shape component selects the component itself.
+    s.t += 1.0;
+    s.click(p);
+    assert_eq!(s.app().selection, vec![comp_id], "single click on a one-shape component must select the component");
+    assert!(s.app().canvas.vedit.is_none());
+
+    // 2. A double-click enters the component and selects its sole shape.
+    s.t += 1.0;
+    s.click(p);
+    s.click(p);
+    assert_eq!(s.app().selection, vec![rect_id], "double-click on a one-shape component must enter it and select the shape");
+    assert!(s.app().canvas.vedit.is_none(), "first double-click selects the shape without entering vertex edit");
+
+    // 3. A second double-click goes no deeper than today's rule (keeps `rect_id` selected and enters vector edit).
+    s.t += 1.0;
+    s.click(p);
+    s.click(p);
+    assert_eq!(s.app().selection, vec![rect_id], "second double-click goes no deeper in the layer tree");
+    assert_eq!(s.app().canvas.vedit.as_ref().map(|v| v.id), Some(rect_id), "second double-click follows today's leaf rectangle rule");
+    crate::canvas::vector::exit(&mut s.shell.app);
+
+    // 4. Verify all leaf shape kinds (ellipse, line, polygon, star, vector, boolean op, text, image) in a one-shape component.
+    let page = s.app().page;
+    let leaf_kinds: Vec<NodeKind> = vec![
+        NodeKind::Ellipse(ArcData::default()),
+        NodeKind::Line,
+        NodeKind::Polygon { count: 5 },
+        NodeKind::Star { count: 5, inner_ratio: 0.5 },
+        NodeKind::Vector {
+            paths: vec![Path {
+                cmds: vec![PathCmd::MoveTo(DVec2::ZERO), PathCmd::LineTo(DVec2::new(80.0, 0.0)), PathCmd::LineTo(DVec2::new(80.0, 80.0)), PathCmd::Close],
+                fill_rule: FillRule::NonZero,
+            }],
+            network: None,
+        },
+        NodeKind::BooleanOp(BooleanOp::Union),
+        NodeKind::Text(TextProps { content: "Hello".into(), ..Default::default() }),
+        NodeKind::Rectangle, // with image fill below
+    ];
+    for (idx, kind) in leaf_kinds.into_iter().enumerate() {
+        let sid = s.shell.app.doc.alloc_id();
+        let mut shape = Node::new(sid, kind.clone());
+        shape.size = DVec2::new(80.0, 60.0);
+        if idx == 7 {
+            shape.fills = vec![Paint {
+                kind: PaintKind::Image { image_ref: "img_test".into(), scale_mode: ImageScaleMode::Fill },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            }];
+        }
+        let cid = s.shell.app.doc.alloc_id();
+        let mut comp = Node::new(cid, NodeKind::Component(designos_doc::FrameProps::default()));
+        comp.size = DVec2::new(80.0, 60.0);
+        comp.transform = designos_doc::Affine::translate(400.0 + (idx as f32) * 120.0, 120.0);
+        s.shell.app.doc.insert(page, comp).unwrap();
+        s.shell.app.doc.insert(cid, shape).unwrap();
+        if matches!(kind, NodeKind::BooleanOp(_)) {
+            let op_a = s.shell.app.doc.alloc_id();
+            let op_b = s.shell.app.doc.alloc_id();
+            s.shell.app.doc.insert(sid, Node::rectangle(op_a, DRect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+            s.shell.app.doc.insert(sid, Node::rectangle(op_b, DRect::new(20.0, 10.0, 50.0, 50.0))).unwrap();
+        }
+        let pt = DVec2::new(440.0 + (idx as f32) * 120.0, 140.0);
+        assert_eq!(crate::canvas::hit::hit_test(&s.app().doc, page, pt, 2.0, false, &[]), Some(cid), "leaf shape kind #{idx} selects component on click");
+        assert_eq!(
+            crate::canvas::hit::hit_test(&s.app().doc, page, pt, 2.0, false, &[cid]),
+            Some(sid),
+            "leaf shape kind #{idx} selects shape when component is entered"
+        );
+    }
+}
+
+#[test]
 fn repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label() {
     let mut s = Sim::new();
     let (comp_id, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
 
-    // Clicking the component on the canvas selects `rect_id` (because `selects_through` is true for `Component`).
+    // Clicking the one-shape component on the canvas selects `comp_id`.
+    s.t += 1.0;
     s.click(s.screen(180.0, 160.0));
-    assert_eq!(s.app().selection, vec![rect_id]);
+    assert_eq!(s.app().selection, vec![comp_id]);
     let mut mcp = McpHarness::attach(&mut s);
 
-    // Step 3: Agent reads `context.json` and renames the selected component node to "Card" via `designos_update_node`.
+    // Step 3: Agent reads `context.json` and renames the selected component node (`comp_id`) to "Card" via `designos_update_node`.
     let ctx_bytes = std::fs::read(mcp.dir.join("context.json")).expect("read context.json");
     let ctx_json: serde_json::Value = serde_json::from_slice(&ctx_bytes).expect("parse context.json");
-    let target_id = ctx_json["selected_ids"][0].as_u64().or_else(|| ctx_json["selection"][0]["id"].as_u64()).unwrap_or(rect_id.0);
-    assert_eq!(target_id, rect_id.0);
+    let target_id = ctx_json["selected_node_ids"][0].as_u64().expect("selected_node_ids[0] in context.json");
+    assert_eq!(target_id, comp_id.0, "selected node in context.json must be the component");
 
     mcp.session.call("designos_update_node", json!({ "node_id": target_id, "name": "Card" })).expect("designos_update_node");
 
@@ -135,42 +226,135 @@ fn repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label() 
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
     s.frame(vec![]);
 
-    // Properties header, Agents tab selection chip, Layers rows, and Canvas frame label must all read "Card".
+    // Properties header, Agents tab selection chip, component Layers row, and Canvas frame label must all read "Card".
+    // The inner shape must keep its independent name "Rectangle 1".
     let selected_name = s.app().doc.get(s.app().selection[0]).unwrap().name.as_str();
     let chip_text = SelectionSummary::from_doc(&s.app().doc, s.app().page, &s.app().selection).chip_text().unwrap_or_default();
-    assert_eq!(selected_name, "Card", "Properties header reads selected node name");
+    assert_eq!(selected_name, "Card", "Properties header reads selected component name");
     assert_eq!(chip_text, "Page 1 · 1 selected · Card", "Agents tab header selection chip");
-    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Card", "inner shape layer name");
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"), "canvas frame label above component must update from 'Rectangle 1' to 'Card'");
     assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Card", "component frame layer name");
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1", "inner shape keeps its own name 'Rectangle 1'");
 
     mcp.cleanup(&mut s);
 }
 
 #[test]
-fn user_rename_on_ctrl_alt_k_component_keeps_canvas_label_layers_and_properties_in_sync() {
+fn component_and_inner_shape_names_stay_independent() {
     let mut s = Sim::new();
     let (comp_id, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
+    let p = s.screen(180.0, 160.0);
 
-    // 1. Click component on canvas (selects `rect_id`) and rename via `App::rename`.
-    s.click(s.screen(180.0, 160.0));
-    assert_eq!(s.app().selection, vec![rect_id]);
-    s.shell.app.rename(rect_id, "Card");
+    // 1. Click selects the component; renaming the component leaves the shape's name alone.
+    s.t += 1.0;
+    s.click(p);
+    assert_eq!(s.app().selection, vec![comp_id]);
+    s.shell.app.rename(comp_id, "Card");
     s.frame(vec![]);
 
-    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Card");
     assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Card");
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1", "renaming component must never rename its child");
     assert_eq!(SelectionSummary::from_doc(&s.app().doc, s.app().page, &s.app().selection).chip_text().as_deref(), Some("Page 1 · 1 selected · Card"));
 
-    // 2. Rename the outer `comp_id` while `rect_id` remains selected: Properties, chip, and canvas label must all read "Hero Card".
-    s.shell.app.rename(comp_id, "Hero Card");
+    // 2. Double-click selects the shape; renaming the shape leaves the component's name and canvas label alone.
+    s.t += 1.0;
+    s.click(p);
+    s.click(p);
+    assert_eq!(s.app().selection, vec![rect_id]);
+    s.shell.app.rename(rect_id, "Surface");
     s.frame(vec![]);
 
-    assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Hero Card");
-    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Hero Card");
-    assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Hero Card"));
-    assert_eq!(SelectionSummary::from_doc(&s.app().doc, s.app().page, &s.app().selection).chip_text().as_deref(), Some("Page 1 · 1 selected · Hero Card"));
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Surface");
+    assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Card", "renaming child must never rename its component");
+    assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
+
+    // 3. Even when both still share the initial name ("Rectangle 1"), renaming the inner shape (by user or MCP)
+    // leaves the component's name and canvas label at "Rectangle 1".
+    s.shell.app.rename(comp_id, "Rectangle 1");
+    s.shell.app.rename(rect_id, "Rectangle 1");
+    s.frame(vec![]);
+
+    let mut mcp = McpHarness::attach(&mut s);
+    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Inner Fill" })).expect("rename inner shape via MCP");
+    let actions = s.shell.app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
+    s.frame(vec![]);
+
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Inner Fill");
+    assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Rectangle 1", "MCP rename of child must not rename component");
+    assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Rectangle 1"));
+
+    mcp.cleanup(&mut s);
+}
+
+#[test]
+fn multi_child_and_container_child_components_still_select_through_and_marquee_is_unchanged() {
+    let mut s = Sim::new();
+    let (comp_one_shape, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
+    let page = s.app().page;
+
+    // 1. Marquee over the one-shape component (partial or full) selects the component as a whole, unchanged.
+    s.shell.app.clear_selection();
+    s.drag(s.screen(100.0, 100.0), s.screen(190.0, 170.0));
+    assert_eq!(s.app().selection, vec![comp_one_shape], "partial marquee over one-shape component selects component whole");
+    s.shell.app.clear_selection();
+    s.drag(s.screen(100.0, 100.0), s.screen(320.0, 260.0));
+    assert_eq!(s.app().selection, vec![comp_one_shape], "enclosing marquee over one-shape component selects component whole");
+
+    // 2. Enter selects the child shape; Shift+Enter selects the parent component again.
+    s.key(Key::Enter);
+    assert_eq!(s.app().selection, vec![rect_id], "Enter selects child shape");
+    s.mods = Modifiers::SHIFT;
+    s.key(Key::Enter);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.app().selection, vec![comp_one_shape], "Shift+Enter selects parent component");
+
+    // 3. A component with two children is still selected through on click.
+    let comp_two = s.shell.app.doc.alloc_id();
+    let mut c2 = Node::new(comp_two, NodeKind::Component(designos_doc::FrameProps::default()));
+    c2.size = DVec2::new(160.0, 100.0);
+    c2.transform = designos_doc::Affine::translate(360.0, 120.0);
+    s.shell.app.doc.insert(page, c2).unwrap();
+    let child_a = s.shell.app.doc.alloc_id();
+    let child_b = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(comp_two, Node::rectangle(child_a, DRect::new(10.0, 10.0, 50.0, 50.0))).unwrap();
+    s.shell.app.doc.insert(comp_two, Node::rectangle(child_b, DRect::new(80.0, 10.0, 50.0, 50.0))).unwrap();
+
+    // 4. A component whose only child is a Frame (or Group / Section / Instance) is still selected through on click.
+    let comp_frame_child = s.shell.app.doc.alloc_id();
+    let mut cf = Node::new(comp_frame_child, NodeKind::Component(designos_doc::FrameProps::default()));
+    cf.size = DVec2::new(160.0, 100.0);
+    cf.transform = designos_doc::Affine::translate(560.0, 120.0);
+    s.shell.app.doc.insert(page, cf).unwrap();
+    let inner_frame = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(comp_frame_child, Node::frame(inner_frame, DRect::new(10.0, 10.0, 80.0, 60.0))).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+
+    s.shell.app.clear_selection();
+    s.t += 1.0;
+    s.click(s.screen(380.0, 140.0));
+    assert_eq!(s.app().selection, vec![child_a], "component with two children still selects through on click");
+
+    s.shell.app.clear_selection();
+    s.t += 1.0;
+    s.click(s.screen(590.0, 140.0));
+    assert_eq!(s.app().selection, vec![inner_frame], "component with a Frame child still selects through on click");
+
+    s.shell.app.clear_selection();
+    s.t += 1.0;
+    s.click(s.screen(180.0, 160.0));
+    assert_eq!(s.app().selection, vec![comp_one_shape], "one-shape component selects the component on click");
+
+    // Tab and Shift+Tab cycle siblings as today.
+    s.shell.app.select_only(child_a);
+    s.key(Key::Tab);
+    assert_eq!(s.app().selection, vec![child_b], "Tab moves to next sibling");
+    s.mods = Modifiers::SHIFT;
+    s.key(Key::Tab);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.app().selection, vec![child_a], "Shift+Tab moves to previous sibling");
 }
 
 #[test]
@@ -179,14 +363,17 @@ fn undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_
     let (comp_id, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
     let mut mcp = McpHarness::attach(&mut s);
 
+    s.t += 1.0;
     s.click(s.screen(180.0, 160.0));
+    assert_eq!(s.app().selection, vec![comp_id]);
     mcp.sync_from_editor(&mut s);
 
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Card" })).expect("agent rename");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Card" })).expect("agent rename");
     let actions = s.shell.app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
     s.frame(vec![]);
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
 
     // Undo restores "Rectangle 1" across canvas label, Layers, Properties, and selection chip.
     s.shell.app.undo();
@@ -196,11 +383,11 @@ fn undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Rectangle 1"));
     assert_eq!(SelectionSummary::from_doc(&s.app().doc, s.app().page, &s.app().selection).chip_text().as_deref(), Some("Page 1 · 1 selected · Rectangle 1"));
 
-    // Redo re-applies "Card" across all surfaces.
+    // Redo re-applies "Card" on the component while the inner rectangle stays "Rectangle 1".
     s.shell.app.redo();
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Card");
-    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Card");
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
     assert_eq!(SelectionSummary::from_doc(&s.app().doc, s.app().page, &s.app().selection).chip_text().as_deref(), Some("Page 1 · 1 selected · Card"));
 
@@ -216,6 +403,10 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
     let inst_id = s.shell.app.insert_instance(comp_id, DVec2::new(400.0, 170.0)).expect("instance");
     s.frame(vec![]);
     assert_eq!(painted_canvas_label(&s, inst_id).as_deref(), Some("Rectangle 1"));
+
+    s.t += 1.0;
+    s.click(s.screen(180.0, 160.0));
+    assert_eq!(s.app().selection, vec![comp_id]);
     mcp.sync_from_editor(&mut s);
 
     // --- Part A: Fast-undo Revert on the agent's Revert/Keep card ---
@@ -223,7 +414,7 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
     let patch_off = s.app().terminal.live_patch.current_offset();
     s.shell.app.terminal.active_turn_ledger_mut().on_status_change(true, patch_off, now);
 
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Card" })).expect("agent rename");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Card" })).expect("agent rename");
     let actions = s.shell.app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
     let end_off = s.app().terminal.live_patch.current_offset();
@@ -232,6 +423,7 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
 
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
     assert_eq!(painted_canvas_label(&s, inst_id).as_deref(), Some("Card"));
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
 
     let turn_id = s.app().terminal.active_turn_ledger().visible_turn(now).expect("completed turn card").id;
     crate::agent_turn_card::apply_card_action(&mut s.shell.app, 0, crate::agent_turn_card::TurnCardAction::Revert(turn_id));
@@ -248,7 +440,7 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
     let patch_off2 = s.app().terminal.live_patch.current_offset();
     s.shell.app.terminal.active_turn_ledger_mut().on_status_change(true, patch_off2, now);
 
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Card V2" })).expect("second agent rename");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Card V2" })).expect("second agent rename");
     let actions2 = s.shell.app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions2);
     let end_off2 = s.app().terminal.live_patch.current_offset();
@@ -256,6 +448,7 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
     s.frame(vec![]);
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card V2"));
     assert_eq!(painted_canvas_label(&s, inst_id).as_deref(), Some("Card V2"));
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
 
     // User performs an unrelated edit so `cur_depth != end_depth` (forcing fallback snapshot revert).
     let page = s.app().page;
@@ -280,7 +473,7 @@ fn revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallb
 #[test]
 fn renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names() {
     let mut s = Sim::new();
-    let (comp_id, _rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
+    let (comp_id, rect_id) = setup_rectangle_component_via_ctrl_alt_k(&mut s);
     let inst_default = s.shell.app.insert_instance(comp_id, DVec2::new(400.0, 170.0)).expect("default instance");
     let inst_custom = s.shell.app.insert_instance(comp_id, DVec2::new(600.0, 170.0)).expect("custom instance");
     s.shell.app.rename(inst_custom, "Custom Badge");
@@ -298,6 +491,7 @@ fn renaming_main_component_updates_instance_canvas_labels_and_preserves_overridd
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Card"));
     assert_eq!(painted_canvas_label(&s, inst_default).as_deref(), Some("Card"), "un-overridden instance label follows main component");
     assert_eq!(painted_canvas_label(&s, inst_custom).as_deref(), Some("Custom Badge"), "overridden instance label stays untouched");
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1", "inner shape name stays independent");
 
     mcp.cleanup(&mut s);
 }
@@ -309,17 +503,21 @@ fn several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label()
     let inst_id = s.shell.app.insert_instance(comp_id, DVec2::new(400.0, 170.0)).expect("instance");
     s.frame(vec![]);
 
+    s.t += 1.0;
+    s.click(s.screen(180.0, 160.0));
+    assert_eq!(s.app().selection, vec![comp_id]);
+
     let mut mcp = McpHarness::attach(&mut s);
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Draft 1" })).expect("rename 1");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Draft 1" })).expect("rename 1");
     mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Draft 2" })).expect("rename 2");
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Final Card" })).expect("rename 3");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Final Card" })).expect("rename 3");
 
     let actions = s.shell.app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
     s.frame(vec![]);
 
     assert_eq!(s.app().doc.get(comp_id).unwrap().name, "Final Card");
-    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Final Card");
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
     assert_eq!(s.app().doc.get(inst_id).unwrap().name, "Final Card");
     assert_eq!(painted_canvas_label(&s, comp_id).as_deref(), Some("Final Card"));
     assert_eq!(painted_canvas_label(&s, inst_id).as_deref(), Some("Final Card"));
@@ -396,10 +594,11 @@ fn off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled
 
     // Agent renames the off-screen component while page2 is still unloaded.
     let mut mcp = McpHarness::attach(&mut s);
-    mcp.session.call("designos_update_node", json!({ "node_id": rect_id.0, "name": "Card" })).expect("rename off-screen component");
+    mcp.session.call("designos_update_node", json!({ "node_id": comp_id.0, "name": "Card" })).expect("rename off-screen component");
     let actions = s.shell.app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
     s.frame(vec![]);
+    assert_eq!(s.app().doc.get(rect_id).unwrap().name, "Rectangle 1");
 
     // Pan viewport to (5000, 5000) without bumping TileView::rev (CLAUDE.md §4 invariant 1).
     let rev_before_pan = s.app().canvas.tiles.rev();
