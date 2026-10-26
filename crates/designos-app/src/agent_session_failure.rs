@@ -538,6 +538,16 @@ fn version_cache() -> &'static Mutex<std::collections::HashMap<String, Option<St
     VERSION_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+#[cfg(test)]
+thread_local! {
+    static LAST_WARMER_RESOLVED: std::cell::RefCell<Option<Option<PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn take_last_warmer_resolved() -> Option<Option<PathBuf>> {
+    LAST_WARMER_RESOLVED.with(|slot| slot.borrow_mut().take())
+}
+
 /// Warms the installed CLI `--version` cache on a background thread so `poll_live_agent_bridge`
 /// never spawns a subprocess on the UI thread.
 pub fn warm_cli_version_cache(preset: AgentCliPreset) {
@@ -571,7 +581,8 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         guard.insert(path_key.clone(), None);
     }
     std::thread::spawn(move || {
-        let Some(resolved_bin) = resolve_cli_executable(bin) else { return };
+        let sources = crate::cli_resolve::current_search_sources(None);
+        let Some(resolved_bin) = resolve_cli_executable(bin, &sources) else { return };
         let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
@@ -593,7 +604,7 @@ pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std:
     cmd
 }
 
-fn resolve_cli_executable(bin: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_cli_executable(bin: &str, _sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(path_os) = std::env::var_os("PATH") {
         for p in std::env::split_paths(&path_os) {

@@ -3500,7 +3500,8 @@ impl TerminalState {
             }
             AgentCliPreset::Grok => {
                 if let Some(sid) = tab.session_uuid.clone() {
-                    let grok_bin = crate::agent_usage::resolve_grok_binary(&self.path_prepend);
+                    let sources = crate::cli_resolve::search_sources_with_prepend(&self.path_prepend);
+                    let grok_bin = crate::agent_usage::resolve_grok_binary(&sources).unwrap_or_else(|| PathBuf::from("grok"));
                     tab.usage.trigger_grok_usage(grok_bin, sid, crate::agent_usage::GROK_USAGE_TIMEOUT, Some(self.session_dir.clone()));
                 }
             }
@@ -4861,6 +4862,28 @@ fn isolate_zsh_from_home(cmd: &mut CommandBuilder) {
     cmd.env("ZDOTDIR", &zdotdir);
 }
 
+pub(crate) fn build_shell_preset_cmd_in(shell_bin: &str, _hermetic_dir: Option<&Path>) -> CommandBuilder {
+    let mut c = CommandBuilder::new(shell_bin);
+    if cfg!(test) {
+        if shell_bin.ends_with("zsh") {
+            c.arg("-d");
+            c.arg("-f");
+            #[cfg(test)]
+            isolate_zsh_from_home(&mut c);
+        } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
+            c.arg("--norc");
+            c.arg("--noprofile");
+        }
+    } else if !cfg!(windows) {
+        c.arg("-l");
+    }
+    c
+}
+
+pub(crate) fn build_agent_shell_cmd_in(shell_bin: &str, agent_cli: &str, _hermetic_dir: Option<&Path>) -> Result<CommandBuilder, String> {
+    Ok(build_agent_shell_cmd(shell_bin, agent_cli))
+}
+
 fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
     let mut c = CommandBuilder::new(shell_bin);
     if cfg!(windows) && !shell_bin.ends_with("bash.exe") && !shell_bin.ends_with("sh.exe") {
@@ -5466,6 +5489,16 @@ pub fn configure_pty_env(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_
 /// `DESIGNOS_MCP_CONFIG`, `DESIGNOS_LIVE_SPEC`, `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_CANVAS`, `DESIGNOS_CONTEXT_JSON`,
 /// `DESIGNOS_SELECTION_JSON`, `DESIGNOS_TARGET_PAGE_ID`, `DESIGNOS_TARGET_PAGE_NAME`, `DESIGNOS_DOC_NAME`).
 pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_path: Option<&Path>, session: Option<&SessionEnv>) {
+    configure_pty_env_with_session_and_hermetic(cmd, preset, file_path, session, None);
+}
+
+pub fn configure_pty_env_with_session_and_hermetic(
+    cmd: &mut CommandBuilder,
+    preset: AgentCliPreset,
+    file_path: Option<&Path>,
+    session: Option<&SessionEnv>,
+    _hermetic_dir: Option<&Path>,
+) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());

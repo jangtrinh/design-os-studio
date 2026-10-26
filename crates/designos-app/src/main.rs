@@ -38,6 +38,7 @@ mod canvas;
 mod check_designs;
 mod cli;
 mod cli_export_write;
+pub mod cli_resolve;
 mod clipboard;
 mod cmdk;
 mod comments;
