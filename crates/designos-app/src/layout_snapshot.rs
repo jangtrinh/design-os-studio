@@ -1123,4 +1123,73 @@ mod tests {
         assert!(texts_t0.iter().any(|t| t.contains("just now")), "at fixed_now = T, Home card label must show 'just now', got: {texts_t0:?}");
         assert!(texts_t60.iter().any(|t| t.contains("1 minute ago")), "at fixed_now = T + 60s, Home card label must show '1 minute ago', got: {texts_t60:?}");
     }
+
+    /// Test 8: `layout_json_requires_screenshot` — `cli::parse` error without `--screenshot`.
+    #[test]
+    fn layout_json_requires_screenshot() {
+        let err =
+            crate::cli::parse(["--layout-json", "out/snap.json"].into_iter().map(String::from)).expect_err("--layout-json without --screenshot must fail");
+        assert_eq!(err, "--layout-json needs --screenshot");
+
+        let ok = crate::cli::parse(["--screenshot", "out/snap.png", "--layout-json", "out/snap.json"].into_iter().map(String::from))
+            .expect("--layout-json with --screenshot must succeed");
+        assert_eq!(ok.layout_json, Some(std::path::PathBuf::from("out/snap.json")));
+        assert!(crate::cli::USAGE.contains("[--layout-json OUT.json]"), "USAGE must include [--layout-json OUT.json]");
+    }
+
+    /// Test 8b: `layout_json_matches_headless_snapshot` — a `Sim` with `apply_launch_defaults(true)` and a `shot`;
+    /// a synthetic `Event::Screenshot` (1x1) injected after frame 8; the written JSON equals `capture` in `regions` and `named`.
+    #[test]
+    fn layout_json_matches_headless_snapshot() {
+        let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
+        let tmp = std::env::temp_dir().join(format!("designos-8b-layout-json-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let png_path = tmp.join("d-editor-default.png");
+        let json_path = tmp.join("d-editor-default.layout.json");
+
+        crate::widgets::clear_pass_records();
+        let ctx = Context::default();
+        let opts = Options {
+            fixture: Some("showcase".into()),
+            select: Some("none".into()),
+            rulers: true,
+            no_toast: true,
+            size: Some((1440, 900)),
+            scale: Some(1.0),
+            screenshot: Some(png_path.clone()),
+            layout_json: Some(json_path.clone()),
+            agent_cli_dir: Some(stub_dir),
+            ..Default::default()
+        };
+        let mut shell = Shell::build(&ctx, opts);
+        shell.apply_launch_defaults(true);
+        ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), time: Some(0.05), ..Default::default() };
+        for i in 0..8 {
+            let mut r = raw.clone();
+            r.time = Some((i + 1) as f64 * 0.05);
+            let _ = ctx.run_ui(r, |ui| shell.draw(ui));
+        }
+        let headless = capture(&ctx, &shell.app.ui.regions);
+
+        let mut shot_raw = raw.clone();
+        shot_raw.time = Some(9.0 * 0.05);
+        shot_raw.events.push(egui::Event::Screenshot {
+            viewport_id: egui::ViewportId::ROOT,
+            user_data: egui::UserData::default(),
+            image: std::sync::Arc::new(egui::ColorImage::filled([1, 1], egui::Color32::BLACK)),
+        });
+        let _ = ctx.run_ui(shot_raw, |ui| shell.draw(ui));
+        shell.app.terminal.shutdown();
+
+        let written_raw = std::fs::read_to_string(&json_path).expect("--layout-json file must be written when Event::Screenshot arrives");
+        let written: LayoutSnapshot = serde_json::from_str(&written_raw).expect("parse written LayoutSnapshot JSON");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert_eq!(written.regions, headless.regions, "--layout-json regions must equal headless capture");
+        assert_eq!(written.named, headless.named, "--layout-json named widgets must equal headless capture");
+        assert!(!written.named.is_empty(), "--layout-json named map must not be empty");
+    }
 }

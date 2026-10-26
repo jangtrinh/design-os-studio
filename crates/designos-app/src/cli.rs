@@ -106,6 +106,8 @@ pub struct Options {
     pub no_caption: bool,
     /// With `--screenshot`: never paint transient toasts (e.g. "Opened <file>") into the capture.
     pub no_toast: bool,
+    /// With `--screenshot`: write a deterministic `LayoutSnapshot` JSON alongside the PNG capture (`#1126`).
+    pub layout_json: Option<PathBuf>,
     pub help: bool,
     /// `--version` / `-V`: print the release version and exit.
     pub version: bool,
