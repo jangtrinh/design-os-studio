@@ -17,8 +17,8 @@ import subprocess
 import sys
 import tomllib
 import urllib.request
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from pathlib import Path, PurePosixPath
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 PINNED_COMMIT = "4c66b1fa86e9ab70187b43d7da9b6fdb29f2ef63"
 PINNED_LICENSE_SHA1 = "7ec4838821b03d1c3b4388c5a50c94fd459ff557"
@@ -102,6 +102,24 @@ def sha1_text(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
+def to_posix_path(path: Union[Path, PurePosixPath, str]) -> PurePosixPath:
+    """Normalize any path or relative path string (with `/` or `\\` separators) into `PurePosixPath`."""
+    raw = path.as_posix() if hasattr(path, "as_posix") else str(path)
+    return PurePosixPath(raw.replace("\\", "/"))
+
+
+def read_text_lf(path: Path, errors: Optional[str] = None) -> str:
+    """Read a UTF-8 text file opened with `newline='\\n'` and normalize any CRLF/CR line endings to LF."""
+    with path.open("r", encoding="utf-8", errors=errors, newline="\n") as fh:
+        return fh.read().replace("\r\n", "\n").replace("\r", "\n")
+
+
+def write_text_lf(path: Path, text: str) -> None:
+    """Write a UTF-8 text file with `newline='\\n'` so LF line endings are emitted on every OS."""
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 REGISTER_REL_PATH = Path("docs/eval-licences.md")
 
 
@@ -114,17 +132,17 @@ def load_vendor_register(repo_root: Path) -> Tuple[Dict[str, dict], Optional[str
     """
     reg_path = repo_root / REGISTER_REL_PATH
     if not reg_path.is_file():
-        return {}, f"{REGISTER_REL_PATH.as_posix()} does not exist, so no vendored folder has a licence on record"
+        return {}, f"{to_posix_path(REGISTER_REL_PATH).as_posix()} does not exist, so no vendored folder has a licence on record"
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import check_eval_licences  # the register parser lives with the register checker
 
-        parsed, _ = check_eval_licences.extract_register(reg_path.read_text(encoding="utf-8"))
+        parsed, _ = check_eval_licences.extract_register(read_text_lf(reg_path))
         sources = parsed.get("source")
         if not isinstance(sources, list) or not sources:
             raise ValueError("no [[source]] entries")
     except Exception as exc:  # any parse failure must leave the vendor folders unlicensed
-        return {}, f"{REGISTER_REL_PATH.as_posix()} cannot be read ({exc}), so no vendored folder has a licence on record"
+        return {}, f"{to_posix_path(REGISTER_REL_PATH).as_posix()} cannot be read ({exc}), so no vendored folder has a licence on record"
     approved: Dict[str, dict] = {}
     for src in sources:
         licence = str(src.get("licence", "NONE")).strip()
@@ -172,7 +190,7 @@ def load_surface_check_ids(repo_root: Path) -> Set[str]:
 
         for p in sorted(surfaces_dir.glob("*.json")):
             try:
-                doc = json.loads(p.read_text(encoding="utf-8"))
+                doc = json.loads(read_text_lf(p))
                 surf_id = doc.get("id", p.stem)
                 for r in doc.get("rules", []):
                     rid = r.get("id")
@@ -187,7 +205,7 @@ def extract_rules_from_markdown_file(md_path: Path) -> List[str]:
     """Extract top-level bullet or numbered items from a markdown body (skipping YAML frontmatter,
     headings, and fenced code blocks) per E15-46 §3.3.
     """
-    raw = md_path.read_text(encoding="utf-8")
+    raw = read_text_lf(md_path)
     lines = raw.splitlines()
     idx = 0
     if lines and lines[0].strip() == "---":
@@ -240,15 +258,15 @@ def extract_rules_from_markdown_file(md_path: Path) -> List[str]:
     return items
 
 
-def rule_file_order_key(rel: Path) -> Tuple[str, ...]:
+def rule_file_order_key(rel: Union[Path, PurePosixPath, str]) -> Tuple[str, ...]:
     """Sort key for an upstream markdown file, given its path relative to the skills directory.
 
     `Path` ordering follows the platform: `WindowsPath` compares case-insensitively, so there
     `better-interface/review-format.md` came before `SKILL.md` and the regenerated `rules.lock`
-    drifted from the committed one. Comparing the path parts as plain strings gives the same
-    case-sensitive order on every platform.
+    drifted from the committed one. Turning the relative path into `PurePosixPath` and comparing
+    its parts as plain strings gives the same case-sensitive order on every platform.
     """
-    return rel.parts
+    return to_posix_path(rel).parts
 
 
 def extract_all_upstream_rules(upstream_skills_dir: Path) -> List[Tuple[str, str]]:
@@ -256,15 +274,16 @@ def extract_all_upstream_rules(upstream_skills_dir: Path) -> List[Tuple[str, str
     rules: List[Tuple[str, str]] = []
     md_paths = sorted(
         upstream_skills_dir.rglob("*.md"),
-        key=lambda p: rule_file_order_key(p.relative_to(upstream_skills_dir)),
+        key=lambda p: rule_file_order_key(to_posix_path(p.relative_to(upstream_skills_dir))),
     )
     for md_path in md_paths:
-        rel = md_path.relative_to(upstream_skills_dir)
+        rel = to_posix_path(md_path.relative_to(upstream_skills_dir))
         skill = rel.parts[0]
-        stem = md_path.stem
+        stem = rel.stem
+        rule_prefix = PurePosixPath(skill, stem).as_posix()
         extracted = extract_rules_from_markdown_file(md_path)
         for ordinal, text in enumerate(extracted, 1):
-            rule_id = f"{skill}/{stem}#{ordinal}"
+            rule_id = f"{rule_prefix}#{ordinal}"
             rules.append((rule_id, text))
     return rules
 
@@ -276,23 +295,24 @@ def format_rules_lock(rules: List[Tuple[str, str]]) -> str:
         "# Format: <rule_id>\\t<sha1>\\t<text>",
     ]
     for rule_id, text in rules:
+        posix_rule_id = to_posix_path(rule_id).as_posix()
         h = sha1_text(text)
         clean_text = text.replace("\t", " ").replace("\r", " ").replace("\n", " ")
-        lines.append(f"{rule_id}\t{h}\t{clean_text}")
+        lines.append(f"{posix_rule_id}\t{h}\t{clean_text}")
     return "\n".join(lines) + "\n"
 
 
 def parse_rules_lock(lock_path: Path) -> List[Tuple[str, str, str]]:
     """Return list of `(rule_id, text_sha1, text)` from `rules.lock`."""
     entries: List[Tuple[str, str, str]] = []
-    for raw_line in lock_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in read_text_lf(lock_path).splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         parts = raw_line.split("\t", 2)
         if len(parts) != 3:
             raise ValueError(f"Malformed rules.lock line: {raw_line!r}")
-        entries.append((parts[0], parts[1], parts[2]))
+        entries.append((to_posix_path(parts[0]).as_posix(), parts[1], parts[2]))
     return entries
 
 
@@ -311,7 +331,8 @@ def render_canvas_rules(rule_entries: List[dict]) -> str:
     for entry in rule_entries:
         if entry.get("map") == "web-only":
             continue
-        rid = entry.get("id", "")
+        rid_raw = entry.get("id", "")
+        rid = to_posix_path(rid_raw).as_posix() if rid_raw else ""
         skill = rid.split("/", 1)[0] if "/" in rid else "general"
         by_skill.setdefault(skill, []).append(entry)
 
@@ -319,7 +340,7 @@ def render_canvas_rules(rule_entries: List[dict]) -> str:
         lines.append(f"## {skill}")
         lines.append("")
         for entry in by_skill[skill]:
-            rid = entry["id"]
+            rid = to_posix_path(entry["id"]).as_posix()
             target = entry["map"]
             canvas_text = entry["canvas_text"].strip()
             lines.append(f"- **`{rid}`** (`{target}`): {canvas_text}")
@@ -336,31 +357,31 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
     errors: List[str] = []
     approved, register_error = load_vendor_register(repo_root)
     if register_error:
-        errors.append(f"unlicensed-file: {VENDOR_REL_DIR.as_posix()} ({register_error})")
+        errors.append(f"unlicensed-file: {to_posix_path(VENDOR_REL_DIR).as_posix()} ({register_error})")
 
     # Every folder under skills/vendor/ needs an approved, licensed, ship-in-skills register entry of the same id
     for child in sorted(vendor_dir.iterdir()):
         if child.name.startswith("."):
             continue
         if not child.is_dir():
-            rel = child.relative_to(repo_root).as_posix()
+            rel = to_posix_path(child.relative_to(repo_root)).as_posix()
             errors.append(f"unlicensed-file: {rel} (stray file in skills/vendor)")
             continue
         if child.name not in approved:
-            reason = f"package '{child.name}' has no approved licensed ship-in-skills entry in {REGISTER_REL_PATH.as_posix()}"
+            reason = f"package '{child.name}' has no approved licensed ship-in-skills entry in {to_posix_path(REGISTER_REL_PATH).as_posix()}"
             files = [f for f in sorted(child.rglob("*")) if f.is_file()]
             for f in files[:5]:
-                errors.append(f"unlicensed-file: {f.relative_to(repo_root).as_posix()} ({reason})")
+                errors.append(f"unlicensed-file: {to_posix_path(f.relative_to(repo_root)).as_posix()} ({reason})")
             if len(files) > 5:
-                errors.append(f"unlicensed-file: {child.relative_to(repo_root).as_posix()} (and {len(files) - 5} more files; {reason})")
+                errors.append(f"unlicensed-file: {to_posix_path(child.relative_to(repo_root)).as_posix()} (and {len(files) - 5} more files; {reason})")
             if not files:
-                errors.append(f"unlicensed-file: {child.relative_to(repo_root).as_posix()} ({reason})")
+                errors.append(f"unlicensed-file: {to_posix_path(child.relative_to(repo_root)).as_posix()} ({reason})")
 
     # Scan all files under skills/vendor/ for excluded sources (e.g. transitions.dev)
     for f in sorted(vendor_dir.rglob("*")):
         if not f.is_file():
             continue
-        rel = f.relative_to(repo_root).as_posix()
+        rel = to_posix_path(f.relative_to(repo_root)).as_posix()
         rel_lower = rel.lower()
         if any(pat in rel_lower for pat in EXCLUDED_SOURCE_PATTERNS):
             msg = f"unlicensed-file: {rel} (excluded source path)"
@@ -368,7 +389,7 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
                 errors.append(msg)
             continue
         try:
-            text_lower = f.read_text(encoding="utf-8", errors="ignore").lower()
+            text_lower = read_text_lf(f, errors="ignore").lower()
             if any(pat in text_lower for pat in EXCLUDED_SOURCE_PATTERNS):
                 errors.append(f"unlicensed-file: {rel} (references excluded source transitions.dev)")
         except Exception:
@@ -377,11 +398,11 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
     jakub_dir = repo_root / JAKUB_REL_DIR
     upstream_toml_path = jakub_dir / "UPSTREAM.toml"
     if not upstream_toml_path.is_file():
-        errors.append(f"licence-mismatch: missing {upstream_toml_path.relative_to(repo_root).as_posix()}")
+        errors.append(f"licence-mismatch: missing {to_posix_path(upstream_toml_path.relative_to(repo_root)).as_posix()}")
         return 1, errors
 
     try:
-        upstream_meta = tomllib.loads(upstream_toml_path.read_text(encoding="utf-8"))
+        upstream_meta = tomllib.loads(read_text_lf(upstream_toml_path))
     except Exception as exc:
         errors.append(f"licence-mismatch: invalid UPSTREAM.toml ({exc})")
         return 1, errors
@@ -399,25 +420,25 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
     for lic_rel in ("LICENSE", "upstream/LICENSE"):
         lic_path = jakub_dir / lic_rel
         if not lic_path.is_file():
-            errors.append(f"licence-mismatch: missing {lic_path.relative_to(repo_root).as_posix()}")
+            errors.append(f"licence-mismatch: missing {to_posix_path(lic_path.relative_to(repo_root)).as_posix()}")
             continue
         lic_bytes = lic_path.read_bytes()
         actual_sha1 = sha1_bytes(lic_bytes)
         if actual_sha1 != recorded_lic_sha1:
             errors.append(
-                f"licence-mismatch: {lic_path.relative_to(repo_root).as_posix()} sha1 {actual_sha1} != {recorded_lic_sha1}"
+                f"licence-mismatch: {to_posix_path(lic_path.relative_to(repo_root)).as_posix()} sha1 {actual_sha1} != {recorded_lic_sha1}"
             )
         lic_text = lic_bytes.decode("utf-8", errors="replace")
         if "MIT License" not in lic_text or "Copyright (c) 2026 Jakub Krehel" not in lic_text:
             errors.append(
-                f"licence-mismatch: {lic_path.relative_to(repo_root).as_posix()} missing MIT notice or copyright line"
+                f"licence-mismatch: {to_posix_path(lic_path.relative_to(repo_root)).as_posix()} missing MIT notice or copyright line"
             )
 
     attr_path = jakub_dir / "ATTRIBUTION.md"
     if not attr_path.is_file():
         errors.append("licence-mismatch: missing ATTRIBUTION.md")
     else:
-        attr_text = attr_path.read_text(encoding="utf-8")
+        attr_text = read_text_lf(attr_path)
         for needle in (
             "jakubkrehel/skills",
             "https://github.com/jakubkrehel/skills",
@@ -433,12 +454,12 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
     if entry is not None:
         if str(entry.get("pinned", "")) != PINNED_COMMIT:
             errors.append(
-                f"licence-mismatch: {REGISTER_REL_PATH.as_posix()} pins {JAKUB_REL_DIR.name} at {entry.get('pinned')!r}, "
+                f"licence-mismatch: {to_posix_path(REGISTER_REL_PATH).as_posix()} pins {JAKUB_REL_DIR.name} at {entry.get('pinned')!r}, "
                 f"the vendored copy is {PINNED_COMMIT!r}"
             )
         third_party = repo_root / "THIRD_PARTY_LICENSES.md"
         attribution = str(entry.get("attribution", "")).strip()
-        if not third_party.is_file() or not attribution or attribution not in third_party.read_text(encoding="utf-8"):
+        if not third_party.is_file() or not attribution or attribution not in read_text_lf(third_party):
             errors.append(
                 "licence-mismatch: THIRD_PARTY_LICENSES.md does not carry the register attribution of "
                 f"{JAKUB_REL_DIR.name} (run python3 scripts/check_eval_licences.py --write)"
@@ -455,14 +476,25 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
         except Exception as exc:
             errors.append(f"licence-mismatch: failed to fetch {url}: {exc}")
 
-    recorded_files: Dict[str, str] = upstream_meta.get("files", {})
+    recorded_files: Dict[str, str] = {
+        to_posix_path(rel_path).as_posix(): expected_sha1
+        for rel_path, expected_sha1 in upstream_meta.get("files", {}).items()
+    }
     upstream_dir = jakub_dir / "upstream"
     if not upstream_dir.is_dir():
         errors.append("file-hash-mismatch: missing upstream/ directory")
     else:
+        actual_files: Dict[str, Path] = {
+            to_posix_path(fpath.relative_to(upstream_dir)).as_posix(): fpath
+            for fpath in sorted(
+                upstream_dir.rglob("*"),
+                key=lambda p: rule_file_order_key(to_posix_path(p.relative_to(upstream_dir))),
+            )
+            if fpath.is_file()
+        }
         for rel_path, expected_sha1 in sorted(recorded_files.items()):
-            fpath = upstream_dir / rel_path
-            if not fpath.is_file():
+            fpath = actual_files.get(rel_path)
+            if fpath is None or not fpath.is_file():
                 errors.append(f"file-hash-mismatch: missing upstream/{rel_path}")
                 continue
             actual_sha1 = sha1_bytes(fpath.read_bytes())
@@ -470,11 +502,9 @@ def cmd_verify(repo_root: Path, online: bool = False) -> Tuple[int, List[str]]:
                 errors.append(
                     f"file-hash-mismatch: upstream/{rel_path} sha1 {actual_sha1} != {expected_sha1}"
                 )
-        for fpath in sorted(upstream_dir.rglob("*")):
-            if fpath.is_file():
-                rel_path = fpath.relative_to(upstream_dir).as_posix()
-                if rel_path not in recorded_files:
-                    errors.append(f"file-hash-mismatch: untracked file upstream/{rel_path}")
+        for rel_path in sorted(actual_files.keys()):
+            if rel_path not in recorded_files:
+                errors.append(f"file-hash-mismatch: untracked file upstream/{rel_path}")
 
     return (1 if errors else 0), errors
 
@@ -490,13 +520,13 @@ def cmd_extract(repo_root: Path, write: bool = False) -> Tuple[int, List[str]]:
     lock_path = jakub_dir / "rules.lock"
 
     if write:
-        lock_path.write_text(expected_lock, encoding="utf-8")
-        return 0, [f"wrote {len(rules)} rules to {lock_path.relative_to(repo_root).as_posix()}"]
+        write_text_lf(lock_path, expected_lock)
+        return 0, [f"wrote {len(rules)} rules to {to_posix_path(lock_path.relative_to(repo_root)).as_posix()}"]
 
     if not lock_path.is_file():
         return 1, ["rules-lock-missing: rules.lock does not exist (run `extract --write`)"]
 
-    committed = lock_path.read_text(encoding="utf-8")
+    committed = read_text_lf(lock_path)
     if committed != expected_lock:
         return 1, ["rules-lock-drift: committed rules.lock differs from extracted upstream rules"]
 
@@ -517,7 +547,7 @@ def cmd_map_coverage(repo_root: Path, write_canvas: bool = False) -> Tuple[int, 
     lock_by_id: Dict[str, Tuple[str, str]] = {rid: (sha1, txt) for rid, sha1, txt in lock_entries}
 
     try:
-        map_doc = tomllib.loads(map_path.read_text(encoding="utf-8"))
+        map_doc = tomllib.loads(read_text_lf(map_path))
     except Exception as exc:
         return 1, [f"invalid-rule-map: {exc}"]
 
@@ -534,7 +564,8 @@ def cmd_map_coverage(repo_root: Path, write_canvas: bool = False) -> Tuple[int, 
     seen_ids: Set[str] = set()
     canvas_text_owner: Dict[str, str] = {}
     for entry in rule_entries:
-        rid = entry.get("id", "")
+        rid_raw = entry.get("id", "")
+        rid = to_posix_path(rid_raw).as_posix() if rid_raw else ""
         if not rid:
             errors.append("unmapped-rule: rule entry missing 'id'")
             continue
@@ -609,12 +640,12 @@ def cmd_map_coverage(repo_root: Path, write_canvas: bool = False) -> Tuple[int, 
 
     expected_canvas_md = render_canvas_rules(rule_entries)
     if write_canvas:
-        canvas_path.write_text(expected_canvas_md, encoding="utf-8")
+        write_text_lf(canvas_path, expected_canvas_md)
     else:
         if not canvas_path.is_file():
             errors.append("canvas-rules-missing: canvas-rules.md does not exist")
         else:
-            actual_canvas_md = canvas_path.read_text(encoding="utf-8")
+            actual_canvas_md = read_text_lf(canvas_path)
             if not actual_canvas_md.startswith(f"<!-- {ATTRIBUTION_HEADER} -->"):
                 errors.append("canvas-rules-mismatch: canvas-rules.md missing attribution header")
             if actual_canvas_md != expected_canvas_md:
