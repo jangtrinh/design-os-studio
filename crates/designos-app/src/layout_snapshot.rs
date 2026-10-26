@@ -1155,6 +1155,56 @@ mod tests {
         assert!(err.contains("stale allow.json[0]"), "unexpected error: {err}");
     }
 
+    /// Round 4 Minor 5: Overlay names are `overlay:{order}/{index}` in `areas().order()`,
+    /// contain no egui `Id`, and renaming an area's `Id` without moving its rect passes G2.
+    #[test]
+    fn overlay_names_use_areas_order_and_omit_egui_id() {
+        let capture_with_ids = |id_mid: &'static str, id_fg0: &'static str, id_fg1: &'static str| -> LayoutSnapshot {
+            crate::widgets::clear_pass_records();
+            let ctx = Context::default();
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), ..Default::default() };
+            for _ in 0..2 {
+                let _ = ctx.run_ui(raw.clone(), |ui| {
+                    egui::Area::new(egui::Id::new(id_mid))
+                        .order(egui::Order::Middle)
+                        .fixed_pos(Pos2::new(100.0, 100.0))
+                        .show(ui.ctx(), |ui| {
+                            ui.allocate_exact_size(egui::Vec2::new(120.0, 80.0), egui::Sense::click());
+                        });
+                    egui::Area::new(egui::Id::new(id_fg0))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(Pos2::new(300.0, 100.0))
+                        .show(ui.ctx(), |ui| {
+                            ui.allocate_exact_size(egui::Vec2::new(140.0, 90.0), egui::Sense::click());
+                        });
+                    egui::Area::new(egui::Id::new(id_fg1))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(Pos2::new(500.0, 100.0))
+                        .show(ui.ctx(), |ui| {
+                            ui.allocate_exact_size(egui::Vec2::new(160.0, 100.0), egui::Sense::click());
+                        });
+                });
+            }
+            let mut snap = capture(&ctx, &ShellRegions::default());
+            snap.case = "d-overlay-test".into();
+            snap
+        };
+
+        let snap_a = capture_with_ids("popup-mid-alpha", "popup-fg-beta", "popup-fg-gamma");
+        let names_a: Vec<&str> = snap_a.overlays.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(
+            names_a,
+            vec!["overlay:Middle/0", "overlay:Foreground/0", "overlay:Foreground/1"],
+            "overlay names must follow areas().order() as overlay:{{order}}/{{index}} with no egui Id"
+        );
+        for ov in &snap_a.overlays {
+            assert!(!ov.name.contains("Id("), "overlay name must not contain egui Id: {}", ov.name);
+        }
+
+        let snap_b = capture_with_ids("renamed-mid-1", "renamed-fg-2", "renamed-fg-3");
+        compare(&snap_a, &snap_b, &AllowList::default(), &[]).expect("renaming area Ids without moving overlay rects must pass G2");
+    }
+
     /// Test 4d: 24->32 makes the right panel overflow: a `scroll` entry appears; G2 passes.
     #[test]
     fn inspector_overflow_does_not_fail_g2() {
