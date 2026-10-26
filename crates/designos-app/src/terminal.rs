@@ -12525,18 +12525,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
-    /// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
-    fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[AgentCliPreset]) {
-        for preset in crate::agent_cli_catalog::CATALOG_PRESETS {
-            let probe = crate::agent_cli_catalog::CliProbe {
-                installed: installed.contains(&preset),
-                version: None,
-                signed_in: crate::agent_cli_catalog::SignIn::Unknown,
-            };
-            st.picker.cache.set_probe(preset, probe);
-        }
-    }
-
     fn install_stub_claude(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("designos-688-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -14224,5 +14212,15 @@ mod tests {
             );
             kill_tabs(&mut st);
         }
+    }
+}
+
+/// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
+#[cfg(test)]
+pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[AgentCliPreset]) {
+    for preset in crate::agent_cli_catalog::CATALOG_PRESETS {
+        let probe =
+            crate::agent_cli_catalog::CliProbe { installed: installed.contains(&preset), version: None, signed_in: crate::agent_cli_catalog::SignIn::Unknown };
+        st.picker.cache.set_probe(preset, probe);
     }
 }

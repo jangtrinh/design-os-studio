@@ -29,26 +29,7 @@ fn script_empty_clipboard(app: &mut App) {
 /// that is still open for writing.
 #[cfg(unix)]
 fn stub_agent_cli_dir() -> &'static std::path::Path {
-    use std::os::unix::fs::PermissionsExt;
-    const SCRIPT: &[u8] = b"#!/bin/sh\nexec /bin/cat\n";
-    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("designos-stub-agent-clis");
-        std::fs::create_dir_all(&dir).expect("create the stub agent CLI dir");
-        for binary in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
-            let path = dir.join(binary);
-            let is_current = std::fs::read(&path).is_ok_and(|bytes| bytes == SCRIPT)
-                && std::fs::metadata(&path).is_ok_and(|meta| meta.permissions().mode() & 0o111 == 0o111);
-            if is_current {
-                continue;
-            }
-            let staged = dir.join(format!(".{binary}.{}", std::process::id()));
-            std::fs::write(&staged, SCRIPT).expect("write a stub agent CLI");
-            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).expect("make a stub agent CLI executable");
-            std::fs::rename(&staged, &path).expect("move a stub agent CLI into place");
-        }
-        dir
-    })
+    crate::cli_resolve::stub_dir()
 }
 
 struct Sim {
