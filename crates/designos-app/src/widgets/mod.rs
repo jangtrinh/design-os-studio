@@ -290,6 +290,13 @@ pub fn record(ui: &Ui, name: &str, rect: Rect) {
     CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
 }
 
+/// True when [`record`] will store the widget's name and rect on this pass.
+#[cfg(test)]
+#[inline]
+pub fn recording() -> bool {
+    !RECORD_DISABLED.with(std::cell::Cell::get)
+}
+
 #[cfg(test)]
 thread_local! {
     static RECORD_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -322,6 +329,23 @@ impl Drop for RecordDisabled {
 pub fn record(_ui: &Ui, name: &str, rect: Rect) {
     if RECORDING.load(std::sync::atomic::Ordering::Relaxed) {
         CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
+    }
+}
+
+/// True when [`record`] will store the widget's name and rect on this pass.
+#[cfg(not(test))]
+#[inline]
+pub fn recording() -> bool {
+    RECORDING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Like [`record`], formatting `name` lazily only when [`recording`] is active so release frames
+/// with `RECORDING = false` do not allocate.
+#[inline]
+pub fn record_with<S: AsRef<str>>(ui: &Ui, name: impl FnOnce() -> S, rect: Rect) {
+    if recording() {
+        let s = name();
+        record(ui, s.as_ref(), rect);
     }
 }
 

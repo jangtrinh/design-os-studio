@@ -969,6 +969,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "shell-words",
  "toml",
  "unicode-segmentation",
  "ureq",

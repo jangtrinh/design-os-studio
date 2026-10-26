@@ -11,6 +11,10 @@ if [ "$1" = "login" ] && [ "$2" = "status" ]; then
     echo "Logged in"
     exit 0
 fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ]; then
+    echo "designos: connected"
+    exit 0
+fi
 if [ -n "$DESIGNOS_STUB_LOG" ]; then
     printf '%s %s\n' "$0" "$*" >> "$DESIGNOS_STUB_LOG"
 fi

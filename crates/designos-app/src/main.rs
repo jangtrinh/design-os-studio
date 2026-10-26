@@ -137,16 +137,13 @@ pub(crate) enum StartupDisposition {
 
 /// Runs the pre-window startup checks and non-window CLI branches (`--help`, `--version`,
 /// `missing_file_message`, `--seed-library`, and `run_agent_cli`).
-pub(crate) fn run_startup_before_window<I, K, V>(
-    opts: &cli::Options,
-    env_os: I,
-    pid: u32,
-) -> Result<StartupDisposition, (i32, String)>
+pub(crate) fn run_startup_before_window<I, K, V>(opts: &cli::Options, env_os: I, pid: u32) -> Result<StartupDisposition, (i32, String)>
 where
     I: IntoIterator<Item = (K, V)>,
     K: Into<std::ffi::OsString>,
     V: Into<std::ffi::OsString>,
 {
+    cli_resolve::enforce_hermetic_startup_os(env_os, opts, pid).map_err(|e| (2, format!("designos: {e}")))?;
     if opts.help {
         println!("{}", cli::USAGE);
         return Ok(StartupDisposition::ExitZero);
@@ -180,11 +177,6 @@ where
         run_agent_cli(opts).map_err(|e| (2, format!("designos: {e}")))?;
         return Ok(StartupDisposition::ExitZero);
     }
-    let env_map: std::collections::BTreeMap<String, String> = env_os
-        .into_iter()
-        .filter_map(|(k, v)| Some((k.into().into_string().ok()?, v.into().into_string().ok()?)))
-        .collect();
-    cli_resolve::enforce_hermetic_startup(&env_map, opts, pid).map_err(|e| (2, format!("designos: {e}")))?;
     Ok(StartupDisposition::ContinueToWindow)
 }
 

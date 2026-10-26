@@ -227,13 +227,14 @@ impl RunCommand for SystemCommandRunner {
         let Some((&prog, args)) = argv.split_first() else {
             return CommandOutput::exited(127, "", "empty argv");
         };
-        let resolved = Self::resolve_binary(prog, install_folders).unwrap_or_else(|| PathBuf::from(prog));
+        let Some(resolved) = Self::resolve_binary(prog, install_folders) else {
+            return CommandOutput::exited(127, "", "failed to spawn");
+        };
         let mut cmd = Command::new(resolved);
         cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let search_dirs = Self::search_dirs_with_install_folders(install_folders);
-        if let Ok(joined) = std::env::join_paths(&search_dirs) {
-            cmd.env("PATH", joined);
+        if let Some(child_path) = crate::cli_resolve::catalog_child_path(install_folders) {
+            cmd.env("PATH", child_path);
         }
 
         let Ok(mut child) = cmd.spawn() else {

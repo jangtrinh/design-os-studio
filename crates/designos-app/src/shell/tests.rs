@@ -1790,12 +1790,8 @@ mod agent_a11y {
         std::fs::create_dir_all(&tmp).expect("create 8e temp dir");
 
         let cc_shot = eframe::CreationContext::_new_kittest(egui::Context::default());
-        let shot_opts = Options {
-            library: Some(tmp.join("lib-shot")),
-            fixture: Some("demo".to_string()),
-            screenshot: Some(tmp.join("out.png")),
-            ..Options::default()
-        };
+        let shot_opts =
+            Options { library: Some(tmp.join("lib-shot")), fixture: Some("demo".to_string()), screenshot: Some(tmp.join("out.png")), ..Options::default() };
         let shell_shot = Shell::new(&cc_shot, shot_opts);
         assert!(shell_shot.app.ui.screenshot_chrome, "Shell::new with screenshot: Some(..) must set screenshot_chrome = true");
         assert_ne!(shell_shot.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with screenshot: Some(..) must not apply the Agents rail default");

@@ -24,9 +24,49 @@ pub struct SearchSources {
 
 static HERMETIC_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Returns `Some(dir)` when `DESIGNOS_AGENT_CLI_DIR` was set in the process environment.
+fn has_dot_or_dotdot_component(path: &Path) -> bool {
+    path.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::CurDir))
+}
+
+/// Validates that `raw_dir` is a non-empty, absolute path with no `.` or `..` components,
+/// points to an existing directory, canonicalizes it, and verifies `.designos-hermetic` inside it.
+pub fn validate_and_canonicalize_hermetic_dir(raw_dir: &str) -> Result<PathBuf, String> {
+    if raw_dir.trim().is_empty() {
+        return Err("DESIGNOS_AGENT_CLI_DIR is empty".to_string());
+    }
+    let dir = Path::new(raw_dir);
+    if !dir.is_absolute() {
+        return Err(format!("DESIGNOS_AGENT_CLI_DIR ({}) must be an absolute path", dir.display()));
+    }
+    if has_dot_or_dotdot_component(dir) {
+        return Err(format!("DESIGNOS_AGENT_CLI_DIR ({}) must not contain '.' or '..'", dir.display()));
+    }
+    if !dir.is_dir() {
+        return Err(format!("DESIGNOS_AGENT_CLI_DIR ({}) is not an existing directory", dir.display()));
+    }
+    let canon = std::fs::canonicalize(dir).map_err(|e| format!("DESIGNOS_AGENT_CLI_DIR ({}) cannot be canonicalized: {e}", dir.display()))?;
+    if !canon.join(HERMETIC_MARKER_FILENAME).is_file() {
+        return Err(format!("DESIGNOS_AGENT_CLI_DIR ({}) is missing {HERMETIC_MARKER_FILENAME}", dir.display()));
+    }
+    Ok(canon)
+}
+
+/// Returns `Some(canonical_dir)` when `DESIGNOS_AGENT_CLI_DIR` was set in the process environment.
 pub fn hermetic_agent_cli_dir() -> Option<PathBuf> {
-    HERMETIC_DIR.get_or_init(|| std::env::var_os("DESIGNOS_AGENT_CLI_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)).clone()
+    HERMETIC_DIR
+        .get_or_init(|| {
+            let raw = std::env::var_os("DESIGNOS_AGENT_CLI_DIR")?;
+            let s = raw.to_str()?;
+            if s.trim().is_empty() {
+                return None;
+            }
+            let p = Path::new(s);
+            if !p.is_absolute() || has_dot_or_dotdot_component(p) {
+                return None;
+            }
+            std::fs::canonicalize(p).ok()
+        })
+        .clone()
 }
 
 #[cfg(test)]
@@ -44,7 +84,8 @@ pub struct ScopedCliDirs {
 #[cfg(test)]
 impl ScopedCliDirs {
     pub fn enter(dir: impl Into<PathBuf>) -> Self {
-        let next = Some(dir.into());
+        let raw: PathBuf = dir.into();
+        let next = Some(std::fs::canonicalize(&raw).unwrap_or(raw));
         let prev = SCOPED_CLI_DIR.with(|slot| slot.replace(next));
         Self { prev }
     }
@@ -81,9 +122,37 @@ pub fn host_path_dirs() -> Vec<PathBuf> {
     std::env::var_os("PATH").as_deref().map(split_non_empty_paths).unwrap_or_default()
 }
 
+/// Raw `PATH` string from the process environment (or empty string if unset/non-UTF-8).
+pub fn host_path_raw() -> String {
+    std::env::var("PATH").unwrap_or_default()
+}
+
 /// True when `PATH` is set to the empty string `""`.
 pub fn host_path_is_empty() -> bool {
     std::env::var_os("PATH").is_some_and(|p| p.is_empty())
+}
+
+/// Builds the child `PATH` string for `agent_cli_catalog`:
+/// - In hermetic mode (`hermetic_agent_cli_dir()` is `Some(dir)`): `dir` only.
+/// - In scoped test mode (`ScopedCliDirs` is `Some(dir)`): `dir` only.
+/// - In non-hermetic mode: `install_folders` + `extra_cli_path_dirs()` prepended to the process `PATH`
+///   in the exact legacy order.
+pub fn catalog_child_path(install_folders: &[PathBuf]) -> Option<String> {
+    if let Some(dir) = hermetic_agent_cli_dir() {
+        return Some(dir.to_string_lossy().into_owned());
+    }
+    if let Some(dir) = current_scoped_cli_dir() {
+        return Some(dir.to_string_lossy().into_owned());
+    }
+    let mut extra_paths: Vec<String> = install_folders.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    extra_paths.extend(crate::terminal::extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()));
+    if extra_paths.is_empty() {
+        return None;
+    }
+    let current_path = host_path_raw();
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let combined = if current_path.is_empty() { extra_paths.join(sep) } else { format!("{}{sep}{current_path}", extra_paths.join(sep)) };
+    Some(combined)
 }
 
 /// Captures the current [`SearchSources`] from the environment, `OnceLock`, and thread-local guard.
@@ -138,13 +207,52 @@ pub fn cli_search_dirs(explicit: Option<Vec<PathBuf>>) -> Vec<PathBuf> {
     cli_search_dirs_with(&current_search_sources(explicit))
 }
 
+/// Hermetic file lookup of `bin` inside `dir`: canonicalizes `dir` and the candidate,
+/// and refuses any candidate that is not a regular file directly inside the canonical `dir`.
+pub fn resolve_in_hermetic(dir: &Path, bin: &str) -> Option<PathBuf> {
+    let trimmed = bin.trim();
+    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return None;
+    }
+    let canon_dir = std::fs::canonicalize(dir).ok()?;
+    let check_candidate = |cand: PathBuf| -> Option<PathBuf> {
+        let canon_cand = std::fs::canonicalize(&cand).ok()?;
+        let meta = std::fs::metadata(&canon_cand).ok()?;
+        if meta.is_file() && canon_cand.parent() == Some(canon_dir.as_path()) {
+            Some(canon_cand)
+        } else {
+            None
+        }
+    };
+    if let Some(found) = check_candidate(canon_dir.join(trimmed)) {
+        return Some(found);
+    }
+    if cfg!(windows) {
+        for ext in ["exe", "cmd", "bat"] {
+            if let Some(found) = check_candidate(canon_dir.join(format!("{trimmed}.{ext}"))) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
 /// Pure file lookup of `bin` across `dirs`.
+/// When hermetic mode is active (or resolving against a single isolated/stub directory),
+/// canonicalizes the candidate and refuses any target outside the canonical directory.
 pub fn resolve_in(dirs: &[PathBuf], bin: &str) -> Option<PathBuf> {
     let trimmed = bin.trim();
     if trimmed.is_empty() {
         return None;
     }
+    let enforce_containment = hermetic_agent_cli_dir().is_some() || dirs.len() == 1;
     for d in dirs {
+        if enforce_containment || d.join(HERMETIC_MARKER_FILENAME).is_file() {
+            if let Some(found) = resolve_in_hermetic(d, trimmed) {
+                return Some(found);
+            }
+            continue;
+        }
         let cand = d.join(trimmed);
         if cand.is_file() {
             return Some(cand);
@@ -161,21 +269,20 @@ pub fn resolve_in(dirs: &[PathBuf], bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Deny-by-default startup check (`#1126` rule 5).
-/// When `DESIGNOS_AGENT_CLI_DIR` is present in `env`, requires `--screenshot` and `.designos-hermetic`
-/// markers in `DESIGNOS_AGENT_CLI_DIR`, `DESIGNOS_LIBRARY`, `TMPDIR`, and `HOME`.
-pub fn hermetic_startup_check(env: &BTreeMap<String, String>, opts: &crate::cli::Options) -> Result<(), String> {
+fn hermetic_startup_check_inner(env: &BTreeMap<String, String>, opts: &crate::cli::Options) -> Result<Option<PathBuf>, String> {
     let Some(raw_dir) = env.get("DESIGNOS_AGENT_CLI_DIR") else {
-        return Ok(());
+        return Ok(None);
     };
     let mut missing = Vec::new();
     if opts.screenshot.is_none() {
         missing.push("--screenshot is required".to_string());
     }
-    if raw_dir.trim().is_empty() {
-        missing.push("DESIGNOS_AGENT_CLI_DIR is empty".to_string());
+    let mut canon_stub_dir = None;
+    match validate_and_canonicalize_hermetic_dir(raw_dir) {
+        Ok(canon) => canon_stub_dir = Some(canon),
+        Err(e) => missing.push(e),
     }
-    for var in ["DESIGNOS_AGENT_CLI_DIR", "DESIGNOS_LIBRARY", "TMPDIR", "HOME"] {
+    for var in ["DESIGNOS_LIBRARY", "TMPDIR", "HOME"] {
         match env.get(var).map(String::as_str).filter(|s| !s.trim().is_empty()) {
             None => missing.push(format!("{var} is unset")),
             Some(val) => {
@@ -189,10 +296,17 @@ pub fn hermetic_startup_check(env: &BTreeMap<String, String>, opts: &crate::cli:
         }
     }
     if missing.is_empty() {
-        Ok(())
+        Ok(canon_stub_dir)
     } else {
         Err(format!("hermetic agent mode denied: {}", missing.join("; ")))
     }
+}
+
+/// Deny-by-default startup check (`#1126` rule 5).
+/// When `DESIGNOS_AGENT_CLI_DIR` is present in `env`, requires an absolute canonicalizable path with no `..`,
+/// `--screenshot`, and `.designos-hermetic` markers in `DESIGNOS_AGENT_CLI_DIR`, `DESIGNOS_LIBRARY`, `TMPDIR`, and `HOME`.
+pub fn hermetic_startup_check(env: &BTreeMap<String, String>, opts: &crate::cli::Options) -> Result<(), String> {
+    hermetic_startup_check_inner(env, opts).map(|_| ())
 }
 
 /// Writes `$TMPDIR/.designos-hermetic-active` with `pid` and `dir` after [`hermetic_startup_check`] passes.
@@ -203,15 +317,43 @@ pub fn write_hermetic_ack(tmpdir: &Path, dir: &Path, pid: u32) -> std::io::Resul
     Ok(ack_path)
 }
 
-/// Runs [`hermetic_startup_check`] and, when `DESIGNOS_AGENT_CLI_DIR` is active, writes the acknowledgement file.
+/// Runs [`hermetic_startup_check`] and, when `DESIGNOS_AGENT_CLI_DIR` is active, writes the acknowledgement file
+/// with the canonical stub directory path.
 pub fn enforce_hermetic_startup(env: &BTreeMap<String, String>, opts: &crate::cli::Options, pid: u32) -> Result<Option<PathBuf>, String> {
-    hermetic_startup_check(env, opts)?;
-    let Some(dir) = env.get("DESIGNOS_AGENT_CLI_DIR").map(String::as_str).filter(|s| !s.trim().is_empty()) else {
+    let Some(canon_dir) = hermetic_startup_check_inner(env, opts)? else {
         return Ok(None);
     };
     let tmp = env.get("TMPDIR").expect("TMPDIR validated by hermetic_startup_check");
-    let ack = write_hermetic_ack(Path::new(tmp), Path::new(dir), pid).map_err(|e| format!("hermetic agent mode failed to write acknowledgement: {e}"))?;
+    let ack = write_hermetic_ack(Path::new(tmp), &canon_dir, pid).map_err(|e| format!("hermetic agent mode failed to write acknowledgement: {e}"))?;
     Ok(Some(ack))
+}
+
+/// OS-environment entrypoint for [`enforce_hermetic_startup`]: reads `vars_os` without panicking on non-UTF-8
+/// values, rejecting a non-UTF-8 `DESIGNOS_AGENT_CLI_DIR` and ignoring non-UTF-8 values of other variables.
+pub fn enforce_hermetic_startup_os<I, K, V>(env_os: I, opts: &crate::cli::Options, pid: u32) -> Result<Option<PathBuf>, String>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<std::ffi::OsString>,
+    V: Into<std::ffi::OsString>,
+{
+    let mut env_map = BTreeMap::new();
+    for (k, v) in env_os {
+        let k_os: std::ffi::OsString = k.into();
+        let v_os: std::ffi::OsString = v.into();
+        if k_os.as_os_str() == OsStr::new("DESIGNOS_AGENT_CLI_DIR") {
+            match v_os.into_string() {
+                Ok(val) => {
+                    env_map.insert("DESIGNOS_AGENT_CLI_DIR".to_string(), val);
+                }
+                Err(_) => {
+                    return Err("hermetic agent mode denied: DESIGNOS_AGENT_CLI_DIR is not valid UTF-8".to_string());
+                }
+            }
+        } else if let (Ok(k_str), Ok(v_str)) = (k_os.into_string(), v_os.into_string()) {
+            env_map.insert(k_str, v_str);
+        }
+    }
+    enforce_hermetic_startup(&env_map, opts, pid)
 }
 
 /// Returns the path to the checked-in POSIX agent CLI stubs in `tests/layout-baseline/stubs`.
@@ -271,10 +413,7 @@ mod tests {
             let expected_bin = dir.join(preset.binary_name()).display().to_string();
             let mut expected = vec![expected_bin];
             expected.extend(expected_tail.into_iter().map(str::to_string));
-            assert_eq!(
-                argv, expected,
-                "preset {preset:?} argv must exec canonical binary directly without /bin/sh -c, -l, or -i"
-            );
+            assert_eq!(argv, expected, "preset {preset:?} argv must exec canonical binary directly without /bin/sh -c, -l, or -i");
         }
 
         let shell_cmd = crate::terminal::build_shell_preset_cmd_in("/bin/zsh", Some(&dir));
@@ -568,21 +707,16 @@ mod tests {
             for (idx, line) in text.lines().enumerate() {
                 let line_no = idx + 1;
                 let code_part = line.split("//").next().unwrap_or("");
-                let has_path_violation = code_part.contains(&split_needle)
-                    || code_part.contains(&var_os_needle)
-                    || (!allow_var_path && code_part.contains(&var_needle));
-                let has_agent_violation = cmd_agent_needles.iter().any(|n| code_part.contains(n))
-                    || pathbuf_agent_needles.iter().any(|n| code_part.contains(n));
+                let has_path_violation =
+                    code_part.contains(&split_needle) || code_part.contains(&var_os_needle) || (!allow_var_path && code_part.contains(&var_needle));
+                let has_agent_violation =
+                    cmd_agent_needles.iter().any(|n| code_part.contains(n)) || pathbuf_agent_needles.iter().any(|n| code_part.contains(n));
                 if has_path_violation || has_agent_violation {
                     violations.push(format!("{}:{line_no}: {}", rel.display(), line.trim()));
                 }
             }
         }
-        assert!(
-            violations.is_empty(),
-            "found unallowed PATH or bare-agent lookup outside cli_resolve.rs:\n{}",
-            violations.join("\n")
-        );
+        assert!(violations.is_empty(), "found unallowed PATH or bare-agent lookup outside cli_resolve.rs:\n{}", violations.join("\n"));
     }
 
     /// 8(a): Startup order: `run_startup_before_window` (the function `main` calls first after `cli::parse`)
@@ -603,16 +737,10 @@ mod tests {
 
         std::fs::write(&spec_path, br#"{"kind":"frame","name":"Injected","width":120,"height":80}"#).expect("write spec");
 
-        let bad_env = || -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
-            vec![("DESIGNOS_AGENT_CLI_DIR".into(), root.join("no-marker").into_os_string())]
-        };
+        let bad_env = || -> Vec<(std::ffi::OsString, std::ffi::OsString)> { vec![("DESIGNOS_AGENT_CLI_DIR".into(), root.join("no-marker").into_os_string())] };
 
         // 1. --apply-spec with invalid hermetic env exits 2 and does not modify doc_path
-        let apply_opts = crate::cli::Options {
-            file: Some(doc_path.clone()),
-            apply_spec: Some(spec_path),
-            ..Default::default()
-        };
+        let apply_opts = crate::cli::Options { file: Some(doc_path.clone()), apply_spec: Some(spec_path), ..Default::default() };
         let res_apply = crate::run_startup_before_window(&apply_opts, bad_env(), 4242);
         let (code_apply, msg_apply) = res_apply.expect_err("--apply-spec with invalid hermetic env must fail");
         assert_eq!(code_apply, 2, "--apply-spec must exit 2: {msg_apply}");
@@ -620,10 +748,7 @@ mod tests {
         assert_eq!(std::fs::read(&doc_path).unwrap(), initial_bytes, "--apply-spec must not modify the target file when hermetic check fails");
 
         // 2. --seed-library with invalid hermetic env exits 2 and writes nothing into seed_dir
-        let seed_opts = crate::cli::Options {
-            seed_library: Some(seed_dir.clone()),
-            ..Default::default()
-        };
+        let seed_opts = crate::cli::Options { seed_library: Some(seed_dir.clone()), ..Default::default() };
         let res_seed = crate::run_startup_before_window(&seed_opts, bad_env(), 4242);
         let (code_seed, msg_seed) = res_seed.expect_err("--seed-library with invalid hermetic env must fail");
         assert_eq!(code_seed, 2, "--seed-library must exit 2: {msg_seed}");
@@ -747,16 +872,9 @@ mod tests {
         let mut st = crate::terminal::TerminalState::default();
         st.session_dir = empty_stubs.join("session");
         std::fs::create_dir_all(&st.session_dir).unwrap();
-        let mut tab = crate::terminal::TerminalTab::spawn_with_session_cmd(
-            1,
-            AgentCliPreset::Grok,
-            24,
-            80,
-            None,
-            None,
-            Some(portable_pty::CommandBuilder::new("true")),
-        )
-        .expect("spawn dummy tab");
+        let mut tab =
+            crate::terminal::TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Grok, 24, 80, None, None, Some(portable_pty::CommandBuilder::new("true")))
+                .expect("spawn dummy tab");
         tab.session_uuid = Some("grok-sid-8e".to_string());
         st.tabs.push(tab);
 

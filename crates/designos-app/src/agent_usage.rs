@@ -569,6 +569,12 @@ pub fn run_grok_usage_with_timeout(grok_bin: &Path, session_id: &str, timeout: D
     if clean_sid.is_empty() {
         return None;
     }
+    if let Some(hdir) = crate::cli_resolve::hermetic_agent_cli_dir() {
+        let canon_bin = std::fs::canonicalize(grok_bin).ok()?;
+        if !canon_bin.is_file() || canon_bin.parent() != Some(hdir.as_path()) {
+            return None;
+        }
+    }
     let mut child = Command::new(grok_bin).arg("usage").arg(clean_sid).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
 
     let stdout_pipe = child.stdout.take()?;
