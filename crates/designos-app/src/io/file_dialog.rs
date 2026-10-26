@@ -177,14 +177,16 @@ impl App {
     /// The export had no save dialog: puts `bytes` in the fallback folder under a name that is not taken,
     /// and says where it went, or why it could not.
     pub fn save_without_dialog(&mut self, dialogs: &dyn FileDialogs, file_name: &str, bytes: &[u8]) {
-        let text = match dialogs.fallback_dir() {
-            None => NO_FALLBACK_FOLDER.to_string(),
+        match dialogs.fallback_dir() {
+            None => self.show_toast(NO_FALLBACK_FOLDER.to_string(), true),
             Some(dir) => match write_new_in(&dir, file_name, bytes) {
-                Ok(path) => format!("No save dialog. Saved to {}", path.display()),
-                Err(e) => format!("No save dialog. Export failed: {e}"),
+                Ok(path) => self.show_toast_with_reveal(format!("No save dialog. Saved to {}", path.display()), path),
+                Err(e) => {
+                    let tried = dir.join(designos_export::sanitize_file_name(file_name));
+                    self.show_toast(format!("No save dialog. Export failed: {e} ({})", tried.display()), true);
+                }
             },
-        };
-        self.show_toast(text, true);
+        }
     }
 }
 

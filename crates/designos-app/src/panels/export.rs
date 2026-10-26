@@ -12,7 +12,7 @@ use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const ROW_GAP: f32 = 8.0;
 const PREVIEW_H: f32 = 120.0;
@@ -461,6 +461,25 @@ impl Sink {
             Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes),
         }
     }
+
+    /// The path a failed `write` was aiming at. A dialog-chosen file is that file; a folder export is the
+    /// file name inside the folder (the no-dialog folder then picks a free `name 2` name before this fails).
+    fn tried(&self, job: &ExportJob) -> PathBuf {
+        match self {
+            Sink::File(path) => path.clone(),
+            Sink::Dir { dir, .. } => dir.join(&job.file),
+        }
+    }
+}
+
+/// A finished export: the full path, and Show in folder for that file or, for several files, the folder.
+fn show_export_toast(app: &mut App, text: String, reveal: PathBuf, error: bool) {
+    app.show_toast_with_reveal(text, reveal);
+    if error {
+        if let Some(toast) = app.toast.as_mut() {
+            toast.error = true;
+        }
+    }
 }
 
 /// Writes every selected layer with its own export rows. One file asks for a
@@ -515,21 +534,32 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
         match sink.write(job, &bytes) {
             Ok(path) => written.push(path),
             Err(e) => {
+                let tried = sink.tried(job);
                 drop(doc);
-                app.show_toast(format!("{lead}Export failed: {e}"), true);
+                app.show_toast(format!("{lead}Export failed: {e} ({})", tried.display()), true);
                 return;
             }
         }
     }
     drop(doc);
     let skipped = if failed.is_empty() { String::new() } else { format!(" ({} skipped: {})", failed.len(), failed.join("; ")) };
-    let warn = without_dialog || !failed.is_empty();
-    match (written.as_slice(), &sink) {
-        ([], _) => app.show_toast(format!("Nothing exported{skipped}"), true),
-        ([one], _) if without_dialog => app.show_toast(format!("{lead}Saved to {}{skipped}", one.display()), warn),
-        ([one], _) => app.show_toast(format!("Exported {}{skipped}", one.display()), warn),
-        (many, Sink::Dir { dir, .. }) if without_dialog => app.show_toast(format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display()), warn),
-        (many, _) => app.show_toast(format!("Exported {} files{skipped}", many.len()), warn),
+    let partial = !failed.is_empty();
+    match written.as_slice() {
+        [] => app.show_toast(format!("Nothing exported{skipped}"), true),
+        [one] if without_dialog => show_export_toast(app, format!("{lead}Saved to {}{skipped}", one.display()), one.clone(), partial),
+        [one] => show_export_toast(app, format!("Exported {}{skipped}", one.display()), one.clone(), partial),
+        many => {
+            let dir = match &sink {
+                Sink::Dir { dir, .. } => dir.clone(),
+                Sink::File(path) => path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
+            };
+            let text = if without_dialog {
+                format!("{lead}Saved {} files to {}{skipped}", many.len(), dir.display())
+            } else {
+                format!("Exported {} files to {}{skipped}", many.len(), dir.display())
+            };
+            show_export_toast(app, text, dir, partial);
+        }
     }
 }
 
@@ -702,7 +732,7 @@ mod tests {
         let saved = dir.join("Alpha.png");
         assert!(saved.is_file(), "{:?}", files_in(&dir));
         assert!(std::fs::read(&saved).unwrap().starts_with(b"\x89PNG"));
-        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), false)));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -729,7 +759,7 @@ mod tests {
         run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         assert_eq!(files_in(&dir), ["Alpha.png", "Beta 2.png", "Beta.png"], "the existing Beta.png is kept");
         assert_eq!(std::fs::read(dir.join("Beta.png")).unwrap(), b"keep me");
-        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved 2 files to {}", dir.display()), true)));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved 2 files to {}", dir.display()), false)));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -788,6 +818,96 @@ mod tests {
         assert_eq!(files_in(&dir), ["chosen.png"], "nothing lands in the fallback folder");
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&folder).ok();
+    }
+
+    /// Puts `dir` back to a writable mode and deletes it, including when an assertion panics first.
+    struct Restore(std::path::PathBuf);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+            }
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    fn read_only(dir: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+
+    fn assert_failed_write(app: &App, tried: &std::path::Path) {
+        let toast = app.toast.as_ref().expect("a failed write must say so");
+        assert!(toast.error, "{}", toast.text);
+        assert!(toast.reveal.is_none(), "a file that was not written has no Show in folder action: {}", toast.text);
+        assert!(toast.text.contains("Export failed"), "{}", toast.text);
+        assert!(toast.text.contains(&tried.display().to_string()), "toast names the path it tried: {}", toast.text);
+        assert!(
+            toast.text.contains("Permission denied") || toast.text.contains("Operation not permitted") || toast.text.contains("os error"),
+            "toast names the reason: {}",
+            toast.text
+        );
+    }
+
+    #[test]
+    fn export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("slash_reveal");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "Card/A:B".into();
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let names = files_in(&dir);
+        assert_eq!(names.len(), 1, "one file, inside the fallback folder: {names:?}");
+        assert!(!names[0].contains('/') && !names[0].contains(':'), "{names:?}");
+        let saved = dir.join(&names[0]);
+        assert_eq!(saved.parent(), Some(dir.as_path()));
+        crate::fig_export::tests::assert_offers_reveal(&app, &saved);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_toast_panel_many_files_offer_one_folder_reveal() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("many_reveal");
+        let (mut app, a, b) = named_rects_with_png_rows();
+        run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        crate::fig_export::tests::assert_offers_reveal(&app, &dir);
+        assert_eq!(app.toast.as_ref().unwrap().text.matches(dir.display().to_string().as_str()).count(), 1, "one summary, the folder once");
+        let picked = scratch_dir("many_reveal_picked");
+        run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Picked(picked.clone())));
+        crate::fig_export::tests::assert_offers_reveal(&app, &picked);
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&picked).ok();
+    }
+
+    #[test]
+    fn export_toast_panel_dialog_file_offers_reveal() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("picked_reveal");
+        let (mut app, a, _) = named_rects_with_png_rows();
+        let target = dir.join("chosen.png");
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        crate::fig_export::tests::assert_offers_reveal(&app, &target);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_toast_panel_read_only_folder_names_the_path_and_the_reason() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("read_only");
+        let _restore = Restore(dir.clone());
+        let (mut app, a, b) = named_rects_with_png_rows();
+        read_only(&dir);
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        assert_failed_write(&app, &dir.join("Alpha.png"));
+        assert!(files_in(&dir).is_empty(), "nothing was written");
+        let target = dir.join("chosen.png");
+        run_export_with(&mut app, &[b], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        assert_failed_write(&app, &target);
     }
 
     fn two_frames_with_pdf_rows() -> (App, NodeId, NodeId) {

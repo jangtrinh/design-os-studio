@@ -48,7 +48,7 @@ fn blocked_dir(parent: &Path) -> PathBuf {
 }
 
 /// The success toast carries the exported file for its "Show in folder" action and stays long enough to act on.
-fn assert_offers_reveal(app: &App, exported: &Path) {
+pub(crate) fn assert_offers_reveal(app: &App, exported: &Path) {
     let toast = app.toast.as_ref().expect("success toast");
     assert!(!toast.error, "unexpected error toast: {}", toast.text);
     assert!(toast.text.contains(&exported.display().to_string()), "toast shows the full path: {}", toast.text);

@@ -2301,8 +2301,8 @@ impl App {
             return;
         };
         match std::fs::write(&path, png) {
-            Ok(()) => self.show_toast(format!("Exported {}", path.display()), false),
-            Err(e) => self.show_toast(format!("Export failed: {e}"), true),
+            Ok(()) => self.show_toast_with_reveal(format!("Exported {}", path.display()), path),
+            Err(e) => self.show_toast(format!("Export failed: {e} ({})", path.display()), true),
         }
     }
 }
