@@ -890,13 +890,12 @@ pub fn check_stale_allow_entries_for_run(
     spec_filter: Option<&str>,
 ) -> Result<(), String> {
     for (idx, e) in allow.entries.iter().enumerate() {
-        if let Some(sp) = spec_filter {
-            if e.spec != sp && (e.case == "*" || scope_cases.is_none_or(|s| !s.contains(&e.case))) {
-                continue;
-            }
-        }
         if let Some(scope) = scope_cases {
             if e.case != "*" && !scope.contains(&e.case) {
+                continue;
+            }
+        } else if let Some(sp) = spec_filter {
+            if e.case != "*" && e.spec != sp {
                 continue;
             }
         }
