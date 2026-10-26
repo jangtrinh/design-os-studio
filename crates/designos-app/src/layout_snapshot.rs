@@ -514,19 +514,84 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
     }
 
-    // Collect vertical shift regions where allow entry has gap_dy or dh != 0.
-    // Build per-region list of baseline named widgets that changed height under an allow rule so we can accumulate Σ dh_above.
-    let mut height_deltas_by_region: BTreeMap<String, Vec<(f32, f32)>> = BTreeMap::new();
+    let mut base_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
+    let mut cur_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
+    for u in &base.unnamed {
+        base_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
+    }
+    for u in &cur.unnamed {
+        cur_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
+    }
+
+    // Build per-region row bounding-box height deltas (named + unnamed widgets) so G3 and G4 share the same derived cumulative row shift.
+    let mut row_deltas_by_region: BTreeMap<String, Vec<(f32, f32, f32)>> = BTreeMap::new();
+    let mut paired_by_region: BTreeMap<String, Vec<([f32; 4], [f32; 4])>> = BTreeMap::new();
     for (name, b_w) in &base.named {
         if let Some(c_w) = cur.named.get(name) {
             if b_w.region == c_w.region {
-                let dh = c_w.rect[3] - b_w.rect[3];
-                if dh.abs() > 0.0 {
-                    height_deltas_by_region.entry(b_w.region.clone()).or_default().push((b_w.rect[1], dh));
-                }
+                paired_by_region.entry(b_w.region.clone()).or_default().push((b_w.rect, c_w.rect));
             }
         }
     }
+    for (reg, b_list) in &base_unnamed_by_reg {
+        if let Some(c_list) = cur_unnamed_by_reg.get(reg) {
+            for (b_u, c_u) in b_list.iter().zip(c_list.iter()) {
+                paired_by_region.entry(reg.clone()).or_default().push((b_u.rect, c_u.rect));
+            }
+        }
+    }
+    for (reg, mut pairs) in paired_by_region {
+        pairs.sort_by(|(ba, _), (bb, _)| {
+            let cya = ba[1] + ba[3] * 0.5;
+            let cyb = bb[1] + bb[3] * 0.5;
+            cya.total_cmp(&cyb).then_with(|| cmp_q4(ba, bb))
+        });
+        let mut rows: Vec<Vec<([f32; 4], [f32; 4])>> = Vec::new();
+        for (b_r, c_r) in pairs {
+            let cy = b_r[1] + b_r[3] * 0.5;
+            let h = b_r[3];
+            let joins_last = rows.last().is_some_and(|row| {
+                let first_b = row[0].0;
+                let cy0 = first_b[1] + first_b[3] * 0.5;
+                let h0 = first_b[3];
+                (cy - cy0).abs() <= (4.0_f32).max(0.5 * h0.min(h))
+            });
+            if joins_last {
+                rows.last_mut().unwrap().push((b_r, c_r));
+            } else {
+                rows.push(vec![(b_r, c_r)]);
+            }
+        }
+        let mut row_deltas = Vec::with_capacity(rows.len());
+        for row in rows {
+            let b_min_y = row.iter().map(|(b, _)| b[1]).fold(f32::INFINITY, f32::min);
+            let b_max_y = row.iter().map(|(b, _)| b[1] + b[3]).fold(f32::NEG_INFINITY, f32::max);
+            let c_min_y = row.iter().map(|(_, c)| c[1]).fold(f32::INFINITY, f32::min);
+            let c_max_y = row.iter().map(|(_, c)| c[1] + c[3]).fold(f32::NEG_INFINITY, f32::max);
+            let b_h = (b_max_y - b_min_y).max(0.0);
+            let c_h = (c_max_y - c_min_y).max(0.0);
+            let b_cy = (b_min_y + b_max_y) * 0.5;
+            row_deltas.push((b_cy, b_h, c_h - b_h));
+        }
+        row_deltas_by_region.insert(reg, row_deltas);
+    }
+
+    let cumulative_dh_above = |region: &str, b_rect: [f32; 4]| -> f32 {
+        let b_cy = b_rect[1] + b_rect[3] * 0.5;
+        let b_h = b_rect[3];
+        row_deltas_by_region
+            .get(region)
+            .map(|rows| {
+                rows.iter()
+                    .filter(|(r_cy, r_h, _)| {
+                        let thresh = (4.0_f32).max(0.5 * r_h.min(b_h));
+                        *r_cy + thresh < b_cy
+                    })
+                    .map(|(_, _, dh)| *dh)
+                    .sum()
+            })
+            .unwrap_or(0.0)
+    };
 
     // G3 — Named widgets: every baseline key must still exist with same count and region; new keys are reported.
     for (name, c_w) in &cur.named {
@@ -546,17 +611,13 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
 
         if rects_differ_beyond_half_pt(b_w.rect, c_w.rect) {
-            let sum_dh_above: f32 = height_deltas_by_region
-                .get(&b_w.region)
-                .map(|list| list.iter().filter(|(y_above, _)| *y_above + 0.25 < b_w.rect[1]).map(|(_, dh)| *dh).sum())
-                .unwrap_or(0.0);
+            let sum_dh_above = cumulative_dh_above(&b_w.region, b_w.rect);
 
             let mut allowed = false;
             if let Some((idx, e)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
-                let shifted_base = [b_w.rect[0], b_w.rect[1] + sum_dh_above, b_w.rect[2], b_w.rect[3]];
-                if widget_satisfies_allow_bounds(e, b_w.rect, c_w.rect)
-                    || (sum_dh_above.abs() > 0.0 && widget_satisfies_allow_bounds(e, shifted_base, c_w.rect))
-                {
+                let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
+                let shifted_base = [b_w.rect[0], b_w.rect[1] + shift_y, b_w.rect[2], b_w.rect[3]];
+                if widget_satisfies_allow_bounds(e, shifted_base, c_w.rect) {
                     report.matched_allow_indices.insert(idx);
                     allowed = true;
                 }
@@ -571,14 +632,6 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     }
 
     // G4 — Unnamed widgets: group by region, compare sorted rects and senses.
-    let mut base_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
-    let mut cur_unnamed_by_reg: BTreeMap<String, Vec<&UnnamedWidget>> = BTreeMap::new();
-    for u in &base.unnamed {
-        base_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
-    }
-    for u in &cur.unnamed {
-        cur_unnamed_by_reg.entry(u.region.clone()).or_default().push(u);
-    }
     let all_unnamed_regs: BTreeSet<String> = base_unnamed_by_reg.keys().chain(cur_unnamed_by_reg.keys()).cloned().collect();
     for reg in all_unnamed_regs {
         let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
@@ -617,9 +670,12 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 ));
             }
             if rects_differ_beyond_half_pt(b_u.rect, c_u.rect) {
+                let sum_dh_above = cumulative_dh_above(&reg, b_u.rect);
                 let mut allowed = false;
                 if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, None, b_u.rect) {
-                    if widget_satisfies_allow_bounds(e, b_u.rect, c_u.rect) {
+                    let shift_y = if matches!(e.anchor_y.unwrap_or_default(), AnchorY::Top) { sum_dh_above } else { 0.0 };
+                    let shifted_base = [b_u.rect[0], b_u.rect[1] + shift_y, b_u.rect[2], b_u.rect[3]];
+                    if widget_satisfies_allow_bounds(e, shifted_base, c_u.rect) {
                         report.matched_allow_indices.insert(idx);
                         allowed = true;
                     }
