@@ -106,7 +106,18 @@ AUDIT_EXCLUSION_SUMMARY = " and ".join(
     [f"{'/'.join(AUDIT_EXCLUDED_PREFIX)}/**", *(f"{Path(f).parent.name}/{Path(f).name}" for f in sorted(AUDIT_EXCLUDED_FILES))]
 )
 
-BANNED_PURPLES = {"#9747ff", "#8755e9", "#c4a1ff", "#a855f7"}
+BANNED_PURPLES = {
+    "#9747ff",
+    "#8755e9",
+    "#c4a1ff",
+    "#a855f7",
+    "#a259ff",
+    "#c792ea",
+    "#7f56d9",
+    "#9e77ed",
+    "#b692f6",
+    "#6941c6",
+}
 
 CORE_RUST_CONSTANTS = [
     "BG_PRIMARY",
@@ -131,6 +142,19 @@ CORE_RUST_CONSTANTS = [
     "INFO",
     "SUCCESS",
     "WARNING",
+    "BG_SELECTED",
+    "BG",
+    "TEXT",
+    "TEXT_TERTIARY",
+    "BG_BRAND_HOVER",
+    "BG_BRAND_PRESSED",
+    "TEXT_ON_BRAND",
+    "FOCUS_RING",
+    "BORDER_SELECTED",
+    "BG_TEXT_SELECTION",
+    "TEXT_BRAND",
+    "BG_MENU",
+    "BG_ERROR_SOLID",
 ]
 
 # Maps Rust `theme.rs` constants to canonical `design/design.tokens.json` paths under `colors.<key>`
@@ -139,14 +163,13 @@ RUST_TO_DESIGN_TOKEN_MAP: Dict[str, str] = {
     "BG_SECONDARY": "surface",
     "BG_TERTIARY": "secondary",
     "BG_HOVER": "bg-hover",
-    "BG_PRESSED": "bg-active",
+    "BG_PRESSED": "secondary-active",
     "BORDER": "border",
     "BORDER_SUBTLE": "border-subtle",
     "BORDER_STRONG": "border-strong",
     "BG_BRAND": "primary",
     "COMPONENT": "component",
     "CANVAS_COMPONENT": "component",
-    "DEV_READY": "success",
     "DEV_COMPLETED": "component",
     "AGENT_1": "agent-1",
     "AGENT_2": "agent-2",
@@ -155,10 +178,24 @@ RUST_TO_DESIGN_TOKEN_MAP: Dict[str, str] = {
     "INFO": "info",
     "SUCCESS": "success",
     "WARNING": "warning",
+    "BG_SELECTED": "bg-active",
+    "BG": "canvas",
+    "TEXT": "bg-foreground",
+    "TEXT_TERTIARY": "muted-foreground",
+    "BG_BRAND_HOVER": "primary-hover",
+    "BG_BRAND_PRESSED": "primary-active",
+    "TEXT_ON_BRAND": "primary-foreground",
+    "FOCUS_RING": "ring",
+    "BORDER_SELECTED": "border-focus",
+    "BG_TEXT_SELECTION": "accent",
+    "TEXT_BRAND": "accent-foreground",
+    "BG_MENU": "popover",
+    "BG_ERROR_SOLID": "destructive",
 }
 
 EXPECTED_STANDALONE_HEX: Dict[str, str] = {
     "TEXT_COMPONENT": "#22d3ee",
+    "DEV_READY": "#14ae5c",
     "DEV_CHANGED": "#ffa629",
 }
 
@@ -288,7 +325,10 @@ def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[
             else:
                 verified_pairs[cname] = actual_hex
 
-    # Also verify no banned purple exists anywhere in design/design.tokens.json
+    # Also verify no banned purple exists anywhere in theme.rs or design/design.tokens.json
+    for r_name, r_hex in rust_consts.items():
+        if r_hex in BANNED_PURPLES and f"{r_name}={r_hex}" not in purple_violations:
+            purple_violations.append(f"{r_name}={r_hex}")
     for ds_key, ds_hex in ds_colors.items():
         if ds_hex in BANNED_PURPLES:
             purple_violations.append(f"colors.{ds_key}={ds_hex}")
@@ -369,11 +409,32 @@ def check_ui_ds_a11y() -> Tuple[bool, str, Dict[str, Any]]:
     unresolved = data.get("unresolved", [])
     pairs = data.get("checkedPairs", 0)
     state_pairs = data.get("checkedStatePairs", 0)
-    ok = (code == 0) and bool(payload.get("ok")) and len(failures) == 0 and len(unresolved) == 0
+
+    pairs_file = REPO_ROOT / "design" / "a11y-chrome-pairs.txt"
+    chrome_ok = True
+    chrome_pairs = 0
+    chrome_failures: List[Any] = []
+    chrome_unresolved: List[Any] = []
+    if pairs_file.exists():
+        pairs_arg = pairs_file.read_text(encoding="utf-8").strip()
+        c_code, c_payload, c_err = run_cli_json(["ui", "ds", "a11y", "--dir", ".", "--pairs", pairs_arg, "--json"])
+        c_data = c_payload.get("data", {})
+        chrome_failures = c_data.get("failures", [])
+        chrome_unresolved = c_data.get("unresolved", [])
+        chrome_pairs = c_data.get("checkedPairs", 0)
+        chrome_ok = (c_code == 0) and bool(c_payload.get("ok")) and len(chrome_failures) == 0 and len(chrome_unresolved) == 0 and chrome_pairs > 0
+        if c_err and not err:
+            err = c_err
+        payload["chrome_pairs"] = c_data
+
+    ok = (code == 0) and bool(payload.get("ok")) and len(failures) == 0 and len(unresolved) == 0 and chrome_ok
     if ok:
-        summary = f"0 contrast failures across {pairs} foreground/surface pairs + {state_pairs} state pairs"
+        summary = f"0 contrast failures across {pairs} foreground/surface pairs + {state_pairs} state pairs + {chrome_pairs} explicit chrome pairs"
     else:
-        summary = f"failures={len(failures)}, unresolved={len(unresolved)} ({err})"
+        summary = (
+            f"failures={len(failures) + len(chrome_failures)}, "
+            f"unresolved={len(unresolved) + len(chrome_unresolved)} ({err})"
+        )
     return ok, summary, payload
 
 
