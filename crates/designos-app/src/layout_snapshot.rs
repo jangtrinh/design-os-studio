@@ -279,10 +279,9 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
             } else if rect_entry.sense.contains(egui::Sense::DRAG) {
                 let w = global_rect.width();
                 let h = global_rect.height();
-                let is_drag_only = !rect_entry.sense.contains(egui::Sense::CLICK);
-                let narrow_axis = if w <= 16.0 && h >= 24.0 && (is_drag_only || (w - bar_width).abs() <= 0.5) {
+                let narrow_axis = if (w - bar_width).abs() <= 0.5 && h >= 24.0 {
                     Some("y")
-                } else if h <= 16.0 && w >= 24.0 && (is_drag_only || (h - bar_width).abs() <= 0.5) {
+                } else if (h - bar_width).abs() <= 0.5 && w >= 24.0 {
                     Some("x")
                 } else {
                     None
