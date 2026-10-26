@@ -663,10 +663,10 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     c_list.len()
                 ));
             }
-            continue;
         }
 
-        for (i, (b_u, c_u)) in b_list.iter().zip(c_list.iter()).enumerate() {
+        let shared_len = b_list.len().min(c_list.len());
+        for (i, (b_u, c_u)) in b_list[..shared_len].iter().zip(c_list[..shared_len].iter()).enumerate() {
             if b_u.sense != c_u.sense {
                 return Err(format!(
                     "G4 unnamed widget #{i} sense mismatch in case {case_id} region '{reg}': baseline={:?}, current={:?}",
