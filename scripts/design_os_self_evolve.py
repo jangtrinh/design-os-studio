@@ -410,22 +410,38 @@ def check_ui_ds_a11y() -> Tuple[bool, str, Dict[str, Any]]:
     pairs = data.get("checkedPairs", 0)
     state_pairs = data.get("checkedStatePairs", 0)
 
-    pairs_file = REPO_ROOT / "design" / "a11y-chrome-pairs.txt"
-    chrome_ok = True
+    pairs_rel = "design/a11y-chrome-pairs.txt"
+    pairs_file = REPO_ROOT / pairs_rel
+    chrome_ok = False
     chrome_pairs = 0
     chrome_failures: List[Any] = []
     chrome_unresolved: List[Any] = []
-    if pairs_file.exists():
+    if not pairs_file.exists():
+        err = f"{err}; missing {pairs_rel}".lstrip("; ")
+    else:
         pairs_arg = pairs_file.read_text(encoding="utf-8").strip()
-        c_code, c_payload, c_err = run_cli_json(["ui", "ds", "a11y", "--dir", ".", "--pairs", pairs_arg, "--json"])
-        c_data = c_payload.get("data", {})
-        chrome_failures = c_data.get("failures", [])
-        chrome_unresolved = c_data.get("unresolved", [])
-        chrome_pairs = c_data.get("checkedPairs", 0)
-        chrome_ok = (c_code == 0) and bool(c_payload.get("ok")) and len(chrome_failures) == 0 and len(chrome_unresolved) == 0 and chrome_pairs > 0
-        if c_err and not err:
-            err = c_err
-        payload["chrome_pairs"] = c_data
+        if not pairs_arg:
+            err = f"{err}; empty {pairs_rel}".lstrip("; ")
+        else:
+            c_code, c_payload, c_err = run_cli_json(
+                ["ui", "ds", "a11y", "--dir", ".", "--pairs", pairs_arg, "--json"]
+            )
+            c_data = c_payload.get("data", {})
+            chrome_failures = c_data.get("failures", [])
+            chrome_unresolved = c_data.get("unresolved", [])
+            chrome_pairs = c_data.get("checkedPairs", 0)
+            chrome_ok = (
+                (c_code == 0)
+                and bool(c_payload.get("ok"))
+                and len(chrome_failures) == 0
+                and len(chrome_unresolved) == 0
+                and chrome_pairs > 0
+            )
+            if c_err and not err:
+                err = c_err
+            elif not chrome_ok and not err:
+                err = f"chrome contrast failures in {pairs_rel}"
+            payload["chrome_pairs"] = c_data
 
     ok = (code == 0) and bool(payload.get("ok")) and len(failures) == 0 and len(unresolved) == 0 and chrome_ok
     if ok:

@@ -449,4 +449,265 @@ All 8 desktop (`1600x1088`, `--no-toast`) **Before** (`HEAD` Zinc) and **After**
 
 None.
 
+---
+
+## Round 2
+
+### R2.1 What Could NOT Be Verified (Stated First)
+
+1. **`G09` (`design_os_project_audit` on `docs/index.html`) inside `scripts/design_os_self_evolve.py`**:
+   - **FACT:** `python3 scripts/design_os_self_evolve.py` passes `8/9` gates (`G01` through `G08` all `PASS`), while `G09` fails on `docs/index.html` (`errors=1`), which is pre-existing on `main` and filed as `#1209`.
+   - **Reason not edited:** `docs/index.html` is outside the allowed `Files you may modify` list (`design/DESIGN.md`, `scripts/design_os_self_evolve.py`, `scripts/tests/test_check_chrome_colour_literals.py`, `scripts/check_chrome_colour_literals.py`).
+
+### R2.2 Conclusion, Epistemic Ledger & Weakest Link
+
+- **Conclusion (`FACT`):** Merged `origin/main` (`7f9000a29`) into `jangtrinh/agy-1142-untitled-colours` (merge commit, no rebase/force-push) and resolved all three Round 2 review nits:
+  1. **`design/DESIGN.md` (`:9`, `:29`, `:112`, `:199`) (`FACT`):** Updated the four component description sentences so every hex or px matches its token (`#09090B` → `#0A0A0A` for `colors.primary-foreground`, `#27272A` / `#F5F5F7` → `#262626` / `#FAFAFA` for `colors.secondary` / `colors.secondary-foreground` / `colors.border`, `#E36323` → `#F97316` for `colors.ring`, and `56px` → `48px` for `spacing.rail-width`), changing no other wording.
+  2. **`scripts/design_os_self_evolve.py` (`check_ui_ds_a11y`, G04) (`FACT`):** Changed `chrome_ok` default from `True` to `False` and added explicit checks for missing or empty `design/a11y-chrome-pairs.txt`, failing G04 with a summary naming `design/a11y-chrome-pairs.txt` (`missing design/a11y-chrome-pairs.txt` or `empty design/a11y-chrome-pairs.txt`). Notably, our red-first test proved that before this fix, even an empty `design/a11y-chrome-pairs.txt` caused `ui ds a11y --dir . --pairs ""` to fall back to the default role pairs and return `ok=True` (a false green).
+  3. **`scripts/tests/test_check_chrome_colour_literals.py` (`FACT`):** Added `test_new_file_not_in_baseline_with_color32_literal_fails` (verifying that a temp `.rs` file absent from `scripts/chrome_colour_baseline.json` containing `Color32::from_rgb(1, 2, 3)` causes `check_chrome_colour_literals.py` to exit `1`), plus `test_g04_fails_when_a11y_chrome_pairs_missing` and `test_g04_fails_when_a11y_chrome_pairs_empty`. `scripts/check_chrome_colour_literals.py` already unions `set(results.keys()) | set(baseline_files.keys())` at line 128 (`_baseline_count(None) == 0`), so no change to `scripts/check_chrome_colour_literals.py` was required.
+- **Epistemic Ledger:**
+  - **`FACT`:** Before patching `scripts/design_os_self_evolve.py`, both `test_g04_fails_when_a11y_chrome_pairs_missing` and `test_g04_fails_when_a11y_chrome_pairs_empty` failed with `AssertionError: True is not false` (`plans/reports/agy-1142-untitled-colours-evidence/r2-red.log`), and mutating `check_against_baseline` to iterate `baseline_files.keys()` only caused `test_new_file_not_in_baseline_with_color32_literal_fails` to fail with `AssertionError: 0 != 1`. After patching `scripts/design_os_self_evolve.py`, all 7 tests in `test_check_chrome_colour_literals.py` and all 46 tests in `unittest discover -s scripts/tests -v` pass (`plans/reports/agy-1142-untitled-colours-evidence/r2-green.log`).
+  - **`INFERENCE`:** Any future regression that deletes or truncates `design/a11y-chrome-pairs.txt` or skips unbaselined `.rs` files in `check_chrome_colour_literals.py` will now fail both `design_os_self_evolve.py` (G04) and `unittest discover -s scripts/tests -v`.
+  - **`ASSUMPTION`:** In `design/DESIGN.md` lines 9, 29, and 112, we used uppercase hex notation (`#0A0A0A`, `#262626`, `#FAFAFA`, `#F97316`) to match the existing uppercase hex style in the component description blurbs (`#E36323` on line 9 and `#14AE5C` on line 179). Line 201 (`- **Variants:** Rail=56px, ...`) was left untouched because it is a registered variant key list item rather than one of the 4 component description sentences, and the instruction states "Change no other wording."
+- **Weakest link in one line:** `design/DESIGN.md` component blurbs originate from `design/component-registry.json` descriptions, so a future `ui ds` registry regeneration would re-emit the registry descriptions until `component-registry.json` is updated in a future spec touching component registration.
+
+### R2.3 Skills Loaded & Changes Made Because of Them
+
+1. **`/es:dev` → `es:feature-dev`** (`~/.gemini/config/skills/es-dev/SKILL.md`, `~/.gemini/config/skills/es-feature-dev/SKILL.md`): Treated Round 2 spec + controller rulings as the approved DEV plan, keeping changes strictly within the allowed file list.
+2. **`/es:rust`** (`~/.gemini/config/skills/es-rust/SKILL.md`) & **`/es:rust-gpu-canvas`** (`~/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Ran the full workspace `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and isolated-env `cargo test -p designos-app --bin designos --locked` after merging `origin/main` (`2963 passed; 0 failed`).
+3. **`es-designer`** (`~/.gemini/config/skills/es-designer/SKILL.md`): Verified `design/DESIGN.md` description values against `design/design.tokens.json` (`primary-foreground` `#0a0a0a`, `secondary` `#262626`, `secondary-foreground` `#fafafa`, `border` `#262626`, `ring` `#f97316`, `rail-width` `48px`) and verified G04 contrast gate non-vacuity.
+4. **`es:fable-thinking` & `es-astra-work`**: Ran red-first falsification before editing `scripts/design_os_self_evolve.py`, uncovering that an empty `design/a11y-chrome-pairs.txt` also caused `ui ds a11y --pairs ""` to pass falsely before the fix.
+
+### R2.4 Acceptance Table
+
+| # | Acceptance Check | Verdict |
+|---|---|---|
+| **1** | Red first: tests for changes 2 and 3 fail before the fix (`r2-red.log`) and pass after (`r2-green.log`) | **PASS** |
+| **2** | `grep -n -E "#09090B|#27272A|#F5F5F7|56px" design/DESIGN.md` prints nothing, or only explained lines (only line 201 `- **Variants:** Rail=56px, ...`) | **PASS** |
+| **3** | `python3 scripts/design_os_self_evolve.py`: G01, G03, G04, G05, G08 are PASS (8/9 PASS; only G09 fails as on `main`); `python3 -m unittest discover -s scripts/tests -v` passes (46/46); `python3 scripts/check_chrome_colour_literals.py` passes (406/406) | **PASS** |
+| **4** | `cargo fmt --all -- --check` exits 0; `cargo clippy --workspace --all-targets --locked -- -D warnings` exits 0; `cargo test -p designos-app --bin designos --locked` passes (2963 passed, 0 failed) | **PASS** |
+| **5** | `git checkout -- design/memory.events.*` run before commit; no `design/memory.events.*` in diff | **PASS** |
+| **6** | Committed as `fix(design): …`, pushed, "Round 2" line added to PR #1207 body, and `out/cargo` deleted at the end | **PASS** |
+
+### R2.5 Exact Commands & Pasted Outputs
+
+#### 1. Red-First (`plans/reports/agy-1142-untitled-colours-evidence/r2-red.log`) and Green (`plans/reports/agy-1142-untitled-colours-evidence/r2-green.log`)
+
+```text
+$ cat plans/reports/agy-1142-untitled-colours-evidence/r2-red.log
+=== [1] Change 2 Red-First (unpatched scripts/design_os_self_evolve.py) ===
+test_detects_literal_constructors_and_named_colours (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_detects_literal_constructors_and_named_colours) ... ok
+test_g04_fails_when_a11y_chrome_pairs_empty (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_empty)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty. ... FAIL
+test_g04_fails_when_a11y_chrome_pairs_missing (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_missing)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing. ... FAIL
+test_head_passes_against_committed_baseline (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_head_passes_against_committed_baseline) ... ok
+test_ignores_comments_strings_and_cfg_test (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_ignores_comments_strings_and_cfg_test) ... ok
+test_injected_color32_literal_in_temp_copy_fails_against_baseline (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_injected_color32_literal_in_temp_copy_fails_against_baseline)
+Spec A §10.7: injecting one Color32::from_rgb(1, 2, 3) into a temp copy fails. ... ok
+test_new_file_not_in_baseline_with_color32_literal_fails (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_new_file_not_in_baseline_with_color32_literal_fails)
+A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1. ... ok
+
+======================================================================
+FAIL: test_g04_fails_when_a11y_chrome_pairs_empty (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_empty)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1142-untitled-colours/scripts/tests/test_check_chrome_colour_literals.py", line 116, in test_g04_fails_when_a11y_chrome_pairs_empty
+    self.assertFalse(ok)
+    ~~~~~~~~~~~~~~~~^^^^
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_g04_fails_when_a11y_chrome_pairs_missing (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_missing)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1142-untitled-colours/scripts/tests/test_check_chrome_colour_literals.py", line 104, in test_g04_fails_when_a11y_chrome_pairs_missing
+    self.assertFalse(ok)
+    ~~~~~~~~~~~~~~~~^^^^
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 7 tests in 5.626s
+
+FAILED (failures=2)
+Chrome colour literal gate PASSED (50 files with findings, 406/406 baseline chrome sites).
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  tabs.rs [chrome_sites]: 9 > baseline 8 (L29:Color32::from_rgb(0x0D,, L30:Color32::from_rgb(0xF5,, L31:Color32::from_rgb(0xFF,, L1046:Color32::from_rgb(0x1B,, L1049:Color32::from_rgb(0x0D,, … (+4 more))
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  unbaselined_chrome_surface.rs [chrome_sites]: 1 > baseline 0 (L2:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+
+=== [2] Change 3 Red-First (if check_against_baseline only checks baseline_files.keys(), skipping new unbaselined files) ===
+test_new_file_not_in_baseline_with_color32_literal_fails (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_new_file_not_in_baseline_with_color32_literal_fails)
+A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1. ... Chrome colour literal gate PASSED (51 files with findings, 407/406 baseline chrome sites).
+FAIL
+
+======================================================================
+FAIL: test_new_file_not_in_baseline_with_color32_literal_fails (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_new_file_not_in_baseline_with_color32_literal_fails)
+A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1142-untitled-colours/scripts/tests/test_check_chrome_colour_literals.py", line 89, in test_new_file_not_in_baseline_with_color32_literal_fails
+    self.assertEqual(exit_code, 1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+----------------------------------------------------------------------
+Ran 1 test in 1.823s
+
+FAILED (failures=1)
+```
+
+```text
+$ cat plans/reports/agy-1142-untitled-colours-evidence/r2-green.log
+test_detects_literal_constructors_and_named_colours (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_detects_literal_constructors_and_named_colours) ... ok
+test_g04_fails_when_a11y_chrome_pairs_empty (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_empty)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty. ... ok
+test_g04_fails_when_a11y_chrome_pairs_missing (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_missing)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing. ... ok
+test_head_passes_against_committed_baseline (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_head_passes_against_committed_baseline) ... ok
+test_ignores_comments_strings_and_cfg_test (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_ignores_comments_strings_and_cfg_test) ... ok
+test_injected_color32_literal_in_temp_copy_fails_against_baseline (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_injected_color32_literal_in_temp_copy_fails_against_baseline)
+Spec A §10.7: injecting one Color32::from_rgb(1, 2, 3) into a temp copy fails. ... ok
+test_new_file_not_in_baseline_with_color32_literal_fails (scripts.tests.test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_new_file_not_in_baseline_with_color32_literal_fails)
+A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1. ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 5.375s
+
+OK
+Chrome colour literal gate PASSED (50 files with findings, 406/406 baseline chrome sites).
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  tabs.rs [chrome_sites]: 9 > baseline 8 (L29:Color32::from_rgb(0x0D,, L30:Color32::from_rgb(0xF5,, L31:Color32::from_rgb(0xFF,, L1046:Color32::from_rgb(0x1B,, L1049:Color32::from_rgb(0x0D,, … (+4 more))
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  unbaselined_chrome_surface.rs [chrome_sites]: 1 > baseline 0 (L2:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+```
+
+#### 2. `design/DESIGN.md` Grep Check
+
+```text
+$ grep -n -E "#09090B|#27272A|#F5F5F7|56px" design/DESIGN.md
+201:- **Variants:** Rail=56px, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
+```
+
+- **Explanation of line 201:** Line 201 is the `- **Variants:**` metadata list item (`Rail=56px`) from `design/component-registry.json`, not one of the four description sentences (`:9`, `:29`, `:112`, `:199`), and was preserved per "Make every hex or px in those sentences equal its token. Change no other wording."
+
+#### 3. `design_os_self_evolve.py`, `unittest discover`, and `check_chrome_colour_literals.py`
+
+```text
+$ python3 scripts/design_os_self_evolve.py
+====================================================================================================================
+ design:os studio — Self-Evolution Engine & Live Token Parity Audit (mode=EVOLVE)
+====================================================================================================================
+ID   | STATUS | GATE                     | EVIDENCE & VERDICT
+--------------------------------------------------------------------------------------------------------------------
+G01  | PASS   | check_rust_token_parity  | 35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; 27 non-colour constants match
+G02  | PASS   | zero_fake_ui_gate        | 17/17 Zero-Fake-UI invariants PASS (DIR-28 / BR-31 / REQ-25)
+G03  | PASS   | ui_ds_status             | DS manifest active (12 registered components, hash=sha256-_8lZw-38NH0N…)
+G04  | PASS   | ui_ds_a11y               | 0 contrast failures across 15 foreground/surface pairs + 8 state pairs + 50 explicit chrome pairs
+G05  | PASS   | ui_ds_soul_check         | 0 soul findings; design/soul.md status=ratified
+G06  | PASS   | ui_agents_check          | 4 stamped .claude/agents + 4 cross-runtime .agents/agents fresh (0 errors)
+G07  | PASS   | design_os_evolution      | verdict=ALIVE, proof.level=IMPROVING, findings=0, ledger_events=352, recurrent_insights=2 (harvest+heartbeat+compile)
+G08  | PASS   | ui_gate_specimen         | 6/6 families PASS (errors=0, warnings=0); ds-usage-lint errors=0
+G09  | FAIL   | design_os_project_audit  | audit_exit=1, targets=16, excluded=2, tools_run=83, tools_failed=0, audit_errors=1, failing=[docs/index.html[errors=1]], nodes_violations=0, flow_errors=0 ()
+--------------------------------------------------------------------------------------------------------------------
+ Overall Self-Evolution Verdict: FAIL (8/9 gates passed)
+====================================================================================================================
+
+$ python3 -m unittest discover -s scripts/tests -v
+test_detects_literal_constructors_and_named_colours (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_detects_literal_constructors_and_named_colours) ... ok
+test_g04_fails_when_a11y_chrome_pairs_empty (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_empty)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty. ... ok
+test_g04_fails_when_a11y_chrome_pairs_missing (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_g04_fails_when_a11y_chrome_pairs_missing)
+G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing. ... ok
+test_head_passes_against_committed_baseline (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_head_passes_against_committed_baseline) ... Chrome colour literal gate PASSED (50 files with findings, 406/406 baseline chrome sites).
+ok
+test_ignores_comments_strings_and_cfg_test (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_ignores_comments_strings_and_cfg_test) ... ok
+test_injected_color32_literal_in_temp_copy_fails_against_baseline (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_injected_color32_literal_in_temp_copy_fails_against_baseline)
+Spec A §10.7: injecting one Color32::from_rgb(1, 2, 3) into a temp copy fails. ... Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  tabs.rs [chrome_sites]: 9 > baseline 8 (L29:Color32::from_rgb(0x0D,, L30:Color32::from_rgb(0xF5,, L31:Color32::from_rgb(0xFF,, L1046:Color32::from_rgb(0x1B,, L1049:Color32::from_rgb(0x0D,, … (+4 more))
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+ok
+test_new_file_not_in_baseline_with_color32_literal_fails (test_check_chrome_colour_literals.CheckChromeColourLiteralsTests.test_new_file_not_in_baseline_with_color32_literal_fails)
+A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1. ... Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  unbaselined_chrome_surface.rs [chrome_sites]: 1 > baseline 0 (L2:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+ok
+test_clean_tree_passes_its_baseline (test_check_spacing_relationships.SpacingRatchetTest.test_clean_tree_passes_its_baseline) ... ok
+test_comments_and_tests_are_not_counted (test_check_spacing_relationships.SpacingRatchetTest.test_comments_and_tests_are_not_counted) ... ok
+test_dirty_tree_fails_in_every_category (test_check_spacing_relationships.SpacingRatchetTest.test_dirty_tree_fails_in_every_category) ... ok
+test_matching_baseline_passes_and_one_extra_literal_fails (test_check_spacing_relationships.SpacingRatchetTest.test_matching_baseline_passes_and_one_extra_literal_fails) ... ok
+test_missing_baseline_is_a_usage_error_not_a_pass (test_check_spacing_relationships.SpacingRatchetTest.test_missing_baseline_is_a_usage_error_not_a_pass) ... ok
+test_new_file_with_a_literal_fails_even_when_totals_would_fall (test_check_spacing_relationships.SpacingRatchetTest.test_new_file_with_a_literal_fails_even_when_totals_would_fall) ... ok
+test_write_baseline_refuses_to_raise_a_count (test_check_spacing_relationships.SpacingRatchetTest.test_write_baseline_refuses_to_raise_a_count) ... ok
+test_a_drifted_ladder_rung_in_the_real_theme_fails (test_non_colour_token_parity.NonColourParityTest.test_a_drifted_ladder_rung_in_the_real_theme_fails) ... ok
+test_a_new_role_constant_without_a_token_or_a_reason_fails (test_non_colour_token_parity.NonColourParityTest.test_a_new_role_constant_without_a_token_or_a_reason_fails) ... ok
+test_agreement_passes (test_non_colour_token_parity.NonColourParityTest.test_agreement_passes) ... ok
+test_alias_or_expression_constant_fails (test_non_colour_token_parity.NonColourParityTest.test_alias_or_expression_constant_fails) ... ok
+test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive (test_non_colour_token_parity.NonColourParityTest.test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive) ... ok
+test_known_drift_passes_only_while_pinned (test_non_colour_token_parity.NonColourParityTest.test_known_drift_passes_only_while_pinned) ... ok
+test_missing_token_fails (test_non_colour_token_parity.NonColourParityTest.test_missing_token_fails) ... ok
+test_repository_is_in_parity_with_the_pinned_drift_only (test_non_colour_token_parity.NonColourParityTest.test_repository_is_in_parity_with_the_pinned_drift_only) ... ok
+test_rust_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_rust_drift_fails) ... ok
+test_title_token_is_not_matched_by_name (test_non_colour_token_parity.NonColourParityTest.test_title_token_is_not_matched_by_name) ... ok
+test_token_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_token_drift_fails) ... ok
+test_numeric_compare_refuses_0_10_0_to_0_9_0 (test_release_sync_pages.GuardTests.test_numeric_compare_refuses_0_10_0_to_0_9_0) ... ok
+test_refuses_downgrade (test_release_sync_pages.GuardTests.test_refuses_downgrade) ... ok
+test_refuses_prerelease_and_bad_version (test_release_sync_pages.GuardTests.test_refuses_prerelease_and_bad_version) ... ok
+test_size_label_rounds_decimal_megabytes (test_release_sync_pages.GuardTests.test_size_label_rounds_decimal_megabytes) ... ok
+test_version_compare_is_numeric_not_lexicographic (test_release_sync_pages.GuardTests.test_version_compare_is_numeric_not_lexicographic) ... ok
+test_final_assertion_catches_leftover_old_link (test_release_sync_pages.MissingAssetTests.test_final_assertion_catches_leftover_old_link) ... ok
+test_missing_asset_in_markdown_fails (test_release_sync_pages.MissingAssetTests.test_missing_asset_in_markdown_fails) ... ok
+test_missing_required_dmg_fails (test_release_sync_pages.MissingAssetTests.test_missing_required_dmg_fails) ... ok
+test_optional_assets_missing_are_dropped_with_warning (test_release_sync_pages.MissingAssetTests.test_optional_assets_missing_are_dropped_with_warning) ... ok
+test_cli_exit_code_matches (test_release_sync_pages.PublishJobTests.test_cli_exit_code_matches) ... ok
+test_cli_unusable_answer_exits_2_not_skip (test_release_sync_pages.PublishJobTests.test_cli_unusable_answer_exits_2_not_skip) ... ok
+test_publish_skipped_or_failed_or_missing (test_release_sync_pages.PublishJobTests.test_publish_skipped_or_failed_or_missing) ... ok
+test_publish_succeeded_while_a_platform_leg_failed (test_release_sync_pages.PublishJobTests.test_publish_succeeded_while_a_platform_leg_failed) ... ok
+test_accepts_v_prefix (test_release_sync_pages.RewriteTests.test_accepts_v_prefix) ... ok
+test_idempotent (test_release_sync_pages.RewriteTests.test_idempotent) ... ok
+test_marketing_copy_is_not_rewritten (test_release_sync_pages.RewriteTests.test_marketing_copy_is_not_rewritten) ... ok
+test_report_lists_manual_followups (test_release_sync_pages.RewriteTests.test_report_lists_manual_followups) ... ok
+test_rewrites_every_download_link_and_size (test_release_sync_pages.RewriteTests.test_rewrites_every_download_link_and_size) ... ok
+test_updates_readme_install_and_sitemap (test_release_sync_pages.RewriteTests.test_updates_readme_install_and_sitemap) ... ok
+test_mismatch_is_detected (test_release_sync_pages.WhatsNewParityTests.test_mismatch_is_detected) ... ok
+test_readme_and_homepage_whats_new_versions_match (test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match) ... ok
+
+----------------------------------------------------------------------
+Ran 46 tests in 6.978s
+
+OK
+
+$ python3 scripts/check_chrome_colour_literals.py
+Chrome colour literal gate PASSED (50 files with findings, 406/406 baseline chrome sites).
+```
+
+#### 4. Mandatory Rust Test Harness
+
+```text
+$ cargo fmt --all -- --check
+(exit 0)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+(exit 0, 0 warnings)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+test result: ok. 2963 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 156.63s
+```
+
+### R2.6 Unresolved Questions
+
+None.
+
 Status: DONE
