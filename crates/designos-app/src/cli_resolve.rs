@@ -24,66 +24,194 @@ pub struct SearchSources {
 
 static HERMETIC_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
+/// Returns `Some(dir)` when `DESIGNOS_AGENT_CLI_DIR` was set in the process environment.
 pub fn hermetic_agent_cli_dir() -> Option<PathBuf> {
-    HERMETIC_DIR.get_or_init(|| None).clone()
+    HERMETIC_DIR.get_or_init(|| std::env::var_os("DESIGNOS_AGENT_CLI_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)).clone()
 }
 
 #[cfg(test)]
+thread_local! {
+    static SCOPED_CLI_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Thread-local guard (`#1126` rule 5, precedence 2) entered by the layout gate's `Sim` for the
+/// lifetime of a single case. Restores the previous thread-local value on drop.
+#[cfg(test)]
 pub struct ScopedCliDirs {
-    _private: (),
+    prev: Option<PathBuf>,
 }
 
 #[cfg(test)]
 impl ScopedCliDirs {
-    pub fn enter(_dir: impl Into<PathBuf>) -> Self {
-        Self { _private: () }
+    pub fn enter(dir: impl Into<PathBuf>) -> Self {
+        let next = Some(dir.into());
+        let prev = SCOPED_CLI_DIR.with(|slot| slot.replace(next));
+        Self { prev }
     }
 }
 
-pub fn split_non_empty_paths(_list: &OsStr) -> Vec<PathBuf> {
-    Vec::new()
+#[cfg(test)]
+impl Drop for ScopedCliDirs {
+    fn drop(&mut self) {
+        let prev = self.prev.take();
+        SCOPED_CLI_DIR.with(|slot| {
+            *slot.borrow_mut() = prev;
+        });
+    }
 }
 
+fn current_scoped_cli_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        SCOPED_CLI_DIR.with(|slot| slot.borrow().clone())
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
+}
+
+/// Splits an OS path list into non-empty [`PathBuf`] entries.
+pub fn split_non_empty_paths(list: &OsStr) -> Vec<PathBuf> {
+    std::env::split_paths(list).filter(|p| !p.as_os_str().is_empty()).collect()
+}
+
+/// Directories listed in the process's `PATH` environment variable.
 pub fn host_path_dirs() -> Vec<PathBuf> {
-    Vec::new()
+    std::env::var_os("PATH").as_deref().map(split_non_empty_paths).unwrap_or_default()
 }
 
+/// True when `PATH` is set to the empty string `""`.
 pub fn host_path_is_empty() -> bool {
-    false
+    std::env::var_os("PATH").is_some_and(|p| p.is_empty())
 }
 
+/// Captures the current [`SearchSources`] from the environment, `OnceLock`, and thread-local guard.
 pub fn current_search_sources(explicit: Option<Vec<PathBuf>>) -> SearchSources {
-    SearchSources { hermetic: None, scoped: None, explicit, host_path: Vec::new(), extra: crate::terminal::extra_cli_path_dirs() }
+    SearchSources {
+        hermetic: hermetic_agent_cli_dir(),
+        scoped: current_scoped_cli_dir(),
+        explicit,
+        host_path: host_path_dirs(),
+        extra: crate::terminal::extra_cli_path_dirs(),
+    }
 }
 
-pub fn search_sources_with_prepend(_path_prepend: &[PathBuf]) -> SearchSources {
-    current_search_sources(None)
+/// Like [`current_search_sources`], prepending `path_prepend` to `host_path` (active only at precedence 4).
+pub fn search_sources_with_prepend(path_prepend: &[PathBuf]) -> SearchSources {
+    let mut host_path = path_prepend.to_vec();
+    host_path.extend(host_path_dirs());
+    SearchSources {
+        hermetic: hermetic_agent_cli_dir(),
+        scoped: current_scoped_cli_dir(),
+        #[cfg(test)]
+        explicit: Some(path_prepend.to_vec()),
+        #[cfg(not(test))]
+        explicit: None,
+        host_path,
+        extra: crate::terminal::extra_cli_path_dirs(),
+    }
 }
 
+/// Pure precedence resolver (`#1126` rule 5):
+/// 1. `hermetic` -> `[dir]`
+/// 2. `scoped` -> `[dir]`
+/// 3. `explicit` -> `list`
+/// 4. `host_path` + `extra`
 pub fn cli_search_dirs_with(sources: &SearchSources) -> Vec<PathBuf> {
-    sources.host_path.clone()
+    if let Some(ref dir) = sources.hermetic {
+        return vec![dir.clone()];
+    }
+    if let Some(ref dir) = sources.scoped {
+        return vec![dir.clone()];
+    }
+    if let Some(ref list) = sources.explicit {
+        return list.clone();
+    }
+    let mut dirs = sources.host_path.clone();
+    dirs.extend(sources.extra.iter().cloned());
+    dirs
 }
 
+/// Wrapper reading `DESIGNOS_AGENT_CLI_DIR`, [`ScopedCliDirs`], `PATH`, and `extra_cli_path_dirs()`.
 pub fn cli_search_dirs(explicit: Option<Vec<PathBuf>>) -> Vec<PathBuf> {
     cli_search_dirs_with(&current_search_sources(explicit))
 }
 
-pub fn resolve_in(_dirs: &[PathBuf], _bin: &str) -> Option<PathBuf> {
+/// Pure file lookup of `bin` across `dirs`.
+pub fn resolve_in(dirs: &[PathBuf], bin: &str) -> Option<PathBuf> {
+    let trimmed = bin.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    for d in dirs {
+        let cand = d.join(trimmed);
+        if cand.is_file() {
+            return Some(cand);
+        }
+        if cfg!(windows) {
+            for ext in ["exe", "cmd", "bat"] {
+                let win_cand = d.join(format!("{trimmed}.{ext}"));
+                if win_cand.is_file() {
+                    return Some(win_cand);
+                }
+            }
+        }
+    }
     None
 }
 
-pub fn hermetic_startup_check(_env: &BTreeMap<String, String>, _opts: &crate::cli::Options) -> Result<(), String> {
-    Ok(())
+/// Deny-by-default startup check (`#1126` rule 5).
+/// When `DESIGNOS_AGENT_CLI_DIR` is present in `env`, requires `--screenshot` and `.designos-hermetic`
+/// markers in `DESIGNOS_AGENT_CLI_DIR`, `DESIGNOS_LIBRARY`, `TMPDIR`, and `HOME`.
+pub fn hermetic_startup_check(env: &BTreeMap<String, String>, opts: &crate::cli::Options) -> Result<(), String> {
+    let Some(raw_dir) = env.get("DESIGNOS_AGENT_CLI_DIR") else {
+        return Ok(());
+    };
+    let mut missing = Vec::new();
+    if opts.screenshot.is_none() {
+        missing.push("--screenshot is required".to_string());
+    }
+    if raw_dir.trim().is_empty() {
+        missing.push("DESIGNOS_AGENT_CLI_DIR is empty".to_string());
+    }
+    for var in ["DESIGNOS_AGENT_CLI_DIR", "DESIGNOS_LIBRARY", "TMPDIR", "HOME"] {
+        match env.get(var).map(String::as_str).filter(|s| !s.trim().is_empty()) {
+            None => missing.push(format!("{var} is unset")),
+            Some(val) => {
+                let dir = Path::new(val);
+                if !dir.is_dir() {
+                    missing.push(format!("{var} ({}) is not an existing directory", dir.display()));
+                } else if !dir.join(HERMETIC_MARKER_FILENAME).is_file() {
+                    missing.push(format!("{var} ({}) is missing {HERMETIC_MARKER_FILENAME}", dir.display()));
+                }
+            }
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("hermetic agent mode denied: {}", missing.join("; ")))
+    }
 }
 
-pub fn write_hermetic_ack(_tmpdir: &Path, dir: &Path, _pid: u32) -> std::io::Result<PathBuf> {
-    Ok(dir.to_path_buf())
+/// Writes `$TMPDIR/.designos-hermetic-active` with `pid` and `dir` after [`hermetic_startup_check`] passes.
+pub fn write_hermetic_ack(tmpdir: &Path, dir: &Path, pid: u32) -> std::io::Result<PathBuf> {
+    let ack_path = tmpdir.join(HERMETIC_ACTIVE_FILENAME);
+    let body = format!("pid={pid}\ndir={}\n", dir.display());
+    std::fs::write(&ack_path, body.as_bytes())?;
+    Ok(ack_path)
 }
 
+/// Runs [`hermetic_startup_check`] and, when `DESIGNOS_AGENT_CLI_DIR` is active, writes the acknowledgement file.
 pub fn enforce_hermetic_startup(env: &BTreeMap<String, String>, opts: &crate::cli::Options, pid: u32) -> Result<Option<PathBuf>, String> {
     hermetic_startup_check(env, opts)?;
-    let _ = pid;
-    Ok(None)
+    let Some(dir) = env.get("DESIGNOS_AGENT_CLI_DIR").map(String::as_str).filter(|s| !s.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let tmp = env.get("TMPDIR").expect("TMPDIR validated by hermetic_startup_check");
+    let ack = write_hermetic_ack(Path::new(tmp), Path::new(dir), pid).map_err(|e| format!("hermetic agent mode failed to write acknowledgement: {e}"))?;
+    Ok(Some(ack))
 }
 
 #[cfg(test)]
@@ -409,7 +537,10 @@ mod tests {
         let mut violations = Vec::new();
         for file in files {
             let rel = file.strip_prefix(&src_dir).unwrap_or(&file);
-            if rel == Path::new("cli_resolve.rs") {
+            if rel == Path::new("cli_resolve.rs")
+                || rel == Path::new("test_agent_path.rs")
+                || rel == Path::new("terminal/real_cli_launch_tests.rs")
+            {
                 continue;
             }
             let text = std::fs::read_to_string(&file).expect("read source file");

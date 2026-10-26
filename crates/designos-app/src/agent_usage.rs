@@ -606,35 +606,10 @@ pub fn run_grok_usage_with_timeout(grok_bin: &Path, session_id: &str, timeout: D
     }
 }
 
-/// Resolves the `grok` binary path from `PATH` or [`crate::terminal::extra_cli_path_dirs`].
+/// Resolves the `grok` binary path from [`crate::cli_resolve::SearchSources`].
 pub fn resolve_grok_binary(sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
-    let candidate_name = if cfg!(windows) { "grok.exe" } else { "grok" };
-    for dir in &sources.extra {
-        let p = dir.join(candidate_name);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    // A test finds a `grok` only in the folders it names, never on the user's lookup path. The path returned names nothing, so
-    // starting it fails at once.
-    if cfg!(test) {
-        return PathBuf::from("/designos-test-no-such-folder").join(candidate_name);
-    }
-    if let Some(path_os) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path_os) {
-            let p = dir.join(candidate_name);
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-    }
-    for dir in crate::terminal::extra_cli_path_dirs() {
-        let p = dir.join(candidate_name);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    None
+    let dirs = crate::cli_resolve::cli_search_dirs_with(sources);
+    crate::cli_resolve::resolve_in(&dirs, "grok")
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]

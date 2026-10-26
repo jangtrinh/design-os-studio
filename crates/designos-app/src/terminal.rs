@@ -483,9 +483,8 @@ pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
 
 /// Checks if `bin` exists as an executable file in `PATH` (or common user/system CLI directories, or as an explicit path).
 pub fn runtime_binary_available(bin: &str) -> bool {
-    let path_os = std::env::var_os("PATH");
-    let include_default_dirs = !path_os.as_ref().is_some_and(|p| p.is_empty());
-    runtime_binary_available_in(bin, path_os.as_deref(), include_default_dirs)
+    let include_default_dirs = !crate::cli_resolve::host_path_is_empty();
+    runtime_binary_available_in(bin, None, include_default_dirs)
 }
 
 fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, include_default_dirs: bool) -> bool {
@@ -498,23 +497,21 @@ fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, inc
         return explicit.is_file();
     }
 
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(p_os) = path_os {
-        for p in std::env::split_paths(p_os) {
-            if !p.as_os_str().is_empty() {
-                dirs.push(p);
-            }
+    let dirs = if let Some(p_os) = path_os {
+        let mut dirs = crate::cli_resolve::split_non_empty_paths(p_os);
+        if include_default_dirs {
+            dirs.extend(extra_cli_path_dirs());
         }
-    }
-    if include_default_dirs {
-        dirs.extend(extra_cli_path_dirs());
-    }
+        dirs
+    } else {
+        let mut sources = crate::cli_resolve::current_search_sources(None);
+        if !include_default_dirs {
+            sources.extra.clear();
+        }
+        crate::cli_resolve::cli_search_dirs_with(&sources)
+    };
 
-    dirs.into_iter().any(|d| {
-        d.join(trimmed).is_file()
-            || (cfg!(windows)
-                && (d.join(format!("{trimmed}.exe")).is_file() || d.join(format!("{trimmed}.cmd")).is_file() || d.join(format!("{trimmed}.bat")).is_file()))
-    })
+    crate::cli_resolve::resolve_in(&dirs, trimmed).is_some()
 }
 
 /// Per-file isolated session environment paths and active document/page metadata.
@@ -848,23 +845,7 @@ impl TerminalTab {
             None => {
                 let shell_bin = default_shell_program();
                 match preset {
-                    AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-                        let mut c = CommandBuilder::new(&shell_bin);
-                        if cfg!(test) {
-                            if shell_bin.ends_with("zsh") {
-                                c.arg("-d");
-                                c.arg("-f");
-                                #[cfg(test)]
-                                isolate_zsh_from_home(&mut c);
-                            } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
-                                c.arg("--norc");
-                                c.arg("--noprofile");
-                            }
-                        } else if !cfg!(windows) {
-                            c.arg("-l");
-                        }
-                        c
-                    }
+                    AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => build_shell_preset_cmd(&shell_bin),
                     AgentCliPreset::Claude
                     | AgentCliPreset::Codex
                     | AgentCliPreset::Antigravity
@@ -874,7 +855,7 @@ impl TerminalTab {
                         #[cfg(test)]
                         let launch_cmd = if session.and_then(|s| s.path_override.as_ref()).is_none()
                             && std::env::var_os("DESIGNOS_QA_DIR").is_none()
-                            && !std::env::var_os("PATH").is_some_and(|p| p.is_empty())
+                            && !crate::cli_resolve::host_path_is_empty()
                         {
                             "sh -c 'sleep 5'"
                         } else {
@@ -882,7 +863,7 @@ impl TerminalTab {
                         };
                         #[cfg(not(test))]
                         let launch_cmd = fallback_agent_launch_command(preset);
-                        build_agent_shell_cmd(&shell_bin, launch_cmd)
+                        build_agent_shell_cmd_checked(&shell_bin, launch_cmd)?
                     }
                 }
             }
@@ -3274,7 +3255,13 @@ impl TerminalState {
         self.next_tab_id = id + 1;
         self.provision_session_agent_files(file_path);
         let env = self.session_env();
-        let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
+        let mut cmd = match build_agent_shell_cmd_checked(&default_shell_program(), command) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                self.status_msg = Some(format!("PTY error: {e}"));
+                return Err(e);
+            }
+        };
         #[cfg(test)]
         isolate_zsh_from_home(&mut cmd);
         cmd.cwd(&self.session_dir);
@@ -3388,16 +3375,24 @@ impl TerminalState {
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
-        let cmd_override = command.map(|c| {
-            let cmd = build_agent_shell_cmd(&default_shell_program(), c);
-            #[cfg(test)]
-            let cmd = {
-                let mut cmd = cmd;
-                isolate_zsh_from_home(&mut cmd);
-                cmd
-            };
-            cmd
-        });
+        let cmd_override = match command {
+            Some(c) => match build_agent_shell_cmd_checked(&default_shell_program(), c) {
+                Ok(cmd) => {
+                    #[cfg(test)]
+                    let cmd = {
+                        let mut cmd = cmd;
+                        isolate_zsh_from_home(&mut cmd);
+                        cmd
+                    };
+                    Some(cmd)
+                }
+                Err(e) => {
+                    self.status_msg = Some(format!("PTY error: {e}"));
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
         let (init_rows, init_cols) = self.viewport_size;
         match TerminalTab::spawn_with_session_cmd(id, preset, init_rows, init_cols, file_path, Some(&env), cmd_override) {
             Ok(mut tab) => {
@@ -4862,7 +4857,14 @@ fn isolate_zsh_from_home(cmd: &mut CommandBuilder) {
     cmd.env("ZDOTDIR", &zdotdir);
 }
 
-pub(crate) fn build_shell_preset_cmd_in(shell_bin: &str, _hermetic_dir: Option<&Path>) -> CommandBuilder {
+fn build_shell_preset_cmd(shell_bin: &str) -> CommandBuilder {
+    build_shell_preset_cmd_in(shell_bin, crate::cli_resolve::hermetic_agent_cli_dir().as_deref())
+}
+
+pub(crate) fn build_shell_preset_cmd_in(shell_bin: &str, hermetic_dir: Option<&Path>) -> CommandBuilder {
+    if hermetic_dir.is_some() {
+        return CommandBuilder::new("/bin/sh");
+    }
     let mut c = CommandBuilder::new(shell_bin);
     if cfg!(test) {
         if shell_bin.ends_with("zsh") {
@@ -4880,7 +4882,37 @@ pub(crate) fn build_shell_preset_cmd_in(shell_bin: &str, _hermetic_dir: Option<&
     c
 }
 
-pub(crate) fn build_agent_shell_cmd_in(shell_bin: &str, agent_cli: &str, _hermetic_dir: Option<&Path>) -> Result<CommandBuilder, String> {
+fn build_agent_shell_cmd_checked(shell_bin: &str, agent_cli: &str) -> Result<CommandBuilder, String> {
+    build_agent_shell_cmd_in(shell_bin, agent_cli, crate::cli_resolve::hermetic_agent_cli_dir().as_deref())
+}
+
+pub(crate) fn build_agent_shell_cmd_in(shell_bin: &str, agent_cli: &str, hermetic_dir: Option<&Path>) -> Result<CommandBuilder, String> {
+    if let Some(dir) = hermetic_dir {
+        let trimmed = agent_cli.trim_start();
+        let body = trimmed.strip_prefix("exec ").map(str::trim_start).unwrap_or(trimmed);
+        if body.is_empty() {
+            return Err(format!("hermetic mode: refused command {agent_cli}"));
+        }
+        for sep in [";", "&&", "||", "|", "`", "$(", "\n", "\r"] {
+            if body.contains(sep) {
+                return Err(format!("hermetic mode: refused command {agent_cli}"));
+            }
+        }
+        let first_end = body.find(char::is_whitespace).unwrap_or(body.len());
+        let first_word = &body[..first_end];
+        let rest = &body[first_end..];
+        let is_bare_name = !first_word.is_empty() && !first_word.contains('/') && !first_word.contains('\\');
+        if !is_bare_name {
+            return Err(format!("hermetic mode: refused command {first_word}"));
+        }
+        let Some(resolved) = crate::cli_resolve::resolve_in(&[dir.to_path_buf()], first_word) else {
+            return Err(format!("hermetic mode: refused command {first_word}"));
+        };
+        let mut c = CommandBuilder::new("/bin/sh");
+        c.arg("-c");
+        c.arg(format!("exec {}{rest}", resolved.display()));
+        return Ok(c);
+    }
     Ok(build_agent_shell_cmd(shell_bin, agent_cli))
 }
 
@@ -5489,7 +5521,7 @@ pub fn configure_pty_env(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_
 /// `DESIGNOS_MCP_CONFIG`, `DESIGNOS_LIVE_SPEC`, `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_CANVAS`, `DESIGNOS_CONTEXT_JSON`,
 /// `DESIGNOS_SELECTION_JSON`, `DESIGNOS_TARGET_PAGE_ID`, `DESIGNOS_TARGET_PAGE_NAME`, `DESIGNOS_DOC_NAME`).
 pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_path: Option<&Path>, session: Option<&SessionEnv>) {
-    configure_pty_env_with_session_and_hermetic(cmd, preset, file_path, session, None);
+    configure_pty_env_with_session_and_hermetic(cmd, preset, file_path, session, crate::cli_resolve::hermetic_agent_cli_dir().as_deref());
 }
 
 pub fn configure_pty_env_with_session_and_hermetic(
@@ -5497,7 +5529,7 @@ pub fn configure_pty_env_with_session_and_hermetic(
     preset: AgentCliPreset,
     file_path: Option<&Path>,
     session: Option<&SessionEnv>,
-    _hermetic_dir: Option<&Path>,
+    hermetic_dir: Option<&Path>,
 ) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -5577,6 +5609,15 @@ pub fn configure_pty_env_with_session_and_hermetic(
         cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
     }
 
+    if let Some(dir) = hermetic_dir {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let hermetic_path = format!("{}{sep}/usr/bin{sep}/bin", dir.display());
+        cmd.env("PATH", hermetic_path);
+        cmd.env_remove("BASH_ENV");
+        cmd.env_remove("ENV");
+        return;
+    }
+
     #[cfg(test)]
     if let Some(overrides) = session.and_then(|s| s.path_override.as_ref()) {
         cmd.env("PATH", overrides);
@@ -5591,7 +5632,7 @@ pub fn configure_pty_env_with_session_and_hermetic(
         cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, std::env::var_os("PATH")));
         return;
     }
-    if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {
+    if crate::cli_resolve::host_path_is_empty() {
         cmd.env("PATH", "");
         return;
     }

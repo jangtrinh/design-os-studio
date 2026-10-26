@@ -572,7 +572,12 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         return None;
     }
     let bin = preset.binary_name();
-    let path_key = format!("{bin}:{:?}", std::env::var_os("PATH"));
+    let sources = crate::cli_resolve::current_search_sources(None);
+    let dirs = crate::cli_resolve::cli_search_dirs_with(&sources);
+    let resolved_bin = resolve_cli_executable(bin, &sources);
+    #[cfg(test)]
+    LAST_WARMER_RESOLVED.with(|slot| *slot.borrow_mut() = Some(resolved_bin.clone()));
+    let path_key = format!("{bin}:{dirs:?}");
     let cache = version_cache();
     if let Ok(mut guard) = cache.lock() {
         if let Some(cached) = guard.get(&path_key) {
@@ -581,9 +586,14 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         guard.insert(path_key.clone(), None);
     }
     std::thread::spawn(move || {
+<<<<<<< HEAD
         let sources = crate::cli_resolve::current_search_sources(None);
         let Some(resolved_bin) = resolve_cli_executable(bin, &sources) else { return };
         let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
+=======
+        let Some(resolved_bin) = resolved_bin else { return };
+        let Ok(out) = std::process::Command::new(resolved_bin).arg("--version").output() else { return };
+>>>>>>> 5abf34ca (feat(app): add cli_resolve and hermetic agent CLI mode)
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
         if let Ok(mut guard) = version_cache().lock() {
@@ -593,6 +603,7 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     None
 }
 
+<<<<<<< HEAD
 /// The `--version` command for the installed CLI of `_preset` at `bin`. It is the same for every CLI.
 pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std::process::Command {
     let mut cmd = std::process::Command::new(bin);
@@ -629,6 +640,11 @@ pub(crate) fn resolve_cli_executable(bin: &str, _sources: &crate::cli_resolve::S
         }
     }
     None
+=======
+pub(crate) fn resolve_cli_executable(bin: &str, sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
+    let dirs = crate::cli_resolve::cli_search_dirs_with(sources);
+    crate::cli_resolve::resolve_in(&dirs, bin)
+>>>>>>> 5abf34ca (feat(app): add cli_resolve and hermetic agent CLI mode)
 }
 
 impl SessionFailure {

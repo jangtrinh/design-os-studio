@@ -176,6 +176,11 @@ fn main() {
         }
         return;
     }
+    let env_map: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    if let Err(e) = cli_resolve::enforce_hermetic_startup(&env_map, &opts, std::process::id()) {
+        eprintln!("designos: {e}");
+        std::process::exit(2);
+    }
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();

@@ -218,7 +218,7 @@ impl Sim {
         #[cfg(unix)]
         {
             let mut dirs = vec![stub_agent_cli_dir().to_path_buf()];
-            dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
+            dirs.extend(crate::cli_resolve::host_path_dirs());
             self.shell.app.terminal.path_override = Some(std::env::join_paths(dirs).expect("a PATH made of existing dirs"));
         }
     }
