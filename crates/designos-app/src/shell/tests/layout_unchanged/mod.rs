@@ -13,7 +13,8 @@ mod k;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CasesFile {
-    pub bless_sha: String,
+    #[serde(default)]
+    pub bless_sha: Option<String>,
     pub cases: Vec<CaseEntry>,
 }
 
@@ -123,7 +124,7 @@ pub fn run_spec_cases(spec_key: &str) {
             if bless {
                 let json = serde_json::to_string_pretty(&snap).expect("serialize layout snapshot");
                 std::fs::write(&baseline_path, format!("{json}\n")).expect("write blessed layout baseline");
-            } else if !cases_file.bless_sha.is_empty() || baseline_path.exists() {
+            } else if cases_file.bless_sha.as_deref().is_some_and(|s| !s.is_empty()) || baseline_path.exists() {
                 if let Err(err) = crate::layout_snapshot::load_and_compare_baseline(&baseline_path, &snap, &allow_entries, &case.virtualized) {
                     panic!("case {} failed layout gate:\n{err}", case.id);
                 }
