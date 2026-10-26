@@ -1815,4 +1815,44 @@ mod tests {
             "open_failed_start_fixture must not block in a 5s sleep loop; took {elapsed:?}"
         );
     }
+
+    /// Round 4 Nit 10: `negative_dw_or_dh_requires_r5_in_reason` —
+    /// Per §5 Decision 9, a negative `min_dw` / `max_dw` / `min_dh` / `max_dh` must cite `R5` in `reason`.
+    #[test]
+    fn negative_dw_or_dh_requires_r5_in_reason() {
+        let missing_r5_dh = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-0".into()),
+            min_dh: Some(-4.0),
+            spec: "F".into(),
+            reason: "tighten inspector row".into(),
+            ..Default::default()
+        }])
+        .expect_err("negative min_dh without R5 in reason must fail validate_allow_entries");
+        assert!(missing_r5_dh.contains("R5"), "error must mention R5, got: {missing_r5_dh}");
+
+        let missing_r5_dw = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-0".into()),
+            min_dw: Some(-4.0),
+            spec: "F".into(),
+            reason: "tighten inspector width".into(),
+            ..Default::default()
+        }])
+        .expect_err("negative min_dw without R5 in reason must fail validate_allow_entries");
+        assert!(missing_r5_dw.contains("R5"), "error must mention R5, got: {missing_r5_dw}");
+
+        validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-0".into()),
+            min_dh: Some(-4.0),
+            spec: "F".into(),
+            reason: "R5: intentional tightening keeping >= 24x24pt hit target".into(),
+            ..Default::default()
+        }])
+        .expect("negative min_dh citing R5 in reason must pass validate_allow_entries");
+    }
 }
