@@ -1,0 +1,15 @@
+$ $HOME/.local/bin/actionlint -verbose .github/workflows/pr-gate.yml .github/workflows/pr-labeller.yml
+verbose: Linting 2 files
+verbose: Linting .github/workflows/pr-gate.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Linting .github/workflows/pr-labeller.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Found 0 errors in 2 files

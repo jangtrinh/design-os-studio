@@ -20,6 +20,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RUN_ID: ${{ github.event.workflow_run.id }}
       EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      EXPECTED_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
     steps:
       # Never check out PR code: fetch only scripts/pr_labels.py from the base default branch.
       - name: Checkout trusted label script from default branch
@@ -30,45 +31,90 @@ jobs:
             scripts/pr_labels.py
           sparse-checkout-cone-mode: false
 
-      - name: Download artifact, validate fields, and apply labels
+      - name: Resolve PR from GitHub API and apply labels
         shell: bash
         run: |
           set -euo pipefail
-          artifact_dir="$RUNNER_TEMP/pr-gate-artifact"
-          mkdir -p "$artifact_dir"
-          artifact_json="$artifact_dir/pr-gate-result.json"
-          artifact_id="$(
-            gh api "repos/${GH_REPO}/actions/runs/${RUN_ID}/artifacts" \
-              --jq '.artifacts[] | select(.name == "pr-gate-result" and .expired == false) | .id' \
-              | head -n 1 || true
+          work_dir="$RUNNER_TEMP/pr-labeller"
+          mkdir -p "$work_dir"
+          pulls_json="$work_dir/commits-pulls.json"
+          pull_json="$work_dir/pull.json"
+          files_json="$work_dir/files.json"
+          artifact_json="$work_dir/pr-gate-result.json"
+
+          # 1. Resolve PR directly from GitHub commits/{head_sha}/pulls.
+          gh api --paginate "repos/${GH_REPO}/commits/${EXPECTED_HEAD_SHA}/pulls" > "$pulls_json"
+          candidate_pr="$(
+            python3 -B scripts/pr_labels.py \
+              --resolve-pr \
+              --pulls "$pulls_json" \
+              --head-sha "$EXPECTED_HEAD_SHA" \
+              --head-repo "$EXPECTED_HEAD_REPO"
           )"
-          if [ -z "$artifact_id" ]; then
-            echo "::notice::pr-gate-result artifact is missing for run ${RUN_ID}; nothing to label."
-            python3 -B scripts/pr_labels.py "$artifact_json"
-            exit 0
+
+          artifact_args=()
+          if [ -z "$candidate_pr" ]; then
+            # 2. Download pr-gate-result artifact only when needed as a candidate.
+            artifacts_list="$work_dir/artifacts.json"
+            gh api "repos/${GH_REPO}/actions/runs/${RUN_ID}/artifacts" > "$artifacts_list"
+            artifact_meta="$(
+              jq -r '.artifacts[] | select(.name == "pr-gate-result" and .expired == false) | "\(.id)\t\(.size_in_bytes)"' \
+                "$artifacts_list" | head -n 1 || true
+            )"
+            if [ -z "$artifact_meta" ]; then
+              echo "::notice::No matching PR from commits/${EXPECTED_HEAD_SHA}/pulls and no pr-gate-result artifact for run ${RUN_ID}; nothing to label."
+              python3 -B scripts/pr_labels.py \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO" >/dev/null
+              exit 0
+            fi
+            artifact_id="${artifact_meta%%$'\t'*}"
+            artifact_size="${artifact_meta#*$'\t'}"
+            if ! [[ "$artifact_size" =~ ^[0-9]+$ ]] || [ "$artifact_size" -gt 65536 ]; then
+              echo "::error::pr-gate-result artifact size (${artifact_size} bytes) exceeds 64 KiB limit"
+              exit 1
+            fi
+            gh api "repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" > "$work_dir/pr-gate-result.zip"
+            unzip -p "$work_dir/pr-gate-result.zip" pr-gate-result.json | head -c 65537 > "$artifact_json" || true
+            artifact_args=(--artifact "$artifact_json")
+            candidate_pr="$(
+              python3 -B scripts/pr_labels.py \
+                --resolve-pr \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO" \
+                "${artifact_args[@]}"
+            )"
           fi
-          gh api "repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" > "$artifact_dir/pr-gate-result.zip"
-          unzip -p "$artifact_dir/pr-gate-result.zip" pr-gate-result.json > "$artifact_json"
-          jq -e '
-            type == "object"
-            and (.pr_number | type == "number" and floor == . and . > 0)
-            and (.head_sha | type == "string" and test("^[0-9a-fA-F]{40}$"))
-            and (.additions | type == "number" and floor == . and . >= 0)
-            and (.deletions | type == "number" and floor == . and . >= 0)
-            and (.lines_changed | type == "number" and floor == . and . >= 0)
-            and (.lines_changed == (.additions + .deletions))
-            and (.changed_files | type == "number" and floor == . and . >= 0)
-            and (.paths | type == "array" and all(.[]; type == "string" and length > 0))
-            and ((.paths | length) == .changed_files)
-          ' "$artifact_json" >/dev/null
-          pr_number="$(jq -r '.pr_number' "$artifact_json")"
-          head_sha="$(jq -r '.head_sha' "$artifact_json")"
-          if [ "$head_sha" != "$EXPECTED_HEAD_SHA" ]; then
-            echo "::error::Artifact head_sha ($head_sha) != workflow_run.head_sha ($EXPECTED_HEAD_SHA)"
+
+          if ! [[ "$candidate_pr" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Failed to resolve a valid PR number"
             exit 1
           fi
-          labels_output="$(python3 -B scripts/pr_labels.py "$artifact_json")"
-          [ -z "$labels_output" ] && exit 0
+
+          # 3. Fetch PR counts and file paths from GitHub (never from the artifact).
+          gh api "repos/${GH_REPO}/pulls/${candidate_pr}" > "$pull_json"
+          gh api --paginate "repos/${GH_REPO}/pulls/${candidate_pr}/files" > "$files_json"
+
+          # 4. Validate PR identity (head.sha and head.repo.full_name) and compute labels.
+          eval_json="$(
+            python3 -B scripts/pr_labels.py \
+              --pulls "$pulls_json" \
+              --pull "$pull_json" \
+              --files "$files_json" \
+              --head-sha "$EXPECTED_HEAD_SHA" \
+              --head-repo "$EXPECTED_HEAD_REPO" \
+              ${artifact_args[@]+"${artifact_args[@]}"}
+          )"
+          pr_number="$(jq -r '.pr_number' <<< "$eval_json")"
+          if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid resolved pr_number: $pr_number"
+            exit 1
+          fi
+          labels_count="$(jq -r '.labels | length' <<< "$eval_json")"
+          [ "$labels_count" -eq 0 ] && exit 0
+
           ensure_label() {
             local encoded="${1//\//%2F}"
             gh api "repos/${GH_REPO}/labels/${encoded}" >/dev/null 2>&1 || \
@@ -83,6 +129,6 @@ jobs:
               *) echo "::error::Unexpected label: $label"; exit 1 ;;
             esac
             labels_json="$(jq -cn --argjson arr "$labels_json" --arg l "$label" '$arr + [$l]')"
-          done <<< "$labels_output"
+          done < <(jq -r '.labels[]' <<< "$eval_json")
           jq -cn --argjson labels "$labels_json" '{labels: $labels}' \
             | gh api "repos/${GH_REPO}/issues/${pr_number}/labels" -X POST --input - >/dev/null
