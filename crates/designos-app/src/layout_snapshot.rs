@@ -443,7 +443,6 @@ struct DerivedShifts {
     sum_dh_above: f32,
     sum_dh_below: f32,
     gaps_above: usize,
-    gaps_below: usize,
 }
 
 fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], shifts: DerivedShifts) -> bool {
@@ -475,8 +474,8 @@ fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], 
     let gap_dy = e.gap_dy.unwrap_or(0.0);
     let expected_y = match e.anchor_y.unwrap_or_default() {
         AnchorY::Top => base[1] + shifts.sum_dh_above + (shifts.gaps_above as f32) * gap_dy,
-        AnchorY::Bottom => base[1] + base[3] - cur[3] - shifts.sum_dh_below - (shifts.gaps_below as f32) * gap_dy,
-        AnchorY::Centre => base[1] + (base[3] - cur[3]) * 0.5,
+        AnchorY::Bottom => base[1] + base[3] - cur[3] - shifts.sum_dh_below + (shifts.gaps_above as f32) * gap_dy,
+        AnchorY::Centre => base[1] + (base[3] - cur[3]) * 0.5 + (shifts.gaps_above as f32) * gap_dy,
     } + e.dy.unwrap_or(0.0);
 
     let x_tol = 0.5;
@@ -738,17 +737,14 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             row_dhs.push(row_dh);
         }
 
-        let num_rows = rows.len();
         for (row_idx, row) in rows.into_iter().enumerate() {
             let sum_dh_above: f32 = row_dhs[..row_idx].iter().sum();
             let sum_dh_below: f32 = row_dhs[(row_idx + 1)..].iter().sum();
             let gaps_above = row_idx;
-            let gaps_below = num_rows.saturating_sub(row_idx + 1);
             for (col_idx, w) in row.iter().enumerate() {
                 let sum_dw_left: f32 = row[..col_idx].iter().map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
                 let sum_dw_right: f32 = row[(col_idx + 1)..].iter().map(|rw| rw.c_rect[2] - rw.b_rect[2]).sum();
-                shifts_by_widget
-                    .insert((reg.clone(), w.label.clone()), DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above, gaps_below });
+                shifts_by_widget.insert((reg.clone(), w.label.clone()), DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above });
             }
         }
     }
