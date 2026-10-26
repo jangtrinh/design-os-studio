@@ -1,0 +1,118 @@
+Total unique backticked spans in ## [0.6.3]: 60
+
+FOUND (12): `$TMPDIR`
+  -> crates/designos-app/src/agent_approval_channel.rs:6://! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writable roots of Codex's
+FOUND (23): `--apply-spec`
+  -> crates/designos-app/src/agent_cli_export_fig_tests.rs:235:        "--apply-spec".into(),
+FOUND (58): `--screenshot`
+  -> crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:18:FILE	main.rs	paths named on the command line (`--screenshot`, `--apply
+FOUND (724): `.designos`
+  -> crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:483:        designos_doc::Document::from_json(include_str!("../../../../exampl
+FOUND (29): `.designos-set-aside`
+  -> crates/designos-app/src/agent_project_config.rs:7://! what was written) stops the tab. Nothing is deleted: the entries are kept in `.designo
+FOUND (1065): `.fig`
+  -> crates/designos-app/src/agent_busy_frames.rs:119:    // 3. Also check legacy `node.fig_metadata` keys in case a fixture or plugin sets them.
+FOUND (109): `.gemini`
+  -> crates/designos-app/src/agent_composer.rs:365:    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open
+FOUND (23): `.gemini/settings.json`
+  -> crates/designos-app/src/agent_session_files/fs_sites_scan_tests/patterns.rs:53:/// Names inside the folders above (`.agents/plugins/designos
+FOUND (1845): `.json`
+  -> crates/designos-app/src/agent_approval_channel.rs:14://!     hooks.json                 0600  Claude's hooks, the file its `--settings` name
+FOUND (53): `.spec.json`
+  -> crates/designos-app/src/agent_selection_chip.rs:5://! PTY when selection changes; on click writes `selection.spec.json` and pastes one fixed
+FOUND (63): `.svg`
+  -> crates/designos-app/assets/icons/lucide/README.md:5:`https://cdn.jsdelivr.net/npm/lucide-static@0.468.0/icons/<name>.svg`.
+FOUND (102): `/tmp`
+  -> crates/designos-app/src/agent_approval_channel.rs:6://! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writable roots of Codex's
+FOUND (4): `/var/tmp`
+  -> crates/designos-app/src/agent_approval_channel.rs:46:    let mut roots = vec![std::env::temp_dir(), PathBuf::from("/tmp"), PathBuf::from("/v
+COMPOSED / PR #1201 (10 in #1201): `Enter a path…`
+  -> origin/jangtrinh/agy-1192-linux-import:crates/designos-app/src/app.rs:146:    /// True when no file dialog could open and the toast carries 
+FOUND (435): `Import`
+  -> crates/designos-app/src/app.rs:247:    pub web_capture_report: Option<designos_webcapture::ImportReport>,
+FOUND (33): `Needs approval`
+  -> crates/designos-app/src/agent_a11y.rs:222:/// The spoken form of a wait on the user: the status labels `Needs approval` and `Needs input` in
+FOUND (2): `No file dialog. Install zenity or xdg-desktop-portal.`
+  -> crates/designos-app/src/io/file_dialog.rs:14:pub const NO_FILE_DIALOG: &str = "No file dialog. Install zenity or xdg-desktop-portal.";
+FOUND (13): `No, suggest changes`
+  -> crates/designos-app/src/gemini_dialog.rs:5://! The screen can: every dialog that offers options ends with the option `No, suggest changes (e
+FOUND (327): `NodeSpec`
+  -> crates/designos-app/src/agent_busy_frames.rs:747:        let spec: designos_doc::NodeSpec = serde_json::from_value(spec_json).expect("valid 
+FOUND (18): `Open tab`
+  -> crates/designos-app/src/agent_approval_card.rs:35:///   and a single **Open tab** button (never **Approve** or **Deny**).
+FOUND (224): `PATH`
+  -> crates/designos-app/src/agent_cli_catalog.rs:188:    /// Checks whether `binary` is installed in `install_folders` or on `PATH`.
+FOUND (25): `README.md`
+  -> crates/designos-app/src/agent_sample_prompts.rs:488:            "Read README.md and summarize",
+FOUND (7): `ToolPermission`
+  -> crates/designos-app/src/agent_turn_status.rs:714:                // `permission_prompt`: Claude and Grok. `ToolPermission`: Gemini CLI, when
+FOUND (39): `agent-events.jsonl`
+  -> crates/designos-app/src/agent_hook_outputs.rs:12://!   agent-events.jsonl  agent-events.jsonl.lock/      one wrapped record per hook event, 
+FOUND (32): `agent-status.json`
+  -> crates/designos-app/src/agent_hook_outputs.rs:11://!   agent-status.json                                 the last state word of any hook
+FOUND (3): `ask_user`
+  -> crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the externa
+FOUND (6): `bootstrap-compact-reply.json`
+  -> crates/designos-app/src/agent_hook_outputs.rs:16://!   page-context-reply.json  bootstrap-context-reply.json  bootstrap-compact-reply.json  
+FOUND (7): `bootstrap-context-reply.json`
+  -> crates/designos-app/src/agent_hook_outputs.rs:16://!   page-context-reply.json  bootstrap-context-reply.json  bootstrap-compact-reply.json  
+COMPOSED: `children must be an array of NodeSpec objects. Pass each child as a JSON object.`
+FOUND (25): `claude-transcript.json`
+  -> crates/designos-app/src/agent_hook_outputs.rs:14://!   claude-transcript.json  .lock/  .tmp.<pid>        which transcript file belongs to wh
+FOUND (2): `crates/designos-mcp/rules/workflow.md`
+  -> crates/designos-mcp/src/rules.rs:4://! 1. `crates/designos-mcp/rules/workflow.md` — 7-step build-verify-fix workflow (§3.2)
+FOUND (7976): `designos`
+  -> crates/designos-app/Cargo.toml:2:name = "designos-app"
+COMPOSED: `designos FILE --screenshot OUT.png`
+FOUND (455): `designos-mcp`
+  -> crates/designos-app/Cargo.toml:37:designos-mcp.workspace = true
+COMPOSED: `designos-studio FILE --screenshot OUT.png`
+COMPOSED / PR #1201 (1 in #1201): `designos: warn: file dialog unavailable:`
+  -> origin/jangtrinh/agy-1192-linux-import:crates/designos-app/src/io/file_dialog.rs:141:        let line = format!("designos: warn: file dialog
+FOUND (147): `designos_apply_batch`
+  -> crates/designos-mcp/generated/rules.md:10:3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_sp
+FOUND (197): `designos_apply_spec`
+  -> crates/designos-app/src/agent_a11y.rs:514:            announcer.notify_status(preset, &AgentTabStatus::Working(Some("designos_apply_spec".in
+FOUND (2): `designos_specs`
+  -> crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE	specs.rs	the spec folders of the open project (`docs/specs`, or t
+FOUND (148): `doc-patch.jsonl`
+  -> crates/designos-app/src/agent_hook_outputs.rs:13://!   turn-marks.jsonl                                  the turn boundaries, with the byte 
+FOUND (1): `every name Studio tried was taken. Close this file's other agent tabs, then try again.`
+  -> crates/designos-app/src/agent_session_files/no_follow/set_aside.rs:235:            "Couldn't start Grok Build: a new folder can't be made in
+FOUND (3): `exit_plan_mode`
+  -> crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the externa
+FOUND (29): `hook-out`
+  -> crates/designos-app/src/agent_hook_outputs.rs:10://! <data dir>/designos/ap/<sid>/hook-out/       0700  inside the approval channel folder o
+FOUND (726): `hooks`
+  -> crates/designos-app/src/agent_approval_channel.rs:4://! the hook script that decides what to print, or the hooks file that tells Claude whic
+FOUND (2): `is locked, so Studio can't move it. Unlock it, then try again.`
+  -> crates/designos-app/src/agent_session_files/locked_entry_tests.rs:45:        assert_eq!(message, format!("Couldn't start Grok Build: {} is l
+FOUND (8): `must be a finite number`
+  -> crates/designos-app/src/main.rs:772:        assert!(err_overflow.contains("x must be a finite number"), "expected finite-number message in {
+COMPOSED / PR #1201 (10 in #1201): `org.freedesktop.portal.Desktop`
+  -> origin/jangtrinh/agy-1192-linux-import:crates/designos-app/Cargo.toml:68:# Linux only: checks the session D-Bus for an active `org.freedeskt
+COMPOSED / PR #1201 (5 in #1201): `org.freedesktop.portal.FileChooser`
+  -> origin/jangtrinh/agy-1192-linux-import:crates/designos-app/src/io/dialog_probe.rs:22:const PORTAL_FILE_CHOOSER_INTERFACE: &str = "org.freede
+FOUND (10): `page-context-reply.json`
+  -> crates/designos-app/src/agent_hook_outputs.rs:16://!   page-context-reply.json  bootstrap-context-reply.json  bootstrap-compact-reply.json  
+FOUND (7): `permission_prompt`
+  -> crates/designos-app/src/agent_turn_status.rs:132:    /// Extracts the notification type from a `Notification` payload (e.g. `"permission_pro
+FOUND (9): `skills/design-os-studio/rules.md`
+  -> crates/designos-mcp/src/bin/gen-tool-docs.rs:243:    let skill_rules_path = root.join("skills/design-os-studio/rules.md");
+FOUND (3): `stat -L`
+  -> crates/designos-app/src/agent_turn_marks.rs:152:pub(crate) const SIZE_OF_COMMAND: &str = "/usr/bin/stat -L -f %z";
+FOUND (2): `tools.allowed`
+  -> docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135:   #1059). Some settings there skip Gemini's own confirmation 
+FOUND (1): `tools.discoveryCommand`
+  -> docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138:   project hook and then runs it) and `tools.discoveryCommand`
+FOUND (157): `tty`
+  -> crates/designos-app/src/agent_permissions.rs:209:    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other
+FOUND (31): `turn-marks.jsonl`
+  -> crates/designos-app/src/agent_hook_outputs.rs:13://!   turn-marks.jsonl                                  the turn boundaries, with the byte 
+FOUND (3): `wc -c <`
+  -> crates/designos-app/src/agent_turn_marks.rs:149:/// `wc -c <` would (it opens the file). macOS has the BSD `stat`, called by its path so no 
+FOUND (10): `workspace-write`
+  -> crates/designos-app/src/agent_approval_channel.rs:6://! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writable roots of Codex's
+FOUND (19): `zenity`
+  -> crates/designos-app/src/io/dialog_probe.rs:3://! `rfd` answers `None` for both. On Linux a dialog needs `zenity` or an xdg-desktop-portal wi
+COMPOSED: `{file} could not be opened: {reason}. Check the file, then try again.`
