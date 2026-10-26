@@ -507,3 +507,110 @@ fn ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab
     cleanup_state(st);
 }
 
+#[test]
+fn edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn() {
+    // Edge case 1: Zoom while streaming output.
+    {
+        let (mut st, idx) = spawn_fake_cli_tab("stream", 10, 80);
+        wait_for_marker(&st, idx, "[stream_phase=1 winch_seq=0 rows=10 cols=80]");
+        st.tabs[idx].resize(10, 86);
+        wait_for_marker(&st, idx, "[stream_done winch_seq=1 rows=10 cols=86]");
+
+        let (_, lines) = {
+            let mut p = st.tabs[idx].parser.lock().unwrap();
+            all_terminal_lines(&mut p)
+        };
+        cleanup_state(st);
+
+        for i in 1..=30 {
+            let key = format!("STREAM_LINE_{i:02}");
+            let c = lines.iter().filter(|l| l.trim() == key).count();
+            assert_eq!(c, 1, "streaming edge case: {key} must appear exactly once after mid-stream resize, got {c} (lines={lines:?})");
+        }
+    }
+
+    // Edge case 2: Zoom while scrolled into history (keep reading position; do not jump to bottom).
+    {
+        let (mut st, idx) = spawn_fake_cli_tab("a", 20, 80);
+        wait_for_marker(&st, idx, "[winch_seq=0 rows=20 cols=80]");
+        st.tabs[idx].parser.lock().unwrap().set_scrollback(8);
+        assert_eq!(st.tabs[idx].parser.lock().unwrap().screen().scrollback(), 8);
+
+        st.tabs[idx].resize(20, 86);
+        wait_for_marker(&st, idx, "[winch_seq=1 rows=20 cols=86]");
+
+        let sb_after = st.tabs[idx].parser.lock().unwrap().screen().scrollback();
+        cleanup_state(st);
+        assert_eq!(sb_after, 8, "scrolled-history edge case: reading position (scrollback_offset=8) must be preserved across zoom reprint, got {sb_after}");
+    }
+
+    // Edge case 3: Alternate screen (?1049h) with mouse reporting (?1000h?1006h).
+    {
+        let (mut st, idx) = spawn_fake_cli_tab("b", 20, 80);
+        wait_for_marker(&st, idx, "[winch_seq=0 rows=20 cols=80]");
+        {
+            let mut p = st.tabs[idx].parser.lock().unwrap();
+            let (sb_before, _) = all_terminal_lines(&mut p);
+            assert_eq!(sb_before, 11);
+            p.process(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[HALT_SCREEN_ACTIVE");
+            assert!(p.screen().alternate_screen());
+            assert_ne!(p.screen().mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+        }
+
+        let ctx = super::gemini_test_support::panel_ctx();
+        let vp = Rect::from_min_size(Pos2::new(48.0, 40.0), Vec2::new(560.0, 400.0));
+        let hover_pos = vp.center();
+        run_viewport_frame(&mut st, &ctx, vp, Some(1.9), vec![egui::Event::PointerMoved(hover_pos)]);
+        st.tabs[idx].written_bytes.clear();
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+            time: Some(2.0),
+            events: vec![
+                egui::Event::PointerMoved(hover_pos),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, 24.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw, |ui| {
+            render_vt100_viewport(&mut st, ui, vp, None, "test-pty-vp");
+        });
+        let written = String::from_utf8_lossy(&st.tabs[idx].written_bytes).into_owned();
+        assert!(written.contains("\x1b[<64;"), "alternate-screen mouse reporting: wheel up must emit SGR mouse sequence \\x1b[<64;..., got {written:?}");
+        cleanup_state(st);
+    }
+
+    // Edge case 4 & 5: Minimum clamp (rows=4, cols=16) and a tab opened after zooming starts with the zoomed size.
+    {
+        let mut st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+        st.picker_open = false;
+        let ctx = super::gemini_test_support::panel_ctx();
+
+        // Render empty state at smallest viewport rect (rows=4, cols=16).
+        let tiny_vp = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(80.0, 40.0));
+        run_viewport_frame(&mut st, &ctx, tiny_vp, Some(1.0), Vec::new());
+        assert_eq!(st.viewport_size, (4, 16), "smallest-size edge case: viewport_size must clamp to (rows=4, cols=16), got {:?}", st.viewport_size);
+
+        let min_tab_idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab at min size");
+        assert_eq!((st.tabs[min_tab_idx].rows, st.tabs[min_tab_idx].cols), (4, 16), "tab opened at smallest size must start with (rows=4, cols=16)");
+
+        // Now zoom viewport to a custom size (rows=18, cols=64 -> width = 64*7.8 + 24 = 523.2, height = 18*16 + 16 = 304)
+        let zoomed_vp = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(524.0, 304.0));
+        run_viewport_frame(&mut st, &ctx, zoomed_vp, Some(2.0), Vec::new());
+        assert_eq!(st.viewport_size, (18, 64), "zoomed viewport_size must be (18, 64)");
+
+        let post_zoom_idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab after zooming");
+        assert_eq!(
+            (st.tabs[post_zoom_idx].rows, st.tabs[post_zoom_idx].cols),
+            (18, 64),
+            "post-zoom spawn edge case: a tab opened after zooming must start at (18, 64) from the start"
+        );
+        assert_eq!(st.tabs[post_zoom_idx].resize_count, 0, "newly spawned post-zoom tab must not need a post-spawn resize");
+
+        cleanup_state(st);
+    }
+}
