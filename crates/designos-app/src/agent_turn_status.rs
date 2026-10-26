@@ -870,12 +870,16 @@ impl TabTurnTracker {
         &mut self,
         now_s: f64,
         current_status: &AgentTabStatus,
-        _user_stopped: bool,
-        _exit: ProcessExit,
+        user_stopped: bool,
+        exit: ProcessExit,
     ) -> Option<(AgentTabStatus, TurnReceipt)> {
         let was_running = self.in_turn || matches!(current_status, AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_));
         if !was_running {
             return None;
+        }
+        if user_stopped {
+            let receipt = self.stop_by_user(now_s);
+            return Some((AgentTabStatus::Stopped, receipt));
         }
         let start = self.turn_started_s.unwrap_or(now_s);
         let receipt = TurnReceipt {
@@ -888,7 +892,7 @@ impl TabTurnTracker {
         self.in_turn = false;
         self.current_tool_name = None;
         self.last_turn_receipt = Some(receipt.clone());
-        Some((AgentTabStatus::Done, receipt))
+        Some((AgentTabStatus::Error(Some(exit.detail())), receipt))
     }
 }
 

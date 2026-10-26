@@ -613,12 +613,28 @@ pub const PTY_HEURISTIC_WORKING_DECAY: std::time::Duration = std::time::Duration
 pub const PTY_HEURISTIC_ACTIVITY_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
 
 /// Pure status resolver for PTY-heuristic presets (`Codex`, `#1194`).
+///
+/// - `Working(detail)` stays `Working(detail)` while the PTY has produced output within [`PTY_HEURISTIC_WORKING_DECAY`]
+///   (or before the first PTY output timestamp is recorded), and decays to [`AgentTabStatus::Done`] once the PTY
+///   has been quiet for at least `1.5 s`.
+/// - `WaitingForInput` never decays (an approval menu is static).
+/// - `Stopped` and `Error` keep their precedence unchanged.
+/// - `Idle` and `Done` become `Working(None)` when PTY output arrived within [`PTY_HEURISTIC_ACTIVITY_WINDOW`] (`600 ms`).
 pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output_at: Option<std::time::Instant>, now: std::time::Instant) -> AgentTabStatus {
-    let recent_pty_activity = last_output_at.is_some_and(|ts| now.saturating_duration_since(ts) < PTY_HEURISTIC_ACTIVITY_WINDOW);
+    let quiet_duration = last_output_at.map(|ts| now.saturating_duration_since(ts));
+    let recent_pty_activity = quiet_duration.is_some_and(|d| d < PTY_HEURISTIC_ACTIVITY_WINDOW);
     match explicit_status {
-        AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
-        AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
+        AgentTabStatus::Working(detail) => {
+            if quiet_duration.is_some_and(|d| d >= PTY_HEURISTIC_WORKING_DECAY) {
+                AgentTabStatus::Done
+            } else {
+                AgentTabStatus::Working(detail)
+            }
+        }
+        AgentTabStatus::WaitingForInput(detail) => AgentTabStatus::WaitingForInput(detail),
+        // A stopped or errored tab keeps its status even if trailing PTY bytes arrive (`#684`, `#1194`).
         AgentTabStatus::Stopped => AgentTabStatus::Stopped,
+        AgentTabStatus::Error(detail) => AgentTabStatus::Error(detail),
         other if recent_pty_activity => AgentTabStatus::Working(None),
         other => other,
     }
@@ -1777,7 +1793,7 @@ impl TerminalState {
 
     /// True when `tab_idx` is currently in [`AgentTabStatus::Working`].
     pub fn is_tab_working(&self, tab_idx: usize) -> bool {
-        self.tabs.get(tab_idx).is_some_and(|t| matches!(t.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Working(_))))
+        self.tabs.get(tab_idx).is_some_and(|t| matches!(t.effective_status(), AgentTabStatus::Working(_)))
     }
 
     /// True when `preset`'s binary is reachable the way a spawn would find it: the shared PATH, the user CLI
@@ -2947,6 +2963,9 @@ impl TerminalState {
             }
         }
         if let Some(tab) = self.active_tab() {
+            if let Ok(mut last_out) = tab.last_output_at.lock() {
+                *last_out = Some(std::time::Instant::now());
+            }
             if let Ok(mut st) = tab.agent_status.lock() {
                 *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
             }
@@ -3557,6 +3576,24 @@ impl TerminalState {
             }
         }
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
+        let poll_instant = std::time::Instant::now();
+        for tab in &mut self.tabs {
+            if !tab.spawn_preset.uses_pty_heuristic() || tab.is_shell_process() {
+                continue;
+            }
+            let effective = tab.effective_status_at(poll_instant);
+            let mut transitioned = None;
+            if let Ok(mut st) = tab.agent_status.lock() {
+                if matches!((&*st, &effective), (AgentTabStatus::Working(_), AgentTabStatus::Done) | (AgentTabStatus::Done, AgentTabStatus::Working(_))) {
+                    *st = effective.clone();
+                    transitioned = Some(effective.clone());
+                }
+            }
+            if let Some(next_status) = transitioned {
+                self.status_changes.push((tab.id, next_status));
+            }
+            tab.turn_ledger.tick(matches!(effective, AgentTabStatus::Working(_)), poll_instant);
+        }
         // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
         let status_file = self.hook_paths().status();
         if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
@@ -3633,7 +3670,15 @@ impl TerminalState {
             }
             if !tab.is_alive() {
                 tab.turn_ledger.on_tab_exited(patch_off, now_instant);
-                let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped));
+                let prev_status = tab.effective_status();
+                let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
+                    || tab.stop_state.is_some()
+                    || tab.stop_in_flight.load(std::sync::atomic::Ordering::Relaxed);
+                if tab.stop_state.is_some() {
+                    if let Some(action) = crate::agent_stop::close_pending_stop(tab, designos_doc::now_ms()) {
+                        actions.push(action);
+                    }
+                }
                 let exit_status = tab.child.try_wait().ok().flatten();
                 let exit_code = exit_status.as_ref().map(|status| status.exit_code());
                 let process_exit = crate::agent_turn_status::ProcessExit::from_pty_status(exit_status);
@@ -3673,7 +3718,6 @@ impl TerminalState {
                         tab.set_session_failure(failure);
                     }
                 }
-                let prev_status = tab.effective_status();
                 if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status, was_stopped, process_exit) {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = next_status.clone();
@@ -3705,11 +3749,6 @@ impl TerminalState {
                 }
                 tab.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
                 Self::withdraw_tab_approvals(tab);
-                if let Ok(mut st) = tab.agent_status.lock() {
-                    if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
-                        *st = AgentTabStatus::Idle;
-                    }
-                }
                 tab.exited_notice_shown = true;
                 agent_exited = true;
                 stopped_exited |= was_stopped;
@@ -10431,9 +10470,79 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 0".to_string())));
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 1".to_string())));
         assert_eq!(st.tabs[0].last_turn_receipt().map(|r| r.format_line()), Some("Ended without reporting a result".to_string()));
         assert_eq!(sink.count(), 1, "process exit during a running turn while unfocused must send a Finished notification");
+    }
+
+    #[test]
+    fn codex_turn_end_pty_exit_while_working_or_waiting_maps_stop_and_errors_across_presets() {
+        // 1. User-requested Stop while Working ends as Stopped on PTY exit
+        {
+            let mut st = isolated_683_state(68395);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'exit 0'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex exit stub");
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            tab.stop_in_flight.store(true, std::sync::atomic::Ordering::Relaxed);
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Stopped);
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]));
+            kill_tabs(&mut st);
+        }
+
+        // 2. Exit 0 without user stop while Working or WaitingForInput ends as Error("exit code 0") across presets
+        for (i, (preset, initial_status)) in [
+            (AgentCliPreset::Codex, AgentTabStatus::Working(None)),
+            (AgentCliPreset::Claude, AgentTabStatus::WaitingForInput(Some("Bash".into()))),
+            (AgentCliPreset::Grok, AgentTabStatus::Working(Some("Working…".into()))),
+            (AgentCliPreset::Antigravity, AgentTabStatus::WaitingForInput(None)),
+            (AgentCliPreset::Gemini, AgentTabStatus::Working(None)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut st = isolated_683_state(68396 + i as u64);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo ok; exit 0'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, preset, 24, 80, None, None, Some(cmd)).expect("spawn preset exit 0 stub");
+            *tab.agent_status.lock().unwrap() = initial_status;
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 0".to_string())), "{preset:?}");
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "{preset:?}");
+            kill_tabs(&mut st);
+        }
+
+        // 3. Non-zero exit (code 7) while Working ends as Error("exit code 7")
+        {
+            let mut st = isolated_683_state(68410);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo crash; exit 7'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex exit 7 stub");
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 7".to_string())));
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]));
+            kill_tabs(&mut st);
+        }
     }
 
     #[test]

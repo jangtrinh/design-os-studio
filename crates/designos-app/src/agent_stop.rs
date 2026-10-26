@@ -118,20 +118,12 @@ pub fn format_stopped_receipt(started_ms: u64, ended_ms: u64) -> String {
     }
 }
 
-/// True when `tab` has a known running turn eligible for Stop (`§3.1`, `§3.7`, `§8.6`).
+/// True when `tab` has a known running turn eligible for Stop (`§3.1`, `§3.7`, `§8.6`, `#1194`).
 pub fn is_tab_turn_running(tab: &TerminalTab) -> bool {
     if tab.is_shell_process() || tab.resumed_without_known_turn {
         return false;
     }
-    let explicit = tab.agent_status.lock().ok().map(|s| s.clone()).unwrap_or_default();
-    match explicit {
-        AgentTabStatus::Working(_) => true,
-        AgentTabStatus::WaitingForInput(_) | AgentTabStatus::Done | AgentTabStatus::Error(_) | AgentTabStatus::Stopped => false,
-        AgentTabStatus::Idle => {
-            matches!(tab.spawn_preset, AgentCliPreset::Codex)
-                && tab.last_output_at.lock().ok().and_then(|g| *g).is_some_and(|ts| ts.elapsed() < std::time::Duration::from_millis(600))
-        }
-    }
+    matches!(tab.effective_status(), AgentTabStatus::Working(_))
 }
 
 /// True when the Stop control can stop `tab`: its turn is running and its CLI has an interrupt row. A CLI with no row gets no
