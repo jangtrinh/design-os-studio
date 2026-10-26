@@ -757,10 +757,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             for (col_idx, w) in row.iter().enumerate() {
                 let sum_dw_left: f32 = row[..col_idx].iter().map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
                 let sum_dw_right: f32 = row[(col_idx + 1)..].iter().map(|rw| rw.c_rect[2] - rw.b_rect[2]).sum();
-                shifts_by_widget.insert(
-                    (reg.clone(), w.label.clone()),
-                    DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above, gaps_below },
-                );
+                shifts_by_widget
+                    .insert((reg.clone(), w.label.clone()), DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above, gaps_below });
             }
         }
     }
@@ -1215,8 +1213,7 @@ mod tests {
         }])
         .expect("valid allow list");
 
-        compare_with_stale_check(&base_x, &cur_x_ok, &allow_x_left, &[])
-            .expect("left button widening 32->40 and right button shifting x +8 must pass");
+        compare_with_stale_check(&base_x, &cur_x_ok, &allow_x_left, &[]).expect("left button widening 32->40 and right button shifting x +8 must pass");
 
         let mut cur_x_bad = cur_x_ok.clone();
         cur_x_bad.named.get_mut("btn-right").unwrap().rect[0] = 1262.0; // +12 instead of +8
@@ -1276,8 +1273,7 @@ mod tests {
         }])
         .expect("valid allow list");
 
-        compare_with_stale_check(&base_yb, &cur_yb, &allow_yb, &[])
-            .expect("bottom-anchored rows shifting by derived cumulative sum (0, -8, -16) must pass");
+        compare_with_stale_check(&base_yb, &cur_yb, &allow_yb, &[]).expect("bottom-anchored rows shifting by derived cumulative sum (0, -8, -16) must pass");
 
         // Bottom row growing by +16 (24 -> 40) must fail on its own dh.
         let mut cur_yb_plus16 = cur_yb.clone();
@@ -1408,11 +1404,24 @@ mod tests {
         assert!(err_rect.contains("G4"), "expected G4 rect error, got: {err_rect}");
 
         // Changing sense of one of the leading min(n) widgets must fail G4 even when count delta <= inventory_max_delta.
-        let mut cur_sense = cur_ok;
+        let mut cur_sense = cur_ok.clone();
         cur_sense.unnamed[0].sense = vec!["drag".into()];
         let err_sense = compare(&base, &cur_sense, &allow, &["right_panel".into()])
             .expect_err("changing sense in the shared prefix under inventory_max_delta must fail G4");
         assert!(err_sense.contains("G4") && err_sense.contains("sense"), "expected G4 sense error, got: {err_sense}");
+
+        // Building a count delta above inventory_max_delta (delta=6 > 5) must fail with the G4 count error.
+        let mut cur_over_delta = base.clone();
+        for i in 0..6 {
+            cur_over_delta.unnamed.push(UnnamedWidget {
+                region: "right_panel".into(),
+                rect: [1210.0, 290.0 + (i as f32) * 30.0, 200.0, 24.0],
+                sense: vec!["click".into()],
+            });
+        }
+        let err_count =
+            compare(&base, &cur_over_delta, &allow, &["right_panel".into()]).expect_err("count delta above inventory_max_delta must fail with G4 count error");
+        assert!(err_count.contains("G4 unnamed widget count mismatch"), "expected G4 count mismatch error, got: {err_count}");
     }
 
     /// Round 4 Major 4: An allow entry is counted as matched when it is the covering entry for a
@@ -2038,10 +2047,7 @@ mod tests {
             "when widget info is absent, fallback scroll detection must emit only right_panel axis='y', maybe=true; got {:?}",
             snap_release.scroll
         );
-        assert_eq!(
-            snap_release.unnamed, snap_info.unnamed,
-            "both gate and release paths must classify the 16x24 splitter in left_panel as unnamed"
-        );
+        assert_eq!(snap_release.unnamed, snap_info.unnamed, "both gate and release paths must classify the 16x24 splitter in left_panel as unnamed");
     }
 
     /// Round 4 Minor 7: `g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact` —
