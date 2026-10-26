@@ -1064,6 +1064,72 @@ mod tests {
         assert!(err_sense.contains("G4") && err_sense.contains("sense"), "expected G4 sense error, got: {err_sense}");
     }
 
+    /// Round 4 Major 4: An allow entry is counted as matched when it is the covering entry for a
+    /// widget that exists (even with 0 drift), and staleness is checked once over the union of a run
+    /// (`"*"` is stale only when no case in the run used it).
+    #[test]
+    fn stale_check_counts_covering_entries_and_runs_over_union_of_run() {
+        // 1. Case-specific entry whose covered widgets stay within 0.5pt (0 drift) must count as matched.
+        let base_ed = sample_snapshot("d-editor-default");
+        let cur_ed = base_ed.clone();
+        let allow_case = validate_allow_entries(vec![AllowEntry {
+            case: "d-editor-default".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-".into()),
+            max_dh: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: row height 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+        let rep_ed = compare_with_stale_check(&base_ed, &cur_ed, &allow_case, &[])
+            .expect("covering entry for existing widgets with 0 drift must not be flagged as stale");
+        assert!(rep_ed.matched_allow_indices.contains(&0));
+
+        // 2. Wildcard entry across a multi-case run (`f-inspector` with drift, `d-editor-default` with 0 drift,
+        //    and `h-home` with no right_panel widgets): stale check over the union of the run passes.
+        let base_insp = sample_snapshot("f-inspector");
+        let mut cur_insp = base_insp.clone();
+        cur_insp.named.get_mut("prop-row-0").unwrap().rect = [1210.0, 60.0, 200.0, 32.0];
+        cur_insp.named.get_mut("prop-row-1").unwrap().rect = [1210.0, 98.0, 200.0, 32.0];
+        cur_insp.named.get_mut("prop-row-2").unwrap().rect = [1210.0, 136.0, 200.0, 32.0];
+
+        let mut base_home = sample_snapshot("h-home");
+        base_home.named.clear();
+        let cur_home = base_home.clone();
+
+        let allow_wild = validate_allow_entries(vec![AllowEntry {
+            case: "*".into(),
+            region: "right_panel".into(),
+            name_prefix: Some("prop-row-".into()),
+            max_dh: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: row height 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid wildcard allow list");
+
+        let mut union_matched = BTreeSet::new();
+        let mut scope_cases = BTreeSet::new();
+        for (b, c) in [(&base_insp, &cur_insp), (&base_ed, &cur_ed), (&base_home, &cur_home)] {
+            let r = compare(b, c, &allow_wild, &[]).expect("case compare must succeed");
+            union_matched.extend(r.matched_allow_indices);
+            scope_cases.insert(b.case.clone());
+        }
+        check_stale_allow_entries(&allow_wild, &union_matched, Some(&scope_cases))
+            .expect("wildcard entry matched in at least one case of the run must not be stale");
+
+        // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails.
+        let mut empty_matched = BTreeSet::new();
+        let mut home_only_scope = BTreeSet::new();
+        let r_home = compare(&base_home, &cur_home, &allow_wild, &[]).expect("home compare");
+        empty_matched.extend(r_home.matched_allow_indices);
+        home_only_scope.insert("h-home".into());
+        let err = check_stale_allow_entries(&allow_wild, &empty_matched, Some(&home_only_scope))
+            .expect_err("wildcard entry unused by every case in the run must fail as stale");
+        assert!(err.contains("stale allow.json[0]"), "unexpected error: {err}");
+    }
+
     /// Test 4d: 24->32 makes the right panel overflow: a `scroll` entry appears; G2 passes.
     #[test]
     fn inspector_overflow_does_not_fail_g2() {
