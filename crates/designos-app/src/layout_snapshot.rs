@@ -1393,6 +1393,37 @@ mod tests {
         let mut cur_wrong_dir = cur_valid.clone();
         cur_wrong_dir.named.get_mut("prop-row-1").unwrap().rect[1] = 82.0;
         assert!(compare(&base, &cur_wrong_dir, &allow, &[]).is_err(), "row 1 moving -8pt instead of +8pt under gap_dy=8 must fail");
+
+        // Round 6 Minor 1: `gaps_above * gap_dy` also applies to `anchor_y: centre` and `anchor_y: bottom`.
+        // One row above (`prop-row-0`), and an unchanged-size widget (`prop-row-1`) that moves +8 passes.
+        let mut base_two = base.clone();
+        base_two.named.remove("prop-row-2");
+        let mut cur_two_plus8 = base_two.clone();
+        cur_two_plus8.named.get_mut("prop-row-1").unwrap().rect[1] += 8.0; // 90 -> 98, size unchanged (200x24)
+
+        for anchor in [AnchorY::Centre, AnchorY::Bottom] {
+            let allow_anchor = validate_allow_entries(vec![AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                name_prefix: Some("prop-row-".into()),
+                anchor_y: Some(anchor),
+                gap_dy: Some(8.0),
+                spec: "F".into(),
+                reason: "R5: inspector row gap +8 under centre/bottom anchor".into(),
+                ..Default::default()
+            }])
+            .expect("valid allow list");
+
+            compare_with_stale_check(&base_two, &cur_two_plus8, &allow_anchor, &[])
+                .unwrap_or_else(|e| panic!("anchor_y={anchor:?} with gap_dy=8 and 1 row above moving +8 must pass: {e}"));
+
+            let mut cur_two_plus16 = cur_two_plus8.clone();
+            cur_two_plus16.named.get_mut("prop-row-1").unwrap().rect[1] += 8.0; // +16 total
+            assert!(
+                compare(&base_two, &cur_two_plus16, &allow_anchor, &[]).is_err(),
+                "anchor_y={anchor:?} with gap_dy=8 and 1 row above moving +16 must fail"
+            );
+        }
     }
 
     /// Round 4 Major 3: `inventory_max_delta` forgives only the count delta and still compares
