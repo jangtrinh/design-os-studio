@@ -32,3 +32,5 @@ Xem [contract](../contract/FC-V06.md).
 | REQ-16 | designos-diff has no --version: sửa xong theo AC. | #1088 | US-04, US-11 |
 | REQ-17 | Editing a main component renames its instances on unloaded pages: sửa xong theo AC. | #983 | US-04, US-09 |
 | REQ-18 | Headless input checks from the QA red team (SwiftUI escape, exit codes, file names, spec errors): sửa xong theo AC. | #1003 | US-04, US-10 |
+| REQ-19 | Antigravity CLI tab repeats output endlessly and scroll stops working after UI zoom: sửa xong theo AC. | #1171 | US-12 |
+| REQ-20 | Agents panel: terminal and changed-layers card cannot scroll after a large agent edit: sửa xong theo AC. | #1173 | US-13 |

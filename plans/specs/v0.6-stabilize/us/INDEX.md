@@ -19,3 +19,5 @@ updated: 2026-10-25
 | US-09.md | Sync main component không đổi tên layer instance (#983) | REQ-17 |
 | US-10.md | Kiểm input headless từ QA red team (RT-03..07) (#1003) | REQ-18 |
 | US-11.md | designos-diff --version (#1088) | REQ-16 |
+| US-12.md | Tab Antigravity lặp output và mất scroll sau khi zoom UI (#1171) | REQ-19 |
+| US-13.md | Cuộn được terminal và card 'changed layers' sau lượt agent lớn (#1173) | REQ-20 |
