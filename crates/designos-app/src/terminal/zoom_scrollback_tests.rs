@@ -150,14 +150,7 @@ pub(super) fn all_terminal_lines(parser: &mut vt100::Parser) -> (usize, Vec<Stri
     let mut out = Vec::with_capacity(sb_len + usize::from(rows));
     for offset in (1..=sb_len).rev() {
         parser.set_scrollback(offset);
-        let widened = offset > usize::from(rows);
-        if widened {
-            parser.set_size(offset as u16, cols);
-        }
-        let line = row_text(parser.screen(), 0, cols);
-        if widened {
-            parser.set_size(rows, cols);
-        }
+        let line = with_scrollback_safe_screen(parser, |screen| row_text(screen, 0, cols));
         out.push(line);
     }
     parser.set_scrollback(0);
@@ -613,4 +606,45 @@ fn edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn
 
         cleanup_state(st);
     }
+}
+
+#[test]
+fn agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled() {
+    // 1. `agents-approval-open-tab` is a #1126 layout-gate preset and must have no scrollback.
+    let mut st_open = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    st_open.open_approval_fixture("agents-approval-open-tab", None);
+    let (open_sb_len, open_sb_offset) = {
+        let tab = st_open.active_tab().expect("active tab for agents-approval-open-tab");
+        let mut p = tab.parser.lock().unwrap();
+        (parser_scrollback_len(&mut p), p.screen().scrollback())
+    };
+    cleanup_state(st_open);
+    assert_eq!(open_sb_len, 0, "agents-approval-open-tab must have no scrollback lines, got {open_sb_len}");
+    assert_eq!(open_sb_offset, 0, "agents-approval-open-tab must not be scrolled into history, got {open_sb_offset}");
+
+    // 2. `--panel agents-scrollback` is registered in CLI PANELS and has 120 history lines scrolled into history.
+    assert!(crate::cli::PANELS.contains(&"agents-scrollback"), "CLI PANELS must register agents-scrollback");
+    let parsed = crate::cli::parse(["--panel".to_string(), "agents-scrollback".to_string()]).expect("parse --panel agents-scrollback");
+    assert_eq!(parsed.panel.as_deref(), Some("agents-scrollback"));
+
+    let mut st_sb = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    st_sb.open_approval_fixture("agents-scrollback", None);
+    let (sb_len, sb_offset, lines) = {
+        let tab = st_sb.active_tab().expect("active tab for agents-scrollback");
+        let mut p = tab.parser.lock().unwrap();
+        let offset = p.screen().scrollback();
+        let (len, all_lines) = all_terminal_lines(&mut p);
+        (len, offset, all_lines)
+    };
+    cleanup_state(st_sb);
+
+    let history_matches = (1..=120)
+        .filter(|idx| {
+            let expected = format!("[{idx:03}] Inspecting layer tokens and scrollback");
+            lines.iter().any(|l| l.trim() == expected)
+        })
+        .count();
+    assert_eq!(history_matches, 120, "agents-scrollback must contain all 120 history lines, got {history_matches}");
+    assert!(sb_len > 0, "agents-scrollback must have scrollback history (sb_len={sb_len})");
+    assert_eq!(sb_offset, 45, "agents-scrollback must have its view scrolled into history at offset 45, got {sb_offset}");
 }
