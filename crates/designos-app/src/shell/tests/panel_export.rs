@@ -200,7 +200,7 @@ fn panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_
 
         let toast = s.app().toast.as_ref().expect("multi-file export must show a toast");
         assert_eq!(toast.text, format!("No save dialog. Saved 2 files to {}", downloads.display()));
-        assert_eq!(toast.reveal.as_deref(), Some(png.as_path()), "multi-file export toast must support Show in folder");
+        assert_eq!(toast.reveal.as_deref(), Some(downloads.as_path()), "multi-file export toast must support Show in folder on the destination directory");
         assert!(s.rect_of("toast-reveal").width() > 0.0);
     });
     std::fs::remove_dir_all(&home).ok();

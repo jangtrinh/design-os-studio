@@ -96,4 +96,4 @@ pub fn reveal_file(file: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod comment_notice_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

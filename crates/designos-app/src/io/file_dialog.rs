@@ -216,11 +216,11 @@ impl App {
         match dialogs.fallback_dir() {
             None => self.show_toast(NO_FALLBACK_FOLDER, true),
             Some(dir) => match write_new_in(&dir, file_name, bytes) {
-                Ok(path) => {
-                    let text = format!("No save dialog. Saved to {}", path.display());
-                    self.show_toast_with_reveal_status(text, true, path);
+                Ok(path) => self.show_toast_with_reveal(format!("No save dialog. Saved to {}", path.display()), path),
+                Err(e) => {
+                    let tried = dir.join(designos_export::sanitize_file_name(file_name));
+                    self.show_export_write_error(true, &tried, &e);
                 }
-                Err(e) => self.show_export_write_error(true, &dir.join(file_name), &e),
             },
         }
     }
