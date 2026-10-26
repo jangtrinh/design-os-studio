@@ -568,15 +568,15 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     // A test never starts a real CLI, not even for `--version`: nothing in a test depends on the installed version, and a CLI
     // found on the developer's machine would run against whatever home it finds. (`version_probe_command` still gives the
     // probe a scratch home, as defense in depth.)
-    if cfg!(test) {
-        return None;
-    }
     let bin = preset.binary_name();
     let sources = crate::cli_resolve::current_search_sources(None);
     let dirs = crate::cli_resolve::cli_search_dirs_with(&sources);
     let resolved_bin = resolve_cli_executable(bin, &sources);
     #[cfg(test)]
     LAST_WARMER_RESOLVED.with(|slot| *slot.borrow_mut() = Some(resolved_bin.clone()));
+    if cfg!(test) {
+        return None;
+    }
     let path_key = format!("{bin}:{dirs:?}");
     let cache = version_cache();
     if let Ok(mut guard) = cache.lock() {
@@ -586,14 +586,8 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         guard.insert(path_key.clone(), None);
     }
     std::thread::spawn(move || {
-<<<<<<< HEAD
-        let sources = crate::cli_resolve::current_search_sources(None);
-        let Some(resolved_bin) = resolve_cli_executable(bin, &sources) else { return };
-        let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
-=======
         let Some(resolved_bin) = resolved_bin else { return };
-        let Ok(out) = std::process::Command::new(resolved_bin).arg("--version").output() else { return };
->>>>>>> 5abf34ca (feat(app): add cli_resolve and hermetic agent CLI mode)
+        let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
         if let Ok(mut guard) = version_cache().lock() {
@@ -603,7 +597,6 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     None
 }
 
-<<<<<<< HEAD
 /// The `--version` command for the installed CLI of `_preset` at `bin`. It is the same for every CLI.
 pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std::process::Command {
     let mut cmd = std::process::Command::new(bin);
@@ -615,36 +608,9 @@ pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std:
     cmd
 }
 
-pub(crate) fn resolve_cli_executable(bin: &str, _sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(path_os) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&path_os) {
-            if !p.as_os_str().is_empty() {
-                dirs.push(p);
-            }
-        }
-    }
-    dirs.extend(crate::terminal::extra_cli_path_dirs());
-    for d in dirs {
-        let cand = d.join(bin);
-        if cand.is_file() {
-            return Some(cand);
-        }
-        if cfg!(windows) {
-            for ext in ["exe", "cmd", "bat"] {
-                let w = d.join(format!("{bin}.{ext}"));
-                if w.is_file() {
-                    return Some(w);
-                }
-            }
-        }
-    }
-    None
-=======
 pub(crate) fn resolve_cli_executable(bin: &str, sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
     let dirs = crate::cli_resolve::cli_search_dirs_with(sources);
     crate::cli_resolve::resolve_in(&dirs, bin)
->>>>>>> 5abf34ca (feat(app): add cli_resolve and hermetic agent CLI mode)
 }
 
 impl SessionFailure {

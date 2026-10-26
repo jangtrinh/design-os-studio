@@ -252,24 +252,42 @@ pub fn labelled(ui: &Ui, id: Id, role: egui::accesskit::Role, name: &str) {
 /// Relaxed flag turning on `record` pass listing in release builds (`--layout-json`).
 pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+thread_local! {
+    static CURRENT_PASS_NAMES: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static LAST_PASS_NAMES: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// Moves the current pass's recorded `(name, rect)` pairs into `last_pass_names`.
-pub fn finish_pass_records() {}
+pub fn finish_pass_records() {
+    CURRENT_PASS_NAMES.with(|cur| {
+        LAST_PASS_NAMES.with(|last| {
+            *last.borrow_mut() = std::mem::take(&mut *cur.borrow_mut());
+        });
+    });
+}
 
 /// Returns the `(name, rect)` pairs recorded during the last completed pass.
+#[allow(dead_code)]
 pub fn last_pass_names() -> Vec<(String, Rect)> {
-    Vec::new()
+    LAST_PASS_NAMES.with(|last| last.borrow().clone())
 }
 
 /// Clears any in-progress pass records and `last_pass_names` on the current thread.
-pub fn clear_pass_records() {}
+#[allow(dead_code)]
+pub fn clear_pass_records() {
+    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().clear());
+    LAST_PASS_NAMES.with(|last| last.borrow_mut().clear());
+}
 
-/// Test hook: remembers where a named widget was drawn so UI tests can find it.
+/// Test hook: remembers where a named widget was drawn so UI tests and layout snapshots can find it.
 #[cfg(test)]
 pub fn record(ui: &Ui, name: &str, rect: Rect) {
     if RECORD_DISABLED.with(std::cell::Cell::get) {
         return;
     }
+    let _ = RECORDING.load(std::sync::atomic::Ordering::Relaxed);
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", name.to_string())), rect));
+    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
 }
 
 #[cfg(test)]
@@ -301,7 +319,11 @@ impl Drop for RecordDisabled {
 }
 #[cfg(not(test))]
 #[inline]
-pub fn record(_ui: &Ui, _name: &str, _rect: Rect) {}
+pub fn record(_ui: &Ui, name: &str, rect: Rect) {
+    if RECORDING.load(std::sync::atomic::Ordering::Relaxed) {
+        CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), rect)));
+    }
+}
 
 pub use designos_export::util::fmt_num;
 

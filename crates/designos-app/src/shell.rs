@@ -98,6 +98,7 @@ pub struct Shell {
     paste_chord: crate::clipboard::PasteChord,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
+    launch_had_panel_or_file: bool,
 }
 
 impl Shell {
@@ -108,8 +109,6 @@ impl Shell {
         }
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
-        let panel_was_none = opts.panel.is_none();
-        let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
@@ -118,10 +117,6 @@ impl Shell {
         }
         if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
             let _ = SELECT_MISS.set(miss.clone());
-        }
-        if !screenshot && panel_was_none && !has_file {
-            shell.app.ui.rail = Some(crate::app::RailItem::Agents);
-            shell.app.ui.left_collapsed = false;
         }
         if let Some(rs) = &cc.wgpu_render_state {
             if let Some(max) = canvas::gpu::init(rs) {
@@ -135,18 +130,27 @@ impl Shell {
         let start = canvas::gpu_default::decide(saved, gpu_flag, software);
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
-        shell.app.tabs.always_visible = true;
-        if shell.app.home.is_none() {
-            let mut tabs = std::mem::take(&mut shell.app.tabs);
-            tabs.sync_from_app(&shell.app);
-            shell.app.tabs = tabs;
-        }
+        shell.apply_launch_defaults(screenshot);
         shell
     }
 
-    pub fn apply_launch_defaults(&mut self, _screenshot: bool) {}
+    pub fn apply_launch_defaults(&mut self, screenshot: bool) {
+        self.app.ui.screenshot_chrome = screenshot;
+        self.app.ui.rulers = true;
+        if !screenshot && !self.launch_had_panel_or_file {
+            self.app.ui.rail = Some(crate::app::RailItem::Agents);
+            self.app.ui.left_collapsed = false;
+        }
+        self.app.tabs.always_visible = true;
+        if self.app.home.is_none() {
+            let mut tabs = std::mem::take(&mut self.app.tabs);
+            tabs.sync_from_app(&self.app);
+            self.app.tabs = tabs;
+        }
+    }
 
     pub fn build(ctx: &Context, opts: Options) -> Self {
+        let launch_had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
@@ -494,7 +498,7 @@ impl Shell {
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -1489,6 +1493,7 @@ impl Shell {
         }
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
+        widgets::finish_pass_records();
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1525,10 +1530,12 @@ impl Shell {
         if self.app.step_pending_relayout() {
             ctx.request_repaint();
         }
+        let mut regions = crate::app::ShellRegions::default();
         let window_full = ui.max_rect();
-        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
+        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && !self.app.ui.screenshot_chrome && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
             let title_bar_rect = Rect::from_min_max(window_full.min, Pos2::new(window_full.right(), window_full.top() + TOP_TITLE_BAR_HEIGHT));
+            regions.title_bar = Some(title_bar_rect);
             let tp = ui.painter_at(title_bar_rect);
             tp.rect_filled(title_bar_rect, 0.0, egui::Color32::from_rgb(0x18, 0x18, 0x1B));
             tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x27, 0x27, 0x2A)));
@@ -1556,6 +1563,7 @@ impl Shell {
         let full = if show_tab_bar {
             let bar_rect =
                 Rect::from_min_max(after_title_rect.min, Pos2::new(after_title_rect.right(), after_title_rect.top() + crate::tabs::TOP_TAB_BAR_HEIGHT));
+            regions.tab_bar = Some(bar_rect);
             crate::tabs::show_top_tab_bar_ui(ui, bar_rect, &mut self.app);
             Rect::from_min_max(Pos2::new(after_title_rect.left(), bar_rect.bottom()), after_title_rect.max)
         } else {
@@ -1565,6 +1573,8 @@ impl Shell {
             after_title_rect
         };
         if self.app.home.is_some() {
+            regions.home = Some(full);
+            self.app.ui.regions = regions;
             if show_tab_bar {
                 let mut home_ui = ui.new_child(egui::UiBuilder::new().max_rect(full));
                 self.home_frame(&mut home_ui, &ctx);
@@ -1579,6 +1589,8 @@ impl Shell {
         self.app.history_tick();
         self.app.dev_tick(&ctx);
         if self.app.proto.present.is_some() {
+            regions.present = Some(full);
+            self.app.ui.regions = regions;
             crate::present::show(&mut self.app, ui);
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
@@ -1607,6 +1619,23 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        regions.rail = Some(rail_rect);
+        if full_vars {
+            let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
+            regions.variables_full = Some(content);
+        } else {
+            if !self.app.ui.left_collapsed {
+                regions.left_panel = Some(left_rect);
+            }
+            regions.canvas = Some(canvas_rect);
+            if deck {
+                regions.notes = Some(notes_rect);
+            }
+            if !board {
+                regions.right_panel = Some(right_rect);
+            }
+        }
+        self.app.ui.regions = regions;
         crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);

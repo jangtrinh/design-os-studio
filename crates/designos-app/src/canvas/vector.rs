@@ -1121,8 +1121,7 @@ pub fn toolbar(app: &mut App, ui: &mut egui::Ui, rect: ERect) {
     for (i, t) in VTool::ALL.iter().enumerate() {
         let r = ERect::from_min_size(Pos2::new(bar.left() + 4.0 + i as f32 * w, bar.top() + 4.0), egui::vec2(w, 28.0));
         let resp = ui.interact(r, ui.id().with(("vtool", i)), egui::Sense::click());
-        #[cfg(test)]
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", format!("vtool:{}", t.label()))), r));
+        crate::widgets::record(ui, &format!("vtool:{}", t.label()), r);
         let on = *t == tool;
         let bg = if on {
             theme::BG_TOOLBAR_SELECTED
