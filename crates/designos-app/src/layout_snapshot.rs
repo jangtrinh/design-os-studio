@@ -1055,6 +1055,73 @@ mod tests {
         assert!(err_edge.contains("prop-row-2"), "edge failure must name prop-row-2, got: {err_edge}");
     }
 
+    /// Round 5 Major A: Each row's own bounding-box `dh` (`c_h - b_h`) must also lie in its
+    /// covering entry's `[min_dh, max_dh]` ±0.5, failing with an error that names the row.
+    /// Grok's scenario: one row holding A `[0,0,40,24]` and B `[0,10,40,24]`, both grow to `h=32`,
+    /// and B moves to `y=18`. Under `{h_base:24, min_dh:8, max_dh:8}` it must fail because the
+    /// row's own bounding-box `dh` is +16 (`34 -> 50`).
+    #[test]
+    fn row_own_dh_is_range_checked_against_covering_entry() {
+        let mut base = sample_snapshot("f-inspector");
+        base.named.clear();
+        base.named.insert("A".into(), NamedWidget { region: "right_panel".into(), rect: [0.0, 0.0, 40.0, 24.0], count: 1 });
+        base.named.insert("B".into(), NamedWidget { region: "right_panel".into(), rect: [0.0, 10.0, 40.0, 24.0], count: 1 });
+
+        let mut cur = base.clone();
+        cur.named.get_mut("A").unwrap().rect = [0.0, 0.0, 40.0, 32.0];
+        cur.named.get_mut("B").unwrap().rect = [0.0, 18.0, 40.0, 32.0];
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "f-inspector".into(),
+            region: "right_panel".into(),
+            h_base: Some(24.0),
+            min_dh: Some(8.0),
+            max_dh: Some(8.0),
+            spec: "F".into(),
+            reason: "R5: row height 24->32".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        let err = compare(&base, &cur, &allow, &[]).expect_err("row with bounding-box dh=+16 under [8,8] must fail");
+        assert!(
+            err.contains("row") && err.contains("dh") && (err.contains("A") || err.contains("B")),
+            "row dh failure must name the row and report dh out of range, got: {err}"
+        );
+
+        // Even if B has an explicit dy: 8 entry excusing its y shift, the row's own dh (+16) must still fail.
+        let allow_with_b_dy = validate_allow_entries(vec![
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                h_base: Some(24.0),
+                min_dh: Some(8.0),
+                max_dh: Some(8.0),
+                spec: "F".into(),
+                reason: "R5: row height 24->32".into(),
+                ..Default::default()
+            },
+            AllowEntry {
+                case: "f-inspector".into(),
+                region: "right_panel".into(),
+                name_prefix: Some("B".into()),
+                dy: Some(8.0),
+                min_dh: Some(8.0),
+                max_dh: Some(8.0),
+                spec: "F".into(),
+                reason: "R5: B shifts +8 and grows 24->32".into(),
+                ..Default::default()
+            },
+        ])
+        .expect("valid allow list");
+
+        let err2 = compare(&base, &cur, &allow_with_b_dy, &[]).expect_err("row with bounding-box dh=+16 must fail even when B's dy=+8 is allowed");
+        assert!(
+            err2.contains("row") && err2.contains("dh") && (err2.contains("A") || err2.contains("B")),
+            "row dh failure must name the row and report dh out of range, got: {err2}"
+        );
+    }
+
     /// Round 4 Major 1: Three unnamed inspector rows go 24->32 and step down by +0, +8, +16
     /// under `{h_base: 24, min_dh: 8, max_dh: 8}`; G4 applies the cumulative row-box `dh` shift.
     #[test]
