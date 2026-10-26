@@ -24,6 +24,9 @@ pub struct SearchSources {
 
 static HERMETIC_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
+#[cfg(test)]
+static TEST_HERMETIC_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
 fn has_dot_or_dotdot_component(path: &Path) -> bool {
     path.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::CurDir))
 }
@@ -51,22 +54,32 @@ pub fn validate_and_canonicalize_hermetic_dir(raw_dir: &str) -> Result<PathBuf, 
     Ok(canon)
 }
 
-/// Returns `Some(canonical_dir)` when `DESIGNOS_AGENT_CLI_DIR` was set in the process environment.
+/// True when hermetic mode was activated at startup or requested via `DESIGNOS_AGENT_CLI_DIR`.
+pub fn hermetic_mode_active() -> bool {
+    #[cfg(not(test))]
+    {
+        HERMETIC_DIR.get().is_some_and(Option::is_some) || std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
+    }
+    #[cfg(test)]
+    {
+        std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
+    }
+}
+
+/// Returns the canonical `PathBuf` validated and stored in `HERMETIC_DIR` at startup.
+/// Never re-reads or re-canonicalizes `DESIGNOS_AGENT_CLI_DIR` after startup.
 pub fn hermetic_agent_cli_dir() -> Option<PathBuf> {
-    HERMETIC_DIR
-        .get_or_init(|| {
-            let raw = std::env::var_os("DESIGNOS_AGENT_CLI_DIR")?;
-            let s = raw.to_str()?;
-            if s.trim().is_empty() {
-                return None;
-            }
-            let p = Path::new(s);
-            if !p.is_absolute() || has_dot_or_dotdot_component(p) {
-                return None;
-            }
-            std::fs::canonicalize(p).ok()
-        })
-        .clone()
+    #[cfg(not(test))]
+    {
+        HERMETIC_DIR.get().and_then(Clone::clone)
+    }
+    #[cfg(test)]
+    {
+        if !hermetic_mode_active() {
+            return None;
+        }
+        TEST_HERMETIC_DIR.lock().unwrap_or_else(|e| e.into_inner()).clone().or_else(|| HERMETIC_DIR.get().and_then(Clone::clone))
+    }
 }
 
 #[cfg(test)]
@@ -317,14 +330,21 @@ pub fn write_hermetic_ack(tmpdir: &Path, dir: &Path, pid: u32) -> std::io::Resul
     Ok(ack_path)
 }
 
-/// Runs [`hermetic_startup_check`] and, when `DESIGNOS_AGENT_CLI_DIR` is active, writes the acknowledgement file
-/// with the canonical stub directory path.
+/// Runs [`hermetic_startup_check`] and, when `DESIGNOS_AGENT_CLI_DIR` is active, stores the validated canonical
+/// stub directory in `HERMETIC_DIR` and writes the acknowledgement file with that canonical path.
 pub fn enforce_hermetic_startup(env: &BTreeMap<String, String>, opts: &crate::cli::Options, pid: u32) -> Result<Option<PathBuf>, String> {
     let Some(canon_dir) = hermetic_startup_check_inner(env, opts)? else {
+        #[cfg(not(test))]
+        let _ = HERMETIC_DIR.set(None);
         return Ok(None);
     };
     let tmp = env.get("TMPDIR").expect("TMPDIR validated by hermetic_startup_check");
     let ack = write_hermetic_ack(Path::new(tmp), &canon_dir, pid).map_err(|e| format!("hermetic agent mode failed to write acknowledgement: {e}"))?;
+    let _ = HERMETIC_DIR.set(Some(canon_dir.clone()));
+    #[cfg(test)]
+    {
+        *TEST_HERMETIC_DIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(canon_dir);
+    }
     Ok(Some(ack))
 }
 
@@ -376,6 +396,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("designos-1126-{tag}-{}-{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
+        let _ = std::fs::write(dir.join(HERMETIC_MARKER_FILENAME), b"ok\n");
         std::fs::canonicalize(&dir).unwrap_or(dir)
     }
 

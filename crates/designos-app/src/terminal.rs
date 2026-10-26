@@ -4911,6 +4911,9 @@ fn build_agent_shell_cmd_checked_for_tab(
     file_path: Option<&Path>,
     session: Option<&SessionEnv>,
 ) -> Result<CommandBuilder, String> {
+    if crate::cli_resolve::hermetic_mode_active() && crate::cli_resolve::hermetic_agent_cli_dir().is_none() {
+        return Err("hermetic mode: startup-validated DESIGNOS_AGENT_CLI_DIR is missing".to_string());
+    }
     build_agent_shell_cmd_with_session_in(shell_bin, agent_cli, crate::cli_resolve::hermetic_agent_cli_dir().as_deref(), preset, file_path, session)
 }
 
@@ -4927,11 +4930,13 @@ fn build_agent_shell_cmd_with_session_in(
     session: Option<&SessionEnv>,
 ) -> Result<CommandBuilder, String> {
     if let Some(dir) = hermetic_dir {
-        let canon_dir = dir
-            .to_str()
-            .ok_or_else(|| "hermetic mode: non-UTF-8 hermetic dir".to_string())
-            .and_then(crate::cli_resolve::validate_and_canonicalize_hermetic_dir)
-            .or_else(|_| std::fs::canonicalize(dir).map_err(|e| format!("hermetic mode: failed to canonicalize {}: {e}", dir.display())))?;
+        let canon_dir = match crate::cli_resolve::hermetic_agent_cli_dir() {
+            Some(pinned) if pinned == dir => pinned,
+            _ => dir
+                .to_str()
+                .ok_or_else(|| "hermetic mode: non-UTF-8 hermetic dir".to_string())
+                .and_then(crate::cli_resolve::validate_and_canonicalize_hermetic_dir)?,
+        };
         let trimmed = agent_cli.trim_start();
         let body = trimmed.strip_prefix("exec ").map(str::trim_start).unwrap_or(trimmed);
         if body.is_empty() {
@@ -4968,21 +4973,32 @@ fn build_agent_shell_cmd_with_session_in(
 
 fn tab_designos_env_map(preset: AgentCliPreset, file_path: Option<&Path>, session: Option<&SessionEnv>) -> std::collections::BTreeMap<String, String> {
     let mut map = std::collections::BTreeMap::new();
-    let fallback_dir = std::env::temp_dir().join("designos-sessions").join(tab_session_id(&format!("p{}", std::process::id()), 1));
-    map.insert("DESIGNOS_AGENT_RUNTIME".into(), preset.binary_name().into());
-    map.insert("DESIGNOS_IN_PROGRESS_STALE_MINUTES".into(), designos_doc::in_progress_stale_minutes().to_string());
+    let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
     map.insert("DESIGNOS_SESSION_DIR".into(), fallback_dir.to_string_lossy().into_owned());
-    map.insert("DESIGNOS_AGENT_RUN_ID".into(), format!("p{}-tab-1-1-1", std::process::id()));
     map.insert("DESIGNOS_MCP_CONFIG".into(), fallback_dir.join("mcp-config.json").to_string_lossy().into_owned());
-    map.insert("DESIGNOS_LIVE_SPEC".into(), fallback_dir.join("live-spec.json").to_string_lossy().into_owned());
     map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), fallback_dir.join("live-doc.designos").to_string_lossy().into_owned());
     map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), fallback_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());
     map.insert("DESIGNOS_LIVE_CANVAS".into(), fallback_dir.join("live-canvas.png").to_string_lossy().into_owned());
     map.insert("DESIGNOS_CONTEXT_JSON".into(), fallback_dir.join("context.json").to_string_lossy().into_owned());
-    map.insert("DESIGNOS_SELECTION_JSON".into(), fallback_dir.join("selection.spec.json").to_string_lossy().into_owned());
     map.insert("DESIGNOS_TARGET_PAGE_ID".into(), "0".into());
     map.insert("DESIGNOS_TARGET_PAGE_NAME".into(), "Page 1".into());
     map.insert("DESIGNOS_DOC_NAME".into(), "Untitled".into());
+
+    // 1. Parent `DESIGNOS_*` environment variables first.
+    for (k, v) in std::env::vars_os() {
+        if let (Some(ks), Some(vs)) = (k.to_str(), v.to_str()) {
+            if ks.starts_with("DESIGNOS_") {
+                map.insert(ks.to_string(), vs.to_string());
+            }
+        }
+    }
+
+    // 2. Values forced by `configure_pty_env` regardless of parent environment.
+    map.insert("DESIGNOS_AGENT_RUNTIME".into(), preset.binary_name().into());
+    map.insert("DESIGNOS_IN_PROGRESS_STALE_MINUTES".into(), designos_doc::in_progress_stale_minutes().to_string());
+    map.insert("DESIGNOS_AGENT_RUN_ID".into(), format!("p{}-tab-1-1-1", std::process::id()));
+    map.insert("DESIGNOS_LIVE_SPEC".into(), fallback_dir.join("live-spec.json").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_SELECTION_JSON".into(), fallback_dir.join("selection.spec.json").to_string_lossy().into_owned());
     if let Ok(exe) = std::env::current_exe() {
         map.insert("DESIGNOS_BIN".into(), exe.to_string_lossy().into_owned());
     }
@@ -4992,14 +5008,7 @@ fn tab_designos_env_map(preset: AgentCliPreset, file_path: Option<&Path>, sessio
     }
     map.insert("DESIGNOS_WORKSPACE".into(), session_workspace_dir(file_path).to_string_lossy().into_owned());
 
-    for (k, v) in std::env::vars_os() {
-        if let (Some(ks), Some(vs)) = (k.to_str(), v.to_str()) {
-            if ks.starts_with("DESIGNOS_") {
-                map.insert(ks.to_string(), vs.to_string());
-            }
-        }
-    }
-
+    // 3. Per-tab session overlay.
     if let Some(sess) = session {
         map.insert("DESIGNOS_SESSION_DIR".into(), sess.session_dir.to_string_lossy().into_owned());
         map.insert("DESIGNOS_AGENT_RUN_ID".into(), sess.run_id.clone());
@@ -5683,8 +5692,6 @@ pub fn configure_pty_env_with_session_and_hermetic(
 ) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());
-    cmd.env("DESIGNOS_IN_PROGRESS_STALE_MINUTES", designos_doc::in_progress_stale_minutes().to_string());
     if preset == AgentCliPreset::Grok {
         // Grok starts repo-local MCP servers, hooks and skills only in a trusted folder. The tab's
         // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
@@ -5716,20 +5723,7 @@ pub fn configure_pty_env_with_session_and_hermetic(
             None => cmd.env_remove(name),
         }
     }
-
     if let Some(sess) = session {
-        cmd.env("DESIGNOS_SESSION_DIR", sess.session_dir.as_os_str());
-        cmd.env("DESIGNOS_AGENT_RUN_ID", &sess.run_id);
-        cmd.env("DESIGNOS_MCP_CONFIG", sess.mcp_config_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_SPEC", sess.live_spec_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_DOC_SYNC", sess.live_doc_sync_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_DOC_PATCH", sess.session_dir.join("doc-patch.jsonl").as_os_str());
-        cmd.env("DESIGNOS_LIVE_CANVAS", sess.live_canvas_path.as_os_str());
-        cmd.env("DESIGNOS_CONTEXT_JSON", sess.context_json_path.as_os_str());
-        cmd.env("DESIGNOS_SELECTION_JSON", sess.selection_spec_path.as_os_str());
-        cmd.env("DESIGNOS_TARGET_PAGE_ID", sess.current_page_id.to_string());
-        cmd.env("DESIGNOS_TARGET_PAGE_NAME", &sess.current_page_name);
-        cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
             // The variable is Gemini's own, so a value the user or an admin set stays when Studio has no file to name.
@@ -5737,32 +5731,17 @@ pub fn configure_pty_env_with_session_and_hermetic(
                 cmd.env(crate::gemini_status_hooks::SYSTEM_DEFAULTS_ENV, defaults);
             }
         }
-        if let Some(tab_uuid) = sess.tab_session_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            cmd.env("DESIGNOS_TAB_SESSION_UUID", tab_uuid);
-        }
-    } else {
-        cmd.env("DESIGNOS_AGENT_RUN_ID", format!("p{}-tab-1-1-1", std::process::id()));
-        let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
-        cmd.env("DESIGNOS_LIVE_SPEC", fallback_dir.join("live-spec.json").as_os_str());
-        cmd.env("DESIGNOS_SELECTION_JSON", fallback_dir.join("selection.spec.json").as_os_str());
     }
-
-    if let Ok(exe) = std::env::current_exe() {
-        cmd.env("DESIGNOS_BIN", exe.as_os_str());
+    for (k, v) in tab_designos_env_map(preset, file_path, session) {
+        cmd.env(k, v);
     }
-    cmd.env("DESIGNOS_MCP_BIN", designos_mcp_binary().as_os_str());
-    if let Some(fp) = file_path {
-        cmd.env("DESIGNOS_FILE", fp.as_os_str());
-    }
-    cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
     if cmd.get_cwd().is_none() {
         cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
     }
 
     if let Some(dir) = hermetic_dir {
-        let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         let sep = if cfg!(windows) { ";" } else { ":" };
-        let hermetic_path = format!("{}{sep}/usr/bin{sep}/bin", canon.display());
+        let hermetic_path = format!("{}{sep}/usr/bin{sep}/bin", dir.display());
         cmd.env("PATH", hermetic_path);
         cmd.env_remove("BASH_ENV");
         cmd.env_remove("ENV");
