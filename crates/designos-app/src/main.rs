@@ -129,6 +129,65 @@ fn window_icon() -> Option<egui::IconData> {
     Some(egui::IconData { rgba: img.into_raw(), width, height })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum StartupDisposition {
+    ContinueToWindow,
+    ExitZero,
+}
+
+/// Runs the pre-window startup checks and non-window CLI branches (`--help`, `--version`,
+/// `missing_file_message`, `--seed-library`, and `run_agent_cli`).
+pub(crate) fn run_startup_before_window<I, K, V>(
+    opts: &cli::Options,
+    env_os: I,
+    pid: u32,
+) -> Result<StartupDisposition, (i32, String)>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<std::ffi::OsString>,
+    V: Into<std::ffi::OsString>,
+{
+    if opts.help {
+        println!("{}", cli::USAGE);
+        return Ok(StartupDisposition::ExitZero);
+    }
+    if opts.version {
+        println!("{}", cli::version_line());
+        return Ok(StartupDisposition::ExitZero);
+    }
+    // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
+    if let Some(message) = cli::missing_file_message(opts) {
+        return Err((2, message));
+    }
+    if let Some(dir) = &opts.seed_library {
+        #[cfg(any(test, feature = "fixtures"))]
+        match showcase::seed_library(dir) {
+            Ok(()) => {
+                println!("designos: wrote the showcase sample files to {}", dir.display());
+                return Ok(StartupDisposition::ExitZero);
+            }
+            Err(e) => {
+                return Err((1, format!("designos: cannot seed {}: {e}", dir.display())));
+            }
+        }
+        #[cfg(not(any(test, feature = "fixtures")))]
+        {
+            let _ = dir;
+            return Err((2, "designos: --seed-library requires a build with the 'fixtures' feature".to_string()));
+        }
+    }
+    if opts.is_agent_cli() {
+        run_agent_cli(opts).map_err(|e| (2, format!("designos: {e}")))?;
+        return Ok(StartupDisposition::ExitZero);
+    }
+    let env_map: std::collections::BTreeMap<String, String> = env_os
+        .into_iter()
+        .filter_map(|(k, v)| Some((k.into().into_string().ok()?, v.into().into_string().ok()?)))
+        .collect();
+    cli_resolve::enforce_hermetic_startup(&env_map, opts, pid).map_err(|e| (2, format!("designos: {e}")))?;
+    Ok(StartupDisposition::ContinueToWindow)
+}
+
 fn main() {
     designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
     let opts = match cli::parse(std::env::args().skip(1)) {
@@ -138,48 +197,13 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if opts.help {
-        println!("{}", cli::USAGE);
-        return;
-    }
-    if opts.version {
-        println!("{}", cli::version_line());
-        return;
-    }
-    // Before any window or command: a name that is not a file (`designos doctor`) must not open an empty editor.
-    if let Some(message) = cli::missing_file_message(&opts) {
-        eprintln!("{message}");
-        std::process::exit(2);
-    }
-    if let Some(dir) = &opts.seed_library {
-        #[cfg(any(test, feature = "fixtures"))]
-        match showcase::seed_library(dir) {
-            Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
-            Err(e) => {
-                eprintln!("designos: cannot seed {}: {e}", dir.display());
-                std::process::exit(1);
-            }
+    match run_startup_before_window(&opts, std::env::vars_os(), std::process::id()) {
+        Ok(StartupDisposition::ContinueToWindow) => {}
+        Ok(StartupDisposition::ExitZero) => return,
+        Err((code, msg)) => {
+            eprintln!("{msg}");
+            std::process::exit(code);
         }
-        #[cfg(not(any(test, feature = "fixtures")))]
-        {
-            let _ = dir;
-            eprintln!("designos: --seed-library requires a build with the 'fixtures' feature");
-            std::process::exit(2);
-        }
-        #[cfg(any(test, feature = "fixtures"))]
-        return;
-    }
-    if opts.is_agent_cli() {
-        if let Err(e) = run_agent_cli(&opts) {
-            eprintln!("designos: {e}");
-            std::process::exit(2);
-        }
-        return;
-    }
-    let env_map: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    if let Err(e) = cli_resolve::enforce_hermetic_startup(&env_map, &opts, std::process::id()) {
-        eprintln!("designos: {e}");
-        std::process::exit(2);
     }
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));

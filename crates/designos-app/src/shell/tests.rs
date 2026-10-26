@@ -1790,10 +1790,12 @@ mod agent_a11y {
         std::fs::create_dir_all(&tmp).expect("create 8e temp dir");
 
         let cc_shot = eframe::CreationContext::_new_kittest(egui::Context::default());
-        let mut shot_opts = Options::default();
-        shot_opts.library = Some(tmp.join("lib-shot"));
-        shot_opts.fixture = Some("demo".to_string());
-        shot_opts.screenshot = Some(tmp.join("out.png"));
+        let shot_opts = Options {
+            library: Some(tmp.join("lib-shot")),
+            fixture: Some("demo".to_string()),
+            screenshot: Some(tmp.join("out.png")),
+            ..Options::default()
+        };
         let shell_shot = Shell::new(&cc_shot, shot_opts);
         assert!(shell_shot.app.ui.screenshot_chrome, "Shell::new with screenshot: Some(..) must set screenshot_chrome = true");
         assert_ne!(shell_shot.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with screenshot: Some(..) must not apply the Agents rail default");
@@ -1801,9 +1803,7 @@ mod agent_a11y {
         assert!(shell_shot.app.ui.rulers);
 
         let cc_live = eframe::CreationContext::_new_kittest(egui::Context::default());
-        let mut live_opts = Options::default();
-        live_opts.library = Some(tmp.join("lib-live"));
-        live_opts.fixture = Some("demo".to_string());
+        let live_opts = Options { library: Some(tmp.join("lib-live")), fixture: Some("demo".to_string()), ..Options::default() };
         let mut shell_live = Shell::new(&cc_live, live_opts);
         assert!(!shell_live.app.ui.screenshot_chrome, "Shell::new without screenshot must leave screenshot_chrome = false");
         assert_eq!(shell_live.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with Options::default() must apply the Agents rail default");
@@ -1813,9 +1813,7 @@ mod agent_a11y {
 
         // Also verify apply_launch_defaults directly on a Shell::build instance and region population in Shell::draw.
         let ctx_build = egui::Context::default();
-        let mut build_opts = Options::default();
-        build_opts.library = Some(tmp.join("lib-build"));
-        build_opts.fixture = Some("demo".to_string());
+        let build_opts = Options { library: Some(tmp.join("lib-build")), fixture: Some("demo".to_string()), ..Options::default() };
         let mut shell_build = Shell::build(&ctx_build, build_opts);
         shell_build.apply_launch_defaults(true);
         assert!(shell_build.app.ui.screenshot_chrome, "apply_launch_defaults(true) must set screenshot_chrome = true");

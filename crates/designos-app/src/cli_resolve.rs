@@ -214,6 +214,13 @@ pub fn enforce_hermetic_startup(env: &BTreeMap<String, String>, opts: &crate::cl
     Ok(Some(ack))
 }
 
+/// Returns the path to the checked-in POSIX agent CLI stubs in `tests/layout-baseline/stubs`.
+#[cfg(test)]
+pub fn stub_dir() -> &'static Path {
+    static STUB_DIR: OnceLock<PathBuf> = OnceLock::new();
+    STUB_DIR.get_or_init(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/layout-baseline/stubs"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,7 +234,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("designos-1126-{tag}-{}-{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        dir
+        std::fs::canonicalize(&dir).unwrap_or(dir)
     }
 
     fn write_exec_stub(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -242,30 +249,31 @@ mod tests {
     }
 
     /// H1: `build_agent_shell_cmd_in`, given the hermetic dir as an explicit argument, gives argv
-    /// `["/bin/sh", "-c", "exec <DIR>/claude …"]` with no `-l` or `-i`, for every preset and for the Shell preset.
+    /// `[canonical_stub_path, ...parsed_args]` directly (never `/bin/sh -c`, no `-l` or `-i`),
+    /// for every preset and for the Shell preset.
     #[test]
     fn hermetic_shell_cmd_has_no_login_or_interactive_flags() {
         let dir = make_temp_dir("h1");
         for bin in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
             write_exec_stub(&dir, bin, "#!/bin/sh\nexit 0\n");
         }
-        for (preset, launch) in [
-            (AgentCliPreset::Claude, "claude --dangerously-skip-permissions"),
-            (AgentCliPreset::Codex, "codex --full-auto"),
-            (AgentCliPreset::Antigravity, "agy --add-dir /tmp"),
-            (AgentCliPreset::Grok, "grok --cwd /tmp"),
-            (AgentCliPreset::Gemini, "gemini --approval-mode yolo"),
-            (AgentCliPreset::OpenCode, "opencode"),
+        for (preset, launch, expected_tail) in [
+            (AgentCliPreset::Claude, "claude --dangerously-skip-permissions", vec!["--dangerously-skip-permissions"]),
+            (AgentCliPreset::Codex, "codex --full-auto", vec!["--full-auto"]),
+            (AgentCliPreset::Antigravity, "agy --add-dir /tmp", vec!["--add-dir", "/tmp"]),
+            (AgentCliPreset::Grok, "grok --cwd /tmp", vec!["--cwd", "/tmp"]),
+            (AgentCliPreset::Gemini, "gemini --approval-mode yolo", vec!["--approval-mode", "yolo"]),
+            (AgentCliPreset::OpenCode, "opencode", vec![]),
         ] {
             let cmd = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", launch, Some(&dir))
                 .unwrap_or_else(|e| panic!("preset {preset:?} must build in hermetic mode: {e}"));
             let argv: Vec<String> = cmd.get_argv().iter().map(|s| s.to_string_lossy().into_owned()).collect();
-            let expected_bin = dir.join(preset.binary_name());
-            let rest = &launch[preset.binary_name().len()..];
+            let expected_bin = dir.join(preset.binary_name()).display().to_string();
+            let mut expected = vec![expected_bin];
+            expected.extend(expected_tail.into_iter().map(str::to_string));
             assert_eq!(
-                argv,
-                vec!["/bin/sh".to_string(), "-c".to_string(), format!("exec {}{rest}", expected_bin.display()),],
-                "preset {preset:?} argv must use /bin/sh -c without -l or -i"
+                argv, expected,
+                "preset {preset:?} argv must exec canonical binary directly without /bin/sh -c, -l, or -i"
             );
         }
 
@@ -508,8 +516,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// H10: Scans `crates/designos-app/src/**/*.rs`: `split_paths(` and `var_os("PATH")` appear
-    /// only in `cli_resolve.rs` and `configure_pty_env_with_session`.
+    /// H10 + 8(g): Scans `crates/designos-app/src/**/*.rs` for `split_paths(`, `var_os("PATH")`,
+    /// `var("PATH")`, `Command::new("<agent>")`, and `PathBuf::from("<agent>")`.
+    /// Allow-lists only `cli_resolve.rs` and documented non-agent uses (`io/dialog_probe.rs`'s Linux
+    /// `zenity` file-chooser availability lookup).
     #[test]
     fn hermetic_resolver_census() {
         fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -533,6 +543,15 @@ mod tests {
 
         let split_needle = ["split_paths", "("].concat();
         let var_os_needle = ["var_os(", "\"PATH\"", ")"].concat();
+        let var_needle = ["var(", "\"PATH\"", ")"].concat();
+        let agents = ["claude", "codex", "grok", "gemini", "agy", "opencode"];
+        let cmd_agent_needles: Vec<String> = agents.iter().map(|a| ["Command::new(\"", a, "\")"].concat()).collect();
+        let pathbuf_agent_needles: Vec<String> = agents.iter().map(|a| ["PathBuf::from(\"", a, "\")"].concat()).collect();
+
+        // Documented non-agent PATH allow-list:
+        // - `io/dialog_probe.rs`: probes `PATH` for Linux `zenity` file-chooser availability; never resolves or spawns agent CLIs.
+        let allowed_non_agent_var_path: &[(&Path, &str)] =
+            &[(Path::new("io/dialog_probe.rs"), "Linux zenity file-chooser availability probe (never resolves agent CLIs)")];
 
         let mut violations = Vec::new();
         for file in files {
@@ -544,34 +563,234 @@ mod tests {
                 continue;
             }
             let text = std::fs::read_to_string(&file).expect("read source file");
-            let is_terminal = rel == Path::new("terminal.rs");
-            let mut in_configure_pty_env = false;
-            let mut brace_depth: i32 = 0;
+            let allow_var_path = allowed_non_agent_var_path.iter().any(|(allowed_rel, _reason)| rel == *allowed_rel);
 
             for (idx, line) in text.lines().enumerate() {
                 let line_no = idx + 1;
-                if is_terminal && line.contains("pub fn configure_pty_env_with_session") {
-                    in_configure_pty_env = true;
-                    brace_depth = 0;
-                }
-                if in_configure_pty_env {
-                    brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
-                    brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
-                }
                 let code_part = line.split("//").next().unwrap_or("");
-                if !in_configure_pty_env && (code_part.contains(&split_needle) || code_part.contains(&var_os_needle)) {
+                let has_path_violation = code_part.contains(&split_needle)
+                    || code_part.contains(&var_os_needle)
+                    || (!allow_var_path && code_part.contains(&var_needle));
+                let has_agent_violation = cmd_agent_needles.iter().any(|n| code_part.contains(n))
+                    || pathbuf_agent_needles.iter().any(|n| code_part.contains(n));
+                if has_path_violation || has_agent_violation {
                     violations.push(format!("{}:{line_no}: {}", rel.display(), line.trim()));
-                }
-                if in_configure_pty_env && brace_depth <= 0 && line.contains('}') {
-                    in_configure_pty_env = false;
                 }
             }
         }
         assert!(
             violations.is_empty(),
-            "found split_paths( or var_os(\"PATH\") outside cli_resolve.rs and configure_pty_env_with_session:\n{}",
+            "found unallowed PATH or bare-agent lookup outside cli_resolve.rs:\n{}",
             violations.join("\n")
         );
+    }
+
+    /// 8(a): Startup order: `run_startup_before_window` (the function `main` calls first after `cli::parse`)
+    /// enforces hermetic startup before `--help`, `--version`, `--seed-library`, and `run_agent_cli` (`--apply-spec`),
+    /// returning exit code 2 and writing nothing when the hermetic environment is invalid.
+    #[test]
+    fn startup_check_runs_before_seed_library_and_agent_cli() {
+        let root = make_temp_dir("r2-8a");
+        let doc_path = root.join("copy.designos");
+        let spec_path = root.join("spec.json");
+        let seed_dir = root.join("seeded");
+        std::fs::create_dir_all(&seed_dir).unwrap();
+
+        let mut doc = designos_doc::Document::new("Original");
+        crate::io::ensure_page(&mut doc);
+        crate::io::save_path(&doc, &doc_path).expect("save initial doc");
+        let initial_bytes = std::fs::read(&doc_path).expect("read initial doc bytes");
+
+        std::fs::write(&spec_path, br#"{"kind":"frame","name":"Injected","width":120,"height":80}"#).expect("write spec");
+
+        let bad_env = || -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+            vec![("DESIGNOS_AGENT_CLI_DIR".into(), root.join("no-marker").into_os_string())]
+        };
+
+        // 1. --apply-spec with invalid hermetic env exits 2 and does not modify doc_path
+        let apply_opts = crate::cli::Options {
+            file: Some(doc_path.clone()),
+            apply_spec: Some(spec_path),
+            ..Default::default()
+        };
+        let res_apply = crate::run_startup_before_window(&apply_opts, bad_env(), 4242);
+        let (code_apply, msg_apply) = res_apply.expect_err("--apply-spec with invalid hermetic env must fail");
+        assert_eq!(code_apply, 2, "--apply-spec must exit 2: {msg_apply}");
+        assert!(msg_apply.contains("hermetic agent mode denied"), "error must come from hermetic check: {msg_apply}");
+        assert_eq!(std::fs::read(&doc_path).unwrap(), initial_bytes, "--apply-spec must not modify the target file when hermetic check fails");
+
+        // 2. --seed-library with invalid hermetic env exits 2 and writes nothing into seed_dir
+        let seed_opts = crate::cli::Options {
+            seed_library: Some(seed_dir.clone()),
+            ..Default::default()
+        };
+        let res_seed = crate::run_startup_before_window(&seed_opts, bad_env(), 4242);
+        let (code_seed, msg_seed) = res_seed.expect_err("--seed-library with invalid hermetic env must fail");
+        assert_eq!(code_seed, 2, "--seed-library must exit 2: {msg_seed}");
+        assert!(msg_seed.contains("hermetic agent mode denied"), "error must come from hermetic check: {msg_seed}");
+        assert!(std::fs::read_dir(&seed_dir).unwrap().next().is_none(), "--seed-library must leave directory empty when hermetic check fails");
+
+        // 3. --help and --version with invalid hermetic env also exit 2
+        let help_opts = crate::cli::Options { help: true, ..Default::default() };
+        assert_eq!(crate::run_startup_before_window(&help_opts, bad_env(), 4242).unwrap_err().0, 2);
+        let ver_opts = crate::cli::Options { version: true, ..Default::default() };
+        assert_eq!(crate::run_startup_before_window(&ver_opts, bad_env(), 4242).unwrap_err().0, 2);
+
+        // 4. Non-UTF-8 DESIGNOS_AGENT_CLI_DIR exits 2; non-UTF-8 other variable is ignored without panic
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let non_utf8 = std::ffi::OsString::from_vec(vec![0xff, 0xfe, 0xfd]);
+            let bad_utf8_env = vec![(std::ffi::OsString::from("DESIGNOS_AGENT_CLI_DIR"), non_utf8.clone())];
+            let (code_utf8, _) = crate::run_startup_before_window(&crate::cli::Options::default(), bad_utf8_env, 4242)
+                .expect_err("non-UTF-8 DESIGNOS_AGENT_CLI_DIR must exit 2");
+            assert_eq!(code_utf8, 2);
+
+            let other_non_utf8_env = vec![(std::ffi::OsString::from("UNRELATED_BIN_VAR"), non_utf8)];
+            assert_eq!(
+                crate::run_startup_before_window(&crate::cli::Options::default(), other_non_utf8_env, 4242),
+                Ok(crate::StartupDisposition::ContinueToWindow),
+                "non-UTF-8 unrelated env var must be ignored when DESIGNOS_AGENT_CLI_DIR is unset"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 8(b): A symlinked stub pointing outside the stub directory is refused.
+    #[test]
+    #[cfg(unix)]
+    fn hermetic_mode_refuses_symlink_outside_stub_dir() {
+        let root = make_temp_dir("r2-8b");
+        let stubs = root.join("stubs");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&stubs).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(stubs.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+
+        let outside_claude = write_exec_stub(&outside, "claude", "#!/bin/sh\nexit 0\n");
+        std::os::unix::fs::symlink(&outside_claude, stubs.join("claude")).expect("symlink claude -> outside");
+
+        assert_eq!(
+            resolve_in(std::slice::from_ref(&stubs), "claude"),
+            None,
+            "resolve_in in hermetic/stub dir must refuse a symlink pointing outside the stub dir"
+        );
+        assert!(
+            crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", Some(&stubs)).is_err(),
+            "build_agent_shell_cmd_in must refuse a symlinked binary pointing outside the stub dir"
+        );
+        let sources = SearchSources { hermetic: Some(stubs), ..Default::default() };
+        assert_eq!(
+            crate::agent_session_failure::resolve_cli_executable("claude", &sources),
+            None,
+            "resolve_cli_executable must refuse a symlink pointing outside the hermetic dir"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 8(c): A relative `DESIGNOS_AGENT_CLI_DIR` or a path containing `..` is refused at startup.
+    #[test]
+    fn hermetic_startup_refuses_relative_or_dotdot_dir() {
+        let root = make_temp_dir("r2-8c");
+        let stubs = root.join("stubs");
+        let lib = root.join("lib");
+        let tmp = root.join("tmp");
+        let home = root.join("home");
+        for d in [&stubs, &lib, &tmp, &home] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+        }
+        let shot_opts = crate::cli::Options { screenshot: Some(root.join("out.png")), ..Default::default() };
+
+        let mut env_rel = BTreeMap::new();
+        env_rel.insert("DESIGNOS_AGENT_CLI_DIR".into(), "stubs".into());
+        env_rel.insert("DESIGNOS_LIBRARY".into(), lib.display().to_string());
+        env_rel.insert("TMPDIR".into(), tmp.display().to_string());
+        env_rel.insert("HOME".into(), home.display().to_string());
+        let err_rel = hermetic_startup_check(&env_rel, &shot_opts).expect_err("relative DESIGNOS_AGENT_CLI_DIR must be denied");
+        assert!(err_rel.contains("DESIGNOS_AGENT_CLI_DIR"), "error must name DESIGNOS_AGENT_CLI_DIR: {err_rel}");
+
+        let mut env_dotdot = env_rel;
+        env_dotdot.insert("DESIGNOS_AGENT_CLI_DIR".into(), format!("{}/../stubs", stubs.display()));
+        let err_dotdot = hermetic_startup_check(&env_dotdot, &shot_opts).expect_err(".. in DESIGNOS_AGENT_CLI_DIR must be denied");
+        assert!(err_dotdot.contains("DESIGNOS_AGENT_CLI_DIR"), "error must name DESIGNOS_AGENT_CLI_DIR: {err_dotdot}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 8(d): `claude & /usr/bin/true`, `claude > x`, `claude < x`, and unexpanded non-`DESIGNOS_*`
+    /// variables are refused in hermetic mode; valid `$DESIGNOS_*` variables are expanded without a shell.
+    #[test]
+    fn hermetic_mode_refuses_background_redirect_and_unexpanded_vars() {
+        let dir = make_temp_dir("r2-8d");
+        write_exec_stub(&dir, "claude", "#!/bin/sh\nexit 0\n");
+
+        for bad in ["claude & /usr/bin/true", "claude > x", "claude < x", "claude $HOME", "claude ${USER}", "claude $1"] {
+            let res = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", bad, Some(&dir));
+            let err = match res {
+                Ok(cmd) => panic!("hermetic mode must refuse {bad:?}, got argv {:?}", cmd.get_argv()),
+                Err(e) => e,
+            };
+            assert!(err.starts_with("hermetic mode: refused command "), "unexpected error for {bad:?}: {err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 8(e): The grok usage caller (`TerminalState::refresh_tab_usage`) with no `grok` stub spawns nothing.
+    #[test]
+    fn grok_usage_caller_with_no_grok_stub_spawns_nothing() {
+        let empty_stubs = make_temp_dir("r2-8e-empty");
+        let _guard = ScopedCliDirs::enter(&empty_stubs);
+
+        let mut st = crate::terminal::TerminalState::default();
+        st.session_dir = empty_stubs.join("session");
+        std::fs::create_dir_all(&st.session_dir).unwrap();
+        let mut tab = crate::terminal::TerminalTab::spawn_with_session_cmd(
+            1,
+            AgentCliPreset::Grok,
+            24,
+            80,
+            None,
+            None,
+            Some(portable_pty::CommandBuilder::new("true")),
+        )
+        .expect("spawn dummy tab");
+        tab.session_uuid = Some("grok-sid-8e".to_string());
+        st.tabs.push(tab);
+
+        st.refresh_tab_usage(0);
+        assert!(
+            st.tabs[0].usage.elapsed_since_last_poll().is_none(),
+            "refresh_tab_usage must not trigger grok usage subprocess when grok binary is absent from stub dir"
+        );
+
+        let _ = std::fs::remove_dir_all(&empty_stubs);
+    }
+
+    /// 8(f): With hermetic mode off, the child `PATH` built in `agent_cli_catalog.rs` prepends
+    /// `install_folders` plus `extra_cli_path_dirs()` before the process `PATH`, in the exact old order.
+    #[test]
+    #[cfg(unix)]
+    fn non_hermetic_catalog_path_prepends_install_and_extra_before_host_path() {
+        use crate::agent_cli_catalog::{RunCommand, SystemCommandRunner};
+        use std::time::Duration;
+
+        let install_dir = make_temp_dir("r2-8f-install");
+        write_exec_stub(&install_dir, "print-path", "#!/bin/sh\nprintf '%s' \"$PATH\"\n");
+
+        let out = SystemCommandRunner.run(&["print-path"], std::slice::from_ref(&install_dir), Duration::from_secs(2));
+        assert_eq!(out.exit_code, Some(0), "print-path must succeed: stderr={}", out.stderr);
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let mut extra_paths: Vec<String> = vec![install_dir.to_string_lossy().into_owned()];
+        extra_paths.extend(crate::terminal::extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()));
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let expected = if current_path.is_empty() { extra_paths.join(sep) } else { format!("{}{sep}{current_path}", extra_paths.join(sep)) };
+
+        assert_eq!(out.stdout, expected, "non-hermetic catalog child PATH must prepend install_folders + extra_cli_path_dirs() before process PATH");
+        let _ = std::fs::remove_dir_all(&install_dir);
     }
 
     /// H11: Inside a scoped guard, `warm_cli_version_cache(Claude)` resolves to the stub path
@@ -656,11 +875,4 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
-}
-
-/// Returns the path to the checked-in POSIX agent CLI stubs in `tests/layout-baseline/stubs`.
-#[cfg(test)]
-pub fn stub_dir() -> &'static Path {
-    static STUB_DIR: OnceLock<PathBuf> = OnceLock::new();
-    STUB_DIR.get_or_init(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/layout-baseline/stubs"))
 }
