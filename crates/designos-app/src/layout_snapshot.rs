@@ -1369,11 +1369,13 @@ mod tests {
     }
 
     /// Test 8c: Each agent case, `d-window-chrome` and `k-libraries` is snapshotted with the host `PATH` empty
-    /// and with fake `claude`/`codex` on it. The JSON is identical. `app.libs.root` and every opened `Library`
-    /// root lie under the case temp dir, never under `dirs::data_dir()`.
+    /// and with fake `claude`/`codex` on it (both run under `ScopedCliDirs::enter(&stub_dir)`). The JSON is identical,
+    /// the stub log records only the stub dir, and `app.libs.root` and every opened `Library` root lie under the case
+    /// temp dir, never under `dirs::data_dir()`.
     #[test]
     fn agent_cases_do_not_depend_on_installed_clis() {
         let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
+        let canon_stub_dir = std::fs::canonicalize(&stub_dir).unwrap_or_else(|_| stub_dir.clone());
         let default_lib_root = designos_library::Library::default_root();
         let data_dir = default_lib_root.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_else(|| default_lib_root.clone());
 
@@ -1392,59 +1394,157 @@ mod tests {
             ("i-terminal", Some("terminal"), true),
         ];
 
-        let run_case = |id: &str, panel: Option<&str>, screenshot_chrome: bool| -> String {
-            crate::widgets::clear_pass_records();
-            let ctx = Context::default();
-            let opts = Options { panel: panel.map(String::from), agent_cli_dir: Some(stub_dir.clone()), ..Default::default() };
-            let started = std::time::Instant::now();
-            let mut shell = Shell::build(&ctx, opts);
-            let build_elapsed = started.elapsed();
-            if panel == Some("agents-chat") {
-                assert!(
-                    build_elapsed < std::time::Duration::from_millis(600),
-                    "agents-chat must be state-driven without the 800ms sleep loop, took {build_elapsed:?}"
-                );
-            }
-            shell.apply_launch_defaults(screenshot_chrome);
-            ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
+        if let Some(child_out) = std::env::var_os("DESIGNOS_8C_CHILD_OUT") {
+            let mut results: BTreeMap<String, String> = BTreeMap::new();
+            for &(id, panel, screenshot_chrome) in cases {
+                crate::widgets::clear_pass_records();
+                let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&stub_dir);
+                let ctx = Context::default();
+                let opts = Options { panel: panel.map(String::from), agent_cli_dir: Some(stub_dir.clone()), ..Default::default() };
+                let started = std::time::Instant::now();
+                let mut shell = Shell::build(&ctx, opts);
+                let build_elapsed = started.elapsed();
+                if panel == Some("agents-chat") {
+                    assert!(
+                        build_elapsed < std::time::Duration::from_millis(600),
+                        "agents-chat must be state-driven without the 800ms sleep loop, took {build_elapsed:?}"
+                    );
+                }
+                shell.apply_launch_defaults(screenshot_chrome);
+                ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
 
-            let lib_root = shell.app.libs.root.as_ref().expect("Tier A seam must set app.libs.root on every case");
-            assert!(
-                !lib_root.starts_with(&data_dir),
-                "case {id}: app.libs.root ({}) must not lie under dirs::data_dir() ({})",
-                lib_root.display(),
-                data_dir.display()
-            );
-            if let Some(lib) = &shell.app.lib {
+                let lib_root = shell.app.libs.root.as_ref().expect("Tier A seam must set app.libs.root on every case");
                 assert!(
-                    !lib.root().starts_with(&data_dir),
-                    "case {id}: opened Library root ({}) must not lie under dirs::data_dir() ({})",
-                    lib.root().display(),
+                    !lib_root.starts_with(&data_dir),
+                    "case {id}: app.libs.root ({}) must not lie under dirs::data_dir() ({})",
+                    lib_root.display(),
                     data_dir.display()
                 );
-            }
-            assert_eq!(shell.app.terminal.path_override.as_deref(), Some(stub_dir.as_os_str()), "case {id}: terminal.path_override must equal stub_dir");
-            assert!(shell.app.terminal.picker.settings_root_override.is_some(), "case {id}: picker.settings_root_override must be set");
+                if let Some(lib) = &shell.app.lib {
+                    assert!(
+                        !lib.root().starts_with(&data_dir),
+                        "case {id}: opened Library root ({}) must not lie under dirs::data_dir() ({})",
+                        lib.root().display(),
+                        data_dir.display()
+                    );
+                }
+                assert_eq!(shell.app.terminal.path_override.as_deref(), Some(stub_dir.as_os_str()), "case {id}: terminal.path_override must equal stub_dir");
+                assert!(shell.app.terminal.picker.settings_root_override.is_some(), "case {id}: picker.settings_root_override must be set");
 
-            let raw =
-                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))), time: Some(0.05), ..Default::default() };
-            let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&stub_dir);
-            for i in 0..8 {
-                let mut r = raw.clone();
-                r.time = Some((i + 1) as f64 * 0.05);
-                let _ = ctx.run_ui(r, |ui| shell.draw(ui));
+                let raw = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(1440.0, 900.0))),
+                    time: Some(0.05),
+                    ..Default::default()
+                };
+                for i in 0..8 {
+                    let mut r = raw.clone();
+                    r.time = Some((i + 1) as f64 * 0.05);
+                    let _ = ctx.run_ui(r, |ui| shell.draw(ui));
+                }
+                if id == "i-agents-start-failure" {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    while std::time::Instant::now() < deadline {
+                        let done = shell
+                            .app
+                            .terminal
+                            .tabs
+                            .first_mut()
+                            .is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
+                        if done {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    for i in 0..2 {
+                        let mut r = raw.clone();
+                        r.time = Some((9 + i) as f64 * 0.05);
+                        let _ = ctx.run_ui(r, |ui| shell.draw(ui));
+                    }
+                    assert!(
+                        shell.app.terminal.active_tab().is_some_and(|t| t.start_failure.is_some()),
+                        "i-agents-start-failure must capture the diagnosed start_failure state"
+                    );
+                }
+                let mut snap = capture(&ctx, &shell.app.ui.regions);
+                snap.case = id.to_string();
+                shell.app.terminal.shutdown();
+                results.insert(id.to_string(), serde_json::to_string(&snap).expect("serialize snapshot"));
             }
-            let mut snap = capture(&ctx, &shell.app.ui.regions);
-            snap.case = id.to_string();
-            shell.app.terminal.shutdown();
-            serde_json::to_string(&snap).expect("serialize snapshot")
-        };
-
-        for &(id, panel, screenshot_chrome) in cases {
-            let json_a = run_case(id, panel, screenshot_chrome);
-            let json_b = run_case(id, panel, screenshot_chrome);
-            assert_eq!(json_a, json_b, "case {id} snapshot JSON must be deterministic across runs");
+            let encoded = serde_json::to_string(&results).expect("serialize 8c map");
+            std::fs::write(child_out, encoded).expect("write DESIGNOS_8C_CHILD_OUT");
+            return;
         }
+
+        let tmp = std::env::temp_dir().join(format!("designos-8c-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let fake_cli_dir = tmp.join("fake-host-clis");
+        std::fs::create_dir_all(&fake_cli_dir).expect("create fake_cli_dir");
+        for bin in ["claude", "codex"] {
+            let p = fake_cli_dir.join(bin);
+            std::fs::write(
+                &p,
+                "#!/bin/sh\nif [ -n \"$DESIGNOS_STUB_LOG\" ]; then\n  printf 'FAKE_HOST %s %s\\n' \"$0\" \"$*\" >> \"$DESIGNOS_STUB_LOG\"\nfi\nexit 99\n",
+            )
+            .expect("write fake host cli");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod fake host cli");
+            }
+        }
+
+        let out_empty = tmp.join("out-empty.json");
+        let out_fake = tmp.join("out-fake.json");
+        let log_empty = tmp.join("stub-empty.log");
+        let log_fake = tmp.join("stub-fake.log");
+        let exe = std::env::current_exe().expect("current_exe");
+
+        let child_empty = std::process::Command::new(&exe)
+            .args(["--exact", "layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis", "--nocapture"])
+            .env("PATH", "")
+            .env("DESIGNOS_STUB_LOG", &log_empty)
+            .env("DESIGNOS_8C_CHILD_OUT", &out_empty)
+            .spawn()
+            .expect("spawn empty-PATH 8c child");
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let fake_path = format!("{}{sep}/usr/bin{sep}/bin", fake_cli_dir.display());
+        let child_fake = std::process::Command::new(&exe)
+            .args(["--exact", "layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis", "--nocapture"])
+            .env("PATH", &fake_path)
+            .env("DESIGNOS_STUB_LOG", &log_fake)
+            .env("DESIGNOS_8C_CHILD_OUT", &out_fake)
+            .spawn()
+            .expect("spawn fake-PATH 8c child");
+
+        let res_empty = child_empty.wait_with_output().expect("wait empty-PATH child");
+        let res_fake = child_fake.wait_with_output().expect("wait fake-PATH child");
+        assert!(res_empty.status.success(), "empty-PATH 8c child failed:\n{}", String::from_utf8_lossy(&res_empty.stdout));
+        assert!(res_fake.status.success(), "fake-PATH 8c child failed:\n{}", String::from_utf8_lossy(&res_fake.stdout));
+
+        let map_empty: BTreeMap<String, String> = serde_json::from_str(&std::fs::read_to_string(&out_empty).expect("read out_empty")).expect("parse out_empty");
+        let map_fake: BTreeMap<String, String> = serde_json::from_str(&std::fs::read_to_string(&out_fake).expect("read out_fake")).expect("parse out_fake");
+        for &(id, _, _) in cases {
+            assert_eq!(map_empty.get(id), map_fake.get(id), "case {id}: snapshot JSON under empty PATH must equal snapshot JSON under fake-CLI PATH");
+        }
+
+        for (label, log_path) in [("empty PATH", &log_empty), ("fake-CLI PATH", &log_fake)] {
+            let log_body = std::fs::read_to_string(log_path).unwrap_or_default();
+            let lines: Vec<&str> = log_body.lines().filter(|l| !l.trim().is_empty()).collect();
+            assert!(!lines.is_empty(), "stub log for {label} must not be empty");
+            for line in lines {
+                let invoked = line.split_whitespace().next().unwrap_or("");
+                let invoked_path = Path::new(invoked);
+                let canon_parent = invoked_path.parent().and_then(|p| std::fs::canonicalize(p).ok());
+                assert_eq!(
+                    canon_parent.as_deref(),
+                    Some(canon_stub_dir.as_path()),
+                    "stub log for {label} recorded invocation outside stub_dir ({}): {line}",
+                    canon_stub_dir.display()
+                );
+            }
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// Test 8d: `h-home` with `fixed_now = T` and with `fixed_now = T + 60 s` on a seed with fixed `modified`:
