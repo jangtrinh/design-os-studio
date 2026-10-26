@@ -158,7 +158,7 @@ fn classify_point(pos: Pos2, regions: &ShellRegions, overlays: &[OverlayGeom]) -
     for ov in overlays {
         let r = q4_to_rect(ov.rect);
         if r.contains(pos) {
-            return format!("overlay:{}", ov.name);
+            return if ov.name.starts_with("overlay:") { ov.name.clone() } else { format!("overlay:{}", ov.name) };
         }
     }
     let mut best: Option<(&str, f32)> = None;
@@ -176,7 +176,7 @@ fn classify_point(pos: Pos2, regions: &ShellRegions, overlays: &[OverlayGeom]) -
         return name.to_string();
     }
     if let Some(ov) = overlays.first() {
-        return format!("overlay:{}", ov.name);
+        return if ov.name.starts_with("overlay:") { ov.name.clone() } else { format!("overlay:{}", ov.name) };
     }
     "unknown".to_string()
 }
@@ -221,15 +221,17 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
             .collect()
     });
 
-    let mut overlays: Vec<OverlayGeom> = area_layers
+    let mut order_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let overlays: Vec<OverlayGeom> = area_layers
         .iter()
         .filter(|(_, r)| r.width() > 0.0 && r.height() > 0.0)
         .map(|(layer, r)| {
             let global_r = ctx.layer_transform_to_global(*layer).map_or(*r, |t| t * *r);
-            OverlayGeom { name: format!("{:?}:{:?}", layer.order, layer.id), rect: rect_to_q4(global_r) }
+            let order_name = format!("{:?}", layer.order);
+            let idx = *order_counts.entry(order_name.clone()).and_modify(|c| *c += 1).or_insert(0);
+            OverlayGeom { name: format!("overlay:{order_name}/{idx}"), rect: rect_to_q4(global_r) }
         })
         .collect();
-    overlays.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| cmp_q4(&a.rect, &b.rect)));
 
     let recorded_pairs = crate::widgets::last_pass_names();
     let mut recorded: BTreeMap<String, (Rect, usize)> = BTreeMap::new();
