@@ -1169,9 +1169,12 @@ mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+#[cfg(unix)]
+mod layout_unchanged;
 mod libraries;
 mod lint;
 mod plugins;
+#[cfg(unix)]
 mod terminal_undo_chord;
 
 #[test]
