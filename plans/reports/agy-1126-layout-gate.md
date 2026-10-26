@@ -547,3 +547,184 @@ dir=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/r2-realcli.8JgCIT/s
 - None.
 
 Status: GREEN — all Round 2 hermetic-mode escapes closed, clippy exit 0, all gates verified.
+
+---
+
+## Round 3
+
+### 1. What Could NOT Be Verified (Stated First)
+
+- **Section 12 Steps 8–9 (`scripts/layout_baseline_capture.py`, Tier B PNG/wireframe run) and the `*.layout.json` / `cases.json.bless_sha` bless were NOT run or committed in Round 3 (`FACT`).** By explicit controller ruling in the Round 3 task prompt, Steps 8–9 and the baseline bless stay in Round 4.
+- **Nothing in Round 3's scope (Part 1's two hermetic review fixes + Part 2's Section 12 Steps 4–7 and Section 10 tests) was left unverified (`FACT`).** Windows/Linux CI targets run on GitHub Actions rather than locally on this macOS (`aarch64-apple-darwin`) worker.
+
+### 2. Conclusion & Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **Conclusion (`FACT`):** Both Round 2 Grok review findings (Part 1) and Spec L Section 12 Steps 4–7 (Part 2) are implemented with red-before-green commit discipline (`plans/reports/agy-1126-layout-gate-evidence/r3-red.log` and `r3-green.log`) and verified green across all workspace and binary test suites (`3,008 passed; 0 failed` in `designos` bin, `0` clippy warnings, `17/17` zero-fake UI gate).
+- **Epistemic Ledger:**
+  - `FACT` — Merging `origin/main` (`5ef7cf189`, bringing `#1203` picker tooltip) into `5d8c7d1d` produced clean merge commit `9a05cccf6`.
+  - `FACT` — Part 1 Finding 1 (Major): `tab_designos_env_map` (`crates/designos-app/src/terminal.rs:4496-4557`) now builds the tab's `DESIGNOS_*` map in the exact child-PTY precedence order: parent `DESIGNOS_*` first, then forced `DESIGNOS_MCP_BIN` (`designos_mcp_binary()`), `DESIGNOS_WORKSPACE`, `DESIGNOS_FILE`, and default session variables (`DESIGNOS_LIVE_CANVAS=1`, `DESIGNOS_LIVE_DOC_SYNC=1`, `DESIGNOS_LIVE_DOC_PATCH=1`, `DESIGNOS_AGENT_RUNTIME`), and finally the live `session.env_vars()` overlay. `configure_pty_env_with_session_and_hermetic` (`terminal.rs:5093-5119`) iterates `tab_designos_env_map` directly so child PTY env and hermetic `$DESIGNOS_*` argv expansion share one source of truth and cannot drift. Verified red (`25e5f5c59`) -> green (`88490f092`) by `cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env`.
+  - `FACT` — Part 1 Finding 2 (Minor): `HERMETIC_DIR: OnceLock<Option<PathBuf>>` (`crates/designos-app/src/cli_resolve.rs:28`) stores the canonical `PathBuf` validated during `enforce_hermetic_startup_os` (marker `.designos-hermetic` included). `hermetic_agent_cli_dir()` returns the pinned path without re-reading or re-canonicalizing `DESIGNOS_AGENT_CLI_DIR`, `resolve_in_hermetic` requires any passed `dir` to match the pinned path when `HERMETIC_DIR` is active (or satisfy `validate_and_canonicalize_hermetic_dir`), the `or_else(canonicalize)` fallback in `terminal.rs` is deleted so an unresolvable/retargeted dir fails with a clear error, and PTY `PATH` uses the pinned canonical dir directly. Verified red (`25e5f5c59`) -> green (`88490f092`) by `cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget`.
+  - `FACT` — Part 2 Step 4: Added `crates/designos-app/src/layout_snapshot.rs` (`LayoutSnapshot`, `RegionSnapshot`, `Rect4`, `ScrollState`, `WidgetEntry`, `AllowList`, `AllowEntry`, `AnchorX`, `AnchorY`, `CompareReport`, `capture`, `parse_allow_list`, `validate_allow_entries`, `compare`, `check_stale_allow_entries`, `compare_with_stale_check`, `load_and_compare_baseline`) and converted `widgets::record` / `widgets::record_with` (`crates/designos-app/src/widgets/mod.rs`) to transform layer-local rects to global viewport coordinates via `ui.ctx().layer_transform_to_global(ui.layer_id())`. Verified red (`44427cc8b`) -> green (`54cb5018`) across all 12 unit tests (`1`, `3`–`7`, `4b`–`4e`, `6b`, `6c`).
+  - `FACT` — Part 2 Step 5: Added `showcase::seed_library_at(root, modified)` (`crates/designos-app/src/showcase/mod.rs:94-138`) with `T_BASE = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)` and 4 seeded projects (`T_BASE - 120s`, `- 3_600s`, `- 86_400s`, `- 259_200s`), added `Home::fixed_now: Option<i64>` and `Home::now_ms(&self)` (`crates/designos-app/src/home/mod.rs:288-295`) wired across all 7 `wall_ms()` display sites in `home/mod.rs` and `home/main_view.rs`, and added the Tier A `opts.agent_cli_dir` seam + state-driven `agents-chat` (`shell.rs:151-169, 229-235, 331-335, 399-402`). Verified red (`3a053adf`) -> green (`18770487`) by tests `8c` (`agent_cases_do_not_depend_on_installed_clis`) and `8d` (`home_is_deterministic_with_fixed_clock`).
+  - `FACT` — Part 2 Step 6: Added `crates/designos-app/src/shell/tests/layout_unchanged/{mod.rs,d.rs..k.rs}`, `crates/designos-app/tests/layout-baseline/cases.json` (74 headless cases + 2 kit cases, no `bless_sha` in Round 3), and `crates/designos-app/tests/layout-baseline/allow.json` (`[]`). When `cases.json.bless_sha` is absent (pre-bless in Round 3), each `layout_unchanged_<spec>` test runs every case owned by that spec through `Sim::from_cli_with_stubs`, captures its `LayoutSnapshot`, and verifies structural invariants plus self-comparison under `G1`–`G5`. Verified red (`3e8ac83b`) -> green (`694d3467`) across all 9 `layout_unchanged` tests.
+  - `FACT` — Part 2 Step 7: Added `--layout-json OUT.json` (`Options::layout_json: Option<PathBuf>`, `cli.rs:109, 341-346, 353-355, 384`) requiring `--screenshot`, enabled `layout_snapshot::RECORDING` during `Shot` frames (`shell.rs:468`), and wrote the JSON snapshot immediately after the PNG write in `drive_screenshot` (`shell.rs:521-541`). Verified red (`7ab958e1`) -> green (`5e8790ac`) by tests `8` (`layout_json_requires_screenshot`) and `8b` (`layout_json_matches_headless_snapshot`).
+  - **Weakest link (one line):** Until Round 4 commits the blessed `*.layout.json` files and `cases.json.bless_sha`, `layout_unchanged_d..k` verify live capture + self-comparison (`compare(&snap, &snap, ...)`) rather than cross-commit baseline diffing (which is locked by unit test `7` `missing_baseline_fails` on `load_and_compare_baseline`).
+
+### 3. Skills Loaded & Changes Made Because of Them
+
+- `es:astra-work` & `es:fable-thinking`: Re-anchored every file/line citation against `9a05cccf6` after merging `origin/main` (`#1203`), maintained an explicit `FACT`/`INFERENCE`/`ASSUMPTION` ledger, stated `PREDICT` before every test/gate run, and verified all acceptance checks on the final code commit (`5e8790ac`).
+- `es:orca-native-orchestration`: Checked coordinator inbox via `orca orchestration check --terminal term_42306ff4-b832-4e39-8751-792d2125bfd7 --json` at natural checkpoints and sent heartbeats with both `--task-id` and `--dispatch-id`.
+- `es:dev` / `es:feature-dev`: Enforced strict Red -> Green commit pairs for Part 1 and each of Steps 4, 5, 6, and 7.
+- `es:rust`: Used `OnceLock<Option<PathBuf>>` for zero-reallocation startup dir pinning, `is_none_or` and `const { assert!(...) }` for clean Rust 2024 / Clippy compliance, and kept `RECORDING` thread-local overhead zero when disabled.
+- `es:rust-gpu-canvas`: Kept `designos-gpu` and `designos-render` completely untouched; hooked `--layout-json` into `shell::drive_screenshot` on the exact `Event::Screenshot` frame so Tier A headless `Sim` and Tier B `--screenshot` capture identical 2-frame geometry.
+
+### 4. Round-3 Drift Table (Spec L Citations Re-Anchored Against `9a05cccf6` / `5e8790ac`)
+
+| Spec L Citation | Spec L Section / Step | Actual Location on Branch (`9a05cccf6` -> `5e8790ac`) | Nature of Drift & Impact |
+|---|---|---|---|
+| `crates/designos-app/src/cli.rs:5-103` (`Options`), `:141-199` (`PANELS`), `:228-340` (`parse`), `:354-372` (`USAGE`) | Step 7 (`--layout-json`) | `Options` at `:5-110`, `PANELS` (`[&str; 58]`, `#1203` added `"fill-picker-libraries"`) at `:144-203`, `parse` at `:231-356`, `USAGE` at `:366-385` | Plain line shift + `#1203` added `"fill-picker-libraries"` to `PANELS`. Non-breaking; `--layout-json` added cleanly. |
+| `crates/designos-app/src/shell.rs:149` (`Shell::build`), `:207-212` (`opts.home`), `:303-405` (`match opts.panel.as_deref()`), `:422-500` (`Shot` / `drive_screenshot`) | Steps 5 & 7 | `Shell::build` at `:149`, Tier A seam at `:151-169`, `opts.home` + `fixed_now` at `:229-235`, `match opts.panel.as_deref()` at `:325-431` (`agents-chat` at `:331-335`, `version-history` at `:399-402`), `Shot` / `drive_screenshot` at `:444-545` | Plain line shift from Step 5 additions + `#1203` arm (`"fill-picker-libraries"` at `:423-428`). Non-breaking. |
+| `crates/designos-app/src/home/mod.rs:1451, 1651, 1900, 2232, 2673` & `main_view.rs:203, 496` (`wall_ms()`) | Step 5 (`Home::now_ms`) | `home/mod.rs:288-295` (`now_ms`), display sites at `home/mod.rs:1463, 1663, 1912, 2244, 2685` and `home/main_view.rs:203, 496` | Exact match on `main_view.rs`; +12 line shift in `home/mod.rs` from adding `fixed_now` field and `now_ms(&self)`. |
+| `crates/designos-app/src/showcase/mod.rs:87-128` (`seed_library`) | Step 5 (`seed_library_at`) | `seed_library` at `:87-91` delegates to `seed_library_at(root, None)` at `:94-138` | Exact line anchor `:87`. Non-breaking refactor. |
+| `crates/designos-app/src/terminal.rs:4496-4528` (`tab_designos_env_map`), `:5085-5097` (`configure_pty_env_with_session_and_hermetic`) | Part 1 Findings 1 & 2 | `tab_designos_env_map` at `:4496-4557`; `configure_pty_env_with_session_and_hermetic` at `:5093-5119` | Unified into single precedence helper + pinned canonical `PathBuf`. |
+| `crates/designos-app/src/shell/tests.rs:37-105` (`Sim`), `:1166` (module tail) | Steps 5 & 6 | `Sim` at `:37-115`; `#[cfg(unix)] mod layout_unchanged;` registered at `:1168` | Plain line shift (+2 lines from `#1203` test). |
+
+### 5. Red -> Green Commit Pairs & Acceptance Verification
+
+| Step / Scope | Red Commit | Green Commit | Tests Verified (Red -> Green) |
+|---|---|---|---|
+| **Merge `origin/main`** | — | `9a05cccf6` | Merged `origin/main` (`5ef7cf189`, `#1203`) into `5d8c7d1d` |
+| **Part 1 (Hermetic fixes 1 & 2)** | `25e5f5c59` | `88490f092` | `hermetic_codex_expansion_uses_tab_env_not_parent_env`, `hermetic_startup_dir_is_pinned_after_symlink_retarget` (`0/2` -> `19/19`) |
+| **Part 2 Step 4 (`layout_snapshot.rs` + `G1`–`G5`)** | `44427cc8b` | `54cb5018` | Unit tests `1`, `3`–`7`, `4b`–`4e`, `6b`, `6c` (`0/12` -> `12/12`) |
+| **Part 2 Step 5 (Tier A seams + fixed clock)** | `3a053adf` | `18770487` | Unit tests `8c` (`agent_cases_do_not_depend_on_installed_clis`), `8d` (`home_is_deterministic_with_fixed_clock`) (`0/2` -> `2/2`) |
+| **Part 2 Step 6 (`layout_unchanged` + `cases.json` + `allow.json`)** | `3e8ac83b` | `694d3467` | `cases_json_and_allow_json_match_spec_l_contract` + `layout_unchanged_d..k` (`0/9` -> `9/9`) |
+| **Part 2 Step 7 (`--layout-json` CLI + screenshot hook)** | `7ab958e1` | `5e8790ac` | Unit tests `8` (`layout_json_requires_screenshot`), `8b` (`layout_json_matches_headless_snapshot`) (`0/2` -> `2/2`) |
+
+---
+
+#### Acceptance 1 — Red (`r3-red.log`) & Green (`r3-green.log`) Summaries
+
+Full logs are committed at `plans/reports/agy-1126-layout-gate-evidence/r3-red.log` and `plans/reports/agy-1126-layout-gate-evidence/r3-green.log`.
+
+```text
+=== r3-red.log summary ===
+Part 1 (25e5f5c59): test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 2989 filtered out; finished in 0.01s
+  - cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env ... FAILED
+  - cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget ... FAILED
+Step 4 (44427cc8b): test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 2991 filtered out; finished in 0.31s
+  - layout_snapshot::tests::{centred_bar_widening_by_12_passes_with_anchor_x_centre, cumulative_shift_is_derived_not_a_range, equally_specific_entries_fail_to_parse, growing_a_row_without_allow_fails_and_with_allow_passes, inspector_overflow_does_not_fail_g2, missing_baseline_fails, palette_growing_above_bottom_anchor_passes_with_allow, region_wide_wildcard_entry_is_rejected, reordering_two_buttons_fails_g3, snapshot_reports_every_region_of_the_editor, stale_allow_entry_fails, widening_the_left_panel_fails_g1} ... FAILED
+Step 5 (3a053adf):  test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3003 filtered out; finished in 1.38s
+  - layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... FAILED
+  - layout_snapshot::tests::home_is_deterministic_with_fixed_clock ... FAILED
+Step 6 (3e8ac83b):  test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 3005 filtered out; finished in 0.00s
+  - shell::tests::layout_unchanged::{cases_json_and_allow_json_match_spec_l_contract, d..k} ... FAILED
+Step 7 (7ab958e1):  test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3014 filtered out; finished in 0.54s
+  - layout_snapshot::tests::layout_json_requires_screenshot ... FAILED
+  - layout_snapshot::tests::layout_json_matches_headless_snapshot ... FAILED
+
+=== r3-green.log summary ===
+Part 1 (88490f092): test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 2972 filtered out; finished in 0.33s
+Step 4 (54cb5018):  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2991 filtered out; finished in 0.23s
+Step 5 (18770487):  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3003 filtered out; finished in 32.71s
+Step 6 (694d3467):  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3005 filtered out; finished in 6.58s
+Step 7 (5e8790ac):  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3014 filtered out; finished in 0.55s
+```
+
+---
+
+#### Acceptance 2 & 3 — Clean `PATH` Proof + Full Mandatory Test Harness on `5e8790ac`
+
+```text
+$ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.cargo/bin"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ for c in claude codex gemini grok agy opencode; do command -v $c; done
+(empty output — exit 1 on all 6 agent CLIs)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+(exit 0)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.64s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.46s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.12s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.41s
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.83s
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.16s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+running 3016 tests
+...
+test result: ok. 3008 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 212.30s
+
+$ python3 scripts/zero_fake_ui_gate.py
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1675, inset_literals=45, radius_literals=260, font_literals=25, nonconcentric_pairs=2
+note: 11 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+```
+
+---
+
+#### Acceptance 4 — `git diff origin/main -- Cargo.lock`
+
+```diff
+$ git diff origin/main -- Cargo.lock
+diff --git a/Cargo.lock b/Cargo.lock
+index abaa1df1..95cc6846 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -968,6 +968,7 @@ dependencies = [
+  "roxmltree",
+  "serde",
+  "serde_json",
++ "shell-words",
+  "toml",
+  "unicode-segmentation",
+  "ureq",
+```
+
+---
+
+#### Acceptance 5 — Real-CLI Check Once With Normal `PATH` (`DESIGNOS_STUB_LOG="$PWD/out/invocations.log"`)
+
+```text
+$ DESIGNOS_STUB_LOG="$PWD/out/invocations.log" CARGO_TARGET_DIR="$PWD/out/cargo" cargo test -p designos-app --bin designos --locked layout_unchanged
+running 9 tests
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3007 filtered out; finished in 5.83s
+
+$ cat "$PWD/out/invocations.log"
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/agy --mcp-config /nonexistent/mcp.json
+```
+
+### 6. Unresolved Questions
+
+- None.
+
+Status: DONE — Round 3 Part 1 (both hermetic fixes) and Part 2 (Spec L Section 12 Steps 4–7) implemented and verified green (3008/0 in designos bin, 0 clippy warnings, 17/17 zero-fake UI gate).
