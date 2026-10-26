@@ -457,3 +457,53 @@ fn ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy() {
     assert_eq!(count_bot_100, 1, "AC-03: 100-column bottom border must appear exactly once, got {count_bot_100}");
 }
 
+#[test]
+fn ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab() {
+    let (mut st, idx) = spawn_fake_cli_tab("a", 28, 100);
+    st.tabs[idx].preset = AgentCliPreset::Claude;
+    st.tabs[idx].spawn_preset = AgentCliPreset::Claude;
+    wait_for_marker(&st, idx, "[winch_seq=0 rows=28 cols=100]");
+    assert_eq!(st.tabs[idx].resize_count, 0);
+
+    let ctx = super::gemini_test_support::panel_ctx();
+
+    // Simulate holding the zoom key across 5 rapid steps (20 ms apart: 1.00, 1.02, 1.04, 1.06, 1.08 s).
+    let steps = [
+        (1.00, Vec2::new(660.0, 420.0)),
+        (1.02, Vec2::new(610.0, 390.0)),
+        (1.04, Vec2::new(560.0, 360.0)),
+        (1.06, Vec2::new(510.0, 330.0)),
+        (1.08, Vec2::new(460.0, 300.0)),
+    ];
+    for (t, sz) in steps {
+        let vp = Rect::from_min_size(Pos2::new(48.0, 40.0), sz);
+        run_viewport_frame(&mut st, &ctx, vp, Some(t), Vec::new());
+    }
+
+    assert_eq!(
+        st.tabs[idx].resize_count, 0,
+        "AC-05: no PTY resize may be sent while zoom steps are still changing within the 120 ms debounce window, got {}",
+        st.tabs[idx].resize_count
+    );
+
+    // At t = 1.15 s (70 ms after the last zoom step at 1.08 s, still < 120 ms), still no resize.
+    let final_vp = Rect::from_min_size(Pos2::new(48.0, 40.0), Vec2::new(460.0, 300.0));
+    run_viewport_frame(&mut st, &ctx, final_vp, Some(1.15), Vec::new());
+    assert_eq!(st.tabs[idx].resize_count, 0, "AC-05: 70 ms after last zoom step (< 120 ms), resize_count must still be 0");
+
+    // At t = 1.21 s (130 ms after 1.08 s, >= 120 ms), exactly one PTY resize is sent!
+    run_viewport_frame(&mut st, &ctx, final_vp, Some(1.21), Vec::new());
+    assert_eq!(st.tabs[idx].resize_count, 1, "AC-05: once the size settles for >= 120 ms, exactly 1 PTY resize must fire");
+    assert_eq!((st.tabs[idx].rows, st.tabs[idx].cols), st.viewport_size, "AC-05: tab size must match settled viewport_size");
+
+    // Subsequent settled frames do not re-trigger resize.
+    run_viewport_frame(&mut st, &ctx, final_vp, Some(1.30), Vec::new());
+    assert_eq!(st.tabs[idx].resize_count, 1, "AC-05: settled frames must not emit extra resizes");
+
+    // AC-04 regression check: Claude Code tab key input and wheel scrollback still work as before.
+    run_viewport_frame(&mut st, &ctx, final_vp, Some(1.32), vec![egui::Event::Text("ok".to_string())]);
+    assert!(st.tabs[idx].written_bytes.ends_with(b"ok"), "AC-04: Claude tab keyboard input must still reach PTY stdin");
+
+    cleanup_state(st);
+}
+
