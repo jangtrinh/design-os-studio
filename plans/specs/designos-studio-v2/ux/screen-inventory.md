@@ -8,9 +8,9 @@ inventory: true
 order: 1
 ---
 
-Danh mục 13 màn hình chuẩn (`S01..S13`) và ma trận trạng thái bắt buộc (`normal`, `empty`, `loading`, `error`, `disabled`, `focus`) của **`design`:os studio** (sử dụng thống nhất hệ biểu tượng Phosphor Icons `https://phosphoricons.com/` theo `US-14` / `DIR-19`).
+Catalogue of the 13 standard screens (`S01..S13`) and the mandatory state matrix (`normal`, `empty`, `loading`, `error`, `disabled`, `focus`) of **`design`:os studio** (consistently using the Phosphor Icons system `https://phosphoricons.com/` per `US-14` / `DIR-19`).
 
-| Screen | Tên màn hình | Story | States bắt buộc |
+| Screen | Screen name | Story | Required states |
 |---|---|---|---|
 | S01 | Canvas, 17 Node Interactions & 2D Grid Inspector | US-01, US-06, US-07, US-08, US-10, US-13, US-14, US-15 | normal, empty, loading, error, disabled, focus |
 | S02 | PRODUCT:OS Spec Driven v2 Reader | US-02, US-08, US-12, US-14 | normal, empty, loading, error, disabled, focus |

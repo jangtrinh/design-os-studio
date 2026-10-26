@@ -14,7 +14,7 @@ topics:
     ids: [D1, D3, D5, D7, D9, D11, D12, D13, D14, D16, D18, D19]
   - id: craft
     name: UI3 Design Craft, Brand Typography, Unified Phosphor Icons, Agents Side Panel, Headless QA & 16-Capture Visual Proof Gallery
-    note: Figma UI3 tokens, design:os studio lowercase+bold brand rule, Operate-mode tokens, Unified Phosphor Icons, Agents Left Side Panel, Copy cho AI, background capture, and design-os-github-page 16-capture visual proof showcase
+    note: Figma UI3 tokens, design:os studio lowercase+bold brand rule, Operate-mode tokens, Unified Phosphor Icons, Agents Left Side Panel, Copy for AI, background capture, and design-os-github-page 16-capture visual proof showcase
     ids: [D2, D4, D6, D8, D10, D15, D17, D20]
 ---
 
@@ -25,7 +25,7 @@ topics:
 | D1 | Preserve 100% unknown Kiwi fields (`raw_fields`), `parameterConsumptionMap` (id=445), `symbolOverrides`, `fontVariations`, and `toggledOnOTFeatures` in `.fig` v106 round-trip, and support 2D CSS Grid (`fr`/`px`/`auto`, `col_span`/`row_span`) | Owner round R0, 2026-10-14: see [contract](../contract/FC-001.md) BR-01, [US-01](../us/US-01.md), [US-07](../us/US-07.md). |
 | D2 | Strictly enforce `es:designer` Operate-mode tokens (`#16171B` / `#1F2024` / `#26272C`), zero emoji icons in chrome, and no cards-in-cards inside Spec Reader v2 (`S02`) | Owner round R1, 2026-10-14: amendment A-01, [contract](../contract/FC-001.md) BR-02, [US-02](../us/US-02.md). |
 | D3 | Compute all 4 KPI strip metrics (`REQs · US`, `ACs · SCNs`, `Screens · Contract Rows`, `Gates Approved`) from a single loaded spec model | Owner round R1, 2026-10-14: see [contract](../contract/FC-001.md) BR-03, [US-02](../us/US-02.md). |
-| D4 | Standardize `Copy cho AI` citation block with `File: <path>:<start>-<end>`, `Mục`, `Trang reader`, `Project`, and persist to `last_ai_copy` for PTY Terminal injection | Owner round R1, 2026-10-15: amendment A-02, [contract](../contract/FC-001.md) BR-04, [US-02](../us/US-02.md), [US-03](../us/US-03.md). |
+| D4 | Standardize `Copy for AI` citation block with `File: <path>:<start>-<end>`, `Section`, `Reader page`, `Project`, and persist to `last_ai_copy` for PTY Terminal injection | Owner round R1, 2026-10-15: amendment A-02, [contract](../contract/FC-001.md) BR-04, [US-02](../us/US-02.md), [US-03](../us/US-03.md). |
 | D5 | Auto-discover `plans/specs/designos-studio-v2`, `product-os-spec-driven/fixtures/v2/full`, and `reference/baseline-v0.2` alongside legacy v1 specs and map all 13 screens (`S01..S13`) in `ui-contract.md` | Owner round R1, 2026-10-15: see [contract](../contract/FC-001.md) BR-05, [US-02](../us/US-02.md), [US-03](../us/US-03.md). |
 | D6 | Enforce 1:1 Figma UI3 Dark Mode palette (`#1E1E1E` canvas, `#2C2C2C` panel, `#383838` input well, `#444444` border, `#0D99FF` selection blue, `#9747FF` component purple, `#24CB71` Dev Mode green), `48px` icon-only rail, Home screen (`S04`), Popovers (`S05..S08`), and 17-node canvas interactions | Owner round R2, 2026-10-15: amendment A-03, [contract](../contract/FC-001.md) BR-06..BR-09, [US-04](../us/US-04.md), [US-05](../us/US-05.md), [US-06](../us/US-06.md). |
 | D7 | Execute `morluto/rea` reverse engineering on `/Applications/Figma.app` (`app.asar`) and `/Users/jangtrinh/Downloads/VSF - PCP.fig`, storing architectural artifacts in `plans/specs/designos-studio-v2/research/` and round-trip tests in `crates/designos-fig/` | Owner round R2, 2026-10-15: amendment A-03, [contract](../contract/FC-001.md) BR-10, [US-07](../us/US-07.md). |
