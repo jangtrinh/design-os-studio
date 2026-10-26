@@ -27,3 +27,4 @@ status: draft
 | [US-16.md](US-16.md) | Export DTCG một file cho onboarding (#1140) | REQ-16 |
 | [US-17.md](US-17.md) | Screenshot CLI không flake (#1141) | REQ-17 |
 | [US-18.md](US-18.md) | Text NodeSpec đo thật, không ước lượng (#1154) | REQ-18 |
+| [US-19.md](US-19.md) | Chốt licence icon Untitled: verdict, check, register (#1122) | REQ-19 |

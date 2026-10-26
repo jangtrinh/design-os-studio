@@ -37,7 +37,7 @@ Cần chuyển chrome sang Untitled UI dark mà không đổi layout. Slice 1 d�
 - SC-06: docs/screenshot (#1125), sau khi D–K ship; nguồn: #1118.
 
 ### Hoãn
-- SC-08: licence icon Untitled (#1122); lý do: câu hỏi pháp lý chờ owner (khuyến nghị Option A, giữ Phosphor/Lucide); xem lại khi: Jang trả lời; nguồn: detail/1122-research-untitled-icons-licence.md.
+- SC-08: licence icon Untitled (#1122); lý do: câu hỏi pháp lý chờ owner (khuyến nghị Option A, giữ Phosphor/Lucide); xem lại khi: Jang trả lời; nguồn: detail/1122-research-untitled-icons-licence.md. Phần làm được ngay (ghi verdict A theo R6, check chặn file Untitled, sửa register) là US-19; mục 7.1/7.2 vẫn chờ Jang.
 
 ### Ngoài phạm vi
 - SC-07: đổi layout, màu canvas/overlay, ANSI terminal, nội dung tài liệu; lý do: owner loại; nguồn: #1118.

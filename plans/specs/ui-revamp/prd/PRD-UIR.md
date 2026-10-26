@@ -34,6 +34,7 @@ Trong: SC-01..SC-06 của FC-UIR (slice 1: SC-01..03; slice 2: SC-04..06). Ngoà
 | REQ-16 | Export DTCG một file cho onboarding: đạt mọi AC trong US-16 (spec chi tiết #1140) | FC-UIR.AC-05 | US-16 |
 | REQ-17 | Screenshot CLI không flake: đạt mọi AC trong US-17 (spec chi tiết #1141) | FC-UIR.AC-05 | US-17 |
 | REQ-18 | Text NodeSpec đo thật, không ước lượng: đạt mọi AC trong US-18 (spec chi tiết #1154) | FC-UIR.AC-05 | US-18 |
+| REQ-19 | Chốt licence icon Untitled (research Q): đạt mọi AC trong US-19 (spec chi tiết #1122) | FC-UIR SC-08 | US-19 |
 
 ## Flow và dependency
 US-01 (L) trước; US-02 (A) rồi US-03 (B). Slice 2: C (US-09) trước D–K (US-04..08, 10..12); công cụ US-13, 15–18 chạy song song; US-14 sau khi D–K ship. Spec chi tiết đã copy vào `detail/` (pack tự đủ).
