@@ -37,9 +37,8 @@ pub fn writer_command(doc: &Document, cmd: Command) -> WriterCommand {
     }
 }
 
-/// Emits companion [`Command::Update`]s when renaming a standalone single-shape component wrapper,
-/// its sole matching inner layer (created by single-shape `Ctrl+Alt+K`), or a main component /
-/// component set whose instances still carry the default un-overridden name (`#1193`).
+/// Emits companion [`Command::Update`]s for un-renamed instances when a main component
+/// or component set is renamed (`#1193`).
 pub fn companion_component_rename_updates(doc: &Document, target_id: NodeId, old_name: &str, new_name: &str) -> Vec<Command> {
     if old_name == new_name {
         return Vec::new();
@@ -47,50 +46,21 @@ pub fn companion_component_rename_updates(doc: &Document, target_id: NodeId, old
     let Some(stored) = doc.get(target_id) else {
         return Vec::new();
     };
-    let is_standalone_component = |n: &Node| {
-        matches!(n.kind, crate::NodeKind::Component(_))
-            && !n.parent.and_then(|pid| doc.get(pid)).is_some_and(|p| matches!(p.kind, crate::NodeKind::ComponentSet(_)))
-    };
+    let is_standalone_component = matches!(stored.kind, crate::NodeKind::Component(_))
+        && !stored.parent.and_then(|pid| doc.get(pid)).is_some_and(|p| matches!(p.kind, crate::NodeKind::ComponentSet(_)));
+    if !is_standalone_component && !matches!(stored.kind, crate::NodeKind::ComponentSet(_)) {
+        return Vec::new();
+    }
 
     let mut updated_ids = BTreeSet::from([target_id]);
     let mut updates = Vec::new();
-    let mut main_owner: Option<NodeId> = None;
-
-    if is_standalone_component(stored) {
-        if let [cid] = stored.children.as_slice() {
-            if let Some(child) = doc.get(*cid) {
-                if child.name == old_name && updated_ids.insert(*cid) {
-                    let mut updated = Node { children: Vec::new(), ..child.clone() };
-                    updated.name = new_name.to_string();
-                    updates.push(Command::Update { node: Box::new(updated) });
-                }
-            }
-        }
-        main_owner = Some(target_id);
-    } else if matches!(stored.kind, crate::NodeKind::ComponentSet(_)) {
-        main_owner = Some(target_id);
-    } else if let Some(pid) = stored.parent {
-        if let Some(parent) = doc.get(pid) {
-            if is_standalone_component(parent) && parent.children.as_slice() == [target_id] && parent.name == old_name {
-                if updated_ids.insert(pid) {
-                    let mut updated = Node { children: Vec::new(), ..parent.clone() };
-                    updated.name = new_name.to_string();
-                    updates.push(Command::Update { node: Box::new(updated) });
-                }
-                main_owner = Some(pid);
-            }
-        }
-    }
-
-    if let Some(owner_id) = main_owner {
-        let comp_ids = crate::components_of(doc, owner_id);
-        for inst_id in crate::instances_of_any(doc, &comp_ids) {
-            let Some(inst) = doc.get(inst_id) else { continue };
-            if !inst.component.overrides.contains(&OverrideField::Name) && inst.name == old_name && updated_ids.insert(inst_id) {
-                let mut updated = Node { children: Vec::new(), ..inst.clone() };
-                updated.name = new_name.to_string();
-                updates.push(Command::Update { node: Box::new(updated) });
-            }
+    let comp_ids = crate::components_of(doc, target_id);
+    for inst_id in crate::instances_of_any(doc, &comp_ids) {
+        let Some(inst) = doc.get(inst_id) else { continue };
+        if !inst.component.overrides.contains(&OverrideField::Name) && inst.name == old_name && updated_ids.insert(inst_id) {
+            let mut updated = Node { children: Vec::new(), ..inst.clone() };
+            updated.name = new_name.to_string();
+            updates.push(Command::Update { node: Box::new(updated) });
         }
     }
 

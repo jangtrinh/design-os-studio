@@ -1,6 +1,6 @@
 //! Canvas hit testing and marquee selection.
 
-use designos_doc::{front_to_back, Affine, Document, NodeId, NodeKind, Rect, Vec2};
+use designos_doc::{front_to_back, Affine, Document, Node, NodeId, NodeKind, Rect, Vec2};
 
 fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
     match kind {
@@ -20,17 +20,47 @@ fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
     }
 }
 
-/// True if the container kind is "transparent" to clicks: clicking a child
-/// selects the child directly (frames, sections, pages).
-fn selects_through(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Page { .. } | NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_))
+/// True if `node` is a [`NodeKind::Component`] whose only child is a leaf shape
+/// (rectangle, ellipse, line, polygon, star, vector, boolean op, text, or image)
+/// rather than a frame, group, component, instance, or section.
+pub fn is_one_shape_component(doc: &Document, node: &Node) -> bool {
+    if !matches!(node.kind, NodeKind::Component(_)) {
+        return false;
+    }
+    let [child_id] = node.children.as_slice() else {
+        return false;
+    };
+    let Some(child) = doc.get(*child_id) else {
+        return false;
+    };
+    matches!(
+        child.kind,
+        NodeKind::Rectangle
+            | NodeKind::Ellipse(_)
+            | NodeKind::Line
+            | NodeKind::Polygon { .. }
+            | NodeKind::Star { .. }
+            | NodeKind::Vector { .. }
+            | NodeKind::BooleanOp(_)
+            | NodeKind::Text(_)
+    )
+}
+
+/// True if the container is "transparent" to clicks: clicking a child
+/// selects the child directly (frames, sections, pages, component sets,
+/// and multi-child or container-child components). A component made from
+/// one leaf shape ([`is_one_shape_component`]) is selected as a whole on
+/// single click and entered on double-click.
+fn selects_through(doc: &Document, node: &Node) -> bool {
+    matches!(node.kind, NodeKind::Page { .. } | NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_))
+        && !is_one_shape_component(doc, node)
 }
 
 /// True if a marquee that only partly covers a container of this kind selects the layers inside it
 /// instead of the container. Main components and component sets are selected whole by a marquee,
 /// like instances; their layers stay reachable by click, Cmd+click and double-click.
-fn marquee_enters(kind: &NodeKind) -> bool {
-    selects_through(kind) && !matches!(kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
+fn marquee_enters(doc: &Document, node: &Node) -> bool {
+    selects_through(doc, node) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
 }
 
 /// Finds the node under `p` (page space).
@@ -136,7 +166,7 @@ fn hit_in(
             k => local_hit(k, n.size, local, tol),
         };
         if n.kind.is_container() {
-            let descend = deep || selects_through(&n.kind) || entered.contains(&cid);
+            let descend = deep || selects_through(doc, n) || entered.contains(&cid);
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             let near_unindexed =
                 index.is_some() || inside || n.size.x <= 0.0 || n.size.y <= 0.0 || matches!(n.kind, NodeKind::Group | NodeKind::BooleanOp(_)) || {
@@ -244,7 +274,7 @@ pub fn marquee_select_with_index(doc: &Document, root: NodeId, r: &Rect, index: 
                 continue;
             }
             let contained = bb.x >= r.x && bb.y >= r.y && bb.x + bb.w <= r.x + r.w && bb.y + bb.h <= r.y + r.h;
-            if n.kind.is_container() && marquee_enters(&n.kind) && !contained && !n.children.is_empty() {
+            if n.kind.is_container() && marquee_enters(doc, n) && !contained && !n.children.is_empty() {
                 marquee_in(doc, cid, r, index, 1, large_doc, &mut out);
             } else {
                 out.push(cid);
@@ -277,7 +307,7 @@ fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_
         } else {
             true
         };
-        if n.kind.is_container() && marquee_enters(&n.kind) && !contained && !n.children.is_empty() && can_descend {
+        if n.kind.is_container() && marquee_enters(doc, n) && !contained && !n.children.is_empty() && can_descend {
             marquee_in(doc, cid, r, index, depth + 1, large_doc, out);
         } else {
             out.push(cid);
@@ -559,5 +589,24 @@ mod tests {
             // empty component area is the component itself
             assert_eq!(hit_test_with_index(&d, page, v2(80.0, 80.0), 0.0, false, &[], index), Some(comp));
         }
+    }
+
+    #[test]
+    fn one_shape_component_selects_component_on_click_and_shape_when_entered_while_marquee_is_unchanged() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let comp = container_at(&mut d, page, NodeKind::Component(FrameProps::default()), Rect::new(0.0, 0.0, 200.0, 200.0));
+        let shape = rect_at(&mut d, comp, Rect::new(0.0, 0.0, 200.0, 200.0));
+        assert!(is_one_shape_component(&d, d.get(comp).unwrap()));
+
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        for index in [None, Some(&idx)] {
+            assert_eq!(hit_test_with_index(&d, page, v2(50.0, 50.0), 0.0, false, &[], index), Some(comp), "single click selects one-shape component");
+            assert_eq!(hit_test_with_index(&d, page, v2(50.0, 50.0), 0.0, false, &[comp], index), Some(shape), "entered (double-click) selects shape");
+            assert_eq!(hit_test_with_index(&d, page, v2(50.0, 50.0), 0.0, true, &[], index), Some(shape), "deep (Cmd+click) selects shape");
+        }
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 60.0, 60.0)), vec![comp], "partial marquee selects component whole");
+        assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 400.0, 400.0)), vec![comp], "enclosing marquee selects component whole");
     }
 }
