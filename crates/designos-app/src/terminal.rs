@@ -1410,11 +1410,18 @@ fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTr
 /// first-turn bootstrap block (section 7, full and compact) all take their rules from here, so they cannot
 /// disagree and a disabled tool is never listed (`E15-16 §8.6`).
 fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>) -> std::borrow::Cow<'static, str> {
+    fn fallback_rules_pack() -> std::borrow::Cow<'static, str> {
+        if designos_mcp::rules::GENERATED_RULES_MD.contains('\r') {
+            std::borrow::Cow::Owned(designos_mcp::rules::GENERATED_RULES_MD.replace("\r\n", "\n").replace('\r', "\n"))
+        } else {
+            std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)
+        }
+    }
     match enabled_tools {
         Some(set) => designos_mcp::rules::generate_rules_pack(Some(set))
             .map(std::borrow::Cow::Owned)
-            .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)),
-        None => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
+            .unwrap_or_else(|_| fallback_rules_pack()),
+        None => fallback_rules_pack(),
     }
 }
 
@@ -12371,6 +12378,28 @@ mod tests {
             let skill_md = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read SKILL.md");
             assert!(skill_md.trim_end().ends_with(&rules), "SKILL.md and the first-turn block must carry the same rules text");
             kill_tabs(&mut st);
+        }
+
+        #[test]
+        fn first_turn_rules_with_crlf_line_endings_fit_under_token_cap_and_normalize_to_lf() {
+            let (doc, page) = light_rules_doc();
+            let crlf_rules = designos_mcp::rules::GENERATED_RULES_MD.replace("\r\n", "\n").replace('\n', "\r\n");
+            assert!(crlf_rules.contains("\r\n"), "precondition: CRLF rules input");
+
+            let opts = designos_export::agent_context::BootstrapOptions {
+                current_page_id: Some(page),
+                ..Default::default()
+            };
+            let boot = designos_export::agent_context::bootstrap(&doc, &opts, &doc.library.enabled, &crlf_rules);
+            let rules_sec = boot.sections.iter().find(|s| s.id == "rules").expect("rules section");
+            assert!(
+                !rules_sec.truncated && rules_sec.tokens <= designos_export::agent_context::CAP_RULES_TOKENS,
+                "CRLF rules pack must not exceed the 6,000-token cap: truncated={}, tokens={}",
+                rules_sec.truncated,
+                rules_sec.tokens
+            );
+            assert!(!rules_sec.content.contains('\r'), "rules section must normalize CRLF to LF");
+            assert_eq!(rules_sec.content, designos_mcp::rules::GENERATED_RULES_MD.trim());
         }
 
         #[test]
