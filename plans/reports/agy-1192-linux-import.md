@@ -349,4 +349,277 @@ PASS: no count rose above the baseline
 
 - None.
 
+---
+
+## Round 3
+
+### What Could NOT Be Verified (Stated First)
+
+1. **Live Linux desktop sessions (D-Bus auto-start activation and `zenity` fallback):** This worktree runs on macOS (`aarch64-apple-darwin`), so live Linux desktop execution against a real `dbus-daemon` / `dbus-broker` session bus — (a) `xdg-desktop-portal` + `xdg-desktop-portal-gtk`/`-gnome`/`-kde` installed but stopped (`org.freedesktop.portal.Desktop` activated on first `Properties.Get("org.freedesktop.portal.FileChooser", "version")` call), (b) portal masked plus `zenity` installed on `PATH` (falling through `rfd`'s `portal::open_file -> None` to `zenity::pick_files`), (c) portal masked and no `zenity` (showing `No file dialog. Install zenity or xdg-desktop-portal.` + `Enter a path…`), and (d) Save As with no chooser (showing the toast with no `Enter a path…` action) — **could NOT be verified on a live Linux GUI session here** and must be verified on a Linux machine per the PR body's "QA on the Linux box" checklist.
+2. **Full `cargo check -p designos-app --target x86_64-unknown-linux-gnu --locked` link/C-build step on macOS:** Transitive dependency `ring v0.17.14`'s `cc-rs` build script invokes `x86_64-linux-gnu-gcc`, which is not installed on this macOS host. We verified `cargo check -p zbus --target x86_64-unknown-linux-gnu --locked` (exit `0`), `rustc --edition 2021 --crate-type lib --target x86_64-unknown-linux-gnu --emit=metadata -D warnings` and `rustc --edition 2021 --test --target x86_64-unknown-linux-gnu --emit=metadata -D warnings` on `crates/designos-app/src/io/dialog_probe.rs` linked against the Linux `libzbus-*.rmeta` (both exit `0` with 0 warnings), and Ubuntu CI on PR `#1201`.
+
+---
+
+### Conclusion
+
+Merged `origin/release/v0.6.3` (`eac72061a`, containing `#1085` and `#1117`) into `jangtrinh/agy-1192-linux-import` (`58193c606` -> merge commit `ad61381ea`), recorded Red-phase failures for all 6 Round 3 acceptance tests (`r3-red.log`), and implemented all 6 Round 3 rulings (`r3-green.log`):
+1. **Portal activation on first use (`Ruling 1`):** `map_portal_probe` and `linux_portal_ready` call `org.freedesktop.DBus.Properties.Get("org.freedesktop.portal.FileChooser", "version")` on `org.freedesktop.portal.Desktop` (`/org/freedesktop/portal/desktop`) via `zbus::Connection::call_method` **with D-Bus auto-start allowed** (no `MethodFlags::NoAutoStart`), bounded by the remaining budget of `MAX_DIALOG_OPEN_WAIT` (`1500 ms`). `NameHasOwner` is no longer a gate and is queried only to word the error when `FileChooser` fails.
+2. **`zenity` fallback on any non-timeout portal error (`Ruling 2` & `Ruling 3`):** In `check_chooser_ready_bounded`, when an executable `zenity` is on `PATH` (`env.has_zenity()`), any non-timeout portal probe error (no session bus, `ServiceUnknown` / no owner and not activatable, or `FileChooser` property error) returns `Ok(())` so `rfd` runs and falls back to `zenity`. Only a probe timeout (either caller `recv_timeout` or D-Bus `method_timeout` / `TimedOut`) stays `Unavailable`. Without `zenity`, any error or timeout returns `Unavailable` with the warn log line and backend error reason.
+3. **`Enter a path…` only for Home › Import (`Ruling 4`):** `App::show_no_file_dialog_toast`, `App::picked_path`, and `App::picked_paths` take an explicit `enter_path: bool` parameter from each call site. Only `home::import_files_dialog` passes `true`; `ops.rs` (`open_dialog_with`, `import_web_capture_dialog_with`, `save_with`), `canvas/interact.rs` (`place_image_with`), `panels/properties.rs` (`choose_image_fill`), and `variables/view.rs` (`import_variables_dialog`, `export_variables_dialog`) pass `false`.
+4. **Real timeouts & at most one probe thread (`Ruling 5`):** `linux_portal_ready` uses `zbus::Connection::call_method` (which honors `Connection::method_timeout`) and wraps both `zbus::connection::Builder::session()...method_timeout(budget).build().await` and `conn.call_method(...).await` in a `ProbeCancel` future that is woken immediately when the caller's `recv_timeout(MAX_DIALOG_OPEN_WAIT)` fires. `ProbeInFlightGuard` enforces at most one live probe thread at a time; if an earlier probe thread is still running, a new click does not spawn another thread and returns `Unavailable` with reason `"previous portal check still running"`.
+5. **Test hook out of release builds (`Ruling 6`):** `DESIGNOS_FORCE_NO_FILE_DIALOG` in `dialog_probe::forced_unavailable` (`forced_unavailable_in`) and the `--home` startup hook in `shell.rs` are gated by `cfg(any(debug_assertions, test))` so release builds ignore them.
+
+---
+
+### Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **FACT:** Starting head was `58193c60` (`git rev-parse --short HEAD` before merging `origin/release/v0.6.3`), and merging `origin/release/v0.6.3` (`eac72061a`) produced merge commit `ad61381ea` cleanly with no conflicts.
+- **FACT:** On `ad61381ea` (before production fixes), all 6 new Round 3 tests (`round3_a_zenity_with_no_owner_or_service_unknown_runs_show`, `round3_b_no_zenity_with_portal_activating_within_budget_runs_show`, `round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show`, `round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running`, `round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it`, `round3_f_release_build_hook_is_off`) failed (`plans/reports/agy-1192-linux-import-evidence/r3-red.log`).
+- **FACT:** After the Round 3 implementation, all 6 new Round 3 tests (plus the 4 existing `icon_tests::round3_*` tests matched by the `round3_` filter) pass (`10 passed; 0 failed` in `0.25s`, `plans/reports/agy-1192-linux-import-evidence/r3-green.log`).
+- **FACT:** `grep -n "unsafe\|dlopen\|libdbus" crates/designos-app/src/io/dialog_probe.rs` exits with status `1` and empty output, and `git diff origin/release/v0.6.3 -- Cargo.lock` shows only `"zbus",` added to `designos-app`'s dependency list.
+- **FACT:** `zbus::Connection::call_method` (`zbus-5.19.0/src/connection/mod.rs:238-274`) sends the method call with `BitFlags::empty()` (auto-start allowed) and wraps the reply wait in `timeout(method, tout)` when `self.method_timeout()` is `Some(tout)`.
+- **FACT:** All macOS gates under the mandatory test harness passed: `cargo fmt --all -- --check` (exit `0`), `cargo clippy --workspace --all-targets --locked -- -D warnings` (exit `0`), `cargo test --workspace --locked --lib` (`0 failed` across all 12 lib crates), `cargo test -p designos-app --bin designos --locked` (`3324 passed; 0 failed; 11 ignored`), and 3 isolated reruns of `shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one` (`1 passed; 0 failed` in all 3 runs).
+- **INFERENCE:** When `rx.recv_timeout(timeout)` expires on the caller thread and invokes `cancel_active_probe()`, `ProbeCancel::cancel` wakes `zbus::block_on` on the worker thread so `Builder::build()` or `conn.call_method()` aborts and drops the `zbus` socket/executor rather than staying blocked until process exit; if the worker thread is blocked in synchronous OS/DNS/NSS resolution inside session address lookup, `ProbeInFlightGuard` still prevents any second probe thread from being spawned (`"previous portal check still running"`).
+- **ASSUMPTION:** Ruling 4 states *"Save As, export, image tool, image fill and every other `picked_path` / `picked_paths` caller keep the plain `NO_FILE_DIALOG` toast with no action. Pass this as an explicit parameter from the call site. Never infer it from global state."* Changing `App::picked_path` and `App::picked_paths` to take `enter_path: bool` requires passing `false` at the two remaining callers in `crates/designos-app/src/variables/view.rs` (`import_variables_dialog` at line 1612 and `export_variables_dialog` at line 1625) in addition to `ops.rs`, `canvas/interact.rs`, and `panels/properties.rs` so all `picked_path` / `picked_paths` callers compile and keep the plain toast.
+
+---
+
+### Acceptance Table (Round 3)
+
+| # | Gate / Check | Verdict | Evidence |
+|---|---|---|---|
+| **1** | Red first (`r3-red.log` fails `(a)`–`(f)` on `58193c60` + merge; `r3-green.log` passes all 6) | **PASS** | `plans/reports/agy-1192-linux-import-evidence/r3-red.log` (`6 failed`), `plans/reports/agy-1192-linux-import-evidence/r3-green.log` (`10 passed; 0 failed`) |
+| **2** | `grep -n "unsafe\|dlopen\|libdbus" crates/designos-app/src/io/dialog_probe.rs` prints nothing; `git diff origin/release/v0.6.3 -- Cargo.lock` shows only `zbus` added to `designos-app` | **PASS** | Pasted below |
+| **3** | Linux target check (`cargo check -p designos-app --target x86_64-unknown-linux-gnu --locked`, `cargo check -p zbus --target x86_64-unknown-linux-gnu --locked`, and `rustc --target x86_64-unknown-linux-gnu -D warnings` on `dialog_probe.rs`) | **PASS** | Pasted below (`plans/reports/agy-1192-linux-import-evidence/r3-linux-rustc.log`) |
+| **4** | macOS gates under mandatory harness (`fmt`, `clippy -D warnings`, `cargo test --workspace --locked --lib`, `cargo test -p designos-app --bin designos --locked`, and 3× isolated reruns of `#996` test) | **PASS** | Pasted below (`3324 passed; 0 failed` in bin tests; `3/3` passed on `#996` test) |
+| **5** | PR `#1201` body updated with the 4 "QA on the Linux box" cases and "Round 3" summary line | **PASS** | PR `#1201` updated via `gh pr edit 1201` |
+
+---
+
+### Exact Commands and Output (Round 3)
+
+#### 1. Red (`r3-red.log`) and Green (`r3-green.log`)
+
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked round3_ 2>&1 | tee plans/reports/agy-1192-linux-import-evidence/r3-red.log
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.94s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 10 tests
+test io::dialog_probe::tests::round3_f_release_build_hook_is_off ... FAILED
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+test io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show ... FAILED
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... FAILED
+test io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show ... FAILED
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... FAILED
+test shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it ... FAILED
+
+failures:
+
+---- io::dialog_probe::tests::round3_f_release_build_hook_is_off stdout ----
+
+thread 'io::dialog_probe::tests::round3_f_release_build_hook_is_off' (69954143) panicked at crates/designos-app/src/io/dialog_probe.rs:728:9:
+release build (debug_or_test = false) must ignore DESIGNOS_FORCE_NO_FILE_DIALOG=1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show' (69954140) panicked at crates/designos-app/src/io/dialog_probe.rs:603:9:
+FileChooser version call must run with auto-start even when NameHasOwner was false
+
+---- io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show' (69954141) panicked at crates/designos-app/src/io/dialog_probe.rs:635:9:
+assertion `left == right` failed
+  left: Picked("/tmp/should-not-open.fig")
+ right: Unavailable
+
+---- io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show' (69954139) panicked at crates/designos-app/src/io/dialog_probe.rs:563:13:
+expected show (rfd -> zenity) to run for probe error: org.freedesktop.portal.Desktop has no owner on the session bus
+
+---- io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running stdout ----
+
+thread 'io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running' (69954142) panicked at crates/designos-app/src/io/dialog_probe.rs:710:9:
+assertion `left == right` failed
+  left: Picked("/tmp/never-2.fig")
+ right: Unavailable
+
+---- shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it stdout ----
+designos: warn: file dialog unavailable: no file dialog backend available (xdg-desktop-portal or zenity)
+
+thread 'shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it' (69954144) panicked at crates/designos-app/src/shell/tests/home.rs:632:5:
+Save As toast must not attach Enter a path… action
+
+
+failures:
+    io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show
+    io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show
+    io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show
+    io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running
+    io::dialog_probe::tests::round3_f_release_build_hook_is_off
+    shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it
+
+test result: FAILED. 4 passed; 6 failed; 0 ignored; 0 measured; 3325 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+```
+
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked round3_ 2>&1 | tee plans/reports/agy-1192-linux-import-evidence/r3-green.log
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 10 tests
+test io::dialog_probe::tests::round3_f_release_build_hook_is_off ... ok
+test io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show ... ok
+test io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... ok
+test shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3325 filtered out; finished in 0.25s
+```
+
+#### 2. No `unsafe` / `dlopen` / `libdbus` & Lockfile Diff (`Cargo.lock`)
+
+```text
+$ grep -n "unsafe\|dlopen\|libdbus" crates/designos-app/src/io/dialog_probe.rs
+(no output, exit code 1)
+
+$ git diff origin/release/v0.6.3 -- Cargo.lock
+diff --git a/Cargo.lock b/Cargo.lock
+index 54cf28f6..f3609154 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -976,6 +976,7 @@ dependencies = [
+  "uuid",
+  "vt100",
+  "winresource",
++ "zbus",
+ ]
+ 
+ [[package]]
+```
+
+#### 3. Linux Target Compilation Check (`x86_64-unknown-linux-gnu`)
+
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo check -p designos-app --target x86_64-unknown-linux-gnu --locked
+error: failed to run custom build command for `ring v0.17.14`
+...
+  error occurred in cc-rs: failed to find tool "x86_64-linux-gnu-gcc": No such file or directory (os error 2)
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo check -p zbus --target x86_64-unknown-linux-gnu --locked
+    Checking zbus v5.19.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.75s
+
+$ rustc --edition 2021 --crate-type lib --target x86_64-unknown-linux-gnu --emit=metadata -D warnings "$S/linux_probe_check.rs" -L dependency="$PWD/out/cargo/x86_64-unknown-linux-gnu/debug/deps" -L dependency="$PWD/out/cargo/debug/deps" --extern zbus="$ZBUS_RMETA" -o "$S/liblinux_probe_check.rmeta"
+rustc --crate-type lib exit: 0
+
+$ rustc --edition 2021 --test --target x86_64-unknown-linux-gnu --emit=metadata -D warnings "$S/linux_probe_check.rs" -L dependency="$PWD/out/cargo/x86_64-unknown-linux-gnu/debug/deps" -L dependency="$PWD/out/cargo/debug/deps" --extern zbus="$ZBUS_RMETA" -o "$S/liblinux_probe_check_test.rmeta"
+rustc --test exit: 0
+```
+
+#### 4. macOS Gates Under the Mandatory Test Harness
+
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+cargo fmt --check exit: 0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 49.86s
+cargo clippy exit: 0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-ed3ecce3feb87bcf)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-bb064a8859214ef0)
+test result: ok. 633 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.93s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-3e0687289d681ece)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-b2412c33d679e737)
+test result: ok. 136 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.50s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-681656322fbabd0d)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.56s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-958af4fb3c30e08a)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-937751f493831fc6)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-7e0f22231ff8111b)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-afe87df9282153f5)
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.58s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-1d095711e2fddfa7)
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-907a3b742c402775)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-09c1acfe5b19c236)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+cargo test --workspace --locked --lib exit: 0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+...
+test result: ok. 3324 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 348.02s
+cargo test -p designos-app --bin designos --locked exit: 0
+
+$ for i in 1 2 3; do env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one; done
+=== Run 1/3 ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.62s
+
+=== Run 2/3 ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.55s
+
+=== Run 3/3 ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.73s
+```
+
+---
+
+### Skills Loaded & What Changed Because of Them (Round 3)
+
+1. **`es:dev` / `es:feature-dev`**: Followed the DEV-phase TDD loop directly from the controller's rulings without stopping for a separate plan/brainstorm gate: wrote the 6 Red tests (`round3_a`..`round3_f`) first, verified all 6 failed on `58193c60` (after merging `origin/release/v0.6.3`), then implemented the production fix and verified Green.
+2. **`es:rust` & `es:rust-gpu-canvas`**: Used an RAII `ProbeInFlightGuard` (`AtomicBool::compare_exchange` with `Acquire`/`Release` ordering) and a safe `std::pin::pin!` + `std::future::poll_fn` `ProbeCancel` wrapper with zero `unsafe`, preventing concurrent probe thread leaks when a session bus hangs and ensuring deterministic thread cleanup across parallel test runs.
+3. **`es:designer`**: Scoped the `Enter a path…` toast action (`toast-enter-path`) strictly to Home › Import (`enter_path = true`) so Save As, export, image tool, image fill, and variables import/export keep the plain `NO_FILE_DIALOG` toast without offering an action that would replace the open document.
+4. **`es:fable-thinking` & `es:astra-work`**: Used the `rustc --target x86_64-unknown-linux-gnu -D warnings` check against `libzbus.rmeta` to catch and fix two Linux-only compile issues before CI (`E0282` closure parameter type inference on `|conn: &zbus::Connection, ...|` when calling `conn.call_method(...)`, and dead-code warning under `-D warnings`).
+
+---
+
+### Weakest Link (Round 3)
+
+- If `org.freedesktop.portal.Desktop` answers `Properties.Get("org.freedesktop.portal.FileChooser", "version")` within `1500 ms` and then hangs indefinitely inside `OpenFile` without emitting the `Response` signal, `rfd` still blocks waiting for the user/portal response.
+
+---
+
+### Unresolved Questions (Round 3)
+
+- None.
+
 Status: DONE

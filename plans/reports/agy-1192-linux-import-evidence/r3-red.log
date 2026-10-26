@@ -1,0 +1,70 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.94s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 10 tests
+test io::dialog_probe::tests::round3_f_release_build_hook_is_off ... FAILED
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+test io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show ... FAILED
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... FAILED
+test io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show ... FAILED
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... FAILED
+test shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it ... FAILED
+
+failures:
+
+---- io::dialog_probe::tests::round3_f_release_build_hook_is_off stdout ----
+
+thread 'io::dialog_probe::tests::round3_f_release_build_hook_is_off' (69954143) panicked at crates/designos-app/src/io/dialog_probe.rs:728:9:
+release build (debug_or_test = false) must ignore DESIGNOS_FORCE_NO_FILE_DIALOG=1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show' (69954140) panicked at crates/designos-app/src/io/dialog_probe.rs:603:9:
+FileChooser version call must run with auto-start even when NameHasOwner was false
+
+---- io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show' (69954141) panicked at crates/designos-app/src/io/dialog_probe.rs:635:9:
+assertion `left == right` failed
+  left: Picked("/tmp/should-not-open.fig")
+ right: Unavailable
+
+---- io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show stdout ----
+
+thread 'io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show' (69954139) panicked at crates/designos-app/src/io/dialog_probe.rs:563:13:
+expected show (rfd -> zenity) to run for probe error: org.freedesktop.portal.Desktop has no owner on the session bus
+
+---- io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running stdout ----
+
+thread 'io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running' (69954142) panicked at crates/designos-app/src/io/dialog_probe.rs:710:9:
+assertion `left == right` failed
+  left: Picked("/tmp/never-2.fig")
+ right: Unavailable
+
+---- shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it stdout ----
+designos: warn: file dialog unavailable: no file dialog backend available (xdg-desktop-portal or zenity)
+
+thread 'shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it' (69954144) panicked at crates/designos-app/src/shell/tests/home.rs:632:5:
+Save As toast must not attach Enter a path… action
+
+
+failures:
+    io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show
+    io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show
+    io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show
+    io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running
+    io::dialog_probe::tests::round3_f_release_build_hook_is_off
+    shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it
+
+test result: FAILED. 4 passed; 6 failed; 0 ignored; 0 measured; 3325 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

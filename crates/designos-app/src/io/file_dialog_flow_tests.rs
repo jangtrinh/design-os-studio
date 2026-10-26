@@ -140,6 +140,7 @@ fn save_as_without_a_dialog_says_so_and_saves_nothing() {
     let dialogs = ScriptedDialogs::answering(DialogOutcome::Unavailable);
     app.save_with(true, &dialogs);
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
     assert_eq!(app.file_path, None, "the document is not bound to any file");
 }
 
@@ -156,6 +157,7 @@ fn open_without_a_dialog_says_so() {
     let mut app = app_with_selected_layer("Frame 1");
     app.open_dialog_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable));
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
     assert_eq!(app.doc.name, "Doc", "the open document is untouched");
 }
 
@@ -171,6 +173,7 @@ fn web_capture_import_without_a_dialog_says_so() {
     let mut app = app_with_selected_layer("Frame 1");
     app.import_web_capture_dialog_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable));
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
 }
 
 #[test]
@@ -196,6 +199,7 @@ mod other_dialog_sites {
         let changed = crate::panels::properties::choose_image_fill(&mut app, &mut paint, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert!(!changed);
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert_eq!((paint, unchanged_doc_bytes(&app)), before);
     }
 
@@ -214,6 +218,7 @@ mod other_dialog_sites {
         let before = unchanged_doc_bytes(&app);
         crate::canvas::interact::place_image_with(&mut app, designos_doc::Vec2::new(10.0, 10.0), &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert_eq!(unchanged_doc_bytes(&app), before);
     }
 
@@ -335,6 +340,7 @@ mod other_dialog_sites {
         let mut app = app_with_selected_layer("Frame 1");
         crate::variables::view::import_variables_dialog(&mut app, designos_fig::VariablesFormat::Dtcg, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert!(app.vars.pending_io.is_none());
     }
 
@@ -344,6 +350,7 @@ mod other_dialog_sites {
         let dialogs = ScriptedDialogs::answering(DialogOutcome::Unavailable);
         crate::variables::view::export_variables_dialog(&mut app, designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"], &dialogs);
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert!(app.vars.pending_io.is_none());
     }
 

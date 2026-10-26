@@ -2096,7 +2096,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
 pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn crate::io::FileDialogs) -> bool {
     let request = crate::io::FileRequest::open().filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]);
     let outcome = dialogs.pick(&request);
-    let Some(path) = app.picked_path(outcome) else { return false };
+    let Some(path) = app.picked_path(outcome, false) else { return false };
     match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
         Ok((bytes, _, _)) => {
             let key = format!("img-{}", app.doc.images.len() + 1);

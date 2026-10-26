@@ -191,6 +191,7 @@ impl Shell {
             app.open_library_file(id);
         } else if opts.home {
             app.go_home();
+            #[cfg(any(debug_assertions, test))]
             if let Some(mode) = std::env::var_os("DESIGNOS_FORCE_NO_FILE_DIALOG") {
                 if mode == "toast" || mode == "1" {
                     crate::home::import_files_dialog(&mut app, &crate::io::SystemDialogs);

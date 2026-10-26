@@ -585,7 +585,7 @@ pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) 
         .filter("SVG", &["svg"])
         .filter("JSON", &["json"]);
     let outcome = dialogs.pick_many(&request);
-    let Some(paths) = app.picked_paths(outcome) else { return };
+    let Some(paths) = app.picked_paths(outcome, true) else { return };
     let Some(lib) = app.lib.clone() else { return };
     let target = match app.home_target() {
         Some(t) => Some(t),

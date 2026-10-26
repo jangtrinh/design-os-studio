@@ -133,40 +133,42 @@ impl App {
         self.dialog_opening.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| DialogOpenGuard(self.dialog_opening.clone()))
     }
 
-    /// Logs the `warn` line with the backend error and shows the `NO_FILE_DIALOG` error toast carrying
-    /// the `Enter a path…` fallback action (`#1192`).
-    pub fn show_no_file_dialog_toast(&mut self) {
+    /// Logs the `warn` line with the backend error and shows the `NO_FILE_DIALOG` error toast,
+    /// attaching the `Enter a path…` fallback action only when `enter_path` is `true` (`#1192`).
+    pub fn show_no_file_dialog_toast(&mut self, enter_path: bool) {
         let reason =
             super::dialog_probe::take_last_backend_error().unwrap_or_else(|| "no file dialog backend available (xdg-desktop-portal or zenity)".to_string());
         let line = format!("designos: warn: file dialog unavailable: {reason}");
         eprintln!("{line}");
         self.last_dialog_warn = Some(line);
         self.show_toast(NO_FILE_DIALOG, true);
-        if let Some(toast) = self.toast.as_mut() {
-            toast.enter_path = true;
-            toast.until = self.now + crate::theme::TOAST_REVEAL_SECONDS;
+        if enter_path {
+            if let Some(toast) = self.toast.as_mut() {
+                toast.enter_path = true;
+                toast.until = self.now + crate::theme::TOAST_REVEAL_SECONDS;
+            }
         }
     }
 
     /// The path a dialog gave. A cancel returns `None` in silence; a dialog that could not open says so first.
-    pub fn picked_path(&mut self, outcome: DialogOutcome) -> Option<PathBuf> {
+    pub fn picked_path(&mut self, outcome: DialogOutcome, enter_path: bool) -> Option<PathBuf> {
         match outcome {
             DialogOutcome::Picked(path) => Some(path),
             DialogOutcome::Cancelled => None,
             DialogOutcome::Unavailable => {
-                self.show_no_file_dialog_toast();
+                self.show_no_file_dialog_toast(enter_path);
                 None
             }
         }
     }
 
     /// The paths a multi-select dialog gave, with the same silence on a cancel and message on a failure.
-    pub fn picked_paths(&mut self, outcome: DialogOutcome<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
+    pub fn picked_paths(&mut self, outcome: DialogOutcome<Vec<PathBuf>>, enter_path: bool) -> Option<Vec<PathBuf>> {
         match outcome {
             DialogOutcome::Picked(paths) => Some(paths),
             DialogOutcome::Cancelled => None,
             DialogOutcome::Unavailable => {
-                self.show_no_file_dialog_toast();
+                self.show_no_file_dialog_toast(enter_path);
                 None
             }
         }
@@ -222,9 +224,10 @@ impl FileDialogs for ScriptedDialogs {
         self.requests.borrow_mut().push(request.clone());
         if let Some(ms) = self.hang_ms {
             let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
-            return super::dialog_probe::dialog_outcome_bounded(
+            let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+            let out = super::dialog_probe::dialog_outcome_bounded(
                 move || {
-                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                    let _ = release_rx.recv_timeout(std::time::Duration::from_millis(ms));
                     Ok(())
                 },
                 std::time::Duration::from_millis(100),
@@ -232,6 +235,9 @@ impl FileDialogs for ScriptedDialogs {
                 std::time::Instant::now,
                 &env,
             );
+            let _ = release_tx.send(());
+            super::dialog_probe::wait_for_test_probe_idle();
+            return out;
         }
         self.outcome.clone()
     }
@@ -247,9 +253,10 @@ impl FileDialogs for ScriptedDialogs {
         }
         if let Some(ms) = self.hang_ms {
             let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
-            return super::dialog_probe::dialog_outcome_bounded(
+            let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+            let out = super::dialog_probe::dialog_outcome_bounded(
                 move || {
-                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                    let _ = release_rx.recv_timeout(std::time::Duration::from_millis(ms));
                     Ok(())
                 },
                 std::time::Duration::from_millis(100),
@@ -257,6 +264,9 @@ impl FileDialogs for ScriptedDialogs {
                 std::time::Instant::now,
                 &env,
             );
+            let _ = release_tx.send(());
+            super::dialog_probe::wait_for_test_probe_idle();
+            return out;
         }
         match &self.outcome {
             DialogOutcome::Picked(path) => DialogOutcome::Picked(vec![path.clone()]),
