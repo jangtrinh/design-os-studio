@@ -99,6 +99,7 @@ fn paint_instance_diamond(p: &Painter, center: Pos2, radius: f32, col: Color32) 
 }
 
 const COMP_LABEL_GLYPH_W: f32 = 18.0;
+const LABEL_RIGHT_INSET: f32 = 4.5;
 
 #[derive(Clone, Debug)]
 pub struct LabelEntry {
@@ -150,6 +151,7 @@ fn subtract_rect(pieces: &mut Vec<ERect>, cover: ERect) {
 
 fn measure_label(ctx: &egui::Context, n: &Node, w_px: f32) -> (bool, String, f32) {
     let w_px = w_px.max(0.0);
+    let max_w = (w_px - LABEL_RIGHT_INSET).max(0.0);
     let font = theme::font_body();
     let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
     let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
@@ -157,14 +159,14 @@ fn measure_label(ctx: &egui::Context, n: &Node, w_px: f32) -> (bool, String, f32
         let mut width_of = |cand: &str| f.layout_no_wrap(cand.to_string(), font.clone(), Color32::WHITE).size().x;
         if is_comp_like {
             let (_, ellipsis_w) = crate::widgets::elide_with(&mut width_of, "…", f32::INFINITY);
-            if COMP_LABEL_GLYPH_W + ellipsis_w <= w_px {
-                let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, w_px - COMP_LABEL_GLYPH_W);
+            if COMP_LABEL_GLYPH_W + ellipsis_w <= max_w {
+                let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, max_w - COMP_LABEL_GLYPH_W);
                 (true, text, (COMP_LABEL_GLYPH_W + text_w).min(w_px))
             } else {
                 (false, "…".to_string(), ellipsis_w.min(w_px))
             }
         } else {
-            let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, w_px);
+            let (text, text_w) = crate::widgets::elide_with(&mut width_of, clean_name, max_w);
             (false, text, text_w.min(w_px))
         }
     })

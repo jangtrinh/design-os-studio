@@ -310,4 +310,283 @@ note: 14 entries are below baseline; run --write-baseline to lock the gain in
 PASS: no count rose above the baseline
 ```
 
-Status: PASS — frame name labels match Figma width elision, narrow-frame '…' fallback, top-level filled-frame cover clipping, and visible-piece hit testing (#1197).
+---
+
+## Round 2
+
+### 1. What Could NOT Be Verified First
+- **Figma's internal source constant for the right label inset (`UNKNOWN` in Figma 126.10.11 closed-source binary):** We cannot inspect Figma's internal constant directly (and per task rules never open Figma), so the `4.5px` right inset (`LABEL_RIGHT_INSET = 4.5`) is derived mathematically from the intersection of the measured 11px Inter glyph widths across all seen labels in `figma-fit-68pct.png` (`68%` zoom) and `figma-truncation-narrow-200pct.png` (`200%` zoom).
+- **40px `"Narrow frame name"` at `zoom = 2.0` vs `zoom = 3.0` (`FACT`):** The full string `"Narrow frame name"` measures `103.9375px` in 11px Inter (`theme::font_body()`), which exceeds the `40px` frame's `80.0px` on-screen width at `zoom = 2.0` even with zero inset (`103.9375 > 80.0`). In Figma's own 200% capture (`plans/reports/1197-evidence/figma-truncation-narrow-200pct.png`), `"Narrow frame name"` at 200% zoom renders `"Narrow fram…"` (`75.3438px`), while `"A frame with a very long name that overflows"` (`236.9375px <= 395.5px`), `"Second frame with a long name too"` (`185.1250px <= 395.5px`), `"Thirty"` (`30.9375px <= 55.5px`), and `"Tiny"` (`22.5000px <= 25.5px`) render their full names at `zoom = 2.0`, and `"Narrow frame name"` renders its full name at `zoom = 3.0` (`120.0px` on screen). Both `zoom = 2.0` and `zoom = 3.0` are asserted in `frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2`.
+
+### 2. Conclusion & Epistemic Ledger
+
+#### Conclusion
+1. **No Second `egui::Context` (`Item 1`):**
+   - Deleted [`widgets::elide_measured`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/widgets/mod.rs#L37-L61) and its thread-local `egui::Context` (whose galley cache was never trimmed because it never ran frames).
+   - Exposed `pub(crate) fn elide_with` in [`crates/designos-app/src/widgets/mod.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/widgets/mod.rs#L37-L56) and threaded `ctx: &egui::Context` through [`canvas::draw::label_entries`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/canvas/draw.rs#L175) and [`canvas::draw::label_rects`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/canvas/draw.rs#L261) from all callers (`canvas::draw::overlays`, `canvas::proto::overlays`, `canvas::interact::try_click_dev_status_badge`, `canvas::interact::label_hit`, and tests via `&s.ctx`).
+   - `measure_label` locks `ctx.fonts_mut` once per measured label outside any `ctx.data_mut` or `ctx.memory_mut` scope (respecting `CLAUDE.md` §4 item 2).
+2. **Narrow-Frame Right Inset Matching Figma (`Item 2`):**
+   - Subtracted a fixed `4.5px` right inset (`const LABEL_RIGHT_INSET: f32 = 4.5;`, `max_w = (w_px - LABEL_RIGHT_INSET).max(0.0)`) before eliding in [`canvas::draw::measure_label`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/canvas/draw.rs#L102-L171).
+   - That single rule reproduces all four labels at 68% zoom (`"A frame with a very lon…"`, `"Second frame with a lo…"`, `"N…"`, `"…"`), `"Tiny"` (`"…"` at 68%), and all five labels in Figma's 200% zoom capture (`figma-truncation-narrow-200pct.png`).
+
+#### Epistemic Ledger
+- **`FACT`**: On `644e3d07`, `widgets::elide_measured` allocated a thread-local `egui::Context` that ignored the app's `egui::Context` (`s.ctx`), causing `frame_label_measures_with_app_egui_context_fonts` to fail (`plans/reports/agy-1197-frame-labels-evidence/r2-red.log`).
+- **`FACT`**: Measuring candidate strings in `s.ctx.fonts_mut` with `theme::font_body()` (`Inter` 11px) yields exact widths that constrain a fixed right inset `inset` to `4.43125px < inset <= 5.6250px` at 68% zoom (and `4.43125px < inset <= 4.65625px` when also matching `"Narrow fram…"` on the 40px frame at 200% zoom).
+- **`FACT`**: With `LABEL_RIGHT_INSET = 4.5`, all 58 `label` tests pass (`plans/reports/agy-1197-frame-labels-evidence/r2-green.log`) and all 3,328 tests in `cargo test -p designos-app --bin designos --locked` pass on the first run with 0 failures.
+- **`INFERENCE`**: Locking `ctx.fonts_mut` inside `measure_label` only on `LABEL_RECTS_CACHE` misses keeps steady-state viewport frames at zero font-lock overhead while allowing `egui`'s normal per-frame pass to trim unused candidate galleys.
+- **`ASSUMPTION`**: For component-like nodes (`COMP_LABEL_GLYPH_W = 18.0`), the `4.5px` right inset applies to the same `max_w = (w_px - LABEL_RIGHT_INSET).max(0.0)` budget before checking whether `COMP_LABEL_GLYPH_W + ellipsis_w <= max_w`.
+- **`UNKNOWN`**: Whether Figma's internal constant is `4.5px` or `4px` coupled with sub-pixel glyph advance rounding in Figma's HarfBuzz/Skia shaper.
+
+- **Weakest link in one line:** `LABEL_RECTS_CACHE` keys on `(doc_runtime_id, page_id, mutation_epoch, zoom, offset, rect)` and does not include a font-definition generation counter, which is invariant during normal Studio sessions after `theme::install_fonts`.
+- **Unresolved questions:** None.
+
+---
+
+### 3. Width Arithmetic for Item 2 (Measured with Real 11px Font in `s.ctx`)
+
+All candidate strings were measured via `s.ctx.fonts_mut(|f| f.layout_no_wrap(cand.to_string(), theme::font_body(), Color32::WHITE).size().x)` (`Inter` 11px):
+
+| Frame (`w` world) | On-screen `w_px` at `zoom = 0.68` | Candidate String | Measured Width (`11px` Inter) | Figma `68%` String (`figma-fit-68pct.png`) | Condition on `max_w = w_px - inset` | Implied `inset` Bound |
+|---|---|---|---|---|---|---|
+| Ellipsis glyph | — | `"…"` | `9.7500 px` | — | — | — |
+| `"A frame with a very long name that overflows"` (`200px`) | `136.0 px` | `"A frame with a very lo…"`<br>`"A frame with a very lon…"`<br>`"A frame with a very long…"`<br>Full string | `123.8438 px`<br>**`130.3750 px`**<br>`137.1562 px`<br>`236.9375 px` | `"A frame with a very lon…"` | `130.3750 <= 136.0 - inset < 137.1562` | `-1.1562 < inset <= 5.6250` |
+| `"Second frame with a long name too"` (`200px`) | `136.0 px` | `"Second frame with a l…"`<br>`"Second frame with a lo…"`<br>`"Second frame with a lon…"`<br>Full string | `123.1875 px`<br>**`129.8125 px`**<br>`136.3750 px`<br>`185.1250 px` | `"Second frame with a lo…"` | `129.8125 <= 136.0 - inset < 136.3750` | `-0.3750 < inset <= 6.1875` |
+| `"Narrow frame name"` (`40px`) | `27.2 px` | `"…"`<br>`"N…"`<br>`"Na…"`<br>`"Nar…"`<br>Full string | `9.7500 px`<br>**`18.0625 px`**<br>`24.28125 px`<br>`27.78125 px`<br>`103.9375 px` | `"N…"` | `18.0625 <= 27.2 - inset < 24.28125` | `2.91875 < inset <= 9.1375` |
+| `"Thirty"` (`30px`) | `20.4 px` | `"…"`<br>`"T…"`<br>`"Th…"`<br>Full string | **`9.7500 px`**<br>`15.96875 px`<br>`23.46875 px`<br>`30.9375 px` | `"…"` | `9.7500 <= 20.4 - inset < 15.96875` | `4.43125 < inset <= 10.6500` |
+| `"Tiny"` (`15px`) | `10.2 px` | `"…"`<br>`"T…"`<br>`"Ti…"`<br>Full string | **`9.7500 px`**<br>`15.96875 px`<br>`19.6250 px`<br>`22.5000 px` | `"…"` | `20.4 / 2 - inset < 15.96875` (`lo = 0` fallback `"…"`) | Any `inset >= 0` |
+
+- **Intersection at `zoom = 0.68`:**
+  $$\max(2.91875,\, 4.43125) < \text{inset} \le \min(5.6250,\, 6.1875,\, 9.1375,\, 10.6500) \implies 4.43125\text{ px} < \text{inset} \le 5.6250\text{ px}$$
+- **Check at `zoom = 2.0` (`figma-truncation-narrow-200pct.png`):**
+  - `"A frame with a very long name that overflows"` (`w_px = 400.0`): full width `236.9375 <= 400.0 - 4.5 = 395.5` -> full name shows.
+  - `"Second frame with a long name too"` (`w_px = 400.0`): full width `185.1250 <= 400.0 - 4.5 = 395.5` -> full name shows.
+  - `"Thirty"` (`w_px = 60.0`): full width `30.9375 <= 60.0 - 4.5 = 55.5` -> full name `"Thirty"` shows.
+  - `"Tiny"` (`w_px = 30.0`): full width `22.5000 <= 30.0 - 4.5 = 25.5` -> full name `"Tiny"` shows.
+  - `"Narrow frame name"` (`w_px = 80.0`): `"Narrow fram…"` is `75.34375 px` and `"Narrow frame…"` is `81.78125 px`, so `75.34375 <= 80.0 - inset < 81.78125` gives `inset <= 4.65625 px`.
+- **Chosen rule:** `const LABEL_RIGHT_INSET: f32 = 4.5;` (`max_w = (w_px - LABEL_RIGHT_INSET).max(0.0)`), which lies inside `(4.43125, 4.65625]` and reproduces **every single label** in both `figma-fit-68pct.png` and `figma-truncation-narrow-200pct.png` with zero exceptions.
+
+---
+
+### 4. Round 2 Acceptance Table
+
+| # | Gate / Requirement | Verdict | Evidence |
+|---|---|---|---|
+| 1 | `r2-red.log` & `r2-green.log` | **PASS** | `plans/reports/agy-1197-frame-labels-evidence/r2-red.log`, `plans/reports/agy-1197-frame-labels-evidence/r2-green.log` |
+| 2 | Width arithmetic for item 2 | **PASS** | Section 3 above (`4.43125 < inset <= 4.65625`, `LABEL_RIGHT_INSET = 4.5`) |
+| 3a | `cargo fmt --all -- --check` | **PASS** | Exits `0` (pasted below) |
+| 3b | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** | Exits `0` (final lines pasted below) |
+| 3c | `cargo test --workspace --locked --lib` | **PASS** | Exits `0` (`1,284` lib tests passed, `0` failed; pasted below) |
+| 3d | `cargo test -p designos-app --bin designos --locked` | **PASS** | Exits `0` (`3,328` passed, `0` failed on first run; pasted below) |
+| 3e | `cargo test -p designos-gpu` | **PASS** | Exits `0` (`69` GPU tests passed, `0` failed; pasted below) |
+| 3f | `python3 scripts/zero_fake_ui_gate.py` | **PASS** | Exits `0` (`17/17` invariants satisfied; pasted below) |
+| 4 | `1440x900` capture at `68%` of the narrow-frame row next to Figma's | **PASS** | `plans/reports/agy-1197-frame-labels-evidence/r2-studio-narrow-68pct.png`, `r2-studio-fit-68pct.png` vs `figma-fit-68pct.png` |
+| 5 | Commits `test(app): …` then `fix(app): …`, push branch, delete `out/cargo` | **PASS** | Branch `jangtrinh/agy-1197-frame-labels` pushed to `origin`; `out/cargo` deleted |
+
+---
+
+### 5. Visual Capture (`1440x900` at `68%` Zoom, `es-designer` Loaded)
+
+- **Figma Reference (`68%`):** `plans/reports/agy-1197-frame-labels-evidence/figma-fit-68pct.png` (`/Users/jangtrinh/Products/design-os-studio/plans/reports/1197-evidence/figma-fit-68pct.png`)
+- **Studio Round 2 Captures (`1440x900`, `--zoom 68`):**
+  - `plans/reports/agy-1197-frame-labels-evidence/r2-studio-narrow-68pct.png` (`--size 1440x900 --zoom 68 --select "Left frame" --no-toast`, centering the long-frame row and narrow-frame row at 68% zoom with all narrow frames unselected)
+  - `plans/reports/agy-1197-frame-labels-evidence/r2-studio-fit-68pct.png` (`--size 1440x900 --zoom 68 --select none --no-toast`)
+
+| Frame | World Size | On-Screen Width (`68%`) | Figma `68%` (`figma-fit-68pct.png`) | Studio Round 2 (`r2-studio-narrow-68pct.png`) | Verdict |
+|---|---|---|---|---|---|
+| `A frame with a very long name that overflows` | `200 × 100` | `136.0 px` | `"A frame with a very lon…"` | `"A frame with a very lon…"` | **Exact Match** |
+| `Second frame with a long name too` | `200 × 100` | `136.0 px` | `"Second frame with a lo…"` | `"Second frame with a lo…"` | **Exact Match** |
+| `Narrow frame name` | `40 × 100` | `27.2 px` | `"N…"` | `"N…"` | **Exact Match** |
+| `Thirty` | `30 × 100` | `20.4 px` | `"…"` | `"…"` | **Exact Match** |
+| `Tiny` | `15 × 100` | `10.2 px` | `"…"` | `"…"` | **Exact Match** |
+
+---
+
+### 6. Skills Loaded in Round 2 & What Changed Because of Them
+
+- **`/es:dev` -> `es:feature-dev`**: Executed each Round 2 item as a vertical red-then-green slice (`test(app): …` commit followed by `fix(app): …` commit) with seam-level tests in `crates/designos-app/src/shell/tests/canvas_label_rename.rs`.
+- **`es:rust`**: Followed Law 4 (non-reentrant `parking_lot::RwLock` discipline in `egui`) by ensuring `ctx.fonts_mut` in `measure_label` is never called inside `ctx.data_mut` or `ctx.memory_mut` and holds the font lock only across the pure `elide_with` width closure.
+- **`es:rust-gpu-canvas`**: Preserved `LABEL_RECTS_CACHE` key invariants and verified `canvas::draw::tests::large_page_label_rects_hit_marquee_and_snap_under_5ms` passes under the 5ms budget when measuring with `&egui::Context`.
+- **`es-designer`**: Loaded `design/principles.md`, `design/soul.md`, `craft-floor.md`, and `checklist.md`; verified `scripts/check_spacing_relationships.py` and `scripts/zero_fake_ui_gate.py` pass with zero literal count increases, and inspected `r2-studio-narrow-68pct.png` against `figma-fit-68pct.png`.
+- **`es:astra-work` & `es:fable-thinking`**: Measured exact glyph widths in `s.ctx` before choosing the inset rule, verified the mathematical intersection `(4.43125, 4.65625]`, and re-ran all verification gates after the final code edit.
+
+---
+
+### 7. Exact Commands & Outputs (Round 2)
+
+#### 7.1 `r2-red.log`
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked frame_label_measures_with_app_egui_context_fonts
+running 1 test
+test shell::tests::canvas_label_rename::frame_label_measures_with_app_egui_context_fonts ... FAILED
+
+failures:
+
+---- shell::tests::canvas_label_rename::frame_label_measures_with_app_egui_context_fonts stdout ----
+
+thread 'shell::tests::canvas_label_rename::frame_label_measures_with_app_egui_context_fonts' (76609971) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:895:5:
+expected 'Wide context check' to elide under 2x app context font, got "Wide context check"
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3337 filtered out; finished in 0.40s
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked label
+running 58 tests
+...
+test shell::tests::canvas_label_rename::frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2 ... FAILED
+...
+---- shell::tests::canvas_label_rename::frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2 stdout ----
+
+thread 'shell::tests::canvas_label_rename::frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2' (76741196) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:925:5:
+assertion `left == right` failed
+  left: "Na…"
+ right: "N…"
+
+test result: FAILED. 57 passed; 1 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 10.00s
+```
+
+#### 7.2 `r2-green.log`
+```text
+$ export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+$ export CARGO_TARGET_DIR="$PWD/out/cargo"
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked label
+running 58 tests
+test panels::layers::tests::row_text_split_keeps_a_readable_name_or_drops_the_label ... ok
+test dev::annot::tests::callout_moves_left_without_room_and_avoids_other_labels ... ok
+test history::tests::labels_for_the_panel ... ok
+test panels::layers::tests::kind_label_covers_every_node_type ... ok
+test agent_mention::tests::deleted_label_is_not_sent ... ok
+test canvas::draw::tests::header_pills_keep_their_label_size_when_the_tracks_have_room ... ok
+test proto::tests::gamepad_trigger_indexes_and_labels ... ok
+test check_designs::tests::safety::a_detached_frame_whose_label_was_edited_is_reported_without_a_reconnect ... ok
+test check_designs::tests::instances::overridden_sibling_behind_label_in_opaque_instance_reports_contrast_on_instance_text ... ok
+test panels::export::tests::format_labels_fit_their_dropdown ... ok
+test dev::annot::tests::labels_list_the_pinned_property_values ... ok
+test check_designs::tests::covering_sibling::a_light_label_on_a_white_rectangle_is_flagged_with_a_fix ... ok
+test check_designs::tests::fix_all::fix_all_on_a_detached_frame_keeps_the_contrast_fix_of_its_label ... ok
+test canvas::draw::tests::large_page_label_rects_hit_marquee_and_snap_under_5ms ... ok
+test panels::layers::tests::hidden_layers_grey_the_type_label_with_the_name ... ok
+test panels::layers::tests::only_rows_inside_the_viewport_paint_a_type_label ... ok
+test panels::right::tests::frame_preset_names_keep_a_grid_gap_to_their_size_label ... ok
+test proto::tests::labels_name_destinations ... ok
+test proto::tests::new_actions_have_labels_and_defaults ... ok
+test panels::layers::tests::type_label_stays_on_wide_rows_and_gives_way_to_the_name_on_narrow_ones ... ok
+test panels::layers::tests::type_label_never_overlaps_the_name_or_the_layer_icon_at_any_depth ... ok
+test panels::layers::tests::type_label_is_clipped_to_the_text_column ... ok
+test shell::tests::board::facilitator_timer_label_uses_tabular_digits ... ok
+test agent_open_flow::tests::sessions_dropdown_lists_cli_label_time_status ... ok
+test shell::tests::canvas_label_rename::frame_label_f3_legacy_0_4_0_rich_fig_keeps_both_grid_and_card_labels ... ok
+test shell::tests::canvas_label_rename::frame_label_f2_narrow_40_30_15_frames_and_component_at_zoom_068 ... ok
+test shell::tests::canvas_label_rename::frame_label_measures_with_app_egui_context_fonts ... ok
+test shell::tests::home::account_and_plan_labels_are_gone_from_the_ui_sources ... ok
+test shell::tests::canvas_label_rename::frame_label_f1_long_name_elides_at_zoom_068_and_shows_full_at_zoom_2 ... ok
+test shell::tests::canvas_label_rename::frame_label_f5_nofill_frame_and_white_child_rect_inside_nofill_frame_cover_nothing ... ok
+test shell::tests::canvas_label_rename::frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2 ... ok
+test shell::tests::canvas_label_rename::frame_label_f4_blocker_clips_label_and_fully_inside_label_has_no_visible_piece ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_105 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_106 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_below_is_flagged_when_its_clip_starts_at_14 ... ok
+test skills::hook_delivery::tests::a_skill_over_one_chunk_is_split_at_line_breaks_into_labelled_parts_that_rebuild_it ... ok
+test skills::tests::the_chip_shows_a_count_pill_beside_the_label_and_names_itself_for_screen_readers ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test styles::instance_refit_tests::explicit_height_edit_on_height_mode_instance_label_survives_main_sync ... ok
+test shell::tests::canvas_label_rename::frame_label_hit_testing_covered_part_ignores_label_and_visible_part_selects_frame ... ok
+test shell::tests::components::inspector_text_property_relabels_the_instance ... ok
+test shell::tests::home::the_editor_header_shows_project_and_file_and_none_of_the_account_labels ... ok
+test terminal::tests::qa_p0_relabelled_shell_tab_gets_zero_bytes ... ok
+test terminal::gemini_narrow_tests::a_hook_wait_on_a_cut_label_stands_while_the_dialog_is_on_screen_and_ends_when_it_is_gone ... ok
+test shell::tests::board::connector_labels_can_be_typed_by_double_clicking_the_line ... ok
+test shell::tests::history::labeled_live_patch_shows_step_label_in_history_panel ... ok
+test terminal::gemini_narrow_tests::a_label_cut_to_fit_is_still_the_dialog_down_to_the_minimum_panel_width ... ok
+test shell::tests::scrubbing_x_label_changes_value_in_one_undo_step ... ok
+test terminal::gemini_narrow_tests::a_tab_with_no_hooks_file_starts_its_wait_from_a_cut_label ... ok
+test shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label ... ok
+test shell::tests::canvas_label_rename::click_selects_one_shape_component_and_double_click_enters_shape ... ok
+test shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names ... ok
+test shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to ... ok
+test shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label ... ok
+test shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync ... ok
+test shell::tests::canvas_label_rename::component_and_inner_shape_names_stay_independent ... ok
+test shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths ... ok
+test shell::tests::canvas_label_rename::multi_child_and_container_child_components_still_select_through_and_marquee_is_unchanged ... ok
+
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 7.10s
+```
+
+#### 7.3 `cargo fmt --all -- --check` & `cargo clippy --workspace --all-targets --locked -- -D warnings`
+```text
+$ cargo fmt --all -- --check
+FMT_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+...
+    Checking designos-library v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-library)
+    Checking designos-eval v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-eval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 56.28s
+CLIPPY_EXIT=0
+```
+
+#### 7.4 `cargo test --workspace --locked --lib`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 633 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.89s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 136 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.50s
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.10s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.76s
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 36.73s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+LIB_EXIT=0
+```
+
+#### 7.5 `cargo test -p designos-app --bin designos --locked`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+running 3339 tests
+...
+test result: ok. 3328 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 548.12s
+```
+
+#### 7.6 `cargo test -p designos-gpu`
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-gpu
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.45s
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.65s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.59s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+GPU_EXIT=0
+```
+
+#### 7.7 `python3 scripts/zero_fake_ui_gate.py` & `python3 scripts/check_spacing_relationships.py`
+```text
+$ python3 scripts/zero_fake_ui_gate.py
+============================================================================================================
+ design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+============================================================================================================
+...
+Z16   | PASS   | registered label helpers in designos-app/src | UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json) — 18 labelled violation(s) all in scripts/ux_writing_baseline.json; none new (design/ux-writing.md rules 1 and 3)
+Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code — no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+ZERO_FAKE_EXIT=0
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1668, inset_literals=45, radius_literals=257, font_literals=25, nonconcentric_pairs=2
+note: 14 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+```
+
+Status: PASS — frame labels measure with the app's own egui::Context and match Figma's narrow-frame elision at 68% and 200% zoom (#1197 round 2).
