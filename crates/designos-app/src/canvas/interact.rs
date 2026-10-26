@@ -916,7 +916,7 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
 }
 
 fn label_hit(app: &App, rect: ERect, pos: Pos2) -> Option<NodeId> {
-    super::draw::label_rects(app, rect).into_iter().find(|(_, r)| r.contains(pos)).map(|(id, _)| id)
+    super::draw::label_entries(app, rect).into_iter().find(|e| e.pieces.iter().any(|p| p.contains(pos))).map(|e| e.id)
 }
 
 fn start_resize(app: &mut App, handle: Handle, page: DV) {

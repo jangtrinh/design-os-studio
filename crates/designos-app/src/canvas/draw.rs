@@ -98,8 +98,19 @@ fn paint_instance_diamond(p: &Painter, center: Pos2, radius: f32, col: Color32) 
     p.add(egui::Shape::closed_line(pts, Stroke::new(1.3, col)));
 }
 
+const COMP_LABEL_GLYPH_W: f32 = 18.0;
+
+#[derive(Clone, Debug)]
+pub struct LabelEntry {
+    pub id: NodeId,
+    pub rect: ERect,
+    pub pieces: Vec<ERect>,
+    pub show_glyph: bool,
+    pub text: String,
+}
+
 type LabelRectsKey = (u64, NodeId, u64, u32, u32, u32, u32, u32, u32, u32);
-type LabelRectsCacheEntry = (LabelRectsKey, Vec<(NodeId, ERect)>);
+type LabelRectsCacheEntry = (LabelRectsKey, Vec<LabelEntry>);
 type ChromeNodesKey = (u64, NodeId, u64);
 type ChromeNodesCacheEntry = (ChromeNodesKey, Vec<(NodeId, bool, bool, bool)>);
 thread_local! {
@@ -107,8 +118,58 @@ thread_local! {
     static CHROME_NODES_CACHE: std::cell::RefCell<Option<ChromeNodesCacheEntry>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Screen rects of the name labels above top-level frames, components, instances, and sections.
-pub fn label_rects(app: &App, rect: ERect) -> Vec<(NodeId, ERect)> {
+fn has_covering_fill(n: &Node) -> bool {
+    n.visible
+        && n.opacity > 0.0
+        && matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. })
+        && n.fills.iter().any(|f| f.visible && f.opacity > 0.0 && f.silhouette_alpha() > 0.0)
+}
+
+fn subtract_rect(pieces: &mut Vec<ERect>, cover: ERect) {
+    let prev = std::mem::take(pieces);
+    for p in prev {
+        let cut = p.intersect(cover);
+        if !cut.is_positive() {
+            pieces.push(p);
+            continue;
+        }
+        if cut.min.y > p.min.y {
+            pieces.push(ERect::from_min_max(Pos2::new(p.min.x, p.min.y), Pos2::new(p.max.x, cut.min.y)));
+        }
+        if cut.max.y < p.max.y {
+            pieces.push(ERect::from_min_max(Pos2::new(p.min.x, cut.max.y), Pos2::new(p.max.x, p.max.y)));
+        }
+        if cut.min.x > p.min.x {
+            pieces.push(ERect::from_min_max(Pos2::new(p.min.x, cut.min.y), Pos2::new(cut.min.x, cut.max.y)));
+        }
+        if cut.max.x < p.max.x {
+            pieces.push(ERect::from_min_max(Pos2::new(cut.max.x, cut.min.y), Pos2::new(p.max.x, cut.max.y)));
+        }
+    }
+}
+
+fn measure_label(n: &Node, w_px: f32) -> (bool, String, f32) {
+    let w_px = w_px.max(0.0);
+    let font = theme::font_body();
+    let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
+    let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
+    if is_comp_like {
+        let (_, ellipsis_w) = crate::widgets::elide_measured("…", &font, f32::INFINITY);
+        if COMP_LABEL_GLYPH_W + ellipsis_w <= w_px {
+            let (text, text_w) = crate::widgets::elide_measured(clean_name, &font, w_px - COMP_LABEL_GLYPH_W);
+            (true, text, (COMP_LABEL_GLYPH_W + text_w).min(w_px))
+        } else {
+            (false, "…".to_string(), ellipsis_w.min(w_px))
+        }
+    } else {
+        let (text, text_w) = crate::widgets::elide_measured(clean_name, &font, w_px);
+        (false, text, text_w.min(w_px))
+    }
+}
+
+/// Screen rects and visible (uncovered) pieces of the name labels above top-level frames,
+/// components, component sets, instances, and sections.
+pub fn label_entries(app: &App, rect: ERect) -> Vec<LabelEntry> {
     let mut out = Vec::new();
     if app.view.zoom < theme::CANVAS_LABEL_MAX_ZOOM_HIDE {
         return out;
@@ -133,6 +194,9 @@ pub fn label_rects(app: &App, rect: ERect) -> Vec<(NodeId, ERect)> {
     }
     let Some(page) = app.doc.get(app.page) else { return out };
     let h = theme::FONT_SIZE_LABEL_CANVAS + 3.0;
+    let mut covers: Vec<(NodeId, ERect)> = Vec::new();
+    let mut raw: Vec<(NodeId, bool, ERect, bool, String)> = Vec::new();
+    let mut labels_bounds = ERect::NOTHING;
     for id in &page.children {
         let Some(n) = app.doc.get(*id) else { continue };
         if !n.visible
@@ -150,24 +214,49 @@ pub fn label_rects(app: &App, rect: ERect) -> Vec<(NodeId, ERect)> {
             super::affine_rect_aabb(&n.transform, n.size)
         };
         let tl = app.view.to_screen(rect.min, v2(bb.x, bb.y));
+        let w_px = bb.w * app.view.zoom;
+        let h_px = bb.h * app.view.zoom;
+        if has_covering_fill(n) {
+            covers.push((*id, ERect::from_min_size(tl, EV::new(w_px, h_px))));
+        }
         let label_y = tl.y - theme::CANVAS_LABEL_GAP - h;
-        if label_y > rect.max.y || label_y + h < rect.min.y || tl.x > rect.max.x {
+        if label_y > rect.max.y || label_y + h < rect.min.y || tl.x > rect.max.x || tl.x + w_px.max(0.0) < rect.min.x {
             continue;
         }
-        let w_px = bb.w * app.view.zoom;
-        let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
-        let icon_w = if is_comp_like { 18.0 } else { 0.0 };
-        let text_w = n.name.chars().count() as f32 * theme::FONT_SIZE_LABEL_CANVAS * 0.66 + icon_w + 16.0;
-        let w = text_w.min(w_px.max(24.0));
+        let (show_glyph, text, w) = measure_label(n, w_px);
         let r = ERect::from_min_size(Pos2::new(tl.x, label_y), EV::new(w, h));
         if r.intersects(rect) {
-            out.push((*id, r));
+            labels_bounds = labels_bounds.union(r);
+            let is_section = matches!(n.kind, NodeKind::Section);
+            raw.push((*id, is_section, r, show_glyph, text));
         }
+    }
+    covers.retain(|(_, cov_r)| cov_r.intersects(labels_bounds));
+    out.reserve(raw.len());
+    for (id, is_section, r, show_glyph, text) in raw {
+        let mut pieces = vec![r];
+        if !is_section {
+            for &(cov_id, cov_r) in &covers {
+                if cov_id == id || !r.intersects(cov_r) {
+                    continue;
+                }
+                subtract_rect(&mut pieces, cov_r);
+                if pieces.is_empty() {
+                    break;
+                }
+            }
+        }
+        out.push(LabelEntry { id, rect: r, pieces, show_glyph, text });
     }
     LABEL_RECTS_CACHE.with(|c| {
         *c.borrow_mut() = Some((key, out.clone()));
     });
     out
+}
+
+/// Screen rects of the name labels above top-level frames, components, instances, and sections.
+pub fn label_rects(app: &App, rect: ERect) -> Vec<(NodeId, ERect)> {
+    label_entries(app, rect).into_iter().map(|e| (e.id, e.rect)).collect()
 }
 
 fn outline(app: &App, p: &Painter, rect: ERect, id: NodeId, col: Color32, width: f32) {
@@ -795,7 +884,8 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
     // Frame / Component / Instance / Section labels + Dev status pills (`S3-12`).
     let lab_col = if light { theme::CANVAS_LABEL } else { theme::CANVAS_LABEL_DARK };
     let label_clip = rect.expand(40.0);
-    for (id, r) in label_rects(app, rect) {
+    for entry in label_entries(app, rect) {
+        let (id, r) = (entry.id, entry.rect);
         if !label_clip.intersects(r) {
             continue;
         }
@@ -807,15 +897,27 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         let is_comp_like = is_comp || is_inst;
         // Main components, component sets, and instances carry #06B6D4 cyan label + diamond glyph.
         let col = if selected || hovered || is_comp_like { sel_color(app, id) } else { lab_col };
-        let dx = if is_comp_like { 18.0 } else { 0.0 };
-        if is_comp {
-            crate::icons::paint(&p, crate::icons::Icon::Component, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 14.0, col);
-        } else if is_inst {
-            paint_instance_diamond(&p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
+        let dx = if entry.show_glyph { COMP_LABEL_GLYPH_W } else { 0.0 };
+        for piece in &entry.pieces {
+            let piece_p = p.with_clip_rect(*piece);
+            if !piece_p.clip_rect().is_positive() {
+                continue;
+            }
+            if entry.show_glyph {
+                if is_comp {
+                    crate::icons::paint(
+                        &piece_p,
+                        crate::icons::Icon::Component,
+                        Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y),
+                        14.0,
+                        col,
+                    );
+                } else if is_inst {
+                    paint_instance_diamond(&piece_p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
+                }
+            }
+            piece_p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, &entry.text, theme::font_body(), col);
         }
-        let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
-        let name = crate::widgets::elide(&p, clean_name, &theme::font_body(), (r.width() - dx + 8.0).max(8.0));
-        p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, name, theme::font_body(), col);
         if let Some((badge_r, status)) = dev_status_badge_rect(id, n, r) {
             let badge_col = match status {
                 designos_doc::DevStatus::ReadyForDev => theme::DEV_READY,
