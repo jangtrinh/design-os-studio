@@ -704,45 +704,35 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         let mut row_dhs = Vec::with_capacity(rows.len());
         for (row_idx, row) in rows.iter_mut().enumerate() {
             row.sort_by(|a, b| a.b_rect[0].total_cmp(&b.b_rect[0]).then_with(|| cmp_q4(&a.b_rect, &b.b_rect)).then_with(|| a.label.cmp(&b.label)));
-            let b_min_x = row.iter().map(|w| w.b_rect[0]).fold(f32::INFINITY, f32::min);
-            let b_max_x = row.iter().map(|w| w.b_rect[0] + w.b_rect[2]).fold(f32::NEG_INFINITY, f32::max);
             let b_min_y = row.iter().map(|w| w.b_rect[1]).fold(f32::INFINITY, f32::min);
             let b_max_y = row.iter().map(|w| w.b_rect[1] + w.b_rect[3]).fold(f32::NEG_INFINITY, f32::max);
             let c_min_y = row.iter().map(|w| w.c_rect[1]).fold(f32::INFINITY, f32::min);
             let c_max_y = row.iter().map(|w| w.c_rect[1] + w.c_rect[3]).fold(f32::NEG_INFINITY, f32::max);
-            let b_w = (b_max_x - b_min_x).max(0.0);
             let b_h = (b_max_y - b_min_y).max(0.0);
             let c_h = (c_max_y - c_min_y).max(0.0);
             let row_dh = c_h - b_h;
 
-            let row_b_rect = [b_min_x, b_min_y, b_w, b_h];
-            let row_covering = row
-                .iter()
-                .filter_map(|w| best_matching_entry(allow, case_id, &reg, w.name, w.b_rect))
-                .chain(best_matching_entry(allow, case_id, &reg, None, row_b_rect))
-                .max_by_key(|(_, e)| {
-                    (
-                        usize::from(e.min_dh.is_some() || e.max_dh.is_some()),
-                        entry_specificity(e),
-                        e.name_prefix.as_ref().map_or(0, |s| s.len()),
-                        usize::from(e.case != "*"),
-                    )
-                });
-            if let Some((idx, _)) = row_covering {
-                report.matched_allow_indices.insert(idx);
-            }
-            if row_dh.abs() > 0.5 {
-                let (min_dh, max_dh, has_covering) = match row_covering {
-                    Some((_, e)) => (e.min_dh.unwrap_or(0.0), e.max_dh.unwrap_or(0.0), true),
-                    None => (0.0, 0.0, false),
-                };
-                if !has_covering || row_dh < min_dh - 0.5 || row_dh > max_dh + 0.5 {
-                    let row_names: Vec<&str> = row.iter().map(|w| w.label.as_str()).collect();
-                    return Err(format!(
-                        "G3/G4 row #{row_idx} [{}] dh={row_dh} out of allowed [{min_dh}, {max_dh}] in case {case_id} region '{reg}': baseline_h={b_h}, current_h={c_h}",
-                        row_names.join(", ")
-                    ));
+            let mut has_covering = false;
+            let mut min_dh = f32::NEG_INFINITY;
+            let mut max_dh = f32::INFINITY;
+            for w in row.iter() {
+                if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, w.name, w.b_rect) {
+                    report.matched_allow_indices.insert(idx);
+                    has_covering = true;
+                    min_dh = min_dh.max(e.min_dh.unwrap_or(0.0));
+                    max_dh = max_dh.min(e.max_dh.unwrap_or(0.0));
                 }
+            }
+            if !has_covering {
+                min_dh = 0.0;
+                max_dh = 0.0;
+            }
+            if row_dh.abs() > 0.5 && (!has_covering || row_dh < min_dh - 0.5 || row_dh > max_dh + 0.5) {
+                let row_names: Vec<&str> = row.iter().map(|w| w.label.as_str()).collect();
+                return Err(format!(
+                    "G3/G4 row #{row_idx} [{}] dh={row_dh} out of allowed [{min_dh}, {max_dh}] in case {case_id} region '{reg}': baseline_h={b_h}, current_h={c_h}",
+                    row_names.join(", ")
+                ));
             }
 
             row_dhs.push(row_dh);
