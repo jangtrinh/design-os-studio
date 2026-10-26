@@ -335,6 +335,11 @@ impl Shell {
                 app.ui.left_collapsed = false;
                 app.terminal.open_approval_fixture(p, app.file_path.as_deref());
             }
+            Some(p @ ("agents-turn-card" | "agents-turn-card-collapsed" | "agents-turn-card-small")) => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                crate::agent_turn_card::seed_turn_card_fixture(ctx, &mut app, p);
+            }
             Some("specs") => {
                 app.ui.rail = Some(crate::app::RailItem::Specs);
                 app.specs.open = true;
