@@ -369,7 +369,8 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
         check_delta("dy", e.dy)?;
         check_delta("gap_dy", e.gap_dy)?;
         let has_negative_size_delta = [e.min_dw, e.max_dw, e.min_dh, e.max_dh].into_iter().flatten().any(|v| v < 0.0);
-        if has_negative_size_delta && !e.reason.contains("R5") {
+        let has_r5_token = e.reason.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|tok| tok == "R5");
+        if has_negative_size_delta && !has_r5_token {
             return Err(format!("allow.json[{idx}]: negative dw/dh requires R5 in reason, got {:?}", e.reason));
         }
     }
