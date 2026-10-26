@@ -261,6 +261,156 @@ class PrLabelsTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 1)
 
+    def test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        head_pulls = make_commits_pulls(pr_number=1175, head_sha=SHA_A, head_repo=fork_repo)
+        pull = make_pull(
+            pr_number=1175, head_sha=SHA_A, head_repo=fork_repo,
+            additions=405, deletions=0, changed_files=1,
+        )
+        files = make_files([".github/workflows/pr-labeller.yml"])
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=head_pulls,
+                pulls=[],
+                pull=pull,
+                files=files,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=None,
+            ),
+            (1175, ["size/L", "sensitive-path"]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            hp_p = Path(tmp) / "head-pulls.json"
+            pulls_p = Path(tmp) / "pulls.json"
+            pull_p = Path(tmp) / "pull.json"
+            files_p = Path(tmp) / "files.json"
+            hp_p.write_text(json.dumps(head_pulls), encoding="utf-8")
+            pulls_p.write_text("[]\n", encoding="utf-8")
+            pull_p.write_text(json.dumps(pull), encoding="utf-8")
+            files_p.write_text(json.dumps(files), encoding="utf-8")
+            proc = subprocess.run(
+                [
+                    sys.executable, "-B", str(Path(__file__).with_name("pr_labels.py")),
+                    "--head-pulls", str(hp_p),
+                    "--pulls", str(pulls_p),
+                    "--pull", str(pull_p),
+                    "--files", str(files_p),
+                    "--head-sha", SHA_A,
+                    "--head-repo", fork_repo,
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(
+                json.loads(proc.stdout),
+                {"pr_number": 1175, "labels": ["size/L", "sensitive-path"]},
+            )
+
+    def test_head_label_with_different_head_sha_or_head_repo_is_not_used(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        mismatched_head_pulls = [
+            *make_commits_pulls(pr_number=1175, head_sha=SHA_B, head_repo=fork_repo),
+            *make_commits_pulls(pr_number=1176, head_sha=SHA_A, head_repo=REPO),
+        ]
+        self.assertIsNone(
+            pr_labels.resolve_pr_number(
+                head_pulls=mismatched_head_pulls,
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            )
+        )
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=mismatched_head_pulls,
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+            ),
+            (None, []),
+        )
+
+    def test_lookup_order_head_label_then_commit_then_artifact(self) -> None:
+        fork_repo = "NamAIEngineer/design-os-studio"
+        head_pulls_match = make_commits_pulls(pr_number=1175, head_sha=SHA_A, head_repo=fork_repo)
+        commits_pulls_match = make_commits_pulls(pr_number=1184, head_sha=SHA_A, head_repo=fork_repo)
+        artifact_candidate = {"pr_number": 1190}
+        files = make_files([".github/workflows/pr-labeller.yml"])
+
+        # 1. Head label wins over commit lookup and artifact.
+        self.assertEqual(
+            pr_labels.resolve_pr_number(
+                head_pulls=head_pulls_match,
+                pulls=commits_pulls_match,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            1175,
+        )
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=head_pulls_match,
+                pulls=commits_pulls_match,
+                pull=make_pull(pr_number=1175, head_sha=SHA_A, head_repo=fork_repo),
+                files=files,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            (1175, ["sensitive-path"]),
+        )
+
+        # 2. Commit lookup wins over artifact when head label has no match.
+        self.assertEqual(
+            pr_labels.resolve_pr_number(
+                head_pulls=[],
+                pulls=commits_pulls_match,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            1184,
+        )
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=[],
+                pulls=commits_pulls_match,
+                pull=make_pull(pr_number=1184, head_sha=SHA_A, head_repo=fork_repo),
+                files=files,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            (1184, ["sensitive-path"]),
+        )
+
+        # 3. Artifact is used third only when both head label and commit lookup are empty.
+        self.assertEqual(
+            pr_labels.resolve_pr_number(
+                head_pulls=[],
+                pulls=[],
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            1190,
+        )
+        self.assertEqual(
+            pr_labels.evaluate_pr_labels(
+                head_pulls=[],
+                pulls=[],
+                pull=make_pull(pr_number=1190, head_sha=SHA_A, head_repo=fork_repo),
+                files=files,
+                head_sha=SHA_A,
+                head_repo=fork_repo,
+                artifact=artifact_candidate,
+            ),
+            (1190, ["sensitive-path"]),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

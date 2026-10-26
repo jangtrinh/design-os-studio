@@ -1,0 +1,69 @@
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ERROR
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ERROR
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ERROR
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+
+======================================================================
+ERROR: test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 273, in test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact
+    pr_labels.evaluate_pr_labels(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+        artifact=None,
+        ^^^^^^^^^^^^^^
+    ),
+    ^
+TypeError: evaluate_pr_labels() got an unexpected keyword argument 'head_pulls'
+
+======================================================================
+ERROR: test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 318, in test_head_label_with_different_head_sha_or_head_repo_is_not_used
+    pr_labels.resolve_pr_number(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=mismatched_head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        head_repo=fork_repo,
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+TypeError: resolve_pr_number() got an unexpected keyword argument 'head_pulls'
+
+======================================================================
+ERROR: test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 344, in test_lookup_order_head_label_then_commit_then_artifact
+    pr_labels.resolve_pr_number(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls_match,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        artifact=artifact_candidate,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ),
+    ^
+TypeError: resolve_pr_number() got an unexpected keyword argument 'head_pulls'
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.094s
+
+FAILED (errors=3)

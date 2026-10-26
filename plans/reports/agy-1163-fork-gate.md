@@ -466,4 +466,248 @@ resolved_candidate_pr=1184
 +zsh:1> rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ
 ```
 
+---
+
+## Round 3
+
+### R3.1 What Could NOT Be Verified (Stated First)
+
+1. **Automatic pre-merge `on: workflow_run` trigger on GitHub Actions:**
+   - By GitHub Actions' platform rules, `on: workflow_run` workflows only register and auto-trigger after `.github/workflows/pr-labeller.yml` and `scripts/pr_labels.py` land on the default branch (`main`).
+   - Verified pre-merge via a live read-only dry run (no POST) using the workflow's exact `gh api` and `scripts/pr_labels.py` commands against both real open fork PR [`#1175`](https://github.com/jangtrinh/design-os-studio/pull/1175) (`NamAIEngineer:fix/issue-1086-apply-spec`, `c53c55060d51327fc6a3d1f0f02a8157a6b10e6a`, `NamAIEngineer/design-os-studio`, with no artifact) and same-repo PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) (`jangtrinh:jangtrinh/agy-1163-fork-gate`, `4a7a05aec8a692add373f1298cfe44956c1f52fa`, `jangtrinh/design-os-studio`, with no artifact) (`plans/reports/agy-1163-fork-gate-evidence/r3-dry-run.log`).
+
+### R3.2 Conclusion, Epistemic Ledger, Weakest Link & Assumptions
+
+- **Conclusion:** `.github/workflows/pr-labeller.yml`, `scripts/pr_labels.py`, and `scripts/test_pr_labels.py` have been updated per all 5 controller rulings for Round 3 while preserving everything from Round 2 (`4a7a05ae`):
+  1. **First lookup:** `gh api -X GET "repos/${GH_REPO}/pulls" -f state=open -f head="${HEAD_OWNER}:${HEAD_BRANCH}" --paginate`, passing `HEAD_OWNER` (`github.event.workflow_run.head_repository.owner.login`) and `HEAD_BRANCH` (`github.event.workflow_run.head_branch`) via `env:` (never `${{ }}` in `run:`) and letting `-f` URL-encode query parameters, keeping only PRs whose `head.sha` and `head.repo.full_name` match the `workflow_run`.
+  2. **Second lookup:** `commits/${EXPECTED_HEAD_SHA}/pulls`, unchanged.
+  3. **Third lookup:** the `pr-gate-result` artifact candidate (`<= 64 KiB`), unchanged, accepted only after `pulls/{n}` matches `head.sha` and `head.repo.full_name`.
+  4. **No-match notice:** When none of the lookups finds a matching PR and there is no artifact, `.github/workflows/pr-labeller.yml` exits `0` with a `::notice::` naming the lookups that ran (`pulls?state=open&head=${HEAD_OWNER}:${HEAD_BRANCH}`, `commits/${EXPECTED_HEAD_SHA}/pulls`, and `pr-gate-result` artifact).
+  5. **Preserved Round 2 invariants:** Counts and paths come exclusively from GitHub (`pulls/{n}` and `pulls/{n}/files`), truncated file lists (`len(paths) < changed_files`) receive both `size/L` and `sensitive-path`, the 64 KiB artifact cap holds, and the label allowlist (`size/L`, `sensitive-path`) is unchanged.
+- **Epistemic Ledger:**
+  - `FACT:` On Round 2 head `4a7a05ae`, the 3 new Round 3 unit tests in `scripts/test_pr_labels.py` failed as predicted (`Ran 15 tests in 0.094s — FAILED (errors=3)` in `plans/reports/agy-1163-fork-gate-evidence/r3-red.log`), and after updating `scripts/pr_labels.py`, all 15 tests (`12` Round 2 + `3` Round 3) passed (`Ran 15 tests in 0.126s — OK` in `plans/reports/agy-1163-fork-gate-evidence/r3-green.log`).
+  - `FACT:` `$HOME/.local/bin/actionlint -verbose .github/workflows/pr-gate.yml .github/workflows/pr-labeller.yml` passed with `Found 0 errors in 2 files` (`plans/reports/agy-1163-fork-gate-evidence/r3-actionlint.log`).
+  - `FACT:` In the live read-only dry run (`plans/reports/agy-1163-fork-gate-evidence/r3-dry-run.log`), for fork PR [`#1175`](https://github.com/jangtrinh/design-os-studio/pull/1175) (`HEAD_OWNER="NamAIEngineer"`, `HEAD_BRANCH="fix/issue-1086-apply-spec"`, `EXPECTED_HEAD_SHA="c53c55060d51327fc6a3d1f0f02a8157a6b10e6a"`, `EXPECTED_HEAD_REPO="NamAIEngineer/design-os-studio"`, no artifact), `commits/c53c5506.../pulls` returned `[]` (`length == 0`) while `gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=NamAIEngineer:fix/issue-1086-apply-spec --paginate` resolved `1175`, fetched `pulls/1175` (`additions: 101`, `deletions: 2`, `changed_files: 1`) and `pulls/1175/files` (`crates/designos-app/src/main.rs`), and printed `{"pr_number": 1175, "labels": []}`.
+  - `FACT:` In the same live read-only dry run (`plans/reports/agy-1163-fork-gate-evidence/r3-dry-run.log`), for same-repo PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) (`HEAD_OWNER="jangtrinh"`, `HEAD_BRANCH="jangtrinh/agy-1163-fork-gate"`, `EXPECTED_HEAD_SHA="4a7a05aec8a692add373f1298cfe44956c1f52fa"`, `EXPECTED_HEAD_REPO="jangtrinh/design-os-studio"`, no artifact), the head-label lookup resolved `1184` and printed `{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}`.
+  - `INFERENCE:` Once PR [`#1184`](https://github.com/jangtrinh/design-os-studio/pull/1184) merges to `main`, an open fork PR that deletes or skips the artifact upload in `.github/workflows/pr-gate.yml` is still resolved by `pulls?state=open&head=<owner>:<branch>` (verified against `head.sha` and `head.repo.full_name`) and labelled from GitHub's own PR metadata and file list.
+- **Weakest Link:** If a fork PR is already closed AND its commit is not indexed by `commits/{sha}/pulls` AND it skipped uploading the artifact before closing, no lookup resolves it; that is the intended Ruling 4 no-op case (`PR was closed or its branch moved on`).
+- **Assumptions:** None.
+- **Unresolved Questions:** None.
+
+### R3.3 Round 3 Acceptance Table
+
+| # | Acceptance Check | Evidence File | Result |
+|---|---|---|---|
+| **1a** | Red first: 3 new Round 3 unit tests fail on Round 2 head (`4a7a05ae`) | `plans/reports/agy-1163-fork-gate-evidence/r3-red.log` | **PASS (Red):** `Ran 15 tests in 0.094s — FAILED (errors=3)` |
+| **1b** | Green: all 15 unit tests (`12` Round 2 + `3` Round 3: fork head-label with empty commit lookup & no artifact, mismatched `head.sha`/`head.repo` ignored, lookup order head-label -> commit -> artifact) pass | `plans/reports/agy-1163-fork-gate-evidence/r3-green.log` | **PASS (Green):** `Ran 15 tests in 0.126s — OK` |
+| **2** | `actionlint` clean on `.github/workflows/pr-gate.yml` and `.github/workflows/pr-labeller.yml` | `plans/reports/agy-1163-fork-gate-evidence/r3-actionlint.log` | **PASS:** `Found 0 errors in 2 files` (exit `0`) |
+| **3** | Live read-only dry run (no POST) for fork PR `#1175` (`NamAIEngineer:fix/issue-1086-apply-spec`, no artifact) and same-repo PR `#1184` (`jangtrinh:jangtrinh/agy-1163-fork-gate`, no artifact) | `plans/reports/agy-1163-fork-gate-evidence/r3-dry-run.log` | **PASS:** `#1175` resolves `1175` with `{"pr_number": 1175, "labels": []}`; `#1184` resolves `1184` with `{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}` |
+
+### R3.4 Skills Loaded in Round 3 & What Changed Because of Them
+
+1. **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`):
+   - Enforced red-first TDD on `4a7a05ae` (`r3-red.log`) before editing `scripts/pr_labels.py`, preserved all 12 Round 2 tests unchanged, and restricted edits to the allowed file scope.
+2. **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`):
+   - Loaded per owner instruction; no Rust crates were modified in Round 3.
+3. **`es:astra-work` & `es:fable-thinking` & `es:orca-native-orchestration`** (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-orca-native-orchestration/SKILL.md`):
+   - Applied `PREDICT:` before every consequential step, verified URL-safe query encoding via `gh api -X GET ... -f state=open -f head="${HEAD_OWNER}:${HEAD_BRANCH}" --paginate` with `HEAD_OWNER` and `HEAD_BRANCH` passed strictly via `env:`, and verified live read-only resolution against real fork PR `#1175` and same-repo PR `#1184`.
+
+### R3.5 Pasted Commands & Verbatim Outputs (Round 3)
+
+#### 1. Red-First Unit Tests on `4a7a05ae` (`plans/reports/agy-1163-fork-gate-evidence/r3-red.log`)
+
+```text
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ERROR
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ERROR
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ERROR
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+
+======================================================================
+ERROR: test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 273, in test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact
+    pr_labels.evaluate_pr_labels(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+        artifact=None,
+        ^^^^^^^^^^^^^^
+    ),
+    ^
+TypeError: evaluate_pr_labels() got an unexpected keyword argument 'head_pulls'
+
+======================================================================
+ERROR: test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 318, in test_head_label_with_different_head_sha_or_head_repo_is_not_used
+    pr_labels.resolve_pr_number(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=mismatched_head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        head_repo=fork_repo,
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+TypeError: resolve_pr_number() got an unexpected keyword argument 'head_pulls'
+
+======================================================================
+ERROR: test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 344, in test_lookup_order_head_label_then_commit_then_artifact
+    pr_labels.resolve_pr_number(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls_match,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        artifact=artifact_candidate,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ),
+    ^
+TypeError: resolve_pr_number() got an unexpected keyword argument 'head_pulls'
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.094s
+
+FAILED (errors=3)
+```
+
+#### 2. Green Unit Tests (`plans/reports/agy-1163-fork-gate-evidence/r3-green.log`)
+
+```text
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ok
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ok
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ok
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.126s
+
+OK
+```
+
+#### 3. `actionlint` on Both Workflows (`plans/reports/agy-1163-fork-gate-evidence/r3-actionlint.log`)
+
+```text
+$ $HOME/.local/bin/actionlint -verbose .github/workflows/pr-gate.yml .github/workflows/pr-labeller.yml
+verbose: Linting 2 files
+verbose: Linting .github/workflows/pr-labeller.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Linting .github/workflows/pr-gate.yml
+verbose: Using project at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found 0 parse errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "shellcheck" was disabled: exec: "shellcheck": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Rule "pyflakes" was disabled: exec: "pyflakes": executable file not found in $PATH
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-labeller.yml
+verbose: Found total 0 errors in 0 ms for .github/workflows/pr-gate.yml
+verbose: Found 0 errors in 2 files
+```
+
+#### 4. Live Read-Only Dry Run Against Fork PR `#1175` and Same-Repo PR `#1184` (`plans/reports/agy-1163-fork-gate-evidence/r3-dry-run.log`)
+
+```text
++ GH_REPO=jangtrinh/design-os-studio
+++ mktemp -d
++ work_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n
++ trap 'rm -rf "$work_dir"' EXIT
++ HEAD_OWNER=NamAIEngineer
++ HEAD_BRANCH=fix/issue-1086-apply-spec
++ EXPECTED_HEAD_SHA=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ EXPECTED_HEAD_REPO=NamAIEngineer/design-os-studio
++ head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json
++ pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=NamAIEngineer:fix/issue-1086-apply-spec --paginate
++ gh api --paginate repos/jangtrinh/design-os-studio/commits/c53c55060d51327fc6a3d1f0f02a8157a6b10e6a/pulls
++ jq length /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json
+0
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
++ candidate_pr=1175
++ echo resolved_candidate_pr_1175=1175
+resolved_candidate_pr_1175=1175
++ gh api repos/jangtrinh/design-os-studio/pulls/1175
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1175/files
++ jq '{number, head_sha: .head.sha, head_repo: .head.repo.full_name, additions, deletions, changed_files}' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json
+{
+  "number": 1175,
+  "head_sha": "c53c55060d51327fc6a3d1f0f02a8157a6b10e6a",
+  "head_repo": "NamAIEngineer/design-os-studio",
+  "additions": 101,
+  "deletions": 2,
+  "changed_files": 1
+}
++ jq 'map({filename, status, additions, deletions})' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json
+[
+  {
+    "filename": "crates/designos-app/src/main.rs",
+    "status": "modified",
+    "additions": 101,
+    "deletions": 2
+  }
+]
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"pr_number": 1175, "labels": []}
++ HEAD_OWNER=jangtrinh
++ HEAD_BRANCH=jangtrinh/agy-1163-fork-gate
+++ gh pr view 1184 --json headRefOid --jq .headRefOid
++ EXPECTED_HEAD_SHA=4a7a05aec8a692add373f1298cfe44956c1f52fa
++ EXPECTED_HEAD_REPO=jangtrinh/design-os-studio
++ head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json
++ pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-files.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=jangtrinh:jangtrinh/agy-1163-fork-gate --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json --head-sha 4a7a05aec8a692add373f1298cfe44956c1f52fa --head-repo jangtrinh/design-os-studio
++ candidate_pr=1184
++ echo resolved_candidate_pr_1184=1184
+resolved_candidate_pr_1184=1184
++ gh api repos/jangtrinh/design-os-studio/pulls/1184
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1184/files
++ jq '{number, head_sha: .head.sha, head_repo: .head.repo.full_name, additions, deletions, changed_files}' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json
+{
+  "number": 1184,
+  "head_sha": "4a7a05aec8a692add373f1298cfe44956c1f52fa",
+  "head_repo": "jangtrinh/design-os-studio",
+  "additions": 2211,
+  "deletions": 0,
+  "changed_files": 20
+}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-files.json --head-sha 4a7a05aec8a692add373f1298cfe44956c1f52fa --head-repo jangtrinh/design-os-studio
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++ rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n
+```
+
 Status: DONE

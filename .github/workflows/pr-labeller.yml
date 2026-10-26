@@ -21,6 +21,8 @@ jobs:
       RUN_ID: ${{ github.event.workflow_run.id }}
       EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       EXPECTED_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+      HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
       # Never check out PR code: fetch only scripts/pr_labels.py from the base default branch.
       - name: Checkout trusted label script from default branch
@@ -37,24 +39,43 @@ jobs:
           set -euo pipefail
           work_dir="$RUNNER_TEMP/pr-labeller"
           mkdir -p "$work_dir"
+          head_pulls_json="$work_dir/head-pulls.json"
           pulls_json="$work_dir/commits-pulls.json"
           pull_json="$work_dir/pull.json"
           files_json="$work_dir/files.json"
           artifact_json="$work_dir/pr-gate-result.json"
 
-          # 1. Resolve PR directly from GitHub commits/{head_sha}/pulls.
-          gh api --paginate "repos/${GH_REPO}/commits/${EXPECTED_HEAD_SHA}/pulls" > "$pulls_json"
+          # 1. First lookup: open PRs by head label (<owner>:<branch>).
+          gh api -X GET "repos/${GH_REPO}/pulls" \
+            -f state=open \
+            -f head="${HEAD_OWNER}:${HEAD_BRANCH}" \
+            --paginate > "$head_pulls_json"
+          printf '[]\n' > "$pulls_json"
           candidate_pr="$(
             python3 -B scripts/pr_labels.py \
               --resolve-pr \
+              --head-pulls "$head_pulls_json" \
               --pulls "$pulls_json" \
               --head-sha "$EXPECTED_HEAD_SHA" \
               --head-repo "$EXPECTED_HEAD_REPO"
           )"
 
+          # 2. Second lookup: commits/{head_sha}/pulls when head-label lookup finds no match.
+          if [ -z "$candidate_pr" ]; then
+            gh api --paginate "repos/${GH_REPO}/commits/${EXPECTED_HEAD_SHA}/pulls" > "$pulls_json"
+            candidate_pr="$(
+              python3 -B scripts/pr_labels.py \
+                --resolve-pr \
+                --head-pulls "$head_pulls_json" \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO"
+            )"
+          fi
+
+          # 3. Third lookup: pr-gate-result artifact candidate when neither API lookup matched.
           artifact_args=()
           if [ -z "$candidate_pr" ]; then
-            # 2. Download pr-gate-result artifact only when needed as a candidate.
             artifacts_list="$work_dir/artifacts.json"
             gh api "repos/${GH_REPO}/actions/runs/${RUN_ID}/artifacts" > "$artifacts_list"
             artifact_meta="$(
@@ -62,8 +83,9 @@ jobs:
                 "$artifacts_list" | head -n 1 || true
             )"
             if [ -z "$artifact_meta" ]; then
-              echo "::notice::No matching PR from commits/${EXPECTED_HEAD_SHA}/pulls and no pr-gate-result artifact for run ${RUN_ID}; nothing to label."
+              echo "::notice::No matching PR from pulls?state=open&head=${HEAD_OWNER}:${HEAD_BRANCH} or commits/${EXPECTED_HEAD_SHA}/pulls, and no pr-gate-result artifact for run ${RUN_ID} (PR was closed or its branch moved on); nothing to label."
               python3 -B scripts/pr_labels.py \
+                --head-pulls "$head_pulls_json" \
                 --pulls "$pulls_json" \
                 --head-sha "$EXPECTED_HEAD_SHA" \
                 --head-repo "$EXPECTED_HEAD_REPO" >/dev/null
@@ -81,6 +103,7 @@ jobs:
             candidate_pr="$(
               python3 -B scripts/pr_labels.py \
                 --resolve-pr \
+                --head-pulls "$head_pulls_json" \
                 --pulls "$pulls_json" \
                 --head-sha "$EXPECTED_HEAD_SHA" \
                 --head-repo "$EXPECTED_HEAD_REPO" \
@@ -93,13 +116,14 @@ jobs:
             exit 1
           fi
 
-          # 3. Fetch PR counts and file paths from GitHub (never from the artifact).
+          # 4. Fetch PR counts and file paths from GitHub (never from the artifact).
           gh api "repos/${GH_REPO}/pulls/${candidate_pr}" > "$pull_json"
           gh api --paginate "repos/${GH_REPO}/pulls/${candidate_pr}/files" > "$files_json"
 
-          # 4. Validate PR identity (head.sha and head.repo.full_name) and compute labels.
+          # 5. Validate PR identity (head.sha and head.repo.full_name) and compute labels.
           eval_json="$(
             python3 -B scripts/pr_labels.py \
+              --head-pulls "$head_pulls_json" \
               --pulls "$pulls_json" \
               --pull "$pull_json" \
               --files "$files_json" \

@@ -1,0 +1,71 @@
++ GH_REPO=jangtrinh/design-os-studio
+++ mktemp -d
++ work_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n
++ trap 'rm -rf "$work_dir"' EXIT
++ HEAD_OWNER=NamAIEngineer
++ HEAD_BRANCH=fix/issue-1086-apply-spec
++ EXPECTED_HEAD_SHA=c53c55060d51327fc6a3d1f0f02a8157a6b10e6a
++ EXPECTED_HEAD_REPO=NamAIEngineer/design-os-studio
++ head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json
++ pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=NamAIEngineer:fix/issue-1086-apply-spec --paginate
++ gh api --paginate repos/jangtrinh/design-os-studio/commits/c53c55060d51327fc6a3d1f0f02a8157a6b10e6a/pulls
++ jq length /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json
+0
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
++ candidate_pr=1175
++ echo resolved_candidate_pr_1175=1175
+resolved_candidate_pr_1175=1175
++ gh api repos/jangtrinh/design-os-studio/pulls/1175
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1175/files
++ jq '{number, head_sha: .head.sha, head_repo: .head.repo.full_name, additions, deletions, changed_files}' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json
+{
+  "number": 1175,
+  "head_sha": "c53c55060d51327fc6a3d1f0f02a8157a6b10e6a",
+  "head_repo": "NamAIEngineer/design-os-studio",
+  "additions": 101,
+  "deletions": 2,
+  "changed_files": 1
+}
++ jq 'map({filename, status, additions, deletions})' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json
+[
+  {
+    "filename": "crates/designos-app/src/main.rs",
+    "status": "modified",
+    "additions": 101,
+    "deletions": 2
+  }
+]
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1175-files.json --head-sha c53c55060d51327fc6a3d1f0f02a8157a6b10e6a --head-repo NamAIEngineer/design-os-studio
+{"pr_number": 1175, "labels": []}
++ HEAD_OWNER=jangtrinh
++ HEAD_BRANCH=jangtrinh/agy-1163-fork-gate
+++ gh pr view 1184 --json headRefOid --jq .headRefOid
++ EXPECTED_HEAD_SHA=4a7a05aec8a692add373f1298cfe44956c1f52fa
++ EXPECTED_HEAD_REPO=jangtrinh/design-os-studio
++ head_pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json
++ pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json
++ pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json
++ files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-files.json
++ gh api -X GET repos/jangtrinh/design-os-studio/pulls -f state=open -f head=jangtrinh:jangtrinh/agy-1163-fork-gate --paginate
++ printf '[]\n'
+++ python3 -B scripts/pr_labels.py --resolve-pr --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json --head-sha 4a7a05aec8a692add373f1298cfe44956c1f52fa --head-repo jangtrinh/design-os-studio
++ candidate_pr=1184
++ echo resolved_candidate_pr_1184=1184
+resolved_candidate_pr_1184=1184
++ gh api repos/jangtrinh/design-os-studio/pulls/1184
++ gh api --paginate repos/jangtrinh/design-os-studio/pulls/1184/files
++ jq '{number, head_sha: .head.sha, head_repo: .head.repo.full_name, additions, deletions, changed_files}' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json
+{
+  "number": 1184,
+  "head_sha": "4a7a05aec8a692add373f1298cfe44956c1f52fa",
+  "head_repo": "jangtrinh/design-os-studio",
+  "additions": 2211,
+  "deletions": 0,
+  "changed_files": 20
+}
++ python3 -B scripts/pr_labels.py --head-pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-head-pulls.json --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n/1184-files.json --head-sha 4a7a05aec8a692add373f1298cfe44956c1f52fa --head-repo jangtrinh/design-os-studio
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++ rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.F8LwB0ii0n

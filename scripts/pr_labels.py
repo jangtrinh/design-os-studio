@@ -97,11 +97,24 @@ def candidate_pr_from_artifact(artifact: object) -> int:
 
 
 def resolve_pr_number(
-    *, pulls: object, head_sha: str, head_repo: str, artifact: object | None = None,
+    *,
+    head_pulls: object | None = None,
+    pulls: object | None = None,
+    head_sha: str,
+    head_repo: str,
+    artifact: object | None = None,
 ) -> int | None:
-    resolved = resolve_pr_from_commits_pulls(pulls, head_sha, head_repo)
-    if resolved is not None:
-        return resolved
+    if head_pulls is not None:
+        resolved = resolve_pr_from_commits_pulls(head_pulls, head_sha, head_repo)
+        if resolved is not None:
+            return resolved
+    if pulls is not None:
+        resolved = resolve_pr_from_commits_pulls(pulls, head_sha, head_repo)
+        if resolved is not None:
+            return resolved
+    if head_pulls is None and pulls is None:
+        _validate_sha(head_sha)
+        _validate_repo(head_repo)
     if artifact is not None:
         return candidate_pr_from_artifact(artifact)
     return None
@@ -176,7 +189,8 @@ def compute_labels(
 
 def evaluate_pr_labels(
     *,
-    pulls: object,
+    head_pulls: object | None = None,
+    pulls: object | None = None,
     pull: object | None = None,
     files: object | None = None,
     head_sha: str,
@@ -186,7 +200,11 @@ def evaluate_pr_labels(
     expected_sha = _validate_sha(head_sha)
     expected_repo = _validate_repo(head_repo)
     pr_number = resolve_pr_number(
-        pulls=pulls, head_sha=expected_sha, head_repo=expected_repo, artifact=artifact,
+        head_pulls=head_pulls,
+        pulls=pulls,
+        head_sha=expected_sha,
+        head_repo=expected_repo,
+        artifact=artifact,
     )
     if pr_number is None:
         if pull is not None:
@@ -239,7 +257,8 @@ def _load_json_file(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Resolve PR and compute labels from GitHub API JSON.")
-    parser.add_argument("--pulls", required=True, help="Path to commits/<sha>/pulls JSON")
+    parser.add_argument("--head-pulls", help="Path to pulls?state=open&head=<owner>:<branch> JSON")
+    parser.add_argument("--pulls", help="Path to commits/<sha>/pulls JSON")
     parser.add_argument("--pull", help="Path to pulls/<n> JSON")
     parser.add_argument("--files", help="Path to pulls/<n>/files JSON")
     parser.add_argument("--head-sha", required=True, help="Expected workflow_run.head_sha")
@@ -247,14 +266,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--artifact", help="Optional path to candidate pr-gate-result.json")
     parser.add_argument("--resolve-pr", action="store_true", help="Only print resolved/candidate PR number")
     args = parser.parse_args(argv)
+    if not args.head_pulls and not args.pulls:
+        parser.error("at least one of --head-pulls or --pulls is required")
     try:
-        pulls_data = _load_json_file(args.pulls, allow_paginated_arrays=True)
+        head_pulls_data = (
+            _load_json_file(args.head_pulls, allow_paginated_arrays=True) if args.head_pulls else None
+        )
+        pulls_data = (
+            _load_json_file(args.pulls, allow_paginated_arrays=True) if args.pulls else None
+        )
         artifact_data = (
             _load_json_file(args.artifact, max_bytes=MAX_ARTIFACT_BYTES) if args.artifact else None
         )
         if args.resolve_pr:
             pr_num = resolve_pr_number(
-                pulls=pulls_data, head_sha=args.head_sha, head_repo=args.head_repo, artifact=artifact_data,
+                head_pulls=head_pulls_data,
+                pulls=pulls_data,
+                head_sha=args.head_sha,
+                head_repo=args.head_repo,
+                artifact=artifact_data,
             )
             if pr_num is not None:
                 print(pr_num)
@@ -262,8 +292,13 @@ def main(argv: list[str] | None = None) -> int:
         pull_data = _load_json_file(args.pull) if args.pull else None
         files_data = _load_json_file(args.files, allow_paginated_arrays=True) if args.files else None
         pr_num, labels = evaluate_pr_labels(
-            pulls=pulls_data, pull=pull_data, files=files_data,
-            head_sha=args.head_sha, head_repo=args.head_repo, artifact=artifact_data,
+            head_pulls=head_pulls_data,
+            pulls=pulls_data,
+            pull=pull_data,
+            files=files_data,
+            head_sha=args.head_sha,
+            head_repo=args.head_repo,
+            artifact=artifact_data,
         )
         print(json.dumps({"pr_number": pr_num, "labels": labels}))
     except ValueError as exc:
