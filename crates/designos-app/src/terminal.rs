@@ -1887,9 +1887,18 @@ impl TerminalState {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
                     }
-                    let mut history = String::new();
-                    for idx in 1..=120 {
-                        history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
+                }
+            }
+            "agents-scrollback" => {
+                let mut history = String::new();
+                for idx in 1..=120 {
+                    history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
+                }
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Grok;
+                    tab.title = "Grok CLI #1".into();
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
                     }
                     if let Ok(mut parser) = tab.parser.lock() {
                         parser.process(history.as_bytes());
@@ -10943,7 +10952,7 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab"] {
+        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-scrollback"] {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
