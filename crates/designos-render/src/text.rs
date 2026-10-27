@@ -24,8 +24,6 @@ struct Fonts {
     families: HashSet<String>,
     /// Faces embedded via `designos-fonts` (preferred over any system copy).
     bundled: HashSet<fontdb::ID>,
-    /// Whether host system fonts have been loaded into `fs`.
-    system_loaded: bool,
 }
 
 thread_local! {
@@ -41,10 +39,8 @@ thread_local! {
 static EXTRA_FONTS: Mutex<Vec<Arc<Vec<u8>>>> = Mutex::new(Vec::new());
 static FONT_GEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Bundled-only font database, built once with zero disk I/O.
-static BUNDLED_DB: OnceLock<(fontdb::Database, HashSet<fontdb::ID>)> = OnceLock::new();
-/// The system + bundled font database, built lazily only when a non-bundled family or
-/// non-Latin fallback glyph is requested (so cold CLI runs using bundled Inter avoid scanning host fonts).
+/// The system + bundled font database, built once and cloned per thread (so
+/// scanning system fonts does not repeat for every worker).
 static BASE_DB: OnceLock<(fontdb::Database, HashSet<fontdb::ID>)> = OnceLock::new();
 
 /// Number of fonts registered through [`register_font`]; changes whenever the
@@ -61,22 +57,17 @@ pub struct TextLayout {
     pub paths: Vec<Option<sk::Path>>,
 }
 
-fn bundled_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
-    BUNDLED_DB.get_or_init(|| {
-        let mut db = fontdb::Database::new();
-        let mut bundled = HashSet::new();
-        for asset in designos_fonts::bundled() {
-            bundled.extend(db.load_font_source(fontdb::Source::Binary(Arc::new(asset.data))));
-        }
-        db.set_sans_serif_family("Inter");
-        (db, bundled)
-    })
-}
-
 fn base_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
     BASE_DB.get_or_init(|| {
-        let (mut db, bundled) = bundled_db().clone();
-        let owned: HashSet<String> = designos_fonts::bundled().iter().map(|a| a.family.to_lowercase()).collect();
+        let mut db = fontdb::Database::new();
+        // Bundled fonts go in first and any system face claiming the same family
+        // is dropped, so "Inter" always resolves to the embedded copy.
+        let mut bundled = HashSet::new();
+        let mut owned = HashSet::new();
+        for asset in designos_fonts::bundled() {
+            owned.insert(asset.family.to_lowercase());
+            bundled.extend(db.load_font_source(fontdb::Source::Binary(Arc::new(asset.data))));
+        }
         // Hermetic runs (tests, reproducible renders) set this to ignore whatever the host has installed.
         if std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_none() {
             db.load_system_fonts();
@@ -92,39 +83,10 @@ fn base_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
 }
 
 fn init_fonts() -> Fonts {
-    let hermetic = std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_some();
-    let (db, bundled) = bundled_db();
+    let (db, bundled) = base_db();
     let fs = FontSystem::new_with_locale_and_db("en-US".to_string(), db.clone());
     let families = family_names(&fs);
-    Fonts { fs, swash: SwashCache::new(), families, bundled: bundled.clone(), system_loaded: hermetic }
-}
-
-fn ensure_system_fonts(fonts: &mut Fonts) {
-    if fonts.system_loaded {
-        return;
-    }
-    fonts.system_loaded = true;
-    if std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_some() {
-        return;
-    }
-    let (db, _) = base_db();
-    let mut new_db = db.clone();
-    let done = REPLAYED.with(|r| r.get());
-    if done > 0 {
-        let all = EXTRA_FONTS.lock().unwrap_or_else(|e| e.into_inner());
-        for blob in all.iter().take(done) {
-            new_db.load_font_source(fontdb::Source::Binary(blob.clone()));
-        }
-    }
-    fonts.fs = FontSystem::new_with_locale_and_db("en-US".to_string(), new_db);
-    fonts.families = family_names(&fonts.fs);
-}
-
-fn needs_system_fallback(content: &str) -> bool {
-    content.chars().any(|c| {
-        let u = c as u32;
-        u > 0x024F && !(0x1E00..=0x206F).contains(&u)
-    })
+    Fonts { fs, swash: SwashCache::new(), families, bundled: bundled.clone() }
 }
 
 fn family_names(fs: &FontSystem) -> HashSet<String> {
@@ -193,7 +155,6 @@ pub fn register_font(data: Vec<u8>) {
 /// sorted case-insensitively without duplicates. Used by font pickers.
 pub fn available_families() -> Vec<String> {
     with_fonts(|f| {
-        ensure_system_fonts(f);
         let mut names: Vec<String> = f.fs.db().faces().filter_map(|face| face.families.first().map(|(n, _)| n.clone())).collect();
         names.sort_by_key(|n| n.to_lowercase());
         names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
@@ -238,29 +199,12 @@ pub fn resolve_font(family: &str, weight: u16, italic: bool) -> Option<ResolvedF
 }
 
 /// Family name to ask the font database for, or `None` to use default sans-serif.
-fn resolve_family(fonts: &mut Fonts, requested: &str) -> Option<String> {
-    let req_lower = requested.to_lowercase();
-    if fonts.families.contains(&req_lower) {
+fn resolve_family(fonts: &Fonts, requested: &str) -> Option<String> {
+    if fonts.families.contains(&requested.to_lowercase()) {
         return Some(requested.to_string());
     }
-    let sub = designos_fonts::substitute(requested);
-    if let Some(s) = sub {
-        if fonts.families.contains(&s.to_lowercase()) {
-            return Some(s.to_string());
-        }
-    }
-    if !fonts.system_loaded {
-        ensure_system_fonts(fonts);
-        if fonts.families.contains(&req_lower) {
-            return Some(requested.to_string());
-        }
-        if let Some(s) = sub {
-            if fonts.families.contains(&s.to_lowercase()) {
-                return Some(s.to_string());
-            }
-        }
-    }
-    None
+    let sub = designos_fonts::substitute(requested)?;
+    fonts.families.contains(&sub.to_lowercase()).then(|| sub.to_string())
 }
 
 fn auto_line_ratio(fonts: &mut Fonts, st: &d::TextStyle, family: Option<&str>) -> f32 {
@@ -489,9 +433,6 @@ struct Shaper {
 
 impl Shaper {
     fn new(fonts: &mut Fonts, props: &TextProps) -> Self {
-        if needs_system_fallback(&props.content) {
-            ensure_system_fonts(fonts);
-        }
         let mut styles = vec![props.style.clone()];
         styles.extend(props.runs.iter().map(|r| r.style.clone()));
         let family_names: Vec<Option<String>> = styles.iter().map(|s| resolve_family(fonts, &s.font_family)).collect();
@@ -837,8 +778,8 @@ pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
         return hit;
     }
     let geom = Rc::new(with_fonts(|f| compute_geometry(f, props, size)));
-    GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom, 256));
-    GEOMS.with(|g| g.borrow().get(key, props, size).unwrap())
+    GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom.clone(), 256));
+    geom
 }
 
 /// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`),

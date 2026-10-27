@@ -5,10 +5,10 @@
     {
       "label": "Delete",
       "button_px": [
-        402,
-        424,
-        603,
-        507
+        482,
+        514,
+        683,
+        597
       ],
       "button_width_1x": 67.33,
       "ink_width_1x": 41.67,
@@ -19,10 +19,10 @@
     {
       "label": "Export",
       "button_px": [
-        653,
-        424,
-        857,
-        507
+        733,
+        514,
+        937,
+        597
       ],
       "button_width_1x": 68.33,
       "ink_width_1x": 43.33,
@@ -33,10 +33,10 @@
     {
       "label": "Share",
       "button_px": [
-        906,
-        424,
-        1094,
-        507
+        986,
+        514,
+        1174,
+        597
       ],
       "button_width_1x": 63.0,
       "ink_width_1x": 38.0,
