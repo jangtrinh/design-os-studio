@@ -240,21 +240,17 @@ impl<'a> Reader<'a> {
         Ok(s)
     }
     pub fn var_u64(&mut self) -> Result<u64> {
+        // Kiwi caps a 64-bit varint at 9 bytes: the first 8 carry 7 bits plus a continuation flag, the ninth
+        // carries a full 8 bits and never continues.
         let mut v: u64 = 0;
-        let mut shift = 0u32;
-        loop {
+        for i in 0..8 {
             let b = self.byte()?;
-            if shift < 64 {
-                v |= ((b & 0x7f) as u64) << shift;
-            }
+            v |= ((b & 0x7f) as u64) << (7 * i);
             if b & 0x80 == 0 {
                 return Ok(v);
             }
-            shift += 7;
-            if shift > 70 {
-                return Err(KiwiError::Bad("varint too long".into()));
-            }
         }
+        Ok(v | (self.byte()? as u64) << 56)
     }
     pub fn var_u32(&mut self) -> Result<u32> {
         Ok(self.var_u64()? as u32)
@@ -975,7 +971,8 @@ impl Writer {
         self.buf.push(b);
     }
     pub fn var_u64(&mut self, mut v: u64) {
-        loop {
+        // Mirror of `Reader::var_u64`: at most 9 bytes, the ninth a full 8 bits.
+        for _ in 0..8 {
             let b = (v & 0x7f) as u8;
             v >>= 7;
             if v == 0 {
@@ -984,6 +981,7 @@ impl Writer {
             }
             self.buf.push(b | 0x80);
         }
+        self.buf.push(v as u8);
     }
     pub fn var_i64(&mut self, v: i64) {
         self.var_u64(((v << 1) ^ (v >> 63)) as u64);
@@ -1240,6 +1238,37 @@ mod tests {
         }
     }
 
+    /// Kiwi's 64-bit varint is at most 9 bytes: the ninth carries a full 8 bits and no continuation flag.
+    /// Figma's random `strokeSeed` values hit this whenever bit 63 is set.
+    #[test]
+    fn varint64_ninth_byte_is_full_width() {
+        // Real `strokeSeed` bytes from a Figma file, followed by the next field id (0x1c0 = c0 03).
+        let wire = [0x86, 0xc4, 0xa9, 0xed, 0xff, 0xae, 0xd2, 0xc4, 0xa3, 0xc0, 0x03];
+        let mut r = Reader::new(&wire);
+        let v = r.var_u64().unwrap();
+        assert_eq!(r.var_u32().unwrap(), 0x1c0);
+        assert!(r.at_end());
+
+        let mut w = Writer::default();
+        w.var_u64(v);
+        assert_eq!(w.buf, wire[..9]);
+
+        let mut w = Writer::default();
+        w.var_u64(u64::MAX);
+        assert_eq!(w.buf, [0xff; 9]);
+
+        let vals = [0u64, 127, 128, (1 << 56) - 1, 1 << 56, 1 << 63, u64::MAX - 1, u64::MAX];
+        let mut w = Writer::default();
+        for v in vals {
+            w.var_u64(v);
+        }
+        let mut r = Reader::new(&w.buf);
+        for v in vals {
+            assert_eq!(r.var_u64().unwrap(), v);
+        }
+        assert!(r.at_end());
+    }
+
     #[test]
     fn float_roundtrip() {
         let vals = [0.0f32, 1.0, -1.0, 0.1, 123456.78, -3.5e-5, f32::MAX, 1e-30];
@@ -1430,5 +1459,148 @@ mod tests {
         let (s_over, m_over, data_over) = padded_empty_struct_arrays(20, 4_000, 4_000);
         assert!(s_over.decode_message(m_over, &data_over).is_err());
         assert!(s_over.decode_message_for_import(m_over, &data_over).is_err());
+    }
+
+    #[test]
+    fn ac01_u64_max_and_bit63_roundtrip_in_9_bytes() {
+        for v in [u64::MAX, 0x8000_0000_0000_0001u64, 0xa3c4_d2ae_ffed_a986u64] {
+            let mut w = Writer::default();
+            w.var_u64(v);
+            assert_eq!(w.buf.len(), 9, "value {v:#x} must encode in 9 bytes");
+
+            let mut trailed = w.buf.clone();
+            trailed.push(0x2a);
+            let mut r = Reader::new(&trailed);
+            assert_eq!(r.var_u64().unwrap(), v);
+            assert_eq!(r.pos, 9, "reader must advance 9 bytes for {v:#x}");
+            assert_eq!(r.byte().unwrap(), 0x2a);
+        }
+    }
+
+    #[test]
+    fn ac02_var_u64_boundary_byte_lengths() {
+        let cases = [(0u64, 1usize), (127, 1), (128, 2), ((1u64 << 56) - 1, 8), (1u64 << 56, 9)];
+        for (v, expected_len) in cases {
+            let mut w = Writer::default();
+            w.var_u64(v);
+            assert_eq!(w.buf.len(), expected_len, "value {v:#x}");
+            let mut r = Reader::new(&w.buf);
+            assert_eq!(r.var_u64().unwrap(), v);
+            assert_eq!(r.pos, expected_len);
+            assert!(r.at_end());
+        }
+    }
+
+    #[test]
+    fn ac03_field_after_9_byte_varint_decodes_correctly() {
+        let mut b = SchemaBuilder::new();
+        let nc = b.define("NodeChange", DefKind::Message);
+        b.field(nc, "name", FieldType::Native(Native::String), false, 5);
+        b.field(nc, "strokeSeed", FieldType::Native(Native::Uint64), false, 482);
+        let lib_move = b.define("LibraryMoveInfo", DefKind::Message);
+        b.field(lib_move, "oldKey", FieldType::Native(Native::String), false, 1);
+        let root = b.define("Message", DefKind::Message);
+        b.field(root, "nodeChanges", FieldType::Def(nc), true, 1);
+        b.field(root, "libraryMoveInfo", FieldType::Def(lib_move), false, 2);
+        let s = b.build();
+
+        // Construct a wire message where strokeSeed (field 482 = 0xe2 0x03) is a 9-byte Kiwi varint
+        // with bit 63 set, followed immediately by name (field 5) and libraryMoveInfo (field 2).
+        let mut wire = vec![
+            1, // Message.nodeChanges
+            1, // array len = 1
+            0xe2, 0x03, // NodeChange.strokeSeed (id 482)
+            0x86, 0xc4, 0xa9, 0xed, 0xff, 0xae, 0xd2, 0xc4, 0xa3, // 9-byte varint with bit 63 set
+            5,    // NodeChange.name (id 5)
+        ];
+        wire.extend_from_slice(b"StrokeNode\0");
+        wire.push(0); // end NodeChange
+        wire.extend_from_slice(&[2, 1]); // Message.libraryMoveInfo, LibraryMoveInfo.oldKey
+        wire.extend_from_slice(b"k1\0");
+        wire.extend_from_slice(&[0, 0]); // end LibraryMoveInfo, end Message
+
+        let decoded = s.decode_message(root, &wire).expect("9-byte varint must not shift following fields");
+        let changes = decoded.get("nodeChanges").unwrap().as_array().unwrap();
+        assert_eq!(changes[0].get("name"), Some(&KiwiValue::String("StrokeNode".into())));
+        assert_eq!(decoded.get("libraryMoveInfo").and_then(|m| m.get("oldKey")), Some(&KiwiValue::String("k1".into())));
+    }
+
+    #[test]
+    fn ac04_fixture_with_bit63_stroke_seed_imports_and_roundtrips() {
+        const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/stroke-seed-bit63.fig");
+        let doc = crate::import_fig(FIXTURE).expect("import stroke-seed-bit63.fig");
+        assert_eq!(doc.nodes.len(), 4);
+        let re_exported = crate::export_fig(&doc).expect("export_fig round-trip");
+        let roundtrip = crate::import_fig(&re_exported).expect("re-import exported .fig");
+        assert_eq!(roundtrip.nodes.len(), 4);
+    }
+
+    #[test]
+    fn ac05_truncated_9_byte_varint_returns_error_without_panic() {
+        let full = [0xffu8; 9];
+        for len in 0..9 {
+            let mut r = Reader::new(&full[..len]);
+            assert_eq!(r.var_u64(), Err(KiwiError::Eof(len)));
+        }
+
+        let mut b = SchemaBuilder::new();
+        let nc = b.define("NodeChange", DefKind::Message);
+        b.field(nc, "strokeSeed", FieldType::Native(Native::Uint64), false, 482);
+        let s = b.build();
+        let msg = KiwiValue::Message(vec![("strokeSeed".into(), KiwiValue::Uint64(u64::MAX))]);
+        let bytes = s.encode_message(nc, &msg).unwrap();
+        assert_eq!(bytes.len(), 2 + 9 + 1);
+        assert_eq!(s.decode_message(nc, &bytes).unwrap(), msg);
+        for len in 0..bytes.len() {
+            assert!(s.decode_message(nc, &bytes[..len]).is_err(), "truncated len {len} must fail");
+        }
+        // Truncated 8-byte varint followed by message terminator (eaten as 9th byte) and bogus field id 125.
+        let malformed = [0xe2, 0x03, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 125, 0x00];
+        let err = s.decode_message(nc, &malformed).unwrap_err();
+        assert!(err.to_string().contains("malformed data: unknown field id 125"), "{err}");
+    }
+
+    #[test]
+    fn edge_case_2_pow_63_high_byte_is_data_not_continuation() {
+        let v = 1u64 << 63;
+        let mut w = Writer::default();
+        w.var_u64(v);
+        assert_eq!(w.buf, [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]);
+
+        let wire = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x05];
+        let mut r = Reader::new(&wire);
+        assert_eq!(r.var_u64().unwrap(), v);
+        assert_eq!(r.pos, 9);
+        assert_eq!(r.byte().unwrap(), 0x05);
+    }
+
+    #[test]
+    fn edge_case_zigzag_var_i64_min_and_max() {
+        let mut w_min = Writer::default();
+        w_min.var_i64(i64::MIN);
+        assert_eq!(w_min.buf, [0xff; 9]);
+        let mut r_min = Reader::new(&w_min.buf);
+        assert_eq!(r_min.var_i64().unwrap(), i64::MIN);
+        assert!(r_min.at_end());
+
+        let mut w_max = Writer::default();
+        w_max.var_i64(i64::MAX);
+        assert_eq!(w_max.buf, [0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+        let mut r_max = Reader::new(&w_max.buf);
+        assert_eq!(r_max.var_i64().unwrap(), i64::MAX);
+        assert!(r_max.at_end());
+    }
+
+    #[test]
+    fn edge_case_10_byte_varint_from_old_build_returns_error_without_panic() {
+        let mut b = SchemaBuilder::new();
+        let nc = b.define("NodeChange", DefKind::Message);
+        b.field(nc, "strokeSeed", FieldType::Native(Native::Uint64), false, 482);
+        let s = b.build();
+
+        // Old Studio builds encoded bit-63 u64 values as 10-byte LEB128 (9 continuation bytes + 0x01).
+        let old_10_byte_wire = [0xe2, 0x03, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x00];
+        let err = s.decode_message(nc, &old_10_byte_wire).unwrap_err();
+        assert!(err.to_string().contains("malformed data: unknown field id 1 in NodeChange"), "{err}");
     }
 }
