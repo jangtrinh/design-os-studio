@@ -48,6 +48,20 @@ fn gui_select_miss_is_recorded_for_exit() {
 }
 
 #[test]
+fn an_edit_text_miss_in_a_capture_run_is_recorded_like_a_select_miss() {
+    let dir = Scratch::new("gui_edit_text_miss");
+    let png = dir.path("shot.png");
+    let s = opened(&dir, &["--edit-text", "Nope", "--screenshot", png.to_str().unwrap()]);
+    let msg = s.shell.select_miss.as_deref().expect("a text layer that is not there is a miss in a capture run");
+    assert_eq!(msg, "--edit-text \"Nope\" matched no text layer");
+    assert!(s.sent_commands.iter().any(|c| matches!(c, egui::ViewportCommand::Close)), "the capture window closes at once");
+    assert!(!png.exists());
+
+    let hit = opened(&dir, &["--edit-text", "Title", "--screenshot", png.to_str().unwrap()]);
+    assert!(hit.shell.select_miss.is_none(), "an existing text layer is not a miss");
+}
+
+#[test]
 fn an_interactive_launch_with_a_select_miss_stays_open_and_says_so() {
     let dir = Scratch::new("gui_select_miss_open");
     let s = opened(&dir, &["--select", "Card Z"]);
@@ -58,13 +72,14 @@ fn an_interactive_launch_with_a_select_miss_stays_open_and_says_so() {
     assert_eq!(toast.text, "No layer matches \"Card Z\". Check the name, or use id: or fig:");
 }
 
-/// How much of the canvas the selection fills along its tighter side, and whether it lies inside the canvas.
+/// How much of the canvas the selection fills along its larger side (measured against the canvas side that
+/// matches it), and whether it lies inside the canvas.
 fn framing(s: &Sim, id: NodeId) -> (f32, bool) {
     let app = s.app();
     let b = designos_doc::node_world_bounds(&app.doc, id);
     let (a, c) = (app.view.to_screen(app.canvas_rect.min, DV::new(b.x, b.y)), app.view.to_screen(app.canvas_rect.min, DV::new(b.x + b.w, b.y + b.h)));
     let rect = Rect::from_two_pos(a, c);
-    let fill = (rect.width() / app.canvas_rect.width()).max(rect.height() / app.canvas_rect.height());
+    let fill = if rect.width() >= rect.height() { rect.width() / app.canvas_rect.width() } else { rect.height() / app.canvas_rect.height() };
     (fill, app.canvas_rect.contains_rect(rect))
 }
 
