@@ -238,6 +238,36 @@ fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Op
     None
 }
 
+fn apply_spec_cli_output(doc: &mut designos_doc::Document, parent: designos_doc::NodeId, spec: &designos_doc::NodeSpec) -> Result<serde_json::Value, String> {
+    let existing_root_names: Vec<String> =
+        doc.get(parent).map(|p| p.children.iter().filter_map(|id| doc.get(*id).map(|n| n.name.clone())).collect()).unwrap_or_default();
+    let report = doc.apply_spec_with_report(parent, spec).map_err(|e| e.to_string())?;
+    let root = doc.get(report.root_node_id).ok_or_else(|| format!("Applied spec root {} is missing", report.root_node_id.0))?;
+    let root_name = root.name.clone();
+    let mut nodes_created = 0usize;
+    doc.walk(report.root_node_id, |_, _| nodes_created += 1);
+    let mut warnings = report.warnings;
+    if existing_root_names.iter().any(|name| name == &root_name) {
+        warnings.push(designos_doc::SpecWarning {
+            code: "ROOT_NAME_ALREADY_EXISTS".into(),
+            path: "/spec/name".into(),
+            token: None,
+            replacement: None,
+            message: Some(format!("Added a new subtree named '{root_name}'; the existing node with that name was left unchanged.")),
+        });
+    }
+    Ok(serde_json::json!({
+        "root_node_id": report.root_node_id.0,
+        "root_name": root_name,
+        "parent_id": parent.0,
+        "nodes_created": nodes_created,
+        "added_new_subtree": true,
+        "updated_existing_node": false,
+        "warnings": warnings,
+        "saved": true,
+    }))
+}
+
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // An unusable --export-fig target stops the command before it loads, applies or saves anything.
     if let Some(out_path) = &opts.export_fig {
@@ -302,11 +332,10 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
         let spec: designos_doc::NodeSpec = serde_json::from_str(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
-        let root_id = doc.apply_spec(parent, &spec)?;
+        let out = apply_spec_cli_output(&mut doc, parent, &spec)?;
         // no window drains the deferred layout here, and the queue is not part of the file
         doc.flush_pending_relayout();
         save_target.save(&doc)?;
-        let out = serde_json::json!({ "root_node_id": root_id.0, "saved": true });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
@@ -570,6 +599,76 @@ mod icon_tests {
         assert!(final_doc.comments[0].resolved);
         assert_eq!(final_doc.comments[0].messages.len(), 2);
         assert!(spec_out.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_spec_cli_reports_new_subtree_when_root_name_exists() {
+        let mut doc = designos_doc::Document::new("CLI Test");
+        doc.add_page("Page 1");
+        let page = doc.pages[0];
+        let original = serde_json::from_value::<designos_doc::NodeSpec>(serde_json::json!({
+            "kind": "frame",
+            "name": "Pricing Page",
+            "children": [{"kind": "text", "name": "Plan", "text": "$12"}]
+        }))
+        .unwrap();
+        let original_id = doc.apply_spec(page, &original).unwrap();
+        let edited = serde_json::from_value::<designos_doc::NodeSpec>(serde_json::json!({
+            "kind": "frame",
+            "name": "Pricing Page",
+            "children": [{"kind": "text", "name": "Plan", "text": "$15"}]
+        }))
+        .unwrap();
+
+        let out = super::apply_spec_cli_output(&mut doc, page, &edited).unwrap();
+        assert_eq!(out["added_new_subtree"], true);
+        assert_eq!(out["updated_existing_node"], false);
+        assert_eq!(out["root_name"], "Pricing Page");
+        assert_eq!(out["parent_id"], page.0);
+        assert_eq!(out["nodes_created"], 2);
+        assert_eq!(out["warnings"][0]["code"], "ROOT_NAME_ALREADY_EXISTS");
+        assert_eq!(doc.get(original_id).unwrap().children.len(), 1);
+        let old_text = doc.get(doc.get(original_id).unwrap().children[0]).unwrap();
+        assert!(matches!(&old_text.kind, designos_doc::NodeKind::Text(text) if text.content == "$12"));
+    }
+
+    #[test]
+    fn apply_spec_cli_persists_new_subtree_without_mutating_existing_root() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_apply_spec_persistence_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let doc_path = dir.join("pricing.designos");
+        let first_spec = dir.join("first.json");
+        let second_spec = dir.join("second.json");
+
+        let mut doc = designos_doc::Document::new("CLI Test");
+        doc.add_page("Page 1");
+        super::io::save_path(&doc, &doc_path).unwrap();
+        std::fs::write(&first_spec, r#"{"kind":"frame","name":"Pricing Page","children":[{"kind":"text","name":"Plan","text":"$12"}]}"#).unwrap();
+        std::fs::write(&second_spec, r#"{"kind":"frame","name":"Pricing Page","children":[{"kind":"text","name":"Plan","text":"$15"}]}"#).unwrap();
+
+        for spec_path in [&first_spec, &second_spec] {
+            let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+            super::run_agent_cli(&opts).unwrap();
+        }
+
+        let reloaded = super::io::load_path(&doc_path).unwrap();
+        let page = reloaded.pages[0];
+        let roots: Vec<_> = reloaded.get(page).unwrap().children.iter().filter_map(|id| reloaded.get(*id)).filter(|node| node.name == "Pricing Page").collect();
+        assert_eq!(roots.len(), 2);
+        let texts: Vec<_> = roots
+            .iter()
+            .flat_map(|root| root.children.iter().filter_map(|id| reloaded.get(*id)))
+            .filter_map(|node| match &node.kind {
+                designos_doc::NodeKind::Text(text) => Some(text.content.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"$12"));
+        assert!(texts.contains(&"$15"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
