@@ -122,21 +122,7 @@ fn kit_frames_export_bounds_match_figma() {
         );
 
         // Check SVG root width/height at 1x
-        assert!(
-            (svg_w - frame.expected_w).abs() <= 1.0,
-            "frame {} ({}) svg width mismatch: {} vs {}",
-            frame.name,
-            frame.source_id,
-            svg_w,
-            frame.expected_w
-        );
-        assert!(
-            (svg_h - frame.expected_h).abs() <= 1.0,
-            "frame {} ({}) svg height mismatch: {} vs {}",
-            frame.name,
-            frame.source_id,
-            svg_h,
-            frame.expected_h
-        );
+        assert!((svg_w - frame.expected_w).abs() <= 1.0, "frame {} ({}) svg width mismatch: {} vs {}", frame.name, frame.source_id, svg_w, frame.expected_w);
+        assert!((svg_h - frame.expected_h).abs() <= 1.0, "frame {} ({}) svg height mismatch: {} vs {}", frame.name, frame.source_id, svg_h, frame.expected_h);
     }
 }

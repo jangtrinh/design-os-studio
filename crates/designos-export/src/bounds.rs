@@ -372,13 +372,7 @@ mod tests {
         assert_eq!((bounds.x, bounds.y, bounds.w, bounds.h), (-l, -t, 328.0 + l + r, 540.0 + t + b));
 
         let svg = crate::svg::export_svg(&d, id, &Default::default());
-        let expected_filter = format!(
-            "<filter id=\"shadow0\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
-            -l,
-            -t,
-            328.0 + l + r,
-            540.0 + t + b
-        );
+        let expected_filter = format!("<filter id=\"shadow0\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"", -l, -t, 328.0 + l + r, 540.0 + t + b);
         assert!(svg.contains(&expected_filter), "svg missing {expected_filter}:\n{svg}");
     }
 
