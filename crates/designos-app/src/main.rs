@@ -493,41 +493,50 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if opts.inspect_json {
-        let out = serde_json::json!({
-            "name": doc.name,
-            "kind": doc.kind,
-            "node_count": doc.nodes.len(),
-            "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
-            "selection": selected_node.map(|id| serde_json::json!({
-                "id": id.0,
-                "source_id": doc.get(id).and_then(|n| n.source_id.clone()),
-                "name": doc.get(id).map(|n| n.name.clone()),
-                "kind": doc.get(id).map(|n| n.kind.default_name()),
-                "page_id": doc.page_of(id).map(|p| p.0),
-                "x": doc.get(id).map(|n| n.transform.tx),
-                "y": doc.get(id).map(|n| n.transform.ty),
-                "width": doc.get(id).map(|n| n.size.x),
-                "height": doc.get(id).map(|n| n.size.y),
-            })),
-            "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
-                "id": p.id.0,
-                "name": p.name,
-                "child_count": p.children.len(),
-                "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
-                    "id": c.id.0,
-                    "name": c.name,
-                    "kind": c.kind.default_name(),
-                    "width": c.size.x,
-                    "height": c.size.y,
-                    "dev_status": c.dev.status.map(|s| s.label()),
-                    "source_id": c.source_id,
-                })).collect::<Vec<_>>()
-            })).collect::<Vec<_>>()
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node)).unwrap());
     }
 
     Ok(())
+}
+
+/// What `--inspect-json` prints: the pages and screens of the document (with their Figma ids), plus the node that
+/// `--select` addressed, in page coordinates, so an agent can read where it is without a second command.
+fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "name": doc.name,
+        "kind": doc.kind,
+        "node_count": doc.nodes.len(),
+        "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
+        "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
+            "id": p.id.0,
+            "name": p.name,
+            "child_count": p.children.len(),
+            "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
+                "id": c.id.0,
+                "name": c.name,
+                "kind": c.kind.default_name(),
+                "width": c.size.x,
+                "height": c.size.y,
+                "dev_status": c.dev.status.map(|s| s.label()),
+                "source_id": c.source_id,
+            })).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()
+    });
+    if let Some(n) = selected.and_then(|id| doc.get(id)) {
+        let b = designos_doc::node_world_bounds(doc, n.id);
+        out["selection"] = serde_json::json!({
+            "id": n.id.0,
+            "name": n.name,
+            "kind": n.kind.default_name(),
+            "page_id": doc.page_of(n.id).map(|p| p.0),
+            "source_id": n.source_id,
+            "x": b.x,
+            "y": b.y,
+            "width": b.w,
+            "height": b.h,
+        });
+    }
+    out
 }
 
 #[cfg(test)]

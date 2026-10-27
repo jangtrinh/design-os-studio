@@ -139,6 +139,23 @@ fn select_by_figma_id_in_a_round_tripped_fig() {
 }
 
 #[test]
+fn inspect_json_reports_the_selection_and_screen_source_ids() {
+    let mut doc = two_cards();
+    let target = crate::select_target::resolve(&mut doc, "Card B").unwrap();
+    let v = crate::inspect_json(&doc, target.node);
+    let s = &v["selection"];
+    assert_eq!(s["id"], 5);
+    assert_eq!(
+        (s["name"].as_str(), s["kind"].as_str(), s["page_id"].as_u64(), s["source_id"].as_str()),
+        (Some("Card B"), Some("Frame"), Some(1), Some("12:34"))
+    );
+    assert_eq!((s["x"].as_f64(), s["y"].as_f64()), (Some(480.0), Some(200.0)), "the page position, not the one inside Board: {s}");
+    assert_eq!((s["width"].as_f64(), s["height"].as_f64()), (Some(360.0), Some(220.0)));
+    assert_eq!(v["pages"][0]["screens"][0]["source_id"], "12:1", "a screen carries its Figma id");
+    assert!(crate::inspect_json(&doc, None).get("selection").is_none(), "no --select, no selection key");
+}
+
+#[test]
 fn screenshot_exit_code_for_a_select_miss() {
     assert_eq!(crate::exit_code(true, true), 2, "a miss is exit 2");
     assert_eq!(crate::exit_code(true, false), 2, "a miss takes precedence over a PNG that was not captured");
