@@ -8,6 +8,7 @@ mod file_dialog;
 #[cfg(test)]
 mod file_dialog_flow_tests;
 
+pub(crate) use fallback_save::user_home;
 pub use fallback_save::write_new_in;
 #[cfg(test)]
 pub use file_dialog::ScriptedDialogs;

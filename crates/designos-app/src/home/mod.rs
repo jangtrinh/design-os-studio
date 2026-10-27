@@ -462,7 +462,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         h.search.clear();
     }
     app.home = Some(h);
+    let mut imported_in_frame = false;
     for a in acts {
+        if matches!(a, Act::Import) {
+            if imported_in_frame {
+                continue;
+            }
+            imported_in_frame = true;
+        }
         apply(app, a);
     }
 }
@@ -570,6 +577,7 @@ fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
 
 /// Import: asks for design files and brings them into the current project (or the first one, or a new one).
 pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) {
+    let Some(_guard) = app.try_begin_dialog() else { return };
     let request = crate::io::FileRequest::open()
         .filter("Design files", &["designos", "fig", "json", "svg"])
         .filter("design:os studio", &["designos"])
@@ -577,7 +585,7 @@ pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) 
         .filter("SVG", &["svg"])
         .filter("JSON", &["json"]);
     let outcome = dialogs.pick_many(&request);
-    let Some(paths) = app.picked_paths(outcome) else { return };
+    let Some(paths) = app.picked_paths(outcome, true) else { return };
     let Some(lib) = app.lib.clone() else { return };
     let target = match app.home_target() {
         Some(t) => Some(t),
@@ -1277,7 +1285,7 @@ mod main_view {
                 right -= 8.0;
             }
             let r = button(ui, &p, &mut right, head.center().y, "Import", Kind::Secondary, "home-import");
-            if r.clicked() {
+            if r.clicked() && !r.double_clicked() {
                 acts.push(Act::Import);
             }
             if !h.searching() {

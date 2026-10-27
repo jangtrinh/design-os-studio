@@ -2063,7 +2063,7 @@ impl App {
 
     pub fn open_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
         let outcome = dialogs.pick(&io::open_request());
-        if let Some(p) = self.picked_path(outcome) {
+        if let Some(p) = self.picked_path(outcome, false) {
             self.open_path(p);
         }
     }
@@ -2074,7 +2074,7 @@ impl App {
 
     pub fn import_web_capture_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
         let outcome = dialogs.pick(&io::web_capture_request());
-        if let Some(p) = self.picked_path(outcome) {
+        if let Some(p) = self.picked_path(outcome, false) {
             self.import_web_capture_path(p);
         }
     }
@@ -2190,6 +2190,13 @@ impl App {
                 self.replace_document(doc, (!svg).then_some(p));
                 // What the replaced document left (a change no history holds) is not this one's.
                 self.autosave.dot.adopt(false);
+                if self.home.take().is_some() {
+                    self.ui.menu = None;
+                    self.tabs.parked_in_home = true;
+                    let mut tabs = std::mem::take(&mut self.tabs);
+                    tabs.reconcile_frame(self);
+                    self.tabs = tabs;
+                }
                 self.show_toast(io::opened_toast_text(&name, warning.as_deref()), warning.is_some());
                 Ok(())
             }
@@ -2215,7 +2222,7 @@ impl App {
             (Some(p), false) if p.extension().map(|e| e == io::NATIVE_EXT).unwrap_or(false) => Some(p.clone()),
             _ => {
                 let outcome = dialogs.pick(&io::save_request(&self.doc.name));
-                self.picked_path(outcome)
+                self.picked_path(outcome, false)
             }
         };
         let Some(path) = target else { return };
