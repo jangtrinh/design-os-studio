@@ -631,35 +631,71 @@ fn sanitize_dtcg_path(name: &str) -> (Vec<String>, bool) {
     (segs, any_changed)
 }
 
-/// Resolves the literal value of `var_id` in `mode_id` / `mode_name` (matching target collection mode by id,
-/// then by mode name, and falling back to the target collection's default mode).
-fn resolve_literal_in_mode(doc: &Document, var_id: &str, mode_id: &str, mode_name: &str) -> Option<(VariableKind, VariableValue)> {
-    let mut cur_id = var_id.to_string();
-    let mut cur_mode_id = mode_id.to_string();
-    let mut cur_mode_name = mode_name.to_string();
-    for _ in 0..16 {
-        let v = doc.variables.get(&cur_id)?;
-        let coll = doc.variable_collections.get(&v.collection)?;
-        let effective_mode_id = if v.values.contains_key(&cur_mode_id) {
-            cur_mode_id.clone()
-        } else if let Some(m) = coll.modes.iter().find(|m| m.name == cur_mode_name && v.values.contains_key(&m.id)) {
-            m.id.clone()
-        } else {
-            coll.default_mode.clone()
-        };
-        let val = v.values.get(&effective_mode_id).or_else(|| v.values.get(&coll.default_mode)).or_else(|| v.values.values().next())?;
-        if let Some(m) = coll.modes.iter().find(|m| m.id == effective_mode_id) {
-            cur_mode_name = m.name.clone();
+/// Single value-lookup rule (`#1140` Round 2):
+/// - `values[mode_id]` if present (`used_default = false`);
+/// - else `values[coll.default_mode]` (`used_default = true`);
+/// - else `None`.
+/// - Never falls back to an arbitrary `values().next()`.
+fn value_in_mode<'a>(var: &'a Variable, coll: &VariableCollection, mode_id: &str) -> Option<(&'a VariableValue, bool)> {
+    if let Some(val) = var.values.get(mode_id) {
+        Some((val, false))
+    } else {
+        var.values.get(&coll.default_mode).map(|val| (val, true))
+    }
+}
+
+/// Finds the mode ID on `coll` matching `req_mode_name` (preferring `req_mode_id` when it also matches).
+/// Returns `""` if `coll` has no mode matching the requested mode, causing `value_in_mode` to fall back
+/// to `coll.default_mode` with `used_default = true`.
+fn matching_mode_id<'a>(coll: &'a VariableCollection, req_mode_id: &str, req_mode_name: &str) -> &'a str {
+    if let Some(m) = coll.modes.iter().find(|m| m.id == req_mode_id && (req_mode_name.is_empty() || m.name == req_mode_name)) {
+        return m.id.as_str();
+    }
+    if !req_mode_name.is_empty() {
+        if let Some(m) = coll.modes.iter().find(|m| m.name == req_mode_name) {
+            return m.id.as_str();
         }
-        cur_mode_id = effective_mode_id;
-        match val {
+    }
+    ""
+}
+
+/// Resolves an alias chain of up to 16 hops using `value_in_mode` at every step.
+/// Counts every hop that took `used_default` in `default_hops`.
+fn resolve_alias_chain<'a>(
+    doc: &'a Document,
+    start_target_id: &str,
+    req_mode_id: &str,
+    req_mode_name: &str,
+) -> Result<(&'a Variable, VariableValue, usize), String> {
+    let mut cur_id = start_target_id.to_string();
+    let mut default_hops = 0usize;
+    for _ in 0..16 {
+        let Some(t_var) = doc.variables.get(&cur_id) else {
+            return Err(format!("missing target variable '{cur_id}'"));
+        };
+        let Some(t_coll) = doc.variable_collections.get(&t_var.collection) else {
+            return Err(format!("missing target collection '{}'", t_var.collection));
+        };
+        let lookup_mode_id = matching_mode_id(t_coll, req_mode_id, req_mode_name);
+        let Some((t_val, used_default)) = value_in_mode(t_var, t_coll, lookup_mode_id) else {
+            return Err(format!("target variable '{cur_id}' has no value in mode '{req_mode_name}' or default mode"));
+        };
+        if used_default {
+            default_hops += 1;
+        }
+        match t_val {
             VariableValue::Alias(next_id) => {
                 cur_id = next_id.clone();
             }
-            other => return Some((v.kind, other.clone())),
+            other => return Ok((t_var, other.clone(), default_hops)),
         }
     }
-    None
+    Err(format!("alias cycle or chain deeper than 16 hops starting at '{start_target_id}'"))
+}
+
+/// Resolves the literal value of `var_id` in `mode_id` / `mode_name` using `resolve_alias_chain`.
+fn resolve_literal_in_mode(doc: &Document, var_id: &str, mode_id: &str, mode_name: &str) -> Option<(VariableKind, VariableValue)> {
+    resolve_alias_chain(doc, var_id, mode_id, mode_name).ok().map(|(v, val, _)| (v.kind, val))
 }
 
 /// Inserts a token object into a nested JSON group tree at `segments`.
@@ -801,7 +837,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
                 let winner = matching.iter().find(|c| !c.is_library()).copied().unwrap_or(matching[0]);
                 if matching.len() > 1 {
                     for shadowed in &matching {
-                        if shadowed.id != winner.id && !skipped_collections.iter().any(|s| s.id == shadowed.id) {
+                        if shadowed.id != winner.id && !selected_modes.contains_key(&shadowed.id) && !skipped_collections.iter().any(|s| s.id == shadowed.id) {
                             skipped_collections.push(SkippedModeCollection {
                                 id: shadowed.id.clone(),
                                 name: shadowed.name.clone(),
@@ -817,6 +853,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
                 if let Some((mid, mname)) = pick_mode_for_coll(chosen) {
                     selected_order.push(chosen.id.clone());
                     selected_modes.insert(chosen.id.clone(), (mid, mname));
+                    skipped_collections.retain(|s| s.id != chosen.id);
                 } else if !skipped_collections.iter().any(|s| s.id == chosen.id) {
                     skipped_collections.push(SkippedModeCollection {
                         id: chosen.id.clone(),
@@ -839,26 +876,23 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
         let mut idx = 0usize;
         while idx < selected_order.len() {
             let cid = selected_order[idx].clone();
-            let (mid, mname) = selected_modes[&cid].clone();
+            let (mid, _mname) = selected_modes[&cid].clone();
             idx += 1;
             let Some(coll) = doc.variable_collections.get(&cid) else { continue };
             for v in ordered_collection_variables(doc, coll) {
-                let Some(VariableValue::Alias(first_target_id)) = v.values.get(&mid) else { continue };
+                let Some((VariableValue::Alias(first_target_id), _)) = value_in_mode(v, coll, &mid) else { continue };
                 let mut cur_id = first_target_id.clone();
-                let mut cur_mode_id = mid.clone();
-                let mut cur_mode_name = mname.clone();
                 for _ in 0..16 {
                     let Some(target_var) = doc.variables.get(&cur_id) else { break };
                     let Some(target_coll) = doc.variable_collections.get(&target_var.collection) else { break };
-                    let effective_mode_id = if target_var.values.contains_key(&cur_mode_id) && target_coll.modes.iter().any(|m| m.id == cur_mode_id) {
-                        cur_mode_id.clone()
-                    } else if let Some(m) = target_coll.modes.iter().find(|m| m.name == cur_mode_name && target_var.values.contains_key(&m.id)) {
-                        m.id.clone()
-                    } else {
-                        target_coll.default_mode.clone()
+                    let matched_mid = matching_mode_id(target_coll, &mid, &opts.mode);
+                    let pinned_mode_id = if matched_mid.is_empty() { target_coll.default_mode.clone() } else { matched_mid.to_string() };
+                    let pinned_mode_name =
+                        target_coll.modes.iter().find(|m| m.id == pinned_mode_id).map(|m| m.name.clone()).unwrap_or_else(|| pinned_mode_id.clone());
+
+                    let Some((next_val, _)) = value_in_mode(target_var, target_coll, &pinned_mode_id) else {
+                        break;
                     };
-                    let effective_mode_name =
-                        target_coll.modes.iter().find(|m| m.id == effective_mode_id).map(|m| m.name.clone()).unwrap_or_else(|| effective_mode_id.clone());
 
                     let target_has_requested_mode = target_coll.modes.iter().any(|m| m.name == opts.mode);
                     let was_excluded = !explicitly_selected_ids.contains(&target_coll.id);
@@ -870,20 +904,10 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
                     }
                     if !selected_modes.contains_key(&target_coll.id) {
                         selected_order.push(target_coll.id.clone());
-                        selected_modes.insert(target_coll.id.clone(), (effective_mode_id.clone(), effective_mode_name.clone()));
+                        selected_modes.insert(target_coll.id.clone(), (pinned_mode_id, pinned_mode_name));
                         skipped_collections.retain(|s| s.id != target_coll.id);
                     }
 
-                    let Some(next_val) = target_var
-                        .values
-                        .get(&effective_mode_id)
-                        .or_else(|| target_var.values.get(&target_coll.default_mode))
-                        .or_else(|| target_var.values.values().next())
-                    else {
-                        break;
-                    };
-                    cur_mode_id = effective_mode_id;
-                    cur_mode_name = effective_mode_name;
                     match next_val {
                         VariableValue::Alias(next_id) => cur_id = next_id.clone(),
                         _ => break,
@@ -898,6 +922,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
     let mut total_tokens = 0usize;
     let mut aliases_resolved = 0usize;
     let mut aliases_resolved_via_default_mode = 0usize;
+    let mut values_from_default_mode = 0usize;
     let mut broken_aliases: Vec<String> = Vec::new();
 
     for cid in &selected_order {
@@ -909,9 +934,12 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
         let mut coll_group = Map::new();
 
         for v in &vars {
-            let Some(val) = v.values.get(mode_id) else {
+            let Some((val, used_default)) = value_in_mode(v, coll, mode_id) else {
                 continue;
             };
+            if used_default {
+                values_from_default_mode += 1;
+            }
             let (segments, name_escaped) = sanitize_dtcg_path(&v.name);
             let is_prefix = group_prefixes.contains(&v.name);
             let token_full_path = format!("{}.{}", clean_coll_name, segments.join("."));
@@ -972,65 +1000,18 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
                         format!("{{{clean_id}}}")
                     };
 
-                    // Trace the alias chain up to 16 hops to validate target resolution and detect default-mode fallbacks.
-                    let mut cur_id = target_id.clone();
-                    let mut cur_mode_id = mode_id.clone();
-                    let mut cur_mode_name = mode_name.clone();
-                    let mut resolved_pair: Option<(&Variable, VariableValue)> = None;
-                    let mut fell_back_to_default = false;
-                    let mut break_reason: Option<String> = None;
-
-                    for _ in 0..16 {
-                        let Some(t_var) = doc.variables.get(&cur_id) else {
-                            break_reason = Some(format!("missing target variable '{cur_id}'"));
-                            break;
-                        };
-                        let Some(t_coll) = doc.variable_collections.get(&t_var.collection) else {
-                            break_reason = Some(format!("missing target collection '{}'", t_var.collection));
-                            break;
-                        };
-                        let effective_mode_id = if t_var.values.contains_key(&cur_mode_id) && t_coll.modes.iter().any(|m| m.id == cur_mode_id) {
-                            cur_mode_id.clone()
-                        } else if let Some(m) = t_coll.modes.iter().find(|m| m.name == cur_mode_name && t_var.values.contains_key(&m.id)) {
-                            m.id.clone()
-                        } else {
-                            if !t_coll.modes.iter().any(|m| m.name == opts.mode) {
-                                fell_back_to_default = true;
-                            }
-                            t_coll.default_mode.clone()
-                        };
-                        let Some(t_val) =
-                            t_var.values.get(&effective_mode_id).or_else(|| t_var.values.get(&t_coll.default_mode)).or_else(|| t_var.values.values().next())
-                        else {
-                            break_reason = Some(format!("target variable '{cur_id}' has no values"));
-                            break;
-                        };
-                        if let Some(m) = t_coll.modes.iter().find(|m| m.id == effective_mode_id) {
-                            cur_mode_name = m.name.clone();
+                    // Trace the alias chain up to 16 hops to validate target resolution and count default-mode fallback hops.
+                    let (_terminal_var, terminal_val, default_hops) = match resolve_alias_chain(doc, target_id, mode_id, &opts.mode) {
+                        Ok(res) => res,
+                        Err(reason) => {
+                            broken_aliases.push(format!("{token_full_path}: {reason}"));
+                            continue;
                         }
-                        cur_mode_id = effective_mode_id;
-                        match t_val {
-                            VariableValue::Alias(next_id) => {
-                                cur_id = next_id.clone();
-                            }
-                            other => {
-                                resolved_pair = Some((t_var, other.clone()));
-                                break;
-                            }
-                        }
-                    }
-
-                    let Some((_terminal_var, terminal_val)) = resolved_pair else {
-                        let reason = break_reason.unwrap_or_else(|| format!("alias cycle or chain deeper than 16 hops starting at '{target_id}'"));
-                        broken_aliases.push(format!("{token_full_path}: {reason}"));
-                        continue;
                     };
 
                     if opts.resolve_aliases {
                         aliases_resolved += 1;
-                        if fell_back_to_default {
-                            aliases_resolved_via_default_mode += 1;
-                        }
+                        aliases_resolved_via_default_mode += default_hops;
                         dos_ext.insert("alias_of".into(), Value::String(ref_str));
                         dos_ext.insert("alias_of_id".into(), Value::String(target_id.clone()));
 
@@ -1124,7 +1105,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
         tokens: total_tokens,
         aliases_resolved,
         aliases_resolved_via_default_mode,
-        values_from_default_mode: 0,
+        values_from_default_mode,
         color_format: opts.color_format,
         omitted_extensions: collect_omitted_extensions_excluding(doc, &["$deprecated"]),
     };
@@ -4599,10 +4580,7 @@ mod tests {
         let mut refs = Vec::new();
         collect_dtcg_alias_refs(&root, &mut refs);
         for r in &refs {
-            assert!(
-                resolve_dtcg_ref_in_root(&root, r).is_some(),
-                "Rule 5 violation: alias {{{r}}} does not name a token in the same output file"
-            );
+            assert!(resolve_dtcg_ref_in_root(&root, r).is_some(), "Rule 5 violation: alias {{{r}}} does not name a token in the same output file");
         }
         root
     }
@@ -4664,10 +4642,7 @@ mod tests {
                                 for (_mid, mval) in values_by_mode {
                                     if mval.get("type").and_then(Value::as_str) == Some("VARIABLE_ALIAS") {
                                         let target_id = mval.get("id").and_then(Value::as_str).unwrap_or("");
-                                        assert!(
-                                            vars.contains_key(target_id),
-                                            "Rule 5 violation: VARIABLE_ALIAS in {vid} targets missing '{target_id}'"
-                                        );
+                                        assert!(vars.contains_key(target_id), "Rule 5 violation: VARIABLE_ALIAS in {vid} targets missing '{target_id}'");
                                     }
                                 }
                             }
@@ -4961,10 +4936,7 @@ mod tests {
             VariableCollection {
                 id: "VariableCollectionId:50:1".into(),
                 name: "Mix".into(),
-                modes: vec![
-                    VariableMode { id: "m:dark".into(), name: "Dark".into() },
-                    VariableMode { id: "m:light".into(), name: "Light".into() },
-                ],
+                modes: vec![VariableMode { id: "m:dark".into(), name: "Dark".into() }, VariableMode { id: "m:light".into(), name: "Light".into() }],
                 default_mode: "m:light".into(),
                 variables: vec!["VariableID:50:red".into(), "VariableID:50:blue".into()],
                 key: None,
@@ -5048,11 +5020,9 @@ mod tests {
         let doc = make_mix_semantic_doc();
 
         // 1. Without `--collection`: both Mix and Semantic are selected at Dark, and Red (only in Mix's default Light) is written.
-        let (bytes, report) = export_dtcg_mode(
-            &doc,
-            &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: false, color_format: ColorFormat::Hex },
-        )
-        .expect("mode export without resolve_aliases succeeds");
+        let (bytes, report) =
+            export_dtcg_mode(&doc, &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: false, color_format: ColorFormat::Hex })
+                .expect("mode export without resolve_aliases succeeds");
         let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         assert_eq!(root["Semantic"]["B"]["$value"], "{Mix.Colors.Red}");
         assert_eq!(root["Mix"]["Colors"]["Red"]["$value"], "#FFFFFF");
@@ -5064,12 +5034,7 @@ mod tests {
         // 2. With `--collection Semantic`: Mix is inlined for aliases and Red is written via default mode while Blue keeps Dark.
         let (bytes_narrow, report_narrow) = export_dtcg_mode(
             &doc,
-            &DtcgModeOptions {
-                mode: "Dark".into(),
-                collections: vec!["Semantic".into()],
-                resolve_aliases: false,
-                color_format: ColorFormat::Hex,
-            },
+            &DtcgModeOptions { mode: "Dark".into(), collections: vec!["Semantic".into()], resolve_aliases: false, color_format: ColorFormat::Hex },
         )
         .expect("narrowed mode export without resolve_aliases succeeds");
         let root_narrow = assert_all_aliases_resolve_in_dtcg_file(&bytes_narrow);
@@ -5084,11 +5049,9 @@ mod tests {
         let doc = make_mix_semantic_doc();
 
         // 1. Target collection Mix HAS mode Dark, but Red only has a value in Mix's default mode Light.
-        let (bytes, report) = export_dtcg_mode(
-            &doc,
-            &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: true, color_format: ColorFormat::Hex },
-        )
-        .expect("resolved mode export succeeds");
+        let (bytes, report) =
+            export_dtcg_mode(&doc, &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: true, color_format: ColorFormat::Hex })
+                .expect("resolved mode export succeeds");
         let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         assert_eq!(root["Semantic"]["B"]["$value"], "#FFFFFF");
         assert_eq!(report.aliases_resolved, 1);
@@ -5115,20 +5078,10 @@ mod tests {
             },
         );
         doc_two_hops.variable_collections.get_mut("VariableCollectionId:50:1").unwrap().variables.push("VariableID:50:red_mid".into());
-        doc_two_hops
-            .variables
-            .get_mut("VariableID:60:b")
-            .unwrap()
-            .values
-            .insert("s:dark".into(), VariableValue::Alias("VariableID:50:red_mid".into()));
+        doc_two_hops.variables.get_mut("VariableID:60:b").unwrap().values.insert("s:dark".into(), VariableValue::Alias("VariableID:50:red_mid".into()));
         let (bytes_2, report_2) = export_dtcg_mode(
             &doc_two_hops,
-            &DtcgModeOptions {
-                mode: "Dark".into(),
-                collections: vec!["Semantic".into()],
-                resolve_aliases: true,
-                color_format: ColorFormat::Hex,
-            },
+            &DtcgModeOptions { mode: "Dark".into(), collections: vec!["Semantic".into()], resolve_aliases: true, color_format: ColorFormat::Hex },
         )
         .expect("two-hop resolved export succeeds");
         let root_2 = assert_all_aliases_resolve_in_dtcg_file(&bytes_2);
@@ -5145,8 +5098,7 @@ mod tests {
             .unwrap()
             .modes
             .push(VariableMode { id: "m:hc".into(), name: "High Contrast".into() });
-        doc_non_default.variables.get_mut("VariableID:50:red").unwrap().values =
-            BTreeMap::from([("m:hc".into(), VariableValue::Color(Color::rgb(255, 0, 0)))]);
+        doc_non_default.variables.get_mut("VariableID:50:red").unwrap().values = BTreeMap::from([("m:hc".into(), VariableValue::Color(Color::rgb(255, 0, 0)))]);
 
         assert!(
             export_dtcg_mode(
@@ -5219,16 +5171,11 @@ mod tests {
 
         // 1. Nothing points at Colors/Ghost: it is simply omitted and export succeeds (both resolve_aliases=false and true).
         for resolve_aliases in [false, true] {
-            let (bytes, _) = export_dtcg_mode(
-                &doc,
-                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex },
-            )
-            .expect("unreferenced valueless variable must not fail export");
+            let (bytes, _) =
+                export_dtcg_mode(&doc, &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex })
+                    .expect("unreferenced valueless variable must not fail export");
             let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
-            assert!(
-                root["_Primitives (2)"]["Colors"].get("Ghost").is_none(),
-                "valueless variable must not be written (resolve_aliases={resolve_aliases})"
-            );
+            assert!(root["_Primitives (2)"]["Colors"].get("Ghost").is_none(), "valueless variable must not be written (resolve_aliases={resolve_aliases})");
         }
 
         // 2. Something points at Colors/Ghost (including via default-mode fallback): export is refused (both resolve_aliases=false and true).
@@ -5245,18 +5192,12 @@ mod tests {
             assert!(err.contains("VariableID:20:ghost"), "error must name the valueless target variable: {err:?}");
         }
 
-        doc.variables
-            .get_mut("VariableID:30:bg_primary")
-            .unwrap()
-            .values
-            .insert("30:dark".into(), VariableValue::Alias("VariableID:20:ghost".into()));
+        doc.variables.get_mut("VariableID:30:bg_primary").unwrap().values.insert("30:dark".into(), VariableValue::Alias("VariableID:20:ghost".into()));
         for resolve_aliases in [false, true] {
-            let err = export_dtcg_mode(
-                &doc,
-                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex },
-            )
-            .expect_err("alias targeting valueless variable must be refused")
-            .to_string();
+            let err =
+                export_dtcg_mode(&doc, &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex })
+                    .expect_err("alias targeting valueless variable must be refused")
+                    .to_string();
             assert!(err.contains("VariableID:20:ghost"), "error must name the valueless target variable: {err:?}");
         }
     }

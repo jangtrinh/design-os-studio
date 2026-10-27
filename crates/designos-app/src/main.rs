@@ -513,6 +513,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 "tokens": report.tokens,
                 "aliases_resolved": report.aliases_resolved,
                 "aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode,
+                "values_from_default_mode": report.values_from_default_mode,
                 "color_format": report.color_format.label(),
                 "omitted_extensions": report.omitted_extensions,
             });

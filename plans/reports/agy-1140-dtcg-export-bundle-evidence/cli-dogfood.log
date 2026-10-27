@@ -17,61 +17,12 @@
   ],
   "format": "dtcg",
   "omitted_extensions": [],
-  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/dtcg-dir"
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/dtcg-dir"
 }
-Files on disk in dtcg-dir:
-_Primitives (2).Style.tokens.json
-_Primitives.Style.tokens.json
-1_ Color modes (2).Dark mode.tokens.json
-1_ Color modes (2).Light mode.tokens.json
-1_ Color modes.Dark mode.tokens.json
-1_ Color modes.Light mode.tokens.json
-2_ Radius.Mode 1.tokens.json
-3_ Spacing.Value.tokens.json
-4_ Widths.Mode 1.tokens.json
-5_ Containers.Value.tokens.json
-6_ Typography (2).Value.tokens.json
-6_ Typography.Value.tokens.json
-tokens.manifest.json
 Count on disk: 13
-6_ Typography.Value.tokens.json token count: 32
-6_ Typography (2).Value.tokens.json token count: 1
 
 === 2. ZIP DTCG Export ===
-{
-  "files": [
-    "tokens.manifest.json",
-    "_Primitives.Style.tokens.json",
-    "1_ Color modes.Light mode.tokens.json",
-    "1_ Color modes.Dark mode.tokens.json",
-    "1_ Color modes (2).Light mode.tokens.json",
-    "1_ Color modes (2).Dark mode.tokens.json",
-    "_Primitives (2).Style.tokens.json",
-    "2_ Radius.Mode 1.tokens.json",
-    "3_ Spacing.Value.tokens.json",
-    "4_ Widths.Mode 1.tokens.json",
-    "5_ Containers.Value.tokens.json",
-    "6_ Typography.Value.tokens.json",
-    "6_ Typography (2).Value.tokens.json"
-  ],
-  "format": "dtcg",
-  "omitted_extensions": [],
-  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/dtcg.zip"
-}
 Zip entry count: 13
- - tokens.manifest.json
- - _Primitives.Style.tokens.json
- - 1_ Color modes.Light mode.tokens.json
- - 1_ Color modes.Dark mode.tokens.json
- - 1_ Color modes (2).Light mode.tokens.json
- - 1_ Color modes (2).Dark mode.tokens.json
- - _Primitives (2).Style.tokens.json
- - 2_ Radius.Mode 1.tokens.json
- - 3_ Spacing.Value.tokens.json
- - 4_ Widths.Mode 1.tokens.json
- - 5_ Containers.Value.tokens.json
- - 6_ Typography.Value.tokens.json
- - 6_ Typography (2).Value.tokens.json
 
 === 3. Single-Mode Resolved Hex DTCG Export (dark.tokens.json) ===
 {
@@ -90,7 +41,7 @@ Zip entry count: 13
   "inlined_for_aliases": [],
   "mode": "Dark mode",
   "omitted_extensions": [],
-  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/dark.tokens.json",
+  "path": "plans/reports/agy-1140-dtcg-export-bundle-evidence/dark.tokens.json",
   "skipped_collections": [
     {
       "id": "VariableCollectionId:1333:99999",
@@ -101,15 +52,16 @@ Zip entry count: 13
       "name": "1. Color modes"
     }
   ],
-  "tokens": 115
+  "tokens": 115,
+  "values_from_default_mode": 0
 }
 
 === 4. ui ds import & ui ds a11y on dark.tokens.json ===
-ds import: 115 token(s) [115 color] across 5 categories → /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/ds-scratch/design
+ds import: 115 token(s) [115 color] across 5 categories → /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design
   111 roles recognized, 12 gaps: card, popover, secondary, muted, accent, input, ring, destructive, success, warning, info, neutral
-  soul: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/ds-scratch/design/soul.md (draft — edit then set status: ratified)
-  heartbeat: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/ds-scratch/design/heartbeat.json
-  next: ui ds a11y --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/ds-scratch  ·  ui ds status --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.SANnRd/ds-scratch
+  soul: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design/soul.md (draft — edit then set status: ratified)
+  heartbeat: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design/heartbeat.json
+  next: ui ds a11y --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch  ·  ui ds status --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch
 ds a11y: 1307 text×surface pair(s) checked (roles inferred from token names — cartesian; prefer -foreground pairing or --pairs), 585 below AA (4.5:1).
   ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-error-secondary — 1:1 (fail); fails normal-text AA
   ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-secondary — 1:1 (fail); fails normal-text AA

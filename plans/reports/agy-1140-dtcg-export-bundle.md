@@ -290,3 +290,233 @@ PASS: no count rose above the baseline
 - **ASSUMPTION (for controller verification):** Running the same CLI commands on the real Untitled UI PRO VARIABLES v8.0 `.fig` kit (`AC-04` and `AC-05`, reserved for the controller per Ruling #2) will produce the same 13-file bundle and 115-token `dark.tokens.json` onboarding result.
 
 Status: READY FOR CONTROLLER REVIEW
+
+
+---
+
+## Round 2 — One Value-Lookup Rule (`value_in_mode`), No Dangling Aliases
+
+- **Review Source:** `plans/reports/grok-review-1140-dtcg.md` (Findings 1, 2, and 3)
+- **Spec:** `plans/261027-0940-v06x-finish/spec-1140-r2-mode-value-lookup.md`
+- **Base Commit:** `3e78d9dc`
+- **Red Commit (Test First):** `770e1e59` (`test(fig): add round 2 failing tests and rule-5 helper (#1140)`)
+- **Evidence Files:**
+  - `plans/reports/agy-1140-dtcg-export-bundle-evidence/red-r2.log` — Red-phase test failure output (`0 passed; 4 failed`)
+  - `plans/reports/agy-1140-dtcg-export-bundle-evidence/green-r2.log` — Green-phase test pass output (`4 passed; 0 failed`)
+  - `plans/reports/agy-1140-dtcg-export-bundle-evidence/dark.tokens.json` — Re-generated single-mode resolved hex DTCG export
+  - `plans/reports/agy-1140-dtcg-export-bundle-evidence/cli-dogfood.log` — Updated synthetic 10-collection dogfood (`ui ds import` + `ui ds a11y`)
+
+### 1. What Could NOT Be Verified (Round 2)
+
+1. **Real Untitled UI PRO VARIABLES v8.0 `.fig` kit execution (`AC-04` and `AC-05`):**
+   - Per Controller Ruling #2, the proprietary kit file was never opened or read; verification was run against [`synthetic-kit-1140.designos`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/plans/reports/agy-1140-dtcg-export-bundle-evidence/synthetic-kit-1140.designos) and unit tests in `crates/designos-fig/src/variables_dtcg.rs`.
+2. **Known unrelated UI test flake `#1179` (`shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one`):**
+   - Flaked once during the full 3,337-test `cargo test -p designos-app --bin designos --locked` run (`3336 passed; 1 failed`), then passed `3/3` consecutive isolated reruns per the task prompt rule (`only the known flakes #996, #1179 and #1211 may be rerun alone 3 times`).
+
+### 2. Conclusion & Epistemic Ledger (Round 2)
+
+**Conclusion:** Implemented a single `value_in_mode(var, coll, mode_id) -> Option<(&VariableValue, bool)>` lookup rule across the export loop, alias-inlining pass, and alias-resolution walk (`resolve_alias_chain` / `resolve_literal_in_mode`), added `values_from_default_mode` to `ModeExportReport` and the CLI JSON report, deduplicated `skipped_collections` against `selected_modes`, and enforced Detail Spec §3 Rule 5 across all export tests via `assert_all_aliases_resolve_in_dtcg_file` / `assert_all_aliases_resolve_in_bundle`.
+
+- **`FACT`**: [`value_in_mode`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig/src/variables_dtcg.rs#L639-L645) returns `Some((val, false))` when `var.values.get(mode_id)` is `Some`, else `var.values.get(&coll.default_mode).map(|val| (val, true))`, else `None`. Every `.values().next()` fallback was removed from `variables_dtcg.rs`.
+- **`FACT`**: In [`export_dtcg_mode`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig/src/variables_dtcg.rs#L943-L948), a token is written iff `value_in_mode(v, coll, mode_id)` is `Some`, incrementing `values_from_default_mode` whenever `used_default` is `true`. Because the export loop and [`resolve_alias_chain`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig/src/variables_dtcg.rs#L662-L691) use the exact same `matching_mode_id` + `value_in_mode` lookup, no exported `{…}` alias can ever point to a variable omitted from the file (Finding 1 fixed).
+- **`FACT`**: [`resolve_alias_chain`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig/src/variables_dtcg.rs#L662-L691) counts every hop where `used_default == true` in `default_hops` (added to `aliases_resolved_via_default_mode`), whether the target collection lacked the requested mode or the target variable lacked a value in that collection's matched mode, and refuses (`Err(FigError::Export("unresolvable alias(es): ..."))`) when `value_in_mode` returns `None` (Finding 2 fixed).
+- **`FACT`**: In [`export_dtcg_mode`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig/src/variables_dtcg.rs#L803-L828), shadowed collections from name filters are only pushed to `skipped_collections` if `!selected_modes.contains_key(&shadowed.id)`, and selecting any collection removes it from `skipped_collections` via `skipped_collections.retain(|s| s.id != chosen.id)` (Finding 3 fixed).
+- **`FACT`**: `assert_all_aliases_resolve_in_dtcg_file` and `assert_all_aliases_resolve_in_bundle` are called on every export in `variables_dtcg::tests`, verifying that every `{…}` reference resolves to a token written in the same output file.
+- **`INFERENCE`**: None required for acceptance; all 4 Round 2 scenarios and all 11 Round 1 scenarios are directly covered by deterministic unit tests.
+- **`ASSUMPTION`**: None.
+- **Weakest link:** Only the controller can run `AC-04` and `AC-05` against the proprietary Untitled UI PRO v8.0 `.fig` kit on disk.
+
+### 3. Skills Loaded & What Changed Because of Them (Round 2)
+
+- `/es:dev` -> `es:feature-dev`, `es:astra-work`, `es:fable-thinking`, `es:rust`, `es:rust-gpu-canvas`:
+  - Committed the 4 failing Round 2 unit tests and the Rule-5 test helper first in commit `770e1e59` (`red-r2.log`: `0 passed; 4 failed`) before touching production logic.
+  - Replaced three divergent mode-lookup paths (export loop, inlining pass, resolution walk) with a single pure helper `value_in_mode` + `matching_mode_id`.
+
+### 4. Red -> Green Evidence & Gate Outputs (Round 2)
+
+#### 4.1 Red Phase (`plans/reports/agy-1140-dtcg-export-bundle-evidence/red-r2.log` at `770e1e59`)
+
+```text
+running 4 tests
+test variables_dtcg::tests::mode_export_without_resolve_aliases_writes_default_mode_target_so_no_alias_dangles ... FAILED
+test variables_dtcg::tests::resolve_aliases_counts_default_mode_fallback_and_never_uses_non_default_mode ... FAILED
+test variables_dtcg::tests::collection_selected_by_both_name_and_id_is_not_in_skipped_collections ... FAILED
+test variables_dtcg::tests::variable_with_no_value_in_any_mode_is_refused_when_aliased_and_omitted_when_unreferenced ... FAILED
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 130 filtered out; finished in 0.01s
+```
+
+#### 4.2 Green Phase (`plans/reports/agy-1140-dtcg-export-bundle-evidence/green-r2.log`)
+
+```text
+running 4 tests
+test variables_dtcg::tests::mode_export_without_resolve_aliases_writes_default_mode_target_so_no_alias_dangles ... ok
+test variables_dtcg::tests::resolve_aliases_counts_default_mode_fallback_and_never_uses_non_default_mode ... ok
+test variables_dtcg::tests::collection_selected_by_both_name_and_id_is_not_in_skipped_collections ... ok
+test variables_dtcg::tests::variable_with_no_value_in_any_mode_is_refused_when_aliased_and_omitted_when_unreferenced ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 0.00s
+```
+
+#### 4.3 Gate 1: `cargo fmt --all -- --check`
+
+```text
+$ cargo fmt --all -- --check
+(exited with code 0, zero output)
+```
+
+#### 4.4 Gate 2: `cargo clippy --workspace --all-targets --locked -- -D warnings`
+
+```text
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+    Checking designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig)
+    Checking designos-library v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-library)
+    Checking designos-render v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-render)
+    Checking designos-gpu v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-gpu)
+    Checking designos-eval v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-eval)
+    Checking designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 49.68s
+(exited with code 0)
+```
+
+#### 4.5 Gate 3: `cargo test -p designos-fig --locked`
+
+```text
+$ cargo test -p designos-fig --locked
+     Running unittests src/lib.rs (target/debug/deps/designos_fig-8c931ce94e001702)
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.28s
+     Running tests/fig_Container.rs (target/debug/deps/fig_Container-cb01fa5bb90ed548)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/rest_import.rs (target/debug/deps/rest_import-d674f1f9bb34279c)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/rest_import_grid_sizing.rs (target/debug/deps/rest_import_grid_sizing-ea51c962e3030958)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/rest_upgrade.rs (target/debug/deps/rest_upgrade-ca48d3ca04d75471)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/settings_import.rs (target/debug/deps/settings_import-8d451f6938f6406b)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/stack_wrap_and_text_wrap.rs (target/debug/deps/stack_wrap_and_text_wrap-7012fa8c00d51e5a)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/variables.rs (target/debug/deps/variables-04fcdcded0842052)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/variables_code_syntax_opacity.rs (target/debug/deps/variables_code_syntax_opacity-c4eecbabc3d60f28)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/variables_library_collections.rs (target/debug/deps/variables_library_collections-a056a2624f7e82bb)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/vector_network.rs (target/debug/deps/vector_network-1b8b999d4ae5a024)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   Doc-tests designos_fig
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+#### 4.6 Gate 4: `cargo test --workspace --locked --lib`
+
+```text
+$ cargo test --workspace --locked --lib
+     Running unittests src/lib.rs (target/debug/deps/designos_diff-e9fb9a3e00ecdbf3)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/designos_doc-a0c6cf32749620e6)
+test result: ok. 633 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
+     Running unittests src/lib.rs (target/debug/deps/designos_eval-029cd168a180af6a)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/designos_export-f5a81d86319362e2)
+test result: ok. 136 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.82s
+     Running unittests src/lib.rs (target/debug/deps/designos_fig-648cb6f438830bb1)
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.80s
+     Running unittests src/lib.rs (target/debug/deps/designos_fonts-8afb0f60e41df5a3)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+     Running unittests src/lib.rs (target/debug/deps/designos_gpu-49227ce26b5d6686)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/designos_library-d39027c82797cc1e)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.97s
+     Running unittests src/lib.rs (target/debug/deps/designos_mcp-189215ed087510e0)
+test result: ok. 245 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.66s
+     Running unittests src/lib.rs (target/debug/deps/designos_render-39473ba3e638dab1)
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 49.70s
+     Running unittests src/lib.rs (target/debug/deps/designos_svg-125a628128d3698e)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/designos_webcapture-a59ae055a8fa52f0)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+```
+
+#### 4.7 Gate 5: `cargo test -p designos-app --bin designos --locked`
+
+```text
+$ cargo test -p designos-app --bin designos --locked
+test variables_cli_tests::dtcg_to_a_json_path_without_mode_is_an_error ... ok
+test variables_cli_tests::cli_directory_export_never_overwrites_within_one_run ... ok
+...
+test result: FAILED. 3336 passed; 1 failed; 11 ignored; 0 measured; 0 filtered out; finished in 713.46s
+(1 failure was known flake #1179: shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one)
+
+=== Rerun 1 of #1179 ===
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3347 filtered out; finished in 0.69s
+
+=== Rerun 2 of #1179 ===
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3347 filtered out; finished in 0.84s
+
+=== Rerun 3 of #1179 ===
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3347 filtered out; finished in 0.89s
+```
+
+#### 4.8 Gate 6: `python3 scripts/zero_fake_ui_gate.py`
+
+```text
+$ python3 scripts/zero_fake_ui_gate.py
+============================================================================================================
+ design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+============================================================================================================
+Result: 22/22 invariants PASSED — ZERO FAKE UI GATE GREEN
+```
+
+#### 4.9 Synthetic 10-Collection Dogfood Summary (`plans/reports/agy-1140-dtcg-export-bundle-evidence/cli-dogfood.log`)
+
+```text
+=== 1. Directory DTCG Export ===
+Count on disk: 13
+
+=== 2. ZIP DTCG Export ===
+Zip entry count: 13
+
+=== 3. Single-Mode Resolved Hex DTCG Export (dark.tokens.json) ===
+{
+  "aliases_resolved": 115,
+  "aliases_resolved_via_default_mode": 115,
+  "collections": [
+    {
+      "group": "1_ Color modes",
+      "id": "VariableCollectionId:1333:27347",
+      "mode": "Dark mode",
+      "name": "1. Color modes"
+    }
+  ],
+  "color_format": "hex",
+  "format": "dtcg",
+  "inlined_for_aliases": [],
+  "mode": "Dark mode",
+  "omitted_extensions": [],
+  "path": "plans/reports/agy-1140-dtcg-export-bundle-evidence/dark.tokens.json",
+  "skipped_collections": [
+    {
+      "id": "VariableCollectionId:1333:99999",
+      "modes": [
+        "Light mode",
+        "Dark mode"
+      ],
+      "name": "1. Color modes"
+    }
+  ],
+  "tokens": 115,
+  "values_from_default_mode": 0
+}
+
+=== 4. ui ds import & ui ds a11y on dark.tokens.json ===
+ds import: 115 token(s) [115 color] across 5 categories → .../ds-scratch/design
+  111 roles recognized, 12 gaps: card, popover, secondary, muted, accent, input, ring, destructive, success, warning, info, neutral
+ds a11y: 1307 text×surface pair(s) checked (roles inferred from token names — cartesian; prefer -foreground pairing or --pairs), 585 below AA (4.5:1).
+```
+
+Status: READY FOR CONTROLLER REVIEW
