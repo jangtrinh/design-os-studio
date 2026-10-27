@@ -1540,19 +1540,34 @@ pub(crate) fn has_control_or_bidi_char(s: &str) -> bool {
     })
 }
 
+pub(crate) fn is_whitespace_only_output_name(display_path: &str) -> bool {
+    if display_path.trim().is_empty() {
+        return true;
+    }
+    let p = std::path::Path::new(display_path);
+    if p.components().any(|comp| matches!(comp, std::path::Component::Normal(part) if part.to_str().is_some_and(|s| s.trim().is_empty()))) {
+        return true;
+    }
+    p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.trim().is_empty())
+}
+
 pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
     if has_control_or_bidi_char(display_path) {
         return Err(ToolError::new(
-            ErrorCode::InvalidArguments,
+            ErrorCode::InvalidName,
             ptr,
             format!("{display_path} has a name with a line break or a direction-control character. Rename it, then try again."),
         )
         .with_received(json!(display_path)));
     }
+    if is_whitespace_only_output_name(display_path) {
+        return Err(ToolError::new(ErrorCode::InvalidName, ptr, format!("{display_path} has a blank name. Give the file a name, then try again."))
+            .with_received(json!(display_path)));
+    }
     for comp in std::path::Path::new(display_path).components() {
         if let std::path::Component::Normal(part) = comp {
             if part.len() > 255 {
-                return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
+                return Err(ToolError::new(ErrorCode::NameTooLong, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
                     .with_received(json!(display_path)));
             }
         }

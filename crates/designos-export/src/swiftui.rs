@@ -771,4 +771,33 @@ mod tests {
             assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
         }
     }
+
+    #[test]
+    fn text_nodes_with_dollar_braces_and_swift_interpolation_parse_cleanly() {
+        let (mut d, root_id) = fixture::card();
+        let children = d.get(root_id).unwrap().children.clone();
+        if let NodeKind::Text(t) = &mut d.get_mut(children[0]).unwrap().kind {
+            t.content = "${y}".into();
+        }
+        if let NodeKind::Text(t) = &mut d.get_mut(children[1]).unwrap().kind {
+            t.content = "\\(total)".into();
+        }
+
+        let out = swiftui_for(&d, root_id);
+        assert!(out.contains(r#"Text("${y}")"#), "expected literal ${{y}} without invalid \\$ escape in:\n{out}");
+        assert!(!out.contains(r#"\${y}"#), "must never emit invalid Swift escape \\${{y}}:\n{out}");
+        assert!(out.contains(r#"Text("\\(total)")"#), "expected escaped Swift interpolation \\\\(total) in:\n{out}");
+
+        if std::process::Command::new("swiftc").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            let dir = std::env::temp_dir().join(format!("designos-swiftui-us10-parse-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join("Us10.swift");
+            let indented: String = out.lines().map(|l| format!("        {l}\n")).collect();
+            let swift_src = format!("import SwiftUI\n\nstruct Us10: View {{\n    var body: some View {{\n{indented}    }}\n}}\n");
+            std::fs::write(&file, &swift_src).unwrap();
+            let parse = std::process::Command::new("swiftc").arg("-parse").arg(&file).output().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
+        }
+    }
 }

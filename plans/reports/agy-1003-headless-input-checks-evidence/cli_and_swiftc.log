@@ -1,0 +1,25 @@
+=== [AC-01 / RT-03] swiftc version & CLI --codegen swiftui piped to swiftc -parse ===
+/usr/bin/swiftc
+swift-driver version: 1.127.14.1 Apple Swift version 6.2.3 (swiftlang-6.2.3.3.21 clang-1700.6.3.2)
+Target: arm64-apple-macosx26.0
+--- Generated SwiftUI from designos-studio ac01.designos --codegen swiftui --select PriceBanner ---
+VStack(alignment: .leading, spacing: 8) {
+    Text("${y}")
+        .font(.custom("Inter", size: 14))
+        .foregroundColor(Color.black)
+    Text("\\(total)")
+        .font(.custom("Inter", size: 14))
+        .foregroundColor(Color.black)
+}
+    .frame(width: 240, height: 80, alignment: .topLeading)
+    .background(Color.white)
+--- Piping wrapped SwiftUI output to swiftc -parse - ---
+swiftc -parse exit code: 0
+
+=== [AC-02 / RT-04] designos-studio trunc.fig & empty.fig --screenshot ===
+trunc.fig exit=1 s.png_exists=no stderr=trunc.fig could not be opened: Cannot import .fig: not a fig file: zip: invalid Zip archive: Could not find EOCD. Check the file, then try again.
+empty.fig exit=1 s_empty.png_exists=no stderr=empty.fig could not be opened: Cannot import .fig: not a fig file: missing fig-kiwi magic or zip header. Check the file, then try again.
+
+=== [AC-05 / RT-07] designos-studio --apply-spec with children: [[...]] ===
+bad_children.json exit=2 stderr=designos: Invalid NodeSpec JSON in bad_children.json: children must be an array of NodeSpec objects. Pass each child as a JSON object.
+bad_nested_children.json exit=2 stderr=designos: Invalid NodeSpec JSON in bad_nested_children.json: children/0/children must be an array of NodeSpec objects. Pass each child as a JSON object.
