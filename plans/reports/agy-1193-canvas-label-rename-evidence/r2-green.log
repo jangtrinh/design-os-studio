@@ -1,0 +1,21 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.72s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 9 tests
+test shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label ... ok
+test shell::tests::canvas_label_rename::click_selects_one_shape_component_and_double_click_enters_shape ... ok
+test shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names ... ok
+test shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync ... ok
+test shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to ... ok
+test shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label ... ok
+test shell::tests::canvas_label_rename::component_and_inner_shape_names_stay_independent ... ok
+test shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths ... ok
+test shell::tests::canvas_label_rename::multi_child_and_container_child_components_still_select_through_and_marquee_is_unchanged ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3322 filtered out; finished in 5.65s
+

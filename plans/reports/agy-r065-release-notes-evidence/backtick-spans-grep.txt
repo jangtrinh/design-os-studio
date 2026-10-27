@@ -1,0 +1,297 @@
+Total unique backticked spans in ## [0.6.5]: 148
+
+[001] FOUND    | `#RRGGBB`
+      match: crates/designos-app/src/canvas/draw.rs:1262:    // On-canvas Eyedropper (`I`) floating magnifier loupe & #RRGGBB badge (MI-19).
+[002] FOUND    | `#RRGGBBAA`
+      match: crates/designos-app/src/widgets/picker.rs:331:    // #RGBA / #RRGGBBAA and "transparent" carry their own alpha; plain hex / named colors kee
+[003] FOUND    | `$extensions`
+      match: crates/designos-fig/src/variables_dtcg.rs:289:    // 2. Figma-native: top-level `$extensions["com.figma.modeName"]` or any token with `com.f
+[004] FOUND    | `%XX`
+      match: crates/designos-app/src/home/dialog.rs:588:/// Decodes `%XX` in a `file://` path. A `%` that is not two hex digits stays as written.
+[005] FOUND    | `(2)`
+      match: crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:98:    n.fill_geometry = Some(vec![path_with(2)]);
+[006] FOUND    | `--apply-spec`
+      match: crates/designos-app/assets/specs/easeui-agent-console.spec.json:9:  "annotation": "Generated from declarative NodeSpec JSON via DESIGN:OS Ag
+[007] FOUND    | `--collection`
+      match: crates/designos-app/src/cli.rs:383:            "--collection" => o.collections.push(it.next().ok_or("--collection needs a collection name or
+[008] FOUND    | `--color-format`
+      match: crates/designos-app/src/cli.rs:385:            "--color-format" => {
+[009] FOUND    | `--edit-text`
+      match: crates/designos-app/src/cli.rs:327:            "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a text layer name")?),
+[010] FOUND    | `--fixture`
+      match: crates/designos-app/Cargo.toml:25:# Built-in screenshot and test fixtures (`--fixture`, `--seed-library`). Off by default in shipped builds.
+[011] FOUND    | `--home`
+      match: crates/designos-app/src/cli.rs:142:    /// with `--home`, or interactively with nothing else to open.
+[012] FOUND    | `--inspect-json`
+      match: crates/designos-app/src/agent_cli_select_tests.rs:110:    let err = run(&[text(&doc), "--select", "Card Z", "--inspect-json"]).expect_err("-
+[013] FOUND    | `--panel agents-scrollback`
+      match: crates/designos-app/src/terminal/zoom_scrollback_tests.rs:625:    // 2. `--panel agents-scrollback` is registered in CLI PANELS and has 120 
+[014] FOUND    | `--resolve-aliases`
+      match: crates/designos-app/src/cli.rs:384:            "--resolve-aliases" => o.resolve_aliases = true,
+[015] FOUND    | `--seed-library`
+      match: crates/designos-app/Cargo.toml:25:# Built-in screenshot and test fixtures (`--fixture`, `--seed-library`). Off by default in shipped builds.
+[016] FOUND    | `--select`
+      match: crates/designos-app/src/agent_cli_select_tests.rs:1://! `--select` on the headless agent CLI (#1127): a command acts on the node it was told
+[017] FOUND    | `--select ""`
+      match: crates/designos-app/src/select_target/error.rs:7:    /// `--select ""`, or a prefix with nothing after it.
+[018] FOUND    | `--version`
+      match: crates/designos-app/src/agent_cli_catalog.rs:110:            version_cmd: &["claude", "--version"],
+[019] FOUND    | `--zoom fit`
+      match: crates/designos-app/src/cli.rs:29:    /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
+[020] FOUND    | `.fig`
+      match: crates/designos-app/src/agent_busy_frames.rs:119:    // 3. Also check legacy `node.fig_metadata` keys in case a fixture or plugin sets them.
+[021] FOUND    | `.gemini`
+      match: crates/designos-app/src/agent_composer.rs:365:    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open
+[022] FOUND    | `.gemini/settings.json`
+      match: crates/designos-app/src/agent_session_files/fs_sites_scan_tests/patterns.rs:53:/// Names inside the folders above (`.agents/plugins/designos
+[023] FOUND    | `.spec.json`
+      match: crates/designos-app/assets/specs/easeui-agent-console.spec.json:482:                      "text": "$ designos app.designos --apply-spec scre
+[024] FOUND    | `.tokens.json`
+      match: crates/designos-app/src/main.rs:466:        // If importing a manifest or sibling .tokens.json files from a directory, collect siblings
+[025] FOUND    | `.zip`
+      match: crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:585:        for (a, b) in nodes.iter().zip(&twins) {
+[026] FOUND    | `/path`
+      match: crates/designos-app/src/agent_sessions.rs:687:            assert_eq!(app.terminal.session_dir, expected, "a disk file lives under agent-sess
+[027] FOUND    | `536870912`
+      match: crates/designos-mcp/tests/session.rs:320:    assert_eq!(err["expected"], "<= 536870912 bytes", "{err}");
+[028] FOUND    | `About this file`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[029] FOUND    | `App::run_tx`
+      match: crates/designos-app/src/cmdk.rs:1059:    /// The edit was refused (an old version is open, or the commit failed); [`App::run_tx`] has said w
+[030] FOUND    | `DESIGN-OS Studio Starter`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[031] FOUND    | `DESIGN-OS Studio Starter (1)`
+      match: crates/designos-app/src/home/mod.rs:2780:        assert_eq!(app.doc.name, "DESIGN-OS Studio Starter (1)");
+[032] FOUND    | `Design Token Sheet`
+      match: crates/designos-app/src/home/mod.rs:2678:            entry("f-design", "Design Token Sheet", "p1", None, false, 300, 100),
+[033] FOUND    | `Done`
+      match: crates/designos-app/src/agent_a11y.rs:234:        AgentTabStatus::Done => Some(format!("{agent} is done")),
+[034] FOUND    | `ESC[3J`
+      match: crates/designos-app/src/terminal.rs:108:/// Clears `parser`'s scrollback buffer on `ESC[3J` / `ESC[?3J` (`ED 3`) while keeping the visible
+[035] FOUND    | `Enter`
+      match: crates/designos-app/src/agent_composer.rs:3://! bracketed-paste + delayed-Enter delivery into the active tab's live CLI session,
+[036] FOUND    | `Enter a path…`
+      match: crates/designos-app/src/app.rs:147:    /// True when no file dialog could open and the toast carries an "Enter a path…" fallback action.
+[037] FOUND    | `Esc`
+      match: crates/designos-app/src/agent_approval_card.rs:210:    let esc = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+[038] FOUND    | `FILE_TOO_LARGE`
+      match: crates/designos-mcp/generated/rules.md:156:- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
+[039] FOUND    | `Getting started`
+      match: crates/designos-app/src/home/mod.rs:990:        // 5. Project Tree (`Getting started`, `Marketing`, and nested folders)
+[040] FOUND    | `Height`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[041] FOUND    | `Help and account`
+      match: crates/designos-app/src/panels/menus.rs:571:        submenu("Help and account", help),
+[042] FOUND    | `INVALID_NAME`
+      match: crates/designos-mcp/generated/rules.md:132:- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FI
+[043] FOUND    | `Import`
+      match: crates/designos-app/src/app.rs:263:    pub web_capture_report: Option<designos_webcapture::ImportReport>,
+[044] FOUND    | `Launch Brainstorm`
+      match: crates/designos-app/src/shell/tests/home.rs:770:    let forbidden = ["Marlow", "Welcome", "Launch Brainstorm", "Product Exploration", "Desig
+[045] FOUND    | `MAX_IMPORT_FILE_BYTES`
+      match: crates/designos-mcp/src/server.rs:626:pub(crate) const MAX_IMPORT_FILE_BYTES: u64 = 512 * 1024 * 1024;
+[046] FOUND    | `Marlow — Mobile Banking Kit`
+      match: crates/designos-app/src/shell/tests/home.rs:791:    let mut marlow = Document::new("Marlow — Mobile Banking Kit");
+[047] FOUND    | `NAME_TOO_LONG`
+      match: crates/designos-mcp/generated/rules.md:132:- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FI
+[048] FOUND    | `Needs approval`
+      match: crates/designos-app/src/agent_a11y.rs:222:/// The spoken form of a wait on the user: the status labels `Needs approval` and `Needs input` in
+[049] FOUND    | `No, suggest changes`
+      match: crates/designos-app/src/gemini_dialog.rs:5://! The screen can: every dialog that offers options ends with the option `No, suggest changes (e
+[050] FOUND    | `NodeSpec`
+      match: crates/designos-app/assets/specs/easeui-agent-console.spec.json:9:  "annotation": "Generated from declarative NodeSpec JSON via DESIGN:OS Ag
+[051] FOUND    | `Open starter sample`
+      match: crates/designos-app/src/home/mod.rs:1470:                "Open starter sample",
+[052] FOUND    | `Open tab`
+      match: crates/designos-app/src/agent_approval_card.rs:36:///   and a single **Show prompt** button when already in that tab's terminal, or **Open t
+[053] FOUND    | `PATH_OUTSIDE_WORKSPACE`
+      match: crates/designos-mcp/generated/rules.md:132:- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FI
+[054] FOUND    | `Product Exploration`
+      match: crates/designos-app/src/shell/tests/home.rs:770:    let forbidden = ["Marlow", "Welcome", "Launch Brainstorm", "Product Exploration", "Desig
+[055] FOUND    | `Product UI Kit`
+      match: crates/designos-app/src/demo.rs:32:    let mut d = Document::new("Product UI Kit");
+[056] FOUND    | `REMOVED`
+      match: crates/designos-app/src/agent_session_files/no_follow/remove.rs:37:        self.unlink(&c, libc::AT_REMOVEDIR).map_err(unremovable)
+[057] PR-1254  | `RenderTextMeasure`
+      match: origin/jangtrinh/agy-1154-nodespec-text-measure:crates/designos-app/src/main.rs:132:    designos_doc::text_measure::install(&designos_render
+[058] FOUND    | `Resources & Libraries`
+      match: crates/designos-app/src/home/mod.rs:381:            Section::Resources => "Resources & Libraries".into(),
+[059] FOUND    | `Show prompt`
+      match: crates/designos-app/src/agent_approval_card.rs:36:///   and a single **Show prompt** button when already in that tab's terminal, or **Open t
+[060] FOUND    | `Starter screens`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[061] FOUND    | `Stop`
+      match: crates/designos-app/src/agent_a11y.rs:240:        AgentTabStatus::Idle | AgentTabStatus::Working(_) | AgentTabStatus::Stopped => None,
+[062] PR-1254  | `TEXT_MEASURED_WITH_FALLBACK_FONT`
+      match: origin/jangtrinh/agy-1154-nodespec-text-measure:crates/designos-doc/src/spec.rs:696:                if !report.measured_with_fallback.is_emp
+[063] FOUND    | `TOAST_REVEAL_SECONDS`
+      match: crates/designos-app/src/app.rs:379:            toast.stay_for(self.now, theme::TOAST_REVEAL_SECONDS);
+[064] FOUND    | `TOAST_SECONDS`
+      match: crates/designos-app/src/app.rs:371:            Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: f
+[065] FOUND    | `Tab`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[066] FOUND    | `TabTurnTracker`
+      match: crates/designos-app/src/agent_stop.rs:1261:        let mut tracker = crate::agent_turn_status::TabTurnTracker::default();
+[067] FOUND    | `Templates & Specs`
+      match: crates/designos-app/src/home/mod.rs:380:            Section::Templates => "Templates & Specs".into(),
+[068] FOUND    | `ToolPermission`
+      match: crates/designos-app/src/agent_turn_status.rs:751:                // `permission_prompt`: Claude and Grok. `ToolPermission`: Gemini CLI, when
+[069] FOUND    | `Type the full path to the file, starting with / or ~/.`
+      match: crates/designos-app/src/home/dialog.rs:547:const TYPE_THE_FULL_PATH: &str = "Type the full path to the file, starting with / or ~/.";
+[070] FOUND    | `Unnamed effect style`
+      match: crates/designos-app/src/panels/style_picker.rs:340:        let unnamed = items.iter().find(|i| i.label == "Unnamed effect style").expect("un
+[071] FOUND    | `Unnamed fill style`
+      match: crates/designos-doc/src/lib.rs:760:            StyleProperty::Fill | StyleProperty::Stroke => "Unnamed fill style",
+[072] FOUND    | `Unnamed grid style`
+      match: crates/designos-doc/src/lib.rs:763:            StyleProperty::Grid => "Unnamed grid style",
+[073] FOUND    | `Unnamed text style`
+      match: crates/designos-doc/src/lib.rs:761:            StyleProperty::Text => "Unnamed text style",
+[074] FOUND    | `Usage: designos-mcp --workspace DIRECTORY | --version | --list-lint-rules | --help`
+      match: crates/designos-mcp/src/main.rs:29:        _ => return Err("Usage: designos-mcp --workspace DIRECTORY | --version | --list-lint-rules | --he
+[075] FOUND    | `Welcome`
+      match: crates/designos-app/src/cmdk.rs:1421:        ("Welcome back", "Chào mừng trở lại"),
+[076] FOUND    | `WidthAndHeight`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[077] FOUND    | `Working…`
+      match: crates/designos-app/src/agent_open_flow.rs:49:            Self::Live(AgentTabStatus::Working(_)) => "Working…",
+[078] FOUND    | `agents-approval-background-tab`
+      match: crates/designos-app/src/cli.rs:161:    "agents-approval-background-tab",
+[079] FOUND    | `alias_of`
+      match: crates/designos-doc/src/spec.rs:2108:    fn layout_dir_is_an_alias_of_direction_and_a_typo_is_still_refused() {
+[080] FOUND    | `aliases_resolved_via_default_mode`
+      match: crates/designos-app/src/main.rs:520:                "aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode,
+[081] FOUND    | `apply_constrained_geometry`
+      match: crates/designos-app/src/layout.rs:194:            designos_doc::apply_constrained_geometry(n, transform, size)
+[082] FOUND    | `ask_user`
+      match: crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the externa
+[083] FOUND    | `before_nodes`
+      match: crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:545:    let before = tx.ed.before_nodes().clone();
+[084] FOUND    | `cosmic-text`
+      match: crates/designos-app/Cargo.toml:45:cosmic-text = "0.19.0"
+[085] FOUND    | `crates/designos-app/assets/starter/designos-studio-starter.designos`
+      match: crates/designos-app/src/home/session.rs:16:/// Bundled offline starter document (`crates/designos-app/assets/starter/designos-studio-starter
+[086] FOUND    | `derivedSymbolData`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[087] FOUND    | `designos`
+      match: crates/designos-app/Cargo.toml:2:name = "designos-app"
+[088] COMPOSED | `designos FILE --export-variables OUT.json --format dtcg --mode MODE`
+[089] FOUND    | `designos-mcp`
+      match: crates/designos-app/Cargo.toml:39:designos-mcp.workspace = true
+[090] FOUND    | `designos-studio`
+      match: crates/designos-app/Cargo.toml:7:default-run = "designos-studio"
+[091] FOUND    | `designos: warn: import path`
+      match: crates/designos-app/src/home/dialog.rs:565:    let line = format!("designos: warn: import path {}: {reason}", path.display());
+[092] FOUND    | `designos_apply_batch`
+      match: crates/designos-mcp/generated/rules.md:10:3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_sp
+[093] FOUND    | `designos_apply_spec`
+      match: crates/designos-app/src/agent_a11y.rs:514:            announcer.notify_status(preset, &AgentTabStatus::Working(Some("designos_apply_spec".in
+[094] FOUND    | `designos_create_node`
+      match: crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:93:LINE	agent_sessions.rs	1	"claude --session-id {uuid} --dangerously-ski
+[095] FOUND    | `designos_export_fig_file`
+      match: crates/designos-app/src/agent_turn_status.rs:501:        | "designos_export_fig_file"
+[096] FOUND    | `designos_get_document`
+      match: crates/designos-app/src/agent_mention.rs:925:        let doc_res = engine.call("designos_get_document", serde_json::json!({})).expect("desig
+[097] FOUND    | `designos_import_web_capture`
+      match: crates/designos-mcp/generated/rules.md:153:### `designos_import_web_capture`
+[098] FOUND    | `designos_open_file`
+      match: crates/designos-app/src/agent_turn_status.rs:498:        | "designos_open_file"
+[099] FOUND    | `designos_render_png`
+      match: crates/designos-app/src/agent_turn_status.rs:502:        | "designos_render_png"
+[100] FOUND    | `designos_save_file`
+      match: crates/designos-app/src/agent_turn_status.rs:499:        | "designos_save_file"
+[101] FOUND    | `designos_search_design_system`
+      match: crates/designos-mcp/generated/rules.md:39:### `designos_search_design_system`
+[102] FOUND    | `designos_specs`
+      match: crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE	specs.rs	the spec folders of the open project (`docs/specs`, or t
+[103] FOUND    | `designos_update_node`
+      match: crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:93:LINE	agent_sessions.rs	1	"claude --session-id {uuid} --dangerously-ski
+[104] FOUND    | `examples/`
+      match: crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE	specs.rs	the spec folders of the open project (`docs/specs`, or t
+[105] FOUND    | `exit_plan_mode`
+      match: crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit open in the externa
+[106] FOUND    | `fig:<figma id>`
+      match: crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<figma id>|name
+[107] FOUND    | `file://`
+      match: crates/designos-app/src/dev/mod.rs:351:        app.dev_open_link("x", "file:///etc/passwd");
+[108] FOUND    | `fillGeometry`
+      match: crates/designos-doc/src/node.rs:111:    /// Precomputed fill outline in local space (Figma `fillGeometry`). When
+[109] FOUND    | `fixtures`
+      match: crates/designos-app/Cargo.toml:25:# Built-in screenshot and test fixtures (`--fixture`, `--seed-library`). Off by default in shipped builds.
+[110] FOUND    | `font_family`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[111] FOUND    | `guid`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[112] FOUND    | `hex`
+      match: crates/designos-app/assets/icons/lucide/hexagon.svg:3:  class="lucide lucide-hexagon"
+[113] FOUND    | `hooks`
+      match: crates/designos-app/src/agent_approval_channel.rs:4://! the hook script that decides what to print, or the hooks file that tells Claude whic
+[114] FOUND    | `id:<n>`
+      match: crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<figma id>|name
+[115] FOUND    | `import_size_gate`
+      match: crates/designos-mcp/src/server.rs:628:fn import_size_gate(len: u64) -> Result<(), ToolError> {
+[116] FOUND    | `isSoftDeleted`
+      match: crates/designos-fig/FIELDS.md:90:| Style nodes | any node with `styleType` FILL / TEXT / EFFECT (GRID unconfirmed), `key` (library key, abse
+[117] FOUND    | `isSoftDeletedStyle`
+      match: crates/designos-fig/src/fig.rs:819:/// A style node the file marks as deleted (`isSoftDeletedStyle`, `isSoftDeleted`, or `phase == "REMOVED"
+[118] FOUND    | `is_orphan_style`
+      match: crates/designos-app/src/panels/style_picker.rs:398:            assert_eq!(doc.is_orphan_style(k), !*expected_table, "is_orphan_style({k:?}) 
+[119] FOUND    | `is_table_style`
+      match: crates/designos-app/src/panels/properties.rs:266:            .filter(|k| app.doc.is_table_style(k))
+[120] PR-1254  | `measure_text_box`
+      match: origin/jangtrinh/agy-1154-nodespec-text-measure:crates/designos-mcp/src/engine.rs:4029:        let measured = designos_render::measure_text_
+[121] FOUND    | `name:<text>`
+      match: crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<figma id>|name
+[122] FOUND    | `next_step`
+      match: crates/designos-app/src/agent_session_files.rs:16:pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_messa
+[123] FOUND    | `none`
+      match: crates/designos-app/assets/icons/lucide/align-center-horizontal.svg:8:  fill="none"
+[124] FOUND    | `object`
+      match: crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:302:    let Ok(serde_json::Value::Object(map)) = serde_json::to_value(populate
+[125] FOUND    | `on_process_exit`
+      match: crates/designos-app/src/agent_turn_status.rs:869:    pub fn on_process_exit(
+[126] FOUND    | `overrideKey`
+      match: crates/designos-fig/FIELDS.md:74:| Component | `SYMBOL` node; `componentKey`, `sourceLibraryKey` (`lk-...`, one per library), `overrideKey`,
+[127] FOUND    | `permission_prompt`
+      match: crates/designos-app/src/agent_turn_status.rs:132:    /// Extracts the notification type from a `Notification` payload (e.g. `"permission_pro
+[128] FOUND    | `plan_constraint_pass`
+      match: crates/designos-app/src/layout.rs:216:    for (c, new_transform, new_size) in designos_doc::plan_constraint_pass(doc, frame, old, new, 64) {
+[129] FOUND    | `record_user_node_update`
+      match: crates/designos-app/src/agent_busy_frames.rs:302:    pub fn record_user_node_update(&mut self, before: &Node, after: &Node) {
+[130] FOUND    | `resolve_pty_heuristic_status`
+      match: crates/designos-app/src/terminal.rs:764:pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output_at: Option<std::tim
+[131] FOUND    | `safe_to_retry: false`
+      match: crates/designos-mcp/src/server.rs:3437:        assert!(!err.safe_to_retry, "FILE_TOO_LARGE must have safe_to_retry: false");
+[132] FOUND    | `selection`
+      match: crates/designos-app/assets/specs/easeui-agent-console.spec.json:334:                      "text": "Preserves viewport pan, zoom, active page
+[133] FOUND    | `source_id`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[134] FOUND    | `strokeGeometry`
+      match: crates/designos-doc/src/node.rs:116:    /// Precomputed stroke outline in local space (Figma `strokeGeometry`),
+[135] FOUND    | `strokeSeed`
+      match: crates/designos-fig/src/figma_schema.txt:1583:    strokeSeed = 482 : Uint64
+[136] FOUND    | `style_refs`
+      match: crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design","nodes":{"1":{"id":
+[137] FOUND    | `tokens.manifest.json`
+      match: crates/designos-app/src/main.rs:468:            if var_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifest.json") {
+[138] FOUND    | `tools.allowed`
+      match: docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135:   #1059). Some settings there skip Gemini's own confirmation 
+[139] FOUND    | `tools.discoveryCommand`
+      match: docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138:   project hook and then runs it) and `tools.discoveryCommand`
+[140] FOUND    | `tty`
+      match: crates/designos-app/src/agent_permissions.rs:209:    let manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other
+[141] FOUND    | `validate_output_name`
+      match: crates/designos-mcp/src/engine.rs:1554:pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
+[142] FOUND    | `values_from_default_mode`
+      match: crates/designos-app/src/main.rs:521:                "values_from_default_mode": report.values_from_default_mode,
+[143] FOUND    | `var_u64`
+      match: crates/designos-fig/src/kiwi.rs:242:    pub fn var_u64(&mut self) -> Result<u64> {
+[144] FOUND    | `workspace-write`
+      match: crates/designos-app/src/agent_approval_channel.rs:6://! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writable roots of Codex's
+[145] FOUND    | `{…}`
+      match: crates/designos-fig/src/variables_dtcg.rs:4803:        assert!(refs.is_empty(), "resolved file must contain no {{…}} alias strings, found {r
+[146] FOUND    | `~`
+      match: crates/designos-app/src/agent_approval_channel.rs:11://! <data dir>/designos/ap/        0700  Studio-private root (macOS: ~/Library/Applicat
+[147] FOUND    | `~/…`
+      match: crates/designos-app/src/home/dialog.rs:620:/// `~` or `~/…` (and `~\…` on Windows) becomes the home folder. Anything else is `None`.
+[148] FOUND    | `…`
+      match: crates/designos-app/src/agent_approval_card.rs:203:/// Renders the `"Agent permissions"` modal opened from `Preferences -> Agent permissions

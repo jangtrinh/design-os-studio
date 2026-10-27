@@ -1,0 +1,41 @@
+tree: ce7a439dba3ef8d876a96b87e87153e479ee30dd  binary: designos-a6ccbe70b4504ba8  codex-cli 0.164.0
+victim before: oauth_creds.json settings.json 89fa3c0f0aa9 faac3c8c44c5 
+== Studio makes the session folder (test build)
+PROBE make: ok <scratch>/lib/agent-sessions/file-1
+-- control: the sandboxed agent cannot write the victim
+touch: <scratch>/home/.gemini/agent-was-here: Operation not permitted
+touch victim exit=1 (must not be 0)
+rm: <scratch>/home/.gemini/settings.json: Operation not permitted
+rm victim file exit=1 (must not be 0)
+== A. the agent plants .gemini -> victim in its session folder
+ln -s exit=0 (0 = the sandbox allows it)
+drwx------@ 3 user  staff   96 Oct 24 18:11 .
+drwxr-xr-x@ 3 user  staff   96 Oct 24 18:11 ..
+lrwxr-xr-x@ 1 user  staff  112 Oct 24 18:11 .gemini -> <scratch>/home/.gemini
+== A. Studio rewrites the session files
+PROBE write: refused: Couldn't update the agent files: <scratch>/lib/agent-sessions/file-1/.gemini is a link, not a folder. Delete the link and try again.
+victim after A: oauth_creds.json settings.json 89fa3c0f0aa9 faac3c8c44c5 
+== B. the folder was real first: the agent moves .gemini away and plants the link (after Studio provisioned it)
+PROBE write: ok
+mv exit=0
+ln -s exit=0
+== B. Studio rewrites the session files
+PROBE write: refused: Couldn't update the agent files: <scratch>/lib/agent-sessions/file-1/.gemini is a link, not a folder. Delete the link and try again.
+victim after B: oauth_creds.json settings.json 89fa3c0f0aa9 faac3c8c44c5 
+== C. the agent plants links at .grok and .agents/plugins too
+ln -s .grok exit=0
+mv: rename <scratch>/lib/agent-sessions/file-1/.agents/plugins to <scratch>/lib/agent-sessions/file-1/.plugins.old: Operation not permitted
+mv .agents/plugins exit=1 (non-zero: the Codex sandbox keeps .agents read-only)
+(planted by the host instead, to see that Studio refuses it too)
+== C. Studio rewrites the session files
+PROBE write: refused: Couldn't update the agent files: <scratch>/lib/agent-sessions/file-1/.agents/plugins is a link, not a folder. Delete the link and try again.
+victim after C: oauth_creds.json settings.json 89fa3c0f0aa9 faac3c8c44c5 
+== D. a hard link to the victim's file under a name Studio writes (links removed, real folders back)
+ln: <scratch>/lib/agent-sessions/file-1/AGENTS.md.hardlink: Operation not permitted
+hard link into the session folder exit=1 (0 = the sandbox allows a hard link to a file outside it)
+AGENTS.md before Studio's rewrite: USER-SETTINGS 
+PROBE write: ok
+AGENTS.md after Studio's rewrite: --- name: desi...
+victim after D: oauth_creds.json settings.json 89fa3c0f0aa9 faac3c8c44c5 
+RESULT: victim identical before and after (PASS)
+scratch removed: yes

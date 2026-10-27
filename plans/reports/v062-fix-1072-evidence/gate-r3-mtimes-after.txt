@@ -1,0 +1,5 @@
+2026-10-25 20:03:36 +07
+1792820301 ~/.gemini/projects.json
+1792819410 ~/.gemini/oauth_creds.json
+1792821208 ~/.gemini
+1792913379 ~/.codex/tmp/arg0-macos

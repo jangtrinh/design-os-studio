@@ -1,0 +1,224 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.48s
+     Running tests/session_files/main.rs (out/cargo-1068/debug/deps/session_files-657090e65be613f1)
+
+running 30 tests
+test links::a_link_at_the_canvas_is_not_loaded ... FAILED
+test ledger::clear_never_truncates_through_a_link ... FAILED
+test links::a_link_at_the_bootstrap_is_not_read ... FAILED
+test ledger::store_never_appends_through_a_link ... FAILED
+test ledger::the_rewrite_never_writes_through_a_link_at_the_old_temp_name ... FAILED
+test links::a_hard_link_at_the_edit_log_gets_no_append ... FAILED
+test links::a_link_at_the_canvas_is_replaced_by_the_next_write ... ok
+test links::a_dangling_link_at_the_edit_log_creates_nothing ... FAILED
+test links::a_link_at_the_edit_log_is_not_read ... FAILED
+test links::a_link_at_the_context_is_not_read ... FAILED
+test links::a_link_at_the_doc_sync_is_replaced_by_the_next_write ... ok
+test links::a_link_at_the_ledger_is_not_read ... FAILED
+test links::a_link_at_the_edit_log_gets_no_append_and_the_edit_fails_naming_the_path ... FAILED
+test links::a_link_at_the_session_options_is_not_read ... FAILED
+test links::a_link_at_the_old_doc_sync_temp_name_gets_no_write ... FAILED
+test links::a_link_at_the_old_canvas_temp_name_gets_no_write ... FAILED
+test links::a_link_at_the_ledger_is_neither_truncated_nor_appended_to ... FAILED
+test options::a_save_never_writes_through_a_link_at_the_old_temp_name ... FAILED
+test links::a_link_at_the_tool_config_is_not_read ... FAILED
+test options::a_save_replaces_a_link_at_the_target_and_leaves_its_victim ... ok
+test links::a_link_at_the_old_session_options_temp_name_gets_no_write ... FAILED
+test links::a_link_at_the_session_options_is_replaced_by_the_next_write ... ok
+test fifos::a_fifo_at_the_session_options_is_refused ... FAILED
+test fifos::a_fifo_at_the_ledger_is_refused ... FAILED
+test ledger::a_fifo_at_the_ledger_never_blocks_load_clear_or_store ... FAILED
+test fifos::a_fifo_at_the_edit_log_is_refused_and_the_edit_fails_naming_it ... FAILED
+test fifos::a_fifo_at_the_context_is_refused ... FAILED
+test fifos::a_fifo_at_the_bootstrap_is_refused ... FAILED
+test fifos::a_fifo_at_the_canvas_is_refused ... FAILED
+test fifos::a_fifo_at_the_tool_config_is_refused ... FAILED
+
+failures:
+
+---- links::a_link_at_the_canvas_is_not_loaded stdout ----
+
+thread 'links::a_link_at_the_canvas_is_not_loaded' (35093432) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743708124000-15/session/canvas.designos is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- ledger::clear_never_truncates_through_a_link stdout ----
+
+thread 'ledger::clear_never_truncates_through_a_link' (35093426) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: clear: the user's file changed
+  left: []
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- links::a_link_at_the_bootstrap_is_not_read stdout ----
+
+thread 'links::a_link_at_the_bootstrap_is_not_read' (35093431) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743706231000-13/session/bootstrap.json is a link, not a file. Delete the link and try again."; session_file_warnings = []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ledger::store_never_appends_through_a_link stdout ----
+
+thread 'ledger::store_never_appends_through_a_link' (35093427) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: store: the user's file changed
+  left: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10, 123, 34, 107, 101, 121, 34, 58, 34, 107, 49, 34, 44, 34, 116, 111, 111, 108, 34, 58, 34, 100, 101, 115, 105, 103, 110, 111, 115, 95, 99, 114, 101, 97, 116, 101, 95, 110, 111, 100, 101, 34, 44, 34, 104, 97, 115, 104, 34, 58, 49, 44, 34, 117, 110, 100, 111, 95, 100, 101, 112, 116, 104, 34, 58, 48, 44, 34, 100, 101, 97, 100, 34, 58, 102, 97, 108, 115, 101, 44, 34, 108, 105, 118, 101, 34, 58, 91, 123, 34, 105, 100, 34, 58, 57, 57, 57, 57, 44, 34, 107, 105, 110, 100, 34, 58, 34, 102, 114, 97, 109, 101, 34, 125, 93, 44, 34, 103, 111, 110, 101, 34, 58, 91, 93, 44, 34, 114, 101, 112, 108, 121, 34, 58, 123, 125, 44, 34, 99, 114, 101, 97, 116, 101, 100, 95, 109, 115, 34, 58, 48, 125, 10]
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- ledger::the_rewrite_never_writes_through_a_link_at_the_old_temp_name stdout ----
+
+thread 'ledger::the_rewrite_never_writes_through_a_link_at_the_old_temp_name' (35093428) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: rewrite: the user's file changed
+  left: []
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- links::a_hard_link_at_the_edit_log_gets_no_append stdout ----
+designos-mcp: skipped 1 unreadable line(s) in the edit log while replaying it onto the loaded canvas
+
+thread 'links::a_hard_link_at_the_edit_log_gets_no_append' (35093430) panicked at crates/designos-mcp/tests/session_files/links.rs:102:42:
+called `Result::unwrap_err()` on an `Ok` value: Object {"active_page_id": Number(1), "can_redo": Bool(false), "can_undo": Bool(false), "comment_count": Number(0), "in_progress": Object {}, "in_progress_count": Number(0), "in_progress_nodes": Array [], "kind": String("Design"), "name": String("Probe"), "node_count": Number(1), "pages": Array [Object {"child_count": Number(0), "height": Number(0.0), "kind": String("Page"), "name": String("Page 1"), "node_id": Number(1), "parent_id": Null, "visible": Bool(true), "width": Number(0.0), "x": Number(0.0), "y": Number(0.0)}], "style_count": Number(0), "styles": Array [], "variable_count": Number(0)}
+
+---- links::a_dangling_link_at_the_edit_log_creates_nothing stdout ----
+
+thread 'links::a_dangling_link_at_the_edit_log_creates_nothing' (35093429) panicked at crates/designos-mcp/tests/session_files/links.rs:91:42:
+called `Result::unwrap_err()` on an `Ok` value: Object {"active_page_id": Number(1), "can_redo": Bool(false), "can_undo": Bool(false), "comment_count": Number(0), "in_progress": Object {}, "in_progress_count": Number(0), "in_progress_nodes": Array [], "kind": String("Design"), "name": String("Probe"), "node_count": Number(1), "pages": Array [Object {"child_count": Number(0), "height": Number(0.0), "kind": String("Page"), "name": String("Page 1"), "node_id": Number(1), "parent_id": Null, "visible": Bool(true), "width": Number(0.0), "x": Number(0.0), "y": Number(0.0)}], "style_count": Number(0), "styles": Array [], "variable_count": Number(0)}
+
+---- links::a_link_at_the_edit_log_is_not_read stdout ----
+designos-mcp: skipped 1 unreadable line(s) in the edit log while replaying it onto the loaded canvas
+
+thread 'links::a_link_at_the_edit_log_is_not_read' (35093634) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743746207000-19/session/doc-patch.jsonl is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- links::a_link_at_the_context_is_not_read stdout ----
+
+thread 'links::a_link_at_the_context_is_not_read' (35093631) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743740650000-16/session/context.json is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- links::a_link_at_the_ledger_is_not_read stdout ----
+
+thread 'links::a_link_at_the_ledger_is_not_read' (35093668) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743763245000-21/session/idempotency-ledger.jsonl is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- links::a_link_at_the_edit_log_gets_no_append_and_the_edit_fails_naming_the_path stdout ----
+designos-mcp: skipped 1 unreadable line(s) in the edit log while replaying it onto the loaded canvas
+
+thread 'links::a_link_at_the_edit_log_gets_no_append_and_the_edit_fails_naming_the_path' (35093633) panicked at crates/designos-mcp/tests/session_files/links.rs:77:42:
+called `Result::unwrap_err()` on an `Ok` value: Object {"active_page_id": Number(1), "can_redo": Bool(false), "can_undo": Bool(false), "comment_count": Number(0), "in_progress": Object {}, "in_progress_count": Number(0), "in_progress_nodes": Array [], "kind": String("Design"), "name": String("Probe"), "node_count": Number(1), "pages": Array [Object {"child_count": Number(0), "height": Number(0.0), "kind": String("Page"), "name": String("Page 1"), "node_id": Number(1), "parent_id": Null, "visible": Bool(true), "width": Number(0.0), "x": Number(0.0), "y": Number(0.0)}], "style_count": Number(0), "styles": Array [], "variable_count": Number(0)}
+
+---- links::a_link_at_the_session_options_is_not_read stdout ----
+
+thread 'links::a_link_at_the_session_options_is_not_read' (35093672) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743769037000-25/session/session-options.json is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- links::a_link_at_the_old_doc_sync_temp_name_gets_no_write stdout ----
+
+thread 'links::a_link_at_the_old_doc_sync_temp_name_gets_no_write' (35093670) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: doc-sync: the user's file changed
+  left: [123, 34, 110, 97, 109, 101, 34, 58, 34, 80, 114, 111, 98, 101, 34, 44, 34, 107, 105, 110, 100, 34, 58, 34, 68, 101, 115, 105, 103, 110, 34, 44, 34, 110, 111, 100, 101, 115, 34, 58, 123, 34, 49, 34, 58, 123, 34, 105, 100, 34, 58, 49, 44, 34, 110, 97, 109, 101, 34, 58, 34, 80, 97, 103, 101, 32, 49, 34, 44, 34, 107, 105, 110, 100, 34, 58, 123, 34, 80, 97, 103, 101, 34, 58, 123, 34, 98, 97, 99, 107, 103, 114, 111, 117, 110, 100, 34, 58, 123, 34, 114, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 103, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 98, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 97, 34, 58, 49, 46, 48, 125, 125, 125, 44, 34, 116, 114, 97, 110, 115, 102, 111, 114, 109, 34, 58, 123, 34, 97, 34, 58, 49, 46, 48, 44, 34, 98, 34, 58, 48, 46, 48, 44, 34, 99, 34, 58, 48, 46, 48, 44, 34, 100, 34, 58, 49, 46, 48, 44, 34, 116, 120, 34, 58, 48, 46, 48, 44, 34, 116, 121, 34, 58, 48, 46, 48, 125, 44, 34, 115, 105, 122, 101, 34, 58, 123, 34, 120, 34, 58, 48, 46, 48, 44, 34, 121, 34, 58, 48, 46, 48, 125, 125, 125, 44, 34, 112, 97, 103, 101, 115, 34, 58, 91, 49, 93, 44, 34, 115, 116, 121, 108, 101, 115, 34, 58, 123, 125, 44, 34, 115, 116, 121, 108, 101, 95, 109, 101, 116, 97, 34, 58, 123, 125, 44, 34, 102, 108, 111, 119, 115, 34, 58, 91, 93, 44, 34, 118, 97, 114, 105, 97, 98, 108, 101, 115, 34, 58, 123, 125, 44, 34, 118, 97, 114, 105, 97, 98, 108, 101, 95, 99, 111, 108, 108, 101, 99, 116, 105, 111, 110, 115, 34, 58, 123, 125, 44, 34, 103, 117, 105, 100, 101, 115, 34, 58, 123, 125, 44, 34, 112, 114, 111, 116, 111, 116, 121, 112, 101, 95, 100, 101, 118, 105, 99, 101, 34, 58, 123, 34, 112, 114, 101, 115, 101, 116, 34, 58, 110, 117, 108, 108, 44, 34, 115, 105, 122, 101, 34, 58, 110, 117, 108, 108, 44, 34, 98, 97, 99, 107, 103, 114, 111, 117, 110, 100, 34, 58, 110, 117, 108, 108, 125, 44, 34, 99, 111, 109, 109, 101, 110, 116, 115, 34, 58, 91, 93, 44, 34, 108, 105, 98, 114, 97, 114, 121, 34, 58, 123, 34, 112, 117, 98, 108, 105, 115, 104, 101, 100, 34, 58, 110, 117, 108, 108, 44, 34, 101, 110, 97, 98, 108, 101, 100, 34, 58, 91, 93, 44, 34, 101, 120, 116, 101, 114, 110, 97, 108, 34, 58, 123, 125, 125, 44, 34, 108, 105, 98, 114, 97, 114, 121, 95, 112, 97, 103, 101, 34, 58, 110, 117, 108, 108, 44, 34, 110, 101, 120, 116, 95, 105, 100, 34, 58, 49, 125]
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- links::a_link_at_the_old_canvas_temp_name_gets_no_write stdout ----
+
+thread 'links::a_link_at_the_old_canvas_temp_name_gets_no_write' (35093669) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: canvas: the user's file changed
+  left: [123, 34, 110, 97, 109, 101, 34, 58, 34, 80, 114, 111, 98, 101, 34, 44, 34, 107, 105, 110, 100, 34, 58, 34, 68, 101, 115, 105, 103, 110, 34, 44, 34, 110, 111, 100, 101, 115, 34, 58, 123, 34, 49, 34, 58, 123, 34, 105, 100, 34, 58, 49, 44, 34, 110, 97, 109, 101, 34, 58, 34, 80, 97, 103, 101, 32, 49, 34, 44, 34, 107, 105, 110, 100, 34, 58, 123, 34, 80, 97, 103, 101, 34, 58, 123, 34, 98, 97, 99, 107, 103, 114, 111, 117, 110, 100, 34, 58, 123, 34, 114, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 103, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 98, 34, 58, 48, 46, 51, 53, 50, 57, 52, 49, 50, 44, 34, 97, 34, 58, 49, 46, 48, 125, 125, 125, 44, 34, 116, 114, 97, 110, 115, 102, 111, 114, 109, 34, 58, 123, 34, 97, 34, 58, 49, 46, 48, 44, 34, 98, 34, 58, 48, 46, 48, 44, 34, 99, 34, 58, 48, 46, 48, 44, 34, 100, 34, 58, 49, 46, 48, 44, 34, 116, 120, 34, 58, 48, 46, 48, 44, 34, 116, 121, 34, 58, 48, 46, 48, 125, 44, 34, 115, 105, 122, 101, 34, 58, 123, 34, 120, 34, 58, 48, 46, 48, 44, 34, 121, 34, 58, 48, 46, 48, 125, 125, 125, 44, 34, 112, 97, 103, 101, 115, 34, 58, 91, 49, 93, 44, 34, 115, 116, 121, 108, 101, 115, 34, 58, 123, 125, 44, 34, 115, 116, 121, 108, 101, 95, 109, 101, 116, 97, 34, 58, 123, 125, 44, 34, 102, 108, 111, 119, 115, 34, 58, 91, 93, 44, 34, 118, 97, 114, 105, 97, 98, 108, 101, 115, 34, 58, 123, 125, 44, 34, 118, 97, 114, 105, 97, 98, 108, 101, 95, 99, 111, 108, 108, 101, 99, 116, 105, 111, 110, 115, 34, 58, 123, 125, 44, 34, 103, 117, 105, 100, 101, 115, 34, 58, 123, 125, 44, 34, 112, 114, 111, 116, 111, 116, 121, 112, 101, 95, 100, 101, 118, 105, 99, 101, 34, 58, 123, 34, 112, 114, 101, 115, 101, 116, 34, 58, 110, 117, 108, 108, 44, 34, 115, 105, 122, 101, 34, 58, 110, 117, 108, 108, 44, 34, 98, 97, 99, 107, 103, 114, 111, 117, 110, 100, 34, 58, 110, 117, 108, 108, 125, 44, 34, 99, 111, 109, 109, 101, 110, 116, 115, 34, 58, 91, 93, 44, 34, 108, 105, 98, 114, 97, 114, 121, 34, 58, 123, 34, 112, 117, 98, 108, 105, 115, 104, 101, 100, 34, 58, 110, 117, 108, 108, 44, 34, 101, 110, 97, 98, 108, 101, 100, 34, 58, 91, 93, 44, 34, 101, 120, 116, 101, 114, 110, 97, 108, 34, 58, 123, 125, 125, 44, 34, 108, 105, 98, 114, 97, 114, 121, 95, 112, 97, 103, 101, 34, 58, 110, 117, 108, 108, 44, 34, 110, 101, 120, 116, 95, 105, 100, 34, 58, 49, 125]
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- links::a_link_at_the_ledger_is_neither_truncated_nor_appended_to stdout ----
+
+thread 'links::a_link_at_the_ledger_is_neither_truncated_nor_appended_to' (35093666) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: the ledger after a new document: the user's file changed
+  left: []
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- options::a_save_never_writes_through_a_link_at_the_old_temp_name stdout ----
+
+thread 'options::a_save_never_writes_through_a_link_at_the_old_temp_name' (35093684) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: save: the user's file changed
+  left: [123, 10, 32, 32, 34, 105, 115, 115, 117, 101, 115, 34, 58, 32, 123, 10, 32, 32, 32, 32, 34, 109, 111, 100, 101, 34, 58, 32, 34, 112, 114, 101, 115, 101, 116, 34, 44, 10, 32, 32, 32, 32, 34, 112, 114, 101, 115, 101, 116, 34, 58, 32, 34, 97, 103, 101, 110, 116, 34, 44, 10, 32, 32, 32, 32, 34, 109, 97, 120, 95, 105, 116, 101, 109, 115, 34, 58, 32, 50, 48, 10, 32, 32, 125, 44, 10, 32, 32, 34, 97, 117, 116, 111, 95, 102, 105, 120, 34, 58, 32, 123, 125, 10, 125]
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- links::a_link_at_the_tool_config_is_not_read stdout ----
+
+thread 'links::a_link_at_the_tool_config_is_not_read' (35093678) panicked at crates/designos-mcp/tests/session_files/scratch.rs:102:5:
+the reply does not carry "<scratch>/designos-mcp-session-files-79417-1792845743782875000-27/session/mcp-config.json is a link, not a file. Delete the link and try again."; session_file_warnings = []
+
+---- links::a_link_at_the_old_session_options_temp_name_gets_no_write stdout ----
+
+thread 'links::a_link_at_the_old_session_options_temp_name_gets_no_write' (35093671) panicked at crates/designos-mcp/tests/session_files/scratch.rs:106:5:
+assertion `left == right` failed: session-options: the user's file changed
+  left: [123, 10, 32, 32, 34, 105, 115, 115, 117, 101, 115, 34, 58, 32, 123, 10, 32, 32, 32, 32, 34, 109, 111, 100, 101, 34, 58, 32, 34, 112, 114, 101, 115, 101, 116, 34, 44, 10, 32, 32, 32, 32, 34, 112, 114, 101, 115, 101, 116, 34, 58, 32, 34, 97, 103, 101, 110, 116, 34, 44, 10, 32, 32, 32, 32, 34, 109, 97, 120, 95, 105, 116, 101, 109, 115, 34, 58, 32, 50, 48, 10, 32, 32, 125, 44, 10, 32, 32, 34, 97, 117, 116, 111, 95, 102, 105, 120, 34, 58, 32, 123, 125, 10, 125]
+ right: [85, 83, 69, 82, 32, 67, 79, 78, 84, 69, 78, 84, 44, 32, 75, 69, 69, 80, 32, 77, 69, 10]
+
+---- fifos::a_fifo_at_the_session_options_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_session_options_is_refused' (35093423) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706077000-6/session/session-options.json (freed afterwards: true)
+
+---- fifos::a_fifo_at_the_ledger_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_ledger_is_refused' (35093422) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706069000-1/session/idempotency-ledger.jsonl (freed afterwards: true)
+
+---- ledger::a_fifo_at_the_ledger_never_blocks_load_clear_or_store stdout ----
+
+thread 'ledger::a_fifo_at_the_ledger_never_blocks_load_clear_or_store' (35093425) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706098000-0/session/idempotency-ledger.jsonl (freed afterwards: true)
+
+---- fifos::a_fifo_at_the_edit_log_is_refused_and_the_edit_fails_naming_it stdout ----
+
+thread 'fifos::a_fifo_at_the_edit_log_is_refused_and_the_edit_fails_naming_it' (35093421) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706059000-3/session/doc-patch.jsonl (freed afterwards: true)
+
+---- fifos::a_fifo_at_the_context_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_context_is_refused' (35093420) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706061000-2/session/context.json (freed afterwards: false)
+
+---- fifos::a_fifo_at_the_bootstrap_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_bootstrap_is_refused' (35093418) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706058000-7/session/bootstrap.json (freed afterwards: false)
+
+---- fifos::a_fifo_at_the_canvas_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_canvas_is_refused' (35093419) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706059000-5/session/canvas.designos (freed afterwards: false)
+
+---- fifos::a_fifo_at_the_tool_config_is_refused stdout ----
+
+thread 'fifos::a_fifo_at_the_tool_config_is_refused' (35093424) panicked at crates/designos-mcp/tests/session_files/scratch.rs:123:13:
+designos-mcp did not return within 1 s on the FIFO at <scratch>/designos-mcp-session-files-79417-1792845743706085000-4/session/mcp-config.json (freed afterwards: false)
+
+
+failures:
+    fifos::a_fifo_at_the_bootstrap_is_refused
+    fifos::a_fifo_at_the_canvas_is_refused
+    fifos::a_fifo_at_the_context_is_refused
+    fifos::a_fifo_at_the_edit_log_is_refused_and_the_edit_fails_naming_it
+    fifos::a_fifo_at_the_ledger_is_refused
+    fifos::a_fifo_at_the_session_options_is_refused
+    fifos::a_fifo_at_the_tool_config_is_refused
+    ledger::a_fifo_at_the_ledger_never_blocks_load_clear_or_store
+    ledger::clear_never_truncates_through_a_link
+    ledger::store_never_appends_through_a_link
+    ledger::the_rewrite_never_writes_through_a_link_at_the_old_temp_name
+    links::a_dangling_link_at_the_edit_log_creates_nothing
+    links::a_hard_link_at_the_edit_log_gets_no_append
+    links::a_link_at_the_bootstrap_is_not_read
+    links::a_link_at_the_canvas_is_not_loaded
+    links::a_link_at_the_context_is_not_read
+    links::a_link_at_the_edit_log_gets_no_append_and_the_edit_fails_naming_the_path
+    links::a_link_at_the_edit_log_is_not_read
+    links::a_link_at_the_ledger_is_neither_truncated_nor_appended_to
+    links::a_link_at_the_ledger_is_not_read
+    links::a_link_at_the_old_canvas_temp_name_gets_no_write
+    links::a_link_at_the_old_doc_sync_temp_name_gets_no_write
+    links::a_link_at_the_old_session_options_temp_name_gets_no_write
+    links::a_link_at_the_session_options_is_not_read
+    links::a_link_at_the_tool_config_is_not_read
+    options::a_save_never_writes_through_a_link_at_the_old_temp_name
+
+test result: FAILED. 4 passed; 26 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.07s
+
+error: test failed, to rerun pass `-p designos-mcp --test session_files`
+exit=101 scratch_removed=yes

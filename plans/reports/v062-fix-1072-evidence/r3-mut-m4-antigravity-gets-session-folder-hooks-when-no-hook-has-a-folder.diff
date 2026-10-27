@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -4829,7 +4829,7 @@
+     .map_err(invalid_data)?;
+     let agy_hooks_bytes = match &hook_paths {
+         Some(paths) => serde_json::to_vec_pretty(&agy_session_hooks(paths)),
+-        None => serde_json::to_vec_pretty(&serde_json::json!({})),
++        None => serde_json::to_vec_pretty(&agy_session_hooks(&crate::agent_hook_outputs::HookPaths::at(&job.session_dir, &job.session_dir))),
+     }
+     .map_err(invalid_data)?;
+     let set_aside_note = match exact {

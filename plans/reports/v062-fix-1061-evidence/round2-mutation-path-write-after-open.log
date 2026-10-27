@@ -1,0 +1,13 @@
+mutation: write_session_file_unless opens the folder, then writes by path (std::fs::write)
+run 1 exit=101
+write: the effect is not in the folder that was opened
+write: the target of the link changed
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3136 filtered out; finished in 0.02s
+run 2 exit=101
+write: the effect is not in the folder that was opened
+write: the target of the link changed
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3136 filtered out; finished in 0.02s
+run 3 exit=101
+write: the effect is not in the folder that was opened
+write: the target of the link changed
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3136 filtered out; finished in 0.02s

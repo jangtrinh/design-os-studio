@@ -1,0 +1,8 @@
+171e52994e60b5cc8a9da0df6fcb67b8c6aff6be
+100644 32d2933f7e6e5b67bf025e11042fe1ed77487b06 1	crates/designos-app/src/terminal.rs
+100644 87d1d2f10c2239351ba60b2b35637d7b000e7cf7 2	crates/designos-app/src/terminal.rs
+100644 523562eb90cd0e2e9840a4a5132fca256ea0105e 3	crates/designos-app/src/terminal.rs
+
+Auto-merging crates/designos-app/src/terminal.rs
+CONFLICT (content): Merge conflict in crates/designos-app/src/terminal.rs
+Auto-merging docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md

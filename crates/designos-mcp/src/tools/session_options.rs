@@ -5,11 +5,11 @@
 //! `<session_dir>/session-options.json` when a session directory is configured and resets
 //! on document switch (`designos_open_file`, `designos_new_document`).
 
+use crate::session_file_io;
 use designos_doc::lint::LintConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Controls whether and how mutating MCP calls append a lint `issues` block (`E15-12` §3.5).
@@ -122,14 +122,10 @@ impl SessionOptions {
         session_dir.join("session-options.json")
     }
 
-    /// Loads `SessionOptions` from `<session_dir>/session-options.json` if present and valid,
-    /// falling back to `SessionOptions::default()`.
-    pub fn load_from_dir(session_dir: &Path) -> Self {
-        let path = Self::file_path(session_dir);
-        let Ok(raw) = fs::read_to_string(&path) else {
-            return Self::default();
-        };
-        let Ok(opts) = serde_json::from_str::<Self>(&raw) else {
+    /// Parses the text of `<session_dir>/session-options.json`, falling back to `SessionOptions::default()` when it is not
+    /// valid. The caller reads the file through `session_file_io`.
+    pub fn from_json(raw: &str) -> Self {
+        let Ok(opts) = serde_json::from_str::<Self>(raw) else {
             return Self::default();
         };
         if !(1..=100).contains(&opts.issues.max_items) || LintConfig::from_preset_str(&opts.issues.preset).is_err() {
@@ -138,16 +134,12 @@ impl SessionOptions {
         opts
     }
 
-    /// Atomically persists `self` to `<session_dir>/session-options.json`.
+    /// Atomically persists `self` to `<session_dir>/session-options.json`. The folder is Studio's and is not made here; a link
+    /// at the file's name is replaced, never written through. The error is a sentence naming the path.
     pub fn save_to_dir(&self, session_dir: &Path) -> Result<(), String> {
         let path = Self::file_path(session_dir);
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
         let bytes = serde_json::to_vec_pretty(self).map_err(|e| format!("serialize session-options.json: {e}"))?;
-        let tmp_path = path.with_extension(format!("tmp-{}", std::process::id()));
-        fs::write(&tmp_path, &bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
-        fs::rename(&tmp_path, &path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+        session_file_io::write_atomic(&path, &bytes, false).map_err(|e| session_file_io::explain("write", &path, &e))
     }
 
     /// Validates and applies a `designos_configure_session` payload, returning the full effective options JSON.

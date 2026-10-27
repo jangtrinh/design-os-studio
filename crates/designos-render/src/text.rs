@@ -782,6 +782,56 @@ pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
     geom
 }
 
+/// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`),
+/// rounded up to the next `0.25 px`.
+pub fn measure_text_box(tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+    let mut p = tp.clone();
+    p.style.fills.clear();
+    for r in &mut p.runs {
+        r.style.fills.clear();
+    }
+    let size = match wrap_width {
+        Some(w) => {
+            if p.auto_resize == TextAutoResize::WidthAndHeight {
+                p.auto_resize = TextAutoResize::Height;
+            }
+            Vec2::new(w, 0.0)
+        }
+        None => {
+            p.auto_resize = TextAutoResize::WidthAndHeight;
+            Vec2::ZERO
+        }
+    };
+    let g = text_geometry(&p, size);
+    let round_q = |v: f32| (v * 4.0).ceil() * 0.25;
+    let min_w = if tp.content.is_empty() { 16.0 } else { 1.0 };
+    let w = match wrap_width {
+        Some(w) => w,
+        None => round_q(g.width).max(min_w),
+    };
+    let h = round_q(g.height).max(1.0);
+    Vec2::new(w, h)
+}
+
+/// Process-wide [`designos_doc::text_measure::TextMeasure`] backed by [`measure_text_box`]
+/// and the renderer's `cosmic-text` font database.
+pub struct RenderTextMeasure;
+
+impl designos_doc::text_measure::TextMeasure for RenderTextMeasure {
+    fn measure(&self, tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+        measure_text_box(tp, wrap_width)
+    }
+
+    fn uses_fallback_font(&self, tp: &TextProps) -> bool {
+        sync_fonts();
+        with_fonts(|f| {
+            let base_missing = !tp.style.font_family.trim().is_empty() && resolve_family(f, &tp.style.font_family).is_none();
+            let run_missing = tp.runs.iter().any(|r| !r.style.font_family.trim().is_empty() && resolve_family(f, &r.style.font_family).is_none());
+            base_missing || run_missing
+        })
+    }
+}
+
 fn compute_geometry(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGeometry {
     let shaper = Shaper::new(fonts, props);
     let paras = split_paragraphs(props, true);
@@ -1022,5 +1072,20 @@ mod tests {
             assert!(blank.glyphs.is_empty() && blank.start == blank.end, "{content:?}: blank line has no extent");
             assert!(g.lines.windows(2).all(|w| w[0].start < w[1].start), "{content:?}: starts strictly increase");
         }
+    }
+
+    #[test]
+    fn semibold_measures_wider_than_regular() {
+        let mut regular = props("Delete", TextAutoResize::WidthAndHeight, None);
+        regular.style.font_family = "Inter".to_string();
+        regular.style.font_size = 14.0;
+        regular.style.font_weight = 400;
+
+        let mut semibold = regular.clone();
+        semibold.style.font_weight = 600;
+
+        let w400 = measure_text_box(&regular, None).x;
+        let w600 = measure_text_box(&semibold, None).x;
+        assert!(w600 > w400, "expected 14px Semibold Inter 'Delete' ({w600}) to measure wider than Regular ({w400})");
     }
 }

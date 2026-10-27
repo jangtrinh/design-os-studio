@@ -1,0 +1,7 @@
+merged tree a0d2da63921467a52c8f1185f0eb6be8f746f30c = HEAD eca85017 + origin/feat/930-gemini-approval-state 61c9e563
+fmt exit=0
+clippy exit=0
+    Checking designos-library v0.6.1 (<worktree>/out/merge-1061/crates/designos-library)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 46.43s
+test result: ok. 257 passed; 0 failed; 2 ignored; 0 measured; 2914 filtered out; finished in 50.66s
+tests exit=0

@@ -1,0 +1,6 @@
+ .../agent_session_files/folder_message_tests.rs    |  28 ++++++
+ .../src/agent_session_files/folder_owner.rs        |  20 ++--
+ .../src/agent_session_files/folder_unit_tests.rs   |  21 ++++-
+ .../src/agent_session_files/test_root.rs           | 104 +++++----------------
+ crates/designos-app/src/agent_sessions.rs          |  15 +--
+ 5 files changed, 94 insertions(+), 94 deletions(-)

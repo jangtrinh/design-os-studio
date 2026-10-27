@@ -1,0 +1,16 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.25s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 4 tests
+test agent_turn_status::tests::codex_turn_end_process_exit_maps_user_stop_and_exit_code_or_signal ... ok
+test terminal::tests::codex_turn_end_pure_decay_and_precedence_rules ... ok
+test terminal::tests::codex_turn_end_stub_pty_turn_decays_to_done_closes_ledger_and_hides_stop ... ok
+test terminal::tests::codex_turn_end_pty_exit_while_working_or_waiting_maps_stop_and_errors_across_presets ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3321 filtered out; finished in 0.23s
+

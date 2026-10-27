@@ -476,26 +476,10 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     kv(ui, app, c, "Estimated tokens", &format!("{est_tokens:.1}k"));
     c.y += 4.0;
     let prompt_uri = format!("@designos://design/{}/{}", id.0, n.name.replace(' ', "-"));
-    let prompt_text = format!("Implement this design from design:os.\n{prompt_uri}");
-    let box_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 48.0);
-    ui.painter().rect_filled(box_r, theme::cr(6), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    ui.painter().rect_stroke(box_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), egui::StrokeKind::Inside);
-    ui.painter().text(
-        Pos2::new(box_r.left() + 8.0, box_r.top() + 15.0),
-        Align2::LEFT_CENTER,
-        "Implement this design from design:os.",
-        theme::font_mono(),
-        Color32::from_rgb(0xD4, 0xD4, 0xD4),
-    );
-    let uri_line = elide(ui.painter(), &prompt_uri, &theme::font_mono(), box_r.width() - 16.0);
-    ui.painter().text(
-        Pos2::new(box_r.left() + 8.0, box_r.top() + 33.0),
-        Align2::LEFT_CENTER,
-        uri_line,
-        theme::font_mono(),
-        Color32::from_rgb(0x0D, 0x99, 0xFF),
-    );
-    c.y += 54.0;
+    let prompt_lead = "Implement this design from design:os.";
+    let prompt_text = format!("{prompt_lead}\n{prompt_uri}");
+    crate::dev::code_view::prompt_box(ui, c, prompt_lead, &prompt_uri);
+    c.y += theme::SPACE_INLINE;
     let copy_mcp_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 28.0);
     if small_button(ui, copy_mcp_r, "mcp-copy-prompt", "Copy design:os MCP link") {
         copy(app, ui, prompt_text.clone(), "MCP prompt");

@@ -665,8 +665,13 @@ fn generated_style_sort_position(max_existing: &str, ordinal: usize) -> String {
 }
 
 fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx: &mut usize) {
-    let styles: Vec<(String, Style)> =
-        designos_doc::ordered_style_keys(cx.doc, None).into_iter().filter_map(|k| cx.doc.styles.get(&k).cloned().map(|s| (k, s))).collect();
+    // Import-seeded orphans (GUID / `key:` refs with no `style_meta`) stay referenced by layers but are not style
+    // nodes, so a re-import must not resurrect them. Consumer-seeded `S:` styles are real styles and still export.
+    let styles: Vec<(String, Style)> = designos_doc::ordered_style_keys(cx.doc, None)
+        .into_iter()
+        .filter(|k| k.starts_with("S:") || cx.doc.is_table_style(k))
+        .filter_map(|k| cx.doc.styles.get(&k).cloned().map(|s| (k, s)))
+        .collect();
     let max_existing_pos: String = styles
         .iter()
         .filter_map(|(sid, _)| cx.doc.style_meta.get(sid).and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()))
@@ -700,14 +705,16 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         if let Some(k) = meta.and_then(|m| m.key.as_ref()) {
             fields.push(("key", V::String(k.clone())));
         }
-        let sort_pos = match meta.and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()) {
-            Some(sp) => sp.to_string(),
-            None => {
-                unpositioned_ordinal += 1;
-                generated_style_sort_position(&max_existing_pos, unpositioned_ordinal)
-            }
-        };
-        fields.push(("sortPosition", V::String(sort_pos)));
+        if cx.doc.is_table_style(&sid) {
+            let sort_pos = match meta.and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()) {
+                Some(sp) => sp.to_string(),
+                None => {
+                    unpositioned_ordinal += 1;
+                    generated_style_sort_position(&max_existing_pos, unpositioned_ordinal)
+                }
+            };
+            fields.push(("sortPosition", V::String(sort_pos)));
+        }
         match &style {
             Style::Fill(paints) => {
                 fields

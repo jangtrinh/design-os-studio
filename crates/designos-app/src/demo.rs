@@ -1,4 +1,5 @@
-//! Demo document shown when no file is given.
+//! Demo document shown when `--fixture demo` is given.
+#![cfg(any(test, feature = "fixtures"))]
 
 use crate::edit::Edit;
 use crate::layout;

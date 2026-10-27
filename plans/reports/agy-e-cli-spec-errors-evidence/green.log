@@ -1,0 +1,681 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.41s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 1 test
+test apply_spec_reports_field_and_expected_type_in_plain_words ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+   Compiling bitflags v2.13.2
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling objc2-encode v4.1.0
+   Compiling num-traits v0.2.19
+   Compiling hashbrown v0.17.1
+   Compiling serde_json v1.0.154
+   Compiling fax v0.2.7
+   Compiling either v1.19.0
+   Compiling hashbrown v0.16.1
+   Compiling raw-window-handle v0.6.2
+   Compiling rustc-hash v2.1.3
+   Compiling objc-sys v0.3.5
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling proc-macro2 v1.0.107
+   Compiling png v0.18.1
+   Compiling unicode-width v0.2.2
+   Compiling hexf-parse v0.2.1
+   Compiling objc2 v0.6.5
+   Compiling parking_lot_core v0.9.12
+   Compiling objc2 v0.5.3
+   Compiling codespan-reporting v0.13.1
+   Compiling bit-set v0.9.1
+   Compiling polycool v0.4.0
+   Compiling rustc-hash v1.1.0
+   Compiling kurbo v0.11.3
+   Compiling rayon v1.12.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling dispatch v0.2.0
+   Compiling parking_lot v0.12.5
+   Compiling kurbo v0.13.1
+   Compiling quote v1.0.47
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling indexmap v2.14.2
+   Compiling core-foundation v0.9.4
+   Compiling accesskit v0.24.1
+   Compiling block2 v0.5.1
+   Compiling svgtypes v0.15.3
+   Compiling objc2-foundation v0.2.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling ahash v0.8.12
+   Compiling foreign-types-shared v0.3.1
+   Compiling moxcms v0.8.1
+   Compiling euclid v0.22.14
+   Compiling fearless_simd v0.4.1
+   Compiling core-graphics-types v0.1.3
+   Compiling dpi v0.1.2
+   Compiling nohash-hasher v0.2.0
+   Compiling cursor-icon v1.2.0
+   Compiling epaint_default_fonts v0.35.0
+   Compiling smol_str v0.2.2
+   Compiling nix v0.31.3
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling accesskit_consumer v0.38.0
+   Compiling guillotiere v0.7.0
+   Compiling itertools v0.14.0
+   Compiling static_assertions v1.1.0
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling zip v9.0.4
+   Compiling lyon_geom v1.0.19
+   Compiling serial-core v0.4.0
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling rmcp v3.5.1
+   Compiling web-time v1.1.0
+   Compiling serial-unix v0.4.0
+   Compiling winresource v0.1.34
+   Compiling lyon_path v1.0.19
+   Compiling memoffset v0.6.5
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling type-map v0.5.1
+   Compiling pin-utils v0.1.1
+   Compiling pollster v0.4.0
+   Compiling float_next_after v1.0.0
+   Compiling nix v0.25.1
+   Compiling lyon_tessellation v1.0.22
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling vte v0.11.1
+   Compiling serial v0.4.0
+   Compiling anyhow v1.0.104
+   Compiling dispatch2 v0.3.1
+   Compiling objc2-app-kit v0.2.2
+   Compiling downcast-rs v1.2.1
+   Compiling shell-words v1.1.1
+   Compiling unicode-width v0.1.14
+   Compiling open v5.4.4
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+   Compiling vt100 v0.15.2
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling objc2-metal v0.3.2
+   Compiling objc2-app-kit v0.3.2
+   Compiling accesskit_macos v0.26.3
+   Compiling objc2-quartz-core v0.3.2
+   Compiling rfd v0.17.2
+   Compiling raw-window-metal v1.1.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling foreign-types-macros v0.2.4
+   Compiling schemars_derive v1.2.3
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling ref-cast v1.0.27
+   Compiling tracing-attributes v0.1.31
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics v0.23.2
+   Compiling thiserror-impl v1.0.69
+   Compiling clap_derive v4.6.7
+   Compiling tokio v1.53.2
+   Compiling futures-util v0.3.34
+   Compiling bytemuck v1.25.2
+   Compiling zerocopy v0.8.62
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling zerofrom v0.1.8
+   Compiling tiny-skia-path v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling tracing v0.1.44
+   Compiling tiny-skia v0.11.4
+   Compiling thiserror v2.0.21
+   Compiling peniko v0.6.1
+   Compiling yoke v0.8.3
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling emath v0.35.0
+   Compiling vello_common v0.0.9
+   Compiling winit v0.30.13
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling ecolor v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling clap v4.6.7
+   Compiling vello_cpu v0.0.9
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling futures v0.3.34
+   Compiling thiserror v1.0.69
+   Compiling usvg v0.45.1
+   Compiling half v2.7.1
+   Compiling tiff v0.11.3
+   Compiling icu_provider v2.3.1
+   Compiling serde v1.0.229
+   Compiling naga v29.0.4
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling accesskit_winit v0.32.2
+   Compiling tokio-util v0.7.20
+   Compiling filedescriptor v0.8.3
+   Compiling chrono v0.4.45
+   Compiling rgb v0.8.53
+   Compiling portable-pty v0.8.1
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling image v0.25.10
+   Compiling url v2.5.8
+   Compiling schemars v1.2.3
+   Compiling skrifa v0.44.0
+   Compiling ureq v2.12.1
+   Compiling harfrust v0.5.2
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-doc)
+   Compiling skrifa v0.40.0
+   Compiling swash v0.2.10
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling skrifa v0.42.1
+   Compiling wgpu-hal v29.0.4
+   Compiling harfrust v0.7.0
+   Compiling arboard v3.6.1
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling wgpu-core v29.0.4
+   Compiling epaint v0.35.0
+   Compiling webbrowser v1.2.4
+   Compiling designos-diff v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-diff)
+   Compiling egui v0.35.0
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-fonts)
+   Compiling resvg v0.45.1
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-render)
+   Compiling wgpu v29.0.4
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-svg)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-export)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-webcapture)
+   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-gpu)
+   Compiling egui-wgpu v0.35.0
+   Compiling egui-winit v0.35.0
+   Compiling eframe v0.35.0
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 00s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 291 tests
+test agent_cli_catalog::tests::codex_only_the_captured_signed_in_phrase_counts ... ok
+test agent_cli_catalog::tests::version_parsing_for_the_four_real_outputs ... ok
+test agent_cli_catalog::tests::claude_signed_out_json ... ok
+test agent_cli_catalog::tests::available_only_when_the_probe_finds_the_binary ... ok
+test agent_cli_catalog::tests::shell_row_is_last_and_other_cli_row_says_studio_tools_not_connected ... ok
+test agent_cli_catalog::tests::cli_without_status_command_is_not_checked ... ok
+test agent_cli_catalog::tests::missing_binary_is_greyed_with_an_install_link ... ok
+test agent_cli_catalog::tests::installed_cli_row_shows_version_and_state ... ok
+test agent_cli_catalog::tests::probe_runs_off_the_ui_thread ... ok
+test agent_cli_export_fig_tests::a_directory_is_never_replaced ... ok
+test agent_cli_export_fig_tests::the_writer_refuses_on_its_own_without_the_up_front_check ... ok
+test agent_cli_catalog::tests::probe_timeout_degrades_to_unknown ... ok
+test agent_cli_export_fig_tests::a_symlink_to_a_missing_target_is_never_written_through ... ok
+test agent_cli_export_fig_tests::an_existing_file_is_not_replaced_without_the_overwrite_flag ... ok
+{
+  "bytes": 22643,
+  "exported_fig": true,
+  "omitted_comment_threads": 0,
+  "omitted_extensions": [],
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_export_fig_new_68769/out/nested/new.fig"
+}
+test agent_cli_export_fig_tests::a_target_without_the_fig_extension_is_refused_and_left_alone ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_does_not_replace_a_read_only_file ... ok
+test agent_cli_export_fig_tests::a_refused_target_stops_the_command_before_it_changes_the_document ... ok
+test agent_cli_export_fig_tests::a_new_file_is_created_with_its_missing_folders ... ok
+test agent_cli_export_fig_tests::a_symlink_to_a_file_is_never_written_through ... ok
+{
+  "bytes": 22643,
+  "exported_fig": true,
+  "omitted_comment_threads": 0,
+  "omitted_extensions": [],
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_export_fig_case_68769/OUT.FIG"
+}
+test agent_cli_catalog::tests::custom_cli_is_saved_for_all_files ... ok
+{
+  "bytes": 22643,
+  "exported_fig": true,
+  "omitted_comment_threads": 0,
+  "omitted_extensions": [],
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_export_fig_overwrite_68769/out.fig"
+}
+test agent_open_flow::tests::sessions_button_single_frame_click_keeps_popover_open ... ok
+test agent_cli_export_fig_tests::the_fig_extension_is_accepted_in_any_letter_case ... ok
+{
+  "bytes": 22643,
+  "exported_fig": true,
+  "omitted_comment_threads": 0,
+  "omitted_extensions": [],
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_export_fig_mode_68769/out.fig"
+}
+test agent_cli_catalog::tests::last_choice_orders_first_and_is_per_file ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_keeps_the_permissions_of_the_replaced_file ... ok
+test agent_open_flow::tests::clicking_a_non_resumable_session_row_shows_a_notice_and_keeps_the_popover_open ... ok
+test agent_open_flow::tests::open_flow_ignores_non_resumable_custom_cli ... ok
+test agent_cli_export_fig_tests::the_overwrite_flag_replaces_a_regular_file_and_leaves_no_temporary_file ... ok
+test agent_permissions::tests::a_fresh_terminal_launches_every_cli_in_ask_mode ... ok
+test agent_picker::tests::closing_the_picker_discards_the_other_cli_draft ... ok
+test agent_picker::tests::uninstalled_cli_opens_its_install_page_not_a_tab ... ok
+test agent_session_failure::tests::retry_when_online_makes_one_attempt_per_click ... ok
+test agent_session_failure::tests::copy_details_includes_detected_cli_version_instead_of_literal_cli ... ok
+test agent_sessions::tests::launch_commands_use_only_flags_each_cli_lists ... ok
+test agent_sessions::tests::resume_commands_per_cli ... ok
+test agent_picker::tests::a_long_other_cli_error_keeps_8px_from_the_buttons_and_stays_in_the_card ... ok
+test agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same ... ok
+test agent_start_failure::tests::failure_classification_for_the_new_clis ... ok
+test agent_start_failure::tests::mid_session_fix_actions_and_billing_urls_cover_all_agent_clis ... ok
+test agent_start_failure::tests::signed_out_cli_offers_its_own_login ... ok
+test agent_start_failure::tests::unknown_flag_output_of_the_real_clis_is_recognised ... ok
+test agent_cli_catalog::tests::first_frame_uninstalled_last_cli_is_not_selectable_or_ordered_first ... ok
+test agent_picker::tests::the_other_cli_caption_keeps_8px_from_the_buttons_and_is_not_cut ... ok
+test agent_permissions::approval_channel_tests::the_hook_declines_without_a_plain_tab_number ... ok
+test agent_picker::tests::other_cli_form_saves_and_lists_the_entry ... ok
+test agent_stop::tests::esc_in_the_terminal_reaches_the_cli_unchanged ... ok
+test canvas::agent_changes_chip::tests::click_brings_the_frame_into_view_with_a_ten_percent_margin ... ok
+test canvas::agent_changes_chip::tests::click_changes_no_selection ... ok
+test canvas::agent_changes_chip::tests::the_view_never_moves_without_a_click ... ok
+test canvas::grids::tests::aligned_stripes_are_clipped_to_the_frame ... ok
+test canvas::hit::tests::click_empty_frame_area_selects_frame ... ok
+test canvas::hit::tests::click_group_selects_group_not_child ... ok
+test canvas::hit::tests::click_selects_child_of_top_frame ... ok
+test canvas::hit::tests::clicks_still_reach_the_layers_of_a_main_component ... ok
+test canvas::hit::tests::reverse_z_click_on_overlap_selects_first_child ... ok
+test canvas::interact::tests::double_click_drills_down_nested_containers_then_enters_vector_edit ... ok
+test canvas::interact::tests::enter_selects_children_and_shift_enter_climbs_to_parent ... ok
+test canvas::textsession::tests::ctrl_a_and_clipboard_text ... ok
+test canvas::vector::tests::a_click_on_a_segment_adds_a_point_but_a_drag_moves_the_segment ... ok
+test canvas::vector::tests::midpoint_snap_cmd_click_toggle_and_delete_and_heal ... ok
+test canvas::vector::tests::shift_and_command_clicks_on_a_selected_corner_point_still_edit_that_point ... ok
+test canvas::vector::tests::the_bend_tool_pulls_handles_out_of_a_vertex_and_a_click_removes_them ... ok
+test check_designs::tests::backdrop::text_entirely_outside_a_clipping_frame_is_not_painted_so_it_is_not_checked ... ok
+test check_designs::tests::backdrop::text_overflowing_a_clipping_frame_is_scored_on_the_frame_fill_it_shows_on ... ok
+test check_designs::tests::outside_the_box::a_child_inside_a_clipping_frame_counts_even_when_its_parent_sits_outside_that_frame ... ok
+test check_designs::tests::painted_behind::a_clipping_frame_cuts_the_children_before_they_reach_the_text ... ok
+test check_designs::tests::painted_behind::text_over_a_painted_child_of_a_small_earlier_frame_that_does_not_clip_is_not_checked ... ok
+test check_designs::tests::under_an_opaque_fill::text_only_partly_inside_a_clipping_opaque_card_keeps_the_old_behaviour ... ok
+test cli::tests::a_file_that_exists_or_is_not_asked_for_is_not_called_missing ... ok
+test cli::tests::a_file_that_is_not_there_is_named_in_one_plain_line ... ok
+test cli::tests::empty_is_default ... ok
+test cli::tests::gpu_flag_is_off_unless_given ... ok
+test cli::tests::home_is_the_default_only_for_a_bare_interactive_launch ... ok
+test cli::tests::overwrite_is_off_unless_given ... ok
+test cli::tests::parse_spec_json_names_the_field_and_expected_type ... ok
+test cli::tests::parses_agent_cli_flags ... ok
+test cli::tests::parses_canvas_aid_flags ... ok
+test cli::tests::parses_dev_options ... ok
+test cli::tests::parses_file_and_screenshot ... ok
+test cli::tests::parses_find_and_replace_with ... ok
+test cli::tests::parses_home_and_library ... ok
+test cli::tests::parses_menu_and_select_none ... ok
+test cli::tests::parses_panel ... ok
+test cli::tests::parses_scale ... ok
+test cli::tests::parses_tab_and_present ... ok
+test cli::tests::parses_the_version_flags ... ok
+test cli::tests::rejects_bad_input ... ok
+test cli::tests::the_commands_that_write_a_new_file_may_name_one_that_is_not_there_yet ... ok
+test cli::tests::the_help_text_names_the_export_fig_rules ... ok
+test cli::tests::the_process_serial_number_macos_adds_on_some_launches_is_not_a_file ... ok
+test cli::tests::the_usage_lists_the_fixture_and_variable_flags_the_parser_takes ... ok
+test agent_open_flow::tests::sessions_dropdown_lists_cli_label_time_status ... ok
+test cli::tests::the_usage_lists_the_version_flag ... ok
+test cli::tests::the_version_line_names_the_binary_and_the_cargo_version ... ok
+test cli::tests::web_capture_cli_flags_parse ... ok
+test clipboard::tests::a_clip_from_an_older_build_has_no_origin_and_copies_for_real ... ok
+test clipboard::tests::a_clip_names_the_document_it_came_from_in_its_json ... ok
+test clipboard::tests::a_main_copied_in_its_own_file_becomes_an_instance_where_the_original_stood ... ok
+test clipboard::tests::a_main_pasted_into_itself_or_a_set_stays_a_copy_and_a_paste_moves_out_of_the_main ... ok
+test clipboard::tests::a_main_that_was_cut_or_changed_since_the_copy_is_copied_for_real ... ok
+test clipboard::tests::clipboard_json_roundtrips_non_finite_numbers_and_repairs_legacy_nulls ... ok
+test agent_picker::tests::custom_cli_saved_in_fallback_mode_uses_library_root ... ok
+test clipboard::tests::figma_paste_adds_the_layers_centered_selected_with_one_undo_step ... ok
+test agent_picker::tests::clicking_row_mid_staggered_probe_starts_the_clicked_cli ... ok
+test agent_turn_ledger::tests::works_for_each_cli_hook_file ... ok
+test clipboard::tests::instantiate_assigns_fresh_ids_and_links ... ok
+test clipboard::tests::json_roundtrip_and_rejects_foreign_text ... ok
+test clipboard::tests::malformed_figma_payload_toasts_and_leaves_the_document_alone ... ok
+test clipboard::tests::pasting_into_a_document_with_an_exhausted_id_counter_keeps_every_copy_distinct ... ok
+test clipboard::tests::non_figma_html_falls_through_to_svg_and_text_paste ... ok
+test clipboard::tests::figma_paste_points_instances_at_the_pasted_component_and_drops_foreign_refs ... ok
+test clipboard::tests::undoing_a_figma_paste_keeps_an_image_the_document_already_held ... ok
+test clipboard::tests::undoing_a_figma_paste_takes_its_images_along_and_redo_brings_them_back ... ok
+test clipboard::tests::figma_paste_remaps_slot_and_swap_ids_and_drops_and_reports_unknown_ids ... ok
+{
+  "root_node_id": 2,
+  "saved": true
+}
+{
+  "id": "t1",
+  "resolved": false,
+  "page_id": 1,
+  "page_name": "Page 1",
+  "world_x": 44.0,
+  "world_y": 39.0,
+  "target_node_id": 3,
+  "target_node_name": "BuyBtn",
+  "target_node_kind": "Frame",
+  "target_frame_id": 2,
+  "target_frame_name": "PricingCard",
+  "messages": [
+    {
+      "id": "t1-1",
+      "author": "Agent",
+      "text": "Make button orange",
+      "created": "2026-10-25T07:09:30.113Z",
+      "edited": null
+    }
+  ]
+}
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+{
+  "replied": true,
+  "resolved": true,
+  "saved": true,
+  "thread_id": "t1"
+}
+{
+  "exported_node_id": 2,
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_agent_cli_68769/spec_out.json"
+}
+{
+  "comments": [
+    {
+      "id": "t1",
+      "messages": [
+        {
+          "author": "Agent",
+          "created": "2026-10-25T07:09:30.113Z",
+          "edited": null,
+          "id": "t1-1",
+          "text": "Make button orange"
+        },
+        {
+          "author": "Agent",
+          "created": "2026-10-25T07:09:30.161Z",
+          "edited": null,
+          "id": "18e1b41e97f135100000",
+          "text": "Done"
+        }
+      ],
+      "page_id": 1,
+      "page_name": "Page 1",
+      "resolved": true,
+      "target_frame_id": 2,
+      "target_frame_name": "PricingCard",
+      "target_node_id": 3,
+      "target_node_kind": "Frame",
+      "target_node_name": "BuyBtn",
+      "world_x": 44.0,
+      "world_y": 39.0
+    }
+  ],
+  "unresolved_count": 0
+}
+{
+  "kind": "Design",
+  "name": "CLI Test",
+  "node_count": 4,
+  "pages": [
+    {
+      "child_count": 1,
+      "id": 1,
+      "name": "Page 1",
+      "screens": [
+        {
+          "dev_status": null,
+          "height": 78.0,
+          "id": 2,
+          "kind": "Frame",
+          "name": "PricingCard",
+          "width": 129.0
+        }
+      ]
+    }
+  ],
+  "unresolved_comments": 0
+}
+test icon_tests::agent_cli_apply_comment_and_export_roundtrip ... ok
+test clipboard::tests::a_figma_payload_over_the_clipboard_budget_toasts_instead_of_aborting ... ok
+{
+  "nodes_created": 2,
+  "report": {
+    "absolute_fallbacks": [],
+    "elements": 2,
+    "flattened_wrappers": 0,
+    "font_substitutions": [],
+    "images_not_captured": [],
+    "nodes_created": 2,
+    "notes": [],
+    "root_name": "CLI Captured Card — example.com",
+    "root_node_id": 2,
+    "truncated": false,
+    "unsupported_css": []
+  },
+  "root_name": "CLI Captured Card — example.com",
+  "root_node_id": 2,
+  "saved": true,
+  "summary_toast": "Imported page: 2 layers · 0 fonts substituted · Details"
+}
+test agent_sessions::tests::shell_and_custom_cli_tabs_are_never_registered ... ok
+test icon_tests::web_capture_cli_import_and_out_roundtrip ... ok
+designos-doc: repaired a damaged document on load: RepairReport { dangling_ids: 0, duplicate_claims: 1, depth_detached: 0, parents_rebuilt: 1, ids_realigned: 0, next_id_raised: false, id_space_exhausted: false, non_finite_numbers: 0 }
+designos: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.l6JG5K/designos_test_68769_cyc.designos: repaired malformed document (1 duplicate or cyclic child claims, 1 wrong parent links); original will be backed up to designos_test_68769_cyc.designos.bak on save
+test io::tests::cyclic_file_loads_into_a_consistent_tree ... ok
+test panels::right::tests::a_preset_row_cut_by_the_list_edges_is_clickable_only_where_it_is_visible ... ok
+test panels::layers::tests::type_label_is_clipped_to_the_text_column ... ok
+test agent_turn_ledger::tests::summary_lists_changed_layers_and_selects_on_click ... ok
+test panels::right::tests::frame_preset_scrollbar_track_click_jumps_to_the_end_of_the_list ... ok
+test paste_placement::tests::a_layer_is_centered_on_the_landing_point_in_a_frame_that_does_not_clip ... ok
+test paste_placement::tests::a_layer_is_kept_inside_a_clipping_frame_that_sits_around_the_frame_it_joins ... ok
+test paste_placement::tests::a_layer_that_fits_a_clipping_frame_is_moved_inside_it_and_a_larger_one_is_centered_in_it ... ok
+test paste_placement::tests::clipping_boxes_are_intersected_and_boxes_that_share_no_area_leave_nothing ... ok
+test proto::player::tests::click_bubbles_to_the_nearest_ancestor_with_a_reaction ... ok
+test proto::player::tests::click_navigates_instantly_and_back_returns ... ok
+test proto::player::tests::click_on_an_instance_swaps_it_and_stays_swapped ... ok
+test proto::player::tests::click_outside_closes_overlay_and_swallows_the_click ... ok
+test proto::player::tests::dragged_release_is_not_a_click ... ok
+test proto::player::tests::set_variable_then_conditional_navigates_on_the_third_click ... ok
+test scratch_cli_home::tests::a_test_never_runs_a_cli_version_probe_against_the_users_home ... ok
+test home::spec_bundle_hidden_tests::no_click_on_home_pushes_open_specs ... ok
+test panels::right::tests::every_frame_preset_row_is_clickable_after_scrolling_in_the_minimum_window ... ok
+test panels::right::tests::every_frame_preset_row_is_clickable_after_scrolling_in_the_default_window ... ok
+test shell::tests::agent_panel_keyboard::clipped_other_cli_form::the_form_takes_letters_once_it_is_scrolled_into_view ... ok
+   Compiling ring v0.17.14
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+test shell::tests::agent_panel_keyboard::clipped_other_cli_form::tab_does_not_walk_into_a_form_that_is_out_of_view ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::a_hidden_form_in_the_new_session_list_gets_none_of_a_renames_letters ... ok
+test shell::tests::agent_panel_keyboard::clipped_other_cli_form::tab_does_not_walk_into_the_field_of_a_form_that_is_out_of_view ... ok
+test agent_stop::tests::stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::closing_the_form_or_leaving_the_agents_panel_leaves_no_caret_in_it ... ok
+test agent_stop::tests::a_cli_that_prints_nothing_after_the_key_is_not_closed_by_quiet_and_ends_in_the_still_running_notice ... ok
+test agent_composer::tests::a_chosen_skill_reaches_a_non_claude_cli_as_one_sanitized_paste ... ok
+test agent_stop::tests::a_chatty_cli_stays_pending_across_the_real_quiet_window ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::a_hidden_form_in_the_plus_menu_gets_none_of_a_renames_letters ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::another_text_field_gets_the_letters_after_the_form_is_hidden ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_for_a_dialog_never_stops_the_turn_after_a_click_in_the_panel_header ... ok
+test agent_composer::tests::system_image_prompt_with_no_tab_starts_the_agent_cli_never_a_shell ... ok
+test shell::tests::agents_tab_strip::a_second_click_on_plus_closes_its_menu ... ok
+test shell::tests::check_designs::clicking_a_row_selects_its_layer_without_changing_the_list ... ok
+test shell::tests::agents_tab_strip::closing_the_plus_menu_with_plus_discards_the_other_cli_draft ... ok
+test agent_composer::tests::a_claude_send_queued_while_the_cli_starts_attaches_the_text_on_disk_at_the_flush ... ok
+test shell::tests::board::a_click_on_a_dot_without_dragging_makes_no_connector ... ok
+test shell::tests::check_designs::one_fix_click_fixes_one_finding_and_undoes_in_one_step ... ok
+test shell::tests::comments::a_comment_tool_click_on_a_layer_opens_the_composer_and_shows_no_toast ... ok
+test agent_composer::tests::a_queued_send_attaches_the_skills_chosen_when_the_cli_is_ready ... ok
+test shell::tests::comments::a_comment_tool_click_on_empty_canvas_opens_the_composer_and_shows_no_toast ... ok
+test shell::tests::clicking_a_text_style_applies_it_to_text ... ok
+test shell::tests::comments::a_click_on_empty_canvas_pins_to_the_page ... ok
+test agent_sessions::tests::resumed_cli_failing_from_login_stays_exited_but_a_bad_flag_marks_the_entry_missing ... ok
+test shell::tests::clicking_a_color_style_applies_it_to_the_selection ... ok
+test shell::tests::click_selects_child_and_drag_moves_it ... ok
+test image_jobs::tests::default_flow_without_agent_script_invokes_agent_cli_as_system_turn ... ok
+test shell::tests::board::double_click_edits_a_sticky ... ok
+test shell::tests::dev::clicking_a_dev_link_asks_before_opening_it ... ok
+test shell::tests::clicking_a_segment_adds_a_point_and_delete_removes_it ... ok
+test shell::tests::comments::clicking_a_pin_opens_the_thread_and_a_reply_is_added ... ok
+test agent_composer::tests::a_custom_cli_tab_gets_the_skills_pasted_and_is_not_recorded_as_claude ... ok
+test shell::tests::comments::the_panel_lists_threads_and_clicking_one_goes_to_its_pin ... ok
+test shell::tests::fast_drag_draw::a_jitter_next_to_a_snap_guide_is_still_a_click ... ok
+test shell::tests::fast_drag_transform::a_middle_press_over_a_pending_click_leaves_the_selection_alone ... ok
+test shell::tests::dev::left_panel_lists_ready_items_per_page_and_selects_on_click ... ok
+test shell::tests::board::connector_labels_can_be_typed_by_double_clicking_the_line ... ok
+test shell::tests::figma_paste::a_plain_v_tap_never_reads_the_clipboard ... ok
+test shell::tests::components::double_click_after_a_marquee_steps_from_the_main_into_its_layer ... ok
+test shell::tests::components::clicks_still_reach_the_layers_inside_a_main_component ... ok
+test shell::tests::fast_drag_transform::a_jitter_below_the_drag_threshold_is_still_a_click ... ok
+test shell::tests::fast_drag_transform::a_middle_press_in_the_frame_that_drags_a_pending_click_past_the_threshold_still_makes_the_move ... ok
+test shell::tests::fig_export_toast::a_click_on_a_plain_toast_reaches_the_canvas_below ... ok
+test shell::tests::fast_drag_transform::a_modifier_pressed_with_the_next_click_does_not_shape_the_gesture_that_just_ended ... ok
+test shell::tests::grid_track_editing::a_press_and_release_in_one_frame_is_a_click_and_cycles_once ... ok
+test shell::tests::figma_paste::releasing_cmd_before_v_still_pastes_a_figma_html_only_clipboard_once ... ok
+test shell::tests::grid_track_editing::a_click_on_a_narrow_pill_cycles_that_track ... ok
+test shell::tests::grid_track_editing::dragging_a_column_pill_reorders_it_without_cycling_its_sizing_and_undoes_in_one_step ... ok
+test shell::tests::grid_track_editing::the_inspector_value_field_does_not_pass_clicks_to_the_move_button ... ok
+test shell::tests::fast_drag_transform::a_press_and_release_in_one_frame_on_a_resize_handle_is_a_click ... ok
+test shell::tests::home::double_clicking_a_card_opens_it_and_single_click_selects ... ok
+test shell::tests::grid_track_editing::clicking_a_track_pill_cycles_its_sizing_in_one_undo_step ... ok
+test shell::tests::home_agents_card::the_agents_card_description_names_every_supported_cli_and_no_tool_count ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_105 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_106 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_below_is_flagged_when_its_clip_starts_at_14 ... ok
+test shell::tests::grid_track_editing::only_the_add_buttons_a_click_can_reach_are_drawn ... ok
+test shell::tests::grid_track_editing::only_the_header_pills_a_click_can_reach_are_drawn ... ok
+test shell::tests::home::right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it ... ok
+test shell::tests::fig_export_toast::a_click_on_the_toast_body_reaches_the_canvas_below ... ok
+test shell::tests::menus::a_click_on_the_chevron_opens_the_menu_and_leaves_it_open ... ok
+test shell::tests::menus::a_screen_reader_click_on_the_chevron_opens_the_menu_once ... ok
+test shell::tests::grid_track_editing::row_plus_keeps_a_size_set_by_clicking_a_row_pill ... ok
+test shell::tests::layer_drag_fast::a_click_without_movement_only_selects ... ok
+test shell::tests::home::renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open ... ok
+test shell::tests::layer_drag_fast::a_jitter_inside_a_click_in_one_frame_only_selects ... ok
+test shell::tests::layer_drag_fast::a_click_release_then_a_press_and_move_in_one_frame_moves_nothing_while_the_button_is_held ... ok
+   Compiling rustls v0.23.45
+test shell::tests::palette_autofix_undo::a_notice_raised_in_the_frame_of_the_click_is_kept_by_a_fix ... ok
+test shell::tests::menus::hovering_opens_a_submenu_and_clicking_a_leaf_runs_it ... ok
+   Compiling rustls-webpki v0.103.15
+test shell::tests::panel_keys::clicking_a_field_above_a_typed_rotation_does_not_write_the_old_position_back ... ok
+test shell::tests::proto::present_opens_clicking_the_button_lands_on_dashboard ... ok
+test shell::tests::panel_keys::a_hex_typed_right_after_the_click_reaches_the_field_not_the_shortcuts ... ok
+test shell::tests::layers_panel_click_and_visibility_toggle ... ok
+test shell::tests::panel_keys::clicking_a_number_field_selects_its_whole_value ... ok
+test shell::tests::panel_keys::lowercase_letters_typed_right_after_the_click_do_not_pick_tools ... ok
+test shell::tests::panel_keys::digits_typed_right_after_a_click_on_a_number_field_reach_the_field ... ok
+test shell::tests::panel_keys::a_click_on_the_canvas_and_a_shortcut_in_the_same_frame_still_run_the_shortcut ... ok
+test shell::tests::panel_keys::text_typed_before_escape_does_not_come_back_when_the_field_is_clicked ... ok
+test shell::tests::palette_autofix_undo::a_notice_raised_in_the_frame_of_the_click_is_kept_by_a_no_op ... ok
+test shell::tests::system_paste_and_drop::a_clipboard_read_that_times_out_still_pastes_the_text_it_had ... ok
+test shell::tests::system_paste_and_drop::a_clipboard_read_that_never_answers_times_out_with_a_toast_and_blocks_nothing ... ok
+test shell::tests::system_paste_and_drop::a_paste_waiting_for_the_clipboard_worker_keeps_the_window_drawing_until_it_lands ... ok
+test shell::tests::system_paste_and_drop::nothing_on_the_clipboard_and_nothing_copied_says_so ... ok
+   Compiling ureq v2.12.1
+test shell::tests::system_paste_and_drop::a_frame_selected_inside_a_clipping_frame_takes_the_paste_and_the_layer_is_centered_in_it ... ok
+test shell::tests::system_paste_and_drop::a_pasted_image_in_a_group_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::system_paste_and_drop::a_pasted_image_in_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::system_paste_and_drop::a_pasted_image_lands_in_the_overlap_of_a_clipping_panel_sticking_out_of_a_clipping_screen ... ok
+test shell::tests::system_paste_and_drop::an_image_dropped_on_a_non_clipping_frame_in_a_group_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::system_paste_and_drop::an_image_alone_on_the_clipboard_becomes_one_image_layer_capped_at_400px ... ok
+test shell::tests::variables::a_plain_toast_does_not_take_clicks_from_the_canvas ... ok
+test shell::tests::system_paste_and_drop::an_image_dropped_on_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::typography::typography_header_has_no_var_pill_and_clicking_left_of_style_button_changes_nothing ... ok
+test shell::tests::system_paste_and_drop::edit_paste_pastes_the_clipboard_image_too ... ok
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-fonts)
+test shell::tests::system_paste_and_drop::when_the_system_clipboard_cannot_be_read_the_in_app_copy_still_pastes ... ok
+test shell::tests::variables::shift_and_ctrl_click_multi_select ... ok
+test shell::tests::variables::right_clicking_a_group_of_a_library_collection_opens_no_menu ... ok
+test shell::tests::system_paste_and_drop::pasted_text_in_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::system_paste_and_drop::pasted_text_in_a_group_inside_a_clipping_frame_is_never_partly_hidden ... ok
+test shell::tests::system_paste_and_drop::pasted_text_lands_in_the_overlap_of_a_clipping_panel_sticking_out_of_a_clipping_screen ... ok
+test shell::tests::vector::alt_click_deletes_a_region ... ok
+test shell::tests::terminal_undo_chord::ctrl_z_is_left_to_a_cli_that_uses_it ... ok
+test tabs::tests::clicking_home_on_a_library_tab_without_edits_does_not_empty_its_file ... ok
+test shell::tests::leave_prompt::cancel_escape_and_a_click_outside_leave_everything_as_it_was ... ok
+test shell::tests::vector::marquee_selects_vertices_and_a_click_on_empty_space_clears ... ok
+test tabs::tests::clicking_home_keeps_the_unsaved_edit_of_the_tab_left ... ok
+test shell::tests::vector::clicking_a_region_extracts_it_and_cuts_the_shapes_around_it ... ok
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-render)
+test shell::tests::tab_disk_state::a_tab_click_with_an_open_text_session_puts_the_typing_in_the_history_and_protects_it ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test shell::tests::vector::double_clicking_a_rectangle_enters_vertex_editing ... ok
+test shell::tests::vector::double_clicking_inside_a_group_selects_the_child_before_editing_it ... ok
+test terminal::tests::a_gemini_only_machine_is_not_told_that_no_agent_cli_was_found ... ok
+test terminal::tests::antigravity_preset_names_the_agy_cli ... ok
+test tabs::tests::clicking_home_stores_the_closing_version_with_the_edit ... ok
+test shell::tests::fast_drag_draw::an_eight_pixel_drag_across_a_snap_guide_is_a_drag_not_a_click ... ok
+test terminal::tests::all_four_agent_cli_runtimes_claude_codex_agy_grok_execute_in_pty ... ok
+test terminal::tests::a_saved_other_cli_counts_and_a_prompt_click_starts_it ... ok
+test terminal::tests::click_pastes_one_sentence_without_enter ... ok
+test terminal::tests::a_click_appends_to_an_existing_draft ... ok
+test terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli ... ok
+test terminal::tests::install_dirs_include_each_clis_own_folder ... ok
+test terminal::tests::clicking_a_starter_prompt_in_the_default_terminal_view_opens_a_session_and_fills_the_composer ... ok
+test terminal::tests::a_draft_on_an_exited_tab_follows_the_click_to_another_live_tab ... ok
+test terminal::real_cli_launch_tests::an_agent_tab_in_a_test_gets_its_stubs_and_the_runners_tools_but_no_agent_cli ... ok
+test terminal::gemini_narrow_tests::output_the_cli_prints_through_its_own_terminal_is_read ... ok
+test terminal::tests::clicking_turn_receipt_row_opens_turn_summary ... ok
+test terminal::tests::missing_cli_send_does_not_drop_pending_bridge_actions_or_block_ui ... ok
+test shell::tests::terminal_undo_chord::windows_ctrl_z_undoes_in_an_agent_tab_when_the_cli_does_not_use_it ... ok
+test terminal::tests::pty_cwd_is_never_root_and_agent_clis_start_in_the_session_dir ... ok
+test terminal::tests::a_click_fills_the_composer_and_changes_nothing_else ... ok
+test terminal::tests::clicking_sample_prompt_when_existing_agent_tab_has_exited_spawns_new_live_agent_tab ... ok
+test terminal::tests::no_cli_installed_shows_install_guidance ... ok
+test terminal::tests::clicking_sample_prompt_with_empty_tabs_starts_session_on_first_installed_cli ... ok
+test terminal::tests::missing_cli_shows_the_start_failure_surface_and_no_executed_text ... ok
+test terminal::tests::works_for_each_cli_hook_file ... ok
+test terminal_undo_chord::tests::ctrl_z_is_left_to_a_cli_that_uses_it ... ok
+test terminal_undo_chord::tests::windows_ctrl_z_undoes_in_an_agent_tab_when_the_cli_does_not_use_it ... ok
+test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab ... ok
+test test_agent_path::tests::on_windows_a_launcher_or_script_counts_as_the_cli ... ok
+test widgets::menu::tests::rows_scrolled_out_of_the_panel_cannot_be_clicked ... ok
+test widgets::menu::tests::scrolling_to_the_end_reveals_the_last_row_and_a_click_picks_it ... ok
+test test_agent_path::tests::each_agent_cli_name_drops_its_folder_and_a_file_that_cannot_run_does_not ... ok
+test terminal::tests::prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection ... ok
+test terminal::tests::real_cli_command_builder_and_figma_ai_dispatch_execute_real_commands ... ok
+test terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized ... ok
+test terminal::tests::session_skill_and_instructions_are_laid_out_where_every_cli_discovers_them ... ok
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-svg)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-export)
+   Compiling designos-gpu v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-gpu)
+test terminal::tests::stub_cli_drives_running_needs_input_done ... ok
+test terminal::tests::session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli ... ok
+test terminal::tests::prompt_with_a_stub_cli_that_writes_nothing_leaves_the_document_hash_unchanged ... ok
+test terminal::tests::os_notification_sink_reports_denied_immediately_and_click_focuses_tab ... ok
+test shell::tests::fast_drag_draw::a_click_with_a_shape_tool_still_makes_the_default_size ... ok
+test terminal::tests::live_turn_output_classifies_all_four_agent_clis_while_process_is_alive ... ok
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-library)
+test terminal::real_cli_launch_tests::no_test_starts_a_real_agent_cli ... ok
+test terminal::ask_mode_tests::what_each_cli_loads_by_itself_is_the_same_whatever_the_document_and_page_are_named ... ok
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.47s
+test icon_tests::cli_apply_spec_reports_field_and_expected_type_in_plain_words ... ok
+test icon_tests::cli_screenshot_refuses_broken_files_and_captures_good_file ... ok
+
+test result: ok. 291 passed; 0 failed; 0 ignored; 0 measured; 2990 filtered out; finished in 55.73s
+

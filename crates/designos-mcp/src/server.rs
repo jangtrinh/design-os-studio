@@ -1,19 +1,23 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::{parse, Engine};
+use crate::session_file_io;
+use crate::session_file_problems::SessionFileProblems;
 use crate::tools::errors::{tool_output_schema, ErrorCode, ToolError};
 use crate::tools::ledger::{
     corrected_example_with_new_key, extract_and_strip_idempotency_key, extract_live_and_gone, is_idempotent_write_tool, now_ms, payload_hash,
     CallLedgerDecision, Ledger, LedgerEntry, LEDGER_FILE_NAME,
 };
 use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
+use crate::tools::session_options::SessionOptions;
 use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
+#[cfg(test)]
+use std::io::Write;
 use std::{
     collections::BTreeSet,
     fs,
-    io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -88,7 +92,7 @@ impl LiveSessionBridge {
         }
     }
 
-    /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
+    /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`<data dir>/designos/sessions/<session_id>`).
     pub fn for_session_dir(session_dir: &Path) -> Self {
         let dir = session_dir.to_path_buf();
         Self {
@@ -105,23 +109,16 @@ impl LiveSessionBridge {
     }
 }
 
+/// Replaces the session file `path` as a whole (the editor never reads a half-written file). The folder is Studio's and is not
+/// made here; a link at `path` is replaced, never written through. The error is a sentence naming the path.
 fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let tmp_path = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&tmp_path, bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+    session_file_io::write_atomic(path, bytes, false).map_err(|e| session_file_io::explain("write", path, &e))
 }
 
 /// Appends one line to the edit log in a single write, so the editor never reads a line that
-/// mixes two entries.
+/// mixes two entries. A link or a FIFO at `path` is refused, and the error says so.
 fn append_log_line(path: &Path, line: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-    file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+    session_file_io::append(path, line.as_bytes(), false).map_err(|e| session_file_io::explain("write", path, &e))
 }
 
 pub struct Session {
@@ -148,6 +145,8 @@ pub struct Session {
     pub last_call_meta: Option<serde_json::Map<String, Value>>,
     /// Per-session `designos.enabled_tools` configuration (`E15-15` §8.5).
     pub enabled_tools_config: crate::rules::EnabledToolsConfig,
+    /// What went wrong reading or writing a session file, until a tool reply tells the agent (`session_file_warnings`).
+    file_problems: SessionFileProblems,
 }
 
 #[derive(Deserialize)]
@@ -195,6 +194,21 @@ fn transcript_path_from_env() -> Option<PathBuf> {
     std::env::var_os("DESIGNOS_MCP_TRANSCRIPT").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
 }
 
+/// The `session_file_warnings` of a tool reply as one text block, for a result whose text is not the reply's JSON (the metadata
+/// XML, the images of a screenshot): a client shows the model that text, so a warning only in the structured reply would be
+/// told once and never seen.
+fn session_file_warnings_block(reply: &Value) -> Option<ContentBlock> {
+    let sentences: Vec<&str> = reply.get("session_file_warnings")?.as_array()?.iter().filter_map(Value::as_str).collect();
+    (!sentences.is_empty()).then(|| ContentBlock::text(format!("session_file_warnings:\n{}", sentences.join("\n"))))
+}
+
+/// The session's `designos.enabled_tools`, read through `session_file_io`. A file that is not there or is refused leaves every tool enabled.
+fn load_enabled_tools(problems: &mut SessionFileProblems, session_dir: Option<&Path>) -> crate::rules::EnabledToolsConfig {
+    crate::rules::EnabledToolsConfig::config_path(session_dir)
+        .and_then(|path| problems.read_to_string(&path))
+        .map_or_else(Default::default, |raw| crate::rules::EnabledToolsConfig::from_mcp_config_json(&raw))
+}
+
 impl Session {
     pub fn new(root: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
@@ -202,7 +216,8 @@ impl Session {
             return Err("Workspace must be a directory".into());
         }
         let bridge = LiveSessionBridge::from_env();
-        let enabled_tools_config = crate::rules::EnabledToolsConfig::load(bridge.session_dir.as_deref());
+        let mut file_problems = SessionFileProblems::default();
+        let enabled_tools_config = load_enabled_tools(&mut file_problems, bridge.session_dir.as_deref());
         let mut s = Self {
             engine: Engine::default(),
             root,
@@ -219,11 +234,10 @@ impl Session {
             ledger: Ledger::new(),
             last_call_meta: None,
             enabled_tools_config,
+            file_problems,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
-        if let Some(dir) = &s.bridge.session_dir {
-            s.engine.session_options = crate::tools::session_options::SessionOptions::load_from_dir(dir);
-        }
+        s.load_session_options();
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         s.replay_unabsorbed_live_patches();
@@ -233,14 +247,15 @@ impl Session {
         Ok(s)
     }
 
-    /// Creates a `Session` explicitly bound to a per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
+    /// Creates a `Session` explicitly bound to a per-file `session_dir` (`<data dir>/designos/sessions/<session_id>`).
     pub fn with_session_dir(root: &Path, session_dir: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
         if !root.is_dir() {
             return Err("Workspace must be a directory".into());
         }
         let bridge = LiveSessionBridge::for_session_dir(session_dir);
-        let enabled_tools_config = crate::rules::EnabledToolsConfig::load(Some(session_dir));
+        let mut file_problems = SessionFileProblems::default();
+        let enabled_tools_config = load_enabled_tools(&mut file_problems, Some(session_dir));
         let mut s = Self {
             engine: Engine::default(),
             root,
@@ -257,16 +272,39 @@ impl Session {
             ledger: Ledger::new(),
             last_call_meta: None,
             enabled_tools_config,
+            file_problems,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
-        if let Some(dir) = &s.bridge.session_dir {
-            s.engine.session_options = crate::tools::session_options::SessionOptions::load_from_dir(dir);
-        }
+        s.load_session_options();
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         s.replay_unabsorbed_live_patches();
         s.ledger = Ledger::load_from_path(session_dir.join(LEDGER_FILE_NAME));
         Ok(s)
+    }
+
+    /// Loads `session-options.json` of the session folder. A file that is not there, is refused or is not valid leaves the
+    /// defaults; a refusal is told to the agent.
+    fn load_session_options(&mut self) {
+        let Some(dir) = self.bridge.session_dir.as_deref() else {
+            return;
+        };
+        if let Some(raw) = self.file_problems.read_to_string(&SessionOptions::file_path(dir)) {
+            self.engine.session_options = SessionOptions::from_json(&raw);
+        }
+    }
+
+    /// Saves the session's options in the session folder. The options stay in force for this session whatever happens; a
+    /// failed save is told to the agent, because they would not survive a reconnect.
+    fn save_session_options(&mut self) {
+        let Some(dir) = self.bridge.session_dir.as_deref() else {
+            return;
+        };
+        let path = SessionOptions::file_path(dir);
+        match self.engine.session_options.save_to_dir(dir) {
+            Ok(()) => self.file_problems.wrote(&path, Ok(())),
+            Err(sentence) => self.file_problems.keep(&path, sentence),
+        }
     }
 
     /// Adds unknown `designos.enabled_tools` warnings to `summary` so the agent sees them once per document.
@@ -276,6 +314,20 @@ impl Session {
         }
         if let Some(fields) = summary.as_object_mut() {
             fields.insert("warnings".into(), json!(self.enabled_tools_config.unknown_warnings));
+        }
+    }
+
+    /// Adds what went wrong with a session file since the last reply (`session_file_warnings`, one sentence per path, each naming the
+    /// path and what to do) to `reply`, so a file Studio no longer sees edits through is not a silent failure. Sentences wait for
+    /// the next reply that can carry them.
+    fn attach_session_file_warnings(&mut self, reply: &mut Value) {
+        let Some(fields) = reply.as_object_mut() else {
+            return;
+        };
+        let mut sentences = self.file_problems.take();
+        sentences.extend(self.ledger.take_problems());
+        if !sentences.is_empty() {
+            fields.insert("session_file_warnings".into(), json!(sentences));
         }
     }
 
@@ -296,7 +348,7 @@ impl Session {
         let Some(path) = self.bridge.live_doc_patch_path.as_ref() else {
             return;
         };
-        let Ok(log) = fs::read(path) else {
+        let Some(log) = self.file_problems.read(path) else {
             return;
         };
         let canvas_base = self.canvas_base_nanos();
@@ -330,7 +382,7 @@ impl Session {
     }
 
     fn edit_log_len(&self) -> u64 {
-        self.bridge.live_doc_patch_path.as_ref().and_then(|p| fs::metadata(p).ok()).filter(|m| m.is_file()).map(|m| m.len()).unwrap_or(0)
+        self.bridge.live_doc_patch_path.as_ref().and_then(|p| session_file_io::stat(p).ok()).map(|m| m.len()).unwrap_or(0)
     }
 
     /// Tuple `(doc.revision, history.undo_depth(), edit_log.len(), files_created.len())` used to
@@ -350,7 +402,7 @@ impl Session {
         let mut loaded_run_id: Option<String> = None;
         let mut loaded_agent: Option<String> = None;
         if let Some(ctx_path) = &self.bridge.context_json_path {
-            if let Ok(raw) = fs::read_to_string(ctx_path) {
+            if let Some(raw) = self.file_problems.read_to_string(ctx_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     loaded_page_id = val.get("current_page_id").and_then(Value::as_u64);
                     loaded_scoped = val.get("scoped").and_then(Value::as_bool);
@@ -374,7 +426,7 @@ impl Session {
         }
         if loaded_run_id.is_none() || loaded_agent.is_none() {
             if let Some(dir) = &self.bridge.session_dir {
-                if let Ok(raw) = fs::read_to_string(dir.join("mcp-config.json")) {
+                if let Some(raw) = self.file_problems.read_to_string(&dir.join("mcp-config.json")) {
                     if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                         if loaded_run_id.is_none() {
                             loaded_run_id = val
@@ -403,32 +455,30 @@ impl Session {
             self.engine.default_agent = Some(ag);
         }
         if let Some(canvas_path) = self.bridge.live_canvas_path.clone() {
-            if let Ok(meta) = fs::metadata(&canvas_path) {
-                if let Ok(mtime) = meta.modified() {
-                    let is_newer = match self.bridge.last_canvas_mtime {
-                        Some(prev) => mtime > prev,
-                        None => true,
-                    };
-                    if is_newer {
-                        if let Ok(raw) = fs::read_to_string(&canvas_path) {
-                            if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
-                                let prev_undo_depth = self.engine.history.undo_depth();
-                                self.engine.doc = doc;
-                                self.engine.clear_lint_cache();
-                                // Ops recorded against the replaced copy no longer apply, and neither
-                                // does its undo history: it names the agent's old ids, which the
-                                // editor may have given to the user's layers.
-                                self.engine.take_live_ops();
-                                self.engine.live_patch_label = None;
-                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
-                                    self.engine.history = designos_doc::History::default();
-                                    self.history_dropped = true;
-                                }
-                                let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
-                                self.bridge.last_canvas_mtime = Some(mtime);
-                                reloaded_live_canvas = true;
+            if let Some(mtime) = self.file_problems.modified(&canvas_path) {
+                let is_newer = match self.bridge.last_canvas_mtime {
+                    Some(prev) => mtime > prev,
+                    None => true,
+                };
+                if is_newer {
+                    if let Some(raw) = self.file_problems.read_to_string(&canvas_path) {
+                        if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
+                            let prev_undo_depth = self.engine.history.undo_depth();
+                            self.engine.doc = doc;
+                            self.engine.clear_lint_cache();
+                            // Ops recorded against the replaced copy no longer apply, and neither
+                            // does its undo history: it names the agent's old ids, which the
+                            // editor may have given to the user's layers.
+                            self.engine.take_live_ops();
+                            self.engine.live_patch_label = None;
+                            if self.engine.history.can_undo() || self.engine.history.can_redo() {
+                                self.engine.history = designos_doc::History::default();
+                                self.history_dropped = true;
                             }
+                            let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                            self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
+                            self.bridge.last_canvas_mtime = Some(mtime);
+                            reloaded_live_canvas = true;
                         }
                     }
                 }
@@ -444,7 +494,7 @@ impl Session {
         }
         if let Some(sess_dir) = &self.bridge.session_dir {
             let boot_json_path = sess_dir.join("bootstrap.json");
-            if let Ok(raw) = fs::read_to_string(&boot_json_path) {
+            if let Some(raw) = self.file_problems.read_to_string(&boot_json_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     if let Some(gen_at) = val.get("generated_at").and_then(Value::as_str) {
                         self.engine.bootstrap_generated_at = Some(gen_at.to_string());
@@ -555,7 +605,7 @@ impl Session {
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
             atomic_write_file(canvas_path, bytes)?;
-            self.bridge.last_canvas_mtime = fs::metadata(canvas_path).and_then(|m| m.modified()).ok();
+            self.bridge.last_canvas_mtime = session_file_io::stat(canvas_path).and_then(|m| m.modified()).ok();
         }
         if let Some(sync_path) = &self.bridge.live_doc_sync_path {
             atomic_write_file(sync_path, bytes)?;
@@ -569,25 +619,48 @@ impl Session {
         self.bridge.doc_unannounced = false;
         Ok(())
     }
+}
 
+/// Maximum input file size (512 MiB) accepted by MCP file-import tools, per owner ruling Q2 of
+/// 2026-10-18 (`docs/specs/v0.6/README.md:180`).
+pub(crate) const MAX_IMPORT_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+fn import_size_gate(len: u64) -> Result<(), ToolError> {
+    if len > MAX_IMPORT_FILE_BYTES {
+        return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
+            .with_received(json!(len))
+            .with_expected(format!("<= {MAX_IMPORT_FILE_BYTES} bytes"))
+            .with_safe_to_retry(false));
+    }
+    Ok(())
+}
+
+impl Session {
     fn input_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         if Path::new(path).is_absolute()
             && !Path::new(path).starts_with(&self.root)
             && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
         {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace").with_received(json!(path)));
+            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
         let joined = self.root.join(path);
+        for anc in joined.ancestors().skip(1) {
+            if let Ok(canon_anc) = anc.canonicalize() {
+                if !canon_anc.starts_with(&self.root) {
+                    return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
+                }
+                break;
+            }
+        }
         let canon = joined.canonicalize().map_err(|e| {
-            if path.contains("..") {
-                ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", format!("Path must stay inside the configured workspace: {e}"))
-                    .with_received(json!(path))
+            if path.contains("..") || Path::new(path).is_absolute() {
+                ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
             } else {
                 ToolError::new(ErrorCode::InvalidArguments, "/path", format!("Cannot open path: {e}")).with_received(json!(path))
             }
         })?;
         if !canon.starts_with(&self.root) {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace").with_received(json!(path)));
+            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
         if !canon.is_file() {
             return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Expected a file path").with_received(json!(path)));
@@ -596,11 +669,17 @@ impl Session {
     }
 
     fn output_path_allow_overwrite(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/path")?;
+        }
         let requested = self.root.join(path);
-        if !matches!(requested.extension().and_then(|x| x.to_str()), Some("designos")) {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path must end in .designos")
-                .with_received(json!(path))
-                .with_expected("*.designos"));
+        for anc in requested.ancestors().skip(1) {
+            if let Ok(canon_anc) = anc.canonicalize() {
+                if !canon_anc.starts_with(&self.root) {
+                    return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
+                }
+                break;
+            }
         }
         let parent = requested
             .parent()
@@ -608,36 +687,44 @@ impl Session {
             .canonicalize()
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
-                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", format!("Path must stay inside the configured workspace: {e}"))
-                        .with_received(json!(path))
+                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/path", format!("Save directory must already exist: {e}")).with_received(json!(path))
                 }
             })?;
         if !parent.starts_with(&self.root) {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace").with_received(json!(path)));
+            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
-        let resolved = parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path needs a filename"))?);
-        if overwrite && resolved.exists() {
-            let meta =
-                fs::symlink_metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot inspect target path: {e}")))?;
-            if meta.file_type().is_symlink() || !meta.is_file() {
-                return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Cannot overwrite symlink or non-regular file").with_received(json!(path)));
-            }
-            let canon = resolved.canonicalize().map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot resolve path: {e}")))?;
-            if !canon.starts_with(&self.root) {
-                return Err(
-                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace").with_received(json!(path))
-                );
-            }
-        }
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", crate::engine::SAVE_EXTENSION, overwrite, true)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Save path needs a filename"))?;
         Ok(resolved)
     }
 
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/path")?;
+        }
         let requested = self.root.join(path);
-        if requested.extension().and_then(|x| x.to_str()) != Some("png") {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path must end in .png").with_received(json!(path)).with_expected("*.png"));
+        for anc in requested.ancestors().skip(1) {
+            if let Ok(canon_anc) = anc.canonicalize() {
+                if !canon_anc.starts_with(&self.root) {
+                    return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
+                }
+                break;
+            }
         }
         let parent = requested
             .parent()
@@ -645,24 +732,44 @@ impl Session {
             .canonicalize()
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
-                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", format!("Path must stay inside the configured workspace: {e}"))
-                        .with_received(json!(path))
+                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/path", format!("Render directory must already exist: {e}")).with_received(json!(path))
                 }
             })?;
         if !parent.starts_with(&self.root) {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace").with_received(json!(path)));
+            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
         }
-        Ok(parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path needs a filename"))?))
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/path", crate::engine::RENDER_EXTENSION, false, false)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/path", "Render path needs a filename"))?;
+        Ok(resolved)
     }
 
-    fn fig_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+    fn fig_output_path(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/output_path")?;
+        }
         let requested = self.root.join(path);
-        if requested.extension().and_then(|x| x.to_str()) != Some("fig") {
-            return Err(ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path must end in .fig")
-                .with_received(json!(path))
-                .with_expected("*.fig"));
+        for anc in requested.ancestors().skip(1) {
+            if let Ok(canon_anc) = anc.canonicalize() {
+                if !canon_anc.starts_with(&self.root) {
+                    return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace"));
+                }
+                break;
+            }
         }
         let parent = requested
             .parent()
@@ -670,24 +777,39 @@ impl Session {
             .canonicalize()
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
-                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", format!("Path must stay inside the configured workspace: {e}"))
-                        .with_received(json!(path))
+                    ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/output_path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/output_path", format!("Export directory must already exist: {e}")).with_received(json!(path))
                 }
             })?;
         if !parent.starts_with(&self.root) {
-            return Err(
-                ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace").with_received(json!(path))
-            );
+            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace"));
         }
-        Ok(parent.join(requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path needs a filename"))?))
+        let resolved = match requested.file_name() {
+            Some(name) if Path::new(path) != Path::new(".") => parent.join(name),
+            _ => parent.clone(),
+        };
+        let target_meta = fs::symlink_metadata(&resolved).ok().map(|m| {
+            #[cfg(unix)]
+            let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+            #[cfg(not(unix))]
+            let second_name = false;
+            (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+        });
+        crate::engine::validate_existing_output_target(target_meta, path, "/output_path", crate::engine::EXPORT_FIG_EXTENSION, overwrite, true)?;
+        let _ = requested.file_name().ok_or_else(|| ToolError::new(ErrorCode::InvalidArguments, "/output_path", "Export path needs a filename"))?;
+        Ok(resolved)
     }
 
     pub fn call(&mut self, name: &str, args: Value) -> Result<Value, ToolError> {
         let t0 = std::time::Instant::now();
         let args_copy = args.clone();
-        let res = self.call_with_safety(name, args);
+        let res = self.call_with_safety(name, args).map(|mut reply| {
+            self.attach_session_file_warnings(&mut reply);
+            reply
+        });
         let t_ms = t0.elapsed().as_millis() as u64;
         if let Some(t_path) = self.transcript_path.clone() {
             self.transcript_seq += 1;
@@ -743,7 +865,7 @@ impl Session {
             Ok(Err(mut err)) => {
                 crate::tools::errors::contextualize_corrected_example(&mut err, &raw_args);
                 let after = self.state_tuple();
-                let safe = (after == before) && (files_created == 0);
+                let safe = err.safe_to_retry && (after == before) && (files_created == 0);
                 #[cfg(test)]
                 if self.verify_corrected_examples {
                     if let Some(ex) = err.corrected_example.clone() {
@@ -807,6 +929,7 @@ impl Session {
                     }
                 }
                 let xml_text = if is_metadata { value.get("xml").and_then(Value::as_str).map(str::to_owned) } else { None };
+                let warnings_block = session_file_warnings_block(&value);
                 let mut res = CallToolResult::structured(value).with_meta(self.last_call_meta.clone().map(MetaObject));
                 if !image_blocks.is_empty() {
                     if is_design_context {
@@ -814,10 +937,13 @@ impl Session {
                         blocks.extend(res.content);
                         res.content = blocks;
                     } else {
+                        // The images replace the reply's text, which is where the model would read the warnings.
                         res.content = image_blocks;
+                        res.content.extend(warnings_block);
                     }
                 } else if let Some(xml) = xml_text {
                     res.content = vec![ContentBlock::text(xml)];
+                    res.content.extend(warnings_block);
                 }
                 res
             }
@@ -842,11 +968,7 @@ impl Session {
                     .with_corrected_example(json!({"path": a.path, "discard_changes": true})));
                 }
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
-                if len > 512 * 1024 * 1024 {
-                    return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
-                        .with_received(json!(len))
-                        .with_expected("<= 536870912 bytes"));
-                }
+                import_size_gate(len)?;
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
                 let mut repaired_non_finite_numbers = 0;
@@ -875,9 +997,7 @@ impl Session {
                     enabled_tools: self.enabled_tools_config.enabled.clone(),
                     ..Engine::default()
                 };
-                if let Some(dir) = &self.bridge.session_dir {
-                    let _ = self.engine.session_options.save_to_dir(dir);
-                }
+                self.save_session_options();
                 self.record_live_ops();
                 self.dirty = false;
                 self.ledger.clear();
@@ -920,9 +1040,7 @@ impl Session {
                 let next_rev = self.engine.revision.wrapping_add(1);
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
-                if let Some(dir) = &self.bridge.session_dir {
-                    let _ = self.engine.session_options.save_to_dir(dir);
-                }
+                self.save_session_options();
                 self.record_live_ops();
                 self.dirty = true;
                 self.ledger.clear();
@@ -943,35 +1061,8 @@ impl Session {
                 let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
                 self.engine.settle_layout();
                 let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-                if a.overwrite {
-                    let mut file = fs::OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .truncate(true)
-                        .open(&path)
-                        .map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot save file: {e}")))?;
-                    file.write_all(bytes.as_bytes())
-                        .and_then(|_| file.sync_all())
-                        .map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot save design: {e}")))?;
-                    *files_created += 1;
-                } else {
-                    // create_new also rejects existing symlinks and never truncates a user's file.
-                    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {
-                        ToolError::new(
-                            ErrorCode::FileExists,
-                            "/path",
-                            format!("Cannot create file (choose an unused .designos or .designos filename, or set overwrite=true): {e}"),
-                        )
-                        .with_received(json!(a.path))
-                        .with_corrected_example(json!({"path": a.path, "overwrite": true}))
-                    })?;
-                    if let Err(e) = file.write_all(bytes.as_bytes()).and_then(|_| file.sync_all()) {
-                        drop(file);
-                        let _ = fs::remove_file(&path);
-                        return Err(ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot save design: {e}")));
-                    }
-                    *files_created += 1;
-                }
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite, true)?;
+                *files_created += 1;
                 self.dirty = false;
                 Ok(json!({"path": path, "saved": true}))
             }
@@ -1002,33 +1093,17 @@ impl Session {
                     return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_id", format!("Node {} produced an empty image", a.node_id))
                         .with_received(json!(a.node_id)));
                 }
-                let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {
-                    ToolError::new(ErrorCode::FileExists, "/path", format!("Cannot create PNG file (choose an unused .png filename): {e}"))
-                        .with_received(json!(a.path))
-                })?;
-                if let Err(e) = file.write_all(&png).and_then(|_| file.sync_all()) {
-                    drop(file);
-                    let _ = fs::remove_file(&path);
-                    return Err(ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot write PNG: {e}")));
-                }
+                crate::engine::write_checked_output_file(&path, &a.path, "/path", &png, false, false)?;
                 *files_created += 1;
                 Ok(json!({"path": path, "node_id": a.node_id, "scale": a.scale, "bytes": png.len(), "rendered": true}))
             }
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: crate::engine::ExportFigArgs = parse(args)?;
-                let path = self.fig_output_path(&a.output_path)?;
+                let path = self.fig_output_path(&a.output_path, a.overwrite)?;
                 self.engine.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.engine.doc)
                     .map_err(|e| ToolError::new(ErrorCode::InternalError, "", format!("Failed to export .fig: {e}")))?;
-                let mut file = fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&path)
-                    .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Cannot write .fig file: {e}")))?;
-                file.write_all(&bytes)
-                    .and_then(|_| file.sync_all())
-                    .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Cannot write .fig file: {e}")))?;
+                crate::engine::write_checked_output_file(&path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 *files_created += 1;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
@@ -1053,9 +1128,8 @@ impl Session {
                     if let Some(obj) = args.as_object_mut() {
                         if let Some(rel_path) = obj.get("path").and_then(Value::as_str).map(str::to_string) {
                             let resolved = self.input_path(&rel_path)?;
-                            if fs::metadata(&resolved).map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {
-                                return Err("Input file exceeds the 64 MiB import limit".into());
-                            }
+                            let len = fs::metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
+                            import_size_gate(len)?;
                             obj.insert("path".into(), json!(resolved.to_string_lossy().to_string()));
                         }
                     }
@@ -1155,9 +1229,7 @@ impl Session {
                     self.attach_enabled_tools_warnings(&mut result);
                 }
                 if name == "designos_configure_session" {
-                    if let Some(dir) = &self.bridge.session_dir {
-                        let _ = self.engine.session_options.save_to_dir(dir);
-                    }
+                    self.save_session_options();
                 }
                 let is_dry_run = result.get("dry_run").and_then(Value::as_bool) == Some(true);
                 let changed = !is_dry_run
@@ -2437,7 +2509,10 @@ mod tests {
             let huge_path = ws_dir.join("huge.designos");
             let f = fs::File::create(&huge_path).unwrap();
             f.set_len(513 * 1024 * 1024).unwrap();
-            record(s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err(), ErrorCode::FileTooLarge, true);
+            let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+            assert!(!err.safe_to_retry, "FILE_TOO_LARGE must not be safe_to_retry: {err:?}");
+            assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
+            record(err, ErrorCode::FileTooLarge, false);
             let _ = fs::remove_file(&huge_path);
         }
 
@@ -2585,6 +2660,12 @@ mod tests {
             true,
         );
         s.engine.disable_text_lint_engine = false;
+
+        // 70. InvalidName (control/bidi/whitespace-only output filename)
+        record(s.call("designos_save_file", json!({"path": "bad\nname.designos"})).unwrap_err(), ErrorCode::InvalidName, true);
+
+        // 71. NameTooLong (output filename component > 255 bytes)
+        record(s.call("designos_save_file", json!({"path": format!("{}.designos", "a".repeat(260))})).unwrap_err(), ErrorCode::NameTooLong, true);
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());
@@ -3335,6 +3416,26 @@ mod tests {
         }
         assert_eq!(doc.nodes.len(), 200_000);
         validate_document(&doc).expect("200,000-node document must be accepted under the 1,200,000 layer limit");
+    }
+
+    #[test]
+    fn file_too_large_is_not_safe_to_retry_and_names_the_next_step() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-1121-ftl-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let mut s = Session::new(&ws_dir).unwrap();
+
+        let huge_path = ws_dir.join("huge.designos");
+        let f = fs::File::create(&huge_path).unwrap();
+        f.set_len(513 * 1024 * 1024).unwrap();
+        drop(f);
+
+        let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+        let _ = fs::remove_dir_all(&ws_dir);
+
+        assert_eq!(err.code, ErrorCode::FileTooLarge);
+        assert!(!err.safe_to_retry, "FILE_TOO_LARGE must have safe_to_retry: false");
+        assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
     }
 }
 

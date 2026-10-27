@@ -53,7 +53,7 @@ impl Live {
     }
 
     fn marks_path(&self) -> std::path::PathBuf {
-        self.sim.app().terminal.session_dir.join("turn-marks.jsonl")
+        self.sim.app().terminal.prepared_hook_paths().turn_marks()
     }
 
     fn patch_path(&self) -> std::path::PathBuf {

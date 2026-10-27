@@ -1,4 +1,5 @@
 //! The built-in showcase document (`--fixture showcase`): a small, invented mobile-banking product
+#![cfg(any(test, feature = "fixtures"))]
 //! ("Marlow") drawn entirely with designos's own nodes, so the README screenshots show real design
 //! work instead of a test fixture.
 //!

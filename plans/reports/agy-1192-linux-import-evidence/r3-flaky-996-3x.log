@@ -1,0 +1,42 @@
+=== Run 1/3 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.69s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.62s
+
+=== Run 2/3 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.55s
+
+=== Run 3/3 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.01s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3334 filtered out; finished in 0.73s
+

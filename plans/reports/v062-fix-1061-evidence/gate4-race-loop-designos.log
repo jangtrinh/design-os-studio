@@ -1,0 +1,10 @@
+designos run 1 exit=0 race: swaps=9222 rewrites=200 refused=189 clean=11 other=0 HIT=0 
+designos run 2 exit=0 race: swaps=9274 rewrites=200 refused=186 clean=14 other=0 HIT=0 
+designos run 3 exit=0 race: swaps=9632 rewrites=200 refused=178 clean=22 other=0 HIT=0 
+designos run 4 exit=0 race: swaps=10205 rewrites=200 refused=184 clean=16 other=0 HIT=0 
+designos run 5 exit=0 race: swaps=9600 rewrites=200 refused=180 clean=20 other=0 HIT=0 
+designos run 6 exit=0 race: swaps=9242 rewrites=200 refused=183 clean=17 other=0 HIT=0 
+designos run 7 exit=0 race: swaps=9522 rewrites=200 refused=183 clean=17 other=0 HIT=0 
+designos run 8 exit=0 race: swaps=8266 rewrites=200 refused=183 clean=17 other=0 HIT=0 
+designos run 9 exit=0 race: swaps=9572 rewrites=200 refused=184 clean=16 other=0 HIT=0 
+designos run 10 exit=0 race: swaps=9567 rewrites=200 refused=178 clean=22 other=0 HIT=0 

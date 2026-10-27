@@ -1,0 +1,543 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling zerocopy v0.8.62
+   Compiling simd-adler32 v0.3.10
+   Compiling crc32fast v1.5.2
+   Compiling version_check v0.9.5
+   Compiling thiserror v2.0.21
+   Compiling stable_deref_trait v1.2.1
+   Compiling foldhash v0.2.0
+   Compiling adler2 v2.0.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling miniz_oxide v0.9.1
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling bitflags v1.3.2
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling miniz_oxide v0.8.9
+   Compiling num-traits v0.2.19
+   Compiling fdeflate v0.3.7
+   Compiling find-msvc-tools v0.1.14
+   Compiling linebender_resource_handle v0.1.1
+   Compiling shlex v2.0.1
+   Compiling cc v1.7.0
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling core_maths v0.1.1
+   Compiling serde_json v1.0.154
+   Compiling equivalent v1.0.3
+   Compiling itoa v1.0.18
+   Compiling zeroize v1.9.1
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling percent-encoding v2.3.2
+   Compiling objc2-foundation v0.3.2
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling weezl v0.1.12
+   Compiling zune-core v0.5.3
+   Compiling flate2 v1.1.10
+   Compiling quick-error v2.0.1
+   Compiling zune-jpeg v0.5.15
+   Compiling indexmap v2.14.2
+   Compiling form_urlencoded v1.2.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling slotmap v1.1.1
+   Compiling either v1.19.0
+   Compiling fax v0.2.7
+   Compiling unicode-segmentation v1.13.3
+   Compiling self_cell v1.3.0
+   Compiling ref-cast v1.0.27
+   Compiling color_quant v1.1.0
+   Compiling byteorder-lite v0.1.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling pxfm v0.1.30
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.1
+   Compiling synstructure v0.14.0
+   Compiling getrandom v0.2.17
+   Compiling ring v0.17.14
+   Compiling serde_derive_internals v0.30.0
+   Compiling png v0.18.1
+   Compiling moxcms v0.8.1
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling pin-project-lite v0.2.17
+   Compiling float-cmp v0.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling crossbeam-epoch v0.9.21
+   Compiling untrusted v0.9.0
+   Compiling raw-window-handle v0.6.2
+   Compiling getrandom v0.4.3
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling crossbeam-deque v0.8.8
+   Compiling objc-sys v0.3.5
+   Compiling rustls v0.23.45
+   Compiling regex-syntax v0.8.11
+   Compiling scopeguard v1.2.0
+   Compiling arrayref v0.3.9
+   Compiling tinyvec v1.13.3
+   Compiling base64 v0.22.1
+   Compiling rustc-hash v2.1.3
+   Compiling unicode-script v0.5.8
+   Compiling dyn-clone v1.0.20
+   Compiling fontdb v0.23.0
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling regex-automata v0.4.18
+   Compiling unicode-bidi v0.3.18
+   Compiling rayon-core v1.13.0
+   Compiling subtle v2.6.1
+   Compiling option-ext v0.2.0
+   Compiling dirs-sys v0.4.1
+   Compiling parking_lot v0.12.5
+   Compiling regex v1.13.1
+   Compiling uuid v1.28.0
+   Compiling webpki-roots v0.26.11
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling profiling v1.0.18
+   Compiling yazi v0.2.1
+   Compiling unicode-width v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling zeno v0.3.3
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling i_shape v5.0.0
+   Compiling objc2 v0.5.3
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling rustls-webpki v0.103.15
+   Compiling polycool v0.4.0
+   Compiling rangemap v1.8.0
+   Compiling i_tree v0.20.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling hexf-parse v0.2.1
+   Compiling i_key_sort v0.12.0
+   Compiling rustc-hash v1.1.0
+   Compiling smol_str v0.3.6
+   Compiling sys-locale v0.3.2
+   Compiling i_overlay v9.1.0
+   Compiling kurbo v0.13.1
+   Compiling block2 v0.5.1
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-properties v0.1.4
+   Compiling dispatch v0.2.0
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling utf8parse v0.2.2
+   Compiling siphasher v1.0.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling objc2-quartz-core v0.3.2
+   Compiling core-foundation v0.9.4
+   Compiling svgtypes v0.15.3
+   Compiling raw-window-metal v1.1.0
+   Compiling objc2-foundation v0.2.2
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling roxmltree v0.20.0
+   Compiling unicode-general-category v1.1.0
+   Compiling pico-args v0.5.0
+   Compiling imagesize v0.13.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling futures-core v0.3.34
+   Compiling xmlwriter v0.1.0
+   Compiling unicode-vo v0.1.0
+   Compiling data-url v0.3.2
+   Compiling futures-sink v0.3.34
+   Compiling fearless_simd v0.4.1
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling winit v0.30.13
+   Compiling nix v0.31.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling wgpu-core v29.0.4
+   Compiling winnow v1.0.4
+   Compiling litrs v1.0.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling futures-task v0.3.34
+   Compiling colorchoice v1.0.5
+   Compiling smol_str v0.2.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling document-features v0.2.12
+   Compiling epaint_default_fonts v0.35.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling dpi v0.1.2
+   Compiling futures-io v0.3.34
+   Compiling slab v0.4.12
+   Compiling cursor-icon v1.2.0
+   Compiling anstyle-query v1.1.5
+   Compiling nohash-hasher v0.2.0
+   Compiling bumpalo v3.20.3
+   Compiling anstyle v1.0.14
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling strsim v0.11.1
+   Compiling static_assertions v1.1.0
+   Compiling bytes v1.12.1
+   Compiling heck v0.5.0
+   Compiling twox-hash v2.1.5
+   Compiling typed-path v0.12.3
+   Compiling thiserror v1.0.69
+   Compiling foreign-types v0.5.0
+   Compiling clap_lex v1.1.1
+   Compiling ruzstd v0.9.1
+   Compiling zip v9.0.4
+   Compiling core-graphics v0.23.2
+   Compiling clap_builder v4.6.7
+   Compiling clap_derive v4.6.7
+   Compiling tracing v0.1.44
+   Compiling bytemuck v1.25.2
+   Compiling accesskit_macos v0.26.3
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling color v0.3.3
+   Compiling wgpu-types v29.0.4
+   Compiling tiny-skia v0.11.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling zerofrom v0.1.8
+   Compiling emath v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling yoke v0.8.3
+   Compiling usvg v0.45.1
+   Compiling zerovec v0.11.8
+   Compiling half v2.7.1
+   Compiling zerotrie v0.2.5
+   Compiling tiff v0.11.3
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling image v0.25.10
+   Compiling skrifa v0.44.0
+   Compiling skrifa v0.40.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling chrono v0.4.45
+   Compiling swash v0.2.10
+   Compiling ureq v2.12.1
+   Compiling schemars v1.2.3
+   Compiling designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+   Compiling harfrust v0.5.2
+   Compiling harfrust v0.7.0
+   Compiling cosmic-text v0.19.0
+   Compiling skrifa v0.42.1
+   Compiling ecolor v0.35.0
+   Compiling futures-util v0.3.34
+   Compiling epaint v0.35.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling futures-executor v0.3.34
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling egui v0.35.0
+   Compiling tokio v1.53.2
+   Compiling designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling designos-render v0.6.1 (<worktree>/crates/designos-render)
+   Compiling thiserror-impl v1.0.69
+   Compiling designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+   Compiling lyon_geom v1.0.19
+   Compiling serial-core v0.4.0
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling web-time v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling rmcp v3.5.1
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+   Compiling tokio-util v0.7.20
+   Compiling winresource v0.1.34
+   Compiling futures v0.3.34
+   Compiling webbrowser v1.2.4
+   Compiling arboard v3.6.1
+   Compiling clap v4.6.7
+   Compiling accesskit_winit v0.32.2
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling float_next_after v1.0.0
+   Compiling rfd v0.17.2
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling pin-utils v0.1.1
+   Compiling pollster v0.4.0
+   Compiling pastey v0.2.3
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling designos-diff v0.6.1 (<worktree>/crates/designos-diff)
+   Compiling lyon_tessellation v1.0.22
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-library v0.6.1 (<worktree>/crates/designos-library)
+   Compiling egui-winit v0.35.0
+   Compiling filedescriptor v0.8.3
+   Compiling serial v0.4.0
+   Compiling designos-export v0.6.1 (<worktree>/crates/designos-export)
+   Compiling rgb v0.8.53
+   Compiling dispatch2 v0.3.1
+   Compiling shell-words v1.1.1
+   Compiling downcast-rs v1.2.1
+   Compiling unicode-width v0.1.14
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling vt100 v0.15.2
+   Compiling portable-pty v0.8.1
+   Compiling resvg v0.45.1
+   Compiling eframe v0.35.0
+   Compiling designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+   Compiling open v5.4.4
+warning: function `run_before_rename` is never used
+  --> crates/designos-app/src/agent_session_files/no_follow/test_hooks.rs:65:15
+   |
+65 | pub(super) fn run_before_rename(path: &Path, to: &Path) {
+   |               ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 20s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 46 tests
+test agent_session_files::fallback_set_aside_tests::the_fallback_only_lists_and_a_folder_swapped_for_a_link_loses_nothing_that_is_not_studios_to_remove ... ok
+test agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched ... ok
+test agent_session_files::fallback_set_aside_tests::where_studio_moves_nothing_a_folder_with_only_studios_entries_is_fine ... ok
+test agent_session_files::grok_config_tests::a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too ... FAILED
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_it_cannot_move_a_plugin_out_of_a_read_only_folder ... ok
+test agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too ... FAILED
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_its_hooks_do_not_read_back_as_written ... ok
+test agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside ... FAILED
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_its_config_does_not_read_back_as_written ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_it_cannot_move_a_hook_file_out_of_a_read_only_folder ... ok
+test agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside ... FAILED
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_studio_cannot_write_its_hooks_into_a_read_only_folder ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it ... FAILED
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_studio_cannot_rewrite_its_hooks_in_a_read_only_agents_folder ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_plugin_an_agent_added_and_starts ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_subagent_definition_that_declares_servers_and_a_command_policy ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_workspace_mcp_config_an_agent_added_and_starts ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks ... FAILED
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent ... FAILED
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::set_aside_tests::a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in ... FAILED
+test agent_session_files::set_aside_tests::a_fifo_where_the_set_aside_folder_goes_stops_the_tab_at_once_without_being_opened ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_a_hook_file_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start ... FAILED
+test agent_session_files::set_aside_tests::a_link_or_a_file_where_the_set_aside_folder_goes_stops_the_tab ... ok
+test terminal::tests::grok_pty_env_disables_folder_trust_only_for_grok ... ok
+test terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli ... FAILED
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_agent_definition_that_shadows_a_built_in_subagent ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_mcp_json_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_rewrites_a_project_config_an_agent_edited ... ok
+test agent_session_files::set_aside_tests::a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced ... FAILED
+test agent_session_files::set_aside_tests::a_folder_and_a_link_are_moved_whole_without_being_walked_or_followed ... ok
+test agent_session_files::set_aside_tests::a_fifo_is_moved_without_being_opened ... ok
+test agent_session_files::set_aside_tests::an_entry_is_moved_with_its_content_below_a_new_folder_under_a_name_made_of_its_path ... ok
+test agent_session_files::set_aside_tests::the_spawned_line_says_nothing_about_a_set_aside_when_nothing_was_moved ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one ... FAILED
+test agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure ... FAILED
+test agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where ... FAILED
+test agent_session_files::set_aside_tests::each_start_makes_a_new_folder_and_the_earlier_ones_stay ... ok
+test agent_session_files::agy_config_tests::an_agy_tab_in_skip_mode_starts_whatever_the_agents_folder_holds ... ok
+test agent_session_files::grok_config_tests::a_grok_tab_in_skip_mode_starts_whatever_the_project_folder_holds ... ok
+
+failures:
+
+---- agent_session_files::grok_config_tests::a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488118/.mcp.json to .designos-set-aside/20261024-225601-b2f8de/.mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::grok_config_tests::a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too' (42224476) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:276:5:
+the entries moved before the refusal are named: Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488118/.agents/plugins can't be created: Permission denied (os error 13). Check its permissions and free space, then try again.
+
+---- agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488117/.mcp.json to .designos-set-aside/20261024-225601-497e11/.mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too' (42224473) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:249:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488117/.grok can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488117/.grok/agents can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again. Moved .mcp.json to .designos-set-aside/20261024-225601-497e11 in this file's agent folder, so Grok won't run it."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488113/.grok/hooks/late.json to .designos-set-aside/20261024-225601-f23f44/.grok__hooks__late.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside' (42224386) panicked at crates/designos-app/src/agent_session_files/exact_config_race_tests.rs:19:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488113/.grok/hooks/late.json changed while Studio wrote it. Close this file's other agent tabs, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488113/.grok/hooks/late.json was added while Studio was starting Grok. Close this file's other agent tabs, then try again. Moved .grok/hooks/late.json to .designos-set-aside/20261024-225601-f23f44 in this file's agent folder, so Grok won't run it."
+
+---- agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488108/.agents/plugins/late to .designos-set-aside/20261024-225601-48a59c/.agents__plugins__late: Studio does not write it, and Antigravity would run it
+
+thread 'agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside' (42224387) panicked at crates/designos-app/src/agent_session_files/exact_config_race_tests.rs:42:5:
+assertion `left == right` failed
+  left: "Couldn't start Antigravity (agy): <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488108/.agents/plugins/late changed while Studio wrote it. Close this file's other agent tabs, then try again."
+ right: "Couldn't start Antigravity (agy): <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488108/.agents/plugins/late was added while Studio was starting Antigravity. Close this file's other agent tabs, then try again. Moved .agents/plugins/late to .designos-set-aside/20261024-225601-48a59c in this file's agent folder, so Antigravity won't run it."
+
+---- agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it stdout ----
+
+thread 'agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it' (42224385) panicked at crates/designos-app/src/agent_session_files/agy_config_tests.rs:69:5:
+assertion failed: !is_there(&st.session_dir.join(".envrc"))
+
+---- agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488104/.agents/plugins/evil to .designos-set-aside/20261024-225601-347ada/.agents__plugins__evil: Studio does not write it, and Antigravity would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488104/.agents/plugins/designos/.mcp.json to .designos-set-aside/20261024-225601-347ada/.agents__plugins__designos__.mcp.json: Studio does not write it, and Antigravity would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488104/.agents/plugins/designos/hooks.json to .designos-set-aside/20261024-225601-347ada/.agents__plugins__designos__hooks.json: Studio does not write it, and Antigravity would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488104/.agents/mcp_config.json to .designos-set-aside/20261024-225601-347ada/.agents__mcp_config.json: Studio does not write it, and Antigravity would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488104/.agents/agents to .designos-set-aside/20261024-225601-347ada/.agents__agents: Studio does not write it, and Antigravity would run it
+
+thread 'agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks' (42224380) panicked at crates/designos-app/src/agent_session_files/agy_config_tests.rs:84:9:
+.envrc is still there
+
+---- agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent stdout ----
+
+thread 'agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent' (42224654) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:228:5:
+assertion `left == right` failed: it is the entry that is read-only, so the line names it
+  left: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488138/.grok can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488138/.grok/agents can't be moved: Permission denied (os error 13). Make it writable or delete it, then try again."
+
+---- agent_session_files::set_aside_tests::a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in stdout ----
+
+thread 'agent_session_files::set_aside_tests::a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in' (42224710) panicked at crates/designos-app/src/agent_session_files/set_aside_tests.rs:223:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488145 can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488145/.designos-set-aside/20261024-225602-a6bdd1 can't be written to: Permission denied (os error 13). Make it writable or delete it, then try again."
+
+---- agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start stdout ----
+
+thread 'agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start' (42224534) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:209:5:
+Grok would still source it
+
+---- terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli stdout ----
+
+thread 'terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli' (42224746) panicked at crates/designos-app/src/terminal.rs:7840:13:
+assertion `left == right` failed: Ask
+  left: Some("10")
+ right: Some("0")
+
+---- agent_session_files::set_aside_tests::a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488144/.mcp.json to .designos-set-aside/20261024-225602-406d89/.mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::set_aside_tests::a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced' (42224691) panicked at crates/designos-app/src/agent_session_files/set_aside_tests.rs:197:5:
+assertion `left == right` failed
+  left: [".mcp.json"]
+ right: [".mcp.json", ".mcp.json.2"]
+
+---- agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.grok/hooks/evil.json to .designos-set-aside/20261024-225602-0557bc/.grok__hooks__evil.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.mcp.json to .designos-set-aside/20261024-225602-0557bc/.mcp.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.grok/plugins to .designos-set-aside/20261024-225602-0557bc/.grok__plugins: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.grok/lsp.json to .designos-set-aside/20261024-225602-0557bc/.grok__lsp.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.grok/workflows to .designos-set-aside/20261024-225602-0557bc/.grok__workflows: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.grok/agents to .designos-set-aside/20261024-225602-0557bc/.grok__agents: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.claude/agents to .designos-set-aside/20261024-225602-0557bc/.claude__agents: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.claude/settings.json to .designos-set-aside/20261024-225602-0557bc/.claude__settings.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.claude/settings.local.json to .designos-set-aside/20261024-225602-0557bc/.claude__settings.local.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.claude/plugins to .designos-set-aside/20261024-225602-0557bc/.claude__plugins: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.cursor/hooks.json to .designos-set-aside/20261024-225602-0557bc/.cursor__hooks.json: Studio does not write it, and Grok would run it
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488137/.cursor/mcp.json to .designos-set-aside/20261024-225602-0557bc/.cursor__mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one' (42224645) panicked at crates/designos-app/src/agent_session_files/grok_config_tests.rs:86:9:
+.envrc is still there
+
+---- agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488148/.cursor/mcp.json to .designos-set-aside/20261024-225602-212ce8/.cursor__mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure' (42224725) panicked at crates/designos-app/src/agent_session_files/set_aside_tests.rs:165:5:
+assertion `left == right` failed
+  left: Some("Spawned Grok Build (Untitled · Page 1). Moved .cursor/mcp.json that Grok would run into .designos-set-aside/20261024-225602-212ce8.")
+ right: Some("Spawned Grok Build (Untitled · Page 1). Moved .cursor/mcp.json to .designos-set-aside/20261024-225602-212ce8 in this file's agent folder, so Grok won't run it.")
+
+---- agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where stdout ----
+design:os studio: moved <tmp>/b1061.x4TTQ8/designos test data/44881/sessions/p44881-tab-13488151/.mcp.json to .designos-set-aside/20261024-225602-d08d36/.mcp.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where' (42224739) panicked at crates/designos-app/src/agent_session_files/set_aside_tests.rs:116:5:
+assertion `left == right` failed
+  left: Some("Spawned Grok Build (Untitled · Page 1). Moved .mcp.json that Grok would run into .designos-set-aside/20261024-225602-d08d36.")
+ right: Some("Spawned Grok Build (Untitled · Page 1). Moved .mcp.json to .designos-set-aside/20261024-225602-d08d36 in this file's agent folder, so Grok won't run it.")
+
+
+failures:
+    agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks
+    agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_an_envrc_as_a_defence_in_case_agy_sources_it
+    agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside
+    agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside
+    agent_session_files::grok_config_tests::a_grok_refusal_after_entries_were_moved_says_so_too
+    agent_session_files::grok_config_tests::a_grok_refusal_of_a_later_file_after_entries_were_moved_says_so_too
+    agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_envrc_grok_would_source_with_bash_at_session_start
+    agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one
+    agent_session_files::grok_config_tests::an_ask_mode_grok_tab_names_a_read_only_folder_that_is_itself_the_entry_and_not_its_writable_parent
+    agent_session_files::set_aside_tests::a_name_an_agent_takes_between_the_choice_of_the_name_and_the_rename_is_never_replaced
+    agent_session_files::set_aside_tests::a_stamp_folder_that_lost_its_write_bit_is_named_and_not_the_folder_the_entry_is_in
+    agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure
+    agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where
+    terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli
+
+test result: FAILED. 32 passed; 14 failed; 0 ignored; 0 measured; 3226 filtered out; finished in 1.77s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

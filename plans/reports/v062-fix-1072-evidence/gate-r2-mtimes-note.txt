@@ -1,0 +1,6 @@
+The three ~/.gemini mtimes are the same before and after the gate run of d843fd95 (13:31 to 13:47 +07).
+~/.codex/tmp/arg0-macos changed: its mtime moved from 1792906772 (12:39:32) to 1792910781 (13:46:21). Its new entry, codex-arg0qNowqE, was made
+at 13:46:21, inside the window of the run. Nothing the gate script or the mutation script starts is Codex: every cargo test runs with HOME and
+CODEX_HOME in a scratch folder, and no test starts a CLI (the tab states have an empty PATH). Other sessions were running at the same time
+(other agent shells and the codex-web bridge were in the process list). The same gate run on the code head a52f1f5e (10:57 to 11:10) left
+all four mtimes unchanged. No agent CLI was run by this work.

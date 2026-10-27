@@ -112,14 +112,18 @@ fn an_agent_switch_waits_for_the_file_changed_on_disk_question_and_keep_mine_sav
     assert_eq!((on_disk.name.as_str(), on_disk.nodes.len()), ("Outside", 4), "Save wrote the version the user kept");
 }
 
-/// An agent document with as many layers as the user's document has, so that every layer id the user's last step
-/// touched exists in it too: an undo that replays the user's step on the agent's document would delete an agent layer.
+/// An agent document with a layer for every id the user's last step touched: an undo that replays the user's step on
+/// the agent's document would delete an agent layer.
 fn the_agents_layers_share_ids_with_the_users_last_step(s: &mut Sim, name: &str) -> Document {
     let before = sorted_ids(&s.app().doc);
     edit(s);
     let touched: Vec<NodeId> = sorted_ids(&s.app().doc).into_iter().filter(|id| !before.contains(id)).collect();
     assert!(!touched.is_empty(), "the edit added layers");
-    let doc = agent_doc_n(name, 80);
+    let mut doc = Document::new(name);
+    let page = doc.add_page("P");
+    for (i, &id) in touched.iter().enumerate() {
+        doc.insert(page, Node::rectangle(id, DRect::new(i as f32 * 20.0, 0.0, 10.0, 10.0))).unwrap();
+    }
     assert!(touched.iter().all(|id| doc.get(*id).is_some()), "the agent's document has a layer with each of those ids, so a misrouted undo shows");
     doc
 }

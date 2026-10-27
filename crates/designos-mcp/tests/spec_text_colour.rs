@@ -170,7 +170,7 @@ fn the_rules_pack_example_draws_every_text_node_readable_on_the_fill_behind_it()
 
 #[test]
 fn the_shipped_agent_console_spec_draws_every_label_light() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/specs/easeui-agent-console.spec.json");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../designos-app/assets/specs/easeui-agent-console.spec.json");
     let spec: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("example spec")).expect("valid json");
     let mut e = Engine::default();
     let reply = e.call("designos_apply_spec", json!({"parent_id": page(&e), "spec": spec})).expect("the example applies");

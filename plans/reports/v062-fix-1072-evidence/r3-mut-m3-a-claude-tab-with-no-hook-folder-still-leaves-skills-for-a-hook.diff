@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -1045,7 +1045,7 @@
+     /// does a Claude tab whose session has no hook folder: none of its hooks is installed (`hooks_without_a_folder`), so a reply file
+     /// written for the hook would never be read.
+     pub fn reads_skills_from_hook(&self, session_dir: &Path) -> bool {
+-        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli() && crate::agent_hook_outputs::HookPaths::locate(session_dir).is_made()
++        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli()
+     }
+ 
+     /// The runtime recorded in `run.json` for skills sent to this tab: the CLI's binary name, `custom` for an "Other CLI…" command

@@ -1,0 +1,2 @@
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... FAILED
+test result: FAILED. 3094 passed; 1 failed; 8 ignored; 0 measured; 0 filtered out; finished in 559.98s

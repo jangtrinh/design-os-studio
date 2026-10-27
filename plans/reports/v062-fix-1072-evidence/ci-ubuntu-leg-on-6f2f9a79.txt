@@ -1,0 +1,8 @@
+Ubuntu leg (ubuntu-latest, dash as sh) of CI on 6f2f9a79, job 121162295772. It ran to the end (35 min) and one test failed: the prompt hook of Claude made its
+marker with `: >` over a folder that refuses writes, and dash ends the whole shell with status 2 when a redirect of a special builtin fails.
+Fixed on 19668804 (`true >`), and the sweep over every hook command now also runs them through /bin/dash.
+
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... FAILED
+ClaudeAsk, ReadOnly: 1 of 20 hooks did not end at once with success:
+exit Some(2) after 8.693598ms, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"UserPromptSubmit","p":%s}' "$(date +
+test result: FAILED. 3284 passed; 1 failed; 11 ignored; 0 measured; 0 filtered out; finished in 662.00s

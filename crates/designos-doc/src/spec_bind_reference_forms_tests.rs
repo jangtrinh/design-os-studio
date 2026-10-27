@@ -141,7 +141,7 @@ fn text_var_binds_characters_and_names_from_value() {
 }
 
 fn fitted_width(tp: &TextProps) -> f32 {
-    crate::spec::estimate_intrinsic_text_size(tp).x
+    crate::text_measure::intrinsic_text_size(tp, None).x
 }
 
 #[test]

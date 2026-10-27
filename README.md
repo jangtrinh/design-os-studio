@@ -97,9 +97,9 @@ cargo run --release -p designos-app --bin designos-studio
    ```bash
    python3 scripts/self_check.py
    ```
-2. **Apply a declarative `NodeSpec` JSON to a document and export it as a Figma `.fig` file (container version 106).** `app.designos` is created if it does not exist:
+2. **Apply `--apply-spec your-screen.spec.json` (any NodeSpec JSON you or your agent write) to a document and export it as a Figma `.fig` file (container version 106).** `app.designos` is created if it does not exist:
    ```bash
-   designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
+   designos app.designos --apply-spec your-screen.spec.json
    designos app.designos --export-fig out.fig
    ```
    `--export-fig` writes only to a path that ends in `.fig` and does not exist yet. Re-running it needs `--overwrite`, which replaces an existing regular file; a symbolic link is never written through.
@@ -123,7 +123,7 @@ cargo run --release -p designos-app --bin designos-studio
 
 Open your project in your AI coding agent (or in the Studio's Agents panel) and describe the outcome you need:
 
-> "Apply `examples/specs/easeui-agent-console.spec.json` to a new document, export it to `out.fig`, and capture a 1600x1000 GPU screenshot."
+> "Apply `your-screen.spec.json` (any NodeSpec JSON you or your agent write) to a new document, export it to `out.fig`, and capture a 1600x1000 GPU screenshot."
 
 > "List the open comment threads, make the change each one asks for, and resolve the thread."
 
@@ -136,7 +136,34 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.1, a short list. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v065"></a>
+### 0.6.5
+
+- **Starter file.** A new library gets a `Getting started` project with `DESIGN-OS Studio Starter`, and an existing library gets it once on its first launch of 0.6.5; files you already have are not touched. `Open starter sample` opens a fresh copy, launching with no file argument opens Home, and the older samples, `--seed-library`, release `--fixture` and the old `examples` folder are removed.
+- **Variables.** `designos FILE --export-variables OUT.json --format dtcg --mode MODE` exports one variable mode across the file's collections (or `--collection`) as a single self-contained DTCG `.tokens.json` file with default-mode fallback, `--resolve-aliases`, and `--color-format` (`hex` or `object`), and multi-file DTCG exports keep same-named collections distinct.
+- **Agents panel.** Tabs clear their scrollback when an agent redraws on a UI zoom so output no longer repeats, quiet Codex turns change from `Working…` to `Done` after 1.5 s and hide `Stop`, and the approval banner shows `Show prompt` to focus the current waiting tab or `Open tab` to switch to another waiting tab.
+- **Canvas and `.fig` import.** Frame, component and instance labels repaint after an agent rename and cut to fit with `…` like Figma; hug and fixed-width `NodeSpec` text is measured with the text renderer; `.fig` files with top-bit 64-bit values import and export cleanly; and icons and vectors inside resized component instances scale with the instance while keeping their strokes.
+- **Styles and performance.** Deleted and orphan style records from imported `.fig` files are hidden from style pickers, Assets, layer chips and MCP listings, while unnamed listed styles show `Unnamed fill style`, `Unnamed text style`, `Unnamed effect style` or `Unnamed grid style`; large multi-layer edits finish faster by recording only the layers that changed.
+- **CLI and MCP.** `--select` accepts `id:<n>`, `fig:<figma id>`, `name:<text>`, `none` or a layer name, supports `--zoom fit`, and exits 2 without writing on a miss; Home › `Import` › `Enter a path…` opens `~/` and `file://` paths and starts toast timers on first paint; MCP imports enforce a 512 MiB `FILE_TOO_LARGE` limit, and MCP file writes return `INVALID_NAME` and `NAME_TOO_LONG`.
+
+<a id="new-in-v063"></a>
+### 0.6.3
+
+- **Agents panel.** Hook outputs (`agent-status.json`, `agent-events.jsonl`, `turn-marks.jsonl`, `claude-transcript.json`) and Claude's prompt-hook replies live in a Studio-private `hook-out` folder outside the session folder, `$TMPDIR`, `/tmp`, `/var/tmp` and every folder an agent CLI is granted, and the turn-mark hook reads `doc-patch.jsonl` size with `stat -L` instead of opening it.
+- **CLI and MCP.** `--screenshot` on a missing, empty or corrupt file exits 1 with an error message and writes no PNG. `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` report invalid `NodeSpec` fields in plain words instead of serde type errors, and the docs note that Ask covers agent tabs started from Studio while your own `designos` CLI and external `designos-mcp` hosts approve their own calls.
+- **Linux.** Home › `Import` opens the file chooser when `org.freedesktop.portal.Desktop` starts on first use or when `zenity` is installed, and when no file dialog can open it names the cause and offers `Enter a path…`.
+
+<a id="new-in-v062"></a>
+### 0.6.2
+
+- **Agents panel.** Ask-mode approvals, Claude's hooks and MCP config, and session folders for unsaved files live in Studio's own data folder, and Studio and `designos-mcp` refuse links and FIFOs in session files. The skill and agent files no longer include the document or page name.
+- **Gemini, Grok and Antigravity.** Gemini CLI tabs in Ask mode show `Needs approval` with an `Open tab` button and hold the composer while Gemini's confirmation prompt is on screen. Ask-mode Grok and Antigravity tabs move non-Studio session configs aside before starting, and Grok never evaluates a `.envrc`.
+- **Styles and Properties.** Create a text style from a text layer in the Typography section (`Create text style`), pick styles from enabled libraries when the file has none of its own, and export a page from the page panel's Export section.
+- **Components and Dev Mode.** Syncing a main component keeps its instances' own layer names. Dev Mode keeps each code line on one row with horizontal scrolling, grows the MCP prompt box to fit, and escapes `\`, `"`, `\(` and control characters in SwiftUI strings.
+- **Command palette.** Rename layers semantically and Boost resolution take about a second per click on a very large page, where they took about four.
+- **CLI and MCP.** `designos-diff --version` prints the version. MCP file writes (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) refuse links, control or bidi characters, and names over 255 bytes; `designos_export_fig_file` refuses an existing file unless `overwrite` is set; and outside-workspace errors no longer echo the path.
 
 <a id="new-in-v061"></a>
 ### 0.6.1
@@ -219,7 +246,7 @@ Screenshots below are headless captures from the v0.6.0 macOS build on a copy of
   The new-session picker reads each CLI's version and sign-in state from the machine that took the capture. A live session is not shown.</sub>
 </p>
 
-The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. Agents ask before acting by default, and Preferences > Agent permissions… switches to Skip permissions. In Ask mode, Claude Code's requests to run a command show as Approve or Deny in the panel. The other CLIs ask in their own tab.
+The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. Agents ask before acting by default, and Preferences > Agent permissions… switches to Skip permissions. In Ask mode, Claude Code's requests to run a command show as Approve or Deny in the panel. The other CLIs ask in their own tab. Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
 
 ### Pillar 2 — Variables, Multi-Edit (`Q`) & Suggest Auto-Layout
 
@@ -241,10 +268,10 @@ Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for 
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> `.fig` export
 
-AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent-console.spec.json`) rather than guessing pixel coordinates. `designos-doc` computes recursive Auto-Layout 5.0 geometry (`relayout_subtree`), and `designos-fig` exports the result as a `.fig` file (`export_fig`, container version 106):
+AI agents author compact, diffable `NodeSpec` JSON and apply it with `--apply-spec your-screen.spec.json` (any NodeSpec JSON you or your agent write) rather than guessing pixel coordinates. `designos-doc` computes recursive Auto-Layout 5.0 geometry (`relayout_subtree`), and `designos-fig` exports the result as a `.fig` file (`export_fig`, container version 106):
 
 ```bash
-designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
+designos app.designos --apply-spec your-screen.spec.json
 designos app.designos --export-fig out.fig
 ```
 
@@ -385,7 +412,7 @@ Once installed, your agent loads `skills/design-os-studio/SKILL.md` when your re
 **Generate & Export `.spec.json` -> `.fig`**
 
 ```text
-"Apply examples/specs/easeui-agent-console.spec.json to a new document, export it to out.fig, and capture a 1600x1000 GPU screenshot."
+"Apply your-screen.spec.json (any NodeSpec JSON you or your agent write) to a new document, export it to out.fig, and capture a 1600x1000 GPU screenshot."
 ```
 
 **Resolve Canvas Comments**
@@ -583,8 +610,8 @@ design-os-studio/
 ### Known issues
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
-- On very large pages (100,000 layers or more), Rename layers semantically and Boost resolution in the command palette can take several seconds ([#993](https://github.com/jangtrinh/design-os-studio/issues/993)). The next release addresses this first.
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
+- The Windows test suite is advisory for 0.6.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use

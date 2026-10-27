@@ -45,10 +45,19 @@ pub fn sh_single_quote(s: &str) -> String {
 /// a single `printf` writes the complete record in one atomic `O_APPEND` syscall so concurrent
 /// hooks never interleave bytes.
 pub fn event_append_command(events_path: &Path, event: &str) -> String {
+    event_append_command_for_tab(events_path, event, None)
+}
+
+/// [`event_append_command`] whose record also names the tab it was written for, as
+/// `{"t":…,"e":"<event>","tab":"<id>","p":…}`. Gemini CLI's hooks use it, because their payload carries nothing that says
+/// which tab a record belongs to. With `tab` `None` the command is exactly [`event_append_command`]'s.
+pub fn event_append_command_for_tab(events_path: &Path, event: &str, tab: Option<usize>) -> String {
     let quoted_path = sh_single_quote(&events_path.display().to_string());
     let quoted_lock = sh_single_quote(&format!("{}.lock", events_path.display()));
+    // Digits only, so it can sit inside the single-quoted `printf` format.
+    let tab_field = tab.map(|id| format!("\"tab\":\"{id}\",")).unwrap_or_default();
     format!(
-        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\\n' \"$line\" >> {quoted_path}; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
+        "{{ p=$(tr '\\r\\n' '  '); [ -z \"$p\" ] && p=null; line=$(printf '{{\"t\":%s,\"e\":\"{event}\",{tab_field}\"p\":%s}}' \"$(date +%s)\" \"$p\"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir {quoted_lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {quoted_lock} ] || break; sleep 0.01; i=$((i+1)); done; {{ printf '%s\\n' \"$line\" >> {quoted_path}; }} 2>/dev/null; if [ \"$got_lock\" = 1 ]; then rmdir {quoted_lock} 2>/dev/null || true; fi; }}"
     )
 }
 
@@ -57,6 +66,10 @@ pub fn event_append_command(events_path: &Path, event: &str) -> String {
 pub struct AgentEventRecord {
     pub t: f64,
     pub e: String,
+    /// The tab the hook was written for. Only Gemini CLI's hooks set it (`gemini_status_hooks`); every other CLI's
+    /// records are matched to a tab by what their payload says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
     #[serde(default)]
     pub p: serde_json::Value,
 }
@@ -234,12 +247,12 @@ struct EventFileCursor {
 
 impl EventFileCursor {
     fn bind(path: PathBuf) -> Self {
-        let meta = std::fs::metadata(&path).ok();
+        let meta = crate::agent_session_files::session_file_metadata(&path).ok();
         Self { offset: meta.as_ref().map_or(0, |m| m.len()), identity: meta.as_ref().map(file_identity), partial: String::new(), path }
     }
 
     fn read_available(&mut self) -> Vec<AgentEventRecord> {
-        let Ok(meta) = std::fs::metadata(&self.path) else {
+        let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else {
             return Vec::new();
         };
         let len = meta.len();
@@ -253,7 +266,7 @@ impl EventFileCursor {
             return Vec::new();
         }
         if len > self.offset {
-            if let Ok(mut file) = std::fs::File::open(&self.path) {
+            if let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) {
                 if file.seek(SeekFrom::Start(self.offset)).is_ok() {
                     let to_read = (len - self.offset).min(16 << 20) as usize;
                     let mut buf = vec![0u8; to_read];
@@ -275,7 +288,7 @@ impl EventFileCursor {
     }
 }
 
-/// Off-UI-thread reader for `<session_dir>/agent-events.jsonl` (`#683` §3.1, §11).
+/// Off-UI-thread reader for `agent-events.jsonl` of the hook folder (`agent_hook_outputs`, `#683` §3.1, §11).
 ///
 /// The background worker sleeps on an `mpsc` channel when idle (`0.00%` CPU) and parses
 /// appended JSON records off the UI thread when signalled; the UI thread drains a channel.
@@ -348,6 +361,8 @@ impl AgentEventStream {
 #[derive(Clone, Debug)]
 pub struct TabAttributionInfo {
     pub idx: usize,
+    /// The tab's own id (`TerminalTab::id`), which a tagged record names; `idx` is its place in the strip.
+    pub tab_id: usize,
     pub preset: AgentCliPreset,
     pub is_alive: bool,
     pub session_uuid: Option<String>,
@@ -379,11 +394,16 @@ fn infer_record_cli(record: &AgentEventRecord) -> Option<AgentCliPreset> {
 }
 
 /// Routes an [`AgentEventRecord`] to the owning tab index (`#683` §3.2, §8.1, §8.2):
+/// 0. A record that names a tab (Gemini CLI's hooks) goes to that tab when it is a live Gemini tab, else to none.
 /// 1. Matches the tab whose `session_uuid` equals the payload's session id.
 /// 2. If the record's id matches no tab (or has no session id), routes to the single live tab
 ///    of that CLI, else to none. Never routes to `active_tab` by default.
-/// 3. Codex and Shell tabs never consume `agent-events.jsonl` records.
+/// 3. Codex, Shell and Gemini tabs never consume an untagged record: a Gemini tab is left out of the tabs the rules above
+///    count, so it can neither take another CLI's record nor make that CLI's single candidate two.
 pub fn route_record_to_tab(record: &AgentEventRecord, tabs: &[TabAttributionInfo]) -> Option<usize> {
+    if let Some(tag) = record.tab.as_deref() {
+        return tabs.iter().find(|t| t.preset == AgentCliPreset::Gemini && t.is_alive && t.tab_id.to_string() == tag).map(|t| t.idx);
+    }
     let eligible: Vec<&TabAttributionInfo> = tabs.iter().filter(|t| is_hook_driven_preset(t.preset)).collect();
     if eligible.is_empty() {
         return None;
@@ -604,6 +624,43 @@ pub struct TabTurnTracker {
     pub summary_open: bool,
 }
 
+/// How an agent PTY child process terminated (`#1194` AC-3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProcessExit {
+    /// Process exited normally or with a status code (`0` or non-zero).
+    Code(u32),
+    /// Process was terminated by a signal (e.g. `"SIGKILL"`, `"SIGTERM"`).
+    Signal(String),
+    /// Exit status could not be read from the PTY handle.
+    Unknown,
+}
+
+impl ProcessExit {
+    /// Extracts [`ProcessExit`] from a `portable_pty::ExitStatus`.
+    pub fn from_pty_status(status: Option<portable_pty::ExitStatus>) -> Self {
+        let Some(status) = status else {
+            return Self::Unknown;
+        };
+        if status.success() {
+            return Self::Code(0);
+        }
+        let rendered = status.to_string();
+        if let Some(sig) = rendered.strip_prefix("Terminated by ") {
+            return Self::Signal(sig.to_string());
+        }
+        Self::Code(status.exit_code())
+    }
+
+    /// Formats the exit code or signal detail stored in [`AgentTabStatus::Error`].
+    pub fn detail(&self) -> String {
+        match self {
+            Self::Code(code) => format!("exit code {code}"),
+            Self::Signal(sig) => format!("signal {sig}"),
+            Self::Unknown => "process exited".to_string(),
+        }
+    }
+}
+
 impl TabTurnTracker {
     fn ensure_turn_started(&mut self, t: f64) {
         if !self.in_turn {
@@ -691,7 +748,8 @@ impl TabTurnTracker {
                 TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
             }
             "Notification" => {
-                if record.notification_type() == Some("permission_prompt") {
+                // `permission_prompt`: Claude and Grok. `ToolPermission`: Gemini CLI, when it shows a tool-confirmation prompt.
+                if matches!(record.notification_type(), Some("permission_prompt" | "ToolPermission")) {
                     self.ensure_turn_started(record.t);
                     let detail = record.tool_name().map(str::to_string);
                     TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
@@ -805,12 +863,23 @@ impl TabTurnTracker {
         Some(receipt.clone())
     }
 
-    /// Edge case 3 (`#683` §8.3): when the agent process exits while a turn is still running without
-    /// having fired `Stop`, leaves running and records `"Ended without reporting a result"`.
-    pub fn on_process_exit(&mut self, now_s: f64, current_status: &AgentTabStatus) -> Option<(AgentTabStatus, TurnReceipt)> {
+    /// Edge case 3 (`#683` §8.3, `#1194` AC-3): when the agent process exits while a turn is still running
+    /// (`Working` or `WaitingForInput`), a user-initiated Stop ends as `Stopped` and any other exit ends as
+    /// `Error` with the exit code or signal in the detail.
+    pub fn on_process_exit(
+        &mut self,
+        now_s: f64,
+        current_status: &AgentTabStatus,
+        user_stopped: bool,
+        exit: ProcessExit,
+    ) -> Option<(AgentTabStatus, TurnReceipt)> {
         let was_running = self.in_turn || matches!(current_status, AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_));
         if !was_running {
             return None;
+        }
+        if user_stopped {
+            let receipt = self.stop_by_user(now_s);
+            return Some((AgentTabStatus::Stopped, receipt));
         }
         let start = self.turn_started_s.unwrap_or(now_s);
         let receipt = TurnReceipt {
@@ -823,13 +892,58 @@ impl TabTurnTracker {
         self.in_turn = false;
         self.current_tool_name = None;
         self.last_turn_receipt = Some(receipt.clone());
-        Some((AgentTabStatus::Done, receipt))
+        Some((AgentTabStatus::Error(Some(exit.detail())), receipt))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_turn_end_process_exit_maps_user_stop_and_exit_code_or_signal() {
+        // 1. User-requested Stop while Working -> Stopped
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(42.0, &AgentTabStatus::Working(None), true, ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_signal("SIGINT"))))
+            .expect("running turn must map exit");
+        assert_eq!(status, AgentTabStatus::Stopped);
+        assert_eq!(receipt.outcome, TurnOutcome::StoppedByUser);
+
+        // 2. Exit 0 with no stop while Working -> Error with exit code 0 in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(
+                50.0,
+                &AgentTabStatus::Working(Some("Working…".into())),
+                false,
+                ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_exit_code(0))),
+            )
+            .expect("working turn exiting 0 without stop must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("exit code 0".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+
+        // 3. Non-zero exit while WaitingForInput -> Error with exit code in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(
+                60.0,
+                &AgentTabStatus::WaitingForInput(None),
+                false,
+                ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_exit_code(1))),
+            )
+            .expect("waiting turn exiting non-zero must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("exit code 1".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+
+        // 4. Signal exit while Working -> Error with signal in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(70.0, &AgentTabStatus::Working(None), false, ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_signal("SIGKILL"))))
+            .expect("working turn killed by signal must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("signal SIGKILL".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+    }
 
     #[test]
     fn a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug() {

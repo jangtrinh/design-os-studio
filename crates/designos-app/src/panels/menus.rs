@@ -118,6 +118,7 @@ pub enum Action {
     /// Preferences -> Agent permissions.
     AgentPermissions,
     Shortcuts,
+    OpenStarterSample,
     AboutDesignOS,
     OpenGithub,
     OpenLibraries,
@@ -259,6 +260,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::ToggleGpu => app.toggle_gpu(),
         Action::AgentPermissions => app.open_agent_permissions(),
         Action::Shortcuts => app.show_shortcuts(),
+        Action::OpenStarterSample => app.open_starter_sample(),
         Action::AboutDesignOS => app.show_about(),
         Action::OpenGithub => app.confirm_open_github(),
         Action::OpenLibraries => app.open_libraries(),
@@ -540,6 +542,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Command palette", "Ctrl+K", Action::OpenPalette),
         leaf("Help & command search…", "Ctrl+K", Action::HelpAndAccount),
         leaf("Keyboard shortcuts", "", Action::Shortcuts).sep(),
+        leaf("Open starter sample", "", Action::OpenStarterSample).sep(),
         leaf("About design:os studio", "", Action::AboutDesignOS),
         leaf("design:os studio on GitHub", "", Action::OpenGithub),
     ];
@@ -604,6 +607,9 @@ pub fn preset_menu(ctx: &Context, app: &mut App, spec: &str, screen: Rect) -> bo
             app.ui.menu_anchor =
                 Some(Rect::from_min_size(Pos2::new(theme::RAIL_MENU_BUTTON_X, theme::RAIL_MENU_BUTTON_Y), Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE)));
             let path = find_path(&main_nodes(app), &labels);
+            if !labels.is_empty() && path.len() != labels.len() {
+                return false;
+            }
             if !path.is_empty() {
                 preset_path(ctx, menu_id(MenuKind::Main), &path);
             }

@@ -56,13 +56,26 @@ pub fn style_description<'a>(doc: &'a Document, key: &str) -> &'a str {
     doc.style_meta.get(key).map(|m| m.description.as_str()).unwrap_or("")
 }
 
+/// Hover tooltip for style `key` in pickers and lists: combines any non-empty description
+/// with the raw `key` when the style is unnamed.
+pub fn style_tooltip(doc: &Document, key: &str) -> String {
+    let desc = style_description(doc, key);
+    let unnamed = doc.is_unnamed_style(key);
+    match (!desc.is_empty(), unnamed) {
+        (false, false) => String::new(),
+        (true, false) => desc.to_string(),
+        (false, true) => key.to_string(),
+        (true, true) => format!("{desc}\n{key}"),
+    }
+}
+
 /// The styles of one kind, ordered by `sort_position` (or stored order when absent) and grouped
 /// by folder in first-seen folder order.
 pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
     let mut folder_rank: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut ranked: Vec<(usize, StyleEntry)> = ordered_style_keys(doc, None)
         .into_iter()
-        .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s)))
+        .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s) && doc.is_table_style(k)))
         .enumerate()
         .map(|(idx, k)| {
             let (folder, leaf) = split_name(doc.style_name(&k));
@@ -148,11 +161,11 @@ impl App {
     /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
     fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
-        let applied = op.map_err(|e| e.to_string()).and_then(|cmd| {
+        let applied = op.map_err(|e| style_op_message(&e)).and_then(|cmd| {
             if matches!(&cmd, Command::Batch(v) if v.is_empty()) {
                 Ok(())
             } else {
-                tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())
+                tx.cmd(&mut self.doc, cmd).map_err(|e| style_op_message(&StyleOpError::Doc(e)))
             }
         });
         match applied {
@@ -174,8 +187,17 @@ impl App {
     pub fn update_style_values(&mut self, key: &str, style: Style) -> bool {
         // A numeric scrub still open would swallow the edit (it only records node changes).
         self.scrub_end();
-        let op = update_style(&self.doc, key, style);
         let linked = linked_style_nodes(&self.doc, key);
+        if self.is_new_empty_text(&linked) {
+            // Committing the box first would delete it, and a step recorded around it would break undo.
+            self.show_toast(TYPE_FIRST, true);
+            return false;
+        }
+        // Text being edited is committed first, so this is a step of its own on the typed text: the
+        // session's transaction would otherwise commit around it and undo would step through states
+        // that never existed.
+        self.end_text_edit_of(&linked);
+        let op = update_style(&self.doc, key, style);
         self.run_style_op_then(op, |app, tx| {
             for id in linked {
                 // A layer inside an instance mirrors its main: the main is re-fitted here and the
@@ -194,10 +216,34 @@ impl App {
         })
     }
 
-    /// Creates an effect or grid style from the values of `node` and links the node to it.
+    /// Creates an effect, grid or text style from the values of `node` and links the node to it.
     /// Returns the new style's key.
     pub fn create_style_from(&mut self, node: NodeId, prop: StyleProperty) -> Option<String> {
-        match create_style_from_node(&self.doc, node, prop, None) {
+        if prop == StyleProperty::Text {
+            return self.create_text_style_from(&[node]);
+        }
+        let made = create_style_from_node(&self.doc, node, prop, None);
+        self.run_creation(made)
+    }
+
+    /// Creates a text style from the text layers among `nodes` (they must share one style, see
+    /// [`shared_text_style`]) and links all of them to it, as one undo step. A text style takes the
+    /// layers' base style (styles link to layers, not to character ranges), and text still being
+    /// edited is committed first. A new text box with no text yet is refused: committing it would
+    /// delete it.
+    pub fn create_text_style_from(&mut self, nodes: &[NodeId]) -> Option<String> {
+        if self.is_new_empty_text(nodes) {
+            self.show_toast(TYPE_FIRST, true);
+            return None;
+        }
+        self.end_text_edit_of(nodes);
+        let made = create_text_style_from_nodes(&self.doc, nodes);
+        self.run_creation(made)
+    }
+
+    /// Runs a style creation as one undo step and announces it once it happened.
+    fn run_creation(&mut self, made: Result<(String, Command), StyleOpError>) -> Option<String> {
+        match made {
             Ok((key, cmd)) => self.run_style_op(Ok(cmd)).then(|| {
                 self.show_toast(format!("Created \"{key}\""), false);
                 key
@@ -209,10 +255,27 @@ impl App {
         }
     }
 
-    /// Unlinks the effect or grid style of `sel`; the nodes keep their values.
+    /// Unlinks the effect, grid or text style of `sel`; the nodes keep their values.
     pub fn detach_style_of(&mut self, sel: &[NodeId], prop: StyleProperty) -> bool {
-        let op = detach_style(&self.doc, sel, prop);
+        let op = if prop == StyleProperty::Text {
+            if let Some(new_box) = self.new_empty_text_id(sel) {
+                return self.detach_text_style_in_new_box(sel, new_box);
+            }
+            self.end_text_edit_of(sel);
+            detach_text_style(&self.doc, sel)
+        } else {
+            detach_style(&self.doc, sel, prop)
+        };
         self.run_style_op(op)
+    }
+
+    /// Commits the text session when it edits one of `ids`. A session changes its layer through its
+    /// own transaction, which only commits when the session ends: a style change made meanwhile would
+    /// be recorded against a half-edited layer. Ending it first makes each its own undo step.
+    pub(crate) fn end_text_edit_of(&mut self, ids: &[NodeId]) {
+        if self.canvas.text.as_ref().is_some_and(|s| ids.contains(&s.id)) {
+            crate::canvas::interact::finish_text(self, true);
+        }
     }
 
     /// Renames style `key` (the display name; folders come from "/").
@@ -237,8 +300,8 @@ impl App {
     pub(crate) fn bind_style_variable_in(&mut self, tx: &mut crate::edit::Tx, key: &str, property: &str, var: &str) -> Result<(), String> {
         let op = bind_style_property(&self.doc, key, property, var);
         let linked = linked_style_nodes(&self.doc, key);
-        let cmd = op.map_err(|e| e.to_string())?;
-        tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())?;
+        let cmd = op.map_err(|e| style_op_message(&e))?;
+        tx.cmd(&mut self.doc, cmd).map_err(|e| style_op_message(&StyleOpError::Doc(e)))?;
         for id in linked {
             if size_comes_from_main(&self.doc, id) {
                 continue;
@@ -290,6 +353,17 @@ impl App {
         let mut tx = crate::edit::Tx::new();
         replace_color(&mut self.doc, &mut tx.ed, sel, old, new);
         self.run_tx(tx);
+    }
+}
+
+/// What a refused style change tells the user: plain words, never a layer id.
+fn style_op_message(e: &StyleOpError) -> String {
+    match e {
+        StyleOpError::Doc(DocError::NotFound(_)) => "the layer is gone".into(),
+        StyleOpError::Doc(_) => "the layer cannot change".into(),
+        StyleOpError::WrongNodeKind(_) => "wrong layer type".into(),
+        StyleOpError::NothingToStyle(_) => "nothing to style".into(),
+        other => other.to_string(),
     }
 }
 
@@ -415,6 +489,11 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
         }
     }
 }
+
+mod new_text_box;
+mod text_style_ops;
+pub use new_text_box::TYPE_FIRST;
+pub use text_style_ops::{create_text_style_from_nodes, detach_text_style, shared_text_style};
 
 #[cfg(test)]
 mod fill_binding_tests;

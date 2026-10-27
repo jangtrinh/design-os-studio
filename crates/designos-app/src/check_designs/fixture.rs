@@ -1,4 +1,5 @@
 //! Screenshot fixture for `--fixture check-designs`: a small design system (one colour variable,
+#![cfg(any(test, feature = "fixtures"))]
 //! three shared styles, one main component) and three frames that drift from it, one per Check
 //! designs rule family, plus one finding that has no safe fix. The audit and the fixes run on this
 //! document exactly as on a user file.

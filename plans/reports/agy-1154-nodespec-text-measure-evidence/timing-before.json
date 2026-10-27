@@ -1,0 +1,27 @@
+{
+  "commit": "6f0c3bb2",
+  "phase": "before",
+  "node_count": 157,
+  "cold_first_measure_ms": 38.12,
+  "runs_ms": [
+    72.8,
+    150.54,
+    79.48,
+    68.48,
+    60.45
+  ],
+  "median_ms": 72.8,
+  "mean_ms": 86.35,
+  "doc_apply_spec": {
+    "cold_first_measure_ms": 46.72,
+    "runs_ms": [
+      4.85,
+      2.72,
+      1.75,
+      1.47,
+      3.41
+    ],
+    "median_ms": 2.72,
+    "mean_ms": 2.84
+  }
+}

@@ -1,0 +1,39 @@
+round 2, tree 6beb9aee (isolated HOME for every cargo run, ruling 44)
+
+GATES
+  cargo fmt --all -- --check
+      exit 0 (no output)
+  cargo clippy -p designos-app --all-targets --locked -- -D warnings
+      exit 0, Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.07s
+  cargo test -p designos-app --bin designos --locked
+      exit 0, test result: ok. 3090 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 318.94s
+  cargo test -p designos-mcp --locked
+      exit 0, test result: ok. 228 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.34s (+ 14 more test binaries, all ok)
+  python3 scripts/zero_fake_ui_gate.py
+      exit 0, Gate Verdict: PASS (17/17 invariants satisfied)
+
+RED (tests before the change; items 1-3 on b0360756, then the two next-step strings)
+  FAILED folder_message_tests::a_missing_data_folder_says_what_to_check
+  FAILED folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do
+  FAILED folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own
+  FAILED folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it
+  FAILED folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder
+  FAILED test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty
+  FAILED folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete
+  FAILED folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file
+  FAILED folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same
+  FAILED folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link
+  FAILED hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder
+  FAILED folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do
+  FAILED folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step
+  test result: FAILED. 36 passed; 11 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.62s
+  test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3096 filtered out; finished in 0.14s
+
+GREEN (same module, final tree)
+  test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.58s
+
+GEMINI FILE MTIMES (name, mtime): unchanged before and after every run
+  before 1792820301 projects.json
+  before 1792819410 oauth_creds.json
+  after  1792820301 projects.json
+  after  1792819410 oauth_creds.json

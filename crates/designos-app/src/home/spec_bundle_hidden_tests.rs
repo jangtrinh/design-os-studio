@@ -6,7 +6,7 @@
 //! used instead of `home::show` so the pushed actions are observed and never applied
 //! (`Import` would open a native dialog and `+ Design file` would leave Home).
 
-use super::{main_view, Act, Home, Section, TemplateKind};
+use super::{main_view, Act, Home, Section};
 use crate::theme;
 use designos_library::Library;
 use egui::epaint::{ClippedShape, Shape};
@@ -167,7 +167,7 @@ fn header_has_no_spec_bundle_button() {
 fn templates_view_has_no_spec_bundle_card() {
     let sim = HomeSim::new(Section::Templates);
 
-    let cards = ["home-template-mobile", "home-template-web", "home-template-system", "home-template-board", "home-template-deck"];
+    let cards = ["home-template-design", "home-template-board", "home-template-deck", "home-template-starter"];
     for card in cards {
         assert!(sim.rect_of(card).is_some(), "template card {card} must still be drawn");
     }
@@ -196,14 +196,13 @@ fn other_home_actions_still_work() {
     assert!(recents.click_widget("home-import").contains(&Act::Import));
 
     let mut templates = HomeSim::new(Section::Templates);
-    for (card, kind) in [
-        ("home-template-mobile", TemplateKind::MobileBanking),
-        ("home-template-web", TemplateKind::WebDashboard),
-        ("home-template-system", TemplateKind::DesignSystem),
-        ("home-template-board", TemplateKind::FigJamBoard),
-        ("home-template-deck", TemplateKind::SlideDeck),
+    for (card, expected) in [
+        ("home-template-design", Act::NewFile),
+        ("home-template-board", Act::NewBoard),
+        ("home-template-deck", Act::NewDeck),
+        ("home-template-starter", Act::OpenStarterSample),
     ] {
         let acts = templates.click_widget(card);
-        assert!(acts.contains(&Act::CreateFromTemplate(kind)), "{card} must create its template; pushed {acts:?}");
+        assert!(acts.contains(&expected), "{card} must push {expected:?}; pushed {acts:?}");
     }
 }
