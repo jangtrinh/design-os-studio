@@ -1,11 +1,13 @@
 mod agent_a11y;
 mod agent_approval_card;
+pub mod agent_approval_channel;
 mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
+pub mod agent_hook_outputs;
 mod agent_mention;
 mod agent_mention_popup;
 pub mod agent_notify;
@@ -13,6 +15,7 @@ pub mod agent_open_flow;
 pub mod agent_permissions;
 pub mod agent_picker;
 mod agent_presence;
+mod agent_project_config;
 mod agent_sample_prompts;
 mod agent_selection_chip;
 mod agent_session_failure;
@@ -45,6 +48,9 @@ mod fig_export;
 mod find;
 mod font_refit;
 mod fonts;
+mod gemini_dialog;
+mod gemini_screen;
+mod gemini_status_hooks;
 mod history;
 mod home;
 mod icons;
@@ -67,6 +73,7 @@ mod live_sync_interaction_tests;
 mod live_sync_tests;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+mod node_field_diff;
 mod ops;
 mod panels;
 mod paste_placement;
@@ -75,6 +82,8 @@ mod present;
 mod proto;
 mod protovars;
 mod richtext;
+#[cfg(test)]
+mod scratch_cli_home;
 mod shell;
 mod showcase;
 mod skills;
@@ -84,6 +93,10 @@ mod system_paste;
 mod tabs;
 mod terminal;
 mod terminal_undo_chord;
+#[cfg(test)]
+mod test_agent_path;
+#[cfg(test)]
+mod test_alloc_count;
 #[cfg(test)]
 mod test_timing;
 mod textedit;
@@ -184,9 +197,15 @@ fn main() {
         eprintln!("designos: {e}");
         std::process::exit(1);
     }
-    if screenshot_mode && !shell::SHOT_OK.load(Ordering::SeqCst) {
-        eprintln!("designos: screenshot was not captured");
-        std::process::exit(1);
+    if screenshot_mode {
+        if let Some(err) = shell::SHOT_OPEN_ERROR.get() {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+        if !shell::SHOT_OK.load(Ordering::SeqCst) {
+            eprintln!("designos: screenshot was not captured");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -300,7 +319,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
-        let spec: designos_doc::NodeSpec = serde_json::from_str(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
+        let spec = cli::parse_spec_json(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
         let root_id = doc.apply_spec(parent, &spec)?;
         // no window drains the deferred layout here, and the queue is not part of the file
@@ -614,6 +633,191 @@ mod icon_tests {
         let loaded = super::io::load_path(&doc_out).unwrap();
         assert_eq!(loaded.name, "CLI Captured Card — example.com");
         assert!(loaded.nodes.values().any(|n| matches!(&n.kind, designos_doc::NodeKind::Text(t) if t.content == "Captured via CLI")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_apply_spec_reports_field_and_expected_type_in_plain_words() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_cli_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("r7.designos");
+        let spec_path = dir.join("aa.json");
+        let mut doc = designos_doc::Document::new("RT07");
+        doc.add_page("Page 1");
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let cases: &[(&str, &str)] = &[
+            (r#"{"name":"Card","children":[[{"kind":"rectangle","name":"Box"}]]}"#, "children must be an array of NodeSpec objects"),
+            (r#"{"name":"Card","children":[[]]}"#, "children must be an array of NodeSpec objects"),
+            (r#"{"name":"Card","children":"nope"}"#, "children must be an array of NodeSpec objects"),
+            (r#"[{"kind":"frame","name":"Card"}]"#, "spec must be a NodeSpec object"),
+            (r#"{"name":"Card","layout":"row"}"#, "layout must be a LayoutSpec object"),
+            (r#"{"name":"Card","layout":[]}"#, "layout must be a LayoutSpec object"),
+            (r#"{"name":"Card","overrides":[[{"path":"Title"}]]}"#, "overrides must be an array of OverrideSpec objects"),
+            (r#"{"name":"Card","overrides":[[]]}"#, "overrides must be an array of OverrideSpec objects"),
+            (r#"{"name":"Card","in_progress":"yes"}"#, "in_progress must be a boolean or an in_progress object"),
+            (r#"{"name":"Card","in_progress":[]}"#, "in_progress must be a boolean or an in_progress object"),
+            (r#"{"name":"Card","width":true}"#, "width must be a number or a \"var:...\" string"),
+            (r#"{"name":"Card","opacity":[]}"#, "opacity must be a number between 0 and 1 or a \"var:...\" string"),
+            (r#"{"name":"Card","corner_radii":[8,8]}"#, "corner_radii must be an array of 4 numbers or \"var:...\" strings"),
+            (r#"{"name":"Card","layout":{"padding":16}}"#, "padding must be an array of 4 numbers or \"var:...\" strings"),
+            (r#"{"name":"Card","visible":123}"#, "visible must be a boolean or a \"var:...\" string"),
+            (r#"{"name":"Card","id":"abc"}"#, "id must be a non-negative integer"),
+            (r#"{"name":"Card","font_weight":"bold"}"#, "font_weight must be a number between 100 and 900"),
+            (r#"{"name":"Card","col_span":"two"}"#, "col_span must be a positive integer"),
+            (r#"{"name":"Card","layout":{"grid_columns":"three"}}"#, "grid_columns must be a positive integer"),
+            (r#"{"name":"Card","x":"left"}"#, "x must be a number"),
+            (r#"{"name":"Card","min_width":true}"#, "min_width must be a number"),
+            (r#"{"name":"Card","clips_content":"yes"}"#, "clips_content must be a boolean"),
+            (r#"{"name":"Card","variant":["md"]}"#, "variant must be an object"),
+            (r#"{"name":"Card","mode":["dark"]}"#, "mode must be an object"),
+            (r#"{"name":"Card","props":[]}"#, "props must be an object"),
+            (r#"{"name":"Card","annotations":"one"}"#, "annotations must be an array of strings"),
+            (r#"{"name":"Card","comments":[[]]}"#, "comments must be an array of comment thread objects"),
+        ];
+
+        let banned_rust_types = [
+            "expected u64",
+            "expected u32",
+            "expected u16",
+            "expected f32",
+            "NumberOrVar",
+            "BoolOrVar",
+            "InProgressSpec",
+            "struct LayoutSpec",
+            "struct NodeSpec",
+            "struct OverrideSpec",
+            "tuple of size 4",
+        ];
+
+        for (raw_json, expected_phrase) in cases {
+            std::fs::write(&spec_path, raw_json).unwrap();
+            let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+            let err = super::run_agent_cli(&opts).expect_err(&format!("spec {raw_json} must be refused"));
+            assert!(err.contains(expected_phrase), "for {raw_json}, expected {expected_phrase:?} in {err:?}");
+            for banned in banned_rust_types {
+                assert!(!err.contains(banned), "for {raw_json}, error must not name Rust type {banned:?}: {err:?}");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_reports_nested_path() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_nested_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"Root","children":[{"kind":"frame","name":"Child","layout":{"padding":16}}]}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_nested = super::run_agent_cli(&opts).expect_err("nested padding must fail");
+        assert!(
+            err_nested.contains("children/0/layout/padding must be an array of 4 numbers or \"var:...\" strings"),
+            "expected nested path in {err_nested:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_refuses_duplicate_keys() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_dup_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"A","name":"B"}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_dup = super::run_agent_cli(&opts).expect_err("duplicate JSON keys must be refused");
+        assert!(err_dup.contains("duplicate field `name`"), "expected duplicate field error in {err_dup:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_unknown_field_omits_code_prefix() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_unk_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r##"{"kind":"frame","name":"Card","colour":"#fff"}"##).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_unk = super::run_agent_cli(&opts).expect_err("unknown field must be refused");
+        assert!(!err_unk.contains("UNKNOWN_FIELD:"), "user-facing CLI error must not include internal code prefix: {err_unk:?}");
+        assert!(err_unk.contains("Unknown field `colour`"), "expected Unknown field `colour` in {err_unk:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn round3_cli_apply_spec_rejects_f32_overflow_with_clear_message() {
+        let dir = std::env::temp_dir().join(format!("designos_rt07_r3_ovf_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("target.designos");
+        let spec_path = dir.join("spec.json");
+        std::fs::write(&spec_path, r#"{"kind":"frame","name":"Big","x":1e40}"#).unwrap();
+        let opts = super::cli::parse([doc_path.to_string_lossy().into_owned(), "--apply-spec".into(), spec_path.to_string_lossy().into_owned()]).unwrap();
+        let err_overflow = super::run_agent_cli(&opts).expect_err("f32 overflow must be refused");
+        assert!(err_overflow.contains("x must be a finite number"), "expected finite-number message in {err_overflow:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_screenshot_loads_good_file_once() {
+        let dir = std::env::temp_dir().join(format!("designos_rt04_load_once_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let good_path = dir.join("good.designos");
+        let png_path = dir.join("good.png");
+        let mut good_doc = designos_doc::Document::new("Good");
+        good_doc.add_page("Page 1");
+        super::io::save_path(&good_doc, &good_path).unwrap();
+
+        let opts = super::cli::parse([good_path.to_string_lossy().into_owned(), "--screenshot".into(), png_path.to_string_lossy().into_owned()]).unwrap();
+
+        let ctx = egui::Context::default();
+        let _shell = super::shell::Shell::build(&ctx, opts);
+
+        assert_eq!(super::io::load_call_count(&good_path), 1, "--screenshot must load {} exactly once", good_path.display());
+        assert!(super::shell::SHOT_OPEN_ERROR.get().is_none());
+
+        let broken_path = dir.join("garbage.fig");
+        let broken_png = dir.join("broken.png");
+        std::fs::write(&broken_path, b"not a fig file at all").unwrap();
+        let broken_opts =
+            super::cli::parse([broken_path.to_string_lossy().into_owned(), "--screenshot".into(), broken_png.to_string_lossy().into_owned()]).unwrap();
+        let broken_ctx = egui::Context::default();
+        let mut broken_shell = super::shell::Shell::build(&broken_ctx, broken_opts);
+        assert_eq!(super::io::load_call_count(&broken_path), 1, "--screenshot must attempt to load broken file {} only once", broken_path.display());
+        let recorded = super::shell::SHOT_OPEN_ERROR.get().expect("broken file sets SHOT_OPEN_ERROR");
+        assert!(recorded.starts_with(&format!("{} could not be opened: ", broken_path.display())), "got: {recorded}");
+        assert!(recorded.ends_with(". Check the file, then try again."), "got: {recorded}");
+        let out = broken_ctx.run_ui(egui::RawInput::default(), |ui| broken_shell.draw(ui));
+        assert!(out.shapes.is_empty(), "broken screenshot must not render blank Untitled document");
+        let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.as_slice()).unwrap_or(&[]);
+        assert!(cmds.contains(&egui::ViewportCommand::Close), "broken screenshot must close viewport");
+        assert!(!broken_png.exists(), "broken screenshot must not write PNG");
+
+        let mut app = super::app::App::new(designos_doc::Document::new("Test"));
+        assert!(app.try_open_path(good_path.clone()).is_ok());
+        assert!(app.try_open_path(broken_path).is_err());
+        assert!(app.try_open_path(dir.join("missing.webcapture.json")).is_err());
+        let bad_wc = dir.join("bad.webcapture.json");
+        std::fs::write(&bad_wc, "{not valid json").unwrap();
+        assert!(app.try_open_path(bad_wc).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

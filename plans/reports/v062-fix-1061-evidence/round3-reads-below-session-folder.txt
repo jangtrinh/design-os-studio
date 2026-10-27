@@ -1,0 +1,59 @@
+Reads below a session folder, round 3 of #1067 (replaces round2-reads-below-session-folder.txt).
+Scan: every non-test line of designos-app/src that reads a file (`read_to_string`, `fs::read(`, `File::open`, `.append(true)`) or goes through the
+folder-handle reads (`read_session_file`, `read_session_text`, `open_session_file`, `open_plain_file`), test modules skipped, limited to the
+files that can touch a session folder. A line that still shows a plain `std::fs` read is explained below.
+
+The folder-handle reads open relative to the session folder's handle with O_NOFOLLOW|O_NONBLOCK, refuse anything but a plain file (a link is
+refused as a link, a FIFO and a folder as "not a plain file"), and give the file back blocking:
+  read_session_file(path)  -> Vec<u8>          read_session_text(path) -> Option<String> (None = a poll with no data)
+  open_session_file(path)  -> File (to seek)   open_plain_file(path)   -> File, for the transcript outside the session folder (a link is
+                                                followed, a FIFO is refused)
+
+ROUTED in round 3, each with what a refused read does (nothing here panics, spins or reports a new line):
+  terminal.rs poll_live_agent_bridge  agent-status.json (every frame)  read_session_text. Refused = no status this frame; the tab keeps its last
+                                                                       status. No status line exists for this file today, so none is added.
+  image_jobs.rs  stale status before a job starts                      read_session_text. Refused = not stale: the job starts.
+  image_jobs.rs  is_agent_run_done (watcher thread)                    read_session_text. Refused = not done yet; the job's own timeout ends it.
+  image_jobs.rs  validate_output_file (output.png)                     read_session_file. Refused = the job fails with its existing line
+                                                                       "Cannot read output.png: <path> can't be read: it is a link. Delete it, then try again".
+  live_patch_log.rs read_range, UnreadProbe::has_unread_complete_line  open_session_file. Refused = None / false: no edits this poll, no error line.
+  live_patch_log.rs load_epoch (doc-sync.designos)                     read_session_file. Refused = the existing "Cannot read the document the agent
+                                                                       opened: <cause and fix>" line, now without the path twice.
+  agent_turn_status.rs EventFileCursor::read_available (events tail)   open_session_file. Refused = no records this poll.
+  agent_turn_marks.rs TurnMarkLog::read_range (turn-marks tail)        open_session_file. Refused = no marks this poll.
+  agent_usage.rs read_claude_transcript_meta (claude-transcript.json)  read_session_text. Refused = no meta, so no usage this poll.
+  agent_usage.rs ClaudeTranscriptReader::read_range (transcript)       open_plain_file (outside the session folder). Refused = no reading.
+ROUTED in round 2 and round 1: mcp-config.json (twice), bootstrap.md, owner.json, hooks.json, session.lock, sessions.json, usage.json, run.json.
+
+STILL A PLAIN std::fs READ, and why:
+  agent_permissions.rs  read(&path) of an approval request: the private channel folder, not a session folder.
+  agent_sessions.rs     File::open("/dev/urandom").
+  skills/run_record.rs  read_to_string in a #[cfg(test)] helper.
+  agent_usage.rs        read_to_string of the stdout of a child process, not a file.
+
+Raw scan output:
+agent_permissions.rs:228: let names_approval_hook = crate::agent_session_files::read_session_file(&path)
+agent_permissions.rs:504: let Ok(bytes) = std::fs::read(&path) else {
+agent_session_files.rs:161: let raw = read_session_file(&session_dir.join("owner.json")).ok()?;
+agent_sessions.rs:138: if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+agent_sessions.rs:311: if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+agent_sessions.rs:338: if let Ok(raw) = crate::agent_session_files::read_session_file(&lock_path) {
+agent_sessions.rs:352: let Ok(raw) = crate::agent_session_files::read_session_file(&path) else {
+agent_turn_marks.rs:124: let mut f = crate::agent_session_files::open_session_file(&self.path).ok()?;
+agent_turn_status.rs:269: if let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) {
+agent_usage.rs:282: let raw = crate::agent_session_files::read_session_text(capture_path)?;
+agent_usage.rs:470: let mut file = crate::agent_session_files::open_plain_file(&self.path).ok()?;
+agent_usage.rs:571: let _ = limited.read_to_string(&mut out);
+agent_usage.rs:658: serde_json::from_slice(&crate::agent_session_files::read_session_file(path).ok()?).ok()
+image_jobs.rs:935: if let Some(raw) = crate::agent_session_files::read_session_text(&status_file_path) {
+image_jobs.rs:1039: if let Some(raw) = crate::agent_session_files::read_session_text(status_file_path) {
+image_jobs.rs:1169: let raw = match crate::agent_session_files::read_session_file(&job.output_path) {
+live_patch_log.rs:34: let mut f = crate::agent_session_files::open_session_file(path).ok()?;
+live_patch_log.rs:123: let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) else { return false };
+live_patch_log.rs:403: let bytes = crate::agent_session_files::read_session_file(&self.doc_sync_path)
+terminal.rs:1432: let raw = crate::agent_session_files::read_session_text(mcp_config_path);
+terminal.rs:2324: if let Some(md) = crate::agent_session_files::read_session_text(&self.bootstrap_md_path) {
+terminal.rs:3468: if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
+terminal.rs:4678: let existing_config = crate::agent_session_files::read_session_text(&mcp_config_path);
+skills/run_record.rs:42: serde_json::from_str(&std::fs::read_to_string(run_path(session_dir)).ok()?).ok()
+skills/run_record.rs:55: let mut manifest = match read_session_file(&path) {

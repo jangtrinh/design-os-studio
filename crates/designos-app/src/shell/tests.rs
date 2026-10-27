@@ -1114,6 +1114,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
 
 mod board;
 mod board_home;
+mod canvas_label_rename;
 mod check_designs;
 mod comments;
 mod components;
@@ -1122,6 +1123,7 @@ mod components_main_copies;
 mod decks;
 mod deferred_page_instances;
 mod dev;
+mod dev_code_panel;
 mod dev_mode_shortcut;
 mod duplicate_order;
 mod effect_grid_styles;
@@ -1163,6 +1165,8 @@ mod style_edit;
 mod svg;
 mod system_paste_and_drop;
 mod tab_disk_state;
+mod text_styles;
+mod toast_clock;
 mod typography;
 mod undo_exact_layout;
 mod undo_layout_epoch;

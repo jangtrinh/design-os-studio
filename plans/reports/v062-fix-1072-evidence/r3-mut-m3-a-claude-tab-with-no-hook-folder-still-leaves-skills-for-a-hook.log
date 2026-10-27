@@ -1,0 +1,37 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+warning: unused variable: `session_dir`
+    --> crates/designos-app/src/terminal.rs:1047:42
+     |
+1047 |     pub fn reads_skills_from_hook(&self, session_dir: &Path) -> bool {
+     |                                          ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_session_dir`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning (run `cargo fix --bin "designos" -p designos-app --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.52s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them ... FAILED
+
+failures:
+
+---- agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them stdout ----
+design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+
+thread 'agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them' (52269012) panicked at crates/designos-app/src/agent_composer.rs:2671:13:
+the skills are pasted, not left for a hook that is not installed: "\u{1b}[200~Make a pricing card\u{1b}[201~"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3312 filtered out; finished in 1.46s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

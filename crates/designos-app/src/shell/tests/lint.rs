@@ -184,3 +184,46 @@ fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_
     }
     assert!(all.is_empty(), "{} studio screen gate findings", all.len());
 }
+
+fn run_of(rect: Rect, clip: Rect) -> lint::TextRun {
+    lint::TextRun { text: "-".into(), rect, clip }
+}
+
+fn band(top: f32, bottom: f32) -> Rect {
+    Rect::from_min_max(Pos2::new(0.0, top), Pos2::new(240.0, bottom))
+}
+
+fn label(top: f32, bottom: f32) -> Rect {
+    Rect::from_min_max(Pos2::new(20.0, top), Pos2::new(60.0, bottom))
+}
+
+#[test]
+fn a_box_under_the_hidden_half_does_not_hold_the_line() {
+    // a scroll region ends at y 100, a bar fills 100..136 below it, and a line sits across the cut
+    let bar = band(100.0, 136.0);
+    let line = Rect::from_min_size(Pos2::new(20.0, 97.0), Vec2::new(40.0, 12.0));
+    assert!(lint::check_text(&[run_of(line, band(0.0, 100.0))], &[bar]).is_empty(), "the bar lies wholly under the hidden half");
+    // the same line with nothing cutting it does sit across the bar's edge
+    assert_eq!(lint::check_text(&[run_of(line, band(0.0, 136.0))], &[bar]).len(), 1);
+}
+
+#[test]
+fn a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_106() {
+    // row 100..124, label 94..118: 94..100 is painted over the row above, and the cut leaves 94..106 showing
+    let findings = lint::check_text(&[run_of(label(94.0, 118.0), band(0.0, 106.0))], &[band(100.0, 124.0)]);
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}
+
+#[test]
+fn a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_105() {
+    // one pixel higher: the label's own centre (106) is hidden, and the row is still under the part that shows
+    let findings = lint::check_text(&[run_of(label(94.0, 118.0), band(0.0, 105.0))], &[band(100.0, 124.0)]);
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}
+
+#[test]
+fn a_label_poking_into_the_row_below_is_flagged_when_its_clip_starts_at_14() {
+    // row 0..24, label 8..32: 24..32 is painted over the row below, and the cut leaves 14..32 showing
+    let findings = lint::check_text(&[run_of(label(8.0, 32.0), band(14.0, 200.0))], &[band(0.0, 24.0)]);
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}

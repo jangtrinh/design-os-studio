@@ -1,0 +1,35 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.22s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test terminal::capture_lock_tests::without_a_lock_in_the_way_a_capture_adds_its_tab_and_gives_the_lock_back ... ok
+test terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it ... FAILED
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... FAILED
+test terminal::capture_lock_tests::a_lock_that_stays_held_is_never_removed_by_a_capture_that_gave_up_waiting ... ok
+
+failures:
+
+---- terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it stdout ----
+
+thread 'terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it' (54153129) panicked at crates/designos-app/src/terminal/capture_lock_tests.rs:192:5:
+the stand-in made tab C take the lock before the retry of the capture
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped stdout ----
+
+thread 'terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped' (54153130) panicked at crates/designos-app/src/terminal/capture_lock_tests.rs:170:5:
+the read-modify-write ran
+
+
+failures:
+    terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it
+    terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3310 filtered out; finished in 0.91s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

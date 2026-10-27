@@ -22,6 +22,9 @@ const REVEAL_LABEL: &str = "Show in folder";
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
 
+/// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
+pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 #[derive(Clone, Default)]
 pub struct MicroSeqHud {
     pub focus_page: designos_doc::Vec2,
@@ -66,6 +69,7 @@ struct Shot {
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
+    open_failed: bool,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -173,8 +177,16 @@ impl Shell {
                 app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
             }
         }
+        let mut shot_open_failed = false;
         if let Some(f) = &opts.file {
-            app.open_path(f.clone());
+            if let Err(err) = app.try_open_path(f.clone()) {
+                if opts.screenshot.is_some() {
+                    let reason = err.lines().next().unwrap_or(&err).trim().trim_end_matches('.');
+                    let _ = SHOT_OPEN_ERROR.set(format!("{} could not be opened: {reason}. Check the file, then try again.", f.display()));
+                    shot_open_failed = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
         }
         if let Some(cap) = &opts.import_capture {
             app.import_web_capture_path(cap.clone());
@@ -183,6 +195,14 @@ impl Shell {
             app.open_library_file(id);
         } else if opts.home {
             app.go_home();
+            #[cfg(any(debug_assertions, test))]
+            if let Some(mode) = std::env::var_os("DESIGNOS_FORCE_NO_FILE_DIALOG") {
+                if mode == "toast" || mode == "1" {
+                    crate::home::import_files_dialog(&mut app, &crate::io::SystemDialogs);
+                } else if mode == "dialog" {
+                    app.open_import_path_dialog();
+                }
+            }
         }
         if let Some(name) = opts.select.as_ref().filter(|n| n.as_str() != "none") {
             // a top-level layer (screen) wins over same-named layers deeper in the tree
@@ -314,7 +334,7 @@ impl Shell {
                 app.terminal.ensure_default_tab(app.file_path.as_deref());
                 app.ui.permissions_modal_open = true;
             }
-            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab")) => {
+            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab" | "agents-scrollback")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_approval_fixture(p, app.file_path.as_deref());
@@ -406,6 +426,7 @@ impl Shell {
             last_try: false,
             seq: seq_capture,
             no_toast: opts.no_toast,
+            open_failed: shot_open_failed,
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default() }
     }
@@ -998,22 +1019,48 @@ impl Shell {
         if self.shot.as_ref().is_some_and(|s| s.no_toast) {
             return;
         }
-        if self.app.now > self.app.toast.as_ref().map_or(0.0, |t| t.until) {
+        // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
+        // dialog, a large file opening) must not spend the toast before anyone sees it.
+        if let Some(t) = &mut self.app.toast {
+            if !t.armed {
+                t.armed = true;
+                t.until = self.app.now + t.duration;
+            }
+        }
+        // A capture waits out the load and, on the GPU, the idle refine. Hold the latest toast
+        // through the paint that asks for the screenshot. `--no-toast` already returned above.
+        let hold_for_capture = self.shot.as_ref().is_some_and(|s| !s.requested);
+        if !hold_for_capture && self.app.now > self.app.toast.as_ref().map_or(0.0, |t| t.until) {
+            // The next queued toast (behind a "Show in folder" one) takes over, if any.
             self.app.toast = self.app.toast_queue.pop_front().map(|mut next| {
-                let duration = if next.reveal.is_some() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
-                next.until = self.app.now + duration;
+                next.duration = if next.reveal.is_some() { theme::TOAST_REVEAL_SECONDS } else { theme::TOAST_SECONDS };
                 next
             });
         }
+        // The lifetime starts at the first paint. A blocked frame before it (a slow export, a file
+        // dialog, a large file opening) must not spend the toast before anyone sees it.
+        if let Some(t) = &mut self.app.toast {
+            if !t.armed {
+                t.armed = true;
+                t.until = self.app.now + t.duration;
+            }
+        }
         let Some(t) = &self.app.toast else { return };
-        let (text, error, reveal) = (t.text.clone(), t.error, t.reveal.clone());
+        let (text, error, reveal, enter_path) = (t.text.clone(), t.error, t.reveal.clone(), t.enter_path);
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, reveal.as_ref().map(|_| REVEAL_LABEL));
+        let action_meta = if reveal.is_some() {
+            Some(("toast-reveal", REVEAL_LABEL))
+        } else if enter_path {
+            Some(("toast-enter-path", "Enter a path\u{2026}"))
+        } else {
+            None
+        };
+        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, action_meta.map(|(_, l)| l));
         let (r, ctx) = (lay.rect, ui.ctx().clone());
         // Only the "Details" link and the action take clicks, each as its own small Area. The body has no widget at all:
         // any widget in the layer, even a hover-only one, hides the canvas and the cards below it from the pointer.
         let details_clicked = details && toast_click_target(&ctx, "toast-details", r, "Details").clicked();
-        let action = lay.action.map(|(target, label)| (toast_click_target(&ctx, "toast-reveal", target, REVEAL_LABEL), target, label));
+        let action = lay.action.zip(action_meta).map(|((target, label), (id, text_lbl))| (toast_click_target(&ctx, id, target, text_lbl), target, label));
         // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
         // hide the toast. No fade-in: the toast has always appeared at full strength.
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast")));
@@ -1021,22 +1068,26 @@ impl Shell {
         p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
         p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
         p.galley(lay.text_pos, lay.text, theme::TEXT);
-        let mut reveal_clicked = false;
+        let mut action_clicked = false;
         if let Some((button, target, label)) = action {
             if button.hovered() {
                 p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             p.galley(Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0), label, theme::TEXT_BRAND);
-            reveal_clicked = button.clicked();
+            action_clicked = button.clicked();
         }
         if details_clicked {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
-        if let (true, Some(file)) = (reveal_clicked, reveal) {
+        if let (true, Some(file)) = (action_clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
                 self.app.toast = None;
                 self.app.show_toast(e, true);
             }
+        } else if action_clicked && enter_path {
+            self.app.toast = None;
+            self.app.open_import_path_dialog();
+            ctx.request_repaint();
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -1361,6 +1412,10 @@ impl Shell {
 
     /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        if self.shot.as_ref().is_some_and(|s| s.open_failed) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
         // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
@@ -1655,21 +1710,23 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     app.show_toast(format!("Spec parse error: {}", designos_doc::format_spec_serde_error(&e)), true);
                 }
             },
-            crate::terminal::TerminalAction::ApplySpecFile(path) => match std::fs::read_to_string(&path) {
-                Ok(raw) => match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
-                    Ok(spec) => {
-                        let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
-                        let before = app.hist.undo_depth();
-                        app.apply_live_spec(&path, &raw, &spec, label);
-                        if app.hist.undo_depth() > before {
-                            app.hist.mark_last_undo_as_agent();
-                            app.terminal.current_undo_depth = app.hist.undo_depth();
+            // A spec that cannot be read (a link, a FIFO, a file that is gone) is no spec: nothing is applied and nothing is said.
+            crate::terminal::TerminalAction::ApplySpecFile(path) => {
+                if let Some(raw) = crate::agent_session_files::read_session_text(&path) {
+                    match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
+                        Ok(spec) => {
+                            let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
+                            let before = app.hist.undo_depth();
+                            app.apply_live_spec(&path, &raw, &spec, label);
+                            if app.hist.undo_depth() > before {
+                                app.hist.mark_last_undo_as_agent();
+                                app.terminal.current_undo_depth = app.hist.undo_depth();
+                            }
                         }
+                        Err(e) => app.show_toast(format!("Invalid spec JSON: {}", designos_doc::format_spec_serde_error(&e)), true),
                     }
-                    Err(e) => app.show_toast(format!("Invalid spec JSON: {}", designos_doc::format_spec_serde_error(&e)), true),
-                },
-                Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
-            },
+                }
+            }
             crate::terminal::TerminalAction::ApplyLiveLog(lines) => {
                 for error in app.terminal.live_patch.ingest(lines) {
                     app.show_toast(error, true);

@@ -1,0 +1,93 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking hashbrown v0.17.1
+    Checking num-traits v0.2.19
+    Checking percent-encoding v2.3.2
+    Checking serde_json v1.0.154
+    Checking regex-automata v0.4.18
+    Checking ahash v0.8.12
+    Checking nix v0.31.3
+    Checking tokio v1.53.2
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Checking resvg v0.45.1
+    Checking form_urlencoded v1.2.2
+    Checking url v2.5.8
+    Checking half v2.7.1
+    Checking moxcms v0.8.1
+    Checking chrono v0.4.45
+    Checking euclid v0.22.14
+    Checking indexmap v2.14.2
+    Checking tiff v0.11.3
+    Checking ureq v2.12.1
+    Checking webbrowser v1.2.4
+    Checking guillotiere v0.7.0
+    Checking lyon_geom v1.0.19
+    Checking naga v29.0.4
+    Checking zip v9.0.4
+    Checking vello_common v0.0.9
+    Checking schemars v1.2.3
+    Checking lyon_path v1.0.19
+    Checking regex v1.13.1
+    Checking lyon_tessellation v1.0.22
+    Checking designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+    Checking vello_cpu v0.0.9
+    Checking tokio-util v0.7.20
+    Checking rmcp v3.5.1
+    Checking epaint v0.35.0
+    Checking image v0.25.10
+    Checking egui v0.35.0
+    Checking arboard v3.6.1
+    Checking designos-diff v0.6.1 (<worktree>/crates/designos-diff)
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-hal v29.0.4
+    Checking egui-winit v0.35.0
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking wgpu v29.0.4
+    Checking designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+    Checking designos-render v0.6.1 (<worktree>/crates/designos-render)
+    Checking egui-wgpu v0.35.0
+    Checking designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+    Checking designos-export v0.6.1 (<worktree>/crates/designos-export)
+    Checking designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+    Checking eframe v0.35.0
+    Checking designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+    Checking designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+    Checking designos-library v0.6.1 (<worktree>/crates/designos-library)
+warning: variants `MakeWritable`, `DeleteLink`, `Unlock`, and `CheckItAndItsFolder` are never constructed
+  --> crates/designos-app/src/agent_session_files/refusal.rs:44:5
+   |
+40 | pub enum Fix {
+   |          --- variants in this enum
+...
+44 |     MakeWritable,
+   |     ^^^^^^^^^^^^
+...
+52 |     DeleteLink,
+   |     ^^^^^^^^^^
+...
+60 |     Unlock,
+   |     ^^^^^^
+...
+63 |     CheckItAndItsFolder,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `Fix` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `session` and `refuse_moves` are never read
+   --> crates/designos-app/src/agent_session_files/session_io.rs:186:5
+    |
+184 | pub struct SetAside {
+    |            -------- fields in this struct
+185 |     #[cfg_attr(not(unix), allow(dead_code))]
+186 |     session: PathBuf,
+    |     ^^^^^^^
+...
+192 |     refuse_moves: bool,
+    |     ^^^^^^^^^^^^
+
+warning: `designos-app` (bin "designos") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.10s

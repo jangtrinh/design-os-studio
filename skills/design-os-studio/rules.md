@@ -2,22 +2,24 @@
 
 ## Build-Verify-Fix Workflow
 
-Follow this 7-step loop on every design task:
+Follow this 7-step loop:
 
-1. **Orient (Read first)** — Use session bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
-2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or surface guides `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new top-level frames beside existing frames — never stack at `(0, 0)`.
+1. **Orient (Read first)** — Use bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
+2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new frames beside existing ones — never stack at `(0, 0)`.
 
-3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
-4. **Verify (`issues` + screenshot)** — Check the per-call `issues` block (`issues: {total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (default scale, long edge <= 1024) or use `diff_image`, and inspect the PNG for visual hierarchy, alignment, clipping, and contrast.
-5. **Fix in place** — Fix findings in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild a section.
-6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress` with `node_ids: [root]`, `value: false`) when done, and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`) to resolve remaining errors.
+3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
+4. **Verify (`issues` + screenshot)** — Check `issues` (`{total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (<= 1024px) or `diff_image`, and inspect for hierarchy, alignment, clipping, and contrast.
+5. **Fix in place** — Fix in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
+6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
 7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
+
+Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
 
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid)...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
@@ -125,9 +127,9 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
 
 ### `designos_export_fig_file`
-- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate...
-- **Args:** required: `output_path`
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `INTERNAL_ERROR`
+- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and...
+- **Args:** required: `output_path` (optional: `overwrite`)
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
@@ -137,13 +139,13 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page,...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
 
 ### `designos_get_guidelines`
-- **Purpose:** List available design guideline topics or return the guideline document for a topic ('design-system',...
+- **Purpose:** List available design guideline topics or return the guideline document for a topic...
 - **Args:** required: none (optional: `max_tokens`, `platform`, `topic`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_TOPIC`, `TOPIC_NOT_AVAILABLE`
 - **Example:** `{"topic":"design-system","platform":"web"}`
@@ -191,7 +193,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"ops":[{"op":"insert","as":"card","parent_id":1,"kind":"frame","name":"Card","width":360,"height":180},{"op":"insert","parent_id":"@card","kind":"text","name":"Title","text":"Q3 Overview"}]}`
 
 ### `designos_get_design_context`
-- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax,...
+- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code...
 - **Args:** required: `node_id` (optional: `include_screenshot`, `language`, `react_tailwind`, `response_format`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2,"language":"css"}`

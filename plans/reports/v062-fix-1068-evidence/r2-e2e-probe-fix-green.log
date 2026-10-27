@@ -1,0 +1,33 @@
+case                                                                            verdict  detail
+append via link at doc-patch.jsonl                                              PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=error[link-sentence]; get_document=ok+warning[link-sentence]+text[link-sentence]; create_node_1=error[link-sentence]; create_node_2=error[link-sentence]
+overwrite via canvas.tmp-<pid>                                                  PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+overwrite via doc-sync.tmp-<pid>                                                PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+overwrite via session-options.tmp-<pid>                                         PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+truncate+append via link at idempotency-ledger.jsonl                            PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=ok+warning[link-sentence]+text[link-sentence]; get_document=ok; create_node_1=ok; create_node_2=ok
+create via dangling link at doc-patch.jsonl                                     PASS     victim absent -> absent
+                                                                                         replies: new_document=error[link-sentence]; get_document=ok+warning[link-sentence]+text[link-sentence]; create_node_1=error[link-sentence]; create_node_2=error[link-sentence]
+append via hard link at doc-patch.jsonl                                         PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=error[second-name-sentence]; get_document=ok+warning[second-name-sentence]+text[second-name-sentence]; create_node_1=error[second-name-sentence]; create_node_2=error[second-name-sentence]
+read through link at mcp-config.json                                            PASS     tools listed=36 (1 means the victim's JSON was read through the link)
+                                                                                         replies: new_document=ok+warning[link-sentence]+text[link-sentence]; get_document=ok; create_node_1=ok; create_node_2=ok
+FIFO at doc-patch.jsonl (write name)                                            PASS     returned in 0.01s
+                                                                                         replies: new_document=error[not-plain-sentence]; get_document=ok+warning[not-plain-sentence]+text[not-plain-sentence]; create_node_1=error[not-plain-sentence]; create_node_2=error[not-plain-sentence]
+FIFO at context.json (read name)                                                PASS     returned in 0.02s
+                                                                                         replies: new_document=ok+warning[not-plain-sentence]+text[not-plain-sentence]; get_document=ok; create_node_1=ok; create_node_2=ok
+read through hard link at canvas.designos                                       PASS     document name shown: 'Untitled' (VictimDocName means it was read through the second name)
+                                                                                         replies: get_document=ok+warning[second-name-sentence]+text[second-name-sentence]
+0444 file at doc-patch.jsonl                                                    PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=error[cant-sentence]; get_document=ok; create_node_1=error[cant-sentence]; create_node_2=error[cant-sentence]
+folder at canvas.designos                                                       PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: new_document=error[not-plain-sentence]; get_document=ok+warning[not-plain-sentence]+text[not-plain-sentence]; create_node_1=error[not-plain-sentence]; create_node_2=error[not-plain-sentence]
+socket at context.json                                                          PASS     returned in 0.02s
+                                                                                         replies: new_document=ok+warning[not-plain-sentence]+text[not-plain-sentence]; get_document=ok; create_node_1=ok; create_node_2=ok
+warning in the model's text (link at session-options.json, get_metadata first)  PASS     victim 22B/46681e0ff9 -> 22B/46681e0ff9
+                                                                                         replies: get_metadata=ok+warning[link-sentence]+text[link-sentence]; new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+
+SUMMARY: 15 PASS, 0 FAIL of 15

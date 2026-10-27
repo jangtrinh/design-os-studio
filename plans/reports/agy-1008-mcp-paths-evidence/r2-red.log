@@ -1,0 +1,364 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling cfg-if v1.0.5
+   Compiling autocfg v1.5.1
+   Compiling memchr v2.8.3
+   Compiling serde_core v1.0.229
+   Compiling smallvec v1.16.3
+   Compiling once_cell v1.21.4
+   Compiling stable_deref_trait v1.2.1
+   Compiling simd-adler32 v0.3.10
+   Compiling libm v0.2.16
+   Compiling serde v1.0.229
+   Compiling crc32fast v1.5.2
+   Compiling adler2 v2.0.1
+   Compiling version_check v0.9.5
+   Compiling log v0.4.34
+   Compiling zmij v1.0.23
+   Compiling bitflags v2.13.2
+   Compiling miniz_oxide v0.9.1
+   Compiling serde_json v1.0.154
+   Compiling zlib-rs v0.6.8
+   Compiling litemap v0.8.3
+   Compiling itoa v1.0.18
+   Compiling shlex v2.0.1
+   Compiling ref-cast v1.0.27
+   Compiling find-msvc-tools v0.1.14
+   Compiling writeable v0.6.4
+   Compiling cc v1.7.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling num-traits v0.2.19
+   Compiling icu_normalizer_data v2.3.0
+   Compiling regex-syntax v0.8.11
+   Compiling zeroize v1.9.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling aho-corasick v1.1.5
+   Compiling percent-encoding v2.3.2
+   Compiling crossbeam-utils v0.8.23
+   Compiling core_maths v0.1.1
+   Compiling regex-automata v0.4.18
+   Compiling syn v3.0.9
+   Compiling flate2 v1.1.10
+   Compiling slotmap v1.1.1
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling thiserror v2.0.21
+   Compiling untrusted v0.9.0
+   Compiling crossbeam-epoch v0.9.21
+   Compiling ring v0.17.14
+   Compiling synstructure v0.14.0
+   Compiling getrandom v0.2.17
+   Compiling serde_derive_internals v0.30.0
+   Compiling ttf-parser v0.25.1
+   Compiling arrayvec v0.7.8
+   Compiling rustls v0.23.45
+   Compiling dyn-clone v1.0.20
+   Compiling float-cmp v0.9.0
+   Compiling crossbeam-deque v0.8.8
+   Compiling strict-num v0.1.1
+   Compiling memmap2 v0.9.11
+   Compiling regex v1.13.1
+   Compiling form_urlencoded v1.2.2
+   Compiling webpki-roots v1.0.9
+   Compiling pxfm v0.1.30
+   Compiling unicode-script v0.5.8
+   Compiling byteorder-lite v0.1.0
+   Compiling zune-core v0.5.3
+   Compiling color_quant v1.1.0
+   Compiling allocator-api2 v0.2.21
+   Compiling rayon-core v1.13.0
+   Compiling arrayref v0.3.9
+   Compiling base64 v0.22.1
+   Compiling option-ext v0.2.0
+   Compiling subtle v2.6.1
+   Compiling quick-error v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling pin-project-lite v0.2.17
+   Compiling tinyvec v1.13.3
+   Compiling weezl v0.1.12
+   Compiling equivalent v1.0.3
+   Compiling hashbrown v0.17.1
+   Compiling image-webp v0.2.4
+   Compiling dirs-sys v0.4.1
+   Compiling gif v0.14.1
+   Compiling moxcms v0.8.1
+   Compiling zune-jpeg v0.5.15
+   Compiling webpki-roots v0.26.11
+   Compiling png v0.18.1
+   Compiling i_float v5.0.0
+   Compiling cfg_aliases v0.2.2
+   Compiling zeno v0.3.3
+   Compiling fontdb v0.23.0
+   Compiling unicode-bidi v0.3.18
+   Compiling yazi v0.2.1
+   Compiling futures-core v0.3.34
+   Compiling bitflags v1.3.2
+   Compiling nix v0.31.3
+   Compiling png v0.17.16
+   Compiling i_shape v5.0.0
+   Compiling dirs v5.0.1
+   Compiling syn v2.0.119
+   Compiling linebender_resource_handle v0.1.1
+   Compiling self_cell v1.3.0
+   Compiling i_key_sort v0.12.0
+   Compiling either v1.19.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling rangemap v1.8.0
+   Compiling rustc-hash v2.1.3
+   Compiling futures-sink v0.3.34
+   Compiling smol_str v0.3.6
+   Compiling i_tree v0.20.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling sys-locale v0.3.2
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling errno v0.3.14
+   Compiling unicode-ccc v0.4.0
+   Compiling siphasher v1.0.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling heck v0.5.0
+   Compiling unicode-properties v0.1.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling futures-channel v0.3.34
+   Compiling svgtypes v0.15.3
+   Compiling indexmap v2.14.2
+   Compiling mio v1.2.4
+   Compiling i_overlay v9.1.0
+   Compiling simplecss v0.2.2
+   Compiling xmlwriter v0.1.0
+   Compiling roxmltree v0.20.0
+   Compiling pico-args v0.5.0
+   Compiling utf8parse v0.2.2
+   Compiling unicode-vo v0.1.0
+   Compiling bytes v1.12.1
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling imagesize v0.13.0
+   Compiling futures-io v0.3.34
+   Compiling data-url v0.3.2
+   Compiling anstyle-parse v1.0.0
+   Compiling num-integer v0.1.47
+   Compiling anstyle v1.0.14
+   Compiling getrandom v0.4.3
+   Compiling anstyle-query v1.1.5
+   Compiling bumpalo v3.20.3
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstream v1.0.0
+   Compiling zopfli v0.8.4
+   Compiling tracing-core v0.1.36
+   Compiling clap_lex v1.1.1
+   Compiling typed-path v0.12.3
+   Compiling zerocopy v0.8.62
+   Compiling getrandom v0.3.4
+   Compiling twox-hash v2.1.5
+   Compiling strsim v0.11.1
+   Compiling ruzstd v0.9.1
+   Compiling num-bigint v0.4.8
+   Compiling rustls-webpki v0.103.15
+   Compiling zip v9.0.4
+   Compiling clap_builder v4.6.7
+   Compiling ahash v0.8.12
+   Compiling rmcp v3.5.1
+   Compiling parking_lot_core v0.9.12
+   Compiling num-rational v0.4.2
+   Compiling uuid v1.28.0
+   Compiling num-iter v0.1.46
+   Compiling num-complex v0.4.6
+   Compiling pastey v0.2.3
+   Compiling scopeguard v1.2.0
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+   Compiling num v0.4.3
+   Compiling lock_api v0.4.14
+   Compiling bit-vec v0.8.0
+   Compiling jsonschema-value v0.59.0
+   Compiling borrow-or-share v0.2.4
+   Compiling unicode-general-category v1.1.0
+   Compiling bit-set v0.8.0
+   Compiling parking_lot v0.12.5
+   Compiling fraction v0.17.0
+   Compiling bytecount v0.6.9
+   Compiling micromap v0.3.0
+   Compiling outref v0.5.2
+   Compiling num-cmp v0.1.0
+   Compiling vsimd v0.8.0
+   Compiling fancy-regex v0.19.2
+   Compiling jsonschema-regex v0.59.0
+   Compiling data-encoding v2.11.1
+   Compiling quick-xml v0.41.0
+   Compiling uuid-simd v0.8.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.21
+   Compiling schemars_derive v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+   Compiling tracing-attributes v0.1.31
+   Compiling clap_derive v4.6.7
+   Compiling strum_macros v0.28.0
+   Compiling bytemuck v1.25.2
+   Compiling font-types v0.12.7
+   Compiling font-types v0.11.3
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling image v0.25.10
+   Compiling zerofrom v0.1.8
+   Compiling tiny-skia v0.11.4
+   Compiling rustybuzz v0.20.1
+   Compiling futures-util v0.3.34
+   Compiling tokio v1.53.2
+   Compiling yoke v0.8.3
+   Compiling tracing v0.1.44
+   Compiling strum v0.28.0
+   Compiling usvg v0.45.1
+   Compiling clap v4.6.7
+   Compiling chrono v0.4.45
+   Compiling harfrust v0.5.2
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling schemars v1.2.3
+   Compiling skrifa v0.44.0
+   Compiling skrifa v0.40.0
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling process-wrap v10.0.1
+   Compiling tokio-stream v0.1.19
+   Compiling tokio-util v0.7.20
+   Compiling designos-diff v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-diff)
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling swash v0.2.10
+   Compiling fluent-uri v0.4.1
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-doc)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling cosmic-text v0.19.0
+   Compiling url v2.5.8
+   Compiling referencing v0.59.0
+   Compiling ureq v2.12.1
+   Compiling email_address v0.2.9
+   Compiling jsonschema v0.59.0
+   Compiling designos-fonts v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-render)
+   Compiling designos-svg v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-svg)
+   Compiling designos-export v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-export)
+   Compiling designos-webcapture v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-fig)
+   Compiling designos-library v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-library)
+warning: field `1` is never read
+  --> crates/designos-mcp/tests/mcp_paths.rs:19:25
+   |
+19 | struct TempDir(PathBuf, RwLockReadGuard<'static, ()>);
+   |        -------          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-mcp` (test "mcp_paths") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.98s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+
+running 20 tests
+test export_fig_rules_list_both_file_exists_and_internal_error ... FAILED
+test export_fig_refuses_folder ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test export_fig_refuses_symlink_inside_workspace ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test argument_errors_never_echo_outside_paths_in_corrected_example_or_received ... FAILED
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted ... FAILED
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+test new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes ... FAILED
+test concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json ... FAILED
+test file_planted_during_no_overwrite_export_is_never_overwritten ... FAILED
+test partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry ... FAILED
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+test trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first ... FAILED
+
+failures:
+
+---- export_fig_rules_list_both_file_exists_and_internal_error stdout ----
+
+thread 'export_fig_rules_list_both_file_exists_and_internal_error' (47039331) panicked at crates/designos-mcp/tests/mcp_paths.rs:677:5:
+designos_export_fig_file rules must list INTERNAL_ERROR: ["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- argument_errors_never_echo_outside_paths_in_corrected_example_or_received stdout ----
+
+thread 'argument_errors_never_echo_outside_paths_in_corrected_example_or_received' (47039323) panicked at crates/designos-mcp/tests/mcp_paths.rs:695:9:
+designos_render_png {"bogus":1,"node_id":1,"path":"/etc/SECRETNAME.png"} leaked outside path in argument error reply: {"resultType":"complete","content":[{"type":"text","text":"{\"code\":\"UNKNOWN_FIELD\",\"corrected_example\":{\"bogus\":1,\"node_id\":1,\"path\":\"/etc/SECRETNAME.png\"},\"error\":{\"code\":\"UNKNOWN_FIELD\",\"corrected_example\":{\"bogus\":1,\"node_id\":1,\"path\":\"/etc/SECRETNAME.png\"},\"message\":\"Unknown field `bogus`\",\"next_step\":\"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.\",\"path\":\"/bogus\",\"received\":\"bogus\",\"safe_to_retry\":true,\"valid_options\":[\"path\",\"scale\",\"node_id\"]},\"message\":\"Unknown field `bogus`\",\"next_step\":\"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.\",\"path\":\"/bogus\",\"received\":\"bogus\",\"safe_to_retry\":true,\"valid_options\":[\"path\",\"scale\",\"node_id\"]}"}],"structuredContent":{"code":"UNKNOWN_FIELD","corrected_example":{"bogus":1,"node_id":1,"path":"/etc/SECRETNAME.png"},"error":{"code":"UNKNOWN_FIELD","corrected_example":{"bogus":1,"node_id":1,"path":"/etc/SECRETNAME.png"},"message":"Unknown field `bogus`","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"/bogus","received":"bogus","safe_to_retry":true,"valid_options":["path","scale","node_id"]},"message":"Unknown field `bogus`","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"/bogus","received":"bogus","safe_to_retry":true,"valid_options":["path","scale","node_id"]},"isError":true}
+
+---- in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted stdout ----
+
+thread 'in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted' (47039337) panicked at crates/designos-mcp/tests/mcp_paths.rs:662:33:
+save_file via alias (/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.5CFWqD/designos-mcp-paths-ws-r2-alias-34584-1792901758203223000-14/alias/alias.designos) must succeed: {"code":"PATH_OUTSIDE_WORKSPACE","error":{"code":"PATH_OUTSIDE_WORKSPACE","message":"Path must stay inside the configured workspace","next_step":"Pass a relative path inside the active workspace.","path":"/path","safe_to_retry":true},"message":"Path must stay inside the configured workspace","next_step":"Pass a relative path inside the active workspace.","path":"/path","safe_to_retry":true}
+
+---- new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes stdout ----
+
+thread 'new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes' (47039338) panicked at crates/designos-mcp/tests/mcp_paths.rs:608:9:
+assertion `left == right` failed: a.designos mode was 600, expected 644 (not 0600)
+  left: 384
+ right: 420
+
+---- concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json stdout ----
+
+thread 'concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json' (47039325) panicked at crates/designos-mcp/tests/mcp_paths.rs:497:5:
+assertion `left == right` failed: two concurrent no-overwrite saves must never both succeed (both_ok=298/300)
+  left: 298
+ right: 0
+
+---- file_planted_during_no_overwrite_export_is_never_overwritten stdout ----
+
+thread 'file_planted_during_no_overwrite_export_is_never_overwritten' (47039336) panicked at crates/designos-mcp/tests/mcp_paths.rs:535:5:
+assertion `left == right` failed: a file planted between check and write must never be overwritten without overwrite: true (lost=276/300)
+  left: 276
+ right: 0
+
+---- partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry stdout ----
+
+thread 'partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry' (47039351) panicked at crates/designos-mcp/tests/mcp_paths.rs:577:5:
+failed write must not leave a partial new.designos on disk
+
+---- trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first stdout ----
+
+thread 'trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first' (47039354) panicked at crates/designos-mcp/tests/mcp_paths.rs:716:41:
+trailing slash must be refused as folder: Object {"bytes": Number(22756), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.5CFWqD/designos-mcp-paths-ws-r2-nits-34584-1792901762842193000-21/x.fig"), "path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.5CFWqD/designos-mcp-paths-ws-r2-nits-34584-1792901762842193000-21/x.fig"), "saved": Bool(true)}
+
+
+failures:
+    argument_errors_never_echo_outside_paths_in_corrected_example_or_received
+    concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json
+    export_fig_rules_list_both_file_exists_and_internal_error
+    file_planted_during_no_overwrite_export_is_never_overwritten
+    in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted
+    new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes
+    partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry
+    trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first
+
+test result: FAILED. 12 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.65s
+
+error: test failed, to rerun pass `-p designos-mcp --test mcp_paths`

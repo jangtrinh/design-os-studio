@@ -1,0 +1,114 @@
+$ cargo test -p designos-mcp --test spec_errors --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.96s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 6 tests
+test round3_nested_spec_errors_carry_path_from_root ... FAILED
+test round3_f32_overflow_and_comments_parity_with_serde ... FAILED
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... FAILED
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... FAILED
+test round3_set_slot_bad_slot_reports_slot_field ... FAILED
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... FAILED
+
+failures:
+
+---- round3_nested_spec_errors_carry_path_from_root stdout ----
+
+thread 'round3_nested_spec_errors_carry_path_from_root' (52381226) panicked at crates/designos-mcp/tests/spec_errors.rs:160:5:
+expected nested path in "Invalid arguments: padding must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- round3_f32_overflow_and_comments_parity_with_serde stdout ----
+
+thread 'round3_f32_overflow_and_comments_parity_with_serde' (52381225) panicked at crates/designos-mcp/tests/spec_errors.rs:175:5:
+expected 'x must be a finite number' in "Invalid arguments: x must be a number. Pass a numeric coordinate in pixels."
+
+---- round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec stdout ----
+
+thread 'round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec' (52381224) panicked at crates/designos-mcp/tests/spec_errors.rs:265:10:
+batch apply_spec with layout: [] must fail: Object {"changed": Object {"deleted": Number(0), "inserted": Number(1), "moved": Number(0), "styles": Number(0), "updated": Number(0), "variables": Number(0)}, "created": Array [Number(2)], "created_count": Number(1), "dry_run": Bool(false), "issues": Array [], "issues_total": Number(0), "issues_truncated": Bool(false), "name_to_id": Object {"Hero": Number(2)}, "touched_bounds": Object {"height": Number(100.0), "width": Number(200.0), "x": Number(0.0), "y": Number(0.0)}, "touched_roots": Array [Object {"bounds": Object {"height": Number(100.0), "width": Number(200.0), "x": Number(0.0), "y": Number(0.0)}, "node_id": Number(2), "op": Number(0)}], "undo_label": String("Agent: designos-mcp")}
+
+---- round3_set_slot_bad_child_field_in_fill_reports_nested_path stdout ----
+
+thread 'round3_set_slot_bad_child_field_in_fill_reports_nested_path' (52381227) panicked at crates/designos-mcp/tests/spec_errors.rs:135:5:
+expected 'fill/0/width must be a number or a "var:..." string' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+---- round3_set_slot_bad_slot_reports_slot_field stdout ----
+
+thread 'round3_set_slot_bad_slot_reports_slot_field' (52381229) panicked at crates/designos-mcp/tests/spec_errors.rs:83:9:
+for {"fill":[{"kind":"text","text":"Body"}],"node":2,"op":"set_slot","slot":5}, expected 'slot must be a string' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+---- round3_set_slot_bad_child_item_in_fill_reports_child_path stdout ----
+
+thread 'round3_set_slot_bad_child_item_in_fill_reports_child_path' (52381228) panicked at crates/designos-mcp/tests/spec_errors.rs:112:5:
+expected 'fill/0 must be a NodeSpec object' in "op #0 (set_slot) failed: Invalid arguments: fill must be a string. Pass a string value."
+
+
+failures:
+    round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec
+    round3_f32_overflow_and_comments_parity_with_serde
+    round3_nested_spec_errors_carry_path_from_root
+    round3_set_slot_bad_child_field_in_fill_reports_nested_path
+    round3_set_slot_bad_child_item_in_fill_reports_child_path
+    round3_set_slot_bad_slot_reports_slot_field
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --test spec_errors`
+
+$ cargo test -p designos-app --bin designos --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.70s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... FAILED
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... FAILED
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... FAILED
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... FAILED
+
+failures:
+
+---- icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix' (52386431) panicked at crates/designos-app/src/main.rs:783:9:
+user-facing CLI error must not include internal code prefix: "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_unk_12100/spec.json: UNKNOWN_FIELD: unknown field `colour` (valid_options: slots, layout, props, col_span, fill)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- icon_tests::round3_cli_apply_spec_reports_nested_path stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_reports_nested_path' (52386430) panicked at crates/designos-app/src/main.rs:748:9:
+expected nested path in "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_nested_12100/spec.json: padding must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+
+---- icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message stdout ----
+
+thread 'icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message' (52386429) panicked at crates/designos-app/src/main.rs:800:9:
+expected finite-number message in "Invalid NodeSpec JSON in /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OI1g15/designos_rt07_r3_ovf_12100/spec.json: x must be a number. Pass a numeric coordinate in pixels."
+
+---- icon_tests::round3_cli_apply_spec_refuses_duplicate_keys stdout ----
+{
+  "root_node_id": 2,
+  "saved": true
+}
+
+thread 'icon_tests::round3_cli_apply_spec_refuses_duplicate_keys' (52386428) panicked at crates/designos-app/src/main.rs:766:51:
+duplicate JSON keys must be refused: ()
+
+
+failures:
+    icon_tests::round3_cli_apply_spec_refuses_duplicate_keys
+    icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message
+    icon_tests::round3_cli_apply_spec_reports_nested_path
+    icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

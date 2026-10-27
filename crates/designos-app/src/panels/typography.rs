@@ -4,6 +4,7 @@
 
 use super::properties::{open_picker, row_end, PickTarget};
 use super::properties::{segmented, Pane};
+use super::style_picker;
 use super::var_bind;
 use crate::app::App;
 use crate::canvas::textsession as ts;
@@ -185,6 +186,14 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     mr.clone().on_hover_text("More type settings");
     if mr.clicked() {
         ui.data_mut(|d| d.insert_temp(more_id, !more));
+    }
+
+    // Text style: the "Style" button left of "Type settings" (its menu ends at the right edge of the
+    // title row's last button), and the row of the style the layer is linked to above the type rows.
+    let style_btn = Rect::from_min_size(Pos2::new(tb.left() - theme::SPACE_FACT - theme::PANEL_ACTION_BUTTON, tb.top()), tb.size());
+    style_picker::style_button(app, ui, sel, StyleProperty::Text, style_btn, mb.right());
+    if let Some(key) = style_picker::linked_style(app, sel, StyleProperty::Text) {
+        style_picker::linked_row(app, ui, pane, sel, StyleProperty::Text, &key);
     }
 
     // ---- family

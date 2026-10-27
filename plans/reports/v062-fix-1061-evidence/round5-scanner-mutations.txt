@@ -1,0 +1,26 @@
+mut-write-to-dev-null-counts: test result: FAILED. 22 passed; 2 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.58s
+    FAILED bypass_tests::text_with_an_arrow_an_angle_pair_a_character_or_a_write_to_dev_null_is_not_taken_for_a_redirect
+    FAILED every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+mut-hyphen-is-not-a-word-char: test result: FAILED. 22 passed; 2 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.69s
+    FAILED bypass_tests::text_with_an_arrow_an_angle_pair_a_character_or_a_write_to_dev_null_is_not_taken_for_a_redirect
+    FAILED every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+mut-only-session-receivers: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.51s
+    FAILED bypass_tests::a_name_joined_to_a_job_or_plugin_folder_or_after_another_join_must_be_a_known_session_file_name
+mut-channel-counts-as-session: test result: FAILED. 22 passed; 2 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.53s
+    FAILED bypass_tests::a_name_joined_in_the_private_channel_folder_or_below_a_known_subfolder_is_not_reported
+    FAILED every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+mut-subfolder-names-ignored: test result: FAILED. 22 passed; 2 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.66s
+    FAILED bypass_tests::a_name_joined_in_the_private_channel_folder_or_below_a_known_subfolder_is_not_reported
+    FAILED every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+mut-self-gated-file-ships-when-declared: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.59s
+    FAILED scanner_tests::a_file_that_gates_itself_with_an_inner_cfg_test_is_skipped_even_when_a_shipped_module_declares_it
+mut-field-ends-at-enclosing-brace-only: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.73s
+    FAILED scanner_tests::a_cfg_test_on_a_match_arm_does_not_hide_the_arm_after_it
+mut-an-inner-cfg-test-gates-the-file-at-any-depth: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.58s
+    FAILED scanner_tests::an_inner_cfg_test_inside_an_inline_module_does_not_hide_the_rest_of_the_file
+mut-all-splits-at-every-comma: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.67s
+    FAILED scanner_tests::a_cfg_all_whose_own_argument_is_an_any_with_test_in_it_is_not_test_only
+mut-an-item-runs-past-its-enclosing-brace: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.50s
+    FAILED scanner_tests::a_cfg_test_on_a_field_does_not_hide_the_code_after_its_struct
+mut-with-file-name-is-not-read: test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 3202 filtered out; finished in 11.58s
+    FAILED bypass_tests::a_name_joined_to_a_job_or_plugin_folder_or_after_another_join_must_be_a_known_session_file_name

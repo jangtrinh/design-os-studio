@@ -43,21 +43,23 @@ pub fn read_run_manifest(session_dir: &Path) -> Option<RunSkillManifest> {
 }
 
 /// Appends `record` to `<session_dir>/run.json` and returns the file's path. A file that exists but is not a manifest
-/// (hand-edited, or written by another version) is kept as `run.unreadable.json` instead of being overwritten.
+/// (hand-edited, written by another version, or not a plain file) is kept as `run.unreadable.json` instead of being overwritten.
+/// Both files are reached through the session folder's handle, so a link planted at either name is never followed.
 pub fn append_run_record(session_dir: &Path, record: RunSkillRecord) -> Result<PathBuf, String> {
-    let _ = std::fs::create_dir_all(session_dir);
+    use crate::agent_session_files::{atomic_write_session_file, read_session_file, rename_session_file, with_next_step};
     let path = run_path(session_dir);
-    let mut manifest = match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str::<RunSkillManifest>(&raw).unwrap_or_else(|_| {
-            let kept = session_dir.join("run.unreadable.json");
-            let _ = std::fs::rename(&path, kept);
-            RunSkillManifest::default()
-        }),
-        Err(_) => RunSkillManifest::default(),
+    let keep_aside = || {
+        let _ = rename_session_file(&path, &session_dir.join("run.unreadable.json"));
+        RunSkillManifest::default()
+    };
+    let mut manifest = match read_session_file(&path) {
+        Ok(raw) => serde_json::from_slice::<RunSkillManifest>(&raw).unwrap_or_else(|_| keep_aside()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => RunSkillManifest::default(),
+        Err(_) => keep_aside(),
     };
     manifest.runs.push(record);
     let bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
-    designos_library::write_atomic(&path, &bytes).map_err(|e| format!("write {}: {e}", path.display()))?;
+    atomic_write_session_file(&path, &bytes).map_err(|e| with_next_step(&e))?;
     Ok(path)
 }
 

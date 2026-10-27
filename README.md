@@ -136,7 +136,24 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.1, a short list. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.3. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v063"></a>
+### 0.6.3
+
+- **Agents panel.** Hook outputs (`agent-status.json`, `agent-events.jsonl`, `turn-marks.jsonl`, `claude-transcript.json`) and Claude's prompt-hook replies live in a Studio-private `hook-out` folder outside the session folder, `$TMPDIR`, `/tmp`, `/var/tmp` and every folder an agent CLI is granted, and the turn-mark hook reads `doc-patch.jsonl` size with `stat -L` instead of opening it.
+- **CLI and MCP.** `--screenshot` on a missing, empty or corrupt file exits 1 with an error message and writes no PNG. `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` report invalid `NodeSpec` fields in plain words instead of serde type errors, and the docs note that Ask covers agent tabs started from Studio while your own `designos` CLI and external `designos-mcp` hosts approve their own calls.
+- **Linux.** Home › `Import` opens the file chooser when `org.freedesktop.portal.Desktop` starts on first use or when `zenity` is installed, and when no file dialog can open it names the cause and offers `Enter a path…`.
+
+<a id="new-in-v062"></a>
+### 0.6.2
+
+- **Agents panel.** Ask-mode approvals, Claude's hooks and MCP config, and session folders for unsaved files live in Studio's own data folder, and Studio and `designos-mcp` refuse links and FIFOs in session files. The skill and agent files no longer include the document or page name.
+- **Gemini, Grok and Antigravity.** Gemini CLI tabs in Ask mode show `Needs approval` with an `Open tab` button and hold the composer while Gemini's confirmation prompt is on screen. Ask-mode Grok and Antigravity tabs move non-Studio session configs aside before starting, and Grok never evaluates a `.envrc`.
+- **Styles and Properties.** Create a text style from a text layer in the Typography section (`Create text style`), pick styles from enabled libraries when the file has none of its own, and export a page from the page panel's Export section.
+- **Components and Dev Mode.** Syncing a main component keeps its instances' own layer names. Dev Mode keeps each code line on one row with horizontal scrolling, grows the MCP prompt box to fit, and escapes `\`, `"`, `\(` and control characters in SwiftUI strings.
+- **Command palette.** Rename layers semantically and Boost resolution take about a second per click on a very large page, where they took about four.
+- **CLI and MCP.** `designos-diff --version` prints the version. MCP file writes (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) refuse links, control or bidi characters, and names over 255 bytes; `designos_export_fig_file` refuses an existing file unless `overwrite` is set; and outside-workspace errors no longer echo the path.
 
 <a id="new-in-v061"></a>
 ### 0.6.1
@@ -219,7 +236,7 @@ Screenshots below are headless captures from the v0.6.0 macOS build on a copy of
   The new-session picker reads each CLI's version and sign-in state from the machine that took the capture. A live session is not shown.</sub>
 </p>
 
-The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. Agents ask before acting by default, and Preferences > Agent permissions… switches to Skip permissions. In Ask mode, Claude Code's requests to run a command show as Approve or Deny in the panel. The other CLIs ask in their own tab.
+The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `codex`, `grok`, `agy`, `gemini`, or a command you add) as a live session on the open file, in a real `portable-pty` + `vt100` terminal tab (`crates/designos-app/src/terminal.rs`). Opening the panel resumes the file's last session, and a file keeps its sessions after a restart. The composer sends into the tab's live session. A chip hands the current selection to the agent, `@` mentions a layer, page, component, variable or style, and each turn ends with a receipt. Review what an agent changed and keep it or revert it in one undo step, or stop one agent or all of them. Agents read and change the file through the local `designos-mcp` server. Agents ask before acting by default, and Preferences > Agent permissions… switches to Skip permissions. In Ask mode, Claude Code's requests to run a command show as Approve or Deny in the panel. The other CLIs ask in their own tab. Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
 
 ### Pillar 2 — Variables, Multi-Edit (`Q`) & Suggest Auto-Layout
 
@@ -583,8 +600,8 @@ design-os-studio/
 ### Known issues
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
-- On very large pages (100,000 layers or more), Rename layers semantically and Boost resolution in the command palette can take several seconds ([#993](https://github.com/jangtrinh/design-os-studio/issues/993)). The next release addresses this first.
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
+- The Windows test suite is advisory for 0.6.3. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use

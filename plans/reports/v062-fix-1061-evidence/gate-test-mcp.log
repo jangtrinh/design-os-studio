@@ -1,0 +1,399 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.04s
+     Running unittests src/lib.rs (out/cargo-1061/debug/deps/designos_mcp-bccb00bdb05568d2)
+
+running 228 tests
+test engine::tests::a_failed_apply_spec_leaves_variables_and_undo_depth_untouched ... ok
+test component_cycle_tests::a_batch_move_into_a_main_the_layer_holds_an_instance_of_is_refused ... ok
+test engine::tests::crud_round_trips_through_undo_and_redo ... ok
+test engine::tests::apply_spec_refuses_an_instance_that_would_make_a_main_hold_itself ... ok
+test engine::tests::engine_exec_applies_the_boundary ... ok
+test engine::tests::get_document_lists_shared_effect_and_grid_styles_and_nodes_carry_their_links ... ok
+test component_cycle_tests::a_batch_move_that_holds_nothing_still_moves ... ok
+test engine::tests::mcp_delete_default_mirror_is_kept_deleted ... ok
+test engine::tests::invalid_mutations_leave_document_and_history_unchanged ... ok
+test engine::tests::mcp_apply_spec_into_instance_slot_survives ... ok
+test engine::tests::apply_spec_commits_variables_with_the_nodes_and_reports_them ... ok
+test component_cycle_tests::a_spec_instance_swap_property_that_would_make_a_main_hold_itself_makes_no_cycle ... ok
+test engine::tests::mcp_insert_into_instance_slot_survives_main_edit ... ok
+test engine::tests::mcp_lint_page_with_extras_marks_truncated_from_node_and_style_findings ... ok
+test component_cycle_tests::the_agent_tools_read_and_edit_a_document_that_already_holds_itself ... ok
+test engine::tests::mcp_lint_rules_list_accepts_broken_style_binding ... ok
+test engine::tests::mcp_lint_broken_style_binding_appears_once_across_budgeted_chunks_with_consistent_totals ... ok
+test engine::tests::mcp_lint_broken_style_binding_follows_the_active_preset ... ok
+test engine::tests::recording_a_marked_insert_does_not_clone_the_document ... ok
+test engine::tests::name_filter_pagination_and_code_generation ... ok
+test engine::tests::mcp_generate_code_ids_match_dropdown ... ok
+test engine::tests::mcp_lint_budgeted_chunk_pagination_preserves_all_findings_and_invalidates_on_doc_swap ... ok
+test engine::tests::same_findings_three_callers ... ok
+test engine::tests::undoing_a_marked_slot_insert_restores_slot_overrides_without_wiping_editor_overrides ... ok
+test engine::tests::spec_and_comments_workflow_round_trips ... ok
+test engine::tests::variable_inspection_and_codegen_resolve_inherited_cross_collection_aliases ... ok
+test prompts::tests::empty_document_reports_empty_sections ... ok
+test prompts::tests::alias_resolves_across_collections_with_distinct_mode_ids ... ok
+test prompts::tests::every_token_names_its_source ... ok
+test prompts::tests::rules_from_fixture ... ok
+test engine::tests::mcp_lint_error_contracts_and_history_fix ... ok
+test prompts::tests::truncation_is_marked ... ok
+test engine::tests::no_duplicate_language_list ... ok
+test rules::tests::every_dispatched_alias_canonicalises_to_a_listed_tool ... ok
+test rules::tests::disabling_a_tool_removes_its_section ... ok
+test rules::tests::prompt_resource_tool_identical ... ok
+test rules::tests::purpose_summary_never_ends_inside_a_token ... ok
+test rules::tests::session_skill_matches_rules ... ok
+test rules::tests::studio_never_persists_the_default_list ... ok
+test rules::tests::the_session_skill_frontmatter_is_exactly_a_name_and_a_fixed_description ... ok
+test engine::tests::apply_spec_slots_issues_and_fig_round_trip ... ok
+test rules::tests::the_session_skill_points_at_the_open_file_and_page_without_naming_them ... ok
+test rules::tests::edge_cases_template_validation_read_only_and_disabled_tool_errors ... ok
+test rules::tests::the_session_skill_template_and_rules_pack_hold_no_at_path ... ok
+test rules::tests::tool_disabled_next_step_points_at_the_config_file ... ok
+test engine::tests::apply_spec_instance_round_trips_designos_and_fig_and_exports_spec ... ok
+test rules::tests::tools_added_after_the_snapshot_are_enabled ... ok
+test rules::tests::the_session_skill_template_and_rules_pack_hold_no_shell_placeholder ... ok
+test rules::tests::yaml_double_quoted_turns_any_text_into_one_scalar_that_reads_back_whole ... ok
+test rules::tests::rules_under_token_budget ... ok
+test rules::tests::a_tool_added_after_the_session_was_written_is_listed_and_callable ... ok
+test rules::tests::drift_check_fails_on_schema_change ... ok
+test server::idempotency_tests::a_reconnect_refuses_an_edit_log_from_a_newer_build_and_keeps_the_canvas ... ok
+test server::idempotency_tests::a_newer_line_before_the_last_switch_does_not_block_the_reconnect ... ok
+test server::idempotency_tests::a_reconnect_replays_a_version_one_edit_log ... ok
+test rules::tests::create_and_update_list_the_variable_errors_and_say_fill_takes_a_var_reference ... ok
+test engine::tests::mcp_lint_returns_full_rule_set ... ok
+test engine::tests::apply_spec_library_instance_into_slot_replays_imported_main_component_in_live_patch ... ok
+test engine::tests::export_fig_file_reports_the_comment_threads_a_fig_leaves_out ... ok
+test server::idempotency_tests::a_malformed_idempotency_key_gets_the_full_arguments_as_its_corrected_example ... ok
+test server::idempotency_tests::images_rerendered_is_only_flagged_when_the_rerender_succeeded ... ok
+test server::idempotency_tests::reconnect_without_canvas_replays_the_patch_log ... ok
+test server::idempotency_tests::reconnect_without_document_or_patch_state_is_stale ... ok
+test server::idempotency_tests::ledger_survives_reconnect_over_a_lagging_canvas ... ok
+test server::idempotency_tests::replayed_diff_uses_the_before_image_of_its_own_write ... ok
+test engine::tests::create_node_finishes_the_layout_it_started ... ok
+test engine::tests::update_node_finishes_the_layout_it_started ... ok
+test server::idempotency_tests::unabsorbed_patches_keeps_only_lines_after_the_last_switch_made_on_this_snapshot ... ok
+test server::idempotency_tests::reconnect_replays_pending_update_and_delete_patches ... ok
+test server::tests::an_oversized_patch_line_is_refused ... ok
+test rules::tests::worked_examples_conform_to_tool_schemas_and_dispatch ... ok
+test server::idempotency_tests::reconnect_when_both_canvas_and_patch_hold_node_does_not_duplicate ... ok
+test server::tests::a_failed_patch_write_undoes_the_edit_and_reports_it ... ok
+test server::idempotency_tests::a_canvas_newer_than_the_write_is_still_a_studio_undo ... ok
+test engine::tests::apply_spec_finishes_the_layout_it_started ... ok
+test server::idempotency_tests::a_canvas_written_before_the_agents_append_is_not_taken_for_a_studio_undo ... ok
+test server::idempotency_tests::a_different_document_does_not_resurrect_a_key_the_agent_undid ... ok
+test server::idempotency_tests::a_scoped_canvas_that_leaves_out_every_applied_key_keeps_them_stale ... ok
+test server::idempotency_tests::reconnect_does_not_reapply_absorbed_patches_after_user_edit ... ok
+test server::tests::delete_key_replays_only_while_gone ... ok
+test server::tests::layout_dir_alias_builds_the_frame_and_a_typo_is_still_named ... ok
+test server::tests::mcp_without_a_session_dir_has_no_live_paths ... ok
+test server::tests::key_reuse_with_changed_payload_refused ... ok
+test server::tests::errors_not_stored ... ok
+test server::tests::ledger_cleared_on_document_switch ... ok
+test server::tests::diff_image_reply_strips_base64_in_ledger_and_rerenders_on_replay ... ok
+test server::tests::new_write_after_undo_kills_undone_key ... ok
+test server::tests::release_tool_errors_keep_their_own_code_and_valid_options ... ok
+test server::tests::redo_makes_key_valid_again ... ok
+test server::idempotency_tests::an_mcp_undone_key_stays_dead_after_a_studio_undo_and_a_reconnect ... ok
+test server::tests::repaired_node_graph_is_refused_but_a_stale_id_counter_is_accepted ... ok
+test server::idempotency_tests::scoped_canvas_omission_keeps_the_key_stale ... ok
+test server::tests::reconnect_after_node_deleted_is_stale ... ok
+test server::tests::ledger_survives_reconnect ... ok
+test server::tests::canvas_echo_replays_without_duplicate ... ok
+test server::tests::replay_after_created_node_deleted_is_stale ... ok
+test server::idempotency_tests::studio_undo_is_remembered_across_a_reconnect ... ok
+test server::idempotency_tests::studio_undo_lets_the_retry_run_as_a_new_write ... ok
+test server::tests::open_file_announce_failure_is_not_retry_safe ... ok
+test server::tests::reloaded_entry_without_checkable_ids_is_stale ... ok
+test server::tests::tools_list_validates_against_mcp_2025_11_25 ... ok
+test server::tests::ledger_cleared_on_canvas_reload ... ok
+test server::tests::reloaded_key_follows_presence_not_depth ... ok
+test server::tests::undo_second_write_keeps_first_key_valid ... ok
+test server::tests::unknown_spec_field_is_named ... ok
+test server::tests::same_key_same_payload_applies_once ... ok
+test server::tests::transcript_logging_failure_fails_call ... ok
+test tools::batch::tests::batch_apply_spec_in_progress_without_run_id_gets_the_writer_run_id ... ok
+test server::tests::undo_then_same_key_is_refused_not_replayed ... ok
+test tools::batch::tests::batch_is_one_undo_step ... ok
+test tools::batch::tests::apply_spec_op_with_easeui_token_commits_collection_and_one_undo_removes_both ... ok
+test tools::batch::tests::batch_flag_and_clear_on_run_end ... ok
+test server::tests::every_code_has_a_fixture ... ok
+test tools::batch::tests::dry_run_matches_commit ... ok
+test tools::batch::tests::failed_last_op_leaves_document_identical ... ok
+test tools::batch::tests::lease_guard_enforced_on_set_style_and_set_variables ... ok
+test tools::batch::tests::dry_run_diff_leaves_document ... ok
+test tools::batch::tests::delete_node_captures_before_bounds ... ok
+test tools::batch::tests::multi_page_batch_caps_at_four_pages ... ok
+test tools::batch::tests::colour_change_highlights_only_the_rect ... ok
+test tools::batch::tests::noop_batch_reports_zero ... ok
+test tools::batch::tests::noop_batch_returns_zero_changed_pixels ... ok
+test tools::batch::tests::not_root_refused ... ok
+test server::tests::unknown_field_nested_paths_and_corrected_examples_pass_when_resent ... ok
+test server::tests::safe_to_retry_false_only_when_state_changed ... ok
+test server::tests::scoped_session_syncs_current_page_and_writes_doc_patch ... ok
+test tools::batch::tests::move_includes_both_positions ... ok
+test tools::batch::tests::refs_to_earlier_ops ... ok
+test tools::batch::tests::mcp_set_in_progress_goes_stale_after_15_minutes_without_env_run_id ... ok
+test tools::batch::tests::move_node_unions_old_and_new_bounds ... ok
+test tools::batch::tests::undo_does_not_touch_flag ... ok
+test tools::batch::tests::unknown_ref_rejected_before_run ... ok
+test tools::bootstrap::tests::errors_on_out_of_range_and_missing_node ... ok
+test tools::bootstrap::tests::app_state_tool_matches_studio_block ... ok
+test tools::batch::tests::recolour_bbox_equals_node_bounds ... ok
+test tools::bootstrap::tests::selection_only_by_explicit_argument ... ok
+test server::tests::retried_document_switch_on_next_edit_does_not_relog_the_edit ... ok
+test tools::batch::tests::one_patch_line_with_label ... ok
+test tools::design_context::tests::duplicate_layer_names_disambiguate_css_selectors_and_skip_hidden_group_descendants ... ok
+test tools::batch::tests::session_dir_batch_with_set_variables_and_set_style_replays_live_patch ... ok
+test server::tests::stale_mark_survives_reconnect ... ok
+test tools::design_context::tests::edge_cases_enclosing_instance_web_syntax_detailed_and_errors ... ok
+test tools::batch::tests::duplicate_sibling_names_use_1_based_suffixes_and_resolve ... ok
+test tools::errors::plain_message_tests::a_json_envelope_is_parsed_instead_of_embedded ... ok
+test tools::errors::plain_message_tests::a_known_code_prefix_and_retry_marker_become_fields ... ok
+test tools::errors::plain_message_tests::a_trailing_valid_options_array_becomes_the_field ... ok
+test tools::errors::plain_message_tests::an_unknown_prefix_keeps_the_whole_message_as_invalid_arguments ... ok
+test tools::errors::plain_message_tests::codes_owned_by_other_tools_keep_their_own_code ... ok
+test tools::errors::plain_message_tests::plain_text_without_a_marker_is_retryable_invalid_arguments ... ok
+test tools::guidelines::tests::archetype_files_validate ... ok
+test tools::guidelines::tests::spec_archetype_and_surface_schema_and_deny_unknown_fields ... ok
+test tools::guidelines::tests::surface_front_matter_parses ... ok
+test tools::guidelines::tests::topic_list_and_unavailable ... ok
+test tools::batch::tests::name_map_resolves_every_named_node ... ok
+test tools::bootstrap::tests::default_session_reports_every_registered_tool_and_the_generated_rules_pack ... ok
+test tools::bootstrap::tests::session_facts_report_the_idempotency_ledger_and_the_session_options ... ok
+test tools::issues::tests::budget_truncates_and_counts ... ok
+test tools::issues::tests::clean_frame_returns_zero_issues ... ok
+test tools::issues::tests::apply_spec_returns_issues_block ... ok
+test tools::issues::tests::budget_caps_large_subtree ... ok
+test tools::issues::tests::errors_only_filters ... ok
+test tools::issues::tests::issues_capped_at_ten_with_total_count ... ok
+test tools::issues::tests::lint_false_skips_lint_pass ... ok
+test tools::batch::tests::large_doc_z_order_reorder_produces_diff_images ... ok
+test tools::issues::tests::off_removes_only_the_block ... ok
+test tools::issues::tests::edge_cases_delete_collapsed_ignored_preexisting_and_skipped_text_rules ... ok
+test tools::issues::tests::sibling_overlap_caught_in_parent_frame ... ok
+test tools::issues::tests::slot_issues_capped_with_total_and_truncated ... ok
+test tools::design_context::tests::structured_json_text_capped_at_100k_chars_with_large_annotations ... ok
+test tools::ledger_tests::re_storing_a_key_replaces_it_without_counting_a_drop ... ok
+test tools::ledger_tests::the_newest_entry_is_kept_even_when_its_reply_alone_exceeds_the_byte_cap ... ok
+test tools::ledger_tests::the_oldest_entries_are_dropped_past_the_entry_cap ... ok
+test tools::issues::tests::options_survive_reconnect ... ok
+test tools::ledger_tests::the_oldest_entries_are_dropped_past_the_reply_byte_cap ... ok
+test tools::issues::tests::slot_issues_absent_when_mode_off_or_lint_false ... ok
+test tools::libraries::tests::missing_enabled_library ... ok
+test tools::issues::tests::slot_issues_warnings_dropped_in_errors_only_mode ... ok
+test tools::bootstrap::tests::a_disabled_tool_is_absent_from_rules_and_enabled_tools ... ok
+test tools::libraries::tests::unreadable_root ... ok
+test tools::metadata::tests::bounds_are_page_space ... ok
+test tools::metadata::tests::budget_truncation_inside_last_child_marks_all_unfinished_ancestors ... ok
+test tools::metadata::tests::budget_truncates ... ok
+test tools::issues::tests::clean_write_returns_empty_issues ... ok
+test tools::metadata::tests::count_equals_subtree_to_depth ... ok
+test tools::metadata::tests::hidden_flagged ... ok
+test tools::issues::tests::clipped_text_named_in_reply ... ok
+test tools::design_context::tests::card_yields_css_hint_and_image ... ok
+test tools::metadata::tests::scope_and_range_errors ... ok
+test tools::metadata::tests::scoped_canvas_shells_emit_children_zero_and_dangling_comment_does_not_false_positive ... ok
+test tools::metadata::tests::xml_parses ... ok
+test tools::query::tests::a_cursor_from_before_an_edit_is_refused_with_a_restart_step ... ok
+test tools::query::tests::a_text_rule_without_a_text_engine_is_rule_unavailable_naming_the_reason ... ok
+test tools::query::tests::argument_errors_keep_their_catalogue_codes_and_paths ... ok
+test tools::query::tests::bare_name_queries_of_the_previous_tool_still_find_nodes_by_name ... ok
+test tools::query::tests::invalid_selector_names_the_selector_path_with_a_corrected_example ... ok
+test tools::query::tests::unknown_page_and_conflicting_scope_are_named_errors ... ok
+test tools::design_context::tests::subtree_over_5000_skips_codegen ... ok
+test tools::screenshot::tests::default_downsizes_to_1024 ... ok
+test tools::screenshot::tests::node_set_union ... ok
+test tools::screenshot::tests::over_cap_is_named ... ok
+test tools::metadata::tests::clipped_text_issue_count ... ok
+test tools::screenshot::tests::png_image_content_at_scale ... ok
+test tools::screenshot::tests::region_crop_matches_rect ... ok
+test tools::screenshot::tests::scoped_flag_tracks_scoped_shells_not_mixed_empty_frames ... ok
+test tools::screenshot::tests::rotated_node_and_scaled_parent_keep_world_transform_and_page_bounds_size ... ok
+test tools::screenshot::tests::amendment_region_long_edge ... ok
+test tools::design_context::tests::over_40k_falls_back_to_xml ... ok
+test tools::metadata::tests::lint_only_checks_emitted_nodes_and_merges_across_writers_without_dropping_rules ... ok
+test tools::query::tests::mcp_query_xpath_uses_render_lint_env_matching_designos_lint_on_wide_glyphs ... ok
+test tools::libraries::tests::disabled_flagged_not_hidden ... ok
+test tools::search_design_system::tests::disabled_excluded ... ok
+test tools::search_design_system::tests::duplicate_component_names_in_same_library_match_local_copy_by_key_only ... ok
+test tools::search_design_system::tests::slot_definitions_included ... ok
+test tools::search_design_system::tests::ambiguous_variable_paths_and_local_vs_library_same_path_emit_var_id_and_paste_into_apply_spec ... ok
+test tools::search_design_system::tests::variable_scope_filter ... ok
+test tools::search_design_system::tests::ranked_with_origin ... ok
+test tools::search_design_system::tests::edge_cases_hidden_vars_300_variants_description_and_fuzzy ... ok
+test tools::libraries::tests::update_available_flag ... ok
+test tools::libraries::tests::lists_every_library_with_counts ... ok
+test tools::search_design_system::tests::result_pastes_into_apply_spec ... ok
+test tools::search_design_system::tests::leftover_disabled_library_and_local_style_name_collisions_resolve_to_searched_assets ... ok
+test tools::design_context::tests::no_whole_document_clone ... ok
+test tools::design_context::tests::bounded_on_large_fixture ... ok
+test engine::tests::readers_that_serialize_or_generate_finish_a_queue_they_find ... ok
+test server::tests::large_open_accepted ... ok
+test engine::tests::engine_exec_does_not_clone_the_document_for_a_flip ... ok
+test tools::metadata::tests::partial_structural_lint_cutoff_preserves_cached_clipped_text_and_respects_first_node_budget ... ok
+test tools::batch::tests::trial_clone_budget_on_large_synthetic ... ok
+
+test result: ok. 228 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.42s
+
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos_mcp-1e8f1c55c5a925a4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gen-tool-docs.rs (out/cargo-1061/debug/deps/gen_tool_docs-ea8ae3246ac98baa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/colour_detach.rs (out/cargo-1061/debug/deps/colour_detach-b2991cf6df768793)
+
+running 11 tests
+test hex_equal_to_the_variable_value_still_detaches_and_reports_a_change ... ok
+test every_fill_binding_and_the_fill_style_link_go_with_the_replaced_paints ... ok
+test linking_a_stroke_style_leaves_the_fill_binding_alone ... ok
+test a_hex_fill_on_a_style_linked_node_drops_the_style_link ... ok
+test hex_fill_on_a_bound_frame_drops_the_binding_and_draws_the_new_colour ... ok
+test hex_fill_on_bound_text_drops_the_binding_and_draws_the_new_colour ... ok
+test one_undo_restores_the_colour_and_the_binding ... ok
+test fills_array_on_a_bound_node_drops_the_binding_too ... ok
+test batch_update_with_a_hex_fill_drops_the_binding ... ok
+test linking_a_fill_style_drops_the_variable_binding_and_one_undo_restores_it ... ok
+test the_detach_reaches_the_open_editor_through_the_edit_log ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/colour_var_library.rs (out/cargo-1061/debug/deps/colour_var_library-38d4c6fa04e68313)
+
+running 1 test
+test a_library_variable_is_refused_with_the_limit_stated_and_no_example_through_the_session ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/colour_var_refs.rs (out/cargo-1061/debug/deps/colour_var_refs-0cb229ebc6a72994)
+
+running 16 tests
+test create_node_with_an_unknown_variable_is_unknown_variable ... ok
+test a_bad_colour_is_still_an_out_of_range_value ... ok
+test with_no_variable_of_the_kind_the_error_offers_none ... ok
+test a_variable_made_earlier_in_the_same_batch_can_be_bound ... ok
+test a_number_variable_is_refused_for_a_colour ... ok
+test an_empty_variable_reference_is_an_unknown_variable_not_a_bad_colour ... ok
+test create_node_binds_a_variable_using_the_parents_mode ... ok
+test a_batch_with_an_unknown_variable_names_the_op_and_changes_nothing ... ok
+test an_unknown_variable_is_reported_as_unknown_variable_with_the_valid_names ... ok
+test a_bound_fill_is_unchanged_when_the_same_variable_is_sent_again ... ok
+test a_var_fill_replaces_an_earlier_binding_and_one_undo_restores_it ... ok
+test batch_update_and_insert_bind_variables_in_one_undo_step ... ok
+test a_variable_without_a_value_in_the_nodes_mode_is_bound_and_the_reply_says_so ... ok
+test an_unknown_variable_is_answered_with_variables_of_the_kind_the_field_takes ... ok
+test a_var_fill_keeps_one_paint_even_when_the_node_had_several ... ok
+test update_node_binds_a_variable_to_a_fill_and_to_text_colour ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/list_lint_rules.rs (out/cargo-1061/debug/deps/list_lint_rules-c7f3e773b00eed89)
+
+running 4 tests
+test vendored_skills_checker_fallback_ids_are_the_registry_ids ... ok
+test vendored_skills_rule_map_targets_registry_ids ... ok
+test list_lint_rules_prints_every_registry_id_once_in_sorted_order ... ok
+test list_lint_rules_never_prints_an_alias ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+     Running tests/live_doc_epoch.rs (out/cargo-1061/debug/deps/live_doc_epoch-3edd95ca95398ce2)
+
+running 3 tests
+test creating_a_document_marks_the_switch_and_each_switch_is_counted ... ok
+test opening_a_file_marks_the_switch_in_the_log_between_the_edits_before_and_after_it ... ok
+test a_switch_the_editor_was_not_told_about_is_reported_and_no_edit_reaches_the_log_before_it_is ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/live_session_guards.rs (out/cargo-1061/debug/deps/live_session_guards-db92954c1e55c6f7)
+
+running 3 tests
+test a_failed_write_to_the_editor_keeps_what_the_agent_can_redo ... ok
+test an_edit_the_editor_never_received_is_rolled_back_and_reported ... ok
+test undo_after_the_editor_rewrote_the_canvas_never_touches_the_editors_nodes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/session.rs (out/cargo-1061/debug/deps/session-94984970815e30ab)
+
+running 10 tests
+test the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path ... ok
+test node_id_without_allocation_headroom_is_refused_on_open ... ok
+test a_missing_file_inside_the_workspace_is_reported_as_missing_not_as_unsaved_changes ... ok
+test open_file_refuses_a_path_outside_the_workspace_before_it_looks_at_unsaved_changes ... ok
+test imported_stale_id_counter_does_not_overwrite_existing_nodes ... ok
+test a_native_file_with_null_numbers_opens_and_the_result_reports_the_repair ... ok
+test paths_and_bad_imports_cannot_replace_the_session ... ok
+test session_writes_and_exports_only_a_finished_layout ... ok
+test exporting_a_fig_reports_the_comment_threads_it_leaves_out ... ok
+test saved_file_roundtrip_and_unsaved_changes_guard ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/spec_text_colour.rs (out/cargo-1061/debug/deps/spec_text_colour-5c1f9526e20a2113)
+
+running 5 tests
+test text_in_a_frame_hidden_before_or_after_is_black_on_white_and_light_on_dark ... ok
+test an_explicit_colour_a_variable_or_a_style_beats_the_contrast_pick_through_apply_spec ... ok
+test the_rules_pack_example_draws_every_text_node_readable_on_the_fill_behind_it ... ok
+test apply_spec_text_without_a_colour_is_black_on_white_and_light_on_a_dark_card ... ok
+test the_shipped_agent_console_spec_draws_every_label_light ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/stdio.rs (out/cargo-1061/debug/deps/stdio-2981640d0099e395)
+
+running 1 test
+test stdio_handshake_discovery_edit_and_error_recovery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/text_fill.rs (out/cargo-1061/debug/deps/text_fill-69ecba9b20de0fe7)
+
+running 7 tests
+test non_text_nodes_keep_writing_their_own_fills ... ok
+test create_reply_serializes_the_red_text_style ... ok
+test create_text_with_fills_array_colours_the_text_style ... ok
+test update_fills_array_on_text_colours_the_text_style ... ok
+test create_text_with_fill_colours_the_text_style ... ok
+test update_text_fill_recolours_the_style_and_its_runs ... ok
+test batch_insert_and_update_colour_the_text_style ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/tools_snapshot.rs (out/cargo-1061/debug/deps/tools_snapshot-eece5487fd8b309c)
+
+running 5 tests
+test stdio_count_follows_snapshot ... ok
+test tool_list_matches_snapshot ... ok
+test docs_blocks_are_current ... ok
+test every_dispatched_tool_is_declared ... ok
+test parity_rows_valid ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/version.rs (out/cargo-1061/debug/deps/version-7b1665a385458f91)
+
+running 3 tests
+test version_is_not_mistaken_for_a_workspace_argument ... ok
+test help_lists_the_version_flag ... ok
+test version_flags_print_the_cargo_version ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests designos_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+mcp exit=0

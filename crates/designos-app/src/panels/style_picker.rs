@@ -1,19 +1,20 @@
-//! Effect and grid styles in the inspector: the "Style" (four dots) button of the Effects and
-//! Layout guide headers with its menu (apply, create, rename, detach, edit), and the row that
-//! stands in for the effect or grid rows while the selection is linked to a style, like Figma's UI3.
+//! Effect, grid and text styles in the inspector: the "Style" (four dots) button of the Effects,
+//! Layout guide and Typography headers with its menu (apply, create, rename, detach, edit), and the
+//! row that shows the style the selection is linked to (in place of the effect or grid rows, above
+//! the type rows), like Figma's UI3.
 
 use super::properties::Pane;
 use super::style_edit;
 use crate::app::App;
 use crate::icons::{self, Icon};
-use crate::styles::{style_entries_of, StyleKind};
+use crate::styles::{shared_text_style, style_entries_of, StyleKind, TYPE_FIRST};
 use crate::theme;
 use crate::widgets::field;
 use crate::widgets::menu::{popup_menu, MenuItem, MenuResult};
 use crate::widgets::{self};
 use designos_doc::*;
 use egui::text::{CCursor, CCursorRange};
-use egui::{Align2, Id, Pos2, Sense, TextEdit, Ui};
+use egui::{Align2, Id, Pos2, Rect, Sense, TextEdit, Ui};
 
 const MENU_W: f32 = 184.0;
 
@@ -50,13 +51,36 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     }
 }
 
+/// Fill and stroke styles have their own buttons, so anything but effect and text is a grid here.
 fn kind_of(prop: StyleProperty) -> StyleKind {
-    if prop == StyleProperty::Effect {
-        StyleKind::Effect
-    } else {
-        StyleKind::Grid
+    match prop {
+        StyleProperty::Effect => StyleKind::Effect,
+        StyleProperty::Text => StyleKind::Text,
+        _ => StyleKind::Grid,
     }
 }
+
+/// Name the linked row and its test records of `prop` start with.
+fn tag(prop: StyleProperty) -> &'static str {
+    match prop {
+        StyleProperty::Effect => "effect-style",
+        StyleProperty::Text => "text-style",
+        _ => "grid-style",
+    }
+}
+
+fn button_key(prop: StyleProperty) -> &'static str {
+    match prop {
+        StyleProperty::Effect => "effect-style-button",
+        StyleProperty::Text => "text-style-button",
+        _ => "grid-style-button",
+    }
+}
+
+/// Why the create row is off for a text layer whose runs differ, and for several layers that differ
+/// from each other: shown as its tooltip.
+const MIXED_TEXT_TIP: &str = "Text has mixed styles";
+const MIXED_SELECTION_TIP: &str = "Selected text has mixed styles";
 
 /// Style of `prop` the first selected node is linked to, when that style exists.
 pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Option<String> {
@@ -64,12 +88,26 @@ pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Op
     app.doc.styles.contains_key(key).then(|| key.clone())
 }
 
-/// Whether the first selected node has effects (or layout grids) to turn into a style.
+/// Whether the first selected node has effects or layout grids to turn into a style.
 fn has_values(app: &App, sel: &[NodeId], prop: StyleProperty) -> bool {
     let Some(n) = sel.first().and_then(|id| app.doc.get(*id)) else { return false };
     match prop {
         StyleProperty::Effect => !n.effects.is_empty(),
         _ => n.kind.frame_props().is_some_and(|f| !f.grids.is_empty()),
+    }
+}
+
+/// Whether the create row is off and, when there is a reason the user can act on, what it is.
+fn create_state(app: &App, sel: &[NodeId], prop: StyleProperty, linked: bool) -> (bool, &'static str) {
+    if linked {
+        return (true, "");
+    }
+    match prop {
+        // A new text box with no text has nothing to make a style from, and ending its session would delete it.
+        StyleProperty::Text if app.is_new_empty_text(sel) => (true, TYPE_FIRST),
+        StyleProperty::Text if shared_text_style(&app.doc, sel).is_none() => (true, if sel.len() > 1 { MIXED_SELECTION_TIP } else { MIXED_TEXT_TIP }),
+        StyleProperty::Text => (false, ""),
+        _ => (!has_values(app, sel, prop), ""),
     }
 }
 
@@ -86,8 +124,11 @@ enum Pick {
 /// Menu rows and, aligned with them, what each one does (None for a disabled placeholder).
 fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>, Vec<Option<Pick>>) {
     let current = linked_style(app, sel, prop);
-    let (none, create) =
-        if prop == StyleProperty::Effect { ("No effect styles", "Create style from effects") } else { ("No grid styles", "Create style from guides") };
+    let (none, create) = match prop {
+        StyleProperty::Effect => ("No effect styles", "Create effect style"),
+        StyleProperty::Text => ("No text styles", "Create text style"),
+        _ => ("No grid styles", "Create grid style"),
+    };
     let mut items = Vec::new();
     let mut picks = Vec::new();
     let mut last_folder: Option<String> = None;
@@ -116,7 +157,8 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     let delete_ro = read_only || current.as_deref().is_some_and(|k| used_on_library_page(&app.doc, k));
     let delete_tip = if delete_ro { style_edit::LIBRARY_STYLE_TIP } else { "" };
     let linked_folder = current.as_deref().map(|k| crate::styles::split_name(app.doc.style_name(k)).0).filter(|f| !f.is_empty());
-    items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
+    let (create_off, create_tip) = create_state(app, sel, prop, linked);
+    items.push(MenuItem::new(create).disabled(create_off).tooltip(create_tip));
     picks.push(Some(Pick::Create));
     items.push(MenuItem::new("Rename style").disabled(!linked || read_only).tooltip(ro_tip));
     picks.push(Some(Pick::Rename));
@@ -135,6 +177,13 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
 #[cfg(test)]
 pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
     menu_model(app, sel, prop).0.pop().expect("the menu always ends with the Edit style row")
+}
+
+/// The create row of the menu, so tests can read its label, state and tooltip.
+#[cfg(test)]
+pub(crate) fn create_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    let (items, picks) = menu_model(app, sel, prop);
+    items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Create)).then_some(item)).expect("the menu always has a create row")
 }
 
 /// The "Rename style" row of the menu, so tests can read its label and state.
@@ -161,8 +210,13 @@ pub(super) fn set_screenshot_hover_tip(on: bool) {
 /// its menu while open.
 pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[NodeId], prop: StyleProperty) {
     let btn = pane.rect(theme::SECTION_TRAILING_X - 28.0, -theme::SECTION_TITLE_HEIGHT + 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+    style_button(app, ui, sel, prop, btn, btn.right());
+}
+
+/// The "Style" button at `btn` and its menu while open; the menu's right edge sits at `menu_right`.
+pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {
     let open = app.props.style_menu == Some(prop);
-    let key = if prop == StyleProperty::Effect { "effect-style-button" } else { "grid-style-button" };
+    let key = button_key(prop);
     widgets::record(ui, key, btn);
     if widgets::icon_button(ui, btn, key, Icon::Styles, open, "Apply style").clicked() {
         app.props.style_menu = (!open).then_some(prop);
@@ -171,7 +225,7 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
         return;
     }
     let (items, picks) = menu_model(app, sel, prop);
-    let pos = Pos2::new(btn.right() - MENU_W, btn.bottom() + 4.0);
+    let pos = Pos2::new(menu_right - MENU_W, btn.bottom() + 4.0);
     if SCREENSHOT_HOVER_TIP.load(std::sync::atomic::Ordering::Relaxed) {
         if let Some((idx, it)) =
             items.iter().enumerate().find(|(i, it)| picks.get(*i).is_some_and(|p| matches!(p, Some(Pick::Apply(_)))) && !it.tooltip.is_empty())
@@ -197,7 +251,10 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
         MenuResult::Picked(i) => {
             app.props.style_menu = None;
             match picks.into_iter().nth(i).flatten() {
-                Some(Pick::Apply(style)) => app.apply_style(sel, &style),
+                Some(Pick::Apply(style)) => app.apply_picked_style(sel, &style),
+                Some(Pick::Create) if prop == StyleProperty::Text => {
+                    app.create_text_style_from(sel);
+                }
                 Some(Pick::Create) => {
                     if let Some(id) = sel.first() {
                         app.create_style_from(*id, prop);
@@ -237,8 +294,8 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
 /// The row of the style `key` the selection is linked to: its name (double click renames) and a
 /// button that detaches it. Leaves `pane` below the row.
 pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], prop: StyleProperty, key: &str) {
-    let tag = if prop == StyleProperty::Effect { "effect-style" } else { "grid-style" };
-    let btn_key = if prop == StyleProperty::Effect { "effect-style-button" } else { "grid-style-button" };
+    let tag = tag(prop);
+    let btn_key = button_key(prop);
     let folder_mode_id = Id::new(("style-folder-rename", btn_key));
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
     widgets::record(ui, &format!("{tag}-row"), row);
@@ -293,4 +350,27 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         app.detach_style_of(sel, prop);
     }
     pane.y += theme::FIELD_HEIGHT + 8.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The create row names the kind of style it makes, with the noun its own empty-state row uses.
+    #[test]
+    fn the_create_row_uses_the_noun_of_the_empty_state_row() {
+        let mut doc = Document::new("t");
+        doc.add_page("p");
+        let app = App::new(doc);
+        for (prop, empty, create) in [
+            (StyleProperty::Effect, "No effect styles", "Create effect style"),
+            (StyleProperty::Text, "No text styles", "Create text style"),
+            (StyleProperty::Grid, "No grid styles", "Create grid style"),
+        ] {
+            let (items, picks) = menu_model(&app, &[], prop);
+            assert_eq!(items[0].label, empty);
+            let at = picks.iter().position(|p| matches!(p, Some(Pick::Create))).expect("every menu has a create row");
+            assert_eq!(items[at].label, create);
+        }
+    }
 }
