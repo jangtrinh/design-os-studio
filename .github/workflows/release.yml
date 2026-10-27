@@ -192,7 +192,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: DESIGN:OS Studio ${{ github.ref_name }}${{ vars.RELEASE_PACK && format(' — {0}', vars.RELEASE_PACK) || '' }}
+          name: ${{ github.ref_name }}
           # Body = hand-written notes from docs/releases/<tag>.md (Highlights/Fixes/Known issues),
           # then generated Downloads table + Checksums. Fails if notes file is missing.
           body_path: dist/RELEASE_NOTES.md

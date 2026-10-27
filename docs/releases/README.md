@@ -2,7 +2,7 @@
 
 Every tag `vX.Y.Z` needs `docs/releases/vX.Y.Z.md` before it is pushed. The Release workflow fails without it.
 
-**Title** (set by the workflow): `DESIGN:OS Studio vX.Y.Z`, plus ` — <Pack name>` when the `RELEASE_PACK` repository variable is set (Settings › Secrets and variables › Actions › Variables). Set it before tagging a pack release and clear it afterwards. Patch releases use ` — <Pack> patch`.
+**Title** (set by the workflow): just the tag, `vX.Y.Z`. No product name or pack name.
 
 **Body:** write only the sections below. The workflow appends Downloads (one row per OS), Checksums (from `SHA256SUMS`) and the full-changelog link.
 
