@@ -653,6 +653,9 @@ impl Session {
     }
 
     fn output_path_allow_overwrite(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/path")?;
+        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -669,6 +672,8 @@ impl Session {
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
                     ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/path", format!("Save directory must already exist: {e}")).with_received(json!(path))
                 }
@@ -693,6 +698,9 @@ impl Session {
     }
 
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/path")?;
+        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -709,6 +717,8 @@ impl Session {
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
                     ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/path", format!("Render directory must already exist: {e}")).with_received(json!(path))
                 }
@@ -733,6 +743,9 @@ impl Session {
     }
 
     fn fig_output_path(&self, path: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
+        if path.trim().is_empty() {
+            crate::engine::validate_output_name(path, "/output_path")?;
+        }
         let requested = self.root.join(path);
         for anc in requested.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
@@ -749,6 +762,8 @@ impl Session {
             .map_err(|e| {
                 if path.contains("..") || Path::new(path).is_absolute() {
                     ToolError::new(ErrorCode::PathOutsideWorkspace, "/output_path", "Path must stay inside the configured workspace")
+                } else if let Err(name_err) = crate::engine::validate_output_name(path, "/output_path") {
+                    name_err
                 } else {
                     ToolError::new(ErrorCode::InvalidArguments, "/output_path", format!("Export directory must already exist: {e}")).with_received(json!(path))
                 }
@@ -2631,6 +2646,12 @@ mod tests {
             true,
         );
         s.engine.disable_text_lint_engine = false;
+
+        // 70. InvalidName (control/bidi/whitespace-only output filename)
+        record(s.call("designos_save_file", json!({"path": "bad\nname.designos"})).unwrap_err(), ErrorCode::InvalidName, true);
+
+        // 71. NameTooLong (output filename component > 255 bytes)
+        record(s.call("designos_save_file", json!({"path": format!("{}.designos", "a".repeat(260))})).unwrap_err(), ErrorCode::NameTooLong, true);
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());

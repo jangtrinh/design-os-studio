@@ -276,18 +276,21 @@ fn file_creation_tools_refuse_control_characters_in_names() {
     for stem in ["line\nbreak", "carriage\rreturn", "bell\x07char", "del\x7fchar"] {
         let save_name = format!("{stem}.designos");
         let err = s.call("designos_save_file", json!({"path": save_name})).expect_err("save_file must refuse control char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{save_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{save_name}: {err}");
         assert_eq!(err.message, format!("{save_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&save_name).exists());
 
         let png_name = format!("{stem}.png");
         let err = s.call("designos_render_png", json!({"path": png_name, "node_id": rect_id})).expect_err("render_png must refuse control char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{png_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{png_name}: {err}");
         assert_eq!(err.message, format!("{png_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&png_name).exists());
 
         let fig_name = format!("{stem}.fig");
         let err = s.call("designos_export_fig_file", json!({"output_path": fig_name})).expect_err("export_fig_file must refuse control char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{fig_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{fig_name}: {err}");
         assert_eq!(err.message, format!("{fig_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&fig_name).exists());
@@ -315,18 +318,21 @@ fn file_creation_tools_refuse_bidi_override_characters_in_names() {
     ] {
         let save_name = format!("{stem}.designos");
         let err = s.call("designos_save_file", json!({"path": save_name})).expect_err("save_file must refuse bidi char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{save_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{save_name}: {err}");
         assert_eq!(err.message, format!("{save_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&save_name).exists());
 
         let png_name = format!("{stem}.png");
         let err = s.call("designos_render_png", json!({"path": png_name, "node_id": rect_id})).expect_err("render_png must refuse bidi char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{png_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{png_name}: {err}");
         assert_eq!(err.message, format!("{png_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&png_name).exists());
 
         let fig_name = format!("{stem}.fig");
         let err = s.call("designos_export_fig_file", json!({"output_path": fig_name})).expect_err("export_fig_file must refuse bidi char");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{fig_name}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{fig_name}: {err}");
         assert_eq!(err.message, format!("{fig_name} has a name with a line break or a direction-control character. Rename it, then try again."));
         assert!(!ws.0.join(&fig_name).exists());
@@ -341,6 +347,7 @@ fn file_creation_tools_refuse_whitespace_only_names_and_accept_vietnamese_and_cj
 
     for bad_name in ["", "   ", "\t", "   .designos", " \u{00A0} .designos", "dir/   .designos", "   /file.designos"] {
         let err = s.call("designos_save_file", json!({"path": bad_name})).expect_err("save_file must refuse whitespace-only name");
+        assert_eq!(err.code, ErrorCode::InvalidName, "{bad_name:?}: {err}");
         assert_eq!(err.code.as_str(), "INVALID_NAME", "{bad_name:?}: {err}");
         assert!(err.corrected_example.is_none(), "{bad_name:?} must not suggest overwrite: {:?}", err.corrected_example);
         if !bad_name.is_empty() {
@@ -371,6 +378,7 @@ fn file_creation_tools_report_name_too_long_instead_of_file_exists() {
         let save_name = format!("{stem}.designos");
         let err = s.call("designos_save_file", json!({"path": save_name})).expect_err("overlong save_file name must fail");
         assert_ne!(err.code, ErrorCode::FileExists, "must not report FILE_EXISTS");
+        assert_eq!(err.code, ErrorCode::NameTooLong, "{err}");
         assert_eq!(err.code.as_str(), "NAME_TOO_LONG", "{err}");
         assert_eq!(err.message, format!("{save_name} has a name longer than 255 bytes. Use a shorter name."));
         assert!(err.corrected_example.is_none(), "NAME_TOO_LONG must not include an overwrite hint: {:?}", err.corrected_example);
@@ -380,6 +388,7 @@ fn file_creation_tools_report_name_too_long_instead_of_file_exists() {
 
     let raw_300 = "a".repeat(300);
     let err = s.call("designos_save_file", json!({"path": raw_300})).expect_err("300-byte raw name must fail with NAME_TOO_LONG");
+    assert_eq!(err.code, ErrorCode::NameTooLong, "{err}");
     assert_eq!(err.code.as_str(), "NAME_TOO_LONG", "{err}");
     assert!(err.corrected_example.is_none());
     assert!(!err.message.contains("overwrite"));
@@ -395,6 +404,7 @@ fn file_creation_tools_report_name_too_long_instead_of_file_exists() {
     let utf8_256 = format!("{}a.designos", "ệ".repeat(82));
     assert_eq!(utf8_256.len(), 256);
     let err = s.call("designos_save_file", json!({"path": utf8_256})).expect_err("256-byte UTF-8 filename must fail with NAME_TOO_LONG");
+    assert_eq!(err.code, ErrorCode::NameTooLong, "{err}");
     assert_eq!(err.code.as_str(), "NAME_TOO_LONG", "{err}");
     assert!(err.corrected_example.is_none());
     assert!(!ws.0.join(&utf8_256).exists());
@@ -403,6 +413,7 @@ fn file_creation_tools_report_name_too_long_instead_of_file_exists() {
     let png_name = format!("{stem}.png");
     let err = s.call("designos_render_png", json!({"path": png_name, "node_id": rect_id})).expect_err("overlong render_png name must fail");
     assert_ne!(err.code, ErrorCode::FileExists, "must not report FILE_EXISTS");
+    assert_eq!(err.code, ErrorCode::NameTooLong, "{err}");
     assert_eq!(err.code.as_str(), "NAME_TOO_LONG", "{err}");
     assert_eq!(err.message, format!("{png_name} has a name longer than 255 bytes. Use a shorter name."));
     assert!(err.corrected_example.is_none());
@@ -410,6 +421,7 @@ fn file_creation_tools_report_name_too_long_instead_of_file_exists() {
     let fig_name = format!("{stem}.fig");
     let err = s.call("designos_export_fig_file", json!({"output_path": fig_name})).expect_err("overlong export_fig_file name must fail");
     assert_ne!(err.code, ErrorCode::FileExists, "must not report FILE_EXISTS");
+    assert_eq!(err.code, ErrorCode::NameTooLong, "{err}");
     assert_eq!(err.code.as_str(), "NAME_TOO_LONG", "{err}");
     assert_eq!(err.message, format!("{fig_name} has a name longer than 255 bytes. Use a shorter name."));
     assert!(err.corrected_example.is_none());
