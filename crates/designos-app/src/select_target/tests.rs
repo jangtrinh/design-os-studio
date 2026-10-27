@@ -211,3 +211,33 @@ fn several_layers_with_one_name_select_the_first_and_say_how_many() {
     assert_eq!(t.node, Some(NodeId(4)), "the first in page order");
     assert_eq!(t.ambiguous, 2);
 }
+
+// The two cases below are #1145's own resolver tests, kept as they were written.
+
+#[test]
+fn duplicate_figma_ids_are_rejected() {
+    let mut doc = Document::new("duplicate figma ids");
+    let page = doc.add_page("Page");
+    for id in [2, 3] {
+        let mut node = Node::new(NodeId(id), designos_doc::NodeKind::Rectangle);
+        node.source_id = Some("12:34".into());
+        doc.insert(page, node).unwrap();
+    }
+    let err = resolve(&mut doc, "fig:12:34").unwrap_err().to_string();
+    assert!(err.contains("ambiguous"), "{err}");
+    assert!(err.contains('2') && err.contains('3'), "{err}");
+}
+
+#[test]
+fn duplicate_names_report_count_while_selecting_first() {
+    let mut doc = Document::new("duplicate names");
+    let page = doc.add_page("Page");
+    for id in [2, 3] {
+        let mut node = Node::new(NodeId(id), designos_doc::NodeKind::Rectangle);
+        node.name = "Card".into();
+        doc.insert(page, node).unwrap();
+    }
+    let target = resolve(&mut doc, "name:Card").unwrap();
+    assert_eq!(target.node, Some(NodeId(2)));
+    assert_eq!(target.ambiguous, 2);
+}

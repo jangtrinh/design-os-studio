@@ -19,9 +19,6 @@ pub mod agent_picker;
 mod agent_presence;
 mod agent_project_config;
 mod agent_sample_prompts;
-#[cfg(test)]
-#[path = "select_target/tests.rs"]
-mod agent_select_resolver_tests;
 mod agent_selection_chip;
 mod agent_session_failure;
 pub mod agent_session_files;
@@ -232,19 +229,6 @@ impl SaveTarget {
     }
 }
 
-pub(crate) fn resolve_select_node(doc: &mut designos_doc::Document, select: Option<&str>) -> Result<select_target::Target, String> {
-    let Some(raw) = select else {
-        return Ok(select_target::Target { node: None, page: None, matched_by: select_target::By::Name, ambiguous: 0 });
-    };
-    if raw.trim().is_empty() {
-        return Err("--select requires a non-empty selector".into());
-    }
-    if raw.trim().eq_ignore_ascii_case("none") {
-        return Ok(select_target::Target { node: None, page: None, matched_by: select_target::By::Name, ambiguous: 0 });
-    }
-    select_target::resolve(doc, raw)
-}
-
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     // An unusable --export-fig target stops the command before it loads, applies or saves anything.
     if let Some(out_path) = &opts.export_fig {
@@ -279,24 +263,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
-    // Resolve --select before any mutating import or save operation. A miss must be side-effect free.
-    let selected_target = resolve_select_node(&mut doc, opts.select.as_deref())?;
-    let selected_node = selected_target.node;
-    if selected_target.ambiguous > 1 {
-        eprintln!(
-            "designos: --select '{}' matched {} layers; selecting the first match (use id:<id> or fig:<id> to disambiguate).",
-            opts.select.as_deref().unwrap_or(""),
-            selected_target.ambiguous
-        );
-    }
-    if selected_target.matched_by == select_target::By::BareId {
-        if let Some(id) = selected_node {
-            eprintln!(
-                "designos: --select {} matched no layer name; selected node id {} (use --select id:{}).",
-                opts.select.as_deref().unwrap_or(""),
-                id.0,
-                id.0
-            );
+    // Resolve --select before anything is imported, applied or saved: a miss must leave the file as it was.
+    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref())?;
+    let selected_node = selected_target.and_then(|t| t.node);
+    if let (Some(target), Some(raw)) = (selected_target, opts.select.as_deref()) {
+        if let Some(note) = target.note(raw.trim()) {
+            eprintln!("designos: {note}");
         }
     }
 
@@ -555,14 +527,15 @@ mod icon_tests {
         node.source_id = Some("12:34".into());
         doc.insert(page, node).unwrap();
 
-        assert_eq!(super::resolve_select_node(&mut doc, Some("id:2")).unwrap().node, Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("fig:12:34")).unwrap().node, Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("name:Card")).unwrap().node, Some(designos_doc::NodeId(2)));
-        assert_eq!(super::resolve_select_node(&mut doc, Some("Card")).unwrap().node, Some(designos_doc::NodeId(2)));
-        assert!(super::resolve_select_node(&mut doc, Some("id:999")).is_err());
-        assert!(super::resolve_select_node(&mut doc, Some("Missing")).is_err());
-        assert_eq!(super::resolve_select_node(&mut doc, Some("none")).unwrap().node, None);
-        assert_eq!(super::resolve_select_node(&mut doc, None).unwrap().node, None);
+        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| super::select_target::resolve_flag(doc, select).map(|t| t.and_then(|t| t.node));
+        assert_eq!(resolve(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert!(resolve(&mut doc, Some("id:999")).is_err());
+        assert!(resolve(&mut doc, Some("Missing")).is_err());
+        assert_eq!(resolve(&mut doc, Some("none")).unwrap(), None);
+        assert_eq!(resolve(&mut doc, None).unwrap(), None);
     }
 
     #[test]
@@ -886,7 +859,7 @@ mod icon_tests {
         ])
         .unwrap();
         let err = super::run_agent_cli(&opts).unwrap_err();
-        assert!(err.contains("No node matches --select"), "{err}");
+        assert!(err.contains("matched no node"), "{err}");
         assert_eq!(std::fs::read(&doc_out).unwrap(), original, "a selector miss must leave the output untouched");
 
         let _ = std::fs::remove_dir_all(&dir);

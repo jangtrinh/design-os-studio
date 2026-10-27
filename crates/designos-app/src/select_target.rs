@@ -1,5 +1,13 @@
-//! Shared CLI/GUI node selector resolver.
-use designos_doc::{Document, NodeId};
+//! The one `--select` resolver, shared by the window, `--screenshot` and the headless agent CLI (#1127).
+//!
+//! Grammar (the prefixes are case-sensitive): `none` selects nothing on purpose, `id:<n>` is a node id, `fig:<id>`
+//! is a Figma id (`Node::source_id`), `name:<text>` is a layer name taken literally, and anything else is a layer
+//! name. A name is looked up as a page, then a page child (screen), then any layer in page-walk order, then
+//! the same walk ignoring case. A bare number that names no layer is a node id. Nothing found is an error: a command
+//! never acts on a node other than the one it was told to.
+use designos_doc::{Document, Node, NodeId};
+mod error;
+pub use error::SelectError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum By {
@@ -15,146 +23,163 @@ pub struct Target {
     pub node: Option<NodeId>,
     pub page: Option<NodeId>,
     pub matched_by: By,
+    /// Layers that matched: 1, unless several share the name.
     pub ambiguous: usize,
 }
 
-fn page_walk(doc: &Document) -> impl Iterator<Item = NodeId> + '_ {
-    doc.pages.iter().copied().flat_map(move |pid| {
-        let mut ids = Vec::new();
-        doc.walk(pid, |n, _| ids.push(n.id));
-        ids.into_iter()
+impl Target {
+    /// What to print on stderr when the selector was resolved by a rule a script may not have meant: a bare number
+    /// read as a node id, or a name shared by several layers.
+    pub fn note(&self, raw: &str) -> Option<String> {
+        let id = self.node?.0;
+        match self.matched_by {
+            By::BareId => Some(format!("--select {raw} matched no layer name; selected node id {id} (use --select id:{id})")),
+            By::Name | By::NameCaseInsensitive if self.ambiguous > 1 => {
+                Some(format!("--select \"{raw}\" matched {} layers; selected id {id} (first in page order; use id:<n> for another)", self.ambiguous))
+            }
+            _ => None,
+        }
+    }
+}
+
+enum Sel<'a> {
+    Id(NodeId),
+    Figma(&'a str),
+    Name(&'a str),
+    Bare(&'a str),
+}
+
+fn parse(s: &str) -> Result<Sel<'_>, SelectError> {
+    let value = |v: &'static str| s.strip_prefix(v).map(|rest| if rest.is_empty() { Err(SelectError::Empty) } else { Ok(rest) });
+    if s.is_empty() {
+        return Err(SelectError::Empty);
+    }
+    if let Some(v) = value("id:") {
+        let digits = v?;
+        return match digits.bytes().all(|b| b.is_ascii_digit()).then(|| digits.parse::<u64>().ok()).flatten() {
+            Some(n) => Ok(Sel::Id(NodeId(n))),
+            None => Err(SelectError::BadId(s.to_string())),
+        };
+    }
+    if let Some(v) = value("fig:") {
+        return Ok(Sel::Figma(v?));
+    }
+    if let Some(v) = value("name:") {
+        return Ok(Sel::Name(v?));
+    }
+    Ok(Sel::Bare(s))
+}
+
+fn for_each_layer(doc: &Document, mut f: impl FnMut(&Node)) {
+    for &page in &doc.pages {
+        doc.walk(page, |n, _| f(n));
+    }
+}
+
+fn hit(doc: &Document, id: NodeId, matched_by: By, ambiguous: usize) -> Target {
+    Target { node: Some(id), page: doc.page_of(id), matched_by, ambiguous }
+}
+
+fn by_name(doc: &Document, needle: &str) -> Option<Target> {
+    let (mut exact, mut loose) = (0, 0);
+    let (mut first_exact, mut first_loose) = (None, None);
+    for_each_layer(doc, |n| {
+        if n.name == needle {
+            exact += 1;
+            first_exact.get_or_insert(n.id);
+        } else if n.name.eq_ignore_ascii_case(needle) {
+            loose += 1;
+            first_loose.get_or_insert(n.id);
+        }
+    });
+    let named = |id: &NodeId| doc.get(*id).is_some_and(|n| n.name == needle);
+    if let Some(first) = first_exact {
+        let page = doc.pages.iter().find(|p| named(p));
+        let screen = doc.pages.iter().filter_map(|p| doc.get(*p)).find_map(|p| p.children.iter().find(|c| named(c)));
+        return Some(hit(doc, page.or(screen).copied().unwrap_or(first), By::Name, exact));
+    }
+    first_loose.map(|id| hit(doc, id, By::NameCaseInsensitive, loose))
+}
+
+fn by_figma_id(doc: &Document, raw: &str, want: &str) -> Result<Option<Target>, SelectError> {
+    let (mut count, mut shown) = (0, Vec::new());
+    for_each_layer(doc, |n| {
+        if n.source_id.as_deref() == Some(want) {
+            count += 1;
+            if shown.len() < 10 {
+                shown.push(n.id);
+            }
+        }
+    });
+    match (count, shown.first()) {
+        (1, Some(id)) => Ok(Some(hit(doc, *id, By::Figma, 1))),
+        (0, _) | (_, None) => Ok(None),
+        _ => Err(SelectError::Ambiguous { raw: raw.into(), count, ids: shown.iter().map(|id| id.0.to_string()).collect::<Vec<_>>().join(", ") }),
+    }
+}
+
+fn find(doc: &Document, sel: &Sel, raw: &str) -> Result<Option<Target>, SelectError> {
+    let bare_id = |v: &str| v.parse::<u64>().ok().map(NodeId).filter(|id| doc.get(*id).is_some()).map(|id| hit(doc, id, By::BareId, 1));
+    Ok(match sel {
+        Sel::Id(id) => doc.get(*id).map(|_| hit(doc, *id, By::Id, 1)),
+        Sel::Figma(want) => by_figma_id(doc, raw, want)?,
+        Sel::Name(v) => by_name(doc, v),
+        Sel::Bare(v) => by_name(doc, v).or_else(|| bare_id(v)),
     })
 }
 
-pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, String> {
+fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
+    let mut layers = 0;
+    for_each_layer(doc, |_| layers += 1);
+    let pages = doc.pages.len();
+    let by = match sel {
+        Sel::Id(_) => "id",
+        Sel::Figma(_) => "Figma id",
+        Sel::Bare(v) if v.parse::<u64>().is_ok() => "name or id",
+        _ => "name",
+    };
+    let mut searched = format!(
+        "(searched {layers} layers on {pages} page{} by {by}; use --inspect-json to list screens, or id:<n> / fig:<id>)",
+        if pages == 1 { "" } else { "s" }
+    );
+    if expanded {
+        searched.push_str(" (all pages expanded)");
+    }
+    if matches!(sel, Sel::Figma(_)) {
+        if !doc.nodes.values().any(|n| n.source_id.is_some()) {
+            searched.push_str(" (this document has no Figma ids)");
+        }
+        if doc.nodes.len() > 10_000 {
+            searched.push_str(" (instance sublayers in files over 10,000 nodes keep no Figma id; select the instance and use id:<n>)");
+        }
+    }
+    SelectError::NoMatch { raw: raw.into(), searched }
+}
+
+/// Resolves `raw` to one node. A miss expands the deferred pages of a large file once and looks again.
+pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, SelectError> {
     let s = raw.trim();
-    let (kind, value) = if let Some(v) = s.strip_prefix("id:") {
-        ("id", v)
-    } else if let Some(v) = s.strip_prefix("fig:") {
-        ("fig", v)
-    } else if let Some(v) = s.strip_prefix("name:") {
-        ("name", v)
-    } else {
-        ("bare", s)
-    };
-    if value.is_empty() {
-        return Err(format!("Invalid --select '{s}': selector value is empty"));
+    let sel = parse(s)?;
+    if let Some(target) = find(doc, &sel, s)? {
+        return Ok(target);
     }
-    if kind == "id" {
-        let id = value.parse::<u64>().map_err(|_| format!("Invalid --select '{s}': id must be a decimal number"))?;
-        let id = NodeId(id);
-        if doc.get(id).is_some() {
-            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::Id, ambiguous: 1 });
-        }
-        if doc.hydrate_all_pages() && doc.get(id).is_some() {
-            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::Id, ambiguous: 1 });
-        }
-        return Err(format!("No node matches --select '{s}'"));
-    }
-    if kind == "fig" {
-        let ids: Vec<_> = page_walk(doc).filter(|id| doc.get(*id).and_then(|n| n.source_id.as_deref()) == Some(value)).collect();
-        // A first pass can see one match while another matching node is still inside a
-        // deferred page. Expand once before accepting a supposedly unique Figma id.
-        if ids.len() <= 1 && doc.hydrate_all_pages() {
-            return resolve(doc, raw);
-        }
-        return match ids.as_slice() {
-            [id] => Ok(Target { node: Some(*id), page: doc.page_of(*id), matched_by: By::Figma, ambiguous: 1 }),
-            [] => {
-                if doc.hydrate_all_pages() {
-                    return resolve(doc, raw);
-                }
-                Err(format!("No node matches --select '{s}'"))
-            }
-            _ => {
-                let listed = ids.iter().take(10).map(|id| id.0.to_string()).collect::<Vec<_>>().join(", ");
-                Err(format!("Figma selector '{s}' is ambiguous: {} matches (ids: {listed})", ids.len()))
-            }
-        };
-    }
-    if kind == "bare" {
-        // Preserve the pre-existing CLI contract: a bare decimal selector addresses
-        // the numeric node ID before it is treated as a layer name. Callers that need
-        // the literal name can use the explicit `name:` form.
-        if let Some(id) = value.parse::<u64>().ok().map(NodeId).filter(|id| doc.get(*id).is_some()) {
-            return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: By::BareId, ambiguous: 1 });
+    let deferred = doc.page_hydrator.is_some();
+    if deferred && doc.hydrate_all_pages() {
+        if let Some(target) = find(doc, &sel, s)? {
+            return Ok(target);
         }
     }
-    let exact = |needle: &str| {
-        doc.pages
-            .iter()
-            .find_map(|pid| doc.get(*pid).filter(|n| n.name == needle).map(|n| n.id))
-            .or_else(|| {
-                doc.pages
-                    .iter()
-                    .find_map(|pid| doc.get(*pid).and_then(|p| p.children.iter().find_map(|cid| doc.get(*cid).filter(|n| n.name == needle).map(|n| n.id))))
-            })
-            .or_else(|| page_walk(doc).find(|id| doc.get(*id).is_some_and(|n| n.name == needle)))
-    };
-    let exact_matches: Vec<_> = page_walk(doc).filter(|id| doc.get(*id).is_some_and(|n| n.name == value)).collect();
-    let insensitive_matches: Vec<_> = if exact_matches.is_empty() {
-        page_walk(doc).filter(|id| doc.get(*id).is_some_and(|n| n.name.eq_ignore_ascii_case(value))).collect()
-    } else {
-        Vec::new()
-    };
-    let found = exact(value)
-        .map(|id| (id, By::Name, exact_matches.len()))
-        .or_else(|| insensitive_matches.first().copied().map(|id| (id, By::NameCaseInsensitive, insensitive_matches.len())));
-    if let Some((id, by, ambiguous)) = found {
-        return Ok(Target { node: Some(id), page: doc.page_of(id), matched_by: by, ambiguous });
+    Err(miss(doc, &sel, s, deferred))
+}
+
+/// `--select`'s value as the command line hands it over: absent or `none` is no target at all.
+pub fn resolve_flag(doc: &mut Document, select: Option<&str>) -> Result<Option<Target>, SelectError> {
+    match select {
+        None => Ok(None),
+        Some(s) if s.trim().eq_ignore_ascii_case("none") => Ok(None),
+        Some(s) => resolve(doc, s).map(Some),
     }
-    if doc.hydrate_all_pages() {
-        return resolve(doc, raw);
-    }
-    Err(format!("No node matches --select '{s}'"))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use designos_doc::{Node, NodeKind};
-
-    #[test]
-    fn bare_numeric_id_precedes_layer_name() {
-        let mut doc = Document::new("numeric selector");
-        let page = doc.add_page("Page");
-        let mut named = Node::new(NodeId(2), NodeKind::Rectangle);
-        named.name = "4".into();
-        doc.insert(page, named).unwrap();
-        doc.insert(page, Node::new(NodeId(4), NodeKind::Rectangle)).unwrap();
-        let target = resolve(&mut doc, "4").unwrap();
-        assert_eq!(target.node, Some(NodeId(4)));
-        assert_eq!(target.matched_by, By::BareId);
-
-        let explicit_name = resolve(&mut doc, "name:4").unwrap();
-        assert_eq!(explicit_name.node, Some(NodeId(2)));
-    }
-
-    #[test]
-    fn duplicate_figma_ids_are_rejected() {
-        let mut doc = Document::new("duplicate figma ids");
-        let page = doc.add_page("Page");
-        for id in [2, 3] {
-            let mut node = Node::new(NodeId(id), NodeKind::Rectangle);
-            node.source_id = Some("12:34".into());
-            doc.insert(page, node).unwrap();
-        }
-        let err = resolve(&mut doc, "fig:12:34").unwrap_err();
-        assert!(err.contains("ambiguous"), "{err}");
-        assert!(err.contains("2") && err.contains("3"), "{err}");
-    }
-
-    #[test]
-    fn duplicate_names_report_count_while_selecting_first() {
-        let mut doc = Document::new("duplicate names");
-        let page = doc.add_page("Page");
-        for id in [2, 3] {
-            let mut node = Node::new(NodeId(id), NodeKind::Rectangle);
-            node.name = "Card".into();
-            doc.insert(page, node).unwrap();
-        }
-        let target = resolve(&mut doc, "name:Card").unwrap();
-        assert_eq!(target.node, Some(NodeId(2)));
-        assert_eq!(target.ambiguous, 2);
-    }
-}
+mod tests;
