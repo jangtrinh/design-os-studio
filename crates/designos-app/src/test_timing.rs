@@ -51,7 +51,7 @@ pub fn wait_for_nonempty_file(path: &std::path::Path, budget: Duration) -> Strin
     text
 }
 
-/// A [`TerminalState`] for a test that removes its session folder (`<tmp>/designos-sessions/p<pid>-tab-<id>`) when the test ends, passed or
+/// A [`TerminalState`] for a test that removes its session folder (`<sessions root>/p<pid>-tab-<id>`) when the test ends, passed or
 /// panicked. Nothing else removes that folder, and one that outlives its test is what a later process with the same pid finds as stale
 /// state; the folders also pile up by the hundred thousand on a machine that runs the suite all day.
 ///

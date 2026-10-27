@@ -36,3 +36,13 @@ fn version_is_not_mistaken_for_a_workspace_argument() {
     assert!(!ok, "`--workspace --version` names a directory called --version and must not print a version");
     assert!(stdout.is_empty(), "nothing is printed on stdout: {stdout}");
 }
+
+#[test]
+fn usage_error_names_the_version_flag() {
+    for args in [&["--bogus"][..], &["--version", "--bogus"][..]] {
+        let (ok, stdout, stderr) = run(args);
+        assert!(!ok, "designos-mcp {args:?} must exit 1");
+        assert!(stdout.is_empty(), "designos-mcp {args:?} writes nothing to stdout: {stdout}");
+        assert!(stderr.contains("--version"), "usage error on stderr must mention --version:\n{stderr}");
+    }
+}

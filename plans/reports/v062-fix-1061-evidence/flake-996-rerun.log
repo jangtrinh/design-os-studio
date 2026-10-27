@@ -1,0 +1,1 @@
+== flake #996 (shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one): did not fail in either full run, so no rerun was needed (3118 passed / 0 failed / 10 ignored both times)

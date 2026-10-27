@@ -1,0 +1,108 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.16s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+
+running 12 tests
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... FAILED
+test export_fig_validates_extension_case_insensitively ... FAILED
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... FAILED
+test file_creation_tools_refuse_bidi_override_characters_in_names ... FAILED
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... FAILED
+test file_creation_tools_refuse_control_characters_in_names ... FAILED
+test export_fig_refuses_folder ... FAILED
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... FAILED
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... FAILED
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... FAILED
+test export_fig_refuses_symlink_inside_workspace ... FAILED
+test bare_engine_export_fig_enforces_all_target_checks ... FAILED
+
+failures:
+
+---- save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary stdout ----
+
+thread 'save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary' (45442105) panicked at crates/designos-mcp/tests/mcp_paths.rs:639:13:
+assertion `left == right` failed: live.designos overwrite=false: {"code":"FILE_EXISTS","corrected_example":{"overwrite":true,"path":"live.designos"},"error":{"code":"FILE_EXISTS","corrected_example":{"overwrite":true,"path":"live.designos"},"message":"Cannot create file (choose an unused .designos or .designos filename, or set overwrite=true): File exists (os error 17)","next_step":"Pass overwrite=true or choose a new path.","path":"/path","received":"live.designos","safe_to_retry":true},"message":"Cannot create file (choose an unused .designos or .designos filename, or set overwrite=true): File exists (os error 17)","next_step":"Pass overwrite=true or choose a new path.","path":"/path","received":"live.designos","safe_to_retry":true}
+  left: FileExists
+ right: InvalidArguments
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- export_fig_validates_extension_case_insensitively stdout ----
+
+thread 'export_fig_validates_extension_case_insensitively' (45442100) panicked at crates/designos-mcp/tests/mcp_paths.rs:268:33:
+UPPER.FIG should be accepted: {"code":"INVALID_ARGUMENTS","error":{"code":"INVALID_ARGUMENTS","expected":"*.fig","message":"Export path must end in .fig","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"/output_path","received":"UPPER.FIG","safe_to_retry":true},"expected":"*.fig","message":"Export path must end in .fig","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"/output_path","received":"UPPER.FIG","safe_to_retry":true}
+
+---- file_creation_tools_report_name_too_long_instead_of_file_exists stdout ----
+
+thread 'file_creation_tools_report_name_too_long_instead_of_file_exists' (45442103) panicked at crates/designos-mcp/tests/mcp_paths.rs:496:5:
+assertion `left != right` failed: must not report FILE_EXISTS
+  left: FileExists
+ right: FileExists
+
+---- file_creation_tools_refuse_bidi_override_characters_in_names stdout ----
+
+thread 'file_creation_tools_refuse_bidi_override_characters_in_names' (45442101) panicked at crates/designos-mcp/tests/mcp_paths.rs:439:14:
+save_file must refuse bidi char: Object {"path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-rt05-bidi-19153-1792896390673243000-7/rlo\u{202e}evil.designos"), "saved": Bool(true)}
+
+---- outside_workspace_refusal_never_echoes_path_and_preserves_canary stdout ----
+
+thread 'outside_workspace_refusal_never_echoes_path_and_preserves_canary' (45442104) panicked at crates/designos-mcp/tests/mcp_paths.rs:587:9:
+designos_open_file {"path":"/etc/passwd"} must not set received on PATH_OUTSIDE_WORKSPACE: {"code":"PATH_OUTSIDE_WORKSPACE","error":{"code":"PATH_OUTSIDE_WORKSPACE","message":"Path must stay inside the configured workspace","next_step":"Pass a relative path inside the active workspace.","path":"/path","received":"/etc/passwd","safe_to_retry":true},"message":"Path must stay inside the configured workspace","next_step":"Pass a relative path inside the active workspace.","path":"/path","received":"/etc/passwd","safe_to_retry":true}
+
+---- file_creation_tools_refuse_control_characters_in_names stdout ----
+
+thread 'file_creation_tools_refuse_control_characters_in_names' (45442102) panicked at crates/designos-mcp/tests/mcp_paths.rs:374:14:
+save_file must refuse control char: Object {"path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-rt05-ctrl-19153-1792896390673932000-10/line\nbreak.designos"), "saved": Bool(true)}
+
+---- export_fig_refuses_folder stdout ----
+
+thread 'export_fig_refuses_folder' (45442097) panicked at crates/designos-mcp/tests/mcp_paths.rs:245:9:
+assertion `left == right` failed: {"output_path":"dir.fig"}: {"code":"INTERNAL_ERROR","error":{"code":"INTERNAL_ERROR","message":"Cannot write .fig file: Is a directory (os error 21)","next_step":"Call designos_get_document to inspect current state before retrying.","path":"/output_path","safe_to_retry":true},"message":"Cannot write .fig file: Is a directory (os error 21)","next_step":"Call designos_get_document to inspect current state before retrying.","path":"/output_path","safe_to_retry":true}
+  left: InternalError
+ right: InvalidArguments
+
+---- export_fig_refuses_existing_file_unless_overwrite_is_true stdout ----
+
+thread 'export_fig_refuses_existing_file_unless_overwrite_is_true' (45442096) panicked at crates/designos-mcp/tests/mcp_paths.rs:209:10:
+existing .fig without overwrite must fail: Object {"bytes": Number(22649), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-overwrite-19153-1792896390673102000-3/existing.fig"), "path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-overwrite-19153-1792896390673102000-3/existing.fig"), "saved": Bool(true)}
+
+---- export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched stdout ----
+
+thread 'export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched' (45442099) panicked at crates/designos-mcp/tests/mcp_paths.rs:130:14:
+symlink at last path component must be refused: Object {"bytes": Number(22649), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-out-19153-1792896390673211000-5/evil.fig"), "path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-out-19153-1792896390673211000-5/evil.fig"), "saved": Bool(true)}
+
+---- export_fig_refuses_dangling_symlink_inside_and_outside_workspace stdout ----
+
+thread 'export_fig_refuses_dangling_symlink_inside_and_outside_workspace' (45442095) panicked at crates/designos-mcp/tests/mcp_paths.rs:186:18:
+dangling symlink must be refused: Object {"bytes": Number(22649), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-dangling-19153-1792896390673008000-1/dangling_out.fig"), "path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-dangling-19153-1792896390673008000-1/dangling_out.fig"), "saved": Bool(true)}
+
+---- export_fig_refuses_symlink_inside_workspace stdout ----
+
+thread 'export_fig_refuses_symlink_inside_workspace' (45442098) panicked at crates/designos-mcp/tests/mcp_paths.rs:158:14:
+in-workspace symlink must be refused: Object {"bytes": Number(22649), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-in-19153-1792896390673134000-4/link_in.fig"), "path": String("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-ws-sym-in-19153-1792896390673134000-4/link_in.fig"), "saved": Bool(true)}
+
+---- bare_engine_export_fig_enforces_all_target_checks stdout ----
+
+thread 'bare_engine_export_fig_enforces_all_target_checks' (45442094) panicked at crates/designos-mcp/tests/mcp_paths.rs:297:10:
+bare Engine must refuse symlink: Object {"bytes": Number(22649), "omitted_comment_threads": Number(0), "omitted_extensions": Array [], "output_path": String("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-engine-direct-19153-1792896390672957000-0/sym.fig"), "path": String("/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.IODkB1/designos-mcp-paths-engine-direct-19153-1792896390672957000-0/sym.fig"), "saved": Bool(true)}
+
+
+failures:
+    bare_engine_export_fig_enforces_all_target_checks
+    export_fig_refuses_dangling_symlink_inside_and_outside_workspace
+    export_fig_refuses_existing_file_unless_overwrite_is_true
+    export_fig_refuses_folder
+    export_fig_refuses_symlink_inside_workspace
+    export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched
+    export_fig_validates_extension_case_insensitively
+    file_creation_tools_refuse_bidi_override_characters_in_names
+    file_creation_tools_refuse_control_characters_in_names
+    file_creation_tools_report_name_too_long_instead_of_file_exists
+    outside_workspace_refusal_never_echoes_path_and_preserves_canary
+    save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary
+
+test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p designos-mcp --test mcp_paths`

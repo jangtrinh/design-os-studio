@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_usage.rs
++++ b/crates/designos-app/src/agent_usage.rs
+@@ -259,7 +259,7 @@
+              got_lock=0; i=0; \
+              while [ $i -lt 50 ]; do \
+                if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; \
+-               if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {lock} ] || break; fi; \
++               if [ ! -e {lock} ]; then break; fi; \
+                sleep 0.01; i=$((i+1)); \
+              done; \
+              if [ \"$got_lock\" = 1 ]; then \

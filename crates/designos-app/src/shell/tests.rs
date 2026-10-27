@@ -70,7 +70,11 @@ impl Sim {
     fn new() -> Self {
         Self::with(Options::default())
     }
-    fn with(opts: Options) -> Self {
+    fn with(mut opts: Options) -> Self {
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
+        if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
+            opts.fixture = Some("demo".into());
+        }
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
         script_empty_clipboard(&mut shell.app);
@@ -1114,6 +1118,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
 
 mod board;
 mod board_home;
+mod canvas_label_rename;
 mod check_designs;
 mod comments;
 mod components;
@@ -1122,6 +1127,7 @@ mod components_main_copies;
 mod decks;
 mod deferred_page_instances;
 mod dev;
+mod dev_code_panel;
 mod dev_mode_shortcut;
 mod duplicate_order;
 mod effect_caps;
@@ -1157,6 +1163,7 @@ mod proto;
 mod proto_vars;
 mod relayout_budget;
 mod resized_shape_geometry;
+mod select_cli;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;
@@ -1164,6 +1171,8 @@ mod style_edit;
 mod svg;
 mod system_paste_and_drop;
 mod tab_disk_state;
+mod text_styles;
+mod toast_clock;
 mod typography;
 mod undo_exact_layout;
 mod undo_layout_epoch;
@@ -1178,6 +1187,7 @@ mod agent_panel_keyboard;
 mod agent_picker_return;
 mod agents_panel_only;
 mod agents_tab_strip;
+mod approval_banner_tab;
 mod assets_thumbs;
 mod libraries;
 mod lint;

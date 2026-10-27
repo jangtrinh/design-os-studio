@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/../../designos-mcp/src/engine.rs
++++ b/crates/designos-app/src/../../designos-mcp/src/engine.rs
+@@ -1562,7 +1562,7 @@
+ /// any other, so a file with none of these endings in the workspace is out of its reach, except for the temporary name below. Studio
+ /// relies on it: its hook folder lies in the data folder, which can lie inside a workspace, and none of the names kept there ends in
+ /// one of these or starts with the temporary prefix (`agent_hook_outputs`).
+-pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, EXPORT_FIG_EXTENSION];
++pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, "json"];
+ 
+ /// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
+ /// made with `create_new`, so it never replaces an existing file).

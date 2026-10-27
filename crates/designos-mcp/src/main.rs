@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             return Ok(());
         }
-        _ => return Err("Usage: designos-mcp --workspace DIRECTORY".into()),
+        _ => return Err("Usage: designos-mcp --workspace DIRECTORY | --version | --list-lint-rules | --help".into()),
     };
     let service = DesignOSServer::new(&root)?.serve(stdio()).await?;
     service.waiting().await?;

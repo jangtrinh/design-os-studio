@@ -1,0 +1,22 @@
+== control: old place, $TMPDIR/designos-sessions (a default writable root)
+$ /bin/ln -s <worktree>/out/probe-1057/repo <worktree>/out/probe-1057/tmp/designos-sessions/p1-tab-2
+exit=0
+total 0
+drwxr-xr-x@ 3 jangtrinh  staff   96 Oct 24 12:14 .
+drwxr-xr-x@ 3 jangtrinh  staff   96 Oct 24 12:14 ..
+lrwxr-xr-x@ 1 jangtrinh  staff  104 Oct 24 12:14 p1-tab-2 -> <worktree>/out/probe-1057/repo
+
+== new place: <data dir>/designos/sessions (outside every writable root)
+$ /bin/ln -s <worktree>/out/probe-1057/repo <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/p1-tab-2
+ln: <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/p1-tab-2: Operation not permitted
+exit=1
+$ /bin/mkdir <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/p1-tab-2
+mkdir: <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/p1-tab-2: Operation not permitted
+exit=1
+$ /usr/bin/touch <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/x
+touch: <worktree>/out/probe-1057/home/Library/Application Support/designos/sessions/x: Operation not permitted
+exit=1
+entries in the data folder after the three attempts:
+total 0
+drwxr-xr-x@ 2 jangtrinh  staff  64 Oct 24 12:14 .
+drwxr-xr-x@ 3 jangtrinh  staff  96 Oct 24 12:14 ..

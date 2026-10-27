@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_usage.rs
++++ b/crates/designos-app/src/agent_usage.rs
+@@ -262,7 +262,7 @@
+                if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {lock} ] || break; fi; \
+                sleep 0.01; i=$((i+1)); \
+              done; \
+-             if [ \"$got_lock\" = 1 ]; then \
++             if true; then \
+                prev=\"\"; \
+                if [ -f {dest} ]; then \
+                  prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \

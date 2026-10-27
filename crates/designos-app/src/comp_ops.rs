@@ -107,13 +107,31 @@ pub fn record_overrides(doc: &Document, before: &BTreeMap<NodeId, Node>, cmds: &
     }
 }
 
+fn collect_rename_companions(doc: &Document, cmd: &Command, out: &mut Vec<Command>) {
+    match cmd {
+        Command::Update { node } => {
+            if let Some(stored) = doc.get(node.id) {
+                out.extend(designos_doc::companion_component_rename_updates(doc, node.id, &stored.name, &node.name));
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_rename_companions(doc, c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Wraps `cmd` so that editing a main component also re-syncs its instances in
 /// the same undo step. Cascades through components nested in other components.
 pub fn with_sync(doc: &mut Document, cmd: Command) -> Command {
+    let mut companion_renames = Vec::new();
+    collect_rename_companions(doc, &cmd, &mut companion_renames);
     let mut ids = Vec::new();
     ids_of(doc, &cmd, &mut ids);
     let mut queue: Vec<NodeId> = ids.iter().filter_map(|i| owner_of(doc, *i)).collect();
-    if queue.is_empty() {
+    if queue.is_empty() && companion_renames.is_empty() {
         return cmd;
     }
     let Ok(inv) = cmd.clone().apply(doc) else { return cmd };
@@ -122,6 +140,12 @@ pub fn with_sync(doc: &mut Document, cmd: Command) -> Command {
     queue.dedup();
     let mut syncs = Vec::new();
     let mut invs = Vec::new();
+    for c in companion_renames {
+        if let Ok(i) = c.clone().apply(doc) {
+            invs.push(i);
+            syncs.push(c);
+        }
+    }
     let mut rounds = 0;
     while let Some(o) = queue.pop() {
         rounds += 1;

@@ -1,4 +1,5 @@
 //! Screenshot fixtures for the vector tools: `--fixture shape-builder` (three
+#![cfg(any(test, feature = "fixtures"))]
 //! overlapping shapes with a hovered region) and `--fixture vector-edit` (a
 //! vector in point editing with a rounded vertex selected).
 

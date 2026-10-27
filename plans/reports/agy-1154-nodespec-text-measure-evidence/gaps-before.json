@@ -1,0 +1,48 @@
+{
+  "png": "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/plans/reports/agy-1154-nodespec-text-measure-evidence/buttons-before.png",
+  "scale": 3.0,
+  "buttons": [
+    {
+      "label": "Delete",
+      "button_px": [
+        360,
+        424,
+        587,
+        507
+      ],
+      "button_width_1x": 76.0,
+      "ink_width_1x": 41.67,
+      "left_gap_1x": 13.0,
+      "right_gap_1x": 21.33,
+      "gap_diff_1x": 8.33
+    },
+    {
+      "label": "Export",
+      "button_px": [
+        636,
+        424,
+        875,
+        507
+      ],
+      "button_width_1x": 80.0,
+      "ink_width_1x": 43.0,
+      "left_gap_1x": 13.0,
+      "right_gap_1x": 24.0,
+      "gap_diff_1x": 11.0
+    },
+    {
+      "label": "Share",
+      "button_px": [
+        924,
+        424,
+        1136,
+        507
+      ],
+      "button_width_1x": 71.0,
+      "ink_width_1x": 38.0,
+      "left_gap_1x": 12.67,
+      "right_gap_1x": 20.33,
+      "gap_diff_1x": 7.66
+    }
+  ]
+}

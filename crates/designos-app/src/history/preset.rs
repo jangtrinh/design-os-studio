@@ -14,9 +14,9 @@ pub fn apply(app: &mut App, library: Option<PathBuf>) {
     app.attach_library(root);
     let Some(lib) = app.lib.clone() else { return };
     let Some(project) = lib.list_projects().first().map(|p| p.id.clone()) else { return };
-    let mut doc = crate::demo::demo_document();
-    doc.name = "Product UI Kit".into();
-    let Ok(entry) = lib.create_file(&project, None, "Product UI Kit", &doc) else { return };
+    let Ok(mut doc) = crate::home::load_starter_document() else { return };
+    doc.name = "DESIGN-OS Studio Starter".into();
+    let Ok(entry) = lib.create_file(&project, None, "DESIGN-OS Studio Starter", &doc) else { return };
     // older states have fewer layers, so versions differ
     let mut older = doc.clone();
     let drop: Vec<_> = older.nodes.values().filter(|n| matches!(n.name.as_str(), "Progress" | "Avatar")).map(|n| n.id).collect();

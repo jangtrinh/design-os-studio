@@ -1,0 +1,40 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.65s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 23 tests
+test agent_busy_frames::field_diff_tests::a_change_between_any_two_kinds_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::a_field_that_serializes_as_absent_is_a_change_against_one_that_serializes_as_null ... ok
+test agent_busy_frames::field_diff_tests::a_user_edit_through_the_app_records_what_the_value_diff_finds_in_each_touched_node ... ok
+test agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms ... [AC-01] nodes=21978 autofix_ms=205.19 autofix_passes=588 autofix_user_edited_fields=588 whole_page_run_tx_ms=51.64 tx_passes=100 tx_allocs=1325
+ok
+test agent_busy_frames::field_diff_tests::ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json ... [AC-02] 10,000 touched / 10 changed: run_tx allocations = 105, field_passes = 10
+ok
+test agent_busy_frames::field_diff_tests::ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour ... ok
+test agent_busy_frames::field_diff_tests::ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len ... [AC-04] synthetic 21,978-node page whole-page edit: len(user_edited_fields) = 588, field_passes = 588
+ok
+test agent_busy_frames::field_diff_tests::an_edit_of_identity_or_tree_position_reports_nothing ... ok
+test agent_busy_frames::field_diff_tests::edge_case_agent_turn_running_during_edit_loses_no_fields ... ok
+test agent_busy_frames::field_diff_tests::edge_case_deleted_node_in_tx_records_deletion_without_field_diff ... ok
+test agent_busy_frames::field_diff_tests::edge_case_empty_transaction_records_nothing ... ok
+test agent_busy_frames::field_diff_tests::edge_case_new_node_in_tx_records_fields_as_before ... ok
+test agent_busy_frames::field_diff_tests::edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields ... ok
+test agent_busy_frames::field_diff_tests::every_field_edit_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::floats_the_json_form_cannot_tell_apart_are_not_a_change ... ok
+test agent_busy_frames::field_diff_tests::nodes_a_step_touched_and_left_alone_add_no_entries_and_no_work ... ok
+test agent_busy_frames::field_diff_tests::nodes_of_real_documents_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::field_diff_tests::only_the_fields_that_changed_are_encoded_not_the_geometry_around_them ... ok
+test agent_busy_frames::field_diff_tests::random_combinations_of_edits_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::field_diff_tests::record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn ... ok
+test agent_busy_frames::field_diff_tests::recording_a_renamed_heavy_node_allocates_a_bounded_number_of_times_and_builds_no_json ... [RECORD COST] 500 renamed heavy nodes: 583 allocations (1.17 per node)
+ok
+test agent_busy_frames::field_diff_tests::the_corpus_edits_every_field_a_populated_node_serializes ... ok
+test agent_busy_frames::field_diff_tests::values_that_differ_but_serialize_alike_are_not_a_change ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 3332 filtered out; finished in 3.04s
+

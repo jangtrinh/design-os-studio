@@ -1,0 +1,22 @@
+53309c88ce7455de36d521935eb63a4e536dd1bc
+?? plans/reports/v062-fix-1069-evidence/r3-gate-fallback-typecheck.log
+?? plans/reports/v062-fix-1069-evidence/r3-gate-head.txt
+?? plans/reports/v062-fix-1069-evidence/r3-mut-copy-of-the-note.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-copy-of-the-second-pass.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-envrc-env-var-not-set.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-envrc-env-var-ten.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-envrc-not-in-agy-set.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-envrc-not-in-grok-set.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-fix-for-a-move-the-user-makes.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-grok-roles-are-moved.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-names-exhausted-fix.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-note-lost-when-a-later-write-fails.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-note-lost-when-the-start-refuses.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-read-only-entry-names-its-parent.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-rename-replaces.log
+?? plans/reports/v062-fix-1069-evidence/r3-mut-stamp-folder-not-named.log
+?? plans/reports/v062-fix-1069-evidence/r3-red-on-2accc531.log
+?? plans/reports/v062-fix-1069-evidence/scripts/capture-gate-summary-1069-r3.sh
+?? plans/reports/v062-fix-1069-evidence/scripts/render-gate-summary-1069-r3.py
+?? plans/reports/v062-fix-1069-evidence/scripts/run-gates-1069-r3.sh
+?? r3-clippy1.log

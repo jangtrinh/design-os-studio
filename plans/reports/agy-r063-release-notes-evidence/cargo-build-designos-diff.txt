@@ -1,0 +1,46 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-r063-release-notes/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-r063-release-notes/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling simd-adler32 v0.3.10
+   Compiling autocfg v1.5.1
+   Compiling adler2 v2.0.1
+   Compiling crc32fast v1.5.2
+   Compiling serde_core v1.0.229
+   Compiling utf8parse v0.2.2
+   Compiling cfg-if v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling zmij v1.0.23
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling heck v0.5.0
+   Compiling miniz_oxide v0.9.1
+   Compiling anstyle-parse v1.0.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling pxfm v0.1.30
+   Compiling anstream v1.0.0
+   Compiling bitflags v2.13.2
+   Compiling clap_lex v1.1.1
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.7
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling num-traits v0.2.19
+   Compiling bytemuck v1.25.2
+   Compiling byteorder-lite v0.1.0
+   Compiling syn v3.0.9
+   Compiling flate2 v1.1.10
+   Compiling png v0.18.1
+   Compiling moxcms v0.8.1
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.7
+   Compiling image v0.25.10
+   Compiling clap v4.6.7
+   Compiling designos-diff v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-r063-release-notes/crates/designos-diff)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.58s

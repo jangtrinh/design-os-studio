@@ -1,0 +1,38 @@
+== A. TMPDIR=<scratch>/ : nothing is removed
+live pid 55823: alive; pid 99991: (99991) - No such process
+before:
+  55823
+  99991
+  sessions
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3102 filtered out; finished in 0.00s
+after (the test process added its own folder; nothing else changed):
+  55823
+  56178
+  99991
+  sessions
+
+== B. a link planted at '<temp>/designos test data'
+target before:
+  .
+  ./2024
+  ./2024/notes
+  ./2024/notes/keep.txt
+  ./99991
+  ./99991/photos
+  ./99991/photos/keep.txt
+  ./not-a-pid
+  ./not-a-pid/keep.txt
+agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own --- FAILED
+thread 'agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own' (32274838) panicked at crates/designos-app/src/agent_session_files/test_root.rs:20:13:
+the folder for the unit tests' session folders cannot be used, so no test can run: <scratch>/base-link-case/tmp/designos test data is a link, not a folder. Delete the link and try again
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3102 filtered out; finished in 0.00s
+target after:
+  .
+  ./2024
+  ./2024/notes
+  ./2024/notes/keep.txt
+  ./99991
+  ./99991/photos
+  ./99991/photos/keep.txt
+  ./not-a-pid
+  ./not-a-pid/keep.txt

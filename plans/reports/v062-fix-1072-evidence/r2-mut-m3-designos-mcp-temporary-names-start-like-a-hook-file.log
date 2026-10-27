@@ -1,0 +1,26 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.41s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write ... FAILED
+
+failures:
+
+---- terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write stdout ----
+
+thread 'terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write' (49215595) panicked at crates/designos-app/src/terminal/hook_output_tests.rs:373:9:
+agent-events.jsonl starts like the temporary file of a designos-mcp overwrite
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3308 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,111 @@
+session      src/engine.rs:222   fn read_session_json_field            let raw = crate::session_file_io::read_to_string(&path).ok()?;   // context.json / mcp-config.json fallback read via session_file_io
+workspace    src/engine.rs:907   fn call                               std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot wr   // designos_export_fig_file and import_web_capture file reads (--workspace)
+workspace    src/engine.rs:1099  fn call                               (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| format!("Cannot read web capture '{path}': {e}   // designos_export_fig_file and import_web_capture file reads (--workspace)
+session      src/server.rs:114   fn atomic_write_file                  session_file_io::write_atomic(path, bytes, false).map_err(|e| session_file_io::explain("write", path, &e))   // canvas.designos, doc-sync.designos: write_atomic
+session      src/server.rs:120   fn append_log_line                    session_file_io::append(path, line.as_bytes(), false).map_err(|e| session_file_io::explain("write", path, &e))   // doc-patch.jsonl and the eval transcript: append
+session      src/server.rs:199   fn load_enabled_tools                 .and_then(|path| problems.read_to_string(&path))   // mcp-config.json (or DESIGNOS_MCP_CONFIG): read
+workspace    src/server.rs:205   fn new                                let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;   // the --workspace root check
+workspace    src/server.rs:206   fn new                                if !root.is_dir() {   // the --workspace root check
+workspace    src/server.rs:243   fn with_session_dir                   let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;   // the --workspace root check
+workspace    src/server.rs:244   fn with_session_dir                   if !root.is_dir() {   // the --workspace root check
+session      src/server.rs:283   fn load_session_options               if let Some(raw) = self.file_problems.read_to_string(&SessionOptions::file_path(dir)) {   // session-options.json: read
+session      src/server.rs:296   fn save_session_options               Ok(()) => self.file_problems.wrote(&path, Ok(())),   // session-options.json: write_atomic via save_to_dir
+session      src/server.rs:297   fn save_session_options               Err(sentence) => self.file_problems.keep(&path, sentence),   // session-options.json: write_atomic via save_to_dir
+session      src/server.rs:318   fn attach_session_file_warnings       let mut sentences = self.file_problems.take();   // drains the problems to the reply
+session      src/server.rs:342   fn replay_unabsorbed_live_patches     let Some(log) = self.file_problems.read(path) else {   // doc-patch.jsonl: read
+session      src/server.rs:376   fn edit_log_len                       self.bridge.live_doc_patch_path.as_ref().and_then(|p| session_file_io::stat(p).ok()).map(|m| m.len()).unwrap_o   // doc-patch.jsonl: lstat
+session      src/server.rs:396   fn sync_from_live_canvas_if_newer     if let Some(raw) = self.file_problems.read_to_string(ctx_path) {   // context.json, mcp-config.json, canvas.designos, bootstrap.json: read
+session      src/server.rs:420   fn sync_from_live_canvas_if_newer     if let Some(raw) = self.file_problems.read_to_string(&dir.join("mcp-config.json")) {   // context.json, mcp-config.json, canvas.designos, bootstrap.json: read
+session      src/server.rs:449   fn sync_from_live_canvas_if_newer     if let Some(mtime) = self.file_problems.modified(&canvas_path) {   // context.json, mcp-config.json, canvas.designos, bootstrap.json: read
+session      src/server.rs:455   fn sync_from_live_canvas_if_newer     if let Some(raw) = self.file_problems.read_to_string(&canvas_path) {   // context.json, mcp-config.json, canvas.designos, bootstrap.json: read
+session      src/server.rs:488   fn sync_from_live_canvas_if_newer     if let Some(raw) = self.file_problems.read_to_string(&boot_json_path) {   // context.json, mcp-config.json, canvas.designos, bootstrap.json: read
+session      src/server.rs:599   fn publish_live_doc_sync              self.bridge.last_canvas_mtime = session_file_io::stat(canvas_path).and_then(|m| m.modified()).ok();   // canvas.designos mtime after the write: lstat
+workspace    src/server.rs:617   fn input_path                         && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))   // --workspace path check (canonicalize)
+workspace    src/server.rs:622   fn input_path                         let canon = joined.canonicalize().map_err(|e| {   // --workspace path check (canonicalize)
+workspace    src/server.rs:633   fn input_path                         if !canon.is_file() {   // --workspace path check (canonicalize)
+workspace    src/server.rs:649   fn output_path_allow_overwrite        .canonicalize()   // designos_save_file target check
+workspace    src/server.rs:662   fn output_path_allow_overwrite        if overwrite && resolved.exists() {   // designos_save_file target check
+workspace    src/server.rs:664   fn output_path_allow_overwrite        fs::symlink_metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot    // designos_save_file target check
+workspace    src/server.rs:665   fn output_path_allow_overwrite        if meta.file_type().is_symlink() || !meta.is_file() {   // designos_save_file target check
+workspace    src/server.rs:668   fn output_path_allow_overwrite        let canon = resolved.canonicalize().map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Can   // designos_save_file target check
+workspace    src/server.rs:686   fn png_output_path                    .canonicalize()   // designos_render_png target check
+workspace    src/server.rs:711   fn fig_output_path                    .canonicalize()   // designos_export_fig_file target check
+workspace    src/server.rs:888   fn call_inner                         let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.l   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:898   fn call_inner                         if let Ok(raw) = fs::read_to_string(&path) {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:908   fn call_inner                         let doc = designos_library::load_external(&path)   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:987   fn call_inner                         let mut file = fs::OpenOptions::new()   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:993   fn call_inner                         file.write_all(bytes.as_bytes())   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:999   fn call_inner                         let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1008  fn call_inner                         if let Err(e) = file.write_all(bytes.as_bytes()).and_then(|_| file.sync_all()) {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1010  fn call_inner                         let _ = fs::remove_file(&path);   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1045  fn call_inner                         let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1049  fn call_inner                         if let Err(e) = file.write_all(&png).and_then(|_| file.sync_all()) {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1051  fn call_inner                         let _ = fs::remove_file(&path);   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1063  fn call_inner                         let mut file = fs::OpenOptions::new()   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1069  fn call_inner                         file.write_all(&bytes)   // open_file, save_file, render_png, export_fig_file, import_web_capture
+workspace    src/server.rs:1096  fn call_inner                         if fs::metadata(&resolved).map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {   // open_file, save_file, render_png, export_fig_file, import_web_capture
+session      src/session_file_io.rs:18    fn -                                  use std::fs::Metadata;   // the helper itself: lstat, refuses a link or a non-file
+session      src/session_file_io.rs:93    fn stat                               let meta = std::fs::symlink_metadata(path)?;   // the helper itself: lstat, refuses a link or a non-file
+session      src/session_file_io.rs:97    fn stat                               if !meta.file_type().is_file() {   // the helper itself: lstat, refuses a link or a non-file
+session      src/session_file_io.rs:104   fn read_to_string                     pub fn read_to_string(path: &Path) -> io::Result<String> {   // the helper itself: lstat, refuses a link or a non-file
+session      src/session_file_problems.rs:21    fn read_to_string                     pub fn read_to_string(&mut self, path: &Path) -> Option<String> {   // calls the helper and keeps what it refused
+session      src/session_file_problems.rs:22    fn read_to_string                     let read = session_file_io::read_to_string(path);   // calls the helper and keeps what it refused
+session      src/session_file_problems.rs:28    fn read                               let read = session_file_io::read(path);   // calls the helper and keeps what it refused
+session      src/session_file_problems.rs:34    fn modified                           let modified = session_file_io::stat(path).and_then(|meta| meta.modified());   // calls the helper and keeps what it refused
+session      src/session_file_problems.rs:44    fn wrote                              Err(e) => self.keep(path, session_file_io::explain("write", path, &e)),   // calls the helper and keeps what it refused
+session      src/session_file_problems.rs:72    fn settle_read                        self.keep(path, session_file_io::explain("read", path, &e));   // calls the helper and keeps what it refused
+session      src/session_file_io/no_follow.rs:3     fn -                                  use std::fs::{File, Metadata, OpenOptions};   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:5     fn -                                  use std::os::unix::fs::{MetadataExt, OpenOptionsExt};   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:16    fn open_failure                       Some(libc::ELOOP | libc::EMLINK) if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())    // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:24    fn open_plain                         fn open_plain(path: &Path, options: &mut OpenOptions, writes: bool) -> io::Result<(File, Metadata)> {   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:26    fn open_plain                         let meta = file.metadata()?;   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:27    fn open_plain                         if !meta.file_type().is_file() {   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:45    fn read                               let (mut file, meta) = open_plain(path, OpenOptions::new().read(true), false)?;   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:52    fn append                             let (mut file, _) = open_plain(path, OpenOptions::new().append(true).create(true).mode(OWNER_ONLY), true)?;   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:53    fn append                             file.write_all(bytes)?;   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:60    fn truncate                           let (file, _) = match open_plain(path, OpenOptions::new().write(true), true) {   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:73    fn write_atomic                       let mut file = match OpenOptions::new().write(true).create_new(true).mode(OWNER_ONLY).custom_flags(libc::O_NOF   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:77    fn write_atomic                       let written = file.write_all(bytes).and_then(|()| finish(&file, durable)).and_then(|()| std::fs::rename(&temp,   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/no_follow.rs:79    fn write_atomic                       let _ = std::fs::remove_file(&temp);   // the helper itself: O_NOFOLLOW|O_NONBLOCK opens, fstat check
+session      src/session_file_io/path_based.rs:4     fn -                                  use std::fs::OpenOptions;   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:18    fn finish                             fn finish(file: &std::fs::File, durable: bool) -> io::Result<()> {   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:28    fn read                               std::fs::read(path)   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:33    fn append                             let mut file = OpenOptions::new().append(true).create(true).open(path)?;   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:34    fn append                             file.write_all(bytes)?;   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:43    fn truncate                           let file = OpenOptions::new().write(true).truncate(true).open(path)?;   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:52    fn write_atomic                       let mut file = match OpenOptions::new().write(true).create_new(true).open(&temp) {   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:56    fn write_atomic                       let written = file.write_all(bytes).and_then(|()| finish(&file, durable)).and_then(|()| std::fs::rename(&temp,   // the helper itself: non-unix fallback
+session      src/session_file_io/path_based.rs:58    fn write_atomic                       let _ = std::fs::remove_file(&temp);   // the helper itself: non-unix fallback
+library      src/tools/guidelines.rs:214   fn call_get_guidelines_with_enabled_tools if !path.is_file() {   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:217   fn call_get_guidelines_with_enabled_tools let raw = fs::read_to_string(&path).map_err(|e| format!("Failed to read surface guide '{topic}': {e}"))?;   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:256   fn call_get_guidelines_with_enabled_tools if !path.is_file() {   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:259   fn call_get_guidelines_with_enabled_tools let raw = fs::read_to_string(&path).map_err(|e| format!("Failed to read archetype '{arch_id}': {e}"))?;   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:351   fn list_topics_value                  let (available, summary) = if path.is_file() {   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:352   fn list_topics_value                  match fs::read_to_string(&path).and_then(|s| parse_surface_guide(&s).map_err(|e| std::io::Error::new(std::io::   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:387   fn has_toml_files                     let Ok(entries) = fs::read_dir(dir) else {   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:472   fn validate_archetypes_dir            if !dir.exists() {   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:475   fn validate_archetypes_dir            let mut paths: Vec<PathBuf> = fs::read_dir(dir)   // bundled guideline files: read-only
+library      src/tools/guidelines.rs:485   fn validate_archetypes_dir            let raw = fs::read_to_string(&path).map_err(|e| format!("Cannot read '{}': {e}", path.display()))?;   // bundled guideline files: read-only
+session      src/tools/ledger.rs:353   fn load_from_path                     if let Some(raw) = ledger.problems.read_to_string(&path) {   // idempotency-ledger.jsonl: read
+session      src/tools/ledger.rs:689   fn rewrite_file                       let written = session_file_io::write_atomic(path, body.as_bytes(), true);   // idempotency-ledger.jsonl: write_atomic
+session      src/tools/ledger.rs:690   fn rewrite_file                       self.problems.wrote(path, written);   // idempotency-ledger.jsonl: write_atomic
+session      src/tools/ledger.rs:699   fn clear                              let truncated = session_file_io::truncate(path, true);   // idempotency-ledger.jsonl: truncate
+session      src/tools/ledger.rs:700   fn clear                              self.problems.wrote(path, truncated);   // idempotency-ledger.jsonl: truncate
+session      src/tools/ledger.rs:717   fn append_json_line                   let appended = session_file_io::append(path, line.as_bytes(), true);   // idempotency-ledger.jsonl: append
+session      src/tools/ledger.rs:718   fn append_json_line                   self.problems.wrote(path, appended);   // idempotency-ledger.jsonl: append
+library      src/tools/libraries.rs:5     fn -                                  use designos_library::LibraryIndex;   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:59    fn get_libraries_at                   if root.exists() && !root.is_dir() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:61    fn get_libraries_at                   } else if root.is_dir() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:63    fn get_libraries_at                   if libs_dir.exists() && !libs_dir.is_dir() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:65    fn get_libraries_at                   } else if libs_dir.is_dir() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:66    fn get_libraries_at                   match std::fs::read_dir(&libs_dir) {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:67    fn get_libraries_at                   Ok(read_dir) => {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:68    fn get_libraries_at                   for entry in read_dir.flatten() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:70    fn get_libraries_at                   if !path.is_dir() {   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/libraries.rs:78    fn get_libraries_at                   match std::fs::read_to_string(&index_path).and_then(|s| serde_json::from_str::<LibraryIndex>(&s).map_err(Into:   // Studio library root (DESIGNOS_LIBRARY): read-only listing
+library      src/tools/library_source.rs:4     fn -                                  use designos_library::Library;   // Studio library root: read-only snapshots
+library      src/tools/library_source.rs:50    fn load_cached_snapshot_at            if !root.is_dir() {   // Studio library root: read-only snapshots
+library      src/tools/library_source.rs:88    fn enabled_snapshots                  let doc_root = doc_roots().lock().ok().and_then(|g| g.get(&doc.runtime_id()).cloned()).filter(|p| p.is_dir());   // Studio library root: read-only snapshots
+session      src/tools/session_options.rs:142   fn save_to_dir                        session_file_io::write_atomic(&path, &bytes, false).map_err(|e| session_file_io::explain("write", &path, &e))   // session-options.json: write_atomic
+
+SUMMARY: library=23, session=56, workspace=30 (total 109)

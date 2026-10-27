@@ -1,0 +1,8 @@
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... FAILED
+---- shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one stdout ----
+thread 'shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one' (28372655) panicked at crates/designos-app/src/shell/tests/agents_tab_strip.rs:237:5:
+    shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+test result: FAILED. 3072 passed; 1 failed; 8 ignored; 0 measured; 0 filtered out; finished in 438.69s
+--- the same test, three isolated reruns and the final full run at f6214f71 (summary in gate-test-full-summary.log, which lists only the lines that are not "ok"): all passed
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 3075 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 320.93s

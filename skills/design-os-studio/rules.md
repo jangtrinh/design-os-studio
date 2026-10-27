@@ -2,34 +2,36 @@
 
 ## Build-Verify-Fix Workflow
 
-Follow this 7-step loop on every design task:
+Follow this 7-step loop:
 
-1. **Orient (Read first)** — Use session bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
-2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or surface guides `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new top-level frames beside existing frames — never stack at `(0, 0)`.
+1. **Orient (Read first)** — Use bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
+2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new frames beside existing ones — never stack at `(0, 0)`.
 
-3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
-4. **Verify (`issues` + screenshot)** — Check the per-call `issues` block (`issues: {total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (default scale, long edge <= 1024) or use `diff_image`, and inspect the PNG for visual hierarchy, alignment, clipping, and contrast.
-5. **Fix in place** — Fix findings in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild a section.
-6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress` with `node_ids: [root]`, `value: false`) when done, and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`) to resolve remaining errors.
+3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
+4. **Verify (`issues` + screenshot)** — Check `issues` (`{total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (<= 1024px) or `diff_image`, and inspect for hierarchy, alignment, clipping, and contrast.
+5. **Fix in place** — Fix in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
+6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
 7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
+
+Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
 
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect,...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
 ### `designos_get_libraries`
-- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and latest versions and...
+- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and latest versions...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
 ### `designos_get_metadata`
-- **Purpose:** Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant...
+- **Purpose:** Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout,...
 - **Args:** required: none (optional: `depth`, `include_hidden`, `lint`, `max_nodes`, `node_id`, `page_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":1,"depth":3}`
@@ -83,7 +85,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":3}`
 
 ### `designos_list_comments`
-- **Purpose:** List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind, and...
+- **Purpose:** List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind,...
 - **Args:** required: none (optional: `node_id`, `page_id`, `resolved`)
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{"resolved":false}`
@@ -95,7 +97,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":2,"x":24,"y":16,"text":"Increase subtitle contrast"}`
 
 ### `designos_reply_comment`
-- **Purpose:** Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved.
+- **Purpose:** Append a reply message to an existing canvas comment thread and optionally mark it...
 - **Args:** required: `thread_id`, `text` (optional: `author`, `idempotency_key`, `resolved`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`
 - **Example:** `{"thread_id":"t1","text":"Updated to $easeui.text.primary","resolved":true}`
@@ -107,7 +109,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"thread_id":"t1","resolved":true}`
 
 ### `designos_apply_spec`
-- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like...
+- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","layout":{"direction":"column","gap":12,"padding":[20,20,20,20]},"children":[{"kind":"text","name":"Label","text":"Net Revenue","font_size":13},{"kind":"text","name":"Value","text":"$148,920","font_size":28,"font_weight":600}]}}`
@@ -119,37 +121,37 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":2}`
 
 ### `designos_set_dev_status`
-- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer...
+- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a...
 - **Args:** required: `node_id` (optional: `annotation`, `idempotency_key`, `status`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
 
 ### `designos_export_fig_file`
-- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate...
-- **Args:** required: `output_path`
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `INTERNAL_ERROR`
+- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and...
+- **Args:** required: `output_path` (optional: `overwrite`)
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
-- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor...
+- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget,...
 - **Args:** required: `selector` (optional: `cursor`, `format`, `hardcoded`, `limit`, `max_scanned`, `node_id`, `page_id`, `with_problems`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`, `CURSOR_STALE`, `RULE_UNAVAILABLE`
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page,...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
 
 ### `designos_get_guidelines`
-- **Purpose:** List available design guideline topics or return the guideline document for a topic ('design-system',...
+- **Purpose:** List available design guideline topics or return the guideline document for a topic...
 - **Args:** required: none (optional: `max_tokens`, `platform`, `topic`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_TOPIC`, `TOPIC_NOT_AVAILABLE`
 - **Example:** `{"topic":"design-system","platform":"web"}`
 
 ### `designos_import_web_capture`
-- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable...
+- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an...
 - **Args:** required: none (optional: `capture`, `infer_block_auto_layout`, `page_id`, `path`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
 - **Example:** `{"path":"capture.webcapture.json","page_id":1}`
@@ -161,7 +163,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{}`
 
 ### `designos_lint_fix`
-- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the...
+- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or...
 - **Args:** required: none (optional: `node_id`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"page_id":1,"rules":["default-layer-name"]}`
@@ -179,7 +181,7 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"node_id":2,"scale":2.0}`
 
 ### `designos_set_in_progress`
-- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not an undo step).
+- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not an undo...
 - **Args:** required: `node_ids`, `value` (optional: `force`, `idempotency_key`, `stale_after_s`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `IN_PROGRESS_TARGET_NOT_ROOT`, `NODE_IN_PROGRESS_BY_OTHER_RUN`
 - **Example:** `{"node_ids":[2],"value":true}`
@@ -191,13 +193,13 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"ops":[{"op":"insert","as":"card","parent_id":1,"kind":"frame","name":"Card","width":360,"height":180},{"op":"insert","parent_id":"@card","kind":"text","name":"Title","text":"Q3 Overview"}]}`
 
 ### `designos_get_design_context`
-- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax,...
+- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code...
 - **Args:** required: `node_id` (optional: `include_screenshot`, `language`, `react_tailwind`, `response_format`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2,"language":"css"}`
 
 ### `designos_configure_session`
-- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode:...
+- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues block...
 - **Args:** required: none (optional: `auto_fix`, `issues`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"issues":{"mode":"preset","preset":"agent","max_items":25}}`
@@ -217,13 +219,13 @@ Follow this 7-step loop on every design task:
 ### `designos_save_file`
 - **Purpose:** Save this session to a .designos file inside the workspace.
 - **Args:** required: `path` (optional: `overwrite`)
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
 ### `designos_render_png`
 - **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's...
 - **Args:** required: `path`, `node_id` (optional: `scale`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"node_id":2,"path":"preview.png","scale":2.0}`
 
 ### `designos_new_document`

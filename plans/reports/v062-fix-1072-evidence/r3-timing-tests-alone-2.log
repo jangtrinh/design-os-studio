@@ -1,0 +1,26 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.93s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos_studio-a3645dd294d29853)
+
+running 14 tests
+test shell::tests::agents_tab_strip::an_exited_tab_keeps_its_title_and_still_says_it_exited ... ok
+test shell::tests::agents_tab_strip::a_press_away_from_the_menu_and_from_plus_still_closes_it ... ok
+test shell::tests::agents_tab_strip::a_second_click_on_plus_closes_its_menu ... ok
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test shell::tests::agents_tab_strip::plus_opens_its_menu_when_press_and_release_share_a_frame ... ok
+test shell::tests::agents_tab_strip::closing_the_plus_menu_with_plus_discards_the_other_cli_draft ... ok
+test shell::tests::agents_tab_strip::an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not ... ok
+test shell::tests::agents_tab_strip::the_buttons_stay_put_when_the_only_tab_exits ... ok
+test terminal::delayed_enter_tests::a_codex_tab_whose_echo_of_the_prompt_reads_as_a_question_still_gets_its_enter ... ok
+test shell::tests::agents_tab_strip::the_screen_reader_name_of_a_tab_says_when_its_agent_exited ... ok
+test terminal::delayed_enter_tests::a_tab_with_the_output_heuristic_on_still_gets_its_enter_when_its_status_reads_as_a_question ... ok
+test terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_to_a_claude_tab_that_began_to_wait_after_the_paste ... ok
+test terminal::delayed_enter_tests::a_tab_that_read_as_waiting_before_the_paste_is_still_refused_at_send_time_whatever_the_source ... ok
+test terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_when_a_record_says_the_agent_waits_whatever_the_version ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 3299 filtered out; finished in 16.01s
+
