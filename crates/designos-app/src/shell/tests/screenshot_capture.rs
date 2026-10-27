@@ -1,0 +1,182 @@
+//! Unit and `Sim` tests for `--screenshot` capture retry, failure reasons, viewport level, and watchdog (`#1141`, US-17).
+
+use super::*;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+const SIZE: (u32, u32) = (1600, 1088);
+
+fn showcase_shot_sim(tag: &str) -> (Sim, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let path = dir.join("s.png");
+    let opts = Options {
+        fixture: Some(crate::showcase::FIXTURE.to_string()),
+        select: Some("none".to_string()),
+        size: Some(SIZE),
+        screenshot: Some(path.clone()),
+        ..Default::default()
+    };
+    (Sim::with(opts), path)
+}
+
+fn cleanup(path: &std::path::Path) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+fn frame_sent_screenshot(s: &Sim) -> bool {
+    s.commands.iter().any(|c| matches!(c, egui::ViewportCommand::Screenshot(_)))
+}
+
+fn run_until_first_screenshot_cmd(s: &mut Sim, limit: u32) -> u32 {
+    if s.sent_commands.iter().any(|c| matches!(c, egui::ViewportCommand::Screenshot(_))) {
+        return 0;
+    }
+    for step in 1..=limit {
+        s.frame(vec![]);
+        if frame_sent_screenshot(s) {
+            return step;
+        }
+    }
+    panic!("no ViewportCommand::Screenshot sent within {limit} frames");
+}
+
+fn screenshot_event(w: usize, h: usize) -> Event {
+    let image = Arc::new(egui::ColorImage::filled([w, h], egui::Color32::from_rgb(0x18, 0x18, 0x1B)));
+    Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }
+}
+
+// Test 1: Run frames until one `ViewportCommand::Screenshot` is sent, then inject no image for 12 frames.
+// A second `Screenshot` command is sent.
+#[test]
+fn lost_screenshot_request_is_sent_again() {
+    let (mut s, path) = showcase_shot_sim("t1_re_request");
+    run_until_first_screenshot_cmd(&mut s, 60);
+    let mut second_sent = false;
+    for _ in 0..12 {
+        s.frame(vec![]);
+        if frame_sent_screenshot(&s) {
+            second_sent = true;
+            break;
+        }
+    }
+    cleanup(&path);
+    assert!(second_sent, "expected a second ViewportCommand::Screenshot within 12 frames after a lost request");
+}
+
+// Test 2: After case 1, inject `Event::Screenshot` with a 1600x1088 `ColorImage`.
+// The PNG exists, and `outcome == Written`.
+#[test]
+fn capture_is_written_after_a_lost_request() {
+    let (mut s, path) = showcase_shot_sim("t2_written_after_lost");
+    run_until_first_screenshot_cmd(&mut s, 60);
+    let mut second_sent = false;
+    for _ in 0..12 {
+        s.frame(vec![]);
+        if frame_sent_screenshot(&s) {
+            second_sent = true;
+        }
+    }
+    assert!(second_sent, "precondition: second ViewportCommand::Screenshot must be sent after first is lost");
+    s.frame(vec![screenshot_event(SIZE.0 as usize, SIZE.1 as usize)]);
+    let exists = path.is_file() && path.metadata().is_ok_and(|m| m.len() > 0);
+    let outcome = s.shell.shot.as_ref().expect("shot state exists").outcome.clone();
+    cleanup(&path);
+    assert!(exists, "PNG must be written after re-requested screenshot arrives");
+    assert_eq!(outcome, ShotOutcome::Written);
+}
+
+// Test 3: Never inject. `outcome == Failed` and the reason starts with `no image after 5 requests`.
+#[test]
+fn capture_gives_up_with_a_reason_after_five_lost_requests() {
+    let (mut s, path) = showcase_shot_sim("t3_five_lost");
+    for _ in 0..260 {
+        s.frame(vec![]);
+        if s.commands.contains(&egui::ViewportCommand::Close) {
+            break;
+        }
+    }
+    let exists = path.exists();
+    let outcome = s.shell.shot.as_ref().expect("shot state exists").outcome.clone();
+    cleanup(&path);
+    assert!(!exists, "abandoned capture must never write a partial or empty file");
+    match outcome {
+        ShotOutcome::Failed(reason) => {
+            assert!(reason.starts_with("no image after 5 requests"), "expected reason starting with 'no image after 5 requests', got: {reason:?}");
+            assert!(
+                reason.contains("frames ") && reason.contains("; last surface status "),
+                "expected frame list and surface status in reason, got: {reason:?}"
+            );
+        }
+        other => panic!("expected ShotOutcome::Failed, got {other:?}"),
+    }
+}
+
+// Test 4 + AC-04 (Controller Ruling 2): Pure `fn failure_line(&ShotOutcome) -> String` starts with
+// `designos: screenshot was not captured: `, and every failure path keeps the exact INFRA prefix and exit code 1.
+#[test]
+fn failure_line_keeps_the_infra_prefix() {
+    let cases = [
+        ShotOutcome::Failed("no image after 5 requests (frames 12, 22, 32, 42, 52); last surface status none".to_string()),
+        ShotOutcome::Failed(SHOT_OCCLUDED_REASON.to_string()),
+        ShotOutcome::Failed("the image was malformed (1600x1088, 12 bytes)".to_string()),
+        ShotOutcome::Failed(SHOT_CLOSED_REASON.to_string()),
+        ShotOutcome::Pending,
+    ];
+    for outcome in &cases {
+        let line = failure_line(outcome);
+        assert!(
+            line.starts_with("designos: screenshot was not captured: "),
+            "failure_line({outcome:?}) must start with 'designos: screenshot was not captured: ', got: {line:?}"
+        );
+        let reason_part = &line["designos: screenshot was not captured: ".len()..];
+        assert!(!reason_part.trim().is_empty(), "failure_line({outcome:?}) must include a non-empty reason, got: {line:?}");
+        assert_eq!(failure_exit_code(outcome), 1, "every failure path must exit with code 1");
+    }
+}
+
+// Test 5: Pure image-to-buffer conversion given a mismatched size returns `Err` naming `<w>x<h>` and the byte count.
+#[test]
+fn malformed_image_is_reported() {
+    let err = image_to_rgba(1600, 1088, vec![0u8; 12]).expect_err("mismatched byte count must fail");
+    assert!(err.contains("1600x1088") && err.contains("12 bytes"), "expected malformed image error naming '1600x1088' and '12 bytes', got: {err:?}");
+    assert_eq!(err, "the image was malformed (1600x1088, 12 bytes)");
+}
+
+// Test 6: Pure `fn screenshot_viewport(w, h) -> ViewportBuilder` (moved out of `main`):
+// `window_level == Some(AlwaysOnTop)` and `active == Some(false)`.
+#[test]
+fn screenshot_viewport_is_always_on_top() {
+    let vp = screenshot_viewport(1440, 900);
+    assert_eq!(vp.window_level, Some(egui::WindowLevel::AlwaysOnTop));
+    assert_eq!(vp.active, Some(false));
+}
+
+// Test 6b: Pure watchdog state: `arm` is never called, and 60 s pass in a fake clock: no fire.
+// Armed, then no frame for 31 s: fire, with the occluded reason.
+// Frames every 1 s for 60 s: no fire.
+#[test]
+fn watchdog_is_not_armed_before_the_first_frame() {
+    let un_armed = ShotWatchdog::new();
+    assert_eq!(un_armed.check(Duration::from_secs(60)), None, "unarmed watchdog must not fire after 60 s of file loading");
+
+    let mut stalled = ShotWatchdog::new();
+    stalled.arm(Duration::from_secs(0));
+    assert_eq!(stalled.check(Duration::from_secs(29)), None, "armed watchdog must not fire before 30 s");
+    assert_eq!(
+        stalled.check(Duration::from_secs(31)),
+        Some("the window was not drawn for 30 s (occluded or minimised)"),
+        "armed watchdog must fire after 31 s with the occluded reason"
+    );
+
+    let mut active = ShotWatchdog::new();
+    for sec in 0..=60 {
+        let now = Duration::from_secs(sec);
+        active.arm(now);
+        assert_eq!(active.check(now), None, "watchdog receiving frames every 1 s must never fire (at {sec} s)");
+    }
+}
