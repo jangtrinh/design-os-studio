@@ -342,4 +342,61 @@ mod tests {
         let named = items.iter().find(|i| i.label == "Shadow/Card").expect("named style row present");
         assert_eq!(named.tooltip, "", "named style has no raw-id tooltip");
     }
+
+    #[test]
+    fn us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+
+        // Populate 200,000 nodes in `doc.nodes` (1 page + 199,999 rectangles).
+        let mut children = Vec::with_capacity(199_999);
+        for i in 2..=200_000u64 {
+            let id = NodeId(i);
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(page);
+            if i > 199_981 {
+                let idx = i - 199_982;
+                n.style_refs.insert("effect".into(), format!("S:orphan-{idx:02}"));
+            }
+            doc.nodes.insert(id, n);
+            children.push(id);
+        }
+        doc.reserve_ids(NodeId(200_000));
+        doc.nodes.get_mut(&page).unwrap().children = children;
+        assert_eq!(doc.nodes.len(), 200_000);
+
+        // 50 styles: 25 live table styles (`S:live-..` and `2:..` with `style_meta`)
+        // and 25 orphan styles without `style_meta` (20 `S:`-prefixed keys and 5 GUID keys).
+        let mut all_keys = Vec::with_capacity(50);
+        for i in 0..25 {
+            let k = if i < 15 { format!("S:live-{i:02}") } else { format!("2:{}", 100 + i) };
+            doc.styles.insert(k.clone(), fx.clone());
+            doc.style_meta.insert(k.clone(), StyleMeta { name: format!("Elevation/Level-{i:02}"), property: StyleProperty::Effect, ..Default::default() });
+            all_keys.push((k, true));
+        }
+        for i in 0..20 {
+            let k = format!("S:orphan-{i:02}");
+            doc.styles.insert(k.clone(), fx.clone());
+            all_keys.push((k, false));
+        }
+        for i in 0..5 {
+            let k = format!("1186:{}", 100_350 + i);
+            doc.styles.insert(k.clone(), fx.clone());
+            all_keys.push((k, false));
+        }
+        assert_eq!(doc.styles.len(), 50);
+
+        let budget = if cfg!(debug_assertions) { std::time::Duration::from_millis(50) } else { std::time::Duration::from_millis(5) };
+        let t0 = std::time::Instant::now();
+        let listed = style_entries_of(&doc, StyleKind::Effect);
+        let elapsed = t0.elapsed();
+
+        assert!(elapsed < budget, "style_entries_of on 200,000 nodes and 50 styles took {elapsed:?} (budget {budget:?}); must not walk nodes");
+        for (k, expected_table) in &all_keys {
+            assert_eq!(doc.is_table_style(k), *expected_table, "is_table_style({k:?}) mismatch");
+            assert_eq!(doc.is_orphan_style(k), !*expected_table, "is_orphan_style({k:?}) mismatch");
+        }
+        assert_eq!(listed.len(), 25, "only the 25 styles with style_meta must be listed");
+    }
 }

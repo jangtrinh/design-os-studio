@@ -2005,4 +2005,55 @@ mod tests {
         set_thread_mock_now_ms(None);
         assert_ne!(now_ms(), SENTINEL_MS + 1_000, "clearing must restore this thread's own clock");
     }
+
+    #[test]
+    fn us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+
+        let mut children = Vec::with_capacity(199_999);
+        for i in 2..=200_000u64 {
+            let id = NodeId(i);
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(page);
+            if i > 199_981 {
+                let idx = i - 199_982;
+                n.style_refs.insert("effect".into(), format!("S:orphan-{idx:02}"));
+            }
+            doc.nodes.insert(id, n);
+            children.push(id);
+        }
+        doc.reserve_ids(NodeId(200_000));
+        doc.nodes.get_mut(&page).unwrap().children = children;
+        assert_eq!(doc.nodes.len(), 200_000);
+
+        let mut keys = Vec::with_capacity(50);
+        for i in 0..25 {
+            let k = if i < 15 { format!("S:live-{i:02}") } else { format!("2:{}", 100 + i) };
+            doc.styles.insert(k.clone(), fx.clone());
+            doc.style_meta.insert(k.clone(), StyleMeta { name: format!("Elevation/{i:02}"), property: StyleProperty::Effect, ..Default::default() });
+            keys.push((k, true));
+        }
+        for i in 0..20 {
+            let k = format!("S:orphan-{i:02}");
+            doc.styles.insert(k.clone(), fx.clone());
+            keys.push((k, false));
+        }
+        for i in 0..5 {
+            let k = format!("1186:{}", 100_350 + i);
+            doc.styles.insert(k.clone(), fx.clone());
+            keys.push((k, false));
+        }
+        assert_eq!(doc.styles.len(), 50);
+
+        let budget = if cfg!(debug_assertions) { std::time::Duration::from_millis(50) } else { std::time::Duration::from_millis(5) };
+        let t0 = std::time::Instant::now();
+        for (k, expected_table) in &keys {
+            assert_eq!(doc.is_table_style(k), *expected_table, "is_table_style({k:?}) mismatch");
+            assert_eq!(doc.is_orphan_style(k), !*expected_table, "is_orphan_style({k:?}) mismatch");
+        }
+        let elapsed = t0.elapsed();
+        assert!(elapsed < budget, "is_table_style across 50 keys on 200,000 nodes took {elapsed:?} (budget {budget:?})");
+    }
 }
