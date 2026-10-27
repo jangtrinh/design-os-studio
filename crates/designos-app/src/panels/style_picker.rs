@@ -52,7 +52,7 @@ const MIXED_SELECTION_TIP: &str = "Selected text has mixed styles";
 /// Style of `prop` the first selected node is linked to, when that style exists.
 pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Option<String> {
     let key = app.doc.get(*sel.first()?)?.style_refs.get(kind_of(prop).ref_key())?;
-    app.doc.styles.contains_key(key).then(|| key.clone())
+    app.doc.is_table_style(key).then(|| key.clone())
 }
 
 /// Whether the first selected node has effects or layout grids to turn into a style.
@@ -97,7 +97,11 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     let mut items = Vec::new();
     let mut picks = Vec::new();
     for e in style_entries_of(&app.doc, kind_of(prop)) {
-        items.push(MenuItem::new(app.doc.style_name(&e.key)).checked(current.as_deref() == Some(e.key.as_str())));
+        let mut item = MenuItem::new(app.doc.style_name(&e.key)).checked(current.as_deref() == Some(e.key.as_str()));
+        if app.doc.is_unnamed_style(&e.key) {
+            item = item.tooltip(e.key.clone());
+        }
+        items.push(item);
         picks.push(Some(Pick::Apply(e.key)));
     }
     if items.is_empty() {
@@ -230,7 +234,7 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         if resp.double_clicked() && !read_only {
             app.props.style_rename = Some(prop);
         }
-        resp.on_hover_text(name);
+        resp.on_hover_text(if app.doc.is_unnamed_style(key) { key.to_string() } else { name });
     }
     let edit = pane.rect(theme::SECTION_TRAILING_X - theme::PANEL_ACTION_BUTTON - 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, &format!("{tag}-edit"), edit);
@@ -288,7 +292,7 @@ mod tests {
         }
 
         let listed: Vec<String> = style_entries_of(&doc, StyleKind::Effect).into_iter().map(|e| e.key).collect();
-        assert_eq!(listed, vec!["2:108".to_string(), "2:100".to_string(), "2:107".to_string()]);
+        assert_eq!(listed, vec!["2:108".to_string(), "2:107".to_string(), "2:100".to_string()]);
 
         // Reopening an old `.designos` JSON with orphans still hides them at listing time without migration.
         let reopened = Document::from_json(&doc.to_json().unwrap()).unwrap();

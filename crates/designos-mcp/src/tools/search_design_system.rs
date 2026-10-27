@@ -249,9 +249,9 @@ impl SearchIndex {
             items.push(build_component_item(node, &name, true, local_origin.clone(), ref_str, None, ComponentSource::Local(doc, snapshots)));
         }
 
-        // 2. Local styles (excluding imported library copies).
+        // 2. Local styles (excluding imported library copies and orphan references).
         for (style_key, style) in &doc.styles {
-            if imported_local_keys.contains(style_key.as_str()) {
+            if !doc.is_table_style(style_key) || imported_local_keys.contains(style_key.as_str()) {
                 continue;
             }
             let meta = doc.style_meta.get(style_key);
@@ -836,7 +836,7 @@ fn style_name_collides(
 ) -> bool {
     let mut local_matches = 0usize;
     for k in doc.styles.keys() {
-        if imported_local_keys.contains(k.as_str()) {
+        if !doc.is_table_style(k) || imported_local_keys.contains(k.as_str()) {
             continue;
         }
         let sname = doc.style_name(k);

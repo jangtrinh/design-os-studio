@@ -738,9 +738,56 @@ impl Document {
         self.next_id = self.next_id.max(id.0);
     }
 
-    /// Display name of a shared style: its metadata name, else the key.
+    /// Display name of a shared style: its metadata name (or a typed `"Unnamed ... style"`
+    /// fallback when empty or whitespace-only), else the key.
     pub fn style_name<'a>(&'a self, key: &'a str) -> &'a str {
-        self.style_meta.get(key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(key)
+        if let Some(m) = self.style_meta.get(key) {
+            if !m.name.trim().is_empty() {
+                m.name.as_str()
+            } else {
+                Self::unnamed_style_label(m.property)
+            }
+        } else if key.trim().is_empty() && self.styles.contains_key(key) {
+            Self::unnamed_style_label(style_property(self, key))
+        } else {
+            key
+        }
+    }
+
+    /// Fallback display label for a table style whose name is empty or whitespace-only.
+    pub const fn unnamed_style_label(prop: StyleProperty) -> &'static str {
+        match prop {
+            StyleProperty::Fill | StyleProperty::Stroke => "Unnamed fill style",
+            StyleProperty::Text => "Unnamed text style",
+            StyleProperty::Effect => "Unnamed effect style",
+            StyleProperty::Grid => "Unnamed grid style",
+        }
+    }
+
+    /// Whether `key` is a table style whose stored name is empty or whitespace-only.
+    pub fn is_unnamed_style(&self, key: &str) -> bool {
+        self.style_meta.get(key).is_some_and(|m| m.name.trim().is_empty())
+            || (!self.style_meta.contains_key(key) && self.styles.contains_key(key) && key.trim().is_empty())
+    }
+
+    /// Whether `key` is an orphan style reference (seeded only from a layer's `style_refs`
+    /// after a soft-deleted, `REMOVED`, or missing style node, with no entry in `style_meta`).
+    pub fn is_orphan_style(&self, key: &str) -> bool {
+        if self.style_meta.contains_key(key) {
+            return false;
+        }
+        if !self.styles.contains_key(key) {
+            return true;
+        }
+        let is_guid = key
+            .split_once(':')
+            .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()));
+        is_guid || key.starts_with("key:") || (key.starts_with("S:") && self.nodes.values().any(|n| n.style_refs.values().any(|v| v == key)))
+    }
+
+    /// Whether `key` is a live style in the file's own style table (not an orphan reference).
+    pub fn is_table_style(&self, key: &str) -> bool {
+        self.styles.contains_key(key) && !self.is_orphan_style(key)
     }
 
     /// Record a per-(rule, node) lint suppression in the unified `check_designs.ignored` store.
