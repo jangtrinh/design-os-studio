@@ -5,6 +5,8 @@ mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
+#[cfg(test)]
+mod agent_cli_select_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
 pub mod agent_hook_outputs;
@@ -17,6 +19,9 @@ pub mod agent_picker;
 mod agent_presence;
 mod agent_project_config;
 mod agent_sample_prompts;
+#[cfg(test)]
+#[path = "select_target/tests.rs"]
+mod agent_select_resolver_tests;
 mod agent_selection_chip;
 mod agent_session_failure;
 pub mod agent_session_files;

@@ -1153,6 +1153,7 @@ mod proto;
 mod proto_vars;
 mod relayout_budget;
 mod resized_shape_geometry;
+mod select_cli;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;

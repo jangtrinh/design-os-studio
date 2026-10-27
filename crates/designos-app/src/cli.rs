@@ -385,6 +385,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_select_prefixes_and_zoom_fit() {
+        for selector in ["id:5", "fig:I1:2;3:4", "name:id:3", "Card B", "none"] {
+            assert_eq!(p(&["--select", selector]).unwrap().select.as_deref(), Some(selector), "{selector} reaches the resolver verbatim");
+        }
+        assert!(p(&["--zoom", "fit"]).is_ok(), "--zoom fit parses");
+        assert!(p(&["--select", ""]).is_err(), "an empty selector is a parse error, not silently ignored");
+        assert!(p(&["--select", "   "]).is_err());
+        assert!(p(&["--select"]).is_err());
+        let usage = USAGE;
+        assert!(usage.contains("--select id:<n>|fig:<figma id>|name:<text>|LAYER|none"), "{usage}");
+        assert!(usage.contains("--zoom PERCENT|fit"), "{usage}");
+    }
+
+    #[test]
+    fn select_needs_a_file_so_it_is_a_parse_error_with_home() {
+        let err = p(&["--home", "--select", "Card B"]).unwrap_err();
+        assert!(err.contains("--select needs a file"), "{err}");
+        assert!(p(&["design.designos", "--select", "Card B"]).is_ok());
+        assert!(p(&["--fixture", "no-selection", "--select", "Card B"]).is_ok(), "a fixture is a document");
+    }
+
+    #[test]
     fn gpu_flag_is_off_unless_given() {
         assert!(!p(&["--screenshot", "x.png"]).unwrap().gpu);
         let o = p(&["--gpu", "--screenshot", "x.png"]).unwrap();
