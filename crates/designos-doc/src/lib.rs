@@ -773,21 +773,12 @@ impl Document {
     /// Whether `key` is an orphan style reference (seeded only from a layer's `style_refs`
     /// after a soft-deleted, `REMOVED`, or missing style node, with no entry in `style_meta`).
     pub fn is_orphan_style(&self, key: &str) -> bool {
-        if self.style_meta.contains_key(key) {
-            return false;
-        }
-        if !self.styles.contains_key(key) {
-            return true;
-        }
-        let is_guid = key
-            .split_once(':')
-            .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()));
-        is_guid || key.starts_with("key:") || (key.starts_with("S:") && self.nodes.values().any(|n| n.style_refs.values().any(|v| v == key)))
+        is_orphan_style_in(&self.styles, &self.style_meta, key)
     }
 
     /// Whether `key` is a live style in the file's own style table (not an orphan reference).
     pub fn is_table_style(&self, key: &str) -> bool {
-        self.styles.contains_key(key) && !self.is_orphan_style(key)
+        self.styles.contains_key(key) && !is_orphan_style_in(&self.styles, &self.style_meta, key)
     }
 
     /// Record a per-(rule, node) lint suppression in the unified `check_designs.ignored` store.
@@ -1592,6 +1583,21 @@ pub enum Style {
     Grid(Vec<LayoutGrid>),
 }
 
+/// Decides whether `key` is an orphan style reference from the style tables alone,
+/// without touching `Document::nodes`.
+fn is_orphan_style_in(styles: &BTreeMap<String, Style>, style_meta: &BTreeMap<String, StyleMeta>, key: &str) -> bool {
+    if style_meta.contains_key(key) {
+        return false;
+    }
+    if !styles.contains_key(key) {
+        return true;
+    }
+    let is_guid = key
+        .split_once(':')
+        .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()));
+    is_guid || key.starts_with("key:") || key.starts_with("S:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2055,5 +2061,14 @@ mod tests {
         }
         let elapsed = t0.elapsed();
         assert!(elapsed < budget, "is_table_style across 50 keys on 200,000 nodes took {elapsed:?} (budget {budget:?})");
+
+        // Prove by construction (Rust borrow checker): holding `&mut doc.nodes` while checking
+        // every key through `is_orphan_style_in(&doc.styles, &doc.style_meta, k)` compiles only
+        // because `doc.nodes` is never borrowed or touched.
+        let nodes_exclusive = &mut doc.nodes;
+        for (k, expected_table) in &keys {
+            assert_eq!(!is_orphan_style_in(&doc.styles, &doc.style_meta, k), *expected_table);
+        }
+        assert_eq!(nodes_exclusive.len(), 200_000);
     }
 }
