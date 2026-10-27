@@ -136,7 +136,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.3. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v065"></a>
+### 0.6.5
+
+- **Starter file.** Fresh libraries and upgrades from 0.4.0–0.6.4 seed a `Getting started` project with `DESIGN-OS Studio Starter` (`Starter screens` and `About this file`) without touching existing user files, `Open starter sample` in Home and `Help and account` opens a new copy, launching with no file argument opens Home, and the older sample builders, `--seed-library`, `--fixture` (in release builds) and `examples/` are removed.
+- **Variables.** `designos FILE --export-variables OUT.json --format dtcg --mode MODE` exports one variable mode across the file's collections (or `--collection`) as a single self-contained DTCG `.tokens.json` file with default-mode fallback, `--resolve-aliases`, and `--color-format` (`hex` or `object`), and multi-file DTCG exports give same-named local and library collections unique group and file names.
+- **Agents panel.** Tabs clear their scrollback on `ESC[3J` so a UI zoom no longer repeats output, quiet Codex turns decay from `Working…` to `Done` after 1.5 s and close the turn in the ledger, and the approval banner shows `Show prompt` to focus the current waiting tab or `Open tab` to switch to another waiting tab.
+- **Canvas and `.fig` import.** Frame, component and instance labels repaint after an agent rename and cut to fit with `…` like Figma; hug and fixed-width `NodeSpec` text is measured with the renderer's `cosmic-text` shaper instead of a character-count estimate; Kiwi 64-bit varints decode and encode the ninth byte as a full 8 bits; and resized instances in `.fig` imports scale and apply derived vector geometry while keeping stroke weight.
+- **Styles and performance.** Deleted, `REMOVED` and orphan style records are hidden from style pickers, Assets, library publishing, layer chips and MCP listings, while unnamed listed styles show `Unnamed fill style`, `Unnamed text style`, `Unnamed effect style` or `Unnamed grid style` with the raw ID in the tooltip; whole-page and multi-node edits diff only changed nodes using typed field comparisons instead of serializing every touched node to JSON.
+- **CLI and MCP.** `--select` accepts `id:<n>`, `fig:<figma id>`, `name:<text>`, `none` or a layer name, supports `--zoom fit`, reports `--inspect-json` `selection` bounds in page coordinates, and exits 2 without writing a PNG or changing the file when a selector matches nothing; Home › `Import` › `Enter a path…` expands `~/` and `file://` paths and starts toast timers on first paint; MCP imports share one 512 MiB `FILE_TOO_LARGE` gate with `safe_to_retry: false`, `designos-mcp` usage errors list `--version`, and MCP file writers return `INVALID_NAME` and `NAME_TOO_LONG` on invalid output names.
 
 <a id="new-in-v063"></a>
 ### 0.6.3
@@ -601,7 +611,7 @@ design-os-studio/
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.6.3. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.6.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
