@@ -1397,3 +1397,117 @@ G6: 0 mismatches.
   - `es:dev`, `es:feature-dev`, `es:rust`, `es:rust-gpu-canvas`, `es:astra-work`, `es:fable-thinking`, `es:orca-native-orchestration`.
 
 Status: READY FOR CONTROLLER REVIEW (ROUND 7)
+
+---
+
+## Round 8 — Move Layout Gate Off Legacy Samples to Untitled UI Kit Clone & Shipped Starter (`#1126` Rule 14)
+
+### 1. What Could NOT Be Verified (Stated First)
+
+1. **No GUI Window Launch or Visual Capture (`*.png`, `wireframe-*.png`, `colour-sheet.png`, or Blessed `*.layout.json`):**
+   - Explicitly forbidden in Round 8 by controller spec override: *"No window and no visual capture this round. Visual evidence = the mapping table, the inventory JSON and the timing log."* and *"Do not regenerate or bless any baseline JSON in this round."*
+   - Tier B command construction, one-time kit import, per-case `cp -c` cloning, and headless `prep` execution are verified via unit tests (`scripts/tests/test_layout_baseline_capture.py`) and `--dry-run` across all 76 cases (`plans/reports/agy-1126-layout-gate-evidence/r8/tierb-dry-run.log`).
+2. **3 Cases Unreachable in Tier B CLI (`x-board`, `x-deck`, `j-comments`):**
+   - All 76 cases are reachable and verified in Tier A (`Sim::from_case` on the shipped starter + `#[cfg(test)]` `prep` helpers).
+   - In Tier B (`designos <clone.designos>`), 73 of 76 cases are reachable via CLI flags and headless `prep`, while 3 cases are unreachable without new app CLI flags:
+     - `x-board`: neither `designos --apply-spec` nor `designos-mcp` can set `DocumentKind::Board` or create `NodeKind::Sticky` / `NodeKind::ShapeWithText`.
+     - `x-deck`: neither `designos --apply-spec` nor `designos-mcp` can set `DocumentKind::Deck` or `Node::slide = Some(SlideProps)`.
+     - `j-comments`: `designos --add-comment` writes a comment thread to the `.designos` clone headlessly, but `cli::parse` has no `--panel comments` or `--tool comment` flag to set `app.tool = Tool::Comment` and `app.comments.open = Some(1)` at launch.
+
+---
+
+### 2. Deliverable 1 — Rebase Onto `origin/release/v0.7.0` (`1b33582b8`) & Spec `file:line` Drift Report
+
+Branch `jangtrinh/agy-1126-layout-gate` was rebased onto `origin/release/v0.7.0` (`1b33582b80c483ecda8b8099ff77a7f7a96ffcce`, which includes the `0.6.5` back-merge `#1275` where release builds reject `--fixture` and `--seed-library` unless built with `--features fixtures`).
+
+#### Drift in Every `file:line` Cited by Governing Spec (`docs/specs/ui-revamp-untitled-dark/1126-layout-unchanged-gate-baseline-capture.md` @ `53785768`)
+
+| Spec Section | Spec Citation (`53785768`) | Post-Rebase Location (`HEAD`) | Drift / Status |
+|---|---|---|---|
+| §2 Rule 4 | `crates/designos-app/src/shell.rs:344-348` (`800 ms` `agents-chat` bridge poll loop) | `crates/designos-app/src/shell.rs:334-347` | Loop remains removed; `agents-chat` panel branch now at lines `334-347` |
+| §2 Rule 4 | `crates/designos-app/src/terminal.rs:5347-5354` (`5 s` `open_failed_start_fixture` sleep loop) | `crates/designos-app/src/terminal.rs:6344-6359` | Shifted `+997` lines due to `release/v0.7.0` changes in `terminal.rs`; sleep loop remains removed |
+| §2 Rule 4 | `crates/designos-app/src/shell/tests.rs:64-67` (`Sim` child-exit wait) | `crates/designos-app/src/shell/tests.rs:103-112` | `Sim::from_cli_with_stubs` wait loop at lines `103-112` |
+| §2 Rule 5.1 | `crates/designos-app/src/terminal.rs:1938` (`TerminalState::default` runs `refresh_cli_availability`) | `crates/designos-app/src/terminal.rs:2198-2214` | Shifted `+260` lines; guarded by `cli_resolve::hermetic_agent_cli_dir()` |
+| §2 Rule 5.1 | `crates/designos-app/src/agent_picker.rs:423-478` (`detect_installed_In`) | `crates/designos-app/src/agent_picker.rs:423-478` | Unchanged (`0` line drift) |
+| §2 Rule 5.1 | `crates/designos-app/src/cli_resolve.rs:30-75` (`cli_search_dirs`) | `crates/designos-app/src/cli_resolve.rs:180-235` | Expanded with `HERMETIC_AGENT_CLI_DIR`, `ScopedCliDirs`, and `enforce_hermetic_startup` |
+| §2 Rule 5.2 | `crates/designos-app/src/terminal.rs:4377-4396` (`build_agent_shell_cmd`) | `crates/designos-app/src/terminal.rs:4901-4962` | Shifted `+524` lines; `build_agent_shell_cmd_checked_for_tab` enforces hermetic resolution |
+| §2 Rule 5.2 | `crates/designos-app/src/terminal.rs:4832-4908` (`configure_pty_env`) | `crates/designos-app/src/terminal.rs:5475-5565` | Shifted `+643` lines; `release/v0.7.0` added `isolation_env_Snapshot` and `path_override` |
+| §2 Rule 5.3 | `crates/designos-app/src/terminal.rs:2902-2958` (`spawn_tab_running` / `agy` 200 ms poll) | `crates/designos-app/src/terminal.rs:3350-3416` | Shifted `+448` lines |
+| §2 Rule 5.4 | `crates/designos-app/src/agent_usage.rs:208-281` (`claude_oauth_access_token` / `refresh_grok_usage`) | `crates/designos-app/src/agent_usage.rs:208-295` | Guarded by `cli_resolve::hermetic_mode_active()` |
+| §2 Rule 5.5 | `crates/designos-app/src/terminal.rs:9029-9075` (`probe_mcp_servers_background`) | `crates/designos-app/src/terminal.rs:9830-9895` | Shifted `+801` lines; `gemini_mcp_list_command` extracted in `0.6.5` |
+| §2 Rule 5.6 | `crates/designos-app/src/app/library_attach.rs:18-48` (`attach_library` / `refresh_library_sources`) | `crates/designos-app/src/app/library_attach.rs:18-56` | Unchanged |
+| §2 Rule 5.6 | `crates/designos-app/src/app/constructor.rs:180` (`LibrarySourcesState::default`) | `crates/designos-app/src/app/constructor.rs:180` | Unchanged |
+| §2 Rule 7 | `crates/designos-app/src/home/mod.rs:438-451` (`relative_time`) | `crates/designos-app/src/home/mod.rs:438-460` | Uses `relative_time_at` with `DESIGNOS_FIXED_NOW` |
+| §2 Rule 7 | `crates/designos-app/src/showcase/mod.rs:84-93` (`seed_library_at`) | `crates/designos-app/src/showcase/mod.rs:95-122` | Updated in Round 8 to seed `designos-studio-starter.designos` (`"DESIGN-OS Studio Starter"`) instead of `showcase::build()` |
+| §2 Rule 14 | `crates/designos-app/src/cli.rs:220-231` (`--fixture` / `--seed-library` gated behind `cfg!(feature = "fixtures")`) | `crates/designos-app/src/cli.rs:220-231` | Matches `release/v0.7.0` (`#1275`) |
+
+---
+
+### 3. Deliverable 2 — Headless Inventory (`starter` & `Untitled UI PRO VARIABLES v8.0` Kit Clone)
+
+All inventory commands ran headlessly (no window) under an isolated `HOME`/`TMPDIR`/`DESIGNOS_LIBRARY`:
+
+- **Starter (`crates/designos-app/assets/starter/designos-studio-starter.designos`):**
+  - Evidence files:
+    - [`starter-inspect.json`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/starter-inspect.json)
+    - [`starter-mcp-inventory.json`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/starter-mcp-inventory.json)
+  - Document name: `"DESIGN:OS Studio — Starter"`, `189` nodes across `2` pages (`id:1` `"Starter screens"` with 3 screens: `id:635870` `"Overview"`, `id:635871` `"Checkout"`, `id:635872` `"Settings"`; and `id:636181` `"Scratch"`), `32` variables in `2` collections (`Primitive` and `Semantic` with `Dark` and `Light` modes), `8` styles (`7` color + `1` text).
+- **Untitled UI Kit Clone (`cp -c` of `$HOME/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`):**
+  - Evidence file:
+    - [`kit-mcp-inventory.json`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/kit-mcp-inventory.json)
+  - Document name: `"❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy)"`, `390,940` initial nodes across `189` pages (`569` variables, `424` styles), including:
+    - Page `id:44616` (`"      ❖ Dashboards 01"`): top-level screen `id:44757` (`"Desktop"`, `1440×960`), card frame `id:49152` (`"CTA"`, `248×198`, fill + stroke + corner radius + auto-layout), text node `id:49155` (`"Supporting text"`), vector `id:44767` (`"Vector"`).
+    - Page `id:81878` (`"      ↳ Application navigation"`): component `id:81959` (`"Style=Card, Breakpoint=Desktop, Open=False"`).
+    - Page `id:21614` (`"      ↳ Buttons"`): component `id:21627` (`"Hierarchy=Primary, Size=sm, Icon=Dot leading, State=Default"`).
+    - Page `id:77652` (`"      ↳ Filters"`): component `id:77742` and instance `id:77744`.
+
+---
+
+### 4. Deliverable 3 — Headless Load Cost (`kit.fig` vs `kit.designos`)
+
+Full output recorded in [`load-cost.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/load-cost.log):
+
+| Step | Command | Wall Time (`real`) | User / Sys CPU | Peak RSS (`maximum resident set size`) | Output Artifact Size |
+|---|---|---|---|---|---|
+| **One-time import (`kit.fig -> kit.designos`)** | `designos-mcp` (`designos_open_file` + `designos_save_file`) | `12.476 s` | — | — | `532,762,213` bytes (`508.1 MB`) |
+| **Headless inspect on `.fig` clone** | `/usr/bin/time -l designos kit.fig --inspect-json` | `7.48 s` | `6.14 s` user / `1.29 s` sys | `9,923,100,672` bytes (`9.92 GB`) | `390,940` nodes |
+| **Headless inspect on `.designos` clone** | `/usr/bin/time -l designos kit.designos --inspect-json` | `4.06 s` | `2.91 s` user / `1.13 s` sys | `3,527,344,128` bytes (`3.53 GB`) | `390,940` nodes |
+
+Importing `kit.fig` once into `kit.designos` and giving each case an APFS `cp -c` clone cuts per-case headless load time by **`1.84×`** (`7.48 s -> 4.06 s`, saving `~3.42 s` per case or `~250 s` across 73 cases) and cuts peak RSS by **`2.81×`** (`9.92 GB -> 3.53 GB`).
+
+---
+
+### 5. Deliverable 4 — 76-Case Mapping Table (`plans/reports/agy-1126-r8-mapping.md`)
+
+Written to [`plans/reports/agy-1126-r8-mapping.md`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-r8-mapping.md) with one row per case in the exact order of `cases.json` (76 rows):
+- **Tier A (shipped starter + `#[cfg(test)]` `prep` helpers):** `76 / 76` cases reachable.
+- **Tier B (Untitled UI `kit.designos` per-case `cp -c` clone + headless `prep` CLI):** `73 / 76` cases reachable; `3 / 76` cases (`x-board`, `x-deck`, `j-comments`) marked `tier_b.unreachable` with explicit reasons and skipped cleanly by `scripts/layout_baseline_capture.py`.
+- All added state in both tiers is placed on a dedicated page named `"Layout baseline scratch"` so kit content is never recoloured or retouched.
+
+---
+
+### 6. Deliverable 5 & 6 — Red/Green Commits & Verification
+
+| Deliverable | Red Commit | Green Commit | Summary |
+|---|---|---|---|
+| **Deliverable 5 (Tier A starter loader, `prep` helpers, fixture-free `cases.json`)** | `fdb3fcd7b` | `dec4c8e2b` | `Sim::starter_doc()` (`include_bytes!` of `designos-studio-starter.designos`), `seed_library_at` seeds starter instead of showcase, `prep::apply` for 8 missing starter states on `"Layout baseline scratch"`, `cases_json_has_no_old_fixture` test (`0/2` -> `2/2`, and `40/40` across `layout_unchanged` + `layout_snapshot`) |
+| **Deliverable 6 (Tier B `scripts/layout_baseline_capture.py` kit clone, headless prep, `--dry-run`)** | `563f37c5` | `875c92a4` | Required `--kit`, one-time `import_kit_once` (`kit.fig -> kit.designos`), per-case `cp -c` clone, headless `prep` execution before `--screenshot`, `tier_b.unreachable` skip handling, and `--dry-run` mode (`54/57` -> `57/57` in `scripts/tests`) |
+| **Post-rebase reconciliation** | — | `5e670107`, `e69cc683` | `cargo fmt` on `terminal.rs` and `fs_sites_allowlist.txt` / `8c` `data_dir` reconciliation with `release/v0.7.0` |
+
+#### Evidence Files in `plans/reports/agy-1126-layout-gate-evidence/r8/`
+- [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/red.log) — Failing outputs for Deliverable 5 (`fdb3fcd7b`) and Deliverable 6 (`563f37c5`).
+- [`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/green.log) — Passing outputs for Deliverable 5 (`dec4c8e2b`, `40 passed; 0 failed`) and Deliverable 6 (`875c92a4`, `57 passed; 0 failed`).
+- [`tierb-dry-run.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/tierb-dry-run.log) — Full 76-case `--dry-run` trace (`Cases: 73 captured, 3 skipped (76 total), wall time 0.00s`).
+- [`full-suite.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r8/full-suite.log) — Full workspace `--lib` (`1,342 passed; 0 failed`) and `designos` `--bin` (`3,522 passed; 0 failed; 12 ignored`) test suite logs.
+
+---
+
+### 7. Files Outside Scope
+
+1. [`crates/designos-app/src/showcase/mod.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/showcase/mod.rs):
+   - Modified `seed_library_at` (the implementation behind `designos --seed-library <dir>`) to load `include_bytes!("../../assets/starter/designos-studio-starter.designos")` and seed `"DESIGN-OS Studio Starter"` instead of `showcase::build()`, as directly required by Deliverable 5 (`"seed_library_at seeds the starter, not showcase"`).
+2. [`crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt):
+   - Updated the mechanical `std::fs` / session-filename scan allowlist introduced on `release/v0.7.0` (`#1275`) so `agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed` passes with `#1126`'s hermetic CLI resolver and layout snapshot file calls.
+
+Status: READY FOR CONTROLLER REVIEW (ROUND 8)
+
