@@ -300,6 +300,7 @@ impl ErrorCode {
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
             Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
+            Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
             Self::UnknownComponent | Self::AmbiguousComponent => "Use one of valid_options or prefix with the library name (<Library>/<Component>).",
@@ -440,7 +441,7 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: true,
+            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
             next_step: code.default_next_step().to_string(),
         }
     }

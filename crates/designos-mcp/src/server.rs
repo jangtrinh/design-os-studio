@@ -619,7 +619,23 @@ impl Session {
         self.bridge.doc_unannounced = false;
         Ok(())
     }
+}
 
+/// Maximum input file size (512 MiB) accepted by MCP file-import tools, per owner ruling Q2 of
+/// 2026-10-18 (`docs/specs/v0.6/README.md:180`).
+pub(crate) const MAX_IMPORT_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+fn import_size_gate(len: u64) -> Result<(), ToolError> {
+    if len > MAX_IMPORT_FILE_BYTES {
+        return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
+            .with_received(json!(len))
+            .with_expected(format!("<= {MAX_IMPORT_FILE_BYTES} bytes"))
+            .with_safe_to_retry(false));
+    }
+    Ok(())
+}
+
+impl Session {
     fn input_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         if Path::new(path).is_absolute()
             && !Path::new(path).starts_with(&self.root)
@@ -937,11 +953,7 @@ impl Session {
                     .with_corrected_example(json!({"path": a.path, "discard_changes": true})));
                 }
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
-                if len > 512 * 1024 * 1024 {
-                    return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
-                        .with_received(json!(len))
-                        .with_expected("<= 536870912 bytes"));
-                }
+                import_size_gate(len)?;
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
                 let mut repaired_non_finite_numbers = 0;
@@ -1101,9 +1113,8 @@ impl Session {
                     if let Some(obj) = args.as_object_mut() {
                         if let Some(rel_path) = obj.get("path").and_then(Value::as_str).map(str::to_string) {
                             let resolved = self.input_path(&rel_path)?;
-                            if fs::metadata(&resolved).map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {
-                                return Err("Input file exceeds the 64 MiB import limit".into());
-                            }
+                            let len = fs::metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
+                            import_size_gate(len)?;
                             obj.insert("path".into(), json!(resolved.to_string_lossy().to_string()));
                         }
                     }
