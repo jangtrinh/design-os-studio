@@ -1,4 +1,5 @@
 //! `--fixture comments`: the demo document with Figma comments imported from
+#![cfg(any(test, feature = "fixtures"))]
 //! `fixtures/figma_comments.json` plus a few native threads, an open thread and the
 //! comment tool active. For screenshots.
 

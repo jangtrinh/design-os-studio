@@ -479,8 +479,7 @@ fn a_field_that_serializes_as_absent_is_a_change_against_one_that_serializes_as_
 }
 
 fn fixture_nodes() -> Vec<Node> {
-    let landing =
-        designos_doc::Document::from_json(include_str!("../../../../examples/landing/designos-studio-landing.designos")).expect("the landing file loads");
+    let landing = designos_doc::Document::from_json(include_str!("../../tests/fixtures/designos-studio-landing.designos")).expect("the landing file loads");
     let rich = designos_fig::import_fig(include_bytes!("../../../designos-fig/tests/fixtures/legacy-0.4.0-rich.fig")).expect("the rich .fig imports");
     let grids = designos_fig::import_fig(include_bytes!("../../../designos-fig/tests/fixtures/legacy-0.4.0-grids.fig")).expect("the grids .fig imports");
     let mut out: Vec<Node> = Vec::new();

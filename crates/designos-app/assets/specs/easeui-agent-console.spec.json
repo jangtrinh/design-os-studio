@@ -479,7 +479,7 @@
                     {
                       "name": "CLI Cmd 1",
                       "kind": "text",
-                      "text": "$ designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json",
+                      "text": "$ designos app.designos --apply-spec screen.spec.json",
                       "font_size": 12.0,
                       "font_weight": 500,
                       "color": "$easeui.text.secondary"

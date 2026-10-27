@@ -2,6 +2,7 @@
 use crate::{app::App, clipboard, edit::Tx};
 use designos_doc::*;
 
+#[cfg(any(test, feature = "fixtures"))]
 pub mod demo;
 pub mod export;
 pub mod ui;

@@ -234,6 +234,30 @@ fn parse_range(s: &str) -> Option<(usize, usize)> {
     Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
 }
 
+#[cfg(any(test, feature = "fixtures"))]
+fn is_known_fixture(f: &str) -> bool {
+    matches!(
+        f,
+        "demo"
+            | "no-selection"
+            | "variables"
+            | "variables-library"
+            | "variables-library-open"
+            | "showcase"
+            | "proto-vars"
+            | "check-designs"
+            | "deck"
+            | "board"
+            | "board-empty"
+            | "comments"
+    ) || crate::vecfixture::FIXTURES.contains(&f)
+}
+
+#[cfg(not(any(test, feature = "fixtures")))]
+fn is_known_fixture(_f: &str) -> bool {
+    false
+}
+
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut o = Options::default();
     let mut it = args.into_iter();
@@ -256,7 +280,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 o.select = Some(v);
             }
             "--menu" => o.menu = Some(it.next().ok_or("--menu needs a name (main, main/File, shape, palette)")?),
-            "--fixture" => o.fixture = Some(it.next().ok_or("--fixture needs a name (no-selection)")?),
+            "--fixture" => {
+                let f = it.next().ok_or("--fixture needs a name (no-selection)")?;
+                if !is_known_fixture(&f) {
+                    return Err(format!("unknown fixture '{f}'"));
+                }
+                o.fixture = Some(f);
+            }
             "--tab" => {
                 let t = it.next().ok_or("--tab needs design or prototype")?;
                 if !matches!(t.as_str(), "design" | "prototype") {
