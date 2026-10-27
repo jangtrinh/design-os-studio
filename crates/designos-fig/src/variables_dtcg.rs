@@ -3650,4 +3650,335 @@ mod tests {
         assert_eq!(doc.variables["VariableID:1:8"].collection, "VariableCollectionId:1:6");
         assert!(doc.variable_collections["VariableCollectionId:2:3"].variables.is_empty());
     }
+
+    /// Builds the `#1140` §10 fixture:
+    /// - two collections both named `_Primitives`:
+    ///   - local (`VariableCollectionId:10:1`, no `source_library_key`), mode `Style`
+    ///   - library (`VariableCollectionId:20:2`, `source_library_key = Some("lib-uui")`), mode `Style`
+    /// - `Color modes` (`VariableCollectionId:30:3`) with `Light` and `Dark` modes aliasing into the library `_Primitives`
+    /// - `Radius` (`VariableCollectionId:40:4`) with a single `Mode 1`
+    fn make_1140_fixture_doc() -> Document {
+        let mut doc = Document::new("uui-1140-fixture");
+
+        // 1. Local `_Primitives` (id 10:1)
+        doc.variable_collections.insert(
+            "VariableCollectionId:10:1".into(),
+            VariableCollection {
+                id: "VariableCollectionId:10:1".into(),
+                name: "_Primitives".into(),
+                modes: vec![VariableMode { id: "10:m1".into(), name: "Style".into() }],
+                default_mode: "10:m1".into(),
+                variables: vec!["VariableID:10:gray950".into()],
+                key: Some("k-local-prim".into()),
+                source_library_key: None,
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:10:gray950".into(),
+            Variable {
+                id: "VariableID:10:gray950".into(),
+                name: "Colors/Gray (dark mode)/950".into(),
+                collection: "VariableCollectionId:10:1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("10:m1".into(), VariableValue::Color(Color { r: 18.0 / 255.0, g: 18.0 / 255.0, b: 21.0 / 255.0, a: 1.0 }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        // 2. Library `_Primitives` (id 20:2)
+        doc.variable_collections.insert(
+            "VariableCollectionId:20:2".into(),
+            VariableCollection {
+                id: "VariableCollectionId:20:2".into(),
+                name: "_Primitives".into(),
+                modes: vec![VariableMode { id: "20:m1".into(), name: "Style".into() }],
+                default_mode: "20:m1".into(),
+                variables: vec!["VariableID:20:gray950".into(), "VariableID:20:white".into(), "VariableID:20:alpha50".into(), "VariableID:20:alpha0".into()],
+                key: Some("k-lib-prim".into()),
+                source_library_key: Some("lib-uui".into()),
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:gray950".into(),
+            Variable {
+                id: "VariableID:20:gray950".into(),
+                name: "Colors/Gray (dark mode)/950".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("20:m1".into(), VariableValue::Color(Color { r: 10.0 / 255.0, g: 10.0 / 255.0, b: 10.0 / 255.0, a: 1.0 }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:white".into(),
+            Variable {
+                id: "VariableID:20:white".into(),
+                name: "Colors/Base/white".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("20:m1".into(), VariableValue::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:alpha50".into(),
+            Variable {
+                id: "VariableID:20:alpha50".into(),
+                name: "Colors/Alpha/white-50".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("20:m1".into(), VariableValue::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 128.0 / 255.0 }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:alpha0".into(),
+            Variable {
+                id: "VariableID:20:alpha0".into(),
+                name: "Colors/Alpha/transparent".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("20:m1".into(), VariableValue::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.0 }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        // 3. `Color modes` (id 30:3) with `Light` and `Dark` aliasing into library `_Primitives` (20:2)
+        doc.variable_collections.insert(
+            "VariableCollectionId:30:3".into(),
+            VariableCollection {
+                id: "VariableCollectionId:30:3".into(),
+                name: "Color modes".into(),
+                modes: vec![VariableMode { id: "30:light".into(), name: "Light".into() }, VariableMode { id: "30:dark".into(), name: "Dark".into() }],
+                default_mode: "30:light".into(),
+                variables: vec!["VariableID:30:bg_primary".into(), "VariableID:30:overlay".into()],
+                key: Some("k-color-modes".into()),
+                source_library_key: None,
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:30:bg_primary".into(),
+            Variable {
+                id: "VariableID:30:bg_primary".into(),
+                name: "Colors/Background/bg-primary".into(),
+                collection: "VariableCollectionId:30:3".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([
+                    ("30:light".into(), VariableValue::Alias("VariableID:20:white".into())),
+                    ("30:dark".into(), VariableValue::Alias("VariableID:20:gray950".into())),
+                ]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:30:overlay".into(),
+            Variable {
+                id: "VariableID:30:overlay".into(),
+                name: "Colors/Background/bg-overlay".into(),
+                collection: "VariableCollectionId:30:3".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([
+                    ("30:light".into(), VariableValue::Alias("VariableID:20:alpha50".into())),
+                    ("30:dark".into(), VariableValue::Alias("VariableID:20:alpha50".into())),
+                ]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        // 4. Single-mode collection `Radius` (id 40:4) with `Mode 1`
+        doc.variable_collections.insert(
+            "VariableCollectionId:40:4".into(),
+            VariableCollection {
+                id: "VariableCollectionId:40:4".into(),
+                name: "Radius".into(),
+                modes: vec![VariableMode { id: "40:m1".into(), name: "Mode 1".into() }],
+                default_mode: "40:m1".into(),
+                variables: vec!["VariableID:40:radius_md".into()],
+                key: None,
+                source_library_key: None,
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:40:radius_md".into(),
+            Variable {
+                id: "VariableID:40:radius_md".into(),
+                name: "radius-md".into(),
+                collection: "VariableCollectionId:40:4".into(),
+                kind: VariableKind::Number,
+                values: BTreeMap::from([("40:m1".into(), VariableValue::Number(8.0))]),
+                description: String::new(),
+                scopes: vec!["CORNER_RADIUS".into()],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        doc
+    }
+
+    #[test]
+    fn dtcg_export_gives_same_named_collections_unique_groups_and_files() {
+        let doc = make_1140_fixture_doc();
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        let file_names: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(file_names.contains(&"_Primitives.Style.tokens.json"), "missing local _Primitives file in {file_names:?}");
+        assert!(file_names.contains(&"_Primitives (2).Style.tokens.json"), "missing library _Primitives (2) file in {file_names:?}");
+
+        let manifest_bytes = &bundle.files.iter().find(|(n, _)| n == "tokens.manifest.json").unwrap().1;
+        let manifest: Value = serde_json::from_slice(manifest_bytes).unwrap();
+        let colls = manifest["collections"].as_array().unwrap();
+        let c_local = colls.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap();
+        let c_lib = colls.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap();
+        assert_eq!(c_local["name"], "_Primitives");
+        assert_eq!(c_local["group"], "_Primitives");
+        assert_eq!(c_local["modes"][0]["file"], "_Primitives.Style.tokens.json");
+        assert_eq!(c_lib["name"], "_Primitives");
+        assert_eq!(c_lib["group"], "_Primitives (2)");
+        assert_eq!(c_lib["modes"][0]["file"], "_Primitives (2).Style.tokens.json");
+
+        let dark_bytes = &bundle.files.iter().find(|(n, _)| n == "Color modes.Dark.tokens.json").unwrap().1;
+        let dark_val: Value = serde_json::from_slice(dark_bytes).unwrap();
+        let bg_ref = dark_val["Color modes"]["Colors"]["Background"]["bg-primary"]["$value"].as_str().unwrap();
+        assert_eq!(bg_ref, "{_Primitives (2).Colors.Gray (dark mode).950}");
+
+        // Edge case: three collections with the same name -> local keeps plain name, others get (2), (3) in id order.
+        let mut doc3 = make_1140_fixture_doc();
+        // Make 10:1 a library copy, 20:2 the local one, and add 25:3 as another library copy.
+        doc3.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().source_library_key = Some("lib-a".into());
+        doc3.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().source_library_key = None;
+        doc3.variable_collections.insert(
+            "VariableCollectionId:25:3".into(),
+            VariableCollection {
+                id: "VariableCollectionId:25:3".into(),
+                name: "_Primitives".into(),
+                modes: vec![VariableMode { id: "25:m1".into(), name: "Style".into() }],
+                default_mode: "25:m1".into(),
+                variables: Vec::new(),
+                key: Some("k-lib-b".into()),
+                source_library_key: Some("lib-b".into()),
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        let b3 = export_variables(&doc3, VariablesFormat::Dtcg).unwrap();
+        let m3: Value = serde_json::from_slice(&b3.files[0].1).unwrap();
+        let c3 = m3["collections"].as_array().unwrap();
+        assert_eq!(c3.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap()["group"], "_Primitives");
+        assert_eq!(c3.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap()["group"], "_Primitives (2)");
+        assert_eq!(c3.iter().find(|c| c["id"] == "VariableCollectionId:25:3").unwrap()["group"], "_Primitives (3)");
+
+        // Edge case: two collections with the same name and neither local -> first in id order keeps plain name.
+        let mut doc_nolocal = make_1140_fixture_doc();
+        doc_nolocal.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().source_library_key = Some("lib-a".into());
+        doc_nolocal.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().source_library_key = Some("lib-b".into());
+        let b_nl = export_variables(&doc_nolocal, VariablesFormat::Dtcg).unwrap();
+        let m_nl: Value = serde_json::from_slice(&b_nl.files[0].1).unwrap();
+        let c_nl = m_nl["collections"].as_array().unwrap();
+        assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap()["group"], "_Primitives");
+        assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap()["group"], "_Primitives (2)");
+    }
+
+    #[test]
+    fn dtcg_zip_export_with_same_named_collections_succeeds() {
+        let doc = make_1140_fixture_doc();
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_eq!(bundle.files.len(), 6, "1 manifest + 5 mode files");
+        let zip_bytes = bundle.to_zip_bytes().expect("zip export with same-named collections must succeed");
+        let archive = zip::ZipArchive::new(Cursor::new(zip_bytes)).unwrap();
+        assert_eq!(archive.len(), 6, "zip holds 1 + 5 entries");
+
+        // Also verify that a zip error message names the zip step and never says "not a fig file".
+        let bad_bundle = ExportBundle {
+            format: VariablesFormat::Dtcg,
+            files: vec![("dup.json".into(), b"{}".to_vec()), ("dup.json".into(), b"{}".to_vec())],
+            omitted_extensions: Vec::new(),
+        };
+        let err_msg = bad_bundle.to_zip_bytes().unwrap_err().to_string();
+        assert!(err_msg.contains("zip start_file dup.json"), "expected zip step in {err_msg:?}");
+        assert!(!err_msg.contains("not a fig file"), "zip error must not say 'not a fig file': {err_msg:?}");
+    }
+
+    #[test]
+    fn dtcg_round_trip_keeps_every_collection() {
+        let doc = make_1140_fixture_doc();
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+
+        let manifest_bytes = bundle.files.iter().find(|(n, _)| n == "tokens.manifest.json").unwrap().1.clone();
+        let additional: Vec<(String, Vec<u8>)> =
+            bundle.files.iter().filter(|(n, _)| n != "tokens.manifest.json").map(|(n, b)| (n.clone(), b.clone())).collect();
+
+        let mut imported = Document::new("reimported");
+        let opts = ImportVariablesOptions { additional_files: additional, ..Default::default() };
+        let rep = import_variables_bytes(&mut imported, &manifest_bytes, Some("tokens.manifest.json"), VariablesFormat::Dtcg, opts).unwrap();
+        assert!(rep.skipped.is_empty(), "round-trip must not skip any tokens: {:?}", rep.skipped);
+
+        let orig_ids: BTreeSet<&String> = doc.variable_collections.keys().collect();
+        let imp_ids: BTreeSet<&String> = imported.variable_collections.keys().collect();
+        assert_eq!(imp_ids, orig_ids, "same collection ids after round-trip");
+
+        for (cid, orig_coll) in &doc.variable_collections {
+            let imp_coll = &imported.variable_collections[cid];
+            assert_eq!(imp_coll.name, orig_coll.name, "collection {cid} name comes from manifest name, not group");
+            assert!(!imp_coll.name.contains("(2)"), "no (2) suffix in imported collection name");
+            assert_eq!(imp_coll.variables.len(), orig_coll.variables.len(), "same variable count for collection {cid}");
+        }
+
+        let bg_var = &imported.variables["VariableID:30:bg_primary"];
+        assert_eq!(
+            bg_var.values.get("30:dark"),
+            Some(&VariableValue::Alias("VariableID:20:gray950".into())),
+            "alias into _Primitives (2) must resolve to the library copy's variable"
+        );
+        let (_, resolved_dark) = resolve_literal_in_mode(&imported, "VariableID:30:bg_primary", "30:dark", "Dark").unwrap();
+        let (_, orig_dark) = resolve_literal_in_mode(&doc, "VariableID:30:bg_primary", "30:dark", "Dark").unwrap();
+        assert_eq!(resolved_dark, orig_dark, "same resolved Dark bg-primary after round-trip");
+    }
 }

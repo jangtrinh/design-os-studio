@@ -821,4 +821,96 @@ mod icon_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn cli_directory_export_never_overwrites_within_one_run() {
+        let dir = std::env::temp_dir().join(format!("designos_1140_dir_export_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("kit.designos");
+        let out_dir = dir.join("dtcg_out");
+
+        let mut doc = designos_doc::Document::new("Kit");
+        doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "VariableCollectionId:10:1".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:10:1".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "10:m1".into(), name: "Style".into() }],
+                default_mode: "10:m1".into(),
+                variables: vec!["VariableID:10:v1".into()],
+                key: None,
+                source_library_key: None,
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:10:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:10:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:10:1".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("10:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(10, 10, 10)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variable_collections.insert(
+            "VariableCollectionId:20:2".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:20:2".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "20:m1".into(), name: "Style".into() }],
+                default_mode: "20:m1".into(),
+                variables: vec!["VariableID:20:v1".into()],
+                key: Some("k-lib".into()),
+                source_library_key: Some("lib-1".into()),
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:20:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("20:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(20, 20, 20)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let opts = super::cli::parse([
+            doc_path.to_string_lossy().into_owned(),
+            "--export-variables".into(),
+            out_dir.to_string_lossy().into_owned(),
+            "--format".into(),
+            "dtcg".into(),
+        ])
+        .unwrap();
+        super::run_agent_cli(&opts).unwrap();
+
+        let bundle = designos_fig::export_variables(&doc, designos_fig::VariablesFormat::Dtcg).unwrap();
+        let on_disk_count = std::fs::read_dir(&out_dir).unwrap().filter_map(Result::ok).count();
+        assert_eq!(on_disk_count, bundle.files.len(), "files count in bundle must equal files on disk");
+        assert!(out_dir.join("_Primitives.Style.tokens.json").exists());
+        assert!(out_dir.join("_Primitives (2).Style.tokens.json").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
