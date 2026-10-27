@@ -2901,11 +2901,10 @@ impl TerminalState {
         self.session_closed = true;
     }
 
-    /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input
-    /// (or an approval banner in the open Agents panel awaits keyboard interaction),
+    /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
     /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Tab`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
-        self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && (self.viewport_focused || self.needs_approval()))
+        self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
     }
 
     /// Starts one frame of the Agents panel: the composer focus that ended the previous frame becomes the baseline for
@@ -6138,8 +6137,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let mut close_search = false;
     let mut search_matches = 0usize;
 
-    let has_approval_banner = state.needs_approval();
-
     if let Some(tab) = state.active_tab_mut() {
         tab.resize(rows, cols);
 
@@ -6295,11 +6292,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         let _ = tab.input_line_buffer.pop();
                                         raw_bytes.push(0x7f);
                                     }
-                                    Key::Tab => {
-                                        if !has_approval_banner {
-                                            raw_bytes.push(b'\t');
-                                        }
-                                    }
+                                    Key::Tab => raw_bytes.push(b'\t'),
                                     Key::Escape => {
                                         if search_open {
                                             close_search = true;
