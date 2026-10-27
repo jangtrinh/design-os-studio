@@ -1787,8 +1787,15 @@ mod tests {
     fn agent_cases_do_not_depend_on_installed_clis() {
         let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
         let canon_stub_dir = std::fs::canonicalize(&stub_dir).unwrap_or_else(|_| stub_dir.clone());
-        let default_lib_root = designos_library::Library::default_root();
-        let data_dir = default_lib_root.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_else(|| default_lib_root.clone());
+        let data_dir = {
+            let prev = std::env::var_os("DESIGNOS_LIBRARY");
+            std::env::remove_var("DESIGNOS_LIBRARY");
+            let default_lib_root = designos_library::Library::default_root();
+            if let Some(v) = prev {
+                std::env::set_var("DESIGNOS_LIBRARY", v);
+            }
+            default_lib_root.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or(default_lib_root)
+        };
 
         let cases: &[(&str, Option<&str>, bool)] = &[
             ("d-window-chrome", None, false),

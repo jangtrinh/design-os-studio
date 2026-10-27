@@ -4966,9 +4966,9 @@ fn tab_designos_env_map(preset: AgentCliPreset, file_path: Option<&Path>, sessio
     let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
     map.insert("DESIGNOS_SESSION_DIR".into(), fallback_dir.to_string_lossy().into_owned());
     map.insert("DESIGNOS_MCP_CONFIG".into(), fallback_dir.join("mcp-config.json").to_string_lossy().into_owned());
-    map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), fallback_dir.join("live-doc.designos").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), fallback_dir.join("doc-sync.designos").to_string_lossy().into_owned());
     map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), fallback_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());
-    map.insert("DESIGNOS_LIVE_CANVAS".into(), fallback_dir.join("live-canvas.png").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_LIVE_CANVAS".into(), fallback_dir.join("canvas.designos").to_string_lossy().into_owned());
     map.insert("DESIGNOS_CONTEXT_JSON".into(), fallback_dir.join("context.json").to_string_lossy().into_owned());
     map.insert("DESIGNOS_TARGET_PAGE_ID".into(), "0".into());
     map.insert("DESIGNOS_TARGET_PAGE_NAME".into(), "Page 1".into());
