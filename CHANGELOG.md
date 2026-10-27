@@ -2,6 +2,63 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.6.5] - 2026-10-27
+
+Patch for **AI design** ([milestone v0.6.5](https://github.com/jangtrinh/design-os-studio/milestone/52)): Studio ships the `DESIGN-OS Studio Starter` file, exports a single variable mode as one self-contained DTCG `.tokens.json` file with alias resolution and hex colors, addresses CLI nodes by name, id or Figma id, measures hug text with the renderer, and speeds up large multi-layer edits.
+
+### Added
+- **Starter file.**
+  - A new library gets a `Getting started` project with the `DESIGN-OS Studio Starter` file (pages `Starter screens` and `About this file`), and an existing library gets it once on its first launch of 0.6.5; files you already have are not touched. `Open starter sample` in Home (`Templates & Specs` and `Resources & Libraries`) and `Help and account` › `Open starter sample` open a fresh copy in the current project (`DESIGN-OS Studio Starter (1)`, `(2)`, … when the name is taken), and launching with no file argument opens Home. The older built-in sample files, `--seed-library`, `--fixture` (in release builds) and the `examples/` folder are removed (#1212, PR #1252).
+- **Import and export.**
+  - `designos FILE --export-variables OUT.json --format dtcg --mode MODE` exports one variable mode across the file's collections (or the collections named with `--collection`) as a single self-contained DTCG `.tokens.json` file. When a token has no value in the chosen mode, Studio falls back to its collection's default mode (reported as `values_from_default_mode` in the CLI's JSON summary) and inlines cross-collection alias targets so every `{…}` reference resolves inside the file; an alias whose target has no value in any mode stops the export before writing. `--resolve-aliases` replaces `{…}` alias strings with resolved literal values while keeping `alias_of` under `$extensions` (with default-mode hops counted in `aliases_resolved_via_default_mode` in the CLI's JSON summary), and `--color-format` (`hex` or `object`) writes `#RRGGBB` / `#RRGGBBAA` strings when set to `hex`. Multi-file DTCG folder and `.zip` exports give same-named local and library collections unique group and file names and round-trip them through `tokens.manifest.json` (#1140, PR #1253).
+
+### Changed
+- **Canvas.**
+  - Large multi-layer edits, such as command-palette auto-fix on a big design-system page, finish faster because Studio records only the layers that changed (#993, PR #1249).
+
+### Fixed
+- **Agents panel.**
+  - When an agent CLI (such as Antigravity) redraws its screen and clears scrollback on a UI zoom or terminal resize, Studio clears that tab's scrollback buffer instead of appending another copy of the screen, and sizes the scrollbar thumb and wheel range from the real scrollback length (#1171, PR #1236).
+  - A Codex tab whose turn ends quietly changes from `Working…` to `Done` after 1.5 s without output and hides the `Stop` button once no turn is running (#1194, PR #1238).
+  - When the tab you are viewing is waiting for approval in its terminal, the approval banner shows `Show prompt` instead of `Open tab` and focuses that tab's terminal so `Enter` and `Esc` reach the CLI prompt directly. When another tab is waiting, `Open tab` switches to that waiting tab (or the oldest waiting tab when several tabs wait), and both buttons are keyboard-reachable with `Tab` and `Enter` (#1195, PR #1247).
+- **Canvas.**
+  - Renaming a component or frame from an agent session through `designos-mcp` repaints the canvas frame label when the live patch lands. Clicking a single-shape component on the canvas selects the component while double-clicking enters the shape, and renaming a component or its child shape keeps their names independent while updating unrenamed instances (#1193, PR #1237).
+  - Frame, component and instance name labels on the canvas are measured with the app's own fonts and cut to fit with `…` inside the frame's on-screen width minus a 4.5 px right inset, the way Figma does; when a component or instance glyph plus `…` does not fit, only `…` is drawn (#1197, PR #1239).
+  - Hug and fixed-width text layers created or updated from a `NodeSpec` (`--apply-spec`, `designos_apply_spec`, `designos_create_node`, `designos_update_node` and `designos_apply_batch`) are measured with the text renderer instead of a character-count width estimate, honour `font_family`, and return a `TEXT_MEASURED_WITH_FALLBACK_FONT` warning when a requested font falls back (#1154, PR #1254).
+- **Import and export.**
+  - Home › `Import` › `Enter a path…` trims whitespace and one pair of quotes, expands `~` and `~/…`, decodes percent-encoded `file://` links, refuses a relative path with `Type the full path to the file, starting with / or ~/.`, and logs `designos: warn: import path` on stderr when a typed open fails. Toast timers start on the toast's first painted frame so a slow frame cannot expire a toast before you see it (#1192, PR #1213).
+  - `.fig` files with 64-bit values that use the top bit (such as some stroke seeds) import without corrupting the rest of the file, and Studio no longer writes an invalid 10-byte number on export (#1043, PR #1251).
+  - Icons and vectors inside resized component instances in an imported `.fig` scale with the instance (stroke weight unchanged), and stroke-only icons keep their strokes (#1242, PR #1256).
+- **Styles.**
+  - Deleted, soft-deleted and orphan style records from imported `.fig` files are hidden from style pickers, Assets, library publishing, layer style chips, `designos_get_document` and `designos_search_design_system`, while layers keep their appearance and style links when you save back to `.fig`. Listed styles whose name is empty or whitespace-only appear as `Unnamed fill style`, `Unnamed text style`, `Unnamed effect style` or `Unnamed grid style`, with the raw ID in the tooltip (#1165, PR #1255).
+- **CLI and MCP.**
+  - `designos_open_file` and `designos_import_web_capture` enforce one 512 MiB (`536870912` bytes) file size limit. Files over the limit fail with `FILE_TOO_LARGE` at `/path`, `safe_to_retry: false`, and a `next_step` that points to DESIGN:OS Studio, and `designos-mcp` usage errors list `--version` (`Usage: designos-mcp --workspace DIRECTORY | --version | --list-lint-rules | --help`) (#1121, PR #1257).
+  - `designos_save_file`, `designos_render_png` and `designos_export_fig_file` return `INVALID_NAME` when an output path is blank, has a whitespace-only file or folder name or stem, or contains a control or direction-control character. When any path component is over 255 UTF-8 bytes, they return `NAME_TOO_LONG` without suggesting `overwrite: true` (#1003, PR #1258).
+  - `designos` and `designos-studio` `--select` accepts `id:<n>`, `fig:<figma id>`, `name:<text>`, `none` or a layer name (trying a bare number as a layer name before a node id, and expanding lazy pages once on a miss), supports `--zoom fit` to frame the selection, reports `--inspect-json` `selection` bounds in page coordinates with `source_id` on screens, rejects `--select ""` and `--select` with `--home` at parse time, and on a `--select` or `--edit-text` miss prints what was searched on stderr, exits 2, and writes no PNG or file change (#1127, PR #1259).
+
+### Known issues
+- Esc on the Other CLI menu or form also reaches Codex and puts it in rewind mode (#1097).
+- A document with no path gives `designos-mcp` the whole disk as its workspace (#1074). In Ask mode each `designos-mcp` call asks first.
+- A prompt that contains `No, suggest changes` can hold the automatic Enter, and refuse sends, in a Gemini Ask tab until the line scrolls off (#1066).
+- Antigravity, Gemini CLI and Grok start MCP servers from copies of the session config that an agent can write, so a server command added there could run outside any sandbox (#1048). It needs an agent that can already write its session folder without asking, such as Codex under your own `workspace-write` setting. Studio checks and rewrites these copies when a tab starts. It does not stop an agent that writes later, and Grok may read an edited MCP config while a session runs [unverified: from Grok's source, not run]. Studio moves aside the sources that Grok's and Antigravity's docs and source name, and a later version of either CLI may read more. Workaround: in a window where an agent can write without asking, do not run a Grok or Antigravity tab in Ask mode. Planned for a later release: run Grok and Antigravity from a folder only that tab can write.
+- Gemini CLI in Ask mode reads `tools.allowed` and other settings from `.gemini/settings.json` in the session folder, which an agent can write (#1047). Some keys there skip Gemini's confirmation prompt, and `hooks` and `tools.discoveryCommand` run a command when the next Gemini tab starts. Gemini 0.35 has no switch that ignores workspace settings for one run. Studio rewrites the file when a tab starts, and an Ask-mode Gemini tab refuses to start when the rewrite fails, so a read-only `.gemini` no longer keeps an agent's file. Planned fix: #1059.
+- Ask covers agent tabs started from Studio. The `designos` CLI, which you run yourself, and a `designos-mcp` started by another host are not gated by Ask: that host approves its own MCP calls (#1101). A real MCP-level approval gate is planned for a later release.
+- Codex, Grok, Antigravity and Gemini CLI ask for approval in their own terminal menu, and the panel shows `Open tab`; Approve and Deny in the panel exist for Claude only (#930). Clicking an option in Codex's own approval menu does nothing, so use the arrow keys and Enter (#1096).
+- Gemini CLI and Grok in Ask mode: the status line may not show a waiting state for every approval prompt. For Gemini, the state comes from the confirmation dialog on the tab's screen or from Gemini's `ToolPermission` notification. The `ask_user` and `exit_plan_mode` dialogs draw no `No, suggest changes` option, and a panel narrower than 29 columns hides a cut label, so a wait there starts only from a hook record. The screen check is on for Gemini 0.35.x and 0.65.x, read from source only. For another Gemini version, a No answer leaves `Needs approval` standing until you type a prompt. Where Studio writes no Gemini hooks file (Windows, or Gemini already has system defaults), a wait starts only from the screen. For Grok, the state comes from its `permission_prompt` notification, and Studio never checked that payload against a real Grok [unverified]. No real Gemini or Grok approval prompt was run.
+- Export Frame as `.spec.json` writes into `designos_specs` in the temporary folder when Studio finds no source tree, by path, so an agent that can write the temporary folder could plant a link at the file name. It needs you to run the export (#1073).
+- The Windows test suite is advisory for 0.6.5. Releases are verified on macOS, and known Windows test failures are tracked in #1158.
+- Windows (releases are verified on macOS only):
+  - Stop on Windows is not checked by any test. The Stop tests fail there because their Python stub imports `tty`, which Python does not provide on Windows (#1066).
+  - Palette auto-fix undo is unverified on Windows: eight tests show different auto-layout sizes after one undo, and the cause is not known (#1066).
+  - The link checks for session files are not race-free on Windows (#1061, #1068), an Ask-mode Grok or Antigravity tab refuses an entry that is not Studio's instead of moving it (#1069), and no hooks file is written for Gemini, so its `Needs approval` comes from the screen only (#1058, #1066).
+  - Windows was not built or run by hand for these changes.
+- Not checked against a live model turn: the Ask-mode Claude launch (skill from a private plugin, Studio's hooks and MCP config from private copies), the Gemini approval state, and the Ask-mode Grok and Antigravity checks were tested with stubs and source reading, not with a real Claude, Gemini, Grok or Antigravity turn.
+- Of the 38 GUI fixes from 0.6.1 listed in #1102, 16 were re-checked by tests. The rest are not re-tested yet, and U-17 (a new design file is named "Untitled") is still open (#1102).
+
+## [0.6.4] - 2026-10-27
+
+Not published: the tag was pushed before the version bump, so no packages were built, and its fixes ship in 0.6.5.
+
 ## [0.6.3] - 2026-10-26
 
 Patch for **AI design** ([milestone v0.6.3](https://github.com/jangtrinh/design-os-studio/milestone/49)): Studio keeps every agent hook output in a private folder no agent grant reaches, refuses broken `--screenshot` inputs and writes readable spec errors, and offers `Enter a path…` from Home › Import on Linux when no file dialog can open.

@@ -136,7 +136,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.3. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v065"></a>
+### 0.6.5
+
+- **Starter file.** A new library gets a `Getting started` project with `DESIGN-OS Studio Starter`, and an existing library gets it once on its first launch of 0.6.5; files you already have are not touched. `Open starter sample` opens a fresh copy, launching with no file argument opens Home, and the older samples, `--seed-library`, release `--fixture` and the old `examples` folder are removed.
+- **Variables.** `designos FILE --export-variables OUT.json --format dtcg --mode MODE` exports one variable mode across the file's collections (or `--collection`) as a single self-contained DTCG `.tokens.json` file with default-mode fallback, `--resolve-aliases`, and `--color-format` (`hex` or `object`), and multi-file DTCG exports keep same-named collections distinct.
+- **Agents panel.** Tabs clear their scrollback when an agent redraws on a UI zoom so output no longer repeats, quiet Codex turns change from `Working…` to `Done` after 1.5 s and hide `Stop`, and the approval banner shows `Show prompt` to focus the current waiting tab or `Open tab` to switch to another waiting tab.
+- **Canvas and `.fig` import.** Frame, component and instance labels repaint after an agent rename and cut to fit with `…` like Figma; hug and fixed-width `NodeSpec` text is measured with the text renderer; `.fig` files with top-bit 64-bit values import and export cleanly; and icons and vectors inside resized component instances scale with the instance while keeping their strokes.
+- **Styles and performance.** Deleted and orphan style records from imported `.fig` files are hidden from style pickers, Assets, layer chips and MCP listings, while unnamed listed styles show `Unnamed fill style`, `Unnamed text style`, `Unnamed effect style` or `Unnamed grid style`; large multi-layer edits finish faster by recording only the layers that changed.
+- **CLI and MCP.** `--select` accepts `id:<n>`, `fig:<figma id>`, `name:<text>`, `none` or a layer name, supports `--zoom fit`, and exits 2 without writing on a miss; Home › `Import` › `Enter a path…` opens `~/` and `file://` paths and starts toast timers on first paint; MCP imports enforce a 512 MiB `FILE_TOO_LARGE` limit, and MCP file writes return `INVALID_NAME` and `NAME_TOO_LONG`.
 
 <a id="new-in-v063"></a>
 ### 0.6.3
@@ -601,7 +611,7 @@ design-os-studio/
 
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.6.3. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.6.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
