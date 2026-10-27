@@ -174,3 +174,19 @@ fn export_toast_panel_preset_parses_and_the_toast_has_a_reveal_path() {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+#[test]
+fn export_toast_preset_survives_a_plain_toast_before_the_first_frame() {
+    let _preset = preset_export_lock();
+    let opts = crate::cli::parse(["--panel".to_string(), "export-toast".to_string()]).expect("export-toast parses");
+    let mut s = Sim::built(opts);
+    let expected = s.app().toast.as_ref().expect("export toast raised at build").text.clone();
+    let reveal_dir = s.app().toast.as_ref().and_then(|t| t.reveal.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf())));
+    // Simulate `poll_fonts` raising a plain toast before `draw_window` updates `app.now`.
+    s.shell.app.show_toast("Font unavailable", false);
+    s.frame(vec![]);
+    assert!(painted_text(&s, &expected), "export reveal toast must not be replaced by a pre-frame plain toast");
+    if let Some(dir) = reveal_dir {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

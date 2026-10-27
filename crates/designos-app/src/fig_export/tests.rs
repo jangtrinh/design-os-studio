@@ -328,6 +328,10 @@ fn reveal_command_selects_the_file_in_each_file_manager() {
     assert_eq!((program, args), ("explorer", vec!["/select,".into(), file.into()]));
     let (program, args) = reveal_command("linux", file);
     assert_eq!((program, args), ("xdg-open", vec![Path::new("/lib/exports").into()]));
+    let dir = scratch("linux-dir-reveal");
+    let (program, args) = reveal_command("linux", &dir);
+    assert_eq!((program, args), ("xdg-open", vec![dir.as_os_str().to_os_string()]), "a folder reveal on Linux opens the folder itself, not its parent");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

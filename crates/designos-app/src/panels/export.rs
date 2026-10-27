@@ -729,9 +729,13 @@ mod tests {
         let (mut app, a, _) = named_rects_with_png_rows();
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         assert_eq!(std::fs::read(dir.join("Alpha.png")).unwrap(), b"keep me");
-        let saved = dir.join("Alpha 2.png");
+        let saved = dir.join("Alpha-1.png");
         assert!(saved.is_file(), "{:?}", files_in(&dir));
         assert_eq!(toast_of(&app).unwrap().0, format!("No save dialog. Saved to {}", saved.display()));
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let saved_two = dir.join("Alpha-2.png");
+        assert!(saved_two.is_file(), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app).unwrap().0, format!("No save dialog. Saved to {}", saved_two.display()));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -742,7 +746,7 @@ mod tests {
         std::fs::write(dir.join("Beta.png"), b"keep me").unwrap();
         let (mut app, a, b) = named_rects_with_png_rows();
         run_export_with(&mut app, &[a, b], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
-        assert_eq!(files_in(&dir), ["Alpha.png", "Beta 2.png", "Beta.png"], "the existing Beta.png is kept");
+        assert_eq!(files_in(&dir), ["Alpha.png", "Beta-1.png", "Beta.png"], "the existing Beta.png is kept");
         assert_eq!(std::fs::read(dir.join("Beta.png")).unwrap(), b"keep me");
         assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved 2 files to {}", dir.display()), false)));
         std::fs::remove_dir_all(&dir).ok();
@@ -845,12 +849,51 @@ mod tests {
         app.doc.get_mut(a).unwrap().name = "Card/A:B".into();
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let names = files_in(&dir);
-        assert_eq!(names.len(), 1, "one file, inside the fallback folder: {names:?}");
-        assert!(!names[0].contains('/') && !names[0].contains(':'), "{names:?}");
+        assert_eq!(names, ["Card-A-B.png"], "unsafe / and : characters become - inside the fallback folder");
         let saved = dir.join(&names[0]);
         assert_eq!(saved.parent(), Some(dir.as_path()));
         crate::fig_export::tests::assert_offers_reveal(&app, &saved);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("picked_no_overwrite");
+        let target = dir.join("Card.png");
+        std::fs::write(&target, b"keep original").unwrap();
+        let (mut app, a, b) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "Card".into();
+        app.doc.get_mut(b).unwrap().name = "Card".into();
+        let c = app.doc.alloc_id();
+        let page = app.page;
+        app.doc.insert(page, Node::rectangle(c, R::new(100.0, 0.0, 40.0, 30.0))).unwrap();
+        app.doc.get_mut(c).unwrap().name = "Hero/Sub:1".into();
+        app.edit_export_rows(&[c], &RowEdit::Add(ExportPreset::default()));
+
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep original", "existing Card.png must never be overwritten");
+        let first_suffix = dir.join("Card-1.png");
+        assert!(first_suffix.is_file(), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app), Some((format!("Exported {}", first_suffix.display()), false)));
+        crate::fig_export::tests::assert_offers_reveal(&app, &first_suffix);
+
+        run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+        let second_suffix = dir.join("Card-2.png");
+        assert!(second_suffix.is_file(), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app), Some((format!("Exported {}", second_suffix.display()), false)));
+        crate::fig_export::tests::assert_offers_reveal(&app, &second_suffix);
+
+        let folder = scratch_dir("picked_folder_no_overwrite");
+        std::fs::write(folder.join("Card.png"), b"keep folder card").unwrap();
+        run_export_with(&mut app, &[a, b, c], &ScriptedDialogs::answering(DialogOutcome::Picked(folder.clone())));
+        assert_eq!(std::fs::read(folder.join("Card.png")).unwrap(), b"keep folder card");
+        assert_eq!(files_in(&folder), ["Card-1.png", "Card-2.png", "Card.png", "Hero-Sub-1.png"]);
+        assert_eq!(toast_of(&app), Some((format!("Exported 3 files to {}", folder.display()), false)));
+        crate::fig_export::tests::assert_offers_reveal(&app, &folder);
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     #[test]
