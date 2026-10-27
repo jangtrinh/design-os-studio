@@ -1,0 +1,408 @@
+=== cargo fmt --all -- --check ===
+fmt_exit=0
+=== python3 scripts/zero_fake_ui_gate.py ===
+============================================================================================================
+ design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+============================================================================================================
+ID    | STATUS | MODULE                           | INVARIANT & EVIDENCE
+------------------------------------------------------------------------------------------------------------
+Z01   | PASS   | terminal.rs + agent_composer.rs  | Live PTY send_to_agent in submit_chat_prompt; zero one-shot (-p / exec) calls — `runtime_binary_available` + `submit_chat_prompt` -> `send_to_agent` writes bracketed paste into the live PTY; zero one-shot (`-p` / `exec`) invocations in shipped code
+Z02   | PASS   | terminal.rs                      | set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn; one-shot chat symbols removed — `set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn; retired one-shot chat symbols absent from shipped code
+Z03   | PASS   | terminal.rs                      | dispatch_figma_ai_prompt sends executable command without # comment prefix — `dispatch_figma_ai_prompt` dispatches through `send_to_agent` without `#` comment prefix
+Z04   | PASS   | terminal.rs + agent_composer.rs  | All 3 Agents header & composer buttons have Sense::click() handlers; fake mic removed — All 3 header/composer controls (agents-header-ai, agents-composer-attach, agents-composer-context) have interactive Sense::click() handlers; fake mic removed
+Z05   | PASS   | specs.rs                         | specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input) — `specs-ask-agent-bar` hosts editable `TextEdit::singleline(&mut ...ask_input)`
+Z06   | PASS   | specs.rs                         | Right Inspector dynamic active_section_toc & interactive SpecComment — Right Spec Inspector has dynamic `active_section_toc` + interactive `SpecComment` (`comment_draft` + `TextEdit::singleline`)
+Z07   | PASS   | specs.rs                         | Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract — `draw_wrapped_prose` does not truncate at `lines.len() >= 3` and `render_tab_blueprints` renders `pkg.ui_contract`
+Z08   | PASS   | panels/toolbar.rs + cmdk.rs      | Contextual sub-toolbar buttons mutate app.doc / app.tool; ctx-crop / ctx-remove-bg / cmdk Remove background stay removed — `panels/toolbar.rs` contextual buttons (`ctx-select-area`, `ctx-edit-prompt`) mutate `app.doc` / `app.tool`; no ctx-crop / ctx-remove-bg / Remove background in any shipped source
+Z09   | PASS   | home/mod.rs                      | Act::ExportFig writes .fig to disk & Nav::AllFolders/Templates/Libraries filter distinctly — `home/mod.rs` `Act::ExportFig` writes `.fig` bytes through `fig_export::export_new` and `io::write_new_in` (`create_new` + `write_all`) and `AllFolders`/`Templates`/`Libraries` filter distinctly
+Z10   | PASS   | panels/right.rs                  | Share copies to clipboard & Dev Mode 2nd tab renders Dev Plugins inspector — `panels/right.rs` `Share` copies to OS clipboard (`copy_text`) and Dev Mode 2nd tab renders Dev Plugins inspector
+Z11   | PASS   | panels/inspect.rs + properties.rs | Dev Mode Code Connect/MCP/Redlines/Keyframes & Copy to Slides mutate state/clipboard — `panels/inspect.rs` (`dev-code-connect`, `dev-mcp-btn`, `dev-add-redlines`, `inspect_keyframes_section`) and `panels/properties.rs` (`copy-to-slides`) execute real clipboard/document mutations
+Z12   | PASS   | widgets/picker.rs + panels/mod.rs + variables/view.rs | Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag() — `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `doc.images` entries and `panels::scrollbar` + `variables::view::hscrollbar` support `Sense::click_and_drag()`
+Z13   | PASS   | panels/menus.rs                  | Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state — Zoom menu = the 11 allow-listed rows, each on its real `Action`; every `checked:` is `false` or read from `app.` state
+Z14   | PASS   | updater.rs + tabs.rs             | Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists — updater UI hidden=True, sample manifest used=True; guard is code in tabs.rs button, sidebar card and update modal
+Z15   | PASS   | terminal.rs + cmdk.rs            | No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs — `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` / `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`
+Z16   | PASS   | registered label helpers in designos-app/src | UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json) — 18 labelled violation(s) all in scripts/ux_writing_baseline.json; none new (design/ux-writing.md rules 1 and 3)
+Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code — no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+=== python3 scripts/check_spacing_relationships.py ===
+literal geometry outside theme.rs: offset_literals=1668, inset_literals=45, radius_literals=257, font_literals=25, nonconcentric_pairs=2
+note: 14 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+=== cargo clippy --workspace --all-targets --locked -- -D warnings ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+    Checking cfg-if v1.0.5
+    Checking bitflags v2.13.2
+    Checking smallvec v1.16.3
+    Checking log v0.4.34
+    Checking once_cell v1.21.4
+    Checking memchr v2.8.3
+    Checking arrayvec v0.7.8
+   Compiling num-traits v0.2.19
+    Checking simd-adler32 v0.3.10
+    Checking libc v0.2.191
+    Checking libm v0.2.16
+    Checking serde_core v1.0.229
+    Checking adler2 v2.0.1
+    Checking zlib-rs v0.6.8
+   Compiling serde_json v1.0.154
+   Compiling proc-macro2 v1.0.107
+    Checking crc32fast v1.5.2
+    Checking stable_deref_trait v1.2.1
+    Checking itoa v1.0.18
+    Checking zmij v1.0.23
+    Checking litemap v0.8.3
+    Checking writeable v0.6.4
+    Checking miniz_oxide v0.9.1
+    Checking miniz_oxide v0.8.9
+    Checking fdeflate v0.3.7
+    Checking regex-syntax v0.8.11
+    Checking utf8_iter v1.0.4
+    Checking aho-corasick v1.1.5
+    Checking bitflags v1.3.2
+    Checking icu_normalizer_data v2.3.0
+    Checking icu_properties_data v2.3.0
+   Compiling quote v1.0.47
+    Checking percent-encoding v2.3.2
+    Checking zune-core v0.5.3
+    Checking quick-error v2.0.1
+    Checking weezl v0.1.12
+    Checking fax v0.2.7
+    Checking byteorder-lite v0.1.0
+    Checking flate2 v1.1.10
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+    Checking color_quant v1.1.0
+    Checking dyn-clone v1.0.20
+    Checking pxfm v0.1.30
+    Checking zune-jpeg v0.5.15
+    Checking core_maths v0.1.1
+    Checking linebender_resource_handle v0.1.1
+    Checking zeroize v1.9.1
+    Checking image-webp v0.2.4
+    Checking form_urlencoded v1.2.2
+    Checking png v0.18.1
+    Checking gif v0.14.1
+    Checking getrandom v0.2.17
+    Checking untrusted v0.9.0
+    Checking rustls-pki-types v1.15.1
+    Checking base64 v0.22.1
+    Checking unicode-segmentation v1.13.3
+    Checking self_cell v1.3.0
+    Checking either v1.19.0
+    Checking ring v0.17.14
+    Checking ttf-parser v0.25.1
+    Checking float-cmp v0.9.0
+    Checking subtle v2.6.1
+    Checking option-ext v0.2.0
+    Checking regex-automata v0.4.18
+    Checking webpki-roots v1.0.9
+    Checking strict-num v0.1.1
+    Checking slotmap v1.1.1
+    Checking crossbeam-utils v0.8.23
+    Checking memmap2 v0.9.11
+    Checking unicode-script v0.5.8
+    Checking rustc-hash v2.1.3
+    Checking dirs-sys v0.4.1
+    Checking webpki-roots v0.26.11
+    Checking arrayref v0.3.9
+    Checking tinyvec v1.13.3
+    Checking unicode-bidi v0.3.18
+    Checking png v0.17.16
+    Checking dirs v5.0.1
+    Checking crossbeam-epoch v0.9.21
+    Checking i_float v5.0.0
+    Checking yazi v0.2.1
+    Checking zeno v0.3.3
+    Checking foldhash v0.2.0
+    Checking i_tree v0.20.0
+    Checking sys-locale v0.3.2
+    Checking rangemap v1.8.0
+    Checking smol_str v0.3.6
+    Checking crossbeam-deque v0.8.8
+    Checking unicode-linebreak v0.1.5
+    Checking rustls-webpki v0.103.15
+    Checking i_key_sort v0.12.0
+    Checking equivalent v1.0.3
+    Checking allocator-api2 v0.2.21
+    Checking i_shape v5.0.0
+    Checking kurbo v0.11.3
+    Checking moxcms v0.8.1
+    Checking siphasher v1.0.4
+    Checking unicode-properties v0.1.4
+    Checking unicode-bidi-mirroring v0.4.0
+    Checking rayon-core v1.13.0
+    Checking unicode-ccc v0.4.0
+    Checking simplecss v0.2.2
+    Checking imagesize v0.13.0
+    Checking fontdb v0.23.0
+    Checking xmlwriter v0.1.0
+    Checking hashbrown v0.17.1
+    Checking pico-args v0.5.0
+    Checking i_overlay v9.1.0
+    Checking data-url v0.3.2
+    Checking rustls v0.23.45
+    Checking unicode-vo v0.1.0
+    Checking roxmltree v0.20.0
+    Checking rayon v1.12.0
+   Compiling nix v0.31.3
+    Checking bumpalo v3.20.3
+    Checking typed-path v0.12.3
+    Checking twox-hash v2.1.5
+    Checking utf8parse v0.2.2
+    Checking is_terminal_polyfill v1.70.2
+    Checking svgtypes v0.15.3
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+    Checking regex v1.13.1
+    Checking zopfli v0.8.4
+    Checking indexmap v2.14.2
+    Checking ruzstd v0.9.1
+    Checking anstyle-parse v1.0.0
+    Checking anstyle v1.0.14
+    Checking colorchoice v1.0.5
+    Checking anstyle-query v1.1.5
+    Checking strsim v0.11.1
+    Checking clap_lex v1.1.1
+    Checking scopeguard v1.2.0
+    Checking parking_lot_core v0.9.12
+    Checking objc2-encode v4.1.0
+    Checking anstream v1.0.0
+    Checking lock_api v0.4.14
+    Checking pin-project-lite v0.2.17
+    Checking getrandom v0.4.3
+    Checking tracing-core v0.1.36
+   Compiling getrandom v0.3.4
+    Checking futures-core v0.3.34
+    Checking objc2 v0.6.5
+    Checking clap_builder v4.6.7
+   Compiling ahash v0.8.12
+    Checking parking_lot v0.12.5
+    Checking uuid v1.28.0
+    Checking futures-sink v0.3.34
+    Checking errno v0.3.14
+    Checking futures-channel v0.3.34
+    Checking mio v1.2.4
+    Checking signal-hook-registry v1.4.8
+    Checking futures-task v0.3.34
+    Checking bytes v1.12.1
+    Checking futures-io v0.3.34
+    Checking slab v0.4.12
+    Checking unicode-general-category v1.1.0
+   Compiling rmcp v3.5.1
+    Checking hashbrown v0.16.1
+    Checking raw-window-handle v0.6.2
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+    Checking euclid v0.22.14
+    Checking unicode-width v0.2.2
+    Checking bit-vec v0.9.1
+    Checking zip v9.0.4
+    Checking block2 v0.6.2
+    Checking objc2-core-foundation v0.3.2
+    Checking profiling v1.0.18
+    Checking codespan-reporting v0.13.1
+    Checking bit-set v0.9.1
+    Checking num-integer v0.1.47
+    Checking rustc-hash v1.1.0
+    Checking hexf-parse v0.2.1
+    Checking num-complex v0.4.6
+    Checking borrow-or-share v0.2.4
+    Checking bit-vec v0.8.0
+   Compiling jsonschema-value v0.59.0
+    Checking vsimd v0.8.0
+    Checking static_assertions v1.1.0
+    Checking num-cmp v0.1.0
+    Checking num-bigint v0.4.8
+    Checking num-iter v0.1.46
+    Checking micromap v0.3.0
+    Checking outref v0.5.2
+    Checking bytecount v0.6.9
+    Checking bit-set v0.8.0
+    Checking lyon_geom v1.0.19
+    Checking jsonschema-regex v0.59.0
+    Checking data-encoding v2.11.1
+    Checking quick-xml v0.41.0
+    Checking fancy-regex v0.19.2
+    Checking float_next_after v1.0.0
+    Checking uuid-simd v0.8.0
+    Checking pollster v0.4.0
+    Checking objc2-foundation v0.3.2
+    Checking lyon_path v1.0.19
+    Checking objc-sys v0.3.5
+    Checking polycool v0.4.0
+    Checking core-foundation-sys v0.8.7
+    Checking winnow v1.0.4
+    Checking dispatch v0.2.0
+    Checking guillotiere v0.7.0
+    Checking num-rational v0.4.2
+    Checking objc2 v0.5.3
+    Checking accesskit v0.24.1
+    Checking kurbo v0.13.1
+    Checking toml_datetime v1.1.2+spec-1.1.0
+    Checking lyon_tessellation v1.0.22
+    Checking core-foundation v0.9.4
+    Checking serde_spanned v1.1.2
+    Checking toml_parser v1.1.5+spec-1.1.0
+    Checking foreign-types-shared v0.3.1
+    Checking toml_writer v1.1.3+spec-1.1.0
+    Checking num v0.4.3
+    Checking fearless_simd v0.4.1
+    Checking objc2-core-graphics v0.3.2
+    Checking smol_str v0.2.2
+    Checking core-graphics-types v0.1.3
+    Checking dpi v0.1.2
+    Checking fraction v0.17.0
+    Checking nohash-hasher v0.2.0
+    Checking cursor-icon v1.2.0
+    Checking block2 v0.5.1
+    Checking toml v1.1.8+spec-1.1.0
+    Checking epaint_default_fonts v0.35.0
+    Checking accesskit_consumer v0.38.0
+    Checking objc2-foundation v0.2.2
+    Checking itertools v0.14.0
+    Checking ioctl-rs v0.1.6
+    Checking termios v0.2.2
+    Checking serial-core v0.4.0
+    Checking web-time v1.1.0
+    Checking memoffset v0.6.5
+    Checking type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+    Checking pin-utils v0.1.1
+    Checking serial-unix v0.4.0
+    Checking anyhow v1.0.104
+    Checking dispatch2 v0.3.1
+    Checking nix v0.25.1
+    Checking unicode-width v0.1.14
+    Checking downcast-rs v1.2.1
+    Checking shell-words v1.1.1
+    Checking objc2-metal v0.3.2
+    Checking objc2-app-kit v0.3.2
+    Checking serial v0.4.0
+    Checking open v5.4.4
+   Compiling winresource v0.1.34
+    Checking vte v0.11.1
+    Checking vt100 v0.15.2
+    Checking objc2-app-kit v0.2.2
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Checking objc2-quartz-core v0.3.2
+    Checking rfd v0.17.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling strum_macros v0.28.0
+   Compiling thiserror-impl v1.0.69
+    Checking raw-window-metal v1.1.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling clap_derive v4.6.7
+    Checking ref-cast v1.0.27
+    Checking tracing v0.1.44
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling foreign-types-macros v0.2.4
+    Checking accesskit_macos v0.26.3
+    Checking thiserror v1.0.69
+    Checking filedescriptor v0.8.3
+    Checking portable-pty v0.8.1
+    Checking thiserror v2.0.21
+    Checking foreign-types v0.5.0
+    Checking bytemuck v1.25.2
+    Checking core-graphics v0.23.2
+    Checking serde v1.0.229
+    Checking winit v0.30.13
+    Checking font-types v0.11.3
+    Checking font-types v0.12.7
+    Checking tiny-skia-path v0.11.4
+    Checking rustybuzz v0.20.1
+    Checking wgpu-types v29.0.4
+    Checking color v0.3.3
+    Checking emath v0.35.0
+    Checking rgb v0.8.53
+    Checking tokio v1.53.2
+    Checking futures-util v0.3.34
+    Checking zerocopy v0.8.62
+    Checking strum v0.28.0
+    Checking clap v4.6.7
+    Checking read-fonts v0.37.0
+    Checking read-fonts v0.39.2
+    Checking ecolor v0.35.0
+    Checking read-fonts v0.41.0
+    Checking tiny-skia v0.11.4
+    Checking peniko v0.6.1
+    Checking chrono v0.4.45
+    Checking fluent-uri v0.4.1
+    Checking email_address v0.2.9
+    Checking zerofrom v0.1.8
+    Checking vello_common v0.0.9
+    Checking accesskit_winit v0.32.2
+    Checking schemars v1.2.3
+    Checking usvg v0.45.1
+    Checking vello_cpu v0.0.9
+    Checking futures-executor v0.3.34
+    Checking yoke v0.8.3
+    Checking futures v0.3.34
+    Checking resvg v0.45.1
+    Checking zerovec v0.11.8
+    Checking zerotrie v0.2.5
+    Checking designos-doc v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-doc)
+    Checking tinystr v0.8.4
+    Checking potential_utf v0.1.6
+    Checking icu_collections v2.3.0
+    Checking icu_locale_core v2.3.0
+    Checking harfrust v0.5.2
+    Checking skrifa v0.40.0
+    Checking skrifa v0.42.1
+    Checking tokio-stream v0.1.19
+    Checking process-wrap v10.0.1
+    Checking tokio-util v0.7.20
+    Checking harfrust v0.7.0
+    Checking icu_provider v2.3.1
+    Checking half v2.7.1
+    Checking skrifa v0.44.0
+    Checking referencing v0.59.0
+    Checking icu_normalizer v2.3.0
+    Checking icu_properties v2.3.0
+    Checking tiff v0.11.3
+    Checking naga v29.0.4
+    Checking jsonschema v0.59.0
+    Checking idna_adapter v1.2.2
+    Checking image v0.25.10
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking ureq v2.12.1
+    Checking webbrowser v1.2.4
+    Checking swash v0.2.10
+    Checking epaint v0.35.0
+    Checking designos-diff v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-diff)
+    Checking arboard v3.6.1
+    Checking egui v0.35.0
+    Checking cosmic-text v0.19.0
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-hal v29.0.4
+    Checking egui-winit v0.35.0
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking wgpu v29.0.4
+    Checking egui-wgpu v0.35.0
+    Checking designos-fonts v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-fonts)
+    Checking eframe v0.35.0
+    Checking designos-render v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-render)
+    Checking designos-svg v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-svg)
+    Checking designos-export v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-export)
+    Checking designos-gpu v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-gpu)
+    Checking designos-webcapture v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-webcapture)
+    Checking designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-fig)
+    Checking designos-library v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-library)
+    Checking designos-eval v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-eval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 09s
+clippy_exit=0
