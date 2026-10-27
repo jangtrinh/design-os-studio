@@ -22,7 +22,7 @@ pub mod search_design_system;
 pub mod session_options;
 
 use crate::tools::errors::{ErrorCode, ToolError};
-use designos_doc::{Document, Node, NodeId, NodeKind, Paint, Rect, SpecWarning, TextStyle};
+use designos_doc::{Document, Node, NodeId, NodeKind, Paint, Rect, SpecWarning, TextAutoResize, TextStyle, Vec2};
 use serde_json::json;
 
 pub(crate) fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), ToolError> {
@@ -114,8 +114,8 @@ pub(crate) fn build_created_node(
     text: Option<String>,
     x: f32,
     y: f32,
-    width: f32,
-    height: f32,
+    width: Option<f32>,
+    height: Option<f32>,
 ) -> Result<(NodeId, usize, Node), ToolError> {
     if parent_id.0 == 0 {
         return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/parent_id", "node IDs must be positive integers")
@@ -132,17 +132,38 @@ pub(crate) fn build_created_node(
     }
     let children_len = parent.children.len();
     let target_index = index.unwrap_or(children_len).min(children_len);
-    let constructor = validate_create_fields(kind, name.as_deref(), text.as_deref(), x, y, width, height)?;
-    let rect = Rect::new(x, y, width, height);
+    let init_w = width.unwrap_or(100.0);
+    let init_h = height.unwrap_or(100.0);
+    let constructor = validate_create_fields(kind, name.as_deref(), text.as_deref(), x, y, init_w, init_h)?;
+    let rect = Rect::new(x, y, init_w, init_h);
     let id = doc.try_alloc_id().ok_or_else(|| ToolError::new(ErrorCode::IdExhausted, "", "Document has exhausted node IDs"))?;
     let mut node = constructor(id, rect);
     if let Some(name) = name {
         node.name = name;
     }
     if let NodeKind::Text(props) = &mut node.kind {
-        props.auto_resize = designos_doc::TextAutoResize::None;
         if let Some(text) = text {
             props.content = text;
+        }
+        match (width, height) {
+            (None, None) => {
+                props.auto_resize = TextAutoResize::WidthAndHeight;
+                node.size = designos_doc::text_measure::intrinsic_text_size(props, None);
+            }
+            (Some(w), None) => {
+                props.auto_resize = TextAutoResize::Height;
+                let h = designos_doc::text_measure::intrinsic_text_size(props, Some(w.max(1.0))).y;
+                node.size = Vec2::new(w, h);
+            }
+            (None, Some(h)) => {
+                props.auto_resize = TextAutoResize::WidthAndHeight;
+                let w = designos_doc::text_measure::intrinsic_text_size(props, None).x;
+                node.size = Vec2::new(w, h);
+            }
+            (Some(w), Some(h)) => {
+                props.auto_resize = TextAutoResize::None;
+                node.size = Vec2::new(w, h);
+            }
         }
     }
     Ok((id, target_index, node))
@@ -254,6 +275,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if let Some(opacity) = u.opacity {
         node.opacity = opacity;
     }
+    let size_omitted = u.width.is_none() && u.height.is_none();
     let mut warnings = Vec::new();
     fill_write::write_fill(doc, &mut node, id, fill_write::FillTarget::ExistingLayer, u.fill.as_deref(), u.fills, &mut warnings)?;
     if let Some(text) = u.text {
@@ -264,8 +286,16 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.content = text;
             props.runs.clear();
             props.lists.clear();
-            if props.auto_resize == designos_doc::TextAutoResize::WidthAndHeight {
-                node.size = designos_doc::spec::estimate_intrinsic_text_size(props);
+            if size_omitted {
+                match props.auto_resize {
+                    TextAutoResize::WidthAndHeight => {
+                        node.size = designos_doc::text_measure::intrinsic_text_size(props, None);
+                    }
+                    TextAutoResize::Height => {
+                        node.size.y = designos_doc::text_measure::intrinsic_text_size(props, Some(node.size.x.max(20.0))).y;
+                    }
+                    TextAutoResize::None | TextAutoResize::Truncate => {}
+                }
             }
         }
     }

@@ -465,9 +465,39 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.1, a short list. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.5. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--065" id="new-in-v065" aria-labelledby="v065-h">
+          <h3 id="v065-h" class="new-ver">0.6.5</h3>
+          <ul class="new-bullets">
+            <li><strong>Starter file.</strong> A new library gets a <code>Getting started</code> project with <code>DESIGN-OS Studio Starter</code>, and an existing library gets it once on its first launch of 0.6.5; files you already have are not touched. <code>Open starter sample</code> opens a fresh copy, launching with no file argument opens Home, and the older samples, <code>--seed-library</code>, release <code>--fixture</code> and the old <code>examples</code> folder are removed.</li>
+            <li><strong>Variables.</strong> <code>designos FILE --export-variables OUT.json --format dtcg --mode MODE</code> exports one variable mode across the file’s collections (or <code>--collection</code>) as a single self-contained DTCG <code>.tokens.json</code> file with default-mode fallback, <code>--resolve-aliases</code>, and <code>--color-format</code> (<code>hex</code> or <code>object</code>), and multi-file DTCG exports keep same-named collections distinct.</li>
+            <li><strong>Agents panel.</strong> Tabs clear their scrollback when an agent redraws on a UI zoom so output no longer repeats, quiet Codex turns change from <code>Working…</code> to <code>Done</code> after 1.5 s and hide <code>Stop</code>, and the approval banner shows <code>Show prompt</code> to focus the current waiting tab or <code>Open tab</code> to switch to another waiting tab.</li>
+            <li><strong>Canvas and <code>.fig</code> import.</strong> Frame, component and instance labels repaint after an agent rename and cut to fit with <code>…</code> like Figma; hug and fixed-width <code>NodeSpec</code> text is measured with the text renderer; <code>.fig</code> files with top-bit 64-bit values import and export cleanly; and icons and vectors inside resized component instances scale with the instance while keeping their strokes.</li>
+            <li><strong>Styles and performance.</strong> Deleted and orphan style records from imported <code>.fig</code> files are hidden from style pickers, Assets, layer chips and MCP listings, while unnamed listed styles show <code>Unnamed fill style</code>, <code>Unnamed text style</code>, <code>Unnamed effect style</code> or <code>Unnamed grid style</code>; large multi-layer edits finish faster by recording only the layers that changed.</li>
+            <li><strong>CLI and MCP.</strong> <code>--select</code> accepts <code>id:&lt;n&gt;</code>, <code>fig:&lt;figma id&gt;</code>, <code>name:&lt;text&gt;</code>, <code>none</code> or a layer name, supports <code>--zoom fit</code>, and exits 2 without writing on a miss; Home › <code>Import</code> › <code>Enter a path…</code> opens <code>~/</code> and <code>file://</code> paths and starts toast timers on first paint; MCP imports enforce a 512 MiB <code>FILE_TOO_LARGE</code> limit, and MCP file writes return <code>INVALID_NAME</code> and <code>NAME_TOO_LONG</code>.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--063" id="new-in-v063" aria-labelledby="v063-h">
+          <h3 id="v063-h" class="new-ver">0.6.3</h3>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> Hook outputs (<code>agent-status.json</code>, <code>agent-events.jsonl</code>, <code>turn-marks.jsonl</code>, <code>claude-transcript.json</code>) and Claude’s prompt-hook replies live in a Studio-private <code>hook-out</code> folder outside the session folder, <code>$TMPDIR</code>, <code>/tmp</code>, <code>/var/tmp</code> and every folder an agent CLI is granted, and the turn-mark hook reads <code>doc-patch.jsonl</code> size with <code>stat -L</code> instead of opening it.</li>
+            <li><strong>CLI and MCP.</strong> <code>--screenshot</code> on a missing, empty or corrupt file exits 1 with an error message and writes no PNG. <code>--apply-spec</code>, <code>designos_apply_spec</code> and <code>designos_apply_batch</code> report invalid <code>NodeSpec</code> fields in plain words instead of serde type errors, and the docs note that Ask covers agent tabs started from Studio while your own <code>designos</code> CLI and external <code>designos-mcp</code> hosts approve their own calls.</li>
+            <li><strong>Linux.</strong> Home › <code>Import</code> opens the file chooser when <code>org.freedesktop.portal.Desktop</code> starts on first use or when <code>zenity</code> is installed, and when no file dialog can open it names the cause and offers <code>Enter a path…</code>.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--062" id="new-in-v062" aria-labelledby="v062-h">
+          <h3 id="v062-h" class="new-ver">0.6.2</h3>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> Ask-mode approvals, Claude’s hooks and MCP config, and session folders for unsaved files live in Studio’s own data folder, and Studio and <code>designos-mcp</code> refuse links and FIFOs in session files. The skill and agent files no longer include the document or page name.</li>
+            <li><strong>Gemini, Grok and Antigravity.</strong> Gemini CLI tabs in Ask mode show <code>Needs approval</code> with an <code>Open tab</code> button and hold the composer while Gemini’s confirmation prompt is on screen. Ask-mode Grok and Antigravity tabs move non-Studio session configs aside before starting, and Grok never evaluates a <code>.envrc</code>.</li>
+            <li><strong>Styles and Properties.</strong> Create a text style from a text layer in the Typography section (<code>Create text style</code>), pick styles from enabled libraries when the file has none of its own, and export a page from the page panel’s Export section.</li>
+            <li><strong>Components and Dev Mode.</strong> Syncing a main component keeps its instances’ own layer names. Dev Mode keeps each code line on one row with horizontal scrolling, grows the MCP prompt box to fit, and escapes <code>\</code>, <code>"</code>, <code>\(</code> and control characters in SwiftUI strings.</li>
+            <li><strong>Command palette.</strong> Rename layers semantically and Boost resolution take about a second per click on a very large page, where they took about four.</li>
+            <li><strong>CLI and MCP.</strong> <code>designos-diff --version</code> prints the version. MCP file writes (<code>designos_save_file</code>, <code>designos_render_png</code>, <code>designos_export_fig_file</code>) refuse links, control or bidi characters, and names over 255 bytes; <code>designos_export_fig_file</code> refuses an existing file unless <code>overwrite</code> is set; and outside-workspace errors no longer echo the path.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--061" id="new-in-v061" aria-labelledby="v061-h">
           <h3 id="v061-h" class="new-ver">0.6.1</h3>
           <ul class="new-bullets">

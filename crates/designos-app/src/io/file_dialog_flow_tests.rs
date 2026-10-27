@@ -140,6 +140,7 @@ fn save_as_without_a_dialog_says_so_and_saves_nothing() {
     let dialogs = ScriptedDialogs::answering(DialogOutcome::Unavailable);
     app.save_with(true, &dialogs);
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
     assert_eq!(app.file_path, None, "the document is not bound to any file");
 }
 
@@ -156,6 +157,7 @@ fn open_without_a_dialog_says_so() {
     let mut app = app_with_selected_layer("Frame 1");
     app.open_dialog_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable));
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
     assert_eq!(app.doc.name, "Doc", "the open document is untouched");
 }
 
@@ -171,6 +173,7 @@ fn web_capture_import_without_a_dialog_says_so() {
     let mut app = app_with_selected_layer("Frame 1");
     app.import_web_capture_dialog_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable));
     assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+    assert!(!app.toast.as_ref().unwrap().enter_path);
 }
 
 #[test]
@@ -196,6 +199,7 @@ mod other_dialog_sites {
         let changed = crate::panels::properties::choose_image_fill(&mut app, &mut paint, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert!(!changed);
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert_eq!((paint, unchanged_doc_bytes(&app)), before);
     }
 
@@ -214,6 +218,7 @@ mod other_dialog_sites {
         let before = unchanged_doc_bytes(&app);
         crate::canvas::interact::place_image_with(&mut app, designos_doc::Vec2::new(10.0, 10.0), &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert_eq!(unchanged_doc_bytes(&app), before);
     }
 
@@ -229,6 +234,21 @@ mod other_dialog_sites {
         let mut app = app_with_selected_layer("Frame 1");
         crate::home::import_files_dialog(&mut app, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(app.toast.as_ref().is_some_and(|t| t.enter_path), "unavailable toast must offer the Enter a path… fallback action");
+        let warn = app.last_dialog_warn.as_deref().unwrap_or("");
+        assert!(warn.contains("warn") && warn.contains("file dialog unavailable"), "expected warn log line, got: {warn:?}");
+    }
+
+    #[test]
+    fn home_import_hanging_chooser_times_out_with_toast_and_warns() {
+        let mut app = app_with_selected_layer("Frame 1");
+        let started = std::time::Instant::now();
+        crate::home::import_files_dialog(&mut app, &ScriptedDialogs::hanging());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "must end within 2 s");
+        assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(app.toast.as_ref().is_some_and(|t| t.enter_path), "hanging dialog must offer the Enter a path… fallback action");
+        let warn = app.last_dialog_warn.as_deref().unwrap_or("");
+        assert!(warn.contains("warn") && warn.contains("file dialog unavailable"), "expected warn log line, got: {warn:?}");
     }
 
     #[test]
@@ -236,6 +256,83 @@ mod other_dialog_sites {
         let mut app = app_with_selected_layer("Frame 1");
         crate::home::import_files_dialog(&mut app, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
         assert_eq!(toast_of(&app), None);
+        assert_eq!(app.last_dialog_warn, None);
+    }
+
+    #[test]
+    fn home_import_fallback_path_opens_fixture_like_cli() {
+        let dir = scratch_dir("fallback_cli_parity");
+        let fixture = dir.join("FixtureCard.designos");
+        let mut src_doc = Document::new("Fixture Card");
+        let p = src_doc.add_page("Page 1");
+        let nid = src_doc.alloc_id();
+        src_doc.insert(p, Node::rectangle(nid, Rect::new(10.0, 20.0, 120.0, 80.0))).unwrap();
+        crate::io::save_path(&src_doc, &fixture).unwrap();
+
+        let mut cli_app = App::new(Document::new("Init"));
+        cli_app.open_path(fixture.clone());
+
+        let mut app = App::new(Document::new("Init"));
+        app.home = Some(crate::home::Home::new());
+        app.open_import_path_dialog();
+        let mut dialog = app.dialog.take().expect("ImportPath dialog open");
+        assert_eq!(dialog.intent, crate::home::Intent::ImportPath);
+        assert_eq!(dialog.hint.as_deref(), Some("Path to a .fig, .designos, .json or .svg file"));
+        assert!(!dialog.can_submit(), "Import stays disabled while the field is empty");
+        dialog.input = Some(fixture.display().to_string());
+        assert!(dialog.can_submit());
+        crate::home::dialog::finish(&mut app, dialog);
+
+        assert!(app.home.is_none(), "fallback import must leave Home and open the file in the editor");
+        assert_eq!(app.doc.name, cli_app.doc.name);
+        assert_eq!(app.file_path, cli_app.file_path);
+        assert_eq!(app.doc.nodes.len(), cli_app.doc.nodes.len());
+        assert_eq!(app.tabs.entries.len(), 1, "opened in a tab");
+        assert_eq!(toast_of(&app), Some(("Opened Fixture Card".to_string(), false)));
+
+        // A bad path shows the existing parse or open error toast.
+        let bad = dir.join("missing.designos");
+        app.open_import_path_dialog();
+        let mut bad_dialog = app.dialog.take().unwrap();
+        bad_dialog.input = Some(bad.display().to_string());
+        crate::home::dialog::finish(&mut app, bad_dialog);
+        let (err_text, is_err) = toast_of(&app).expect("error toast on bad path");
+        assert!(is_err && err_text.contains("Cannot read"), "unexpected toast: {err_text}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn home_import_fallback_path_with_spaces_and_vietnamese_diacritics_works() {
+        let dir = scratch_dir("fallback_vn_diacritics");
+        let sub = dir.join("Thư mục Thiết kế 2026");
+        std::fs::create_dir_all(&sub).unwrap();
+        let vn_file = sub.join("Bản vẽ mẫu — Trang chủ.designos");
+        let mut src_doc = Document::new("Bản vẽ mẫu — Trang chủ");
+        src_doc.add_page("Trang 1");
+        crate::io::save_path(&src_doc, &vn_file).unwrap();
+
+        let mut app = App::new(Document::new("Init"));
+        app.home = Some(crate::home::Home::new());
+        app.open_import_path_dialog();
+        let mut dialog = app.dialog.take().expect("ImportPath dialog open");
+        dialog.input = Some(vn_file.display().to_string());
+        crate::home::dialog::finish(&mut app, dialog);
+
+        assert!(app.home.is_none());
+        assert_eq!(app.file_path.as_deref(), Some(vn_file.as_path()));
+        assert_eq!(app.doc.name, "Bản vẽ mẫu — Trang chủ");
+        assert_eq!(toast_of(&app), Some(("Opened Bản vẽ mẫu — Trang chủ".to_string(), false)));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn home_import_double_click_opens_one_chooser() {
+        let mut app = app_with_selected_layer("Frame 1");
+        let dialogs = ScriptedDialogs::reentering(DialogOutcome::Cancelled, app.dialog_opening.clone());
+        crate::home::import_files_dialog(&mut app, &dialogs);
+        assert_eq!(dialogs.requests.borrow().len(), 1, "a second click while a chooser is opening must open nothing new");
     }
 
     #[test]
@@ -243,6 +340,7 @@ mod other_dialog_sites {
         let mut app = app_with_selected_layer("Frame 1");
         crate::variables::view::import_variables_dialog(&mut app, designos_fig::VariablesFormat::Dtcg, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert!(app.vars.pending_io.is_none());
     }
 
@@ -252,6 +350,7 @@ mod other_dialog_sites {
         let dialogs = ScriptedDialogs::answering(DialogOutcome::Unavailable);
         crate::variables::view::export_variables_dialog(&mut app, designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"], &dialogs);
         assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert!(!app.toast.as_ref().unwrap().enter_path);
         assert!(app.vars.pending_io.is_none());
     }
 

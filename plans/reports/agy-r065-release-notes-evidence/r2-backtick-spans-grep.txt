@@ -1,0 +1,106 @@
+[001] sees  | `DESIGN-OS Studio Starter` -> crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design"
+[002] reads | `.tokens.json` -> .agents/agents/curator-jang-designos-studio.md:16:   - You **NEVER** edit application code (`crates/**`), tokens (`desig
+[003] sees  | `Getting started` -> crates/designos-app/src/home/mod.rs:990:        // 5. Project Tree (`Getting started`, `Marketing`, and nested folders)
+[004] sees  | `Starter screens` -> crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design"
+[005] sees  | `About this file` -> crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design"
+[006] sees  | `Open starter sample` -> crates/designos-app/src/home/mod.rs:1470:                "Open starter sample",
+[007] sees  | `Templates & Specs` -> crates/designos-app/src/home/mod.rs:380:            Section::Templates => "Templates & Specs".into(),
+[008] sees  | `Resources & Libraries` -> crates/designos-app/src/home/mod.rs:381:            Section::Resources => "Resources & Libraries".into(),
+[009] sees  | `Help and account` -> .brv/context-tree/features/phosphor-icons-and-figma-1to1-wave6/wave6-parity.md:16:   - **Gap 4 (`menus.rs`)**: Added `"A
+[010] sees  | `DESIGN-OS Studio Starter (1)` -> crates/designos-app/src/home/mod.rs:2780:        assert_eq!(app.doc.name, "DESIGN-OS Studio Starter (1)");
+[011] sees  | `(2)` -> CLAUDE.md:74:| `designos_apply_batch` | mutating | `ops` | Execute 1..=200 write operations (apply_spec, insert/create, 
+[012] types | `--seed-library` -> .brv/context-tree/architecture/crate-map.md:167:  - `crates/designos-app/src/cli.rs`: Command-line automation interface 
+[013] types | `--fixture` -> .brv/context-tree/architecture/crate-map.md:167:  - `crates/designos-app/src/cli.rs`: Command-line automation interface 
+[014] sees  | `examples/` -> crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE	specs.rs	the spec folders of the open project
+[015] types | `designos FILE --export-variables OUT.json --format dtcg --mode MODE` -> COMPOSED
+[016] types | `--collection` -> crates/designos-app/src/cli.rs:383:            "--collection" => o.collections.push(it.next().ok_or("--collection needs 
+[017] reads | `values_from_default_mode` -> crates/designos-app/src/main.rs:521:                "values_from_default_mode": report.values_from_default_mode,
+[018] reads | `{…}` -> crates/designos-fig/src/variables_dtcg.rs:4803:        assert!(refs.is_empty(), "resolved file must contain no {{…}} ali
+[019] types | `--resolve-aliases` -> crates/designos-app/src/cli.rs:384:            "--resolve-aliases" => o.resolve_aliases = true,
+[020] reads | `alias_of` -> crates/designos-doc/src/spec.rs:2108:    fn layout_dir_is_an_alias_of_direction_and_a_typo_is_still_refused() {
+[021] reads | `$extensions` -> crates/designos-fig/src/variables_dtcg.rs:289:    // 2. Figma-native: top-level `$extensions["com.figma.modeName"]` or a
+[022] reads | `aliases_resolved_via_default_mode` -> crates/designos-app/src/main.rs:520:                "aliases_resolved_via_default_mode": report.aliases_resolved_via_def
+[023] types | `--color-format` -> crates/designos-app/src/cli.rs:385:            "--color-format" => {
+[024] types | `hex` -> .agent/workflows/ui-audit.md:2:description: "ease-design ui-audit — Audit a Figma file against its design system and nor
+[025] types | `object` -> crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:302:    let Ok(serde_json::Value::Object(map)) = serde_jso
+[026] reads | `#RRGGBB` -> crates/designos-app/src/canvas/draw.rs:1262:    // On-canvas Eyedropper (`I`) floating magnifier loupe & #RRGGBB badge (
+[027] reads | `#RRGGBBAA` -> crates/designos-app/src/widgets/picker.rs:331:    // #RGBA / #RRGGBBAA and "transparent" carry their own alpha; plain he
+[028] reads | `.zip` -> .brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:22:  - `packaging/windows/install.p
+[029] reads | `tokens.manifest.json` -> crates/designos-app/src/main.rs:468:            if var_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifes
+[030] sees  | `Working…` -> crates/designos-app/src/agent_open_flow.rs:49:            Self::Live(AgentTabStatus::Working(_)) => "Working…",
+[031] sees  | `Done` -> crates/designos-app/src/agent_a11y.rs:234:        AgentTabStatus::Done => Some(format!("{agent} is done")),
+[032] sees  | `Stop` -> .brv/context-tree/architecture/crate-map.md:60:  - `Paint`, `PaintKind`, `Color`, `GradientStop`, `Stroke`, `Effect`, `B
+[033] sees  | `Show prompt` -> crates/designos-app/src/agent_approval_card.rs:36:///   and a single **Show prompt** button when already in that tab's t
+[034] sees  | `Open tab` -> crates/designos-app/src/agent_approval_card.rs:36:///   and a single **Show prompt** button when already in that tab's t
+[035] types | `Enter` -> CONTRIBUTING.md:7:1. **Enterprise Scale First:** Every canvas, index, and serialization change must hold up on 100k–700k
+[036] types | `Esc` -> crates/designos-app/src/agent_approval_card.rs:210:    let esc = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::E
+[037] types | `Tab` -> .brv/context-tree/architecture/crate-map.md:59:  - `Node`, `NodeId`, `NodeKind` (`Page`, `Frame`, `Group`, `Section`, `R
+[038] types | `designos-mcp` -> .agents/agents/designer-jang-designos-studio.md:23:   - **Canvas Handoff**: Delegate `.fig` / `.pen` / `designos-mcp` ca
+[039] sees  | `…` -> .agents/agents/curator-jang-designos-studio.md:35:   - Record any rubric/principle gap via `ui memory record gap --dir .
+[040] types | `NodeSpec` -> .brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:12:  - `submit_chat_prompt` execute
+[041] types | `--apply-spec` -> .agents/agents/figma-jang-designos-studio.md:3:description: "designos-studio's canvas & .fig / .pen / MCP bridge special
+[042] types | `designos_apply_spec` -> CLAUDE.md:61:| `designos_apply_spec` | mutating | `spec` | Build a complete UI subtree from a declarative NodeSpec (supp
+[043] types | `designos_create_node` -> CLAUDE.md:54:| `designos_create_node` | mutating | `kind`, `parent_id` | Create one layer in a container; defaults to x/
+[044] types | `designos_update_node` -> CLAUDE.md:55:| `designos_update_node` | mutating | `node_id` | Update specified fields of one non-page layer. Coordinate
+[045] types | `designos_apply_batch` -> CLAUDE.md:74:| `designos_apply_batch` | mutating | `ops` | Execute 1..=200 write operations (apply_spec, insert/create, 
+[046] types | `font_family` -> crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design"
+[047] reads | `TEXT_MEASURED_WITH_FALLBACK_FONT` -> origin/jangtrinh/agy-1154-nodespec-text-measure:crates/designos-doc/src/spec.rs:696:                if !report.measured_
+[048] sees  | `Import` -> .agent/workflows/ui-figma.md:2:description: "ease-design ui-figma — Import a Figma frame and produce an HTML reproductio
+[049] sees  | `Enter a path…` -> crates/designos-app/src/app.rs:147:    /// True when no file dialog could open and the toast carries an "Enter a path…" 
+[050] types | `~` -> .brv/context-tree/architecture/performance/figma_engine_phase2_optimization.md:27:  - `designos --screenshot`: **`7.41s`
+[051] types | `~/…` -> crates/designos-app/src/home/dialog.rs:620:/// `~` or `~/…` (and `~\…` on Windows) becomes the home folder. Anything els
+[052] types | `file://` -> AGENTS.md:5:All agents (Claude Code, Codex, Antigravity, Grok, Orca workers) operating in this repository are bound by t
+[053] sees  | `Type the full path to the file, starting with / or ~/.` -> crates/designos-app/src/home/dialog.rs:547:const TYPE_THE_FULL_PATH: &str = "Type the full path to the file, starting wi
+[054] reads | `designos: warn: import path` -> crates/designos-app/src/home/dialog.rs:565:    let line = format!("designos: warn: import path {}: {reason}", path.displ
+[055] reads | `.fig` -> .agents/agents/designer-jang-designos-studio.md:23:   - **Canvas Handoff**: Delegate `.fig` / `.pen` / `designos-mcp` ca
+[056] types | `designos_get_document` -> CLAUDE.md:46:| `designos_get_document` | read-only | — | Summarize the current in-memory document: pages, counts, shared
+[057] types | `designos_search_design_system` -> CLAUDE.md:49:| `designos_search_design_system` | read-only | `query` | Search components, component sets, shared styles,
+[058] sees  | `Unnamed fill style` -> crates/designos-doc/src/lib.rs:760:            StyleProperty::Fill | StyleProperty::Stroke => "Unnamed fill style",
+[059] sees  | `Unnamed text style` -> crates/designos-doc/src/lib.rs:761:            StyleProperty::Text => "Unnamed text style",
+[060] sees  | `Unnamed effect style` -> crates/designos-app/src/panels/style_picker.rs:340:        let unnamed = items.iter().find(|i| i.label == "Unnamed effec
+[061] sees  | `Unnamed grid style` -> crates/designos-doc/src/lib.rs:763:            StyleProperty::Grid => "Unnamed grid style",
+[062] types | `designos_open_file` -> CLAUDE.md:78:| `designos_open_file` | mutating | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON fi
+[063] types | `designos_import_web_capture` -> CLAUDE.md:68:| `designos_import_web_capture` | mutating | — | Import a .webcapture.json / .capture.json bundle (or inlin
+[064] reads | `536870912` -> crates/designos-mcp/tests/session.rs:320:    assert_eq!(err["expected"], "<= 536870912 bytes", "{err}");
+[065] reads | `FILE_TOO_LARGE` -> crates/designos-mcp/generated/rules.md:156:- **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`
+[066] reads | `/path` -> crates/designos-app/src/agent_sessions.rs:687:            assert_eq!(app.terminal.session_dir, expected, "a disk file li
+[067] reads | `safe_to_retry: false` -> crates/designos-mcp/src/server.rs:3437:        assert!(!err.safe_to_retry, "FILE_TOO_LARGE must have safe_to_retry: fals
+[068] reads | `next_step` -> crates/designos-app/src/agent_session_files.rs:16:pub use refusal::{files_not_updated_message, library_fallback_message,
+[069] types | `--version` -> crates/designos-app/src/agent_cli_catalog.rs:110:            version_cmd: &["claude", "--version"],
+[070] reads | `Usage: designos-mcp --workspace DIRECTORY | --version | --list-lint-rules | --help` -> crates/designos-mcp/src/main.rs:29:        _ => return Err("Usage: designos-mcp --workspace DIRECTORY | --version | --li
+[071] types | `designos_save_file` -> CLAUDE.md:79:| `designos_save_file` | mutating | `path` | Save this session to a .designos file inside the workspace. Ex
+[072] types | `designos_render_png` -> CLAUDE.md:80:| `designos_render_png` | mutating | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file insi
+[073] types | `designos_export_fig_file` -> CLAUDE.md:64:| `designos_export_fig_file` | mutating | `output_path` | Export the current session document to a Figma bi
+[074] reads | `INVALID_NAME` -> crates/designos-mcp/generated/rules.md:132:- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUT
+[075] reads | `NAME_TOO_LONG` -> crates/designos-mcp/generated/rules.md:132:- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUT
+[076] types | `overwrite: true` -> crates/designos-mcp/README.md:70:`42` is illustrative: substitute an ID returned by the preceding queries. Relative path
+[077] types | `designos` -> .agents/agents/curator-jang-designos-studio.md:2:name: curator-jang-designos-studio
+[078] types | `designos-studio` -> .agents/agents/curator-jang-designos-studio.md:2:name: curator-jang-designos-studio
+[079] types | `--select` -> .brv/context-tree/architecture/crate-map.md:167:  - `crates/designos-app/src/cli.rs`: Command-line automation interface 
+[080] types | `id:<n>` -> crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>
+[081] types | `fig:<figma id>` -> crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>
+[082] types | `name:<text>` -> crates/designos-app/src/cli.rs:1://! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>
+[083] types | `none` -> LICENSE:69:The first time you are notified in writing that you have violated any of these terms, or done anything with t
+[084] types | `--zoom fit` -> crates/designos-app/src/cli.rs:29:    /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
+[085] types | `--inspect-json` -> .agents/agents/figma-jang-designos-studio.md:3:description: "designos-studio's canvas & .fig / .pen / MCP bridge special
+[086] reads | `selection` -> .agents/agents/designer-jang-designos-studio.md:16:   - **Purple Ban (Hard Rule)**: Never introduce `#9747FF`, `#8755E9`
+[087] reads | `source_id` -> crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind":"Design"
+[088] types | `--select ""` -> crates/designos-app/src/select_target/error.rs:7:    /// `--select ""`, or a prefix with nothing after it.
+[089] types | `--home` -> crates/designos-app/src/cli.rs:142:    /// with `--home`, or interactively with nothing else to open.
+[090] types | `--edit-text` -> crates/designos-app/src/cli.rs:327:            "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a 
+[091] sees  | `No, suggest changes` -> crates/designos-app/src/gemini_dialog.rs:5://! The screen can: every dialog that offers options ends with the option `No
+[092] types | `workspace-write` -> crates/designos-app/src/agent_approval_channel.rs:6://! not in an `--add-dir`, and not in `/tmp` or `$TMPDIR` (the writa
+[093] types | `tools.allowed` -> docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135:   #1059). Some settings there skip Gemini
+[094] sees  | `.gemini/settings.json` -> crates/designos-app/src/agent_session_files/fs_sites_scan_tests/patterns.rs:53:/// Names inside the folders above (`.age
+[095] types | `hooks` -> .gitignore:15:# Claude Code session-state written by hooks into nested working dirs
+[096] types | `tools.discoveryCommand` -> docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138:   project hook and then runs it) and `too
+[097] sees  | `.gemini` -> commands/doctor.md:19:   - Gemini CLI / Antigravity: `~/.gemini/skills/design-os-studio/SKILL.md`
+[098] reads | `ToolPermission` -> crates/designos-app/src/agent_turn_status.rs:751:                // `permission_prompt`: Claude and Grok. `ToolPermissio
+[099] sees  | `ask_user` -> crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit
+[100] sees  | `exit_plan_mode` -> crates/designos-app/src/gemini_dialog.rs:16://! * `ask_user` and `exit_plan_mode` dialogs draw no such line, and an edit
+[101] sees  | `Needs approval` -> crates/designos-app/src/agent_a11y.rs:222:/// The spoken form of a wait on the user: the status labels `Needs approval` 
+[102] reads | `permission_prompt` -> crates/designos-app/src/agent_turn_status.rs:132:    /// Extracts the notification type from a `Notification` payload (e
+[103] reads | `.spec.json` -> .brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:19:  - Lowercase `design:os studio`
+[104] sees  | `designos_specs` -> crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE	specs.rs	the spec folders of the open project
+[105] reads | `tty` -> .brv/context-tree/architecture/figma-vs-designos-engine.md:25:  - Previously, `Document::to_json` used `serde_json::to_s
+[106] types | `~/` -> .brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:19:  - Lowercase `design:os studio`

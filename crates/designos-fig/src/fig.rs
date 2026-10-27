@@ -194,8 +194,10 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
     let mut needs_derived_geo = HashSet::new();
     for nc in raw_changes.iter() {
         if matches!(nc.get("type").and_then(kiwi_str), Some("VECTOR" | "BOOLEAN_OPERATION" | "STAR" | "REGULAR_POLYGON" | "ELLIPSE" | "LINE" | "BRUSH")) {
-            if let Some(id) = nc.get("guid").and_then(kiwi_guid_str) {
-                needs_derived_geo.insert(id);
+            for key in ["guid", "overrideKey"] {
+                if let Some(id) = nc.get(key).and_then(kiwi_guid_str) {
+                    needs_derived_geo.insert(id);
+                }
             }
         }
     }
@@ -439,9 +441,6 @@ struct Lk<'a> {
     style_nodes: HashMap<String, Value>,
     /// Style node id (`s:l`) -> node, for styles defined in this file.
     style_by_id: HashMap<String, Value>,
-    /// Ids (`s:l`) of style nodes the file marks as deleted: their values are never used and
-    /// the nodes that still point at them are left unlinked.
-    deleted_styles: std::collections::HashSet<String>,
     /// Property definition id (including the `parentPropDefId` aliases that
     /// variants carry) -> (`Name#s:l`, REST type).
     prop_defs: HashMap<String, (String, &'static str)>,
@@ -470,7 +469,6 @@ impl<'a> Lk<'a> {
             style_by_key: HashMap::new(),
             style_nodes: HashMap::new(),
             style_by_id: HashMap::new(),
-            deleted_styles: std::collections::HashSet::new(),
             prop_defs: HashMap::new(),
             comp_by_key: HashMap::new(),
             handoff_status: HashMap::new(),
@@ -485,8 +483,6 @@ impl<'a> Lk<'a> {
             let live_style = fstr(j, "styleType").is_some() && !style_soft_deleted(j);
             if live_style {
                 lk.style_by_id.insert(e.id.clone(), j.clone());
-            } else if fstr(j, "styleType").is_some() {
-                lk.deleted_styles.insert(e.id.clone());
             }
             // An instance restates tracks for its own overrides only (see `override_entries`).
             if fstr(j, "type") != Some("INSTANCE") {
@@ -620,11 +616,9 @@ impl<'a> Lk<'a> {
         nc.get(modern).and_then(|r| self.style_node(r)).or_else(|| self.style_by_id.get(guid_str(nc.get(legacy)?)?.as_str()))
     }
 
-    /// Style id for a consumer's `modern` reference, else its `legacy` GUID reference. None when
-    /// the consumer has neither or the style is deleted.
+    /// Style id for a consumer's `modern` reference, else its `legacy` GUID reference.
     fn style_id_of(&self, nc: &Value, modern: &str, legacy: Option<&str>) -> Option<String> {
-        let id = nc.get(modern).and_then(|r| self.style_id(r)).or_else(|| nc.get(legacy?).and_then(guid_str))?;
-        (!self.deleted_styles.contains(&id)).then_some(id)
+        nc.get(modern).and_then(|r| self.style_id(r)).or_else(|| nc.get(legacy?).and_then(guid_str))
     }
 
     fn prop_def(&self, r: &Value) -> Option<&(String, &'static str)> {
@@ -837,9 +831,16 @@ fn style_table(entries: &[Entry], lk: &Lk) -> Value {
     Value::Object(out)
 }
 
-/// A style node the file marks as deleted (`isSoftDeletedStyle`, or the node-level `isSoftDeleted`).
+/// A style node the file marks as deleted (`isSoftDeletedStyle`, `isSoftDeleted`, or `phase == "REMOVED"`),
+/// or an un-keyed orphan style entry re-imported after a `.fig` export.
 fn style_soft_deleted(j: &Value) -> bool {
-    rest_import::fbool(j, "isSoftDeletedStyle") == Some(true) || rest_import::fbool(j, "isSoftDeleted") == Some(true)
+    rest_import::fbool(j, "isSoftDeletedStyle") == Some(true)
+        || rest_import::fbool(j, "isSoftDeleted") == Some(true)
+        || fstr(j, "phase") == Some("REMOVED")
+        || (fstr(j, "key").is_none()
+            && fstr(j, "sortPosition").is_none()
+            && fstr(j, "name").is_some()
+            && fstr(j, "name") == j.get("guid").and_then(guid_str).as_deref())
 }
 
 fn symbol_id_str(v: &Value) -> Option<String> {

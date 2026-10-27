@@ -1,0 +1,49 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.79s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 37 tests
+test agent_usage::tests::codex_and_agy_show_nothing ... ok
+test agent_usage::tests::sources_document_matches_code ... ok
+test agent_usage::tests::claude_transcript_missing_hides_the_field ... ok
+test agent_usage::tests::grok_without_a_cost_shows_tokens_only ... ok
+test agent_usage::tests::grok_usage_json_parses_tokens_and_cost ... ok
+test agent_usage::tests::no_estimates ... ok
+test agent_usage::tests::claude_transcript_tokens_are_deduplicated_by_message_id ... ok
+test agent_usage::tests::reader_tails_incrementally ... ok
+test terminal::gemini_status_tests::a_tool_permission_notification_waits_for_approval ... ok
+test terminal::gemini_status_tests::gemini_tool_permission_record_routes_to_its_tab_beside_a_claude_tab ... ok
+test terminal::gemini_status_tests::an_untagged_record_never_lands_on_a_gemini_tab ... ok
+test terminal::gemini_status_tests::agy_records_still_route_with_a_gemini_tab_open ... ok
+test terminal::gemini_status_tests::the_claude_grok_and_agy_status_hooks_stay_byte_identical ... ok
+test terminal::gemini_status_tests::the_status_hooks_cover_five_events_name_the_tab_and_print_nothing ... ok
+test terminal::capture_lock_tests::without_a_lock_in_the_way_a_capture_adds_its_tab_and_gives_the_lock_back ... ok
+test agent_usage::tests::hook_capture_writes_session_and_transcript_path_once ... ok
+test agent_usage::tests::two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings ... ok
+test terminal::hook_output_tests::a_fifo_or_a_link_to_one_at_the_patch_log_never_blocks_the_turn_mark_hook ... ok
+test agent_usage::tests::claude_clear_rotates_session_id_and_restarts_tab_usage_reading ... ok
+test terminal::hook_output_tests::the_turn_mark_hook_still_counts_the_bytes_of_a_patch_log_that_is_a_plain_file ... ok
+test terminal::fail_closed_hook_tests::without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode ... ok
+test terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file ... ok
+test terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test terminal::hook_output_tests::every_file_a_hook_writes_lies_outside_the_session_folder_and_the_folder_of_a_file_kept_beside_the_data_folder ... ok
+test terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write ... ok
+test agent_usage::tests::failed_usage_probe_preserves_previous_reading_until_source_is_gone ... ok
+test terminal::hook_output_tests::the_capture_of_a_claude_transcript_never_writes_through_a_link_planted_at_the_name_of_its_temporary_file ... ok
+test terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there ... ok
+test terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it ... ok
+test terminal::capture_lock_tests::a_lock_that_stays_held_is_never_removed_by_a_capture_that_gave_up_waiting ... ok
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... ok
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... ok
+test terminal::hook_output_tests::a_link_at_a_reply_file_is_not_read_by_the_prompt_hook_into_the_agents_context ... ok
+test agent_usage::tests::grok_call_runs_off_the_ui_thread_with_a_timeout ... ok
+test terminal::hook_output_tests::a_link_or_a_hard_link_at_any_name_a_hook_wrote_is_never_written_through_by_any_hook_of_any_cli ... ok
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 12.25s
+

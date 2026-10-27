@@ -132,3 +132,15 @@ fn an_existing_file_is_not_called_missing() {
     assert!(text(&out.stdout).contains("\"node_count\""), "the inspection ran: {}", text(&out.stdout));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture() {
+    let dir = empty_dir("fixture_showcase");
+    for (name, exe) in BINARIES {
+        let out = run(exe, &dir, &["--fixture", "showcase", "--screenshot", "out.png"]);
+        assert!(!out.status.success(), "{name} --fixture showcase must fail without fixtures feature");
+        let err = text(&out.stderr).to_lowercase();
+        assert!(err.contains("unknown fixture"), "{name} stderr must report unknown fixture, got: {}", text(&out.stderr));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

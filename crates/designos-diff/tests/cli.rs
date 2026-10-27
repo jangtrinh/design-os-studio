@@ -174,3 +174,14 @@ fn suite_with_two_sizes_reports_the_case_instead_of_panicking() {
     let html = std::fs::read_to_string(d.join("diff-report/index.html")).unwrap();
     assert!(html.contains("size mismatch (8x8 vs 4x4)"));
 }
+
+#[test]
+fn version_flags_print_version_and_exit_zero() {
+    let expected = format!("designos-diff {}\n", env!("CARGO_PKG_VERSION"));
+    for flag in ["--version", "-V"] {
+        let out = bin().arg(flag).output().unwrap();
+        assert!(out.status.success(), "{flag} exited {:?}: {}", out.status.code(), String::from_utf8_lossy(&out.stderr));
+        assert!(out.stderr.is_empty(), "{flag} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{flag}");
+    }
+}

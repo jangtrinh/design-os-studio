@@ -1,9 +1,26 @@
 //! Per-window / per-session agent file management, ephemeral session directory cleanup,
 //! 7-day startup sweep with PID + start-time ownership markers, and off-UI-thread canvas
-//! snapshot writer (`#690`).
+//! snapshot writer (`#690`). Where session folders live and how they are made: [`folder`].
+
+mod folder;
+#[cfg(unix)]
+mod folder_owner;
+#[cfg(unix)]
+mod no_follow;
+#[cfg(not(unix))]
+#[path = "agent_session_files/no_follow_fallback.rs"]
+mod no_follow;
+mod refusal;
+mod session_io;
+pub use folder::{default_sessions_root, ephemeral_session_dir, ephemeral_sessions_root, sessions_root_beside, unavailable_path};
+pub use refusal::{files_not_updated_message, library_fallback_message, start_failure_message, with_next_step, with_set_aside_note};
+pub use session_io::{
+    added_while_starting, atomic_write_session_file, create_session_dir_all, create_session_file_exclusive, open_plain_file, open_session_file,
+    read_session_file, read_session_text, remove_session_dir_all, remove_session_file, rename_session_file, session_file_metadata, set_aside_entries_except,
+    set_aside_path, write_session_file_unless, write_session_file_verified, SetAside,
+};
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -11,7 +28,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use designos_doc::Document;
 use serde::{Deserialize, Serialize};
 
-/// Ephemeral session directories in `temp_dir()/designos-sessions` older than 7 days whose owning
+/// Ephemeral session directories in [`ephemeral_sessions_root`] older than 7 days whose owning
 /// Studio process is no longer alive are removed by the startup sweep (`#690` §5).
 pub const STALE_SESSION_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -120,8 +137,9 @@ pub fn is_owner_alive(pid: u32, expected_started_ms: Option<u64>) -> bool {
     is_pid_start_time_matching(pid, expected)
 }
 
-/// Returns `true` iff `dir` is an ephemeral session directory directly under a `designos-sessions`
-/// parent folder and has no `"agent-sessions"` path component (`#690` §5).
+/// Returns `true` iff `dir` is a direct child of [`ephemeral_sessions_root`] and has no `"agent-sessions"` path
+/// component (`#690` §5). The folder is recognised by its exact location, not by a folder name: callers delete what
+/// this accepts, and a folder in the temp folder (where earlier versions kept sessions) is never one of them.
 ///
 /// Kept per-file session directories under `<lib_root>/agent-sessions/<file_id>` (`#653`) always
 /// return `false`.
@@ -129,32 +147,7 @@ pub fn is_ephemeral_session_dir(dir: &Path) -> bool {
     if dir.components().any(|c| c.as_os_str() == "agent-sessions") {
         return false;
     }
-    dir.file_name().is_some() && dir.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()) == Some("designos-sessions")
-}
-
-/// Atomically writes `bytes` to `path` via a unique sibling temp file (`.<name>.tmp.<pid>.<seq>`)
-/// followed by `std::fs::rename`, so concurrent MCP readers never observe a half-written file.
-pub fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    write_session_file_unless(path, bytes, || false).map(|_| ())
-}
-
-/// Like [`atomic_write_session_file`], but `hold` is asked after the temporary file is complete
-/// and just before it replaces `path`. When it says yes the temporary file is removed, `path`
-/// is left as it was and `Ok(true)` comes back.
-pub fn write_session_file_unless(path: &Path, bytes: &[u8], hold: impl FnOnce() -> bool) -> std::io::Result<bool> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    static NEXT_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
-    let seq = NEXT_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("session-file");
-    let tmp = path.with_file_name(format!(".{file_name}.tmp.{}.{seq}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    if hold() {
-        let _ = std::fs::remove_file(&tmp);
-        return Ok(true);
-    }
-    std::fs::rename(&tmp, path).map(|()| false)
+    ephemeral_sessions_root().is_some_and(|root| dir.parent() == Some(root.as_path()))
 }
 
 /// Writes `<session_dir>/owner.json` with `{ "pid": <current pid>, "started_ms": <started_ms> }`.
@@ -166,14 +159,17 @@ pub fn write_owner_marker(session_dir: &Path) -> std::io::Result<()> {
 
 /// Reads `<session_dir>/owner.json` if present and valid.
 pub fn read_owner_marker(session_dir: &Path) -> Option<OwnerMarker> {
-    let raw = std::fs::read_to_string(session_dir.join("owner.json")).ok()?;
-    serde_json::from_str::<OwnerMarker>(&raw).ok()
+    let raw = read_session_file(&session_dir.join("owner.json")).ok()?;
+    serde_json::from_slice::<OwnerMarker>(&raw).ok()
 }
 
-/// Creates `session_dir` and, when `session_dir` is an ephemeral `designos-sessions/<id>` directory
-/// without an `owner.json` marker yet, writes `<session_dir>/owner.json`.
+/// Creates `session_dir` and, when `session_dir` is an ephemeral session directory (a child of
+/// [`ephemeral_sessions_root`]) without an `owner.json` marker yet, writes `<session_dir>/owner.json`.
+///
+/// The folder is made with an exclusive `mkdir` (0700). A path that exists already is accepted only when it is a real
+/// folder owned by the user, so an existing link, file or foreign folder is an error and nothing is written there.
 pub fn ensure_session_dir(session_dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(session_dir)?;
+    folder::create_session_folder(session_dir)?;
     if is_ephemeral_session_dir(session_dir) && !session_dir.join("owner.json").exists() {
         write_owner_marker(session_dir)?;
     }
@@ -209,11 +205,12 @@ fn entry_mtime(dir: &Path) -> Option<SystemTime> {
     }
 }
 
-/// Sweeps stale ephemeral session folders under `root` (`temp_dir()/designos-sessions`) and returns
-/// the number of directories removed (`#690` §5).
+/// Sweeps stale ephemeral session folders under `root` ([`ephemeral_sessions_root`]) and returns
+/// the number of directories removed (`#690` §5). Folders that earlier versions left in the temp folder are not
+/// swept: nothing is deleted through a path an agent could have redirected.
 ///
 /// Safety invariants:
-/// 1. Returns `0` immediately unless `root` ends with `"designos-sessions"` and has no
+/// 1. Returns `0` immediately unless `root` is named `"sessions"` and has no
 ///    `"agent-sessions"` path component — `<lib_root>/agent-sessions/<file_id>` (`#653`) is never
 ///    touched.
 /// 2. Removes an entry `<dir>` only when **both** hold:
@@ -222,7 +219,7 @@ fn entry_mtime(dir: &Path) -> Option<SystemTime> {
 ///      dead by `is_alive(pid, started_ms)`.
 /// 3. Foreign directories (neither `owner.json` nor `p<pid>-...` name) are never removed.
 pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32, Option<u64>) -> bool) -> usize {
-    if root.file_name().and_then(|n| n.to_str()) != Some("designos-sessions") {
+    if root.file_name().and_then(|n| n.to_str()) != Some("sessions") {
         return 0;
     }
     if root.components().any(|c| c.as_os_str() == "agent-sessions") {
@@ -262,15 +259,19 @@ pub fn sweep_stale_sessions(root: &Path, now: SystemTime, is_alive: impl Fn(u32,
             continue;
         }
         if std::fs::remove_dir_all(&dir).is_ok() {
+            // The session's approval channel lives outside this folder (Studio-private); nobody uses it any more.
+            crate::agent_approval_channel::remove_channel(&dir);
             removed += 1;
         }
     }
     removed
 }
 
-/// Spawns the one-shot background startup sweep of `std::env::temp_dir().join("designos-sessions")`.
+/// Spawns the one-shot background startup sweep of [`ephemeral_sessions_root`].
 pub fn spawn_startup_sweep() {
-    let root = std::env::temp_dir().join("designos-sessions");
+    let Some(root) = ephemeral_sessions_root() else {
+        return;
+    };
     let _ = std::thread::Builder::new().name("designos-session-sweep".into()).spawn(move || {
         let _ = sweep_stale_sessions(&root, SystemTime::now(), is_owner_alive);
     });
@@ -294,7 +295,7 @@ pub struct SnapshotJob {
     pub file_path: Option<PathBuf>,
     /// Run id and runtime of the active agent tab, written into the session's MCP server env.
     pub run_id: String,
-    /// Agent run counter whose first-turn `bootstrap.delivered.<n>` marker the Claude prompt hook checks.
+    /// Agent run counter whose first-turn `bootstrap.delivered.<n>` marker the Claude prompt hook checks (in the hook folder, `agent_hook_outputs`).
     pub bootstrap_run_id: u64,
     pub agent_runtime: String,
     /// True when the session runs in `Ask` permission mode, so its hooks route approvals through the panel.
@@ -302,6 +303,18 @@ pub struct SnapshotJob {
     /// Read position of the session's edit log when the job was queued; the writer asks it again just
     /// before the canvas replaces the old one and holds the publish when the agent appended since.
     pub unread_probe: Option<crate::live_patch_log::UnreadProbe>,
+    /// Set when an Ask-mode tab of Grok or Antigravity is about to start from this snapshot: its project config is then made
+    /// exactly Studio's (see [`crate::agent_project_config`]) and the result of that is the one the write returns. `None` for every
+    /// other write, a periodic sync included.
+    pub exact_project_config: Option<ExactProjectConfig>,
+}
+
+/// A CLI that loads hooks, MCP servers and plugins as commands from the project folder of its working directory, which is a session
+/// folder an agent writes, and that runs them as the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactProjectConfig {
+    Grok,
+    Antigravity,
 }
 
 /// How an executed [`SnapshotJob`] ended.
@@ -576,27 +589,102 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
 }
 
 fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
-    ensure_session_dir(&job.session_dir).map_err(|e| format!("Failed to create session dir {}: {e}", job.session_dir.display()))?;
-    atomic_write_session_file(&job.context_json_path, &job.context_bytes).map_err(|e| format!("Failed to write {}: {e}", job.context_json_path.display()))?;
+    // Every error of the writes below names the path it happened at, so the line names it once.
+    ensure_session_dir(&job.session_dir).map_err(|e| files_not_updated_message(&e))?;
+    atomic_write_session_file(&job.context_json_path, &job.context_bytes).map_err(|e| files_not_updated_message(&e))?;
     let canvas_json = job.canvas_doc.to_json().map_err(|e| format!("Failed to serialize canvas document: {e}"))?;
     let held = write_session_file_unless(&job.live_canvas_path, canvas_json.as_bytes(), || {
         #[cfg(test)]
         crate::terminal::run_before_rename_test_hook(&job.live_canvas_path);
         job.unread_probe.as_ref().is_some_and(|probe| probe.has_unread_complete_line())
     })
-    .map_err(|e| format!("Failed to write {}: {e}", job.live_canvas_path.display()))?;
+    .map_err(|e| files_not_updated_message(&e))?;
     if held {
         return Ok(SnapshotOutcome::Held);
     }
-    crate::terminal::write_session_agent_files_for_job(job).map_err(|e| format!("Failed to provision session files in {}: {e}", job.session_dir.display()))?;
+    crate::terminal::write_session_agent_files_for_job(job).map_err(|e| files_not_updated_message(&e))?;
     Ok(SnapshotOutcome::Written)
 }
+
+#[cfg(all(test, unix))]
+mod agy_config_tests;
+#[cfg(all(test, unix))]
+mod canonical_spelling_tests;
+#[cfg(all(test, unix))]
+mod codex_probe_tests;
+#[cfg(all(test, unix))]
+mod exact_config_race_tests;
+#[cfg(all(test, unix))]
+mod fallback_set_aside_tests;
+#[cfg(all(test, unix))]
+#[allow(dead_code, unused_imports)]
+#[path = "agent_session_files/no_follow_fallback.rs"]
+mod fallback_under_test;
+#[cfg(all(test, unix))]
+mod fifo_tests;
+#[cfg(all(test, unix))]
+mod folder_message_tests;
+#[cfg(all(test, unix))]
+mod folder_tests;
+#[cfg(all(test, unix))]
+mod folder_unit_tests;
+#[cfg(test)]
+mod fs_scan;
+#[cfg(test)]
+mod fs_sites_scan_tests;
+#[cfg(all(test, unix))]
+mod gemini_config_tests;
+#[cfg(all(test, unix))]
+mod grok_config_tests;
+#[cfg(all(test, unix))]
+mod hook_quoting_tests;
+#[cfg(all(test, unix))]
+mod inner_link_race_tests;
+#[cfg(all(test, unix))]
+mod inner_link_tests;
+#[cfg(all(test, unix))]
+mod library_fallback_tests;
+#[cfg(all(test, unix))]
+mod linked_parent_tests;
+#[cfg(all(test, unix))]
+mod live_spec_tests;
+#[cfg(all(test, target_vendor = "apple"))]
+mod locked_entry_tests;
+#[cfg(all(test, unix))]
+mod open_race_tests;
+#[cfg(all(test, unix))]
+mod open_removed_link_tests;
+#[cfg(all(test, unix))]
+mod placement_tests;
+#[cfg(all(test, unix))]
+mod plain_open_tests;
+#[cfg(all(test, unix))]
+mod poll_readers_tests;
+#[cfg(all(test, unix))]
+mod private_anchor_tests;
+#[cfg(test)]
+mod refusal_tests;
+#[cfg(all(test, unix))]
+mod session_io_tests;
+#[cfg(all(test, unix))]
+mod set_aside_tests;
+#[cfg(all(test, unix))]
+mod swap_after_open_tests;
+#[cfg(all(test, unix))]
+mod tailer_link_tests;
+#[cfg(test)]
+mod test_root;
+#[cfg(all(test, unix))]
+pub(crate) mod test_support;
+#[cfg(test)]
+mod unavailable_root_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::terminal::{export_selection_and_comments_to_pty, TerminalAction, TerminalState};
     use designos_doc::{Document, Node, Rect};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
 
     fn unique_test_id(tag: &str) -> String {
@@ -673,7 +761,7 @@ mod tests {
 
     #[test]
     fn mcp_without_a_session_dir_has_no_live_paths() {
-        let dir = std::env::temp_dir().join("designos-sessions").join(unique_test_id("mcp-env"));
+        let dir = ephemeral_session_dir(&unique_test_id("mcp-env"));
         let bridge_with_dir = designos_mcp::server::LiveSessionBridge::for_session_dir(&dir);
         assert_eq!(bridge_with_dir.session_dir.as_deref(), Some(dir.as_path()));
         assert_eq!(bridge_with_dir.live_canvas_path, Some(dir.join("canvas.designos")));
@@ -808,14 +896,20 @@ mod tests {
         let mut doc = Document::new("Unsaved Window");
         let page = doc.add_page("Page 1");
 
+        // An Ask-mode session installs its approval hook, outside the session folder, with the rest of its files.
+        let channel = crate::agent_approval_channel::channel_dir(&session_dir).expect("a private channel folder");
+
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
+        assert!(channel.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME).is_file(), "the session installs its approval hook");
         st.shutdown();
         assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        assert!(!channel.exists(), "shutdown removes the approval channel with the folder");
 
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
         assert!(!session_dir.exists(), "the publish after shutdown re-created {}", session_dir.display());
+        assert!(!channel.exists(), "the publish after shutdown re-created the approval channel {}", channel.display());
 
         // Binding to a session again (a document opened in this terminal) lifts the stop.
         st.bind_session(&unique_test_id("no-recreate-window-next"));
@@ -824,6 +918,7 @@ mod tests {
         st.flush_live_sync();
         assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
         st.shutdown();
+        assert!(!crate::agent_approval_channel::channel_dir(&next_dir).expect("a private channel folder").exists());
     }
 
     fn writer_test_job(session_dir: &Path, key: (u64, u64, u64)) -> SnapshotJob {
@@ -847,6 +942,7 @@ mod tests {
             agent_runtime: "claude".into(),
             ask_mode: false,
             unread_probe: None,
+            exact_project_config: None,
         }
     }
 
@@ -854,7 +950,7 @@ mod tests {
     /// close, a rebind) would block the UI thread for good.
     #[test]
     fn a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots() {
-        let dir = std::env::temp_dir().join("designos-sessions").join(unique_test_id("writer-panic"));
+        let dir = ephemeral_session_dir(&unique_test_id("writer-panic"));
         let mut worker = SnapshotWorker::new();
         let job = writer_test_job(&dir, (1, 0, 0));
         crate::terminal::set_before_rename_test_hook(&job.live_canvas_path, Box::new(|| panic!("writer test panic")));
@@ -911,7 +1007,7 @@ mod tests {
             st.flush_live_sync();
         }
         assert_eq!(st.snapshot_jobs_executed(), 1, "ten frames with the same content must try the failing write once");
-        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Failed to create session dir")), "the failure is reported: {:?}", st.status_msg);
+        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")), "the failure is reported: {:?}", st.status_msg);
 
         st.status_msg = None;
         st.sync_live_file_context(&doc, page, &[page], None);
@@ -961,7 +1057,7 @@ mod tests {
     #[test]
     fn startup_sweep_removes_only_dead_sessions_older_than_7_days() {
         let temp_parent = std::env::temp_dir().join(unique_test_id("sweep-sandbox"));
-        let root = temp_parent.join("designos-sessions");
+        let root = temp_parent.join("sessions");
         std::fs::create_dir_all(&root).unwrap();
 
         let now = SystemTime::now();
@@ -996,13 +1092,23 @@ mod tests {
         std::fs::write(dir_foreign.join("notes.txt"), b"keep").unwrap();
         set_dir_mtime(&dir_foreign, eight_days_ago);
 
+        // Each session of an Ask-mode agent has an approval channel outside its folder.
+        let channels: Vec<_> = [&dir_dead_old, &dir_dead_recent, &dir_live_old]
+            .iter()
+            .map(|dir| crate::agent_approval_channel::prepare_channel_dir(dir).expect("a private channel folder"))
+            .collect();
+
         let removed = sweep_stale_sessions(&root, now, |pid, _started| pid == live_pid);
         assert_eq!(removed, 1);
         assert!(!dir_dead_old.exists(), "dead + 8 days old must be removed");
         assert!(dir_dead_recent.exists(), "dead + 1 hour old must be kept");
         assert!(dir_live_old.exists(), "live PID + 8 days old must be kept");
         assert!(dir_foreign.exists(), "foreign folder must be kept");
+        assert!(!channels[0].exists(), "the channel of a swept session goes with it");
+        assert!(channels[1].exists() && channels[2].exists(), "the channels of kept sessions stay");
 
+        crate::agent_approval_channel::remove_channel(&dir_dead_recent);
+        crate::agent_approval_channel::remove_channel(&dir_live_old);
         let _ = std::fs::remove_dir_all(&temp_parent);
     }
 
@@ -1018,8 +1124,8 @@ mod tests {
         let eight_days_ago = now - Duration::from_secs(8 * 24 * 60 * 60);
         set_dir_mtime(&old_file_session, eight_days_ago);
 
-        // Also test a nested `designos-sessions` inside `agent-sessions`
-        let nested = agent_sessions.join("designos-sessions");
+        // Also test a nested `sessions` folder inside `agent-sessions`
+        let nested = agent_sessions.join("sessions");
         let nested_old = nested.join("p999992-tab-1");
         std::fs::create_dir_all(&nested_old).unwrap();
         set_dir_mtime(&nested_old, eight_days_ago);
@@ -1166,7 +1272,11 @@ mod tests {
         st.flush_live_sync();
 
         assert!(st.last_synced_key.is_none(), "failed write must not mark last_synced_key as succeeded: {:?}", st.last_synced_key);
-        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Failed to")), "write failure must be surfaced in status_msg, got: {:?}", st.status_msg);
+        assert!(
+            st.status_msg.as_deref().is_some_and(|m| m.contains("Couldn't update the agent files")),
+            "write failure must be surfaced in status_msg, got: {:?}",
+            st.status_msg
+        );
 
         let _ = std::fs::remove_file(&bad_path);
     }
@@ -1193,8 +1303,10 @@ mod tests {
 
         for path in files {
             let src = std::fs::read_to_string(&path).expect("read rs file");
-            // Skip test-only modules.
-            if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("_tests.rs")) || path.components().any(|c| c.as_os_str() == "tests") {
+            // Skip test-only modules: `*_tests.rs` files and everything in a `tests` or `*_tests` folder.
+            let test_only =
+                path.components().any(|c| c.as_os_str().to_str().is_some_and(|n| n == "tests" || n.ends_with("_tests") || n.ends_with("_tests.rs")));
+            if test_only {
                 continue;
             }
             let crlf_src = src.replace("\r\n", "\n").replace('\n', "\r\n");
@@ -1206,6 +1318,11 @@ mod tests {
                     assert!(
                         !code_line.contains("/tmp/designos-live-"),
                         "{} still contains global /tmp/designos-live- path in shipped code: {line}",
+                        path.display()
+                    );
+                    assert!(
+                        !code_line.contains("designos-sessions"),
+                        "{} builds a session path in the temp folder, which any sandboxed agent can write: {line}",
                         path.display()
                     );
                 }

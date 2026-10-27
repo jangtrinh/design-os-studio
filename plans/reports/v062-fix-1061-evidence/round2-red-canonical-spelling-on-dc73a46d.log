@@ -1,0 +1,5 @@
+tree: dc73a46d (the code of 063ab980 plus the test hooks) plus canonical_spelling_tests.rs
+test agent_session_files::canonical_spelling_tests::a_session_path_spelled_through_the_links_above_its_folder_is_still_checked_below_the_session_folder ... FAILED
+thread 'agent_session_files::canonical_spelling_tests::a_session_path_spelled_through_the_links_above_its_folder_is_still_checked_below_the_session_folder' (35025384) panicked at crates/designos-app/src/agent_session_files/canonical_spelling_tests.rs:19:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3133 filtered out; finished in 0.01s
+error: test failed, to rerun pass `-p designos-app --bin designos`

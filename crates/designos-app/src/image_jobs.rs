@@ -252,9 +252,7 @@ impl ImageJobsState {
         }
         let root = self.last_session_root.take().or_else(|| self.custom_jobs_root.clone()).or(fallback_root);
         if let Some(root) = root {
-            if root.exists() {
-                let _ = std::fs::remove_dir_all(&root);
-            }
+            let _ = crate::agent_session_files::remove_session_dir_all(&root);
         }
         self.open_fill_menu = None;
         self.expand_popover = None;
@@ -656,15 +654,15 @@ impl App {
         let root = self.image_jobs_root();
         self.image_jobs.last_session_root = Some(root.clone());
         let job_dir = root.join(&job_id);
-        if let Err(e) = std::fs::create_dir_all(&job_dir) {
-            self.show_toast(format!("Cannot create image job folder: {e}"), true);
+        if let Err(e) = crate::agent_session_files::create_session_dir_all(&job_dir) {
+            self.show_toast(format!("Cannot create image job folder: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
         let input_path = job_dir.join("input.png");
         let output_path = job_dir.join("output.png");
         let request_path = job_dir.join("request.json");
-        let _ = std::fs::remove_file(&output_path);
+        let _ = crate::agent_session_files::remove_session_file(&output_path);
 
         let input_png = match encode_png(&cropped) {
             Ok(b) => b,
@@ -673,8 +671,8 @@ impl App {
                 return None;
             }
         };
-        if let Err(e) = std::fs::write(&input_path, &input_png) {
-            self.show_toast(format!("Cannot write {}: {e}", input_path.display()), true);
+        if let Err(e) = crate::agent_session_files::atomic_write_session_file(&input_path, &input_png) {
+            self.show_toast(format!("Cannot write the input image: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
@@ -683,8 +681,8 @@ impl App {
             let mp = job_dir.join("mask.png");
             match build_erase_mask_png(orig_w, orig_h, *region_rect) {
                 Ok(mask_bytes) => {
-                    if let Err(e) = std::fs::write(&mp, mask_bytes) {
-                        self.show_toast(format!("Cannot write {}: {e}", mp.display()), true);
+                    if let Err(e) = crate::agent_session_files::atomic_write_session_file(&mp, &mask_bytes) {
+                        self.show_toast(format!("Cannot write the erase mask: {}", crate::agent_session_files::with_next_step(&e)), true);
                         return None;
                     }
                     Some(mp)
@@ -719,8 +717,8 @@ impl App {
                 return None;
             }
         };
-        if let Err(e) = std::fs::write(&request_path, req_json) {
-            self.show_toast(format!("Cannot write {}: {e}", request_path.display()), true);
+        if let Err(e) = crate::agent_session_files::atomic_write_session_file(&request_path, req_json.as_bytes()) {
+            self.show_toast(format!("Cannot write the job request: {}", crate::agent_session_files::with_next_step(&e)), true);
             return None;
         }
 
@@ -932,11 +930,11 @@ fn pump_next_queued_image_job_for(
             job.output_path.display()
         );
 
-        let status_file_path = terminal.session_dir.join("agent-status.json");
+        let status_file_path = terminal.hook_paths().status();
         // Clear any stale `done` status file before starting a new job.
-        if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
+        if let Some(raw) = crate::agent_session_files::read_session_text(&status_file_path) {
             if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
-                let _ = std::fs::remove_file(&status_file_path);
+                let _ = crate::agent_session_files::remove_session_file(&status_file_path);
             }
         }
 
@@ -1038,7 +1036,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
 }
 
 fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_file_path: &std::path::Path) -> bool {
-    if let Ok(raw) = std::fs::read_to_string(status_file_path) {
+    if let Some(raw) = crate::agent_session_files::read_session_text(status_file_path) {
         if let Some(parsed) = parse_agent_status_payload(raw.trim()) {
             if let Some(ts) = tab_status {
                 if let Ok(mut guard) = ts.lock() {
@@ -1168,10 +1166,13 @@ fn run_watcher_thread(
 }
 
 fn validate_output_file(job: &ImageJob) -> WatcherOutcome {
-    let raw = match std::fs::read(&job.output_path) {
+    let raw = match crate::agent_session_files::read_session_file(&job.output_path) {
         Ok(b) => b,
         Err(e) => {
-            return WatcherOutcome::Failed { job_id: job.id.clone(), reason: format!("Cannot read output.png: {e}") };
+            return WatcherOutcome::Failed {
+                job_id: job.id.clone(),
+                reason: format!("Cannot read output.png: {}", crate::agent_session_files::with_next_step(&e)),
+            };
         }
     };
     // Decode by content sniffing so a JPEG saved with a .png extension still decodes (§8.3).
@@ -1858,6 +1859,25 @@ mod tests {
         assert!(shells.is_empty(), "no shell tab may exist or receive the prompt: {shells:?}");
     }
 
+    /// The status word a hook left in the hook folder is what a new job looks at, never a file in the session folder.
+    #[test]
+    fn a_done_status_left_in_the_hook_folder_is_cleared_when_an_image_job_starts() {
+        let tmp = TestDir::new("stale-done");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("test-stale-done-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&app.terminal.session_dir);
+        let status = app.terminal.prepared_hook_paths().status();
+        std::fs::write(&status, r#"{"state":"done"}"#).unwrap();
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let _ = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground);
+
+        assert!(!status.exists(), "a done status an earlier run left must not end the new job at once");
+        app.cleanup_image_jobs_on_file_close();
+        crate::agent_approval_channel::remove_channel(&app.terminal.session_dir);
+        app.terminal.shutdown();
+    }
+
     #[test]
     fn finished_agent_without_output_fails_immediately_and_advances_queue() {
         let tmp = TestDir::new("done-no-output");
@@ -1879,7 +1899,7 @@ mod tests {
         app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
 
         // Signal that the agent finished (`done`) without writing output.png for job 1.
-        std::fs::write(app.terminal.session_dir.join("agent-status.json"), r#"{"state":"done"}"#).unwrap();
+        std::fs::write(app.terminal.prepared_hook_paths().status(), r#"{"state":"done"}"#).unwrap();
 
         // Wait for job 1 to fail immediately (< 1s, nowhere near the 300s timeout).
         let t0 = Instant::now();
@@ -2297,5 +2317,82 @@ mod tests {
 
         assert!(app.close_tab(1));
         assert!(app.close_tab(0));
+    }
+
+    /// Removes the session folder of a test, links first, whatever the test does.
+    #[cfg(unix)]
+    struct SessionFolder(PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for SessionFolder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing() {
+        let tmp = TestDir::new("link-image-jobs");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        app.terminal.bind_session(&format!("test-link-jobs-{}", std::process::id()));
+        let session = app.terminal.session_dir.clone();
+        let _session = SessionFolder(session.clone());
+        crate::agent_session_files::ensure_session_dir(&session).expect("the session folder");
+        let victim = tmp.path().join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("keep.txt"), b"mine").unwrap();
+        std::os::unix::fs::symlink(&victim, session.join("image-jobs")).expect("plant the link");
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let started = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground);
+
+        let names = |dir: &Path| -> Vec<String> { std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect() };
+        assert_eq!(names(&victim), ["keep.txt"], "a job file went through the link");
+        assert!(started.is_none(), "a job must not start in a folder behind a link");
+        app.cleanup_image_jobs_on_file_close();
+        assert_eq!(std::fs::read(victim.join("keep.txt")).unwrap(), b"mine", "closing the file removed what the link points at");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link() {
+        let tmp = TestDir::new("link-session-cleanup");
+        let (mut app, _orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let victim = tmp.path().join("victim");
+        let job = victim.join("image-jobs").join("job-0001");
+        std::fs::create_dir_all(&job).unwrap();
+        std::fs::write(job.join("request.json"), b"mine").unwrap();
+        let linked = tmp.path().join("agent-sessions").join("file-1");
+        std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&victim, &linked).unwrap();
+        app.terminal.session_dir = linked;
+
+        app.cleanup_image_jobs_on_file_close();
+
+        assert_eq!(std::fs::read(job.join("request.json")).ok().as_deref(), Some(&b"mine"[..]), "closing the file removed what the link points at");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_at_agent_status_json_does_not_freeze_the_start_of_an_image_job() {
+        use crate::agent_session_files::test_support::{make_fifo, timed_with_fifo_watchdog};
+        let tmp = TestDir::new("fifo-status");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        app.terminal.bind_session(&format!("test-fifo-status-{}", std::process::id()));
+        let session = app.terminal.session_dir.clone();
+        let _session = SessionFolder(session.clone());
+        crate::agent_session_files::ensure_session_dir(&session).expect("the session folder");
+        let fifo = app.terminal.prepared_hook_paths().status();
+        make_fifo(&fifo);
+        app.image_jobs.agent_script = Some("sleep 0".into());
+
+        let (started, took) = timed_with_fifo_watchdog(&fifo, Duration::from_secs(30), || app.start_image_job(orig_id, 0, ImageOp::RemoveBackground));
+
+        assert!(took < Duration::from_secs(30), "starting a job was blocked on the FIFO for {took:?}");
+        assert!(started.is_some(), "a FIFO is no stale status: the job starts");
     }
 }

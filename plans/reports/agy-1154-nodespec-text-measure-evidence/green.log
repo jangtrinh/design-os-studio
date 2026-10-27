@@ -1,0 +1,106 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-f1803cb41fc94f64)
+
+running 1 test
+test spec::tests::no_measurer_keeps_the_estimate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 633 filtered out; finished in 0.04s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-cad84a2772bbdc15)
+
+running 1 test
+test text::tests::semibold_measures_wider_than_regular ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.08s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.59s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::delete_button_label_has_equal_side_padding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.05s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.17s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::create_node_text_without_size_hugs_its_content ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.04s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.10s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::create_node_text_with_size_is_fixed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.05s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.20s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::update_node_text_change_remeasures_hug_text ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.06s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.09s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::instance_text_override_is_measured ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.06s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::apply_spec_is_one_undo_step_and_one_patch ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.06s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.23s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::fallback_font_is_reported ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.05s
+

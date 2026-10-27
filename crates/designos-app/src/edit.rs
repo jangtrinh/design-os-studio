@@ -98,14 +98,12 @@ impl Edit {
         });
     }
 
-    /// Update commands for every touched node whose properties changed.
-    fn updates(&self, doc: &Document) -> Vec<Command> {
-        let mut out = Vec::new();
-        for (id, old) in &self.before {
+    /// Update commands for every touched node in an edit already filtered by [`Edit::retain_changed`].
+    fn updates_retained(&self, doc: &Document) -> Vec<Command> {
+        let mut out = Vec::with_capacity(self.before.len());
+        for id in self.before.keys() {
             if let Some(cur) = doc.get(*id) {
-                if properties_changed(old, cur) {
-                    out.push(Command::Update { node: Box::new(cur.clone()) });
-                }
+                out.push(Command::Update { node: Box::new(cur.clone()) });
             }
         }
         out
@@ -114,14 +112,74 @@ impl Edit {
 
 /// Whether `cur` differs from `old` in anything but its place in the tree: parent and children belong to
 /// structural commands, not to an edit's property changes.
-fn properties_changed(old: &Node, cur: &Node) -> bool {
-    if old == cur {
-        return false;
-    }
-    let mut o = old.clone();
-    o.parent = cur.parent;
-    o.children = cur.children.clone();
-    *cur != o
+pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
+    let Node {
+        id: _,
+        parent: _,
+        children: _,
+        source_id,
+        name,
+        kind,
+        visible,
+        locked,
+        opacity,
+        blend,
+        transform,
+        size,
+        fills,
+        stroke,
+        effects,
+        corner_radii,
+        corner_smoothing,
+        constraints,
+        layout_child,
+        is_mask,
+        style_refs,
+        fill_geometry,
+        stroke_geometry,
+        component,
+        prototype,
+        variables,
+        export_settings,
+        dev,
+        slide,
+        lock_aspect,
+        hyperlink,
+        plugin_data,
+        detached_symbol_id,
+        fig_metadata,
+    } = old;
+    *visible != cur.visible
+        || *locked != cur.locked
+        || *opacity != cur.opacity
+        || *blend != cur.blend
+        || *transform != cur.transform
+        || *size != cur.size
+        || *corner_radii != cur.corner_radii
+        || *corner_smoothing != cur.corner_smoothing
+        || *constraints != cur.constraints
+        || *layout_child != cur.layout_child
+        || *is_mask != cur.is_mask
+        || *lock_aspect != cur.lock_aspect
+        || *name != cur.name
+        || *fills != cur.fills
+        || *stroke != cur.stroke
+        || *effects != cur.effects
+        || *style_refs != cur.style_refs
+        || *component != cur.component
+        || *prototype != cur.prototype
+        || *variables != cur.variables
+        || *export_settings != cur.export_settings
+        || *dev != cur.dev
+        || *slide != cur.slide
+        || *source_id != cur.source_id
+        || *hyperlink != cur.hyperlink
+        || *detached_symbol_id != cur.detached_symbol_id
+        || *plugin_data != cur.plugin_data
+        || *fig_metadata != cur.fig_metadata
+        || *kind != cur.kind
+        || *fill_geometry != cur.fill_geometry
+        || *stroke_geometry != cur.stroke_geometry
 }
 
 /// A transaction: structural commands applied immediately plus an [`Edit`] for
@@ -206,14 +264,21 @@ impl Tx {
         self.commit_labeled(doc, hist, None)
     }
 
-    pub fn commit_labeled(mut self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<bool, DocError> {
+    pub fn commit_labeled(self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<bool, DocError> {
+        self.commit_with_before(doc, hist, label).map(|(changed, _)| changed)
+    }
+
+    /// Commits the transaction and returns `(changed, before_nodes)`, where `before_nodes` holds only the
+    /// nodes whose properties changed and that still exist in `doc` after the commit.
+    pub fn commit_with_before(mut self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<(bool, BTreeMap<NodeId, Node>), DocError> {
         if self.poisoned {
             self.cancel(doc);
             return Err(DocError::NotFound(designos_doc::NodeId(0)));
         }
         // connectors follow the nodes they join (and a moved connector its free ends)
         crate::board::connect::reroute_touched(doc, &mut self.ed);
-        let mut updates = self.ed.updates(doc);
+        self.ed.retain_changed(doc);
+        let mut updates = self.ed.updates_retained(doc);
         crate::comp_ops::record_overrides(doc, &self.ed.before, &mut updates);
         self.ed.revert(doc);
         while let Some(inv) = self.inverses.pop() {
@@ -222,14 +287,15 @@ impl Tx {
         let mut all = std::mem::take(&mut self.cmds);
         all.extend(updates);
         if all.is_empty() {
-            return Ok(false);
+            return Ok((false, BTreeMap::new()));
         }
         let cmd = if all.len() == 1 { all.pop().unwrap() } else { Command::Batch(all) };
         // Edits to a main component also update its instances, in the same undo step.
         let cmd = crate::comp_ops::with_sync(doc, cmd);
         hist.exec_labeled(doc, cmd, label)?;
         hist.mark_last_undo_as_user();
-        Ok(true)
+        self.ed.before.retain(|id, _| doc.get(*id).is_some());
+        Ok((true, self.ed.before))
     }
 }
 

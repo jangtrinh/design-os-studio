@@ -419,7 +419,16 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
                 jobs.push(ExportJob { file, nodes: vec![*id], setting: s });
             } else if !in_pdf {
                 in_pdf = true;
-                pdf.get_or_insert_with(|| (p.clone(), Vec::new())).1.push(*id);
+                let out = &mut pdf.get_or_insert_with(|| (p.clone(), Vec::new())).1;
+                if matches!(n.kind, designos_doc::NodeKind::Page { .. }) {
+                    for &child in &n.children {
+                        if doc.get(child).is_some_and(|c| c.visible && matches!(c.kind, designos_doc::NodeKind::Frame(_))) && !out.contains(&child) {
+                            out.push(child);
+                        }
+                    }
+                } else {
+                    out.push(*id);
+                }
             }
         }
     }

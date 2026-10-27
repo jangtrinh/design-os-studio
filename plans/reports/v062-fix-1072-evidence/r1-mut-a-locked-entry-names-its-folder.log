@@ -1,0 +1,80 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.09s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 45 tests
+test agent_session_files::no_follow::set_aside::tests::a_stamp_is_the_utc_date_and_time ... ok
+test agent_session_files::no_follow::set_aside::tests::a_racing_agent_that_takes_every_name_stops_the_start_with_the_fix_that_helps ... ok
+test agent_session_files::no_follow::set_aside::tests::a_move_the_user_has_to_make_gets_the_sentence_that_says_so ... ok
+test agent_hook_outputs::tests::without_a_private_data_folder_every_path_is_one_no_read_or_write_can_use ... ok
+test agent_hook_outputs::tests::a_file_whose_folder_holds_the_hook_folder_gets_no_hook_folder ... ok
+test agent_hook_outputs::tests::prepare_makes_an_owner_only_folder_next_to_the_approval_channel_and_the_routed_helpers_use_it ... ok
+test agent_hook_outputs::tests::the_production_hook_folder_lies_outside_every_folder_an_agent_can_write ... ok
+test terminal::ask_hooks_tests::a_launch_outside_ask_mode_never_passes_on_claude_values_it_inherited ... ok
+test agent_session_files::poll_readers_tests::a_link_swapped_in_for_the_events_log_is_not_tailed ... ok
+test agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable ... ok
+test agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in ... FAILED
+test agent_session_files::poll_readers_tests::a_link_at_agent_status_json_is_not_read_and_a_plain_file_is ... ok
+test agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked ... FAILED
+test terminal::gemini_status_tests::a_tool_permission_notification_waits_for_approval ... ok
+test terminal::gemini_status_tests::agy_records_still_route_with_a_gemini_tab_open ... ok
+test terminal::gemini_status_tests::an_untagged_record_never_lands_on_a_gemini_tab ... ok
+test terminal::gemini_status_tests::gemini_tool_permission_record_routes_to_its_tab_beside_a_claude_tab ... ok
+test terminal::gemini_status_tests::the_claude_grok_and_agy_status_hooks_stay_byte_identical ... ok
+test agent_session_files::poll_readers_tests::a_fifo_at_agent_status_json_does_not_freeze_the_poll_of_every_frame ... ok
+test agent_usage::tests::two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings ... ok
+test terminal::gemini_status_tests::the_status_hooks_cover_five_events_name_the_tab_and_print_nothing ... ok
+test agent_session_files::poll_readers_tests::a_fifo_at_a_log_or_a_capture_the_agent_writes_does_not_freeze_its_reader ... ok
+test terminal::hook_output_tests::a_fifo_or_a_link_to_one_at_the_patch_log_never_blocks_the_turn_mark_hook ... ok
+test image_jobs::tests::finished_agent_without_output_fails_immediately_and_advances_queue ... ok
+test agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder_and_in_the_data_folder ... ok
+test terminal::hook_output_tests::the_turn_mark_hook_still_counts_the_bytes_of_a_patch_log_that_is_a_plain_file ... ok
+test terminal::ask_hooks_tests::in_skip_mode_claude_still_reads_hooks_json_in_the_session_folder ... ok
+test terminal::pty_error_tests::a_pty_error_after_a_move_names_what_was_moved ... ok
+test terminal::pty_error_tests::a_pty_error_with_nothing_moved_is_the_error_alone ... ok
+test agent_turn_ledger::tests::marks_assign_patches_by_byte_offset ... ok
+test terminal::ask_hooks_tests::without_a_private_folder_ask_claude_starts_with_empty_inline_settings ... ok
+test terminal::ask_hooks_tests::the_permission_mode_is_read_once_per_spawn_and_once_per_resume ... ok
+test terminal::hook_output_tests::the_capture_of_a_claude_transcript_never_writes_through_a_link_planted_at_the_name_of_its_temporary_file ... ok
+test terminal::ask_hooks_tests::in_ask_mode_claude_reads_its_hooks_from_the_private_folder ... ok
+test terminal::tests::session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli ... ok
+test terminal::hookless_tab_tests::the_same_tabs_do_work_once_records_arrive_so_the_records_are_what_the_status_is_made_of ... ok
+test terminal::hook_output_tests::every_file_a_hook_writes_lies_outside_the_session_folder_the_open_files_folder_and_every_folder_granted_to_a_cli ... ok
+test terminal::ask_hooks_tests::an_ask_session_leaves_the_status_hooks_a_skip_session_left ... ok
+test terminal::ask_hooks_tests::an_ask_session_removes_the_hooks_an_earlier_build_left_with_the_approval_handler ... ok
+test terminal::ask_hooks_tests::rewriting_the_session_hooks_json_in_ask_mode_changes_nothing_claude_reads ... ok
+test terminal::hook_output_tests::a_link_at_a_reply_file_is_not_read_by_the_prompt_hook_into_the_agents_context ... ok
+test terminal::ask_hooks_tests::the_private_hooks_file_is_owner_only_and_rewritten_by_every_sync ... ok
+test terminal::hookless_tab_tests::a_hook_driven_tab_that_gets_no_hook_record_shows_exactly_what_an_opencode_tab_shows ... ok
+test terminal::gemini_launch_tests::gemini_hook_records_drive_the_tab_through_waiting_working_and_done ... ok
+test terminal::hook_output_tests::a_link_or_a_hard_link_at_any_name_a_hook_wrote_is_never_written_through_by_any_hook_of_any_cli ... ok
+
+failures:
+
+---- agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in stdout ----
+
+thread 'agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in' (44176193) panicked at crates/designos-app/src/agent_session_files/locked_entry_tests.rs:45:9:
+assertion `left == right` failed: .mcp.json
+  left: "Couldn't start Grok Build: <tmp>/b1061.KNqUsQ/designos test data/24024/sessions/p24024-tab-11402407/.mcp.json can't be moved: Operation not permitted (os error 1). Check its permissions and those of the folder it is in, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.KNqUsQ/designos test data/24024/sessions/p24024-tab-11402407/.mcp.json is locked, so Studio can't move it. Unlock it, then try again."
+
+---- agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked stdout ----
+
+thread 'agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked' (44176194) panicked at crates/designos-app/src/agent_session_files/locked_entry_tests.rs:59:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.KNqUsQ/designos test data/24024/sessions/p24024-tab-11402402/.grok/agents can't be moved: Operation not permitted (os error 1). Check its permissions and those of the folder it is in, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.KNqUsQ/designos test data/24024/sessions/p24024-tab-11402402/.grok is locked, so Studio can't move anything out of it. Unlock it, then try again."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in
+    agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked
+
+test result: FAILED. 43 passed; 2 failed; 0 ignored; 0 measured; 3248 filtered out; finished in 6.57s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

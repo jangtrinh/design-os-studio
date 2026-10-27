@@ -1,0 +1,51 @@
+$ cargo test -p designos-mcp --test spec_errors --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.32s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 6 tests
+test round3_nested_spec_errors_carry_path_from_root ... ok
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... ok
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... ok
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... ok
+test round3_set_slot_bad_slot_reports_slot_field ... ok
+test round3_f32_overflow_and_comments_parity_with_serde ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+
+$ cargo test -p designos-app --bin designos --locked round3_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.73s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.01s
+
+
+$ cargo test -p designos-app --bin designos --locked cli_screenshot_loads_good_file_once
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.55s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test icon_tests::cli_screenshot_loads_good_file_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3284 filtered out; finished in 0.15s
+

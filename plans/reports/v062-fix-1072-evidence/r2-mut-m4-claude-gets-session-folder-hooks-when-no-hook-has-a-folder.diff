@@ -1,0 +1,16 @@
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -4883,7 +4883,12 @@
+     });
+     let claude_hooks = match &hook_paths {
+         Some(paths) => session_hooks_settings_with_approval(paths, Some(job.bootstrap_run_id), approve_script_path.as_deref(), true),
+-        None => hooks_without_a_folder(approve_script_path.as_deref()),
++        None => session_hooks_settings_with_approval(
++            &crate::agent_hook_outputs::HookPaths::at(&job.session_dir, &job.session_dir),
++            Some(job.bootstrap_run_id),
++            approve_script_path.as_deref(),
++            true,
++        ),
+     };
+     let hooks_bytes = serde_json::to_vec_pretty(&claude_hooks).map_err(invalid_data)?;
+     if job.ask_mode {

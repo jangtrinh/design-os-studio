@@ -32,11 +32,11 @@ impl Drop for TmpDir {
     }
 }
 
-/// An editor with the library's "Welcome" file open.
+/// An editor with the library's "DESIGN-OS Studio Starter" file open.
 fn file_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let mut s = Sim::with(Options { home: true, library: Some(dir.0.clone()), ..Default::default() });
-    let id = lib(&s).all_files().into_iter().find(|f| f.name == "Welcome").expect("seeded file").id;
+    let id = lib(&s).all_files().into_iter().find(|f| f.name == "DESIGN-OS Studio Starter").expect("seeded file").id;
     crate::home::apply(&mut s.shell.app, Act::Open(id));
     s.frame(vec![]);
     s.frame(vec![]);

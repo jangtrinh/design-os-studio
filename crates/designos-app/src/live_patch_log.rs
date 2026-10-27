@@ -31,7 +31,7 @@ fn identity(meta: &std::fs::Metadata) -> FileIdentity {
 
 fn read_range(path: &Path, start: u64, len: u64) -> Option<Vec<u8>> {
     let mut buf = Vec::new();
-    let mut f = std::fs::File::open(path).ok()?;
+    let mut f = crate::agent_session_files::open_session_file(path).ok()?;
     f.seek(SeekFrom::Start(start)).ok()?;
     f.take(len).read_to_end(&mut buf).ok()?;
     Some(buf)
@@ -110,7 +110,7 @@ impl UnreadProbe {
     /// Reads at most one line's worth of bytes (the limit on a line) per sought newline, in
     /// chunks, and stops at the first newline that decides it.
     pub fn has_unread_complete_line(&self) -> bool {
-        let Ok(meta) = std::fs::metadata(&self.path) else { return false };
+        let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return false };
         let len = meta.len();
         // A recreated or truncated log is unread from its start, exactly as `poll_with_offsets` sees it.
         let rewritten = self.identity.is_some_and(|old| old != identity(&meta)) || len < self.offset || !self.head_unchanged();
@@ -120,7 +120,7 @@ impl UnreadProbe {
         }
         // The end of the discarded tail is not a line; the newline after it ends the next one.
         let mut newlines_needed = if skipping { 2 } else { 1 };
-        let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+        let Ok(mut file) = crate::agent_session_files::open_session_file(&self.path) else { return false };
         if file.seek(SeekFrom::Start(start)).is_err() {
             return false;
         }
@@ -161,7 +161,7 @@ impl UnreadProbe {
 
 impl LivePatchLog {
     pub fn bind(path: PathBuf) -> Self {
-        let meta = std::fs::metadata(&path).ok();
+        let meta = crate::agent_session_files::session_file_metadata(&path).ok();
         let mut log = Self {
             offset: meta.as_ref().map_or(0, |m| m.len()),
             identity: meta.as_ref().map(identity),
@@ -252,7 +252,7 @@ impl LivePatchLog {
     /// Complete log lines appended since the last poll along with each line's start byte offset
     /// in `doc-patch.jsonl`.
     pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
-        let Ok(meta) = std::fs::metadata(&self.path) else { return Default::default() };
+        let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
         if len == self.offset && self.identity == Some(id) {
             return Default::default();
@@ -400,8 +400,8 @@ impl LivePatchLog {
         if log_version_refusal(epoch.v).is_some() {
             return Err(format!("Agent document not opened. {}", refusal_next_step(epoch.v)));
         }
-        let bytes =
-            std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
+        let bytes = crate::agent_session_files::read_session_file(&self.doc_sync_path)
+            .map_err(|e| format!("Cannot read the document the agent opened: {}", crate::agent_session_files::with_next_step(&e)))?;
         if !epoch.matches(&bytes) {
             return Ok(None);
         }

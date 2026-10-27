@@ -1,0 +1,58 @@
+tree: 533817f2 (a copy of the base) plus the tests listed below
+  --> crates/designos-app/src/agent_session_files/test_support.rs:10:15
+   |
+10 | pub(super) fn made_session_folder(tag: &str) -> (PathBuf, Cleanup) {
+   |               ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+  --> crates/designos-app/src/agent_session_files/test_support.rs:17:15
+   |
+17 | pub(super) fn plant_link(session: &Path, rel: &str, target: &Path) {
+   |               ^^^^^^^^^^
+
+
+running 3 tests
+test image_jobs::tests::closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link ... FAILED
+test agent_session_files::library_fallback_tests::a_library_file_whose_folder_cannot_be_made_says_what_happens_to_its_agents_before_what_to_do ... FAILED
+test agent_session_files::linked_parent_tests::every_writer_and_deleter_leaves_the_target_of_a_linked_session_folder_as_it_was ... FAILED
+
+failures:
+
+---- image_jobs::tests::closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link stdout ----
+
+thread 'image_jobs::tests::closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link' (33957621) panicked at crates/designos-app/src/image_jobs.rs:2355:9:
+assertion `left == right` failed: closing the file removed what the link points at
+  left: None
+ right: Some([109, 105, 110, 101])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::library_fallback_tests::a_library_file_whose_folder_cannot_be_made_says_what_happens_to_its_agents_before_what_to_do stdout ----
+
+thread 'agent_session_files::library_fallback_tests::a_library_file_whose_folder_cannot_be_made_says_what_happens_to_its_agents_before_what_to_do' (33957619) panicked at crates/designos-app/src/agent_session_files/library_fallback_tests.rs:27:5:
+assertion `left == right` failed
+  left: "Couldn't use this file's agent folder: <scratch>/designos-folder-test-fallback-unwritable-15339500/agent-sessions/file-1 can't be created: Permission denied (os error 13). Check its permissions and free space, then try again. This file's agents start in a temporary folder that is not kept."
+ right: "Couldn't use this file's agent folder: <scratch>/designos-folder-test-fallback-unwritable-15339500/agent-sessions/file-1 can't be created: Permission denied (os error 13). This file's agents start in a temporary folder that is not kept. Check its permissions and free space, then reopen this design file."
+
+---- agent_session_files::linked_parent_tests::every_writer_and_deleter_leaves_the_target_of_a_linked_session_folder_as_it_was stdout ----
+
+thread 'agent_session_files::linked_parent_tests::every_writer_and_deleter_leaves_the_target_of_a_linked_session_folder_as_it_was' (33957620) panicked at crates/designos-app/src/agent_session_files/linked_parent_tests.rs:89:5:
+the usage cache: the target changed at ["usage.json"]
+the run record: the target changed at ["run.json"]
+the sessions registry: the target changed at ["sessions.json"]
+a corrupt registry that is moved aside: the target changed at ["sessions.json", "sessions.json", "sessions.json.bad"]
+the skills reply files: the target changed at ["skills-context-reply-1-0.json"]
+one skills reply file removed: the target changed at ["skills-context-reply-1-0.json"]
+every skills reply file removed: the target changed at ["skills-context-reply-1-0.json"]
+a stale hooks file removed: the target changed at ["hooks.json"]
+the lock of this window released: the target changed at ["session.lock"]
+
+
+failures:
+    agent_session_files::library_fallback_tests::a_library_file_whose_folder_cannot_be_made_says_what_happens_to_its_agents_before_what_to_do
+    agent_session_files::linked_parent_tests::every_writer_and_deleter_leaves_the_target_of_a_linked_session_folder_as_it_was
+    image_jobs::tests::closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 3106 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

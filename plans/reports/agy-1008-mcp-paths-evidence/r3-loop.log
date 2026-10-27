@@ -1,0 +1,76 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.22s
+  Executable tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+BIN_PATHS=out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c
+mcp_paths run 1/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+mcp_paths run 2/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.08s
+mcp_paths run 3/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+mcp_paths run 4/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.05s
+mcp_paths run 5/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+mcp_paths run 6/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.95s
+mcp_paths run 7/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+mcp_paths run 8/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+mcp_paths run 9/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.06s
+mcp_paths run 10/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+mcp_paths run 11/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.04s
+mcp_paths run 12/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+mcp_paths run 13/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+mcp_paths run 14/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+mcp_paths run 15/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.98s
+mcp_paths run 16/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+mcp_paths run 17/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+mcp_paths run 18/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.80s
+mcp_paths run 19/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+mcp_paths run 20/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+mcp_paths run 21/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.85s
+mcp_paths run 22/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.63s
+mcp_paths run 23/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+mcp_paths run 24/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+mcp_paths run 25/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+mcp_paths run 26/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+mcp_paths run 27/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+mcp_paths run 28/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+mcp_paths run 29/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s
+mcp_paths run 30/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
+mcp_paths run 31/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+mcp_paths run 32/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+mcp_paths run 33/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s
+mcp_paths run 34/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+mcp_paths run 35/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.12s
+mcp_paths run 36/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+mcp_paths run 37/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.06s
+mcp_paths run 38/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.92s
+mcp_paths run 39/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.94s
+mcp_paths run 40/40: rc=0 test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+mcp_paths summary: runs=40 ok=40 hang=0 fail=0
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.53s
+  Executable tests/mcp_paths_full_disk.rs (out/cargo/debug/deps/mcp_paths_full_disk-a818e059bf9cad4b)
+BIN_FD=out/cargo/debug/deps/mcp_paths_full_disk-a818e059bf9cad4b
+mcp_paths_full_disk run 1/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+mcp_paths_full_disk run 2/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 3/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 4/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 5/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 6/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 7/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 8/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 9/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 10/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 11/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 12/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 13/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 14/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 15/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 16/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 17/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 18/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 19/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk run 20/20: rc=0 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+mcp_paths_full_disk summary: runs=20 ok=20 hang=0 fail=0

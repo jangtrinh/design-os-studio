@@ -1,0 +1,112 @@
+[
+ {
+  "case": "append via link at doc-patch.jsonl",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "error[link-sentence]",
+   "get_document": "ok+warning[link-sentence]",
+   "create_node_1": "error[link-sentence]",
+   "create_node_2": "error[link-sentence]"
+  }
+ },
+ {
+  "case": "overwrite via canvas.tmp-<pid>",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "overwrite via doc-sync.tmp-<pid>",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "overwrite via session-options.tmp-<pid>",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "ok",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "truncate+append via link at idempotency-ledger.jsonl",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "ok+warning[link-sentence]",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "create via dangling link at doc-patch.jsonl",
+  "verdict": "PASS",
+  "detail": "victim absent -> absent",
+  "replies": {
+   "new_document": "error[link-sentence]",
+   "get_document": "ok+warning[link-sentence]",
+   "create_node_1": "error[link-sentence]",
+   "create_node_2": "error[link-sentence]"
+  }
+ },
+ {
+  "case": "append via hard link at doc-patch.jsonl",
+  "verdict": "PASS",
+  "detail": "victim 22B/46681e0ff9 -> 22B/46681e0ff9",
+  "replies": {
+   "new_document": "error[link-sentence]",
+   "get_document": "ok",
+   "create_node_1": "error[link-sentence]",
+   "create_node_2": "error[link-sentence]"
+  }
+ },
+ {
+  "case": "read through link at mcp-config.json",
+  "verdict": "PASS",
+  "detail": "tools listed=36 (1 means the victim's JSON was read through the link)",
+  "replies": {
+   "new_document": "ok+warning[link-sentence]",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ },
+ {
+  "case": "FIFO at doc-patch.jsonl (write name)",
+  "verdict": "PASS",
+  "detail": "returned in 0.01s",
+  "replies": {
+   "new_document": "error[not-plain-sentence]",
+   "get_document": "ok+warning[not-plain-sentence]",
+   "create_node_1": "error[not-plain-sentence]",
+   "create_node_2": "error[not-plain-sentence]"
+  }
+ },
+ {
+  "case": "FIFO at context.json (read name)",
+  "verdict": "PASS",
+  "detail": "returned in 0.02s",
+  "replies": {
+   "new_document": "ok+warning[not-plain-sentence]",
+   "get_document": "ok",
+   "create_node_1": "ok",
+   "create_node_2": "ok"
+  }
+ }
+]

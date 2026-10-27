@@ -21,9 +21,13 @@ pub use dialog::{Dialog, Intent};
 pub use leave::Answer;
 pub use leave::{Leave, LeaveFlow};
 pub(crate) use session::library_file_disk_path;
+pub(crate) use session::load_starter_document;
 pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, DiskState, LibFile};
 pub use unsaved::UnsavedDot;
+
+#[cfg(test)]
+pub(crate) static TEST_STARTER_BYTES_OVERRIDE: std::sync::Mutex<Option<&'static [u8]>> = std::sync::Mutex::new(None);
 
 use crate::app::App;
 use crate::theme;
@@ -386,16 +390,6 @@ impl Home {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TemplateKind {
-    MobileBanking,
-    WebDashboard,
-    DesignSystem,
-    FigJamBoard,
-    SlideDeck,
-    VariablesKit,
-}
-
 /// Something the user asked for on the home screen.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
@@ -405,7 +399,7 @@ pub enum Act {
     NewFile,
     NewBoard,
     NewDeck,
-    CreateFromTemplate(TemplateKind),
+    OpenStarterSample,
     OpenSpecs,
     OpenLibrariesModal,
     OpenVariables,
@@ -425,6 +419,7 @@ pub enum Act {
     Reveal(String),
     ExportFig(String),
     Trash(String),
+    RemoveMissing(String),
     Restore(String),
     EmptyTrash,
     Drop(String, DropTo),
@@ -462,7 +457,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         h.search.clear();
     }
     app.home = Some(h);
+    let mut imported_in_frame = false;
     for a in acts {
+        if matches!(a, Act::Import) {
+            if imported_in_frame {
+                continue;
+            }
+            imported_in_frame = true;
+        }
         apply(app, a);
     }
 }
@@ -570,6 +572,7 @@ fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
 
 /// Import: asks for design files and brings them into the current project (or the first one, or a new one).
 pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) {
+    let Some(_guard) = app.try_begin_dialog() else { return };
     let request = crate::io::FileRequest::open()
         .filter("Design files", &["designos", "fig", "json", "svg"])
         .filter("design:os studio", &["designos"])
@@ -577,7 +580,7 @@ pub fn import_files_dialog(app: &mut App, dialogs: &dyn crate::io::FileDialogs) 
         .filter("SVG", &["svg"])
         .filter("JSON", &["json"]);
     let outcome = dialogs.pick_many(&request);
-    let Some(paths) = app.picked_paths(outcome) else { return };
+    let Some(paths) = app.picked_paths(outcome, true) else { return };
     let Some(lib) = app.lib.clone() else { return };
     let target = match app.home_target() {
         Some(t) => Some(t),
@@ -669,35 +672,8 @@ pub fn apply(app: &mut App, act: Act) {
             };
             app.new_library_deck(target);
         }
-        Act::CreateFromTemplate(kind) => {
-            let (title, mut doc) = match kind {
-                TemplateKind::MobileBanking => ("Marlow \u{2014} Mobile Banking Kit", crate::showcase::document()),
-                TemplateKind::WebDashboard => {
-                    let mut s = crate::showcase::library_samples();
-                    let doc = s.remove(1);
-                    ("Marlow \u{2014} SaaS Web Dashboard", doc)
-                }
-                TemplateKind::DesignSystem => {
-                    let mut s = crate::showcase::library_samples();
-                    let doc = s.remove(2);
-                    ("Marlow \u{2014} Design System & Tokens", doc)
-                }
-                TemplateKind::FigJamBoard => ("Launch Brainstorm Board", crate::board::demo::document()),
-                TemplateKind::SlideDeck => ("Product Exploration Deck", crate::decks::demo::document()),
-                TemplateKind::VariablesKit => ("Design Token Sheet", crate::demo::variables_document()),
-            };
-            let target = app
-                .home_target()
-                .or_else(|| app.home.as_ref().and_then(|h| h.snap.projects.first().map(|p| (p.id.clone(), None))))
-                .or_else(|| lib.list_projects().first().map(|p| (p.id.clone(), None)))
-                .or_else(|| ok(app, lib.create_project("My project")).map(|p| (p.id, None)));
-            if let Some((proj_id, folder_id)) = target {
-                doc.name = title.to_string();
-                if let Some(entry) = ok(app, lib.create_file(&proj_id, folder_id.as_deref(), title, &doc)) {
-                    thumb::refresh(&lib, &entry.id, &doc);
-                    app.open_library_file(&entry.id);
-                }
-            }
+        Act::OpenStarterSample => {
+            app.open_starter_sample();
         }
         Act::OpenSpecs => {
             app.home = None;
@@ -806,6 +782,15 @@ pub fn apply(app: &mut App, act: Act) {
                     app.lib_file = None;
                 }
                 app.show_toast(format!("Moved {name} to the trash"), false);
+            }
+        }
+        Act::RemoveMissing(id) => {
+            let name = lib.file(&id).map(|f| f.name).unwrap_or_default();
+            if ok(app, lib.remove_missing_file(&id)).is_some() {
+                if app.lib_file.as_ref().is_some_and(|f| f.id == id) {
+                    app.lib_file = None;
+                }
+                app.show_toast(format!("Removed {name}"), false);
             }
         }
         Act::Restore(id) => {
@@ -1210,7 +1195,7 @@ mod sidebar {
 // ─────────────────────────────────────────────────────────────────────────────
 mod main_view {
     use super::time::{edited, relative, wall_ms};
-    use super::{Act, DropTo, Home, Section, Target, TemplateKind, ViewMode};
+    use super::{Act, DropTo, Home, Section, Target, ViewMode};
     use crate::icons::{self, Icon};
     use crate::theme;
     use crate::widgets;
@@ -1277,7 +1262,7 @@ mod main_view {
                 right -= 8.0;
             }
             let r = button(ui, &p, &mut right, head.center().y, "Import", Kind::Secondary, "home-import");
-            if r.clicked() {
+            if r.clicked() && !r.double_clicked() {
                 acts.push(Act::Import);
             }
             if !h.searching() {
@@ -1445,7 +1430,7 @@ mod main_view {
     }
 
     /// Dedicated view for `Section::Templates` (`"Templates & Specs"`):
-    /// 5 starter template cards (a 6th spec bundle card while `SPEC_BUNDLE_ENTRY_ENABLED`) + user's matching template/spec files below.
+    /// Blank creation cards (`Blank design`, `Blank board`, `Blank deck`), `DESIGN-OS Studio Starter`, and user's matching template/spec files below.
     fn templates_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         let files = h.files();
         let now = wall_ms();
@@ -1455,55 +1440,36 @@ mod main_view {
         /// (title, badge, accent, icon, description, button label, action, record key)
         type TemplateCard<'a> = (&'a str, &'a str, Color32, Icon, &'a str, &'a str, Act, &'a str);
         let mut cards: Vec<TemplateCard> = vec![
+            ("Blank design", "Design File", UI3_BLUE, Icon::Pen, "Blank vector & auto-layout canvas", "New file", Act::NewFile, "home-template-design"),
             (
-                "Marlow \u{2014} Mobile Banking Kit",
-                "Design Kit",
-                UI3_BLUE,
-                Icon::Pen,
-                "iOS finance screens, components & prototype flows",
-                "Use template",
-                Act::CreateFromTemplate(TemplateKind::MobileBanking),
-                "home-template-mobile",
-            ),
-            (
-                "Marlow \u{2014} SaaS Web Dashboard",
-                "Web App",
-                UI3_TEAL,
-                Icon::Frame,
-                "Analytics overview, tables, sidebar & dark/light cards",
-                "Use template",
-                Act::CreateFromTemplate(TemplateKind::WebDashboard),
-                "home-template-web",
-            ),
-            (
-                "Marlow \u{2014} Design System & Tokens",
-                "Component Library",
-                UI3_AMBER,
-                Icon::Component,
-                "Reusable buttons, inputs, badges & semantic variables",
-                "Use template",
-                Act::CreateFromTemplate(TemplateKind::DesignSystem),
-                "home-template-system",
-            ),
-            (
-                "Launch Brainstorm Board",
+                "Blank board",
                 "FigJam Board",
-                UI3_ORANGE,
+                UI3_AMBER,
                 Icon::Sticky,
-                "Sticky notes, connectors, sections & retro grid",
-                "Use template",
-                Act::CreateFromTemplate(TemplateKind::FigJamBoard),
+                "Infinite whiteboard, stickies & flows",
+                "New board",
+                Act::NewBoard,
                 "home-template-board",
             ),
             (
-                "Product Exploration Deck",
+                "Blank deck",
                 "Slide Deck",
-                UI3_BLUE,
+                UI3_TEAL,
                 Icon::Play,
                 "16:9 presentation slides with speaker notes & transitions",
-                "Use template",
-                Act::CreateFromTemplate(TemplateKind::SlideDeck),
+                "New deck",
+                Act::NewDeck,
                 "home-template-deck",
+            ),
+            (
+                "DESIGN-OS Studio Starter",
+                "Starter Sample",
+                UI3_ORANGE,
+                Icon::Component,
+                "Original starter workspace with sample frames",
+                "Open starter sample",
+                Act::OpenStarterSample,
+                "home-template-starter",
             ),
         ];
         if SPEC_BUNDLE_ENTRY_ENABLED {
@@ -1935,21 +1901,14 @@ mod main_view {
         /// (title, icon, accent, description, primary button, optional secondary button)
         type HubCard<'a> = (&'a str, Icon, Color32, &'a str, HubButton<'a>, Option<HubButton<'a>>);
         let hub_cards: [HubCard; 4] = [
-            (
-                "Shared Component Libraries",
-                Icon::Assets,
-                UI3_BLUE,
-                &lib_sub,
-                ("Manage Libraries", Act::OpenLibrariesModal, "home-resource-libraries"),
-                Some(("Create Library Kit", Act::CreateFromTemplate(TemplateKind::DesignSystem), "home-resource-create-kit")),
-            ),
+            ("Shared Component Libraries", Icon::Assets, UI3_BLUE, &lib_sub, ("Manage Libraries", Act::OpenLibrariesModal, "home-resource-libraries"), None),
             (
                 "Design Tokens & Variables",
                 Icon::Variables,
                 UI3_TEAL,
                 "Color, Number, String & Boolean collections \u{b7} Light/Dark modes",
                 ("Open Variables", Act::OpenVariables, "home-resource-variables"),
-                Some(("New Token Sheet", Act::CreateFromTemplate(TemplateKind::VariablesKit), "home-resource-token-sheet")),
+                None,
             ),
             (
                 "Plugins & Automation",
@@ -2170,6 +2129,7 @@ mod main_view {
             let tex = h.thumbs.get(ctx, lib, f, budget);
             let board = h.kinds.get(lib, f, budget) == designos_doc::DocumentKind::Board;
             let project = h.snap.project_name(&f.project).to_string();
+            let missing = !super::library_file_disk_path(lib, &f.project, &f.id).is_file();
             let star_r = if list {
                 Rect::from_min_size(Pos2::new(r.right() - 40.0, r.center().y - 12.0), Vec2::splat(24.0))
             } else {
@@ -2180,9 +2140,16 @@ mod main_view {
                 acts.push(Act::Star(f.id.clone(), !f.starred));
             }
             if list {
-                list_row(p, r, f, &project, tex, board, resp.hovered(), is_sel, now);
+                list_row(p, r, f, &project, tex, board, missing, resp.hovered(), is_sel, now);
             } else {
-                card(p, r, f, &project, tex, board, resp.hovered(), is_sel, now);
+                card(p, r, f, &project, tex, board, missing, resp.hovered(), is_sel, now);
+            }
+            if missing {
+                let mut rm_right = r.right() - theme::HOME_PAD * 0.5;
+                let rm_cy = if list { r.center().y } else { r.bottom() - theme::HOME_PAD };
+                if button(ui, p, &mut rm_right, rm_cy, "Remove", Kind::Danger, &format!("home-remove-{}", f.name)).clicked() {
+                    acts.push(Act::RemoveMissing(f.id.clone()));
+                }
             }
             widgets::record(ui, &format!("home-kind-{}", if board { "board" } else { "design" }), r);
             if resp.hovered() || star.hovered() || f.starred {
@@ -2224,8 +2191,7 @@ mod main_view {
         let files = h.files();
         let folders = h.folders();
         let is_drafts = h.section == Section::Drafts && !h.searching();
-        let is_getting_started = matches!(&h.section, Section::Project(pid, None) if h.snap.project_name(pid) == "Getting started") && !h.searching();
-        if files.is_empty() && folders.is_empty() && !is_drafts && !is_getting_started {
+        if files.is_empty() && folders.is_empty() && !is_drafts {
             empty_state(h, ui, content);
             return;
         }
@@ -2245,8 +2211,7 @@ mod main_view {
         } else {
             files.len().div_ceil(cols) as f32 * (ch + gap_y)
         };
-        let starter_kits_h = if is_getting_started { 164.0 } else { 0.0 };
-        let content_h = pad + drafts_strip_h + folder_rows + if folder_rows > 0.0 { 12.0 } else { 0.0 } + file_rows + starter_kits_h + pad;
+        let content_h = pad + drafts_strip_h + folder_rows + if folder_rows > 0.0 { 12.0 } else { 0.0 } + file_rows + pad;
         crate::panels::wheel_scroll(ui, content, &mut h.scroll, content_h);
         let scroll = h.scroll;
         let ptr = ui.input(|i| i.pointer.hover_pos());
@@ -2414,6 +2379,7 @@ mod main_view {
                 let tex = h.thumbs.get(&ctx, lib, f, &mut budget);
                 let board = h.kinds.get(lib, f, &mut budget) == designos_doc::DocumentKind::Board;
                 let project = h.snap.project_name(&f.project).to_string();
+                let missing = !super::library_file_disk_path(lib, &f.project, &f.id).is_file();
                 let star_r = if list {
                     Rect::from_min_size(Pos2::new(r.right() - 40.0, r.center().y - 12.0), Vec2::splat(24.0))
                 } else {
@@ -2424,9 +2390,16 @@ mod main_view {
                     acts.push(Act::Star(f.id.clone(), !f.starred));
                 }
                 if list {
-                    list_row(&p, r, f, &project, tex, board, resp.hovered(), is_sel, now);
+                    list_row(&p, r, f, &project, tex, board, missing, resp.hovered(), is_sel, now);
                 } else {
-                    card(&p, r, f, &project, tex, board, resp.hovered(), is_sel, now);
+                    card(&p, r, f, &project, tex, board, missing, resp.hovered(), is_sel, now);
+                }
+                if missing {
+                    let mut rm_right = r.right() - theme::HOME_PAD * 0.5;
+                    let rm_cy = if list { r.center().y } else { r.bottom() - theme::HOME_PAD };
+                    if button(ui, &p, &mut rm_right, rm_cy, "Remove", Kind::Danger, &format!("home-remove-{}", f.name)).clicked() {
+                        acts.push(Act::RemoveMissing(f.id.clone()));
+                    }
                 }
                 widgets::record(ui, &format!("home-kind-{}", if board { "board" } else { "design" }), r);
                 if resp.hovered() || star.hovered() || f.starred {
@@ -2443,53 +2416,7 @@ mod main_view {
             if !files.is_empty() {
                 y += if list { files.len() as f32 * theme::HOME_LIST_ROW_H } else { files.len().div_ceil(cols) as f32 * (ch + gap_y) };
             }
-
-            // ---- Starter Kits row inside `Getting started`
-            if is_getting_started {
-                y += 12.0;
-                y += section_heading(
-                    &p,
-                    x0,
-                    y,
-                    "Starter Kits \u{2014} Click to add to Getting started",
-                    Some("Populate this project with full multi-screen samples"),
-                );
-                let starters: [(&str, &str, Icon, Color32, TemplateKind, &str); 4] = [
-                    ("Mobile Banking Kit", "4 iOS screens & prototype", Icon::Pen, UI3_BLUE, TemplateKind::MobileBanking, "home-starter-mobile"),
-                    ("SaaS Web Dashboard", "1440px analytics UI & table", Icon::Frame, UI3_TEAL, TemplateKind::WebDashboard, "home-starter-web"),
-                    ("Design System & Tokens", "Component sets & variables", Icon::Component, UI3_AMBER, TemplateKind::DesignSystem, "home-starter-system"),
-                    ("Launch Brainstorm Board", "FigJam stickies & connectors", Icon::Sticky, UI3_ORANGE, TemplateKind::FigJamBoard, "home-starter-board"),
-                ];
-                let sw = ((inner_w - 36.0) / 4.0).max(170.0);
-                for (si, (stitle, ssub, sicon, scol, skind, skey)) in starters.iter().enumerate() {
-                    let sr = Rect::from_min_size(Pos2::new(x0 + si as f32 * (sw + 12.0), y), Vec2::new(sw, 96.0));
-                    let sresp = ui.interact(sr, Id::new(("home-starter-kit", *skey)), Sense::click());
-                    let hot = sresp.hovered();
-                    p.rect_filled(sr, CornerRadius::same(8), UI3_SURFACE);
-                    p.rect_stroke(sr, CornerRadius::same(8), Stroke::new(1.0, if hot { *scol } else { UI3_BORDER }), StrokeKind::Inside);
-                    let ib = Rect::from_min_size(Pos2::new(sr.left() + 12.0, sr.top() + 12.0), Vec2::splat(24.0));
-                    p.rect_filled(ib, CornerRadius::same(6), scol.gamma_multiply(0.22));
-                    icons::paint(&p, *sicon, ib.center(), 13.0, *scol);
-                    p.text(
-                        Pos2::new(sr.left() + 12.0, sr.top() + 50.0),
-                        Align2::LEFT_CENTER,
-                        widgets::elide(&p, stitle, &theme::font_body_strong(), sr.width() - 24.0),
-                        theme::font_body_strong(),
-                        theme::TEXT,
-                    );
-                    p.text(
-                        Pos2::new(sr.left() + 12.0, sr.top() + 68.0),
-                        Align2::LEFT_CENTER,
-                        widgets::elide(&p, ssub, &theme::font_caption(), sr.width() - 24.0),
-                        theme::font_caption(),
-                        theme::TEXT_SECONDARY,
-                    );
-                    widgets::record(ui, skey, sr);
-                    if sresp.clicked() {
-                        acts.push(Act::CreateFromTemplate(*skind));
-                    }
-                }
-            }
+            let _ = y;
         });
         crate::panels::scrollbar(ui, content, scroll, content_h);
         h.drop_rects.extend(zones);
@@ -2600,7 +2527,7 @@ mod main_view {
     /// `#18181B` thumbnail stage (`pad = 6.0`, `4px` inner preview radius + `1px` subtle frame),
     /// `UI3_BORDER` stroke (`#0D99FF` `2px` when selected), and bottom metadata row.
     #[allow(clippy::too_many_arguments)]
-    fn card(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, hover: bool, selected: bool, now: u64) {
+    fn card(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, missing: bool, hover: bool, selected: bool, now: u64) {
         p.rect_filled(r, CornerRadius::same(8), UI3_SURFACE);
         let thumb = Rect::from_min_size(r.min, Vec2::new(r.width(), theme::HOME_THUMB_H));
         thumb_area(p, thumb, tex, board, 8);
@@ -2625,14 +2552,9 @@ mod main_view {
         let y_title = thumb.bottom() + 17.0;
         p.text(Pos2::new(tx, y_title), Align2::LEFT_CENTER, widgets::elide(p, &f.name, &theme::font_body_strong(), w), theme::font_body_strong(), theme::TEXT);
         let loc = if project.is_empty() { "Drafts" } else { project };
-        let subtitle = format!("{} \u{b7} In {loc}", edited(now, f.modified));
-        p.text(
-            Pos2::new(tx, y_title + 16.0),
-            Align2::LEFT_CENTER,
-            widgets::elide(p, &subtitle, &theme::font_caption(), w),
-            theme::font_caption(),
-            theme::TEXT_SECONDARY,
-        );
+        let subtitle = if missing { "File not found".to_string() } else { format!("{} \u{b7} In {loc}", edited(now, f.modified)) };
+        let sub_color = if missing { theme::DANGER } else { theme::TEXT_SECONDARY };
+        p.text(Pos2::new(tx, y_title + 16.0), Align2::LEFT_CENTER, widgets::elide(p, &subtitle, &theme::font_caption(), w), theme::font_caption(), sub_color);
     }
 
     fn list_columns(right: f32) -> (f32, f32, f32) {
@@ -2640,7 +2562,7 @@ mod main_view {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn list_row(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, hover: bool, selected: bool, now: u64) {
+    fn list_row(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, missing: bool, hover: bool, selected: bool, now: u64) {
         if selected {
             p.rect_filled(r, CornerRadius::same(6), UI3_SURFACE);
             p.rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, UI3_BLUE), StrokeKind::Inside);
@@ -2661,7 +2583,9 @@ mod main_view {
         );
         let loc = if project.is_empty() { "Drafts" } else { project };
         p.text(Pos2::new(cols.0, r.center().y), Align2::LEFT_CENTER, widgets::elide(p, loc, &font, 150.0), font.clone(), theme::TEXT_SECONDARY);
-        p.text(Pos2::new(cols.1, r.center().y), Align2::LEFT_CENTER, relative(now, f.modified), font.clone(), theme::TEXT_SECONDARY);
+        let mod_text = if missing { "File not found".to_string() } else { relative(now, f.modified) };
+        let mod_color = if missing { theme::DANGER } else { theme::TEXT_SECONDARY };
+        p.text(Pos2::new(cols.1, r.center().y), Align2::LEFT_CENTER, mod_text, font.clone(), mod_color);
         p.text(Pos2::new(cols.2, r.center().y), Align2::LEFT_CENTER, relative(now, f.opened), font, theme::TEXT_SECONDARY);
     }
 
@@ -2843,7 +2767,7 @@ mod tests {
         home.section = Section::Resources;
         assert!(home.visible_files().is_empty(), "Resources must not fall back to non-resource Recents files");
 
-        // Verify Act::CreateFromTemplate and Act::NewDeck against a temporary Library
+        // Verify Act::OpenStarterSample and Act::NewDeck against a temporary Library
         let tmp = std::env::temp_dir().join(format!("designos_home_tpl_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let mut app = App::new(designos_doc::Document::new("Init"));
@@ -2851,10 +2775,10 @@ mod tests {
         app.go_home();
         assert!(app.home.is_some());
 
-        apply(&mut app, Act::CreateFromTemplate(TemplateKind::FigJamBoard));
-        assert!(app.home.is_none(), "creating from template opens the file in the editor");
-        assert_eq!(app.doc.name, "Launch Brainstorm Board");
-        assert_eq!(app.doc.kind, designos_doc::DocumentKind::Board);
+        apply(&mut app, Act::OpenStarterSample);
+        assert!(app.home.is_none(), "opening starter sample opens the file in the editor");
+        assert_eq!(app.doc.name, "DESIGN-OS Studio Starter (1)");
+        assert_eq!(app.doc.kind, designos_doc::DocumentKind::Design);
 
         app.go_home();
         apply(&mut app, Act::NewDeck);

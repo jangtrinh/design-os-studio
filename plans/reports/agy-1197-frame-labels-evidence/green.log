@@ -1,0 +1,68 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1197-frame-labels/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.78s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 56 tests
+test panels::layers::tests::row_text_split_keeps_a_readable_name_or_drops_the_label ... ok
+test dev::annot::tests::callout_moves_left_without_room_and_avoids_other_labels ... ok
+test history::tests::labels_for_the_panel ... ok
+test panels::layers::tests::kind_label_covers_every_node_type ... ok
+test agent_mention::tests::deleted_label_is_not_sent ... ok
+test canvas::draw::tests::header_pills_keep_their_label_size_when_the_tracks_have_room ... ok
+test check_designs::tests::safety::a_detached_frame_whose_label_was_edited_is_reported_without_a_reconnect ... ok
+test check_designs::tests::instances::overridden_sibling_behind_label_in_opaque_instance_reports_contrast_on_instance_text ... ok
+test panels::export::tests::format_labels_fit_their_dropdown ... ok
+test proto::tests::gamepad_trigger_indexes_and_labels ... ok
+test dev::annot::tests::labels_list_the_pinned_property_values ... ok
+test check_designs::tests::fix_all::fix_all_on_a_detached_frame_keeps_the_contrast_fix_of_its_label ... ok
+test check_designs::tests::covering_sibling::a_light_label_on_a_white_rectangle_is_flagged_with_a_fix ... ok
+test canvas::draw::tests::large_page_label_rects_hit_marquee_and_snap_under_5ms ... ok
+test panels::layers::tests::hidden_layers_grey_the_type_label_with_the_name ... ok
+test panels::layers::tests::only_rows_inside_the_viewport_paint_a_type_label ... ok
+test panels::right::tests::frame_preset_names_keep_a_grid_gap_to_their_size_label ... ok
+test proto::tests::labels_name_destinations ... ok
+test proto::tests::new_actions_have_labels_and_defaults ... ok
+test panels::layers::tests::type_label_stays_on_wide_rows_and_gives_way_to_the_name_on_narrow_ones ... ok
+test panels::layers::tests::type_label_never_overlaps_the_name_or_the_layer_icon_at_any_depth ... ok
+test panels::layers::tests::type_label_is_clipped_to_the_text_column ... ok
+test shell::tests::board::facilitator_timer_label_uses_tabular_digits ... ok
+test agent_open_flow::tests::sessions_dropdown_lists_cli_label_time_status ... ok
+test shell::tests::canvas_label_rename::frame_label_f3_legacy_0_4_0_rich_fig_keeps_both_grid_and_card_labels ... ok
+test shell::tests::canvas_label_rename::frame_label_f4_blocker_clips_label_and_fully_inside_label_has_no_visible_piece ... ok
+test shell::tests::canvas_label_rename::frame_label_f2_narrow_40_30_15_frames_and_component_at_zoom_068 ... ok
+test shell::tests::home::account_and_plan_labels_are_gone_from_the_ui_sources ... ok
+test shell::tests::canvas_label_rename::frame_label_f1_long_name_elides_at_zoom_068_and_shows_full_at_zoom_2 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_105 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_above_is_flagged_when_its_clip_cuts_at_106 ... ok
+test shell::tests::lint::a_label_poking_into_the_row_below_is_flagged_when_its_clip_starts_at_14 ... ok
+test shell::tests::canvas_label_rename::frame_label_f5_nofill_frame_and_white_child_rect_inside_nofill_frame_cover_nothing ... ok
+test skills::hook_delivery::tests::a_skill_over_one_chunk_is_split_at_line_breaks_into_labelled_parts_that_rebuild_it ... ok
+test skills::tests::the_chip_shows_a_count_pill_beside_the_label_and_names_itself_for_screen_readers ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test styles::instance_refit_tests::explicit_height_edit_on_height_mode_instance_label_survives_main_sync ... ok
+test shell::tests::home::the_editor_header_shows_project_and_file_and_none_of_the_account_labels ... ok
+test shell::tests::components::inspector_text_property_relabels_the_instance ... ok
+test shell::tests::canvas_label_rename::frame_label_hit_testing_covered_part_ignores_label_and_visible_part_selects_frame ... ok
+test terminal::gemini_narrow_tests::a_hook_wait_on_a_cut_label_stands_while_the_dialog_is_on_screen_and_ends_when_it_is_gone ... ok
+test shell::tests::board::connector_labels_can_be_typed_by_double_clicking_the_line ... ok
+test terminal::gemini_narrow_tests::a_label_cut_to_fit_is_still_the_dialog_down_to_the_minimum_panel_width ... ok
+test shell::tests::history::labeled_live_patch_shows_step_label_in_history_panel ... ok
+test terminal::tests::qa_p0_relabelled_shell_tab_gets_zero_bytes ... ok
+test shell::tests::scrubbing_x_label_changes_value_in_one_undo_step ... ok
+test terminal::gemini_narrow_tests::a_tab_with_no_hooks_file_starts_its_wait_from_a_cut_label ... ok
+test shell::tests::canvas_label_rename::click_selects_one_shape_component_and_double_click_enters_shape ... ok
+test shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label ... ok
+test shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to ... ok
+test shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names ... ok
+test shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label ... ok
+test shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync ... ok
+test shell::tests::canvas_label_rename::component_and_inner_shape_names_stay_independent ... ok
+test shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths ... ok
+test shell::tests::canvas_label_rename::multi_child_and_container_child_components_still_select_through_and_marquee_is_unchanged ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 14.23s
+
