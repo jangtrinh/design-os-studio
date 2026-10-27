@@ -1,0 +1,13 @@
+{
+  "commit": "after-fix",
+  "node_count": 157,
+  "runs_ms": [
+    48.14,
+    61.4,
+    42.82,
+    46.99,
+    47.31
+  ],
+  "median_ms": 47.31,
+  "mean_ms": 49.33
+}

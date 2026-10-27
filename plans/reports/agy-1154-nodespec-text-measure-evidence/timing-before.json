@@ -1,0 +1,13 @@
+{
+  "commit": "6f0c3bb2",
+  "phase": "before",
+  "node_count": 157,
+  "runs_ms": [
+    27.98,
+    27.29,
+    28.7,
+    24.72,
+    28.88
+  ],
+  "median_ms": 27.98
+}

@@ -122,6 +122,7 @@ fn window_icon() -> Option<egui::IconData> {
 }
 
 fn main() {
+    designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
     let opts = match cli::parse(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {

@@ -71,6 +71,7 @@ impl Sim {
         Self::with(Options::default())
     }
     fn with(opts: Options) -> Self {
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
         script_empty_clipboard(&mut shell.app);

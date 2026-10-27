@@ -126,6 +126,7 @@ impl Engine {
 
 impl Default for Engine {
     fn default() -> Self {
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
         Self {
@@ -747,6 +748,9 @@ impl Engine {
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
                 }
+                if !report.measured_with_fallback.is_empty() {
+                    resp["measured_with_fallback"] = json!(report.measured_with_fallback);
+                }
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
                 }
@@ -1245,12 +1249,28 @@ impl Engine {
         let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
         let mut warnings = Vec::new();
+        let mut measured_with_fallback = Vec::new();
+        if let NodeKind::Text(tp) = &node.kind {
+            if (a.width.is_none() || a.height.is_none()) && designos_doc::text_measure::uses_fallback_font(tp) {
+                measured_with_fallback.push(id.0);
+                warnings.push(designos_doc::SpecWarning {
+                    code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
+                    path: "text".to_string(),
+                    token: None,
+                    replacement: None,
+                    message: Some("One or more text nodes were measured with a fallback font because the requested font_family is not loaded.".to_string()),
+                });
+            }
+        }
         crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, FillTarget::NewLayer, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
         }
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        if !measured_with_fallback.is_empty() {
+            out["measured_with_fallback"] = json!(measured_with_fallback);
+        }
         attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
@@ -1336,9 +1356,6 @@ use crate::tools::fill_write::FillTarget;
 fn default_limit() -> usize {
     100
 }
-fn default_size() -> f32 {
-    100.0
-}
 fn default_true() -> bool {
     true
 }
@@ -1396,10 +1413,10 @@ struct CreateArgs {
     x: f32,
     #[serde(default)]
     y: f32,
-    #[serde(default = "default_size")]
-    width: f32,
-    #[serde(default = "default_size")]
-    height: f32,
+    #[serde(default)]
+    width: Option<f32>,
+    #[serde(default)]
+    height: Option<f32>,
     #[serde(default)]
     fill: Option<String>,
     #[serde(default)]
@@ -3966,7 +3983,7 @@ mod tests {
                         "height_sizing": "fixed",
                         "layout": {
                             "direction": "row",
-                            "padding": [0.0, 14.0, 0.0, 14.0],
+                            "padding": [0.0, 12.0, 0.0, 12.0],
                             "align": "center"
                         },
                         "children": [
@@ -3988,11 +4005,15 @@ mod tests {
         let label = e.doc.get(label_id).unwrap();
         let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
         let measured = designos_render::measure_text_box(tp, None);
-        assert_eq!(label.transform.tx, 14.0, "label x must equal left padding 14.0");
-        assert!((btn.size.x - (label.size.x + 28.0)).abs() <= 1e-3, "button width ({}) must equal label width ({}) + 28.0", btn.size.x, label.size.x);
+        assert_eq!(label.transform.tx, 12.0, "label x must equal left padding 12.0");
         assert!(
-            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 42.0,
-            "label width ({}) must match measured_text_box ({}) within 0.5px and be < 42.0 (not 48.0)",
+            ((btn.size.x - (label.transform.tx + label.size.x)) - 12.0).abs() <= 0.5,
+            "right padding ({}) must equal left padding (12.0) within 0.5px",
+            btn.size.x - (label.transform.tx + label.size.x)
+        );
+        assert!(
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 46.0,
+            "label width ({}) must match measured_text_box ({}) within 0.5px and be < 46.0 (not 48.0/52.0)",
             label.size.x,
             measured.x
         );
@@ -4209,7 +4230,7 @@ mod tests {
         match &ops[0] {
             designos_doc::live_patch::LiveOp::Insert { nodes, .. } => {
                 let text_node = nodes.iter().find(|n| n.name == "Label").expect("Label node in LiveOp::Insert");
-                assert!(text_node.size.x < 42.0, "LiveOp::Insert text node must already carry measured width (< 42.0), got {}", text_node.size.x);
+                assert!(text_node.size.x < 46.0, "LiveOp::Insert text node must already carry measured width (< 46.0), got {}", text_node.size.x);
             }
             other => panic!("expected LiveOp::Insert, got {other:?}"),
         }

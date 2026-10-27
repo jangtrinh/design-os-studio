@@ -24,6 +24,8 @@ struct Fonts {
     families: HashSet<String>,
     /// Faces embedded via `designos-fonts` (preferred over any system copy).
     bundled: HashSet<fontdb::ID>,
+    /// Whether host system fonts have been loaded into `fs`.
+    system_loaded: bool,
 }
 
 thread_local! {
@@ -39,8 +41,10 @@ thread_local! {
 static EXTRA_FONTS: Mutex<Vec<Arc<Vec<u8>>>> = Mutex::new(Vec::new());
 static FONT_GEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// The system + bundled font database, built once and cloned per thread (so
-/// scanning system fonts does not repeat for every worker).
+/// Bundled-only font database, built once with zero disk I/O.
+static BUNDLED_DB: OnceLock<(fontdb::Database, HashSet<fontdb::ID>)> = OnceLock::new();
+/// The system + bundled font database, built lazily only when a non-bundled family or
+/// non-Latin fallback glyph is requested (so cold CLI runs using bundled Inter avoid scanning host fonts).
 static BASE_DB: OnceLock<(fontdb::Database, HashSet<fontdb::ID>)> = OnceLock::new();
 
 /// Number of fonts registered through [`register_font`]; changes whenever the
@@ -57,17 +61,22 @@ pub struct TextLayout {
     pub paths: Vec<Option<sk::Path>>,
 }
 
-fn base_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
-    BASE_DB.get_or_init(|| {
+fn bundled_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
+    BUNDLED_DB.get_or_init(|| {
         let mut db = fontdb::Database::new();
-        // Bundled fonts go in first and any system face claiming the same family
-        // is dropped, so "Inter" always resolves to the embedded copy.
         let mut bundled = HashSet::new();
-        let mut owned = HashSet::new();
         for asset in designos_fonts::bundled() {
-            owned.insert(asset.family.to_lowercase());
             bundled.extend(db.load_font_source(fontdb::Source::Binary(Arc::new(asset.data))));
         }
+        db.set_sans_serif_family("Inter");
+        (db, bundled)
+    })
+}
+
+fn base_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
+    BASE_DB.get_or_init(|| {
+        let (mut db, bundled) = bundled_db().clone();
+        let owned: HashSet<String> = designos_fonts::bundled().iter().map(|a| a.family.to_lowercase()).collect();
         // Hermetic runs (tests, reproducible renders) set this to ignore whatever the host has installed.
         if std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_none() {
             db.load_system_fonts();
@@ -83,10 +92,39 @@ fn base_db() -> &'static (fontdb::Database, HashSet<fontdb::ID>) {
 }
 
 fn init_fonts() -> Fonts {
-    let (db, bundled) = base_db();
+    let hermetic = std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_some();
+    let (db, bundled) = bundled_db();
     let fs = FontSystem::new_with_locale_and_db("en-US".to_string(), db.clone());
     let families = family_names(&fs);
-    Fonts { fs, swash: SwashCache::new(), families, bundled: bundled.clone() }
+    Fonts { fs, swash: SwashCache::new(), families, bundled: bundled.clone(), system_loaded: hermetic }
+}
+
+fn ensure_system_fonts(fonts: &mut Fonts) {
+    if fonts.system_loaded {
+        return;
+    }
+    fonts.system_loaded = true;
+    if std::env::var_os(BUNDLED_FONTS_ONLY_ENV).is_some() {
+        return;
+    }
+    let (db, _) = base_db();
+    let mut new_db = db.clone();
+    let done = REPLAYED.with(|r| r.get());
+    if done > 0 {
+        let all = EXTRA_FONTS.lock().unwrap_or_else(|e| e.into_inner());
+        for blob in all.iter().take(done) {
+            new_db.load_font_source(fontdb::Source::Binary(blob.clone()));
+        }
+    }
+    fonts.fs = FontSystem::new_with_locale_and_db("en-US".to_string(), new_db);
+    fonts.families = family_names(&fonts.fs);
+}
+
+fn needs_system_fallback(content: &str) -> bool {
+    content.chars().any(|c| {
+        let u = c as u32;
+        u > 0x024F && !(0x1E00..=0x206F).contains(&u)
+    })
 }
 
 fn family_names(fs: &FontSystem) -> HashSet<String> {
@@ -155,6 +193,7 @@ pub fn register_font(data: Vec<u8>) {
 /// sorted case-insensitively without duplicates. Used by font pickers.
 pub fn available_families() -> Vec<String> {
     with_fonts(|f| {
+        ensure_system_fonts(f);
         let mut names: Vec<String> = f.fs.db().faces().filter_map(|face| face.families.first().map(|(n, _)| n.clone())).collect();
         names.sort_by_key(|n| n.to_lowercase());
         names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
@@ -199,12 +238,29 @@ pub fn resolve_font(family: &str, weight: u16, italic: bool) -> Option<ResolvedF
 }
 
 /// Family name to ask the font database for, or `None` to use default sans-serif.
-fn resolve_family(fonts: &Fonts, requested: &str) -> Option<String> {
-    if fonts.families.contains(&requested.to_lowercase()) {
+fn resolve_family(fonts: &mut Fonts, requested: &str) -> Option<String> {
+    let req_lower = requested.to_lowercase();
+    if fonts.families.contains(&req_lower) {
         return Some(requested.to_string());
     }
-    let sub = designos_fonts::substitute(requested)?;
-    fonts.families.contains(&sub.to_lowercase()).then(|| sub.to_string())
+    let sub = designos_fonts::substitute(requested);
+    if let Some(s) = sub {
+        if fonts.families.contains(&s.to_lowercase()) {
+            return Some(s.to_string());
+        }
+    }
+    if !fonts.system_loaded {
+        ensure_system_fonts(fonts);
+        if fonts.families.contains(&req_lower) {
+            return Some(requested.to_string());
+        }
+        if let Some(s) = sub {
+            if fonts.families.contains(&s.to_lowercase()) {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn auto_line_ratio(fonts: &mut Fonts, st: &d::TextStyle, family: Option<&str>) -> f32 {
@@ -433,6 +489,9 @@ struct Shaper {
 
 impl Shaper {
     fn new(fonts: &mut Fonts, props: &TextProps) -> Self {
+        if needs_system_fallback(&props.content) {
+            ensure_system_fonts(fonts);
+        }
         let mut styles = vec![props.style.clone()];
         styles.extend(props.runs.iter().map(|r| r.style.clone()));
         let family_names: Vec<Option<String>> = styles.iter().map(|s| resolve_family(fonts, &s.font_family)).collect();
@@ -784,11 +843,52 @@ pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
 
 /// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`),
 /// rounded up to the next `0.25 px`.
-pub fn measure_text_box(tp: &TextProps, _wrap_width: Option<f32>) -> Vec2 {
-    let fs = tp.style.font_size.max(8.0);
-    let w = (tp.content.chars().count() as f32 * fs * 0.56).ceil().max(16.0);
-    let h = (fs * 1.45).ceil();
+pub fn measure_text_box(tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+    let mut p = tp.clone();
+    p.style.fills.clear();
+    for r in &mut p.runs {
+        r.style.fills.clear();
+    }
+    let size = match wrap_width {
+        Some(w) => {
+            if p.auto_resize == TextAutoResize::WidthAndHeight {
+                p.auto_resize = TextAutoResize::Height;
+            }
+            Vec2::new(w, 0.0)
+        }
+        None => {
+            p.auto_resize = TextAutoResize::WidthAndHeight;
+            Vec2::ZERO
+        }
+    };
+    let g = text_geometry(&p, size);
+    let round_q = |v: f32| (v * 4.0).ceil() * 0.25;
+    let min_w = if tp.content.is_empty() { 16.0 } else { 1.0 };
+    let w = match wrap_width {
+        Some(w) => w,
+        None => round_q(g.width).max(min_w),
+    };
+    let h = round_q(g.height).max(1.0);
     Vec2::new(w, h)
+}
+
+/// Process-wide [`designos_doc::text_measure::TextMeasure`] backed by [`measure_text_box`]
+/// and the renderer's `cosmic-text` font database.
+pub struct RenderTextMeasure;
+
+impl designos_doc::text_measure::TextMeasure for RenderTextMeasure {
+    fn measure(&self, tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
+        measure_text_box(tp, wrap_width)
+    }
+
+    fn uses_fallback_font(&self, tp: &TextProps) -> bool {
+        sync_fonts();
+        with_fonts(|f| {
+            let base_missing = !tp.style.font_family.trim().is_empty() && resolve_family(f, &tp.style.font_family).is_none();
+            let run_missing = tp.runs.iter().any(|r| !r.style.font_family.trim().is_empty() && resolve_family(f, &r.style.font_family).is_none());
+            base_missing || run_missing
+        })
+    }
 }
 
 fn compute_geometry(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGeometry {

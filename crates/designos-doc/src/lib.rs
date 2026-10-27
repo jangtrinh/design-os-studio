@@ -68,6 +68,7 @@ pub use spec_data::SpecDataSnapshot;
 pub mod spec_instance;
 mod styles_ops;
 mod text_fills;
+pub mod text_measure;
 mod textmodel;
 mod variables;
 mod variables_apply;
