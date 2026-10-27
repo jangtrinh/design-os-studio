@@ -707,3 +707,186 @@ fn round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_whi
         "toast-enter-path button must render for Home > Import"
     );
 }
+
+fn painted_texts(s: &Sim) -> Vec<String> {
+    s.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn has_home_rect(s: &Sim, name: &str) -> bool {
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some()
+}
+
+#[test]
+fn starter_asset_exists_and_is_at_most_5_mb() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/starter/designos-studio-starter.designos");
+    assert!(path.is_file(), "starter asset must exist at {}", path.display());
+    let bytes = std::fs::read(&path).expect("read starter asset");
+    assert!(bytes.len() <= 5 * 1024 * 1024, "starter asset is {} bytes (> 5 MB)", bytes.len());
+    let text = std::str::from_utf8(&bytes).expect("starter asset is UTF-8");
+    let doc = Document::from_json(text).expect("starter asset decodes as a valid Document");
+    let page_names: Vec<&str> = doc.pages.iter().filter_map(|pid| doc.get(*pid).map(|n| n.name.as_str())).collect();
+    assert!(page_names.contains(&"About this file"), "starter asset must contain an 'About this file' page, found {page_names:?}");
+}
+
+#[test]
+fn ac01_fresh_library_seeds_getting_started_and_starter_file() {
+    let (s, _d) = home_sim();
+    let l = lib(&s);
+    let projects = l.list_projects();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].name, "Getting started");
+    let files = l.all_files();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].name, "DESIGN-OS Studio Starter");
+    assert!(l.thumbnail_path(&files[0]).is_some(), "starter file must have its thumbnail generated on seed");
+    assert!(l.root().join(".starter-seeded").is_file(), ".starter-seeded marker must exist");
+}
+
+#[test]
+fn ac02_no_arg_launch_opens_home_and_never_builtin_demo() {
+    let d = TmpDir::new();
+    let mut opts = crate::cli::parse(std::iter::empty::<String>()).unwrap();
+    assert!(opts.wants_home());
+    opts.home = true;
+    opts.library = Some(d.0.clone());
+    let s = Sim::with(opts);
+    assert!(s.app().home.is_some(), "no-arg launch must open Home");
+    assert_eq!(s.app().doc.name, "Untitled", "underlying editor document must be blank Untitled, not demo_document");
+    assert_eq!(s.app().doc.nodes.len(), 1, "no-arg launch must build an empty document with only Page 1, never demo_document()");
+    assert!(
+        s.app().doc.nodes.values().all(|n| n.name != "Welcome" && n.name != "Hero"),
+        "no-arg launch must never build demo_document()"
+    );
+}
+
+#[test]
+fn ac04_home_screen_contains_none_of_the_legacy_names() {
+    let (mut s, _d) = home_sim();
+    let forbidden = ["Marlow", "Welcome", "Launch Brainstorm", "Product Exploration", "Design Token Sheet", "Product UI Kit", "Starter Kits"];
+    for nav in ["home-nav-recents", "home-nav-getting-started", "home-nav-templates", "home-nav-resources"] {
+        if has_home_rect(&s, nav) {
+            click_rect(&mut s, nav);
+            s.frame(vec![]);
+        }
+        let painted = painted_texts(&s);
+        for bad in forbidden {
+            assert!(
+                !painted.iter().any(|t| t.contains(bad)),
+                "Home view {nav} painted legacy sample name {bad:?} in {painted:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash() {
+    let d = TmpDir::new();
+    let l = Library::open(&d.0).unwrap();
+    let p = l.create_project("Getting started").unwrap();
+    let mut welcome = Document::new("Welcome");
+    welcome.add_page("Page 1");
+    l.create_file(&p.id, None, "Welcome", &welcome).unwrap();
+    let mut marlow = Document::new("Marlow — Mobile Banking Kit");
+    marlow.add_page("Page 1");
+    l.create_file(&p.id, None, "Marlow — Mobile Banking Kit", &marlow).unwrap();
+    std::fs::write(d.0.join(".seeded"), b"1\n").unwrap();
+
+    // Upgrade launch: `.seeded` exists, `.starter-seeded` does not.
+    let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    let l = lib(&s);
+    let names: Vec<String> = l.all_files().into_iter().map(|f| f.name).collect();
+    assert!(names.contains(&"Welcome".to_string()), "existing Welcome file kept: {names:?}");
+    assert!(names.contains(&"Marlow — Mobile Banking Kit".to_string()), "existing Marlow copy kept: {names:?}");
+    assert!(names.contains(&"DESIGN-OS Studio Starter".to_string()), "starter seeded once on upgrade: {names:?}");
+    assert_eq!(names.len(), 3);
+    assert!(d.0.join(".starter-seeded").is_file());
+
+    // Delete "Getting started" and relaunch: no reseed because `.starter-seeded` is present.
+    l.delete_project(&p.id).unwrap();
+    let s2 = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    assert!(lib(&s2).all_files().is_empty(), "deleting Getting started after starter seed must not reseed on relaunch");
+
+    // Name clash on upgrade: existing "Getting started" already has a user file named "DESIGN-OS Studio Starter".
+    let d_clash = TmpDir::new();
+    let l_clash = Library::open(&d_clash.0).unwrap();
+    let p_clash = l_clash.create_project("Getting started").unwrap();
+    let mut user_doc = Document::new("User file");
+    user_doc.add_page("User page");
+    let user_entry = l_clash.create_file(&p_clash.id, None, "DESIGN-OS Studio Starter", &user_doc).unwrap();
+    std::fs::write(d_clash.0.join(".seeded"), b"1\n").unwrap();
+
+    let s_clash = Sim::with(Options { home: true, library: Some(d_clash.0.clone()), ..Default::default() });
+    let clash_files = lib(&s_clash).all_files();
+    let clash_names: Vec<&str> = clash_files.iter().map(|f| f.name.as_str()).collect();
+    assert!(clash_names.contains(&"DESIGN-OS Studio Starter"), "{clash_names:?}");
+    assert!(clash_names.contains(&"DESIGN-OS Studio Starter (1)"), "clashing upgrade seed must suffix with (1): {clash_names:?}");
+    let reloaded_user = lib(&s_clash).load_file(&user_entry.id).unwrap();
+    assert!(reloaded_user.nodes.values().any(|n| n.name == "User page"), "user file was never overwritten");
+}
+
+#[test]
+fn ac06_missing_recent_file_shows_file_not_found_and_remove() {
+    let d = TmpDir::new();
+    let l = Library::open(&d.0).unwrap();
+    let p = l.create_project("Getting started").unwrap();
+    let mut doc = Document::new("Missing draft");
+    doc.add_page("Page 1");
+    let entry = l.create_file(&p.id, None, "Missing draft", &doc).unwrap();
+    std::fs::write(d.0.join(".seeded"), b"1\n").unwrap();
+    std::fs::write(d.0.join(".starter-seeded"), b"1\n").unwrap();
+
+    // Remove the underlying .designos file from disk so the manifest entry points to a missing file.
+    let disk_path = crate::home::library_file_disk_path(&l, &p.id, &entry.id);
+    std::fs::remove_file(&disk_path).unwrap();
+
+    let mut s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    let painted = painted_texts(&s);
+    assert!(painted.iter().any(|t| t.contains("File not found")), "missing recent file must show 'File not found', got {painted:?}");
+    assert!(painted.iter().any(|t| t == "Remove"), "missing recent file must offer 'Remove', got {painted:?}");
+
+    click_rect(&mut s, "home-remove-Missing draft");
+    s.frame(vec![]);
+    assert!(lib(&s).all_files().is_empty(), "clicking Remove drops the missing file entry from the library");
+}
+
+#[test]
+fn ac10_help_open_starter_sample_creates_numbered_copies_in_current_project() {
+    let (mut s, _d) = home_sim();
+    let id0 = lib(&s).all_files()[0].id.clone();
+    s.shell.app.open_library_file(&id0);
+    s.frame(vec![]);
+
+    for expected in ["DESIGN-OS Studio Starter (1)", "DESIGN-OS Studio Starter (2)"] {
+        assert!(
+            crate::panels::menus::preset_menu(&s.ctx, &mut s.shell.app, "main/Help and account/Open starter sample", s.ctx.content_rect()),
+            "Help and account -> Open starter sample must exist"
+        );
+        s.frame(vec![]);
+        s.key(Key::Enter);
+        s.frame(vec![]);
+        let names: Vec<String> = lib(&s).all_files().into_iter().map(|f| f.name).collect();
+        assert!(names.contains(&expected.to_string()), "expected {expected:?} in {names:?}");
+    }
+}
+
+#[test]
+fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
+    let d = TmpDir::new();
+    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = Some(b"{not valid json");
+    let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = None;
+
+    let toast = s.app().toast.as_ref().expect("corrupt starter asset must show an error toast");
+    assert!(toast.error);
+    assert_eq!(toast.text, "Could not create the starter sample");
+    assert!(s.app().lib.is_some(), "library remains usable after corrupt starter asset");
+    assert!(!d.0.join(".starter-seeded").exists(), "no .starter-seeded marker written when starter asset fails");
+    assert!(!d.0.join(".seeded").exists(), "no .seeded marker written when fresh starter asset fails");
+}
+

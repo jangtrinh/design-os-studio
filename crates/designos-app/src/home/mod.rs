@@ -25,6 +25,10 @@ pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, DiskState, LibFile};
 pub use unsaved::UnsavedDot;
 
+#[cfg(test)]
+pub(crate) static TEST_STARTER_BYTES_OVERRIDE: std::sync::Mutex<Option<&'static [u8]>> = std::sync::Mutex::new(None);
+
+
 use crate::app::App;
 use crate::theme;
 use designos_library::{FileEntry, Library, Project, TrashItem};
