@@ -21,7 +21,9 @@ const REVEAL_LABEL: &str = "Show in folder";
 
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
-pub static SELECT_MISS: AtomicBool = AtomicBool::new(false);
+/// The message of a `--select` (or `--edit-text`) that matched nothing in a `--screenshot` run: no PNG is written and
+/// the run exits 2. Set by `Shell::new`, the real window's entry, so a test window never touches it.
+pub static SELECT_MISS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
 pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -70,6 +72,8 @@ struct Shot {
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
+    /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
+    /// and writes no PNG.
     open_failed: bool,
 }
 
@@ -91,6 +95,8 @@ pub struct Shell {
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
+    /// Why a `--select` or `--edit-text` named nothing, when it did not.
+    select_miss: Option<String>,
 }
 
 impl Shell {
@@ -105,6 +111,9 @@ impl Shell {
         let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
+        if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
+            let _ = SELECT_MISS.set(miss.clone());
+        }
         if !screenshot && panel_was_none && !has_file {
             shell.app.ui.rail = Some(crate::app::RailItem::Agents);
             shell.app.ui.left_collapsed = false;
@@ -201,7 +210,8 @@ impl Shell {
                 }
             }
         }
-        if opts.select.is_some() {
+        let mut select_miss = None;
+        if opts.select.is_some() && !shot_open_failed {
             match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref()) {
                 Ok(Some(target)) => {
                     if let Some(note) = target.note(opts.select.as_deref().unwrap_or("").trim()) {
@@ -221,11 +231,11 @@ impl Shell {
                 }
                 Ok(None) => app.selection.clear(),
                 Err(err) => {
-                    SELECT_MISS.store(true, Ordering::SeqCst);
-                    eprintln!("designos: {err}");
-                    app.show_toast(err.toast(), true);
-                    if opts.screenshot.is_some() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    select_miss = Some(err.to_string());
+                    // A capture run reports it and exits 2 (no PNG); a person is not thrown out of the app for a typo.
+                    if opts.screenshot.is_none() {
+                        eprintln!("designos: {err}");
+                        app.show_toast(err.toast(), true);
                     }
                 }
             }
@@ -281,6 +291,9 @@ impl Shell {
                 }
             } else {
                 eprintln!("designos: no text layer named '{name}'");
+                if opts.screenshot.is_some() {
+                    select_miss.get_or_insert(format!("--edit-text \"{name}\" matched no text layer"));
+                }
             }
         }
         if opts.tab.as_deref() == Some("prototype") {
@@ -441,9 +454,9 @@ impl Shell {
             last_try: false,
             seq: seq_capture,
             no_toast: opts.no_toast,
-            open_failed: shot_open_failed,
+            open_failed: shot_open_failed || select_miss.is_some(),
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default() }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {

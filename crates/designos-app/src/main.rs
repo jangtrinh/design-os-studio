@@ -205,13 +205,27 @@ fn main() {
             eprintln!("{err}");
             std::process::exit(1);
         }
-        if shell::SELECT_MISS.load(Ordering::SeqCst) {
-            std::process::exit(2);
+        let miss = shell::SELECT_MISS.get();
+        let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
+        match miss {
+            Some(message) => eprintln!("designos: {message}"),
+            None if !shot_ok => eprintln!("designos: screenshot was not captured"),
+            None => {}
         }
-        if !shell::SHOT_OK.load(Ordering::SeqCst) {
-            eprintln!("designos: screenshot was not captured");
-            std::process::exit(1);
+        let code = exit_code(miss.is_some(), shot_ok);
+        if code != 0 {
+            std::process::exit(code);
         }
+    }
+}
+
+/// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
+/// outranks 1 for a PNG that was not captured, and 0 otherwise.
+fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
+    match (select_miss, shot_ok) {
+        (true, _) => 2,
+        (false, false) => 1,
+        (false, true) => 0,
     }
 }
 
