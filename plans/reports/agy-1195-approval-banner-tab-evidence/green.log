@@ -1,0 +1,17 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.14s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 5 tests
+test shell::tests::approval_banner_tab::active_tab_approval_shows_show_prompt_and_focuses_terminal ... ok
+test shell::tests::approval_banner_tab::approval_answered_in_terminal_clears_banner_and_sends_nothing_twice ... ok
+test shell::tests::approval_banner_tab::background_tab_approval_shows_banner_and_open_tab_switches_to_waiting_tab ... ok
+test shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels ... ok
+test shell::tests::approval_banner_tab::two_pending_approvals_in_two_tabs_shows_count_and_opens_oldest_first ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 1.39s
+
