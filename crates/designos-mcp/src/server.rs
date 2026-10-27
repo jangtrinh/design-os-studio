@@ -619,7 +619,23 @@ impl Session {
         self.bridge.doc_unannounced = false;
         Ok(())
     }
+}
 
+/// Maximum input file size (512 MiB) accepted by MCP file-import tools, per owner ruling Q2 of
+/// 2026-10-18 (`docs/specs/v0.6/README.md:180`).
+pub(crate) const MAX_IMPORT_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+fn import_size_gate(len: u64) -> Result<(), ToolError> {
+    if len > MAX_IMPORT_FILE_BYTES {
+        return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
+            .with_received(json!(len))
+            .with_expected(format!("<= {MAX_IMPORT_FILE_BYTES} bytes"))
+            .with_safe_to_retry(false));
+    }
+    Ok(())
+}
+
+impl Session {
     fn input_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         if Path::new(path).is_absolute()
             && !Path::new(path).starts_with(&self.root)
@@ -937,11 +953,7 @@ impl Session {
                     .with_corrected_example(json!({"path": a.path, "discard_changes": true})));
                 }
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
-                if len > 512 * 1024 * 1024 {
-                    return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
-                        .with_received(json!(len))
-                        .with_expected("<= 536870912 bytes"));
-                }
+                import_size_gate(len)?;
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
                 let mut repaired_non_finite_numbers = 0;
@@ -1101,9 +1113,8 @@ impl Session {
                     if let Some(obj) = args.as_object_mut() {
                         if let Some(rel_path) = obj.get("path").and_then(Value::as_str).map(str::to_string) {
                             let resolved = self.input_path(&rel_path)?;
-                            if fs::metadata(&resolved).map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {
-                                return Err("Input file exceeds the 64 MiB import limit".into());
-                            }
+                            let len = fs::metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
+                            import_size_gate(len)?;
                             obj.insert("path".into(), json!(resolved.to_string_lossy().to_string()));
                         }
                     }
@@ -2483,7 +2494,10 @@ mod tests {
             let huge_path = ws_dir.join("huge.designos");
             let f = fs::File::create(&huge_path).unwrap();
             f.set_len(513 * 1024 * 1024).unwrap();
-            record(s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err(), ErrorCode::FileTooLarge, true);
+            let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+            assert!(!err.safe_to_retry, "FILE_TOO_LARGE must not be safe_to_retry: {err:?}");
+            assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
+            record(err, ErrorCode::FileTooLarge, false);
             let _ = fs::remove_file(&huge_path);
         }
 
@@ -3381,6 +3395,26 @@ mod tests {
         }
         assert_eq!(doc.nodes.len(), 200_000);
         validate_document(&doc).expect("200,000-node document must be accepted under the 1,200,000 layer limit");
+    }
+
+    #[test]
+    fn file_too_large_is_not_safe_to_retry_and_names_the_next_step() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-1121-ftl-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let mut s = Session::new(&ws_dir).unwrap();
+
+        let huge_path = ws_dir.join("huge.designos");
+        let f = fs::File::create(&huge_path).unwrap();
+        f.set_len(513 * 1024 * 1024).unwrap();
+        drop(f);
+
+        let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+        let _ = fs::remove_dir_all(&ws_dir);
+
+        assert_eq!(err.code, ErrorCode::FileTooLarge);
+        assert!(!err.safe_to_retry, "FILE_TOO_LARGE must have safe_to_retry: false");
+        assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
     }
 }
 
