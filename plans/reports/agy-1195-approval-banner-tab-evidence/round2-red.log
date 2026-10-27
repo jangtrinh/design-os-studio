@@ -1,0 +1,42 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.05s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 7 tests
+test shell::tests::approval_banner_tab::active_tab_approval_shows_show_prompt_and_focuses_terminal ... ok
+test shell::tests::approval_banner_tab::approval_answered_in_terminal_clears_banner_and_sends_nothing_twice ... ok
+test shell::tests::approval_banner_tab::focused_terminal_receives_tab_while_background_or_active_tab_waits_for_approval ... FAILED
+test shell::tests::approval_banner_tab::background_tab_approval_shows_banner_and_open_tab_switches_to_waiting_tab ... ok
+test shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels ... ok
+test shell::tests::approval_banner_tab::canvas_single_key_shortcuts_work_when_canvas_clicked_while_background_tab_waits_for_approval ... FAILED
+test shell::tests::approval_banner_tab::two_pending_approvals_in_two_tabs_shows_count_and_opens_oldest_first ... ok
+
+failures:
+
+---- shell::tests::approval_banner_tab::focused_terminal_receives_tab_while_background_or_active_tab_waits_for_approval stdout ----
+
+thread 'shell::tests::approval_banner_tab::focused_terminal_receives_tab_while_background_or_active_tab_waits_for_approval' (83619776) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:313:5:
+assertion `left == right` failed: active focused terminal PTY must receive '\t' even while a background tab waits for approval
+  left: []
+ right: [9]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::approval_banner_tab::canvas_single_key_shortcuts_work_when_canvas_clicked_while_background_tab_waits_for_approval stdout ----
+
+thread 'shell::tests::approval_banner_tab::canvas_single_key_shortcuts_work_when_canvas_clicked_while_background_tab_waits_for_approval' (83619775) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:350:5:
+assertion `left == right` failed: pressing R after clicking the canvas must switch to the Rectangle tool while a background tab waits
+  left: Move
+ right: Rectangle
+
+
+failures:
+    shell::tests::approval_banner_tab::canvas_single_key_shortcuts_work_when_canvas_clicked_while_background_tab_waits_for_approval
+    shell::tests::approval_banner_tab::focused_terminal_receives_tab_while_background_or_active_tab_waits_for_approval
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 2.61s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

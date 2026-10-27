@@ -1,0 +1,13 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-fig)
+    Finished `release` profile [optimized] target(s) in 4.45s
+     Running tests/bench_guard.rs (out/cargo/release/deps/bench_guard-abd73ccfc1bec94a)
+
+running 1 test
+BENCH_RESULT rest_file.json (13976 B) median_us=96.33 | legacy-0.4.0-rich.fig (11061 B) median_us=387.38 | legacy-0.4.0-grids.fig (10831 B) median_us=390.96
+test measure_repo_fixture_imports ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+

@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use designos_diff::{compare, diff_image, suite, DiffOptions, Rect};
 
 #[derive(Parser)]
-#[command(name = "designos-diff", about = "Pixel diff harness")]
+#[command(name = "designos-diff", version, about = "Pixel diff harness")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -104,6 +104,25 @@ fn run(cli: Cli) -> Result<bool, String> {
             print!("{}", suite::table(&results));
             println!("report: {}", out_dir.join("index.html").display());
             Ok(results.iter().all(|r| r.passed))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    #[test]
+    fn parses_version_flags_and_formats_like_other_binaries() {
+        let expected = format!("designos-diff {}\n", env!("CARGO_PKG_VERSION"));
+        for flag in ["--version", "-V"] {
+            let err = match Cli::try_parse_from(["designos-diff", flag]) {
+                Err(e) => e,
+                Ok(_) => panic!("{flag} should exit with DisplayVersion"),
+            };
+            assert_eq!(err.kind(), ErrorKind::DisplayVersion, "{flag}: {err}");
+            assert_eq!(err.to_string(), expected, "{flag}");
         }
     }
 }

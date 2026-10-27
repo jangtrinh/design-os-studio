@@ -439,7 +439,8 @@ fn library_files_store_the_snapshot_as_a_named_version() {
     let dir = TmpDir::new();
     let mut s = Sim::with(Options { home: true, library: Some(dir.0.clone()), ..Default::default() });
     let lib: Library = s.app().lib.clone().expect("a library");
-    let id = lib.all_files().into_iter().find(|f| f.name == "Welcome").expect("seeded file").id;
+    let proj = lib.list_projects()[0].id.clone();
+    let id = lib.create_file(&proj, None, "Demo fixture", &crate::demo::demo_document()).expect("create demo fixture file").id;
     crate::home::apply(&mut s.shell.app, crate::home::Act::Open(id.clone()));
     frames(&mut s, 3);
     let card = s.by_name("Card");

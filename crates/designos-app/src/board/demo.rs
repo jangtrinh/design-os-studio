@@ -1,4 +1,5 @@
 //! A small sample board (`--fixture board`): a section with stickies, a decision shape and
+#![cfg(any(test, feature = "fixtures"))]
 //! connectors, plus loose notes and stamps. Used for screenshots and the UI tests.
 
 use super::{color_of, create};

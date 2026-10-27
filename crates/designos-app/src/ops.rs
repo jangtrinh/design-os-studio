@@ -208,10 +208,9 @@ impl App {
             self.changed();
             return true;
         }
-        let before_nodes = tx.ed.before_nodes().clone();
         let opened_at = tx.ed.opened_at();
-        match tx.commit(&mut self.doc, &mut self.hist) {
-            Ok(changed) => {
+        match tx.commit_with_before(&mut self.doc, &mut self.hist, None) {
+            Ok((changed, before_nodes)) => {
                 if changed {
                     // Every layout write of an editor edit goes through `tx.ed`, so the step holds the
                     // finished layout and undo and redo replay it as stored. Agent edits, agent turn
@@ -349,7 +348,8 @@ impl App {
         // A big document is only snapshotted around the selection, so layout it reflowed elsewhere is
         // not in the step: only a step diffed against the whole document is layout-recorded.
         let whole_doc = base.keys().eq(self.doc.nodes.keys());
-        let changed: Vec<NodeId> = base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| cur != *old)).map(|(id, _)| *id).collect();
+        let changed: Vec<NodeId> =
+            base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| crate::edit::properties_changed(old, cur))).map(|(id, _)| *id).collect();
         for id in &changed {
             if let (Some(old), Some(cur)) = (base.get(id), self.doc.get(*id)) {
                 self.agent_busy_frames.record_user_node_update(old, cur);
@@ -2063,7 +2063,7 @@ impl App {
 
     pub fn open_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
         let outcome = dialogs.pick(&io::open_request());
-        if let Some(p) = self.picked_path(outcome) {
+        if let Some(p) = self.picked_path(outcome, false) {
             self.open_path(p);
         }
     }
@@ -2074,7 +2074,7 @@ impl App {
 
     pub fn import_web_capture_dialog_with(&mut self, dialogs: &dyn io::FileDialogs) {
         let outcome = dialogs.pick(&io::web_capture_request());
-        if let Some(p) = self.picked_path(outcome) {
+        if let Some(p) = self.picked_path(outcome, false) {
             self.import_web_capture_path(p);
         }
     }
@@ -2141,33 +2141,56 @@ impl App {
     }
 
     pub fn open_path(&mut self, p: PathBuf) {
+        let _ = self.try_open_path(p);
+    }
+
+    pub fn open_path_with_clone_budget(&mut self, p: PathBuf, clone_budget: usize) {
+        let _ = self.try_open_path_with_clone_budget(p, clone_budget);
+    }
+
+    pub fn try_open_path(&mut self, p: PathBuf) -> Result<(), String> {
+        self.try_open_path_with_clone_budget(p, designos_fig::MAX_IMPORT_CLONES)
+    }
+
+    pub fn try_open_path_with_clone_budget(&mut self, p: PathBuf, clone_budget: usize) -> Result<(), String> {
         if io::is_web_capture_path(&p) {
-            self.import_web_capture_path(p);
-            return;
+            let raw = std::fs::read_to_string(&p).map_err(|e| {
+                let msg = format!("Cannot read {}: {e}", p.display());
+                self.show_toast(msg.clone(), true);
+                msg
+            })?;
+            self.import_web_capture_json_into_page_at(&raw, None)?;
+            return Ok(());
         }
         // A variables-only JSON opened alongside a design merges into it.
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
             if let Ok(text) = std::fs::read_to_string(&p) {
                 if designos_fig::looks_like_web_capture_json(&text) {
-                    let _ = self.import_web_capture_json_into_page(&text);
-                    return;
+                    self.import_web_capture_json_into_page(&text)?;
+                    return Ok(());
                 }
                 // Figma REST comments (`/v1/files/:key/comments`) are merged the same way.
                 if crate::comments::import::is_comments_payload(&text) {
                     self.import_comments_file(&p);
-                    return;
+                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
+                        return Err(t.text.clone());
+                    }
+                    return Ok(());
                 }
                 if crate::variables::is_variables_payload(&text) {
                     self.import_variables_file(&p);
-                    return;
+                    if let Some(t) = self.toast.as_ref().filter(|t| t.error) {
+                        return Err(t.text.clone());
+                    }
+                    return Ok(());
                 }
             }
         }
         // The document on screen (or, from Home, the open tab of this same file) is replaced: unsaved edits are asked about first.
         if self.ask_before_open(&p) {
-            return;
+            return Ok(());
         }
-        match io::load_path_with_warning(&p) {
+        match io::load_path_with_clone_budget(&p, clone_budget) {
             Ok((doc, warning)) => {
                 let name = doc.name.clone();
                 // An SVG becomes a new unsaved document, never overwritten by Save.
@@ -2175,9 +2198,20 @@ impl App {
                 self.replace_document(doc, (!svg).then_some(p));
                 // What the replaced document left (a change no history holds) is not this one's.
                 self.autosave.dot.adopt(false);
+                if self.home.take().is_some() {
+                    self.ui.menu = None;
+                    self.tabs.parked_in_home = true;
+                    let mut tabs = std::mem::take(&mut self.tabs);
+                    tabs.reconcile_frame(self);
+                    self.tabs = tabs;
+                }
                 self.show_toast(io::opened_toast_text(&name, warning.as_deref()), warning.is_some());
+                Ok(())
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.clone(), true);
+                Err(e)
+            }
         }
     }
 
@@ -2196,7 +2230,7 @@ impl App {
             (Some(p), false) if p.extension().map(|e| e == io::NATIVE_EXT).unwrap_or(false) => Some(p.clone()),
             _ => {
                 let outcome = dialogs.pick(&io::save_request(&self.doc.name));
-                self.picked_path(outcome)
+                self.picked_path(outcome, false)
             }
         };
         let Some(path) = target else { return };

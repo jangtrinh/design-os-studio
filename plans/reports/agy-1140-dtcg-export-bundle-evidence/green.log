@@ -1,0 +1,37 @@
+=== GREEN: All 11 spec tests for #1140 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.50s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-8c931ce94e001702)
+
+running 9 tests
+test variables_dtcg::tests::unknown_mode_is_an_error_listing_modes ... ok
+test variables_dtcg::tests::unresolvable_alias_stops_the_export_and_writes_nothing ... ok
+test variables_dtcg::tests::resolve_aliases_writes_literals_and_keeps_provenance ... ok
+test variables_dtcg::tests::collection_filter_prefers_the_local_copy ... ok
+test variables_dtcg::tests::mode_export_is_one_self_contained_file ... ok
+test variables_dtcg::tests::color_format_hex_writes_strings_with_alpha ... ok
+test variables_dtcg::tests::dtcg_export_gives_same_named_collections_unique_groups_and_files ... ok
+test variables_dtcg::tests::dtcg_zip_export_with_same_named_collections_succeeds ... ok
+test variables_dtcg::tests::dtcg_round_trip_keeps_every_collection ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 121 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig)
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-mcp)
+   Compiling designos-library v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-library)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.88s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 2 tests
+test variables_cli_tests::dtcg_to_a_json_path_without_mode_is_an_error ... ok
+test variables_cli_tests::cli_directory_export_never_overwrites_within_one_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 0.11s
+

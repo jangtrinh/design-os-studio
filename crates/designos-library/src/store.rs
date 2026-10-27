@@ -18,7 +18,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Name of the project created on first launch.
 pub const SEED_PROJECT: &str = "Getting started";
+/// Name of the starter file seeded into the "Getting started" project.
+pub const STARTER_FILE_NAME: &str = "DESIGN-OS Studio Starter";
 const SEED_MARKER: &str = ".seeded";
+const STARTER_SEED_MARKER: &str = ".starter-seeded";
 const MANIFEST: &str = "project.json";
 const TRASH_MANIFEST: &str = "trash.json";
 
@@ -450,6 +453,13 @@ fn sanitize_document_in_memory(doc: &mut Document) -> Result<()> {
     Ok(())
 }
 
+/// Studio's folder in the user's data directory (`<data dir>/designos`), or `None` when the platform has no data
+/// directory. The library root and Studio-private folders (the agent approval channel) are siblings under it, and
+/// neither depends on where the other is configured.
+pub fn app_data_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|dir| dir.join("designos"))
+}
+
 impl Library {
     /// `$DESIGNOS_LIBRARY` if set (`$DESIGNOS_LIBRARY_DIR` is accepted as a
     /// deprecated alias), otherwise `<data dir>/designos/library`.
@@ -459,7 +469,7 @@ impl Library {
                 return PathBuf::from(p);
             }
         }
-        dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("designos").join("library")
+        app_data_dir().unwrap_or_else(|| PathBuf::from(".").join("designos")).join("library")
     }
 
     fn project_dir(&self, id: &str) -> PathBuf {
@@ -937,6 +947,42 @@ impl Library {
         self.save_manifest(&m)
     }
 
+    /// Removes a manifest entry whose underlying `.designos` file is missing on disk.
+    pub fn remove_missing_file(&self, id: &str) -> Result<()> {
+        let _guard = write_lock();
+        let (mut m, i) = self.find_file(id)?;
+        let entry = m.files.remove(i);
+        let file_path = self.file_path(&m.project.id, id);
+        if file_path.exists() {
+            let _ = std::fs::remove_file(file_path);
+        }
+        if let Some(t) = &entry.thumbnail {
+            let _ = std::fs::remove_file(self.path(t));
+        }
+        let branches_dir = self.path("branches").join(id);
+        if branches_dir.exists() {
+            let _ = std::fs::remove_dir_all(branches_dir);
+        }
+        self.remove_agent_sessions(id);
+        m.project.modified = now_ms();
+        self.save_manifest(&m)
+    }
+
+    /// Picks a file name in `project` based on `base`, adding a ` (n)` suffix on clash (or always when `always_numbered` is true).
+    pub fn next_available_file_name(&self, project: &str, base: &str, always_numbered: bool) -> Result<String> {
+        let m = self.load_manifest(project)?;
+        if !always_numbered && !m.files.iter().any(|f| f.name == base) {
+            return Ok(base.to_string());
+        }
+        for n in 1usize.. {
+            let candidate = format!("{base} ({n})");
+            if !m.files.iter().any(|f| f.name == candidate) {
+                return Ok(candidate);
+            }
+        }
+        unreachable!()
+    }
+
     /// Everything in the trash, most recently trashed first.
     pub fn list_trash(&self) -> Vec<TrashItem> {
         let Ok(rd) = std::fs::read_dir(self.path("trash")) else { return vec![] };
@@ -1065,10 +1111,49 @@ impl Library {
         }
         let project = self.create_project(SEED_PROJECT)?;
         let mut doc = demo();
-        doc.name = "Welcome".into();
-        let entry = self.create_file(&project.id, None, "Welcome", &doc)?;
+        doc.name = STARTER_FILE_NAME.into();
+        let entry = self.create_file(&project.id, None, STARTER_FILE_NAME, &doc)?;
         write_atomic(&marker, b"1")?;
+        write_atomic(&self.path(STARTER_SEED_MARKER), b"1")?;
         Ok(Some(entry))
+    }
+
+    /// Seeds the "DESIGN-OS Studio Starter" sample into "Getting started" on a fresh library or
+    /// once on upgrade from v0.4.0–v0.6.4 (when `.seeded` exists and `.starter-seeded` does not).
+    ///
+    /// On a corrupt or missing starter asset (`load_starter` returning `Err`), returns
+    /// [`LibraryError::Invalid`] without writing `.seeded` or `.starter-seeded` so the next launch
+    /// retries.
+    pub fn seed_starter(&self, load_starter: impl FnOnce() -> std::result::Result<Document, String>) -> Result<Option<FileEntry>> {
+        let starter_marker = self.path(STARTER_SEED_MARKER);
+        if starter_marker.exists() {
+            return Ok(None);
+        }
+        let seed_marker = self.path(SEED_MARKER);
+        let projects = self.list_projects();
+        if !seed_marker.exists() && projects.is_empty() {
+            let mut doc = load_starter().map_err(LibraryError::Invalid)?;
+            let project = self.create_project(SEED_PROJECT)?;
+            doc.name = STARTER_FILE_NAME.into();
+            let entry = self.create_file(&project.id, None, STARTER_FILE_NAME, &doc)?;
+            write_atomic(&seed_marker, b"1")?;
+            write_atomic(&starter_marker, b"1")?;
+            return Ok(Some(entry));
+        }
+        if seed_marker.exists() {
+            let mut doc = load_starter().map_err(LibraryError::Invalid)?;
+            let project = match projects.into_iter().find(|p| p.name == SEED_PROJECT) {
+                Some(p) => p,
+                None => self.create_project(SEED_PROJECT)?,
+            };
+            let file_name = self.next_available_file_name(&project.id, STARTER_FILE_NAME, false)?;
+            doc.name = file_name.clone();
+            let entry = self.create_file(&project.id, None, &file_name, &doc)?;
+            write_atomic(&starter_marker, b"1")?;
+            return Ok(Some(entry));
+        }
+        // Pre-seed library: has existing projects but no `.seeded` marker; leave untouched.
+        Ok(None)
     }
 }
 

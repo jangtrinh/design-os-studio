@@ -1,0 +1,26 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.45s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 14 tests
+test terminal::gemini_status_tests::gemini_tool_permission_record_routes_to_its_tab_beside_a_claude_tab ... ok
+test terminal::gemini_status_tests::a_tool_permission_notification_waits_for_approval ... ok
+test terminal::gemini_status_tests::an_untagged_record_never_lands_on_a_gemini_tab ... ok
+test terminal::gemini_status_tests::agy_records_still_route_with_a_gemini_tab_open ... ok
+test terminal::gemini_status_tests::the_claude_grok_and_agy_status_hooks_stay_byte_identical ... ok
+test terminal::gemini_status_tests::the_status_hooks_cover_five_events_name_the_tab_and_print_nothing ... ok
+test terminal::capture_lock_tests::without_a_lock_in_the_way_a_capture_adds_its_tab_and_gives_the_lock_back ... ok
+test terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone ... ok
+test terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... ok
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... ok
+test terminal::capture_lock_tests::a_lock_that_stays_held_is_never_removed_by_a_capture_that_gave_up_waiting ... ok
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 3299 filtered out; finished in 12.21s
+

@@ -1,0 +1,27 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.81s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 1 test
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... FAILED
+
+failures:
+
+---- agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed stdout ----
+
+thread 'agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed' (36989124) panicked at crates/designos-app/src/agent_session_files/fs_sites_scan_tests.rs:113:5:
+1 problem(s) in the scan of shipped code:
+not listed: LINE	image_jobs.rs	1	if let Some(raw) = std::fs::read_to_string(&status_file_path).ok() {	REASON
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3201 filtered out; finished in 10.12s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

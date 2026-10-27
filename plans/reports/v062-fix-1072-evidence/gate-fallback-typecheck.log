@@ -1,0 +1,40 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Checking designos-app v0.6.1 (<worktree>/crates/designos-app)
+warning: variants `MakeWritable`, `DeleteLink`, `Unlock`, and `CheckItAndItsFolder` are never constructed
+  --> crates/designos-app/src/agent_session_files/refusal.rs:44:5
+   |
+40 | pub enum Fix {
+   |          --- variants in this enum
+...
+44 |     MakeWritable,
+   |     ^^^^^^^^^^^^
+...
+52 |     DeleteLink,
+   |     ^^^^^^^^^^
+...
+60 |     Unlock,
+   |     ^^^^^^
+...
+63 |     CheckItAndItsFolder,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `Fix` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `session` and `refuse_moves` are never read
+   --> crates/designos-app/src/agent_session_files/session_io.rs:182:5
+    |
+180 | pub struct SetAside {
+    |            -------- fields in this struct
+181 |     #[cfg_attr(not(unix), allow(dead_code))]
+182 |     session: PathBuf,
+    |     ^^^^^^^
+...
+188 |     refuse_moves: bool,
+    |     ^^^^^^^^^^^^
+
+warning: `designos-app` (bin "designos") generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.11s

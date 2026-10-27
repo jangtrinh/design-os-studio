@@ -1,0 +1,11 @@
+$ swiftc --version
+Apple Swift version 6.2.3 (swiftlang-6.2.3.3.21 clang-1700.6.3.2)
+Target: arm64-apple-macosx26.0
+$ swiftc -parse plans/reports/agy-rt03-1088-evidence/sample.swift
+exit_code=0
+$ out/cargo/debug/designos-diff --version
+designos-diff 0.6.1
+exit_code=0
+$ out/cargo/debug/designos-diff -V
+designos-diff 0.6.1
+exit_code=0

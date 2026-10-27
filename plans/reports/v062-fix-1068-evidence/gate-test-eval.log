@@ -1,0 +1,77 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling indexmap v2.14.2
+   Compiling zip v9.0.4
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+   Compiling designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+   Compiling designos-render v0.6.1 (<worktree>/crates/designos-render)
+   Compiling designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+   Compiling designos-export v0.6.1 (<worktree>/crates/designos-export)
+   Compiling designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+   Compiling designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+   Compiling designos-library v0.6.1 (<worktree>/crates/designos-library)
+   Compiling designos-eval v0.6.1 (<worktree>/crates/designos-eval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.22s
+     Running unittests src/lib.rs (out/cargo-1068/debug/deps/designos_eval-9a9f1f166d66684f)
+
+running 1 test
+test hash::tests::fips_180_4_vectors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (out/cargo-1068/debug/deps/designos_eval-30aca93b7d8d8c4a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/harness.rs (out/cargo-1068/debug/deps/harness-28beba16668beb59)
+
+running 16 tests
+test bootstrap_known_case ... ok
+test split_fraction_within_bounds ... ok
+test missing_register_refuses_the_run ... ok
+test held_out_refused_in_tuning ... ok
+test split_lock_mismatch_refused ... ok
+test unapproved_source_refused ... ok
+test bootstrap_is_reproducible ... ok
+test chatty_agent_is_not_recorded_as_a_timeout ... ok
+test unsaved_session_is_rebuilt_from_the_transcript ... ok
+test noop_agent_is_not_a_render_success ... ok
+test stub_run_writes_valid_jsonl ... ok
+test unimplemented_subcommands_fail_instead_of_pretending ... ok
+test replay_cli_uses_the_current_engine_for_every_tool ... ok
+test timed_out_agent_gets_sigterm_before_sigkill ... ok
+test live_runs_wire_the_agent_to_designos_mcp_not_to_the_eval_binary ... ok
+test jobs_run_tasks_side_by_side_and_keep_record_order ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/real_engine.rs (out/cargo-1068/debug/deps/real_engine-4a6cab08ce582fe8)
+
+running 8 tests
+test started_timestamp_is_rfc3339_utc ... ok
+test only_a_growing_undo_stack_counts_as_an_edit ... ok
+test mcp_client_reports_a_failing_tool_as_a_result_not_a_transport_error ... ok
+test transcript_logging_failure_fails_the_call ... ok
+test replay_stops_with_replay_diverged_when_a_recorded_success_now_fails ... ok
+test replay_follows_ids_and_creates_after_apply_spec_do_not_collide ... ok
+test replay_runs_in_a_sandbox_prepared_like_the_run ... ok
+test replay_reproduces_metrics_of_the_original_run ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+   Doc-tests designos_eval
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0 scratch_removed=yes

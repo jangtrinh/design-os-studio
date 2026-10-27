@@ -1,0 +1,14 @@
+--- a/crates/designos-app/src/gemini_status_hooks.rs
++++ b/crates/designos-app/src/gemini_status_hooks.rs
+@@ -166,10 +166,7 @@
+     };
+     let hook_paths = match crate::agent_hook_outputs::HookPaths::prepare(session_dir) {
+         Ok(paths) => paths,
+-        Err(e) => {
+-            eprintln!("design:os studio: Gemini CLI status hooks are off for this session, no hook can report: {e}");
+-            return None;
+-        }
++        Err(_) => crate::agent_hook_outputs::HookPaths::at(session_dir, session_dir),
+     };
+     let path = channel.join(format!("gemini-tab-{tab_id}.json"));
+     let written = serde_json::to_vec_pretty(&hooks_settings(&hook_paths, tab_id))

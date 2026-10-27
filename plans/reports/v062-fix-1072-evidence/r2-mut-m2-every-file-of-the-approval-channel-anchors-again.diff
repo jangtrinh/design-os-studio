@@ -1,0 +1,15 @@
+--- a/crates/designos-app/src/agent_session_files/folder.rs
++++ b/crates/designos-app/src/agent_session_files/folder.rs
+@@ -140,11 +140,7 @@
+         .skip(1)
+         .find(|dir| match anchor_of(dir) {
+             Some(Anchor::Session) => true,
+-            Some(Anchor::Channel) => path
+-                .strip_prefix(dir)
+-                .ok()
+-                .and_then(|below| below.components().next())
+-                .is_some_and(|first| first.as_os_str() == crate::agent_hook_outputs::DIR_NAME),
++            Some(Anchor::Channel) => true,
+             None => false,
+         })
+         .map(Path::to_path_buf)

@@ -5,6 +5,7 @@
 //! ("Your name"). See `model` for the pure logic, `pins` for the canvas tool and
 //! pins, `thread` for the popovers and `panel` for the right-hand list.
 
+#[cfg(any(test, feature = "fixtures"))]
 pub mod fixture;
 pub mod import;
 pub mod model;

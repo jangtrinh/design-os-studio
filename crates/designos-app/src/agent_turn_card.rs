@@ -55,7 +55,7 @@ pub fn revert_status_text(report: &RevertReport) -> String {
 
 /// Polls any pending `turn-marks.jsonl` lines and advances heuristic turn state for `tab_idx`.
 pub fn sync_tab_ledger(app: &mut App, tab_idx: usize) {
-    let expected_marks_path = app.terminal.live_patch.path.with_file_name("turn-marks.jsonl");
+    let expected_marks_path = app.terminal.hook_paths().turn_marks();
     if app.terminal.turn_marks.path() != expected_marks_path {
         app.terminal.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
     }

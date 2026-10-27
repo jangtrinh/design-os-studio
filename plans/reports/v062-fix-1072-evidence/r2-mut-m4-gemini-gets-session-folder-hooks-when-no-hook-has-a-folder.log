@@ -1,0 +1,28 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.94s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 2 tests
+test terminal::fail_closed_hook_tests::without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode ... ok
+test terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file ... FAILED
+
+failures:
+
+---- terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file stdout ----
+design:os studio: no hook can report for this session, so its agent tabs show no status: <tmp>/b1061.ERhJ3G/designos-approval-channels-test/8e9e11a549d1c978/hook-out is a file, not a folder
+
+thread 'terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file' (49208916) panicked at crates/designos-app/src/terminal/fail_closed_hook_tests.rs:98:9:
+Ask: Gemini's status hooks are off
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 3307 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

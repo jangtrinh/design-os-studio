@@ -1,0 +1,89 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.97s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 8 tests
+
+thread 'agent_session_files::inner_link_tests::a_usage_cache_for_a_folder_that_does_not_exist_yet_makes_it_private' (33204050) panicked at crates/designos-app/src/agent_session_files/inner_link_tests.rs:154:5:
+assertion `left == right` failed
+  left: 493
+ right: 448
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test agent_session_files::inner_link_tests::a_usage_cache_for_a_folder_that_does_not_exist_yet_makes_it_private ... FAILED
+
+thread 'image_jobs::tests::a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing' (33204051) panicked at crates/designos-app/src/image_jobs.rs:2332:9:
+assertion `left == right` failed: a job file went through the link
+  left: ["job-0001", "keep.txt"]
+ right: ["keep.txt"]
+test image_jobs::tests::a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing ... FAILED
+race: swaps=57 rewrites=2 refused=0 clean=0 other=2 HIT=1
+
+thread 'agent_session_files::inner_link_race_tests::no_byte_lands_in_the_target_of_a_link_swapped_in_while_studio_rewrites_the_session_files' (33204046) panicked at crates/designos-app/src/agent_session_files/inner_link_race_tests.rs:79:5:
+assertion `left == right` failed: bytes landed in the target of a link swapped in during a rewrite
+  left: 1
+ right: 0
+
+thread 'agent_session_files::inner_link_tests::a_link_at_a_folder_of_a_single_file_write_is_refused_and_its_target_is_untouched' (33204048) panicked at crates/designos-app/src/agent_session_files/inner_link_tests.rs:84:5:
+.gemini: the file went through the link, the target now holds ["keep.txt", "x.json"]
+.gemini: a link in the path must be refused as a link, got Ok(())
+.grok/hooks: the file went through the link, the target now holds ["keep.txt", "x.json"]
+.grok/hooks: a link in the path must be refused as a link, got Ok(())
+.agents/plugins: the file went through the link, the target now holds ["keep.txt", "x.json"]
+.agents/plugins: a link in the path must be refused as a link, got Ok(())
+test agent_session_files::inner_link_tests::a_link_at_a_folder_of_a_single_file_write_is_refused_and_its_target_is_untouched ... FAILED
+test agent_session_files::inner_link_race_tests::no_byte_lands_in_the_target_of_a_link_swapped_in_while_studio_rewrites_the_session_files ... FAILED
+
+thread 'agent_session_files::inner_link_tests::a_link_at_a_file_name_studio_writes_never_changes_what_it_points_at' (33204047) panicked at crates/designos-app/src/agent_session_files/inner_link_tests.rs:143:5:
+a write through the link at run.json changed its target
+a write through the link at skills-context-reply-1-0.json changed its target
+a write through the link at sessions.tmp.89508 changed its target
+test agent_session_files::inner_link_tests::a_link_at_a_file_name_studio_writes_never_changes_what_it_points_at ... FAILED
+test agent_session_files::gemini_config_tests::a_gemini_tab_in_skip_mode_starts_whatever_the_state_of_its_settings_folder ... ok
+
+thread 'agent_session_files::gemini_config_tests::an_ask_mode_gemini_tab_does_not_start_when_studio_cannot_rewrite_its_settings' (33204045) panicked at crates/designos-app/src/agent_session_files/gemini_config_tests.rs:46:26:
+the agent's settings would keep running, so the tab must not start: 0
+test agent_session_files::gemini_config_tests::an_ask_mode_gemini_tab_does_not_start_when_studio_cannot_rewrite_its_settings ... FAILED
+
+thread 'agent_session_files::inner_link_tests::a_link_at_any_folder_below_the_session_folder_receives_no_session_file' (33204049) panicked at crates/designos-app/src/agent_session_files/inner_link_tests.rs:64:5:
+.gemini: Studio wrote through the link, the target now holds ["keep.txt", "settings.json", "trustedFolders.json"]
+.gemini: the refusal must be typed and name the link, got Ok(())
+.grok: Studio wrote through the link, the target now holds ["config.toml", "hooks", "keep.txt"]
+.grok: the refusal must be typed and name the link, got Ok(())
+.grok/hooks: Studio wrote through the link, the target now holds ["designos-status.json", "keep.txt"]
+.grok/hooks: the refusal must be typed and name the link, got Ok(())
+.agents: Studio wrote through the link, the target now holds ["hooks.json", "keep.txt", "plugins", "skills"]
+.agents: the refusal must be typed and name the link, got Ok(())
+.agents/plugins: Studio wrote through the link, the target now holds ["designos", "keep.txt"]
+.agents/plugins: the refusal must be typed and name the link, got Ok(())
+.agents/plugins/designos: Studio wrote through the link, the target now holds ["keep.txt", "mcp_config.json", "plugin.json"]
+.agents/plugins/designos: the refusal must be typed and name the link, got Ok(())
+.agents/skills: Studio wrote through the link, the target now holds ["designos-studio", "keep.txt"]
+.agents/skills: the refusal must be typed and name the link, got Ok(())
+.agents/skills/designos-studio: Studio wrote through the link, the target now holds ["SKILL.md", "keep.txt"]
+.agents/skills/designos-studio: the refusal must be typed and name the link, got Ok(())
+.claude: Studio wrote through the link, the target now holds ["keep.txt", "skills"]
+.claude: the refusal must be typed and name the link, got Ok(())
+.claude/skills: Studio wrote through the link, the target now holds ["designos-studio", "keep.txt"]
+.claude/skills: the refusal must be typed and name the link, got Ok(())
+.claude/skills/designos-studio: Studio wrote through the link, the target now holds ["SKILL.md", "keep.txt"]
+.claude/skills/designos-studio: the refusal must be typed and name the link, got Ok(())
+test agent_session_files::inner_link_tests::a_link_at_any_folder_below_the_session_folder_receives_no_session_file ... FAILED
+
+failures:
+
+failures:
+    agent_session_files::gemini_config_tests::an_ask_mode_gemini_tab_does_not_start_when_studio_cannot_rewrite_its_settings
+    agent_session_files::inner_link_race_tests::no_byte_lands_in_the_target_of_a_link_swapped_in_while_studio_rewrites_the_session_files
+    agent_session_files::inner_link_tests::a_link_at_a_file_name_studio_writes_never_changes_what_it_points_at
+    agent_session_files::inner_link_tests::a_link_at_a_folder_of_a_single_file_write_is_refused_and_its_target_is_untouched
+    agent_session_files::inner_link_tests::a_link_at_any_folder_below_the_session_folder_receives_no_session_file
+    agent_session_files::inner_link_tests::a_usage_cache_for_a_folder_that_does_not_exist_yet_makes_it_private
+    image_jobs::tests::a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing
+
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 3103 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,62 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.84s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 36 tests
+test agent_session_files::fallback_set_aside_tests::where_studio_moves_nothing_a_folder_with_only_studios_entries_is_fine ... ok
+test agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched ... FAILED
+test agent_session_files::fallback_set_aside_tests::the_fallback_only_lists_and_a_folder_swapped_for_a_link_loses_nothing_that_is_not_studios_to_remove ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_it_cannot_move_a_hook_file_out_of_a_read_only_folder ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_it_cannot_move_a_plugin_out_of_a_read_only_folder ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_its_hooks_do_not_read_back_as_written ... ok
+test agent_session_files::exact_config_race_tests::a_hook_file_that_appears_while_studio_writes_stops_a_grok_tab_and_is_set_aside ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_its_config_does_not_read_back_as_written ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_studio_cannot_write_its_hooks_into_a_read_only_folder ... ok
+test agent_session_files::exact_config_race_tests::a_plugin_that_appears_while_studio_writes_stops_an_agy_tab_and_is_set_aside ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_does_not_start_when_a_link_stands_where_a_folder_it_needs_should_be ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_subagent_definition_that_declares_servers_and_a_command_policy ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_workspace_mcp_config_an_agent_added_and_starts ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_aside_a_plugin_an_agent_added_and_starts ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_does_not_start_when_studio_cannot_rewrite_its_hooks_in_a_read_only_agents_folder ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::agy_config_tests::an_ask_mode_agy_tab_keeps_only_studios_two_files_in_its_plugin_and_rewrites_the_hooks ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_in_a_clean_folder_starts_with_exactly_studios_files ... ok
+test agent_session_files::set_aside_tests::a_link_or_a_file_where_the_set_aside_folder_goes_stops_the_tab ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_a_hook_file_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_a_link_at_a_file_name_aside_as_a_link_and_never_touches_what_it_points_at ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_agent_definition_that_shadows_a_built_in_subagent ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_an_mcp_json_an_agent_added_and_starts ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_rewrites_a_project_config_an_agent_edited ... ok
+test agent_session_files::grok_config_tests::an_ask_mode_grok_tab_moves_aside_every_other_project_source_grok_would_run_and_keeps_what_is_not_one ... ok
+test agent_session_files::set_aside_tests::an_entry_the_agent_takes_away_before_it_is_moved_counts_as_gone_not_as_a_failure ... ok
+test agent_session_files::set_aside_tests::a_folder_and_a_link_are_moved_whole_without_being_walked_or_followed ... ok
+test agent_session_files::set_aside_tests::a_fifo_is_moved_without_being_opened ... ok
+test agent_session_files::set_aside_tests::the_spawned_line_says_nothing_about_a_set_aside_when_nothing_was_moved ... ok
+test agent_session_files::set_aside_tests::an_entry_is_moved_with_its_content_below_a_new_folder_under_a_name_made_of_its_path ... ok
+test agent_session_files::set_aside_tests::each_start_makes_a_new_folder_and_the_earlier_ones_stay ... ok
+test agent_session_files::set_aside_tests::the_spawned_line_says_what_was_moved_and_where ... ok
+test agent_session_files::agy_config_tests::an_agy_tab_in_skip_mode_starts_whatever_the_agents_folder_holds ... ok
+test agent_session_files::grok_config_tests::a_grok_tab_in_skip_mode_starts_whatever_the_project_folder_holds ... ok
+
+failures:
+
+---- agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched stdout ----
+design:os studio: moved <tmp>/b1061.IwPZuM/designos test data/73473/sessions/p73473-fallback-refuses-16347310/.grok/hooks/evil.json to .designos-set-aside/20261024-205856-7aec46/.grok__hooks__evil.json: Studio does not write it, and Grok would run it
+
+thread 'agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched' (41053432) panicked at crates/designos-app/src/agent_session_files/fallback_set_aside_tests.rs:18:115:
+evil.json is not Studio's: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::fallback_set_aside_tests::an_entry_that_is_not_studios_is_refused_where_studio_moves_nothing_and_nothing_is_touched
+
+test result: FAILED. 35 passed; 1 failed; 0 ignored; 0 measured; 3227 filtered out; finished in 1.69s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,10 @@
+--- a/crates/designos-app/src/agent_turn_marks.rs
++++ b/crates/designos-app/src/agent_turn_marks.rs
+@@ -164,6 +164,6 @@
+     let patch_q = sh_quote_path(patch_log_path);
+     format!(
+         "n=$( ({SIZE_OF_COMMAND} {patch_q}) 2>/dev/null || echo 0); case \"$n\" in ''|*[!0-9]*) n=0;; esac; \
+-         {{ printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}; }} 2>/dev/null || true"
++         {{ printf '{{\"v\":{TURN_MARK_VERSION},\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}; }}"
+     )
+ }

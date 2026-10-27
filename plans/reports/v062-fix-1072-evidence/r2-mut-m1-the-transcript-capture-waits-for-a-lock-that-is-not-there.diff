@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_usage.rs
++++ b/crates/designos-app/src/agent_usage.rs
+@@ -256,7 +256,7 @@
+            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
+            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
+            if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
+-             i=0; while ! mkdir {lock} 2>/dev/null && [ -e {lock} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
++             i=0; while ! mkdir {lock} 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
+              prev=\"\"; \
+              if [ -f {dest} ]; then \
+                prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \

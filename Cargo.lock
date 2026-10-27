@@ -940,7 +940,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "designos-app"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "arboard",
  "base64",
@@ -958,6 +958,7 @@ dependencies = [
  "eframe",
  "egui",
  "image",
+ "libc",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "open",
@@ -975,11 +976,12 @@ dependencies = [
  "uuid",
  "vt100",
  "winresource",
+ "zbus",
 ]
 
 [[package]]
 name = "designos-diff"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "clap",
  "image",
@@ -989,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "designos-doc"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "regex",
  "schemars",
@@ -1000,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "designos-eval"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "clap",
  "designos-doc",
@@ -1019,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "designos-export"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "base64",
  "designos-doc",
@@ -1032,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "designos-fig"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "base64",
  "designos-doc",
@@ -1049,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "designos-fonts"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "designos-doc",
  "dirs",
@@ -1061,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "designos-gpu"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "bytemuck",
  "designos-diff",
@@ -1076,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "designos-library"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "designos-doc",
  "designos-fig",
@@ -1090,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "designos-mcp"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "designos-diff",
  "designos-doc",
@@ -1100,6 +1102,7 @@ dependencies = [
  "designos-render",
  "designos-webcapture",
  "jsonschema",
+ "libc",
  "quick-xml",
  "rmcp",
  "schemars",
@@ -1110,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "designos-render"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "cosmic-text",
  "designos-doc",
@@ -1126,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "designos-svg"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "base64",
  "designos-doc",
@@ -1143,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "designos-webcapture"
-version = "0.6.1"
+version = "0.6.5"
 dependencies = [
  "designos-diff",
  "designos-doc",

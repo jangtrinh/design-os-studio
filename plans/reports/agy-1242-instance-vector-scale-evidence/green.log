@@ -1,0 +1,15 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.24s
+     Running tests/instance_vector_scale.rs (out/cargo/debug/deps/instance_vector_scale-c4635ba3c57778dc)
+
+running 4 tests
+test resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size ... ok
+test unchanged_instance_at_main_component_size_keeps_byte_identical_geometry ... ok
+test nested_icon_instance_inside_resized_button_instance_scales_child_vectors ... ok
+test resized_instance_with_derived_stroke_geometry_applies_scaled_outline_in_small_and_large_files ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+

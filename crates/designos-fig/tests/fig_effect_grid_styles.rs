@@ -170,7 +170,7 @@ fn a_soft_deleted_style_is_ignored() {
     assert_eq!(deleted.effects.len(), 1);
     assert!(matches!(deleted.effects[0], Effect::LayerBlur { radius, .. } if radius == 3.0), "keeps its own effects, not the deleted style's");
     assert!(!d.style_meta.contains_key("2:102"), "no metadata for a deleted style");
-    assert!(!deleted.style_refs.contains_key("effect"), "the consumer is left unlinked");
+    assert_eq!(deleted.style_refs.get("effect").map(String::as_str), Some("2:102"), "the consumer keeps style_refs so .fig export round-trips");
 }
 
 #[test]
@@ -969,4 +969,123 @@ fn style_description_fig_round_trip_keeps_empty_and_non_empty_descriptions() {
     let (_, fx_meta) = imported_with_desc.style_meta.iter().find(|(_, m)| m.name == "Shadows/sm").expect("Shadows/sm imported");
     assert_eq!(fill_meta.description, "Primary brand surface");
     assert_eq!(fx_meta.description, "");
+}
+
+#[test]
+fn us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs() {
+    let own_fx = msg(vec![
+        ("type", en("DROP_SHADOW")),
+        ("color", color(0.0, 0.0, 0.0, 0.05)),
+        ("offset", vec2(0.0, 1.0)),
+        ("radius", fl(2.0)),
+        ("spread", fl(0.0)),
+        ("visible", V::Bool(true)),
+    ]);
+    let mut removed_style =
+        style_node(100350, "Shadow/Removed", "EFFECT", "key-removed", vec![("effects", V::Array(vec![blur(77.0)])), ("phase", en("REMOVED"))]);
+    if let V::Message(ref mut fields) = removed_style {
+        for (k, v) in fields.iter_mut() {
+            if k.as_ref() == "guid" {
+                *v = guid(1186, 100350);
+            }
+        }
+    }
+    let nodes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![("backgroundColor", color(1.0, 1.0, 1.0, 1.0))]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        style_node(100, "Shadow/Card", "EFFECT", "key-fx", vec![("effects", V::Array(vec![shadow(8.0)]))]),
+        style_node(
+            102,
+            "Shadow/SoftDeletedStyle",
+            "EFFECT",
+            "key-sd-style",
+            vec![("effects", V::Array(vec![blur(99.0)])), ("isSoftDeletedStyle", V::Bool(true))],
+        ),
+        style_node(104, "Shadow/SoftDeletedNode", "EFFECT", "key-sd-node", vec![("effects", V::Array(vec![blur(88.0)])), ("isSoftDeleted", V::Bool(true))]),
+        removed_style,
+        style_node(106, "Library/Elevation", "EFFECT", "key-lib-emb", vec![("effects", V::Array(vec![shadow(12.0)]))]),
+        frame(10, "SoftDeletedStyleLayer", vec![("styleIdForEffect", sref(102)), ("effects", V::Array(vec![own_fx.clone()]))]),
+        frame(11, "SoftDeletedNodeLayer", vec![("styleIdForEffect", sref(104)), ("effects", V::Array(vec![own_fx.clone()]))]),
+        frame(12, "RemovedPhaseLayer", vec![("styleIdForEffect", msg(vec![("guid", guid(1186, 100350))])), ("effects", V::Array(vec![own_fx.clone()]))]),
+        frame(13, "MissingNodeLayer", vec![("styleIdForEffect", sref(999)), ("effects", V::Array(vec![own_fx.clone()]))]),
+        frame(
+            14,
+            "MissingLibraryLayer",
+            vec![
+                ("styleIdForEffect", msg(vec![("assetRef", msg(vec![("key", V::String("ext-missing".into())), ("version", V::String("1".into()))]))])),
+                ("effects", V::Array(vec![own_fx])),
+            ],
+        ),
+        frame(
+            15,
+            "EmbeddedLibraryLayer",
+            vec![
+                ("styleIdForEffect", msg(vec![("assetRef", msg(vec![("key", V::String("key-lib-emb".into())), ("version", V::String("1".into()))]))])),
+                ("effects", V::Array(vec![shadow(1.0)])),
+            ],
+        ),
+    ];
+    let message = msg(vec![("nodeChanges", V::Array(nodes))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    let bytes = container::write_container(&schema.encode(), &body, Compression::Zstd, 101);
+
+    let d1 = import_fig(&bytes).unwrap();
+    let d2 = import_fig(&export_fig(&d1).unwrap()).unwrap();
+
+    for (label, d) in [("imported", &d1), ("re-imported", &d2)] {
+        for orphan_id in ["2:102", "2:104", "1186:100350", "2:999", "key:ext-missing"] {
+            assert!(!d.style_meta.contains_key(orphan_id), "{label}: orphan {orphan_id} must not be in style_meta");
+        }
+        for (layer_name, expected_ref) in [
+            ("SoftDeletedStyleLayer", "2:102"),
+            ("SoftDeletedNodeLayer", "2:104"),
+            ("RemovedPhaseLayer", "1186:100350"),
+            ("MissingNodeLayer", "2:999"),
+            ("MissingLibraryLayer", "key:ext-missing"),
+        ] {
+            let n = find(d, layer_name);
+            assert_eq!(n.style_refs.get("effect").map(String::as_str), Some(expected_ref), "{label}: {layer_name} keeps style_refs");
+            assert_eq!(n.effects.len(), 1, "{label}: {layer_name} keeps its own effect");
+            match &n.effects[0] {
+                Effect::DropShadow { color, offset, radius, .. } => {
+                    assert_eq!((offset.x, offset.y, *radius), (0.0, 1.0, 2.0), "{label}: {layer_name} effect geometry unchanged");
+                    assert!((color.a - 0.05).abs() < 1e-3, "{label}: {layer_name} effect alpha unchanged ({})", color.a);
+                }
+                other => panic!("{label}: expected DropShadow on {layer_name}, got {other:?}"),
+            }
+        }
+        let emb = find(d, "EmbeddedLibraryLayer");
+        let emb_ref = emb.style_refs.get("effect").expect("embedded library style ref preserved");
+        assert_eq!(d.style_name(emb_ref), "Library/Elevation", "{label}: embedded library style keeps its embedded name");
+        assert_eq!(drop_shadow_radius(&emb.effects[0]), 12.0, "{label}: embedded library style supplies its values");
+    }
+}
+
+#[test]
+fn us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks() {
+    let nodes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![("backgroundColor", color(1.0, 1.0, 1.0, 1.0))]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        style_node(201, "", "FILL", "k-fill", vec![("fillPaints", V::Array(vec![solid(1.0, 0.0, 0.0)]))]),
+        style_node(202, "   ", "STROKE", "k-stroke", vec![("fillPaints", V::Array(vec![solid(0.0, 1.0, 0.0)]))]),
+        style_node(203, "", "TEXT", "k-text", vec![("fontSize", fl(16.0))]),
+        style_node(204, " \t ", "EFFECT", "k-fx", vec![("effects", V::Array(vec![shadow(4.0)]))]),
+        style_node(205, "", "GRID", "k-grid", vec![("layoutGrids", V::Array(vec![columns(12)]))]),
+    ];
+    let message = msg(vec![("nodeChanges", V::Array(nodes))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    let bytes = container::write_container(&schema.encode(), &body, Compression::Zstd, 101);
+
+    let d = import_fig(&bytes).unwrap();
+    assert_eq!(d.style_name("2:201"), "Unnamed fill style");
+    assert_eq!(d.style_name("2:202"), "Unnamed fill style");
+    assert_eq!(d.style_name("2:203"), "Unnamed text style");
+    assert_eq!(d.style_name("2:204"), "Unnamed effect style");
+    assert_eq!(d.style_name("2:205"), "Unnamed grid style");
 }

@@ -1,0 +1,86 @@
+FOUND  Create text style  -> 2 hits, e.g. crates/designos-app/src/panels/style_picker.rs:94
+FOUND  Rename style  -> 6 hits, e.g. crates/designos-app/src/panels/style_picker.rs:115
+FOUND  Detach style  -> 2 hits, e.g. crates/designos-app/src/panels/style_picker.rs:116
+FOUND  Edit style  -> 22 hits, e.g. crates/designos-app/src/panels/effects.rs:215
+FOUND  Text style {n}  -> 1 hits, e.g. crates/designos-app/src/styles/text_style_ops.rs:45
+FOUND  Text has mixed styles  -> 1 hits, e.g. crates/designos-app/src/panels/style_picker.rs:49
+FOUND  Selected text has mixed styles  -> 2 hits, e.g. crates/designos-app/src/panels/style_picker.rs:50
+FOUND  Type some text first  -> 2 hits, e.g. crates/designos-app/src/styles/new_text_box.rs:12
+FOUND  Only the new text box was styled  -> 2 hits, e.g. crates/designos-app/src/styles/new_text_box.rs:15
+FOUND  Needs approval  -> 22 hits, e.g. crates/designos-app/src/agent_a11y.rs:222
+FOUND  Gemini CLI needs approval in its terminal  -> 1 hits, e.g. crates/designos-app/src/terminal/gemini_wait_tests.rs:18 (test file only)
+FOUND  Open tab  -> 9 hits, e.g. crates/designos-app/src/agent_approval_card.rs:35
+FOUND  Answer the permission prompt in the terminal  -> 1 hits, e.g. crates/designos-app/src/agent_composer.rs:84
+COMPOSED/NOT-VERBATIM  designos-diff --version  -> ['designos-diff': 13 hits e.g. crates/designos-diff/Cargo.toml:2]
+FOUND  -V  -> 20 hits, e.g. crates/designos-app/src/cli.rs:100
+COMPOSED/NOT-VERBATIM  designos-diff {version}  -> ['designos-diff': 13 hits e.g. crates/designos-diff/Cargo.toml:2]
+FOUND  designos-mcp  -> 188 hits, e.g. crates/designos-app/Cargo.toml:37
+FOUND  session_file_warnings  -> 13 hits, e.g. crates/designos-mcp/README.md:80
+FOUND  --setting-sources user  -> 8 hits, e.g. crates/designos-app/src/agent_permissions.rs:95
+FOUND  .mcp.json  -> 58 hits, e.g. crates/designos-app/src/agent_permissions.rs:88
+FOUND  .envrc  -> 23 hits, e.g. crates/designos-app/src/agent_project_config.rs:12
+FOUND  GROK_ENVRC_TIMEOUT_SECS  -> 5 hits, e.g. crates/designos-app/src/agent_project_config.rs:15
+FOUND  0  -> 44558 hits, e.g. crates/designos-app/Cargo.toml:28
+COMPOSED/NOT-VERBATIM  .designos-set-aside/{stamp}/  -> ['.designos-set-aside/': 13 hits e.g. crates/designos-app/src/agent_session_files/exact_config_race_tests.rs:22]
+FOUND  .claude/settings.json  -> 11 hits, e.g. crates/designos-app/src/agent_permissions.rs:87
+FOUND  .claude/settings.local.json  -> 14 hits, e.g. crates/designos-app/src/agent_permissions.rs:88
+FOUND  .claude/plugins  -> 3 hits, e.g. crates/designos-app/src/agent_project_config.rs:67
+FOUND  .claude/agents  -> 6 hits, e.g. crates/designos-app/src/agent_project_config.rs:51
+FOUND  openat  -> 22 hits, e.g. crates/designos-app/Cargo.toml:57
+FOUND  <data dir>/designos/sessions  -> 14 hits, e.g. crates/designos-app/src/agent_session_files/folder.rs:6
+COMPOSED/NOT-VERBATIM  ~/Library/Application Support/designos/sessions  -> ['~/Library/Application Support/designos/ap': 1 hits e.g. crates/designos-app/src/agent_approval_channel.rs:11] ['sessions_root_beside': 4 hits e.g. crates/designos-app/src/agent_session_files.rs:15]
+COMPOSED/NOT-VERBATIM  $TMPDIR/designos-sessions  -> ['designos-sessions': 16 hits e.g. crates/designos-app/src/agent_approval_channel.rs:236]
+COMPOSED/NOT-VERBATIM  Couldn't start {tab}: {path} is a link, not a folder. Delete the link, then try again.  -> ["Couldn't start": 37 hits e.g. crates/designos-app/src/agent_session_files/agy_config_tests.rs:124] ['is a link, not a folder. Delete the link, then try again.': 10 hits e.g. crates/designos-app/src/agent_session_files/agy_config_tests.rs:169]
+COMPOSED/NOT-VERBATIM  Couldn't use this file's agent folder: {path} is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen this design file.  -> ["Couldn't use this file's agent folder:": 10 hits e.g. crates/designos-app/src/agent_session_files/folder_message_tests.rs:84] ["is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen this design file.": 1 hits e.g. crates/designos-app/src/agent_session_files/folder_message_tests.rs:84]
+FOUND  Couldn't update the agent files:  -> 3 hits, e.g. crates/designos-app/src/agent_session_files/refusal.rs:199
+FOUND  AGENTS.md  -> 24 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:185
+FOUND  GEMINI.md  -> 14 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:186
+FOUND  DESIGNOS_DOC_NAME  -> 20 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:84
+FOUND  DESIGNOS_TARGET_PAGE_NAME  -> 5 hits, e.g. crates/designos-app/src/terminal.rs:79
+FOUND  $DESIGNOS_DOC_NAME  -> 15 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:84
+FOUND  designos_get_app_state  -> 53 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:84
+FOUND  +  -> 8707 hits, e.g. crates/designos-app/Cargo.toml:21
+FOUND  DESIGNOS_SESSION_DIR  -> 93 hits, e.g. crates/designos-app/src/agent_permissions.rs:84
+FOUND  .designos  -> 572 hits, e.g. crates/designos-app/src/agent_open_flow.rs:1553
+FOUND  \  -> 2708 hits, e.g. crates/designos-app/build.rs:17
+FOUND  "  -> 75632 hits, e.g. crates/designos-app/Cargo.toml:2
+FOUND  \(  -> 21 hits, e.g. crates/designos-app/src/agent_failure_patterns.toml:98
+FOUND  ${y}  -> 6 hits, e.g. crates/designos-export/src/swiftui.rs:675
+FOUND  $  -> 1216 hits, e.g. crates/designos-app/src/agent_a11y.rs:206
+FOUND  .fig  -> 818 hits, e.g. crates/designos-app/src/agent_busy_frames.rs:119
+FOUND  designos_export_fig_file  -> 55 hits, e.g. crates/designos-app/src/agent_turn_status.rs:501
+FOUND  overwrite  -> 184 hits, e.g. crates/designos-app/src/agent_busy_frames.rs:668
+FOUND  already exists. Choose a new path, then try again.  -> 5 hits, e.g. crates/designos-mcp/src/engine.rs:1605
+FOUND  already exists. Pass overwrite: true to replace it.  -> 6 hits, e.g. crates/designos-mcp/src/engine.rs:1601
+FOUND  !  -> 46291 hits, e.g. crates/designos-app/assets/icons/lucide/align-center-horizontal.svg:1
+FOUND  @path  -> 5 hits, e.g. crates/designos-mcp/src/rules.rs:762
+FOUND  $TMPDIR  -> 6 hits, e.g. crates/designos-app/src/agent_approval_channel.rs:6
+FOUND  workspace-write  -> 5 hits, e.g. crates/designos-app/src/agent_approval_channel.rs:6
+FOUND  /tmp  -> 92 hits, e.g. crates/designos-app/src/agent_approval_channel.rs:6
+FOUND  mcp-config.json  -> 79 hits, e.g. crates/designos-app/src/agent_approval_channel.rs:16
+FOUND  mkdir  -> 22 hits, e.g. crates/designos-app/Cargo.toml:57
+FOUND  live-spec.json  -> 30 hits, e.g. crates/designos-app/src/agent_sample_prompts.rs:489
+FOUND  canvas.designos  -> 81 hits, e.g. crates/designos-app/src/agent_session_files.rs:763
+FOUND  doc-sync.designos  -> 44 hits, e.g. crates/designos-app/src/agent_session_files.rs:764
+FOUND  doc-patch.jsonl  -> 118 hits, e.g. crates/designos-app/src/agent_session_files.rs:767
+FOUND  context.json  -> 64 hits, e.g. crates/designos-app/src/agent_session_files.rs:766
+FOUND  bootstrap.json  -> 24 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:208
+FOUND  session-options.json  -> 17 hits, e.g. crates/designos-mcp/README.md:78
+FOUND  idempotency-ledger.jsonl  -> 13 hits, e.g. crates/designos-mcp/README.md:78
+FOUND  <path> is a link, not a file. Delete the link, then try again.  -> 1 hits, e.g. crates/designos-mcp/README.md:82
+FOUND  --screenshot  -> 34 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:16
+FOUND  children  -> 3265 hits, e.g. crates/designos-app/src/agent_busy_frames.rs:300
+FOUND  No, suggest changes  -> 9 hits, e.g. crates/designos-app/src/gemini_dialog.rs:5
+DOCS   tools.allowed  -> 2 hits in docs, e.g. docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135
+FOUND  .gemini/settings.json  -> 17 hits, e.g. crates/designos-app/src/terminal.rs:266
+FOUND  hooks  -> 570 hits, e.g. crates/designos-app/src/agent_approval_channel.rs:4
+DOCS   tools.discoveryCommand  -> 1 hits in docs, e.g. docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138
+FOUND  .gemini  -> 99 hits, e.g. crates/designos-app/src/agent_composer.rs:365
+FOUND  designos  -> 6123 hits, e.g. crates/designos-app/Cargo.toml:2
+FOUND  ToolPermission  -> 7 hits, e.g. crates/designos-app/src/agent_turn_status.rs:714
+FOUND  ask_user  -> 1 hits, e.g. crates/designos-app/src/gemini_dialog.rs:16
+FOUND  exit_plan_mode  -> 1 hits, e.g. crates/designos-app/src/gemini_dialog.rs:16
+FOUND  permission_prompt  -> 3 hits, e.g. crates/designos-app/src/agent_turn_status.rs:132
+FOUND  .spec.json  -> 45 hits, e.g. crates/designos-app/src/agent_selection_chip.rs:5
+FOUND  designos_specs  -> 2 hits, e.g. crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:19
+FOUND  tty  -> 151 hits, e.g. crates/designos-app/src/agent_permissions.rs:209

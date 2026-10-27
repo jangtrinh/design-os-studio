@@ -1,0 +1,37 @@
+$ cargo test -p designos-doc --lib --locked us01_ac02_round2
+running 1 test
+test tests::us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes ... FAILED
+
+failures:
+
+---- tests::us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes stdout ----
+
+thread 'tests::us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes' (574422) panicked at crates/designos-doc/src/lib.rs:2053:13:
+assertion `left == right` failed: is_table_style("S:orphan-19") mismatch
+  left: true
+ right: false
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 633 filtered out; finished in 3.61s
+
+$ cargo test -p designos-app --bin designos --locked us01_ac02_round2
+running 1 test
+test panels::style_picker::tests::us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget ... FAILED
+
+failures:
+
+---- panels::style_picker::tests::us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget stdout ----
+
+thread 'panels::style_picker::tests::us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget' (615857) panicked at crates/designos-app/src/panels/style_picker.rs:395:9:
+style_entries_of on 200,000 nodes and 50 styles took 1.810319125s (budget 50ms); must not walk nodes
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::style_picker::tests::us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3349 filtered out; finished in 2.39s

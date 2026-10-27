@@ -33,7 +33,7 @@ fn prop_init_params(props: &[PropParam], taken: &mut Vec<String>) -> Vec<(String
             let name = prop_ident(&p.name, Lang::Swift, taken);
             let decl = match &p.default {
                 PropDefault::Bool(b) => format!("{name}: Bool = {b}"),
-                PropDefault::Text(t) | PropDefault::Variant { value: t, .. } => format!("{name}: String = {}", quote(t)),
+                PropDefault::Text(t) | PropDefault::Variant { value: t, .. } => format!("{name}: String = {}", swift_quote(t)),
                 PropDefault::Instance(v) => format!("{name}: AnyView = AnyView({})", v.as_ref().map_or("EmptyView()".to_string(), |v| format!("{v}()"))),
             };
             (name, decl)
@@ -91,7 +91,7 @@ fn slot_view(doc: &Document, n: &Node, slots: &[SlotInfo], o: &mut Out) {
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
     if let Some(v) = bound(doc, n, key) {
-        return token_text(v, CodeSyntaxPlatform::Ios, || format!("Color(\"{}\")", token_camel(v, true)));
+        return token_text(v, CodeSyntaxPlatform::Ios, || format!("Color({})", swift_quote(&token_camel(v, true))));
     }
     let a = (c.a * opacity).clamp(0.0, 1.0);
     let base = if c.r == 1.0 && c.g == 1.0 && c.b == 1.0 {
@@ -244,7 +244,7 @@ pub(crate) fn weight_name(w: u16) -> &'static str {
 
 fn text_mods(doc: &Document, n: &Node, t: &TextProps, m: &mut Vec<String>) {
     let s = &t.style;
-    m.push(format!(".font(.custom(\"{}\", size: {}))", s.font_family, dimension(doc, n, "fontSize", s.font_size)));
+    m.push(format!(".font(.custom({}, size: {}))", swift_quote(&s.font_family), dimension(doc, n, "fontSize", s.font_size)));
     if s.font_weight != 400 {
         m.push(format!(".fontWeight({})", weight_name(s.font_weight)));
     }
@@ -352,7 +352,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             .into_iter()
             .map(|(name, lit)| match lit {
                 PropLit::Bool(b) => format!("{name}: {b}"),
-                PropLit::Text(t) => format!("{name}: {}", quote(&t)),
+                PropLit::Text(t) => format!("{name}: {}", swift_quote(&t)),
                 PropLit::Instance(v) => format!("{name}: AnyView({v}())"),
             })
             .collect();
@@ -388,11 +388,11 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             mods.push(f);
         }
     } else if is_vector_asset(doc, id) {
-        head.push(format!("Image(\"{}\")", kebab(&n.name)));
+        head.push(format!("Image({})", swift_quote(&kebab(&n.name))));
         mods.push(".resizable()".into());
         mods.push(format!(".frame(width: {}, height: {})", num(n.size.x), num(n.size.y)));
     } else if let Some(t) = text_of(n) {
-        head.push(format!("Text({})", quote(&t.content)));
+        head.push(format!("Text({})", swift_quote(&t.content)));
         text_mods(doc, n, t, &mut mods);
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
@@ -665,5 +665,139 @@ mod tests {
         d.relayout_subtree(grid);
         let out = swiftui_for(&d, grid);
         assert!(out.contains("maxWidth: .infinity"), "horizontal Fill in grid stays maxWidth: .infinity: {out}");
+    }
+
+    #[test]
+    fn golden_text_and_prop_string_literals_escape_swift_special_chars() {
+        let (mut d, id) = fixture::card();
+        let children = d.get(id).unwrap().children.clone();
+        if let NodeKind::Text(t) = &mut d.get_mut(children[0]).unwrap().kind {
+            t.content = "cost ${y} and \\(x)".into();
+        }
+        if let NodeKind::Text(t) = &mut d.get_mut(children[1]).unwrap().kind {
+            t.content = "Say \"hi\" \\ path\nline2\ttab\rcr\u{1} \u{1f680}".into();
+        }
+        let row_children = d.get(children[2]).unwrap().children.clone();
+        d.get_mut(row_children[0])
+            .unwrap()
+            .component
+            .values
+            .insert("Label".into(), PropValue::Text("Pay ${amount} (\"now\")\n\t\\(fast)\u{7} \u{1f680}".into()));
+
+        let expected = r####"VStack(alignment: .leading, spacing: 8) {
+    Text("cost ${y} and \\(x)")
+        .font(.custom("Inter", size: 20))
+        .fontWeight(.semibold)
+        .foregroundColor(Color(red: 0.067, green: 0.067, blue: 0.067))
+    Text("Say \"hi\" \\ path\nline2\ttab\rcr\u{1} 🚀")
+        .font(.custom("Inter", size: 14))
+        .foregroundColor(Color("textMuted"))
+        .multilineTextAlignment(.center)
+        .lineSpacing(6)
+        .frame(maxWidth: .infinity)
+    HStack(spacing: Tokens.spacingMd) {
+        Spacer()
+        Button(label: "Pay ${amount} (\"now\")\n\t\\(fast)\u{7} 🚀", disabled: true)
+            .frame(width: 80, height: 32)
+        Circle()
+            .fill(Color(red: 1, green: 0, blue: 0))
+            .frame(width: 24, height: 24)
+        Spacer()
+    }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color("primary")))
+}
+    .padding(16)
+    .frame(width: 312, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
+    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 1))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 4)"####;
+        let out = swiftui_for(&d, id);
+        assert_eq!(out, expected);
+
+        if std::process::Command::new("swiftc").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            let dir = std::env::temp_dir().join(format!("designos-swiftui-parse-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join("Sample.swift");
+            let indented: String = out.lines().map(|l| format!("        {l}\n")).collect();
+            let swift_src = format!("import SwiftUI\n\nstruct Sample: View {{\n    var body: some View {{\n{indented}    }}\n}}\n");
+            std::fs::write(&file, &swift_src).unwrap();
+            let parse = std::process::Command::new("swiftc").arg("-parse").arg(&file).output().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
+        }
+    }
+
+    #[test]
+    fn slot_component_prop_defaults_and_font_names_escape_swift_literals() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let comp_id = d.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        comp.name = "Banner".into();
+        comp.size = Vec2::new(200.0, 60.0);
+        comp.component.props = vec![
+            ComponentPropDef { name: "Title#1:0".into(), kind: PropKind::Text, default: PropValue::Text("cost ${y} \\(x) \"q\" \\ \n\t\u{1} 🚀".into()) },
+            ComponentPropDef { name: "Slot#1:1".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) },
+        ];
+        let comp_id = d.insert(page, comp).unwrap();
+        let slot_id = d.alloc_id();
+        let mut slot = Node::frame(slot_id, Rect::new(0.0, 0.0, 200.0, 40.0));
+        slot.name = "Slot".into();
+        slot.component.is_slot = true;
+        slot.component.bindings.insert(OverrideField::SlotContent, "Slot#1:1".into());
+        let slot_id = d.insert(comp_id, slot).unwrap();
+        let tid = d.alloc_id();
+        let style = TextStyle { font_family: "Evil\")\nFont".into(), font_size: 16.0, ..Default::default() };
+        let t = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 20.0), "Default ${y}", style);
+        d.insert(slot_id, t).unwrap();
+
+        let out = swiftui_for(&d, comp_id);
+        assert!(out.contains(r#"title: String = "cost ${y} \\(x) \"q\" \\ \n\t\u{1} 🚀""#), "{out}");
+        assert!(out.contains(r#"Text("Default ${y}")"#), "{out}");
+        assert!(out.contains(r#".font(.custom("Evil\")\nFont", size: 16))"#), "{out}");
+
+        if std::process::Command::new("swiftc").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            let dir = std::env::temp_dir().join(format!("designos-swiftui-slot-parse-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join("Banner.swift");
+            let swift_src = format!("import SwiftUI\n\n{out}\n");
+            std::fs::write(&file, &swift_src).unwrap();
+            let parse = std::process::Command::new("swiftc").arg("-parse").arg(&file).output().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
+        }
+    }
+
+    #[test]
+    fn text_nodes_with_dollar_braces_and_swift_interpolation_parse_cleanly() {
+        let (mut d, root_id) = fixture::card();
+        let children = d.get(root_id).unwrap().children.clone();
+        if let NodeKind::Text(t) = &mut d.get_mut(children[0]).unwrap().kind {
+            t.content = "${y}".into();
+        }
+        if let NodeKind::Text(t) = &mut d.get_mut(children[1]).unwrap().kind {
+            t.content = "\\(total)".into();
+        }
+
+        let out = swiftui_for(&d, root_id);
+        assert!(out.contains(r#"Text("${y}")"#), "expected literal ${{y}} without invalid \\$ escape in:\n{out}");
+        assert!(!out.contains(r#"\${y}"#), "must never emit invalid Swift escape \\${{y}}:\n{out}");
+        assert!(out.contains(r#"Text("\\(total)")"#), "expected escaped Swift interpolation \\\\(total) in:\n{out}");
+
+        if std::process::Command::new("swiftc").arg("--version").output().is_ok_and(|o| o.status.success()) {
+            let dir = std::env::temp_dir().join(format!("designos-swiftui-us10-parse-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join("Us10.swift");
+            let indented: String = out.lines().map(|l| format!("        {l}\n")).collect();
+            let swift_src = format!("import SwiftUI\n\nstruct Us10: View {{\n    var body: some View {{\n{indented}    }}\n}}\n");
+            std::fs::write(&file, &swift_src).unwrap();
+            let parse = std::process::Command::new("swiftc").arg("-parse").arg(&file).output().unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
+        }
     }
 }

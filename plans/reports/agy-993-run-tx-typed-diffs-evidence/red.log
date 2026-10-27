@@ -1,0 +1,91 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 23 tests
+test agent_busy_frames::field_diff_tests::a_change_between_any_two_kinds_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::a_field_that_serializes_as_absent_is_a_change_against_one_that_serializes_as_null ... ok
+test agent_busy_frames::field_diff_tests::a_user_edit_through_the_app_records_what_the_value_diff_finds_in_each_touched_node ... ok
+test agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms ... [AC-01] nodes=21978 autofix_ms=152.32 autofix_passes=588 autofix_user_edited_fields=588 whole_page_run_tx_ms=160.70 tx_passes=100 tx_allocs=171527
+
+thread 'agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms' (82486598) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:921:5:
+R1/R2: whole-page run_tx with 100 changed nodes allocated 171527 times (expected < 2,500 without cloning 21,977 before_nodes)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test agent_busy_frames::field_diff_tests::ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json ... [AC-02] 10,000 touched / 10 changed: run_tx allocations = 61771, field_passes = 10
+
+thread 'agent_busy_frames::field_diff_tests::ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json' (82486676) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:977:5:
+AC-02: run_tx allocated 61771 times for 10 changed nodes out of 10,000 touched (unchanged nodes must be dropped before cloning/reverting/recording)
+FAILED
+test agent_busy_frames::field_diff_tests::ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour ... 
+thread 'agent_busy_frames::field_diff_tests::ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour' (82486708) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1018:5:
+AC-03 / R1: touching 200 nodes and editing 2 must drop the 198 unchanged nodes before cloning/reverting in run_tx (got 867 allocations)
+FAILED
+test agent_busy_frames::field_diff_tests::ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len ... [AC-04] synthetic 21,978-node page whole-page edit: len(user_edited_fields) = 588, field_passes = 588
+
+thread 'agent_busy_frames::field_diff_tests::ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len' (82486717) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1101:5:
+assertion `left == right` failed: AC-04 / R1: retain_changed (properties_changed) across 21,977 nodes with 588 changed must not clone nodes (got 2482 allocations)
+  left: 2482
+ right: 0
+FAILED
+test agent_busy_frames::field_diff_tests::an_edit_of_identity_or_tree_position_reports_nothing ... ok
+test agent_busy_frames::field_diff_tests::edge_case_agent_turn_running_during_edit_loses_no_fields ... 
+thread 'agent_busy_frames::field_diff_tests::edge_case_agent_turn_running_during_edit_loses_no_fields' (82487034) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1318:5:
+mid-turn user edit touching 1,000 nodes and changing 2 allocated 4202 times (expected < 200)
+FAILED
+test agent_busy_frames::field_diff_tests::edge_case_deleted_node_in_tx_records_deletion_without_field_diff ... 
+thread 'agent_busy_frames::field_diff_tests::edge_case_deleted_node_in_tx_records_deletion_without_field_diff' (82487037) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1178:5:
+assertion `left == right` failed: neither the deleted child nor the parent frame whose `children` changed should run a field diff pass
+  left: 1
+ right: 0
+FAILED
+test agent_busy_frames::field_diff_tests::edge_case_empty_transaction_records_nothing ... 
+thread 'agent_busy_frames::field_diff_tests::edge_case_empty_transaction_records_nothing' (82487040) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1143:5:
+assertion `left == right` failed: no-op transaction touching 1,000 unchanged nodes must drop them before cloning or reverting in run_tx (got 4167 allocations)
+  left: 4167
+ right: 0
+FAILED
+test agent_busy_frames::field_diff_tests::edge_case_new_node_in_tx_records_fields_as_before ... 
+thread 'agent_busy_frames::field_diff_tests::edge_case_new_node_in_tx_records_fields_as_before' (82487043) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1221:5:
+assertion `left == right` failed: only new_edited is diffed; parent_frame (children-only change) is dropped
+  left: 2
+ right: 1
+FAILED
+test agent_busy_frames::field_diff_tests::edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields ... 
+thread 'agent_busy_frames::field_diff_tests::edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields' (82487046) panicked at crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:1265:5:
+large edit (10,000 touched, 10 changed) + undo allocated 41751 + 13 = 41764 times (expected < 500)
+FAILED
+test agent_busy_frames::field_diff_tests::every_field_edit_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::floats_the_json_form_cannot_tell_apart_are_not_a_change ... ok
+test agent_busy_frames::field_diff_tests::nodes_a_step_touched_and_left_alone_add_no_entries_and_no_work ... ok
+test agent_busy_frames::field_diff_tests::nodes_of_real_documents_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::field_diff_tests::only_the_fields_that_changed_are_encoded_not_the_geometry_around_them ... ok
+test agent_busy_frames::field_diff_tests::random_combinations_of_edits_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::field_diff_tests::record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn ... ok
+test agent_busy_frames::field_diff_tests::recording_a_renamed_heavy_node_allocates_a_bounded_number_of_times_and_builds_no_json ... [RECORD COST] 500 renamed heavy nodes: 583 allocations (1.17 per node)
+ok
+test agent_busy_frames::field_diff_tests::the_corpus_edits_every_field_a_populated_node_serializes ... ok
+test agent_busy_frames::field_diff_tests::values_that_differ_but_serialize_alike_are_not_a_change ... ok
+
+failures:
+
+failures:
+    agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms
+    agent_busy_frames::field_diff_tests::ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json
+    agent_busy_frames::field_diff_tests::ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour
+    agent_busy_frames::field_diff_tests::ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len
+    agent_busy_frames::field_diff_tests::edge_case_agent_turn_running_during_edit_loses_no_fields
+    agent_busy_frames::field_diff_tests::edge_case_deleted_node_in_tx_records_deletion_without_field_diff
+    agent_busy_frames::field_diff_tests::edge_case_empty_transaction_records_nothing
+    agent_busy_frames::field_diff_tests::edge_case_new_node_in_tx_records_fields_as_before
+    agent_busy_frames::field_diff_tests::edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields
+
+test result: FAILED. 14 passed; 9 failed; 0 ignored; 0 measured; 3332 filtered out; finished in 2.72s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

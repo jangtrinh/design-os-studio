@@ -1,0 +1,38 @@
+round 3, tree 5d5c6826 (isolated HOME, TMPDIR at the same scratch folder, for every cargo run)
+
+GATES
+  cargo fmt --all -- --check
+      exit 0 (no output)
+  cargo clippy -p designos-app --all-targets --locked -- -D warnings
+      exit 0, Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.62s
+  cargo test -p designos-app --bin designos --locked   (run 1)
+      exit 101, test result: FAILED. 3094 passed; 1 failed; 8 ignored; 0 measured; 0 filtered out; finished in 559.98s  <- the tab-strip flake only; passes alone 3 of 3
+  cargo test -p designos-app --bin designos --locked   (run 2)
+      exit 0, test result: ok. 3095 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 513.28s
+  cargo test -p designos-mcp --locked
+      exit 0, test result: ok. 228 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.80s (+ 14 more test binaries, all ok)
+  python3 scripts/zero_fake_ui_gate.py
+      exit 0, Gate Verdict: PASS (17/17 invariants satisfied)
+
+RED (before each fix: 17da55a4 plus the new tests; the own-folder link on d8e46a4a)
+  FAILED folder_message_tests::sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_is_refused
+  FAILED folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file
+  FAILED folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete
+  FAILED folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step
+  FAILED test_root::tests::only_a_clean_no_such_process_says_a_process_is_gone
+  FAILED test_root::tests::a_link_in_place_of_the_test_data_folder_is_not_swept_and_nothing_is_made_through_it
+  FAILED test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it
+  test result: FAILED. 48 passed; 6 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 4.52s
+  test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 3097 filtered out; finished in 0.01s
+
+GREEN (agent_session_files:: on the final tree)
+  test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.58s
+
+SWEEP END TO END (r3-end-to-end-repro.log)
+  the folder for the unit tests' session folders cannot be used, so no test can run: <scratch>/base-link-case/tmp/designos test data is a link, not a folder. Delete the link and try again
+
+GEMINI FILE MTIMES (name, mtime): unchanged before and after every run
+  before 1792820301 projects.json
+  before 1792819410 oauth_creds.json
+  after  1792820301 projects.json
+  after  1792819410 oauth_creds.json

@@ -1,0 +1,32 @@
+round 4, tree 4b09878c (isolated HOME, TMPDIR at the same scratch folder, for every cargo run)
+
+GATES
+  cargo fmt --all -- --check
+      exit 0 (no output)
+  cargo clippy -p designos-app --all-targets --locked -- -D warnings
+      exit 0, Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.36s
+  cargo test -p designos-app --bin designos --locked
+      exit 0, test result: ok. 3095 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 327.46s
+  cargo test -p designos-mcp --locked
+      exit 0, test result: ok. 228 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.46s (+ 14 more test binaries, all ok)
+  python3 scripts/zero_fake_ui_gate.py
+      exit 0, Gate Verdict: PASS (17/17 invariants satisfied)
+
+RED (the new tests on a5da4839)
+  FAILED folder_unit_tests::a_probe_that_cannot_write_names_the_folder_and_what_to_do
+  FAILED folder_message_tests::the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_either
+  FAILED test_root::tests::no_folder_is_removed_when_the_test_folder_is_made_ready
+  test result: FAILED. 56 passed; 3 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.58s
+
+GREEN (agent_session_files:: on the final tree)
+  test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.56s
+
+END TO END (r4-end-to-end-repro.log)
+  A. nothing removed: 55823, 56178, 99991, sessions
+  B. the folder for the unit tests' session folders cannot be used, so no test can run: <scratch>/base-link-case/tmp/designos test data is a link, not a folder. Delete the link and try again
+
+GEMINI FILE MTIMES (name, mtime): unchanged before and after every run
+  before 1792820301 projects.json
+  before 1792819410 oauth_creds.json
+  after  1792820301 projects.json
+  after  1792819410 oauth_creds.json
