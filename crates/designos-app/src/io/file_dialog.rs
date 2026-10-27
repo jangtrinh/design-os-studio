@@ -184,7 +184,7 @@ impl App {
                     let text = format!("No save dialog. Saved to {}", path.display());
                     self.show_toast_with_reveal_status(text, true, path);
                 }
-                Err(e) => self.show_export_write_error(true, &dir.join(file_name), &e),
+                Err(e) => self.show_export_write_error(true, &e.path, &e.error),
             },
         }
     }

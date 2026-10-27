@@ -24,7 +24,7 @@ pub fn export_new(doc: &Document, dir: &Path, stem: &str) -> Result<Exported, St
     std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     let clean = designos_export::sanitize_file_name(stem);
     let stem = if stem.trim().is_empty() || clean.trim_matches('_').is_empty() { "Untitled" } else { clean.as_str() };
-    let path = crate::io::write_new_in(dir, &format!("{stem}.fig"), &bytes).map_err(|e| format!("cannot write to {}: {e}", dir.display()))?;
+    let path = crate::io::write_new_in(dir, &format!("{stem}.fig"), &bytes).map_err(|e| format!("cannot write to {}: {e}", e.path.display()))?;
     let omitted_comment_threads = crate::io::comment_threads_left_out(doc, &path);
     Ok(Exported { path, omitted_keys: omitted.len(), omitted_comment_threads })
 }
