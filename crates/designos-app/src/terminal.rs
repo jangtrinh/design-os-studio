@@ -59,6 +59,141 @@ pub const STATUS_INFO_BORDER: Color32 = Color32::from_rgb(0x2F, 0x45, 0x77);
 const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
 const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
+const TERM_SCROLLBACK_LINES: usize = 5000;
+const TERM_MIN_ROWS: u16 = 4;
+const TERM_MAX_ROWS: u16 = 120;
+const TERM_MIN_COLS: u16 = 16;
+const TERM_MAX_COLS: u16 = 320;
+/// Debounce window (`120 ms`) before a viewport resize is forwarded to the OS PTY and `vt100` parser (`#1171` R1).
+pub const RESIZE_DEBOUNCE_SECS: f64 = 0.120;
+
+/// Returns the current number of lines stored in `parser`'s scrollback buffer in O(1) without allocating (`#1171`).
+pub(crate) fn parser_scrollback_len(parser: &mut vt100::Parser) -> usize {
+    let prev = parser.screen().scrollback();
+    parser.set_scrollback(usize::MAX);
+    let len = parser.screen().scrollback();
+    parser.set_scrollback(prev);
+    len
+}
+
+/// Runs `f` on `parser.screen()` while working around `vt100 0.15.2`'s `rows_len - self.scrollback_offset`
+/// subtraction in `Grid::visible_rows` when `scrollback_offset > rows` (`#1171`).
+///
+/// In debug builds (`cfg(debug_assertions)`), overflow checks are enabled and `rows_len - self.scrollback_offset`
+/// panics whenever `scrollback_offset > rows`, so we temporarily widen `parser` to `offset` rows for `f`.
+/// In release builds (`cfg(not(debug_assertions))`), overflow checks are off: `rows_len - self.scrollback_offset`
+/// wraps to a large `usize`, and because `self.scrollback.iter().skip(scrollback_len - self.scrollback_offset)`
+/// already yields `scrollback_offset` (`> rows`) rows before the chained `self.rows.iter().take(...)`,
+/// `take()` yields the same visible rows with zero per-frame allocation.
+pub(crate) fn with_scrollback_safe_screen<R>(parser: &mut vt100::Parser, f: impl FnOnce(&vt100::Screen) -> R) -> R {
+    #[cfg(debug_assertions)]
+    let restore = {
+        let (rows, cols) = parser.screen().size();
+        let offset = parser.screen().scrollback();
+        if offset > usize::from(rows) && offset <= usize::from(u16::MAX) {
+            parser.set_size(offset as u16, cols);
+            Some((rows, cols))
+        } else {
+            None
+        }
+    };
+    let out = f(parser.screen());
+    #[cfg(debug_assertions)]
+    if let Some((rows, cols)) = restore {
+        parser.set_size(rows, cols);
+    }
+    out
+}
+
+/// Clears `parser`'s scrollback buffer on `ESC[3J` / `ESC[?3J` (`ED 3`) while keeping the visible
+/// screen, cursor position, active SGR attributes, input modes, title, and alternate screen intact (`#1171` R2).
+pub(crate) fn clear_parser_scrollback(parser: &mut vt100::Parser) {
+    let (rows, cols) = parser.screen().size();
+    if parser.screen().alternate_screen() {
+        let alt_state = parser.screen().state_formatted();
+        parser.process(b"\x1b[?47l");
+        parser.set_scrollback(0);
+        let main_state = parser.screen().state_formatted();
+        let mut fresh = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
+        fresh.process(&main_state);
+        fresh.process(b"\x1b[?47h");
+        fresh.process(&alt_state);
+        *parser = fresh;
+    } else {
+        parser.set_scrollback(0);
+        let main_state = parser.screen().state_formatted();
+        let mut fresh = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
+        fresh.process(&main_state);
+        *parser = fresh;
+    }
+}
+
+/// Advances the `ESC[3J` / `ESC[?3J` (`ED 3`) byte scanner by one byte and returns `true` when the final `'J'` is reached.
+#[inline]
+fn advance_esc3j_scanner(state: &mut u8, b: u8) -> bool {
+    match (*state, b) {
+        (_, 0x1b) => {
+            *state = 1;
+            false
+        }
+        (1, b'[') => {
+            *state = 2;
+            false
+        }
+        (2, b'?') | (2, b'0') | (3, b'0') => {
+            *state = 3;
+            false
+        }
+        (2 | 3, b'3') => {
+            *state = 4;
+            false
+        }
+        (4, b'J') => {
+            *state = 0;
+            true
+        }
+        _ => {
+            *state = 0;
+            false
+        }
+    }
+}
+
+/// Feeds PTY output bytes into `parser`, honouring `ESC[3J` / `ESC[?3J` to clear the scrollback buffer (`#1171` R2)
+/// and preserving a non-zero user scrollback reading position across `ESC[3J` full-history reprints.
+pub(crate) fn process_pty_bytes(parser: &mut vt100::Parser, bytes: &[u8], esc3j_state: &mut u8, restore_scrollback: &std::sync::atomic::AtomicUsize) {
+    let mut seg_start = 0usize;
+    let mut saw_esc3j = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if advance_esc3j_scanner(esc3j_state, b) {
+            let cur_sb = parser.screen().scrollback();
+            if cur_sb > 0 {
+                restore_scrollback.store(cur_sb, std::sync::atomic::Ordering::Release);
+            }
+            if restore_scrollback.load(std::sync::atomic::Ordering::Acquire) > 0 {
+                parser.set_scrollback(0);
+            }
+            parser.process(&bytes[seg_start..=i]);
+            clear_parser_scrollback(parser);
+            seg_start = i + 1;
+            saw_esc3j = true;
+        }
+    }
+    if seg_start < bytes.len() {
+        if restore_scrollback.load(std::sync::atomic::Ordering::Acquire) > 0 {
+            parser.set_scrollback(0);
+        }
+        parser.process(&bytes[seg_start..]);
+    }
+    let target = restore_scrollback.load(std::sync::atomic::Ordering::Acquire);
+    if target > 0 {
+        let new_len = parser_scrollback_len(parser);
+        parser.set_scrollback(target.min(new_len));
+        if new_len >= target && (!saw_esc3j || seg_start < bytes.len()) {
+            restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
 
 /// The status line of a tab whose process could not start: the error, and what was moved aside for the start before it failed (the
 /// entries stay moved whether or not the tab came up).
@@ -232,6 +367,11 @@ impl AgentCliPreset {
     /// rather than an interactive `Shell` or `DesignOsHelp` tab (`#685`).
     pub fn is_agent(self) -> bool {
         !matches!(self, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
+    }
+
+    /// True when turn status is derived from the PTY output heuristic rather than `agent-events.jsonl` hooks (`#1194`).
+    pub const fn uses_pty_heuristic(self) -> bool {
+        matches!(self, AgentCliPreset::Codex)
     }
 
     /// True when this preset reserves `Ctrl+Z` inside the terminal on Windows/Linux (`#685`).
@@ -599,6 +739,55 @@ pub struct TerminalTab {
     pub last_user_prompt: Option<String>,
     /// Current uncommitted interactive line typed into the VT100 viewport before `Enter`.
     pub input_line_buffer: String,
+    /// Number of PTY and parser resizes applied to this tab (`#1171`).
+    pub resize_count: usize,
+    /// Candidate `(rows, cols)` and frame timestamp (`s`) waiting for the `120 ms` debounce window (`#1171` R1).
+    pub pending_resize: Option<((u16, u16), f64)>,
+    /// Scrollback offset to restore across an `ESC[3J` full-history reprint when the user was scrolled into history (`#1171`).
+    pub restore_scrollback: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// Quiet window after which a PTY-heuristic tab (`Codex`) decays an explicit `Working(_)` into `Done` (`#1194`).
+pub const PTY_HEURISTIC_WORKING_DECAY: std::time::Duration = std::time::Duration::from_millis(1_500);
+
+/// Activity window during which recent PTY output promotes `Idle`/`Done` to `Working(None)` on a PTY-heuristic tab.
+pub const PTY_HEURISTIC_ACTIVITY_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// Pure status resolver for PTY-heuristic presets (`Codex`, `#1194`).
+///
+/// - `Working(detail)` stays `Working(detail)` while the PTY has produced output within [`PTY_HEURISTIC_WORKING_DECAY`]
+///   (or before the first PTY output timestamp is recorded), and decays to [`AgentTabStatus::Done`] once the PTY
+///   has been quiet for at least `1.5 s`.
+/// - `WaitingForInput` never decays (an approval menu is static).
+/// - `Stopped` and `Error` keep their precedence unchanged.
+/// - `Idle` and `Done` become `Working(None)` when PTY output arrived within [`PTY_HEURISTIC_ACTIVITY_WINDOW`] (`600 ms`).
+pub fn resolve_pty_heuristic_status(explicit_status: AgentTabStatus, last_output_at: Option<std::time::Instant>, now: std::time::Instant) -> AgentTabStatus {
+    let quiet_duration = last_output_at.map(|ts| now.saturating_duration_since(ts));
+    let recent_pty_activity = quiet_duration.is_some_and(|d| d < PTY_HEURISTIC_ACTIVITY_WINDOW);
+    match explicit_status {
+        AgentTabStatus::Working(detail) => {
+            if quiet_duration.is_some_and(|d| d >= PTY_HEURISTIC_WORKING_DECAY) {
+                AgentTabStatus::Done
+            } else {
+                AgentTabStatus::Working(detail)
+            }
+        }
+        AgentTabStatus::WaitingForInput(detail) => AgentTabStatus::WaitingForInput(detail),
+        // A stopped or errored tab keeps its status even if trailing PTY bytes arrive (`#684`, `#1194`).
+        AgentTabStatus::Stopped => AgentTabStatus::Stopped,
+        AgentTabStatus::Error(detail) => AgentTabStatus::Error(detail),
+        other if recent_pty_activity => AgentTabStatus::Working(None),
+        other => other,
+    }
+}
+
+/// Explicit status the PTY-heuristic poll writes back (`#1194`).
+///
+/// Recent PTY bytes promote `Idle`/`Done` to `Working(None)` for display inside
+/// [`resolve_pty_heuristic_status`]. That promotion is not a turn: only a quiet `Working(_)`
+/// decays to an explicit `Done`. Composer echo must not become `Working`, and `Idle` must not either.
+fn persisted_pty_heuristic_status(explicit: &AgentTabStatus, effective: &AgentTabStatus) -> Option<AgentTabStatus> {
+    matches!((explicit, effective), (AgentTabStatus::Working(_), AgentTabStatus::Done)).then(|| effective.clone())
 }
 
 impl TerminalTab {
@@ -648,8 +837,8 @@ impl TerminalTab {
         session: Option<&SessionEnv>,
         cmd_override: Option<CommandBuilder>,
     ) -> Result<Self, String> {
-        let rows = rows.max(6);
-        let cols = cols.max(20);
+        let rows = rows.max(TERM_MIN_ROWS);
+        let cols = cols.max(TERM_MIN_COLS);
         agent_session_failure::warm_cli_version_cache(preset);
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("openpty failed: {e}"))?;
@@ -726,7 +915,7 @@ impl TerminalTab {
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn_command failed: {e}"))?;
         let slave = Arc::new(Mutex::new(Some(pair.slave)));
 
-        let init_parser = vt100::Parser::new(rows, cols, 5000);
+        let init_parser = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
         let parser = Arc::new(Mutex::new(init_parser));
         let raw_log = Arc::new(Mutex::new(String::new()));
         let raw_log_drained = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -736,6 +925,7 @@ impl TerminalTab {
         let screen_rev = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let pty_waiting_heuristic = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let restore_scrollback = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let parser_bg = Arc::clone(&parser);
         let log_bg = Arc::clone(&raw_log);
@@ -747,12 +937,14 @@ impl TerminalTab {
         let waiting_heuristic_bg = Arc::clone(&pty_waiting_heuristic);
         let slave_bg = Arc::downgrade(&slave);
         let stop_bg = Arc::clone(&stop_in_flight);
+        let restore_sb_bg = Arc::clone(&restore_scrollback);
 
         let uses_pty_heuristic = preset == AgentCliPreset::Codex;
         std::thread::Builder::new()
             .name(format!("designos-pty-reader-{id}"))
             .spawn(move || {
                 let mut buf = [0u8; 4096];
+                let mut esc3j_state = 0u8;
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
@@ -788,11 +980,8 @@ impl TerminalTab {
                                 }
                             }
                             if let Ok(mut p) = parser_bg.lock() {
-                                if clean_chunk.len() == chunk.len() {
-                                    p.process(&buf[..n]);
-                                } else {
-                                    p.process(clean_chunk.as_bytes());
-                                }
+                                let bytes = if clean_chunk.len() == chunk.len() { &buf[..n] } else { clean_chunk.as_bytes() };
+                                process_pty_bytes(&mut p, bytes, &mut esc3j_state, &restore_sb_bg);
                             }
                             // After the screen has the chunk: a reader that sees the new number reads a screen that has it.
                             screen_rev_bg.fetch_add(1, std::sync::atomic::Ordering::Release);
@@ -880,6 +1069,9 @@ impl TerminalTab {
             last_scanned_log_len: 0,
             last_user_prompt: None,
             input_line_buffer: String::new(),
+            resize_count: 0,
+            pending_resize: None,
+            restore_scrollback,
         })
     }
 
@@ -900,16 +1092,11 @@ impl TerminalTab {
     /// [`Self::effective_status`] judged at `now`: Codex counts as working while its PTY output is under 600 ms old at `now`.
     pub(crate) fn effective_status_at(&self, now: std::time::Instant) -> AgentTabStatus {
         let explicit_status = self.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-        let recent_pty_activity = self.spawn_preset == AgentCliPreset::Codex
-            && self.last_output_at.lock().ok().and_then(|g| *g).is_some_and(|ts| now.saturating_duration_since(ts) < std::time::Duration::from_millis(600));
-        match explicit_status {
-            AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
-            AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
-            // A stopped Codex tab keeps showing `Stopped` while the CLI is still repainting its prompt (`#684`).
-            AgentTabStatus::Stopped => AgentTabStatus::Stopped,
-            other if recent_pty_activity => AgentTabStatus::Working(None),
-            other => other,
+        if self.spawn_preset.uses_pty_heuristic() {
+            let last_output_at = self.last_output_at.lock().ok().and_then(|g| *g);
+            return resolve_pty_heuristic_status(explicit_status, last_output_at, now);
         }
+        explicit_status
     }
 
     /// True for a tool, notification or failure hook event that was already in flight when the user stopped this tab. Such a
@@ -991,18 +1178,46 @@ impl TerminalTab {
 
     /// Resizes both the underlying OS PTY and the `vt100::Parser` when the viewport changes.
     pub fn resize(&mut self, rows: u16, cols: u16) {
-        let rows = rows.max(4);
-        let cols = cols.max(16);
+        let rows = rows.max(TERM_MIN_ROWS);
+        let cols = cols.max(TERM_MIN_COLS);
+        self.pending_resize = None;
         if self.rows == rows && self.cols == cols {
             return;
         }
         self.rows = rows;
         self.cols = cols;
+        self.resize_count += 1;
         let _ = self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
         if let Ok(mut p) = self.parser.lock() {
             p.set_size(rows, cols);
         }
         self.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Schedules a debounced PTY and parser resize (`#1171` R1), applying it only once `(rows, cols)` has
+    /// stayed unchanged for [`RESIZE_DEBOUNCE_SECS`] (`120 ms`) of frame time. Returns `true` while waiting.
+    pub fn request_resize(&mut self, rows: u16, cols: u16, now_s: f64) -> bool {
+        let rows = rows.max(TERM_MIN_ROWS);
+        let cols = cols.max(TERM_MIN_COLS);
+        if self.rows == rows && self.cols == cols {
+            self.pending_resize = None;
+            return false;
+        }
+        match self.pending_resize {
+            Some(((pr, pc), since)) if pr == rows && pc == cols => {
+                if now_s - since >= RESIZE_DEBOUNCE_SECS {
+                    self.pending_resize = None;
+                    self.resize(rows, cols);
+                    false
+                } else {
+                    true
+                }
+            }
+            _ => {
+                self.pending_resize = Some(((rows, cols), now_s));
+                true
+            }
+        }
     }
 
     /// Writes raw bytes directly to the PTY master stdin, returning any I/O error.
@@ -1337,6 +1552,8 @@ pub struct TerminalState {
     write_backoff: crate::agent_session_files::WriteBackoff,
     /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
     set_aside_note: Option<String>,
+    /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
+    pub viewport_size: (u16, u16),
 }
 
 impl Default for TerminalState {
@@ -1599,6 +1816,7 @@ impl TerminalState {
             session_closed: false,
             write_backoff: crate::agent_session_files::WriteBackoff::default(),
             set_aside_note: None,
+            viewport_size: (28, 100),
         }
     }
 
@@ -1610,12 +1828,51 @@ impl TerminalState {
         self.approval_notifier = notifier;
     }
 
-    /// True when the active tab has a pending approval request or is waiting for approval (`#656`).
+    /// True when any tab has a pending approval request or is waiting for approval (`#656`, `#1195`).
     pub fn needs_approval(&self) -> bool {
         if !self.pending_approvals.is_empty() {
             return true;
         }
-        self.active_tab().is_some_and(|t| t.needs_approval())
+        self.tabs.iter().any(|t| t.needs_approval())
+    }
+
+    /// Resolves the approval banner target across all tabs (`#1195`).
+    ///
+    /// Returns `(target_tab_id, preset, requests, is_active_tab, total_pending)` for the oldest waiting tab
+    /// (lowest tab slice order, i.e. spawn order). When multiple tabs are waiting, `total_pending` sums the
+    /// pending approvals across all waiting tabs (at least 1 per waiting tab), and the banner targets the oldest
+    /// waiting tab first so **Open tab** switches to that tab id (`AC-2`).
+    fn approval_banner_target(&self) -> Option<(usize, AgentCliPreset, Vec<crate::agent_permissions::ApprovalRequest>, bool, usize)> {
+        let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        let mut waiting: Vec<(usize, &TerminalTab)> = Vec::new();
+        for (idx, tab) in self.tabs.iter().enumerate() {
+            let is_active = idx == active_idx;
+            if tab.needs_approval() || (is_active && !self.pending_approvals.is_empty()) {
+                waiting.push((idx, tab));
+            }
+        }
+        if let Some(&(first_idx, first_tab)) = waiting.first() {
+            let is_active_tab = first_idx == active_idx;
+            let total_pending: usize =
+                waiting
+                    .iter()
+                    .map(|&(idx, tab)| {
+                        if idx == active_idx && !self.pending_approvals.is_empty() {
+                            self.pending_approvals.len()
+                        } else {
+                            tab.pending_approvals.len().max(1)
+                        }
+                    })
+                    .sum();
+            let reqs = if is_active_tab && !self.pending_approvals.is_empty() { self.pending_approvals.clone() } else { first_tab.pending_approvals.clone() };
+            return Some((first_tab.id, first_tab.preset, reqs, is_active_tab, total_pending));
+        }
+        if !self.pending_approvals.is_empty() {
+            let preset = self.active_tab().map(|t| t.preset).unwrap_or(self.active_runtime);
+            let total = self.pending_approvals.len();
+            return Some((0, preset, self.pending_approvals.clone(), true, total));
+        }
+        None
     }
 
     fn withdraw_tab_approvals(tab: &mut TerminalTab) {
@@ -1654,7 +1911,7 @@ impl TerminalState {
         }
     }
 
-    /// Handles a click on the in-panel approval card (`Approve`, `Deny`, or `Open tab`).
+    /// Handles a click on the in-panel approval card (`Approve`, `Deny`, `Show prompt`, or `Open tab`).
     pub fn handle_approval_card_action(&mut self, action: crate::agent_approval_card::CardAction) {
         match action {
             crate::agent_approval_card::CardAction::Approve(id) => {
@@ -1663,15 +1920,27 @@ impl TerminalState {
             crate::agent_approval_card::CardAction::Deny(id) => {
                 self.answer_pending_approval(&id, crate::agent_permissions::ApprovalDecision::Deny);
             }
-            crate::agent_approval_card::CardAction::OpenTab => {
+            crate::agent_approval_card::CardAction::ShowPrompt => {
+                self.picker_open = false;
                 self.side_panel_pty_open = true;
                 self.chat_mode = false;
+                self.chrome_focused = false;
+                self.viewport_focused = true;
+            }
+            crate::agent_approval_card::CardAction::OpenTab(tab_id) => {
+                if tab_id != 0 {
+                    let _ = self.focus_tab_by_id(tab_id);
+                }
+                self.picker_open = false;
+                self.side_panel_pty_open = true;
+                self.chat_mode = false;
+                self.chrome_focused = false;
                 self.viewport_focused = true;
             }
         }
     }
 
-    /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`).
+    /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`, `#1195`).
     pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>) {
         self.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         self.ensure_default_tab(file_path);
@@ -1727,6 +1996,40 @@ impl TerminalState {
                     }
                 }
             }
+            "agents-approval-background-tab" => {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Codex;
+                    tab.title = "Codex CLI #1".into();
+                    tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+                    }
+                }
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Claude;
+                    tab.title = "Claude Code #2".into();
+                    tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                }
+            }
+            "agents-scrollback" => {
+                let mut history = String::new();
+                for idx in 1..=120 {
+                    history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
+                }
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Grok;
+                    tab.title = "Grok CLI #1".into();
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+                    }
+                    if let Ok(mut parser) = tab.parser.lock() {
+                        parser.process(history.as_bytes());
+                        parser.set_scrollback(45);
+                    }
+                    tab.restore_scrollback.store(45, std::sync::atomic::Ordering::Release);
+                }
+            }
             _ => {}
         }
     }
@@ -1759,7 +2062,7 @@ impl TerminalState {
 
     /// True when `tab_idx` is currently in [`AgentTabStatus::Working`].
     pub fn is_tab_working(&self, tab_idx: usize) -> bool {
-        self.tabs.get(tab_idx).is_some_and(|t| matches!(t.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Working(_))))
+        self.tabs.get(tab_idx).is_some_and(|t| matches!(t.effective_status(), AgentTabStatus::Working(_)))
     }
 
     /// True when `preset`'s binary is reachable the way a spawn would find it: the shared PATH, the user CLI
@@ -2835,7 +3138,7 @@ impl TerminalState {
     }
 
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
-    /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
+    /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Tab`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
         self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
     }
@@ -2929,6 +3232,9 @@ impl TerminalState {
             }
         }
         if let Some(tab) = self.active_tab() {
+            if let Ok(mut last_out) = tab.last_output_at.lock() {
+                *last_out = Some(std::time::Instant::now());
+            }
             if let Ok(mut st) = tab.agent_status.lock() {
                 *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
             }
@@ -2964,7 +3270,8 @@ impl TerminalState {
         isolate_zsh_from_home(&mut cmd);
         cmd.cwd(&self.session_dir);
 
-        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, 28, 100, file_path, Some(&env), Some(cmd)) {
+        let (init_rows, init_cols) = self.viewport_size;
+        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, init_rows, init_cols, file_path, Some(&env), Some(cmd)) {
             Ok(mut tab) => {
                 tab.preset = AgentCliPreset::Shell;
                 tab.title = clean_title.to_string();
@@ -3082,7 +3389,8 @@ impl TerminalState {
             };
             cmd
         });
-        match TerminalTab::spawn_with_session_cmd(id, preset, 28, 100, file_path, Some(&env), cmd_override) {
+        let (init_rows, init_cols) = self.viewport_size;
+        match TerminalTab::spawn_with_session_cmd(id, preset, init_rows, init_cols, file_path, Some(&env), cmd_override) {
             Ok(mut tab) => {
                 #[cfg(test)]
                 if preset.is_agent()
@@ -3539,6 +3847,22 @@ impl TerminalState {
             }
         }
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
+        let poll_instant = std::time::Instant::now();
+        for tab in &mut self.tabs {
+            if !tab.spawn_preset.uses_pty_heuristic() || tab.is_shell_process() {
+                continue;
+            }
+            let effective = tab.effective_status_at(poll_instant);
+            let transitioned = tab.agent_status.lock().ok().and_then(|mut st| {
+                let next = persisted_pty_heuristic_status(&st, &effective)?;
+                *st = next.clone();
+                Some(next)
+            });
+            if let Some(next_status) = transitioned {
+                self.status_changes.push((tab.id, next_status));
+            }
+            tab.turn_ledger.tick(matches!(effective, AgentTabStatus::Working(_)), poll_instant);
+        }
         // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
         let status_file = self.hook_paths().status();
         if let Some(raw_status) = crate::agent_session_files::read_session_text(&status_file) {
@@ -3615,8 +3939,18 @@ impl TerminalState {
             }
             if !tab.is_alive() {
                 tab.turn_ledger.on_tab_exited(patch_off, now_instant);
-                let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped));
-                let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
+                let prev_status = tab.effective_status();
+                let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
+                    || tab.stop_state.is_some()
+                    || tab.stop_in_flight.load(std::sync::atomic::Ordering::Relaxed);
+                if tab.stop_state.is_some() {
+                    if let Some(action) = crate::agent_stop::close_pending_stop(tab, designos_doc::now_ms()) {
+                        actions.push(action);
+                    }
+                }
+                let exit_status = tab.child.try_wait().ok().flatten();
+                let exit_code = exit_status.as_ref().map(|status| status.exit_code());
+                let process_exit = crate::agent_turn_status::ProcessExit::from_pty_status(exit_status);
                 let failed_start = !was_stopped && agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
                     let log_empty = tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false);
@@ -3653,8 +3987,7 @@ impl TerminalState {
                         tab.set_session_failure(failure);
                     }
                 }
-                let prev_status = tab.effective_status();
-                if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status) {
+                if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status, was_stopped, process_exit) {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = next_status.clone();
                     }
@@ -3685,11 +4018,6 @@ impl TerminalState {
                 }
                 tab.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
                 Self::withdraw_tab_approvals(tab);
-                if let Ok(mut st) = tab.agent_status.lock() {
-                    if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
-                        *st = AgentTabStatus::Idle;
-                    }
-                }
                 tab.exited_notice_shown = true;
                 agent_exited = true;
                 stopped_exited |= was_stopped;
@@ -3730,11 +4058,15 @@ impl TerminalState {
             }
         }
 
-        let cli_label = self.active_tab().map(|t| t.preset.button_label()).unwrap_or_else(|| self.active_runtime.button_label());
+        let cli_label = self
+            .approval_banner_target()
+            .map(|(_, preset, _, _, _)| preset.button_label())
+            .or_else(|| self.active_tab().map(|t| t.preset.button_label()))
+            .unwrap_or_else(|| self.active_runtime.button_label());
         let request_key: Option<String> = if let Some(first) = self.pending_approvals.first() {
             Some(first.id.clone())
-        } else if self.needs_approval() {
-            Some("waiting".to_string())
+        } else if let Some((tab_id, _, reqs, _, _)) = self.approval_banner_target() {
+            Some(reqs.first().map(|r| r.id.clone()).unwrap_or_else(|| format!("waiting-{tab_id}")))
         } else {
             None
         };
@@ -3769,7 +4101,7 @@ impl TerminalState {
         out
     }
 
-    /// Selects and reveals the agent tab with `tab_id` when a notification is clicked (`#683` §3.6).
+    /// Selects and reveals the agent tab with `tab_id` when a notification is clicked (`#683` §3.6, `#1195`).
     pub fn focus_tab_by_id(&mut self, tab_id: usize) -> bool {
         let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return false;
@@ -3778,6 +4110,7 @@ impl TerminalState {
         self.tabs[idx].unread = false;
         self.surface_visible = true;
         self.window_focused = true;
+        self.sync_active_tab_approvals();
         true
     }
 
@@ -5862,13 +6195,21 @@ pub fn show_left_with_doc(
 
     // ---- C. Center Area (`between runtime bar and bottom composer`)
     let full_center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
-    let active_preset = state.active_tab().map(|t| t.preset).unwrap_or(state.active_runtime);
-    let center_rect = if state.needs_approval() {
-        let reqs = state.pending_approvals.clone();
-        if let Some(act) = crate::agent_approval_card::paint_approval_card(ui, full_center_rect, active_preset, &reqs, "agents-left-chat") {
+    let center_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+        let on_active_claude = is_active_tab && banner_preset == AgentCliPreset::Claude;
+        if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
+            ui,
+            full_center_rect,
+            banner_preset,
+            &reqs,
+            target_tab_id,
+            on_active_claude,
+            total_pending,
+            "agents-left-chat",
+        ) {
             state.handle_approval_card_action(act);
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(active_preset);
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if on_active_claude { banner_preset } else { AgentCliPreset::Codex });
         Rect::from_min_max(Pos2::new(full_center_rect.left(), (full_center_rect.top() + card_h).min(full_center_rect.bottom())), full_center_rect.max)
     } else {
         full_center_rect
@@ -5985,17 +6326,44 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let p = ui.painter().clone();
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
 
-    let active_preset = state.active_tab().map(|t| t.preset).unwrap_or(state.active_runtime);
-    let viewport_rect = if state.needs_approval() {
-        let reqs = state.pending_approvals.clone();
-        if let Some(act) = crate::agent_approval_card::paint_approval_card(ui, viewport_rect, active_preset, &reqs, surface_id) {
+    let mut card_activated = false;
+    let viewport_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+        let in_active_terminal = is_active_tab && state.side_panel_pty_open && !state.picker_open;
+        if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
+            ui,
+            viewport_rect,
+            banner_preset,
+            &reqs,
+            target_tab_id,
+            in_active_terminal,
+            total_pending,
+            surface_id,
+        ) {
+            card_activated = true;
             state.handle_approval_card_action(act);
+            if let Some(fid) = ui.ctx().memory(|m| m.focused()) {
+                ui.ctx().memory_mut(|m| m.surrender_focus(fid));
+            }
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(active_preset);
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if in_active_terminal && banner_preset == AgentCliPreset::Claude {
+            banner_preset
+        } else {
+            AgentCliPreset::Codex
+        });
         Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
     } else {
         viewport_rect
     };
+    let pad_x = 12.0;
+    let pad_y = 8.0;
+    let origin_x = viewport_rect.left() + pad_x;
+    let origin_y = viewport_rect.top() + pad_y;
+    let grid_w = (viewport_rect.width() - pad_x * 2.0).max(CHAR_W * f32::from(TERM_MIN_COLS));
+    let grid_h = (viewport_rect.height() - pad_y * 2.0).max(ROW_H * f32::from(TERM_MIN_ROWS));
+    let cols = ((grid_w / CHAR_W).floor() as u16).clamp(TERM_MIN_COLS, TERM_MAX_COLS);
+    let rows = ((grid_h / ROW_H).floor() as u16).clamp(TERM_MIN_ROWS, TERM_MAX_ROWS);
+    state.viewport_size = (rows, cols);
+
     if state.picker_open || state.tabs.is_empty() {
         if !state.runtime_dropdown_open && !state.sessions_popover_open {
             if state.tabs.is_empty() {
@@ -6008,15 +6376,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         }
         return;
     }
-
-    let pad_x = 12.0;
-    let pad_y = 8.0;
-    let origin_x = viewport_rect.left() + pad_x;
-    let origin_y = viewport_rect.top() + pad_y;
-    let grid_w = (viewport_rect.width() - pad_x * 2.0).max(120.0);
-    let grid_h = (viewport_rect.height() - pad_y * 2.0).max(32.0);
-    let cols = ((grid_w / CHAR_W).floor() as u16).clamp(20, 320);
-    let rows = ((grid_h / ROW_H).floor() as u16).clamp(4, 120);
 
     let vp_resp = ui.interact(viewport_rect, Id::new((surface_id, "term-vt100-viewport")), Sense::click_and_drag());
     if vp_resp.clicked() || vp_resp.drag_started() {
@@ -6041,23 +6400,75 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let mut search_matches = 0usize;
 
     if let Some(tab) = state.active_tab_mut() {
-        tab.resize(rows, cols);
-
-        // Pointer click & drag cell selection
-        if vp_resp.clicked() && !vp_resp.dragged() {
-            tab.selection = None;
+        let now_s = ui.input(|i| i.time);
+        if tab.request_resize(rows, cols, now_s) {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(RESIZE_DEBOUNCE_SECS));
         }
-        if vp_resp.drag_started() {
-            if let Some(pos) = ui.input(|i| i.pointer.press_origin().or_else(|| i.pointer.interact_pos())) {
-                let cell = pos_to_cell(pos);
-                tab.selection = Some((cell, cell));
+
+        let scrollback_len = tab.parser.lock().ok().map(|mut pg| parser_scrollback_len(&mut pg)).unwrap_or(0);
+        let track_rect = Rect::from_min_size(
+            Pos2::new(viewport_rect.right() - theme::TARGET_MIN, viewport_rect.top()),
+            Vec2::new(theme::TARGET_MIN, viewport_rect.height()),
+        );
+        let mut press_in_scrollbar = false;
+        let mut sb_active = false;
+        if scrollback_len > 0 && viewport_rect.height() > 0.0 {
+            let sb_resp = ui.interact(track_rect, Id::new((surface_id, "term-scrollbar")), Sense::click_and_drag());
+            press_in_scrollbar = sb_resp.clicked()
+                || sb_resp.dragged()
+                || sb_resp.is_pointer_button_down_on()
+                || ui.input(|i| {
+                    i.pointer.press_origin().is_some_and(|p| track_rect.contains(p))
+                        || i.events.iter().any(|ev| {
+                            matches!(ev, Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } if track_rect.contains(*pos))
+                        })
+                });
+            sb_active = sb_resp.hovered() || sb_resp.dragged() || press_in_scrollbar;
+            if press_in_scrollbar {
+                let pointer_y = ui.input(|i| {
+                    i.pointer.interact_pos().map(|p| p.y).or_else(|| {
+                        i.events.iter().rev().find_map(|ev| match ev {
+                            Event::PointerButton { pos, button: egui::PointerButton::Primary, .. } | Event::PointerMoved(pos) => Some(pos.y),
+                            _ => None,
+                        })
+                    })
+                });
+                if let Some(py) = pointer_y {
+                    let track_len = track_rect.height();
+                    let total_lines = (scrollback_len + usize::from(rows)).max(1);
+                    let ratio = (f32::from(rows) / total_lines as f32).clamp(0.0, 1.0);
+                    let max_thumb = (track_len * 0.5).max(theme::SPACE_FACT);
+                    let min_thumb = theme::TARGET_MIN.min(max_thumb);
+                    let thumb_h = (track_len * ratio).clamp(min_thumb, max_thumb);
+                    let denom = (track_len - thumb_h).max(1.0);
+                    let from_top = ((py - track_rect.top() - thumb_h * 0.5) / denom).clamp(0.0, 1.0);
+                    let new_frac = 1.0 - from_top;
+                    let new_offset = (new_frac * scrollback_len as f32).round() as usize;
+                    tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+                    if let Ok(mut pg) = tab.parser.lock() {
+                        pg.set_scrollback(new_offset);
+                    }
+                }
             }
         }
-        if vp_resp.dragged() {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let cur = pos_to_cell(pos);
-                let start = tab.selection.map(|(s, _)| s).unwrap_or(cur);
-                tab.selection = Some((start, cur));
+
+        // Pointer click & drag cell selection
+        if !press_in_scrollbar {
+            if vp_resp.clicked() && !vp_resp.dragged() {
+                tab.selection = None;
+            }
+            if vp_resp.drag_started() {
+                if let Some(pos) = ui.input(|i| i.pointer.press_origin().or_else(|| i.pointer.interact_pos())) {
+                    let cell = pos_to_cell(pos);
+                    tab.selection = Some((cell, cell));
+                }
+            }
+            if vp_resp.dragged() {
+                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    let cur = pos_to_cell(pos);
+                    let start = tab.selection.map(|(s, _)| s).unwrap_or(cur);
+                    tab.selection = Some((start, cur));
+                }
             }
         }
 
@@ -6077,6 +6488,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                     let seq = format!("\x1b[<{button};{};{}M", c0 + 1, r0 + 1);
                     tab.write_bytes(seq.as_bytes());
                 } else if let Ok(mut pg) = tab.parser.lock() {
+                    tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
                     let step = ((delta_y.abs() / ROW_H).ceil() as usize).max(1);
                     let cur_sb = pg.screen().scrollback();
                     let next_sb = if delta_y > 0.0 { cur_sb.saturating_add(step) } else { cur_sb.saturating_sub(step) };
@@ -6087,6 +6499,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 
         // Direct raw keystroke, Agent CLI shortcuts & bracketed paste capture when the terminal viewport is focused
         if viewport_focused
+            && !card_activated
             && (!crate::agent_a11y::non_canvas_has_focus(ui.ctx())
                 || ui.ctx().memory(|m| m.has_focus(vp_resp.id) || m.has_focus(crate::agent_a11y::composer_id())))
         {
@@ -6223,14 +6636,15 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 tab.selection = Some(((0, 0), (rows.saturating_sub(1), cols.saturating_sub(1))));
             }
             if clear_scrollback {
+                tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
                 if let Ok(mut pg) = tab.parser.lock() {
                     pg.set_scrollback(0);
                 }
             }
             if copy_selection {
                 if let Some(sel) = tab.selection.take() {
-                    if let Ok(pg) = tab.parser.lock() {
-                        let copied = extract_selected_terminal_text(pg.screen(), sel, rows, cols);
+                    if let Ok(mut pg) = tab.parser.lock() {
+                        let copied = with_scrollback_safe_screen(&mut pg, |screen| extract_selected_terminal_text(screen, sel, rows, cols));
                         if !copied.is_empty() {
                             ui.ctx().copy_text(copied);
                         }
@@ -6238,6 +6652,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 }
             }
             if !raw_bytes.is_empty() {
+                tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
                 if let Ok(mut pg) = tab.parser.lock() {
                     pg.set_scrollback(0);
                 }
@@ -6252,191 +6667,202 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 
         clipped(ui, viewport_rect, |ui| {
             let p = ui.painter().clone();
-            let Ok(parser) = tab.parser.lock() else {
+            let Ok(mut parser) = tab.parser.lock() else {
                 return;
             };
-            let screen = parser.screen();
-            let scrollback_offset = screen.scrollback();
-            let (cur_row, cur_col) = screen.cursor_position();
-            let font_id = FontId::new(11.5, FontFamily::Monospace);
+            with_scrollback_safe_screen(&mut parser, |screen| {
+                let scrollback_offset = screen.scrollback();
+                let (cur_row, cur_col) = screen.cursor_position();
+                let font_id = FontId::new(11.5, FontFamily::Monospace);
 
-            let needle = if search_open && !search_query.is_empty() {
-                Some(if search_case_sensitive { search_query.clone() } else { search_query.to_ascii_lowercase() })
-            } else {
-                None
-            };
+                let needle = if search_open && !search_query.is_empty() {
+                    Some(if search_case_sensitive { search_query.clone() } else { search_query.to_ascii_lowercase() })
+                } else {
+                    None
+                };
 
-            for r in 0..rows {
-                let row_y = origin_y + r as f32 * ROW_H;
-                if row_y + ROW_H < viewport_rect.top() || row_y > viewport_rect.bottom() {
-                    continue;
-                }
+                for r in 0..rows {
+                    let row_y = origin_y + r as f32 * ROW_H;
+                    if row_y + ROW_H < viewport_rect.top() || row_y > viewport_rect.bottom() {
+                        continue;
+                    }
 
-                // Compute search match columns for row `r` when `Cmd+F` search is active
-                let mut row_search_hit = vec![false; cols as usize];
-                if let Some(ref q) = needle {
-                    let mut row_chars: Vec<char> = Vec::with_capacity(cols as usize);
+                    // Compute search match columns for row `r` when `Cmd+F` search is active
+                    let mut row_search_hit = vec![false; cols as usize];
+                    if let Some(ref q) = needle {
+                        let mut row_chars: Vec<char> = Vec::with_capacity(cols as usize);
+                        for c in 0..cols {
+                            let ch = screen.cell(r, c).and_then(|cell| cell.contents().chars().next()).unwrap_or(' ');
+                            row_chars.push(if search_case_sensitive { ch } else { ch.to_ascii_lowercase() });
+                        }
+                        let q_chars: Vec<char> = q.chars().collect();
+                        if !q_chars.is_empty() && q_chars.len() <= row_chars.len() {
+                            for start_c in 0..=(row_chars.len() - q_chars.len()) {
+                                if row_chars[start_c..start_c + q_chars.len()] == q_chars[..] {
+                                    search_matches += 1;
+                                    row_search_hit[start_c..start_c + q_chars.len()].fill(true);
+                                }
+                            }
+                        }
+                    }
+
+                    let mut job = LayoutJob::default();
+                    let mut run_text = String::new();
+                    let mut run_style: Option<(Color32, bool, bool, bool)> = None;
+
                     for c in 0..cols {
-                        let ch = screen.cell(r, c).and_then(|cell| cell.contents().chars().next()).unwrap_or(' ');
-                        row_chars.push(if search_case_sensitive { ch } else { ch.to_ascii_lowercase() });
-                    }
-                    let q_chars: Vec<char> = q.chars().collect();
-                    if !q_chars.is_empty() && q_chars.len() <= row_chars.len() {
-                        for start_c in 0..=(row_chars.len() - q_chars.len()) {
-                            if row_chars[start_c..start_c + q_chars.len()] == q_chars[..] {
-                                search_matches += 1;
-                                row_search_hit[start_c..start_c + q_chars.len()].fill(true);
+                        let Some(cell) = screen.cell(r, c) else {
+                            continue;
+                        };
+                        if cell.is_wide_continuation() {
+                            continue;
+                        }
+                        let mut fg = vt100_color_to_egui(cell.fgcolor(), true);
+                        let mut bg = vt100_color_to_egui(cell.bgcolor(), false);
+                        if cell.inverse() {
+                            std::mem::swap(&mut fg, &mut bg);
+                            if bg == Color32::TRANSPARENT {
+                                bg = TERM_FG_DEFAULT;
+                            }
+                            if fg == Color32::TRANSPARENT {
+                                fg = TERM_BG_VIEWPORT;
                             }
                         }
-                    }
-                }
 
-                let mut job = LayoutJob::default();
-                let mut run_text = String::new();
-                let mut run_style: Option<(Color32, bool, bool, bool)> = None;
+                        let cell_rect = Rect::from_min_size(Pos2::new(origin_x + c as f32 * CHAR_W, row_y), Vec2::new(CHAR_W, ROW_H));
+                        let is_selected = norm_sel.is_some_and(|(s, e)| (r, c) >= s && (r, c) <= e);
+                        let is_search_hit = row_search_hit.get(c as usize).copied().unwrap_or(false);
 
-                for c in 0..cols {
-                    let Some(cell) = screen.cell(r, c) else {
-                        continue;
-                    };
-                    if cell.is_wide_continuation() {
-                        continue;
-                    }
-                    let mut fg = vt100_color_to_egui(cell.fgcolor(), true);
-                    let mut bg = vt100_color_to_egui(cell.bgcolor(), false);
-                    if cell.inverse() {
-                        std::mem::swap(&mut fg, &mut bg);
-                        if bg == Color32::TRANSPARENT {
-                            bg = TERM_FG_DEFAULT;
+                        // Paint exact cell-aligned background / selection / search highlight BEFORE text layout (zero vertical seams)
+                        if is_selected {
+                            p.rect_filled(cell_rect, 0.0, TERM_SELECTION_BG);
+                        } else if is_search_hit {
+                            p.rect_filled(cell_rect, 0.0, Color32::from_rgb(0x5C, 0x4A, 0x00));
+                        } else if bg != Color32::TRANSPARENT {
+                            p.rect_filled(cell_rect, 0.0, bg);
                         }
-                        if fg == Color32::TRANSPARENT {
-                            fg = TERM_BG_VIEWPORT;
-                        }
-                    }
 
-                    let cell_rect = Rect::from_min_size(Pos2::new(origin_x + c as f32 * CHAR_W, row_y), Vec2::new(CHAR_W, ROW_H));
-                    let is_selected = norm_sel.is_some_and(|(s, e)| (r, c) >= s && (r, c) <= e);
-                    let is_search_hit = row_search_hit.get(c as usize).copied().unwrap_or(false);
-
-                    // Paint exact cell-aligned background / selection / search highlight BEFORE text layout (zero vertical seams)
-                    if is_selected {
-                        p.rect_filled(cell_rect, 0.0, TERM_SELECTION_BG);
-                    } else if is_search_hit {
-                        p.rect_filled(cell_rect, 0.0, Color32::from_rgb(0x5C, 0x4A, 0x00));
-                    } else if bg != Color32::TRANSPARENT {
-                        p.rect_filled(cell_rect, 0.0, bg);
-                    }
-
-                    let style_key = (fg, cell.bold(), cell.italic(), cell.underline());
-                    if run_style != Some(style_key) {
-                        if let Some((p_fg, _bold, italics, underline)) = run_style {
-                            if !run_text.is_empty() {
-                                job.append(
-                                    &run_text,
-                                    0.0,
-                                    TextFormat {
-                                        font_id: font_id.clone(),
-                                        color: p_fg,
-                                        background: Color32::TRANSPARENT,
-                                        italics,
-                                        underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
-                                        ..Default::default()
-                                    },
-                                );
-                                run_text.clear();
+                        let style_key = (fg, cell.bold(), cell.italic(), cell.underline());
+                        if run_style != Some(style_key) {
+                            if let Some((p_fg, _bold, italics, underline)) = run_style {
+                                if !run_text.is_empty() {
+                                    job.append(
+                                        &run_text,
+                                        0.0,
+                                        TextFormat {
+                                            font_id: font_id.clone(),
+                                            color: p_fg,
+                                            background: Color32::TRANSPARENT,
+                                            italics,
+                                            underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
+                                            ..Default::default()
+                                        },
+                                    );
+                                    run_text.clear();
+                                }
                             }
+                            run_style = Some(style_key);
                         }
-                        run_style = Some(style_key);
-                    }
 
-                    let contents = cell.contents();
-                    let mut chars_it = contents.chars();
-                    if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
-                        if paint_custom_terminal_glyph(&p, cell_rect, ch, fg) {
+                        let contents = cell.contents();
+                        let mut chars_it = contents.chars();
+                        if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
+                            if paint_custom_terminal_glyph(&p, cell_rect, ch, fg) {
+                                run_text.push(' ');
+                            } else {
+                                run_text.push(ch);
+                            }
+                        } else if contents.is_empty() {
                             run_text.push(' ');
                         } else {
-                            run_text.push(ch);
+                            run_text.push_str(&contents);
                         }
-                    } else if contents.is_empty() {
-                        run_text.push(' ');
-                    } else {
-                        run_text.push_str(&contents);
+                    }
+
+                    let trimmed_len = run_text.trim_end_matches(' ').len();
+                    let has_underline = run_style.is_some_and(|(_, _, _, ul)| ul);
+                    if !has_underline {
+                        run_text.truncate(trimmed_len);
+                    }
+                    if let Some((p_fg, _bold, italics, underline)) = run_style {
+                        if !run_text.is_empty() {
+                            job.append(
+                                &run_text,
+                                0.0,
+                                TextFormat {
+                                    font_id: font_id.clone(),
+                                    color: p_fg,
+                                    background: Color32::TRANSPARENT,
+                                    italics,
+                                    underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
+                                    ..Default::default()
+                                },
+                            );
+                        }
+                    }
+
+                    if !job.text.is_empty() {
+                        let galley = ui.fonts_mut(|f| f.layout_job(job));
+                        p.galley(Pos2::new(origin_x, row_y), galley, TERM_FG_DEFAULT);
                     }
                 }
 
-                let trimmed_len = run_text.trim_end_matches(' ').len();
-                let has_underline = run_style.is_some_and(|(_, _, _, ul)| ul);
-                if !has_underline {
-                    run_text.truncate(trimmed_len);
-                }
-                if let Some((p_fg, _bold, italics, underline)) = run_style {
-                    if !run_text.is_empty() {
-                        job.append(
-                            &run_text,
-                            0.0,
-                            TextFormat {
-                                font_id: font_id.clone(),
-                                color: p_fg,
-                                background: Color32::TRANSPARENT,
-                                italics,
-                                underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
-                                ..Default::default()
-                            },
-                        );
-                    }
-                }
-
-                if !job.text.is_empty() {
-                    let galley = ui.fonts_mut(|f| f.layout_job(job));
-                    p.galley(Pos2::new(origin_x, row_y), galley, TERM_FG_DEFAULT);
-                }
-            }
-
-            // Orca Cursor: solid `#FFFFFF` block + `#1D1F21` cursorAccent when focused; `1px` `#A1A1AA` outline when unfocused
-            if scrollback_offset == 0 && !screen.hide_cursor() && cur_row < rows && cur_col < cols {
-                let cx = origin_x + cur_col as f32 * CHAR_W;
-                let cy = origin_y + cur_row as f32 * ROW_H;
-                let cursor_rect = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(CHAR_W, ROW_H - 1.0));
-                if viewport_focused {
-                    p.rect_filled(cursor_rect, CornerRadius::same(1), Color32::WHITE);
-                    if let Some(cur_cell) = screen.cell(cur_row, cur_col) {
-                        let s = cur_cell.contents();
-                        if !s.trim().is_empty() {
-                            let accent = Color32::from_rgb(0x1D, 0x1F, 0x21);
-                            let mut chars_it = s.chars();
-                            if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
-                                if !paint_custom_terminal_glyph(&p, cursor_rect, ch, accent) {
+                // Orca Cursor: solid `#FFFFFF` block + `#1D1F21` cursorAccent when focused; `1px` `#A1A1AA` outline when unfocused
+                if scrollback_offset == 0 && !screen.hide_cursor() && cur_row < rows && cur_col < cols {
+                    let cx = origin_x + cur_col as f32 * CHAR_W;
+                    let cy = origin_y + cur_row as f32 * ROW_H;
+                    let cursor_rect = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(CHAR_W, ROW_H - 1.0));
+                    if viewport_focused {
+                        p.rect_filled(cursor_rect, CornerRadius::same(1), Color32::WHITE);
+                        if let Some(cur_cell) = screen.cell(cur_row, cur_col) {
+                            let s = cur_cell.contents();
+                            if !s.trim().is_empty() {
+                                let accent = Color32::from_rgb(0x1D, 0x1F, 0x21);
+                                let mut chars_it = s.chars();
+                                if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
+                                    if !paint_custom_terminal_glyph(&p, cursor_rect, ch, accent) {
+                                        p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
+                                    }
+                                } else {
                                     p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
                                 }
-                            } else {
-                                p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
                             }
                         }
+                    } else {
+                        p.rect_stroke(cursor_rect, CornerRadius::same(1), Stroke::new(1.0, Color32::from_rgb(0xA1, 0xA1, 0xAA)), StrokeKind::Inside);
                     }
-                } else {
-                    p.rect_stroke(cursor_rect, CornerRadius::same(1), Stroke::new(1.0, Color32::from_rgb(0xA1, 0xA1, 0xAA)), StrokeKind::Inside);
                 }
-            }
 
-            // Orca slim `7px` scrollbar + `"↑ Scrollback"` pill when scrolled into history
-            if scrollback_offset > 0 {
-                let track_h = (viewport_rect.height() - 8.0).max(24.0);
-                let thumb_h = (track_h * 0.22).clamp(18.0, 64.0);
-                let frac = (scrollback_offset as f32 / 500.0).clamp(0.0, 1.0);
-                let thumb_y = viewport_rect.bottom() - 4.0 - thumb_h - (track_h - thumb_h) * frac;
-                let sb_rect = Rect::from_min_size(Pos2::new(viewport_rect.right() - 9.0, thumb_y), Vec2::new(7.0, thumb_h));
-                p.rect_filled(sb_rect, CornerRadius::same(4), Color32::from_rgba_unmultiplied(180, 180, 185, 102));
+                // Interactive panel-aligned scrollbar (`#1171` R3: real `scrollback_len`, `24 px` target) + `"↑ Scrollback"` pill
+                if scrollback_len > 0 && viewport_rect.height() > 0.0 {
+                    let track_len = track_rect.height();
+                    let total_lines = (scrollback_len + usize::from(rows)).max(1);
+                    let ratio = (f32::from(rows) / total_lines as f32).clamp(0.0, 1.0);
+                    let max_thumb = (track_len * 0.5).max(theme::SPACE_FACT);
+                    let min_thumb = theme::TARGET_MIN.min(max_thumb);
+                    let thumb_h = (track_len * ratio).clamp(min_thumb, max_thumb);
+                    let frac = (scrollback_offset as f32 / scrollback_len as f32).clamp(0.0, 1.0);
+                    let thumb_y = track_rect.top() + (track_len - thumb_h) * (1.0 - frac);
+                    let thumb_rect =
+                        Rect::from_min_size(Pos2::new(viewport_rect.right() - theme::INSET_SEGMENT, thumb_y), Vec2::new(theme::SPACE_FACT, thumb_h));
+                    let thumb_color = if sb_active { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY };
+                    p.rect_filled(thumb_rect, theme::cr(theme::RADIUS_MARK), thumb_color);
+                    widgets::record(ui, "term-scrollbar-track", track_rect);
+                    widgets::record(ui, "term-scrollbar-thumb", thumb_rect);
+                }
 
-                let pill_w = 88.0;
-                let pill_h = 20.0;
-                let pill_r = Rect::from_min_size(
-                    Pos2::new((viewport_rect.right() - pill_w - 14.0).max(viewport_rect.left() + 8.0), viewport_rect.bottom() - pill_h - 8.0),
-                    Vec2::new(pill_w, pill_h),
-                );
-                p.rect_filled(pill_r, CornerRadius::same(10), TERM_BG_ELEVATED);
-                p.rect_stroke(pill_r, CornerRadius::same(10), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
-                p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_caption_medium(), STATUS_INFO_TEXT);
-            }
+                if scrollback_offset > 0 {
+                    let pill_w = 88.0;
+                    let pill_h = 20.0;
+                    let pill_r = Rect::from_min_size(
+                        Pos2::new((viewport_rect.right() - pill_w - 14.0).max(viewport_rect.left() + 8.0), viewport_rect.bottom() - pill_h - 8.0),
+                        Vec2::new(pill_w, pill_h),
+                    );
+                    p.rect_filled(pill_r, CornerRadius::same(10), TERM_BG_ELEVATED);
+                    p.rect_stroke(pill_r, CornerRadius::same(10), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
+                    p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_caption_medium(), STATUS_INFO_TEXT);
+                }
+            });
         });
     }
 
@@ -6625,6 +7051,9 @@ mod gemini_range_tests;
 
 #[cfg(all(test, unix))]
 mod real_cli_launch_tests;
+
+#[cfg(all(test, unix))]
+mod zoom_scrollback_tests;
 
 #[cfg(test)]
 mod tests {
@@ -10156,18 +10585,125 @@ mod tests {
         *st.tabs[codex_idx].last_output_at.lock().unwrap() = Some(output_at);
         assert_eq!(st.tabs[codex_idx].effective_status_at(output_at), AgentTabStatus::Working(None));
 
-        // Heuristic / OSC status drives Codex Running -> Done.
+        // Heuristic / OSC status drives Codex Running -> Done once quiet for 1.5 s (#1194).
         let (_, working) = parse_osc_agent_status_and_strip("\x1b]9999;working:Thinking\x07");
         if let Some(next) = working {
             *st.tabs[codex_idx].agent_status.lock().unwrap() = next;
         }
-        assert!(matches!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Working(_)));
+        assert!(matches!(st.tabs[codex_idx].effective_status_at(output_at + std::time::Duration::from_millis(1_400)), AgentTabStatus::Working(_)));
+        assert_eq!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Done);
         let (_, done) = parse_osc_agent_status_and_strip("\x1b]9999;done\x07");
         if let Some(next) = done {
             *st.tabs[codex_idx].agent_status.lock().unwrap() = next;
         }
         assert_eq!(st.tabs[codex_idx].effective_status_at(quiet), AgentTabStatus::Done);
         kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn codex_turn_end_pure_decay_and_precedence_rules() {
+        let t0 = std::time::Instant::now();
+        // 1. Working, quiet 1.4 s -> still Working
+        assert_eq!(
+            resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Working…".into())), Some(t0), t0 + std::time::Duration::from_millis(1_400)),
+            AgentTabStatus::Working(Some("Working…".into()))
+        );
+        // 2. Working, quiet 1.5 s -> Done
+        let decayed = resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Working…".into())), Some(t0), t0 + std::time::Duration::from_millis(1_500));
+        assert_eq!(decayed, AgentTabStatus::Done);
+        // 3. WaitingForInput, quiet 60 s -> still WaitingForInput
+        assert_eq!(
+            resolve_pty_heuristic_status(AgentTabStatus::WaitingForInput(Some("Approval".into())), Some(t0), t0 + std::time::Duration::from_secs(60)),
+            AgentTabStatus::WaitingForInput(Some("Approval".into()))
+        );
+        // 4. Stopped and Error are unchanged (both when quiet and when recent PTY output arrived)
+        for delta in [std::time::Duration::from_millis(100), std::time::Duration::from_secs(60)] {
+            assert_eq!(resolve_pty_heuristic_status(AgentTabStatus::Stopped, Some(t0), t0 + delta), AgentTabStatus::Stopped);
+            assert_eq!(
+                resolve_pty_heuristic_status(AgentTabStatus::Error(Some("exit code 1".into())), Some(t0), t0 + delta),
+                AgentTabStatus::Error(Some("exit code 1".into()))
+            );
+        }
+        // 5. A new Working after Done (next turn), plus turn_ledger Active -> Completed -> Active transitions
+        let mut ledger = crate::agent_turn_ledger::AgentTurnLedger::default();
+        let t_work1 = t0 + std::time::Duration::from_millis(200);
+        let st_work1 = resolve_pty_heuristic_status(AgentTabStatus::Working(None), Some(t0), t_work1);
+        assert_eq!(st_work1, AgentTabStatus::Working(None));
+        ledger.on_status_change(matches!(st_work1, AgentTabStatus::Working(_)), 0, t_work1);
+        assert_eq!(ledger.turns.last().map(|t| t.state), Some(crate::agent_turn_ledger::TurnState::Active));
+
+        let t_done1 = t0 + std::time::Duration::from_millis(1_500);
+        let st_done1 = resolve_pty_heuristic_status(AgentTabStatus::Working(None), Some(t0), t_done1);
+        assert_eq!(st_done1, AgentTabStatus::Done);
+        ledger.on_status_change(matches!(st_done1, AgentTabStatus::Working(_)), 10, t_done1);
+        assert_eq!(ledger.turns.len(), 1);
+        assert_eq!(ledger.turns[0].state, crate::agent_turn_ledger::TurnState::Completed);
+
+        // Next turn starts at t0 + 10 s
+        let t_turn2_out = t0 + std::time::Duration::from_secs(10);
+        let t_turn2_check = t_turn2_out + std::time::Duration::from_millis(200);
+        let st_work2_from_done = resolve_pty_heuristic_status(AgentTabStatus::Done, Some(t_turn2_out), t_turn2_check);
+        assert_eq!(st_work2_from_done, AgentTabStatus::Working(None));
+        let st_work2_explicit = resolve_pty_heuristic_status(AgentTabStatus::Working(Some("Next turn".into())), Some(t_turn2_out), t_turn2_check);
+        assert_eq!(st_work2_explicit, AgentTabStatus::Working(Some("Next turn".into())));
+        ledger.on_status_change(matches!(st_work2_explicit, AgentTabStatus::Working(_)), 10, t_turn2_check);
+        assert_eq!(ledger.turns.len(), 2);
+        assert_eq!(ledger.turns.last().map(|t| (t.id, t.state)), Some((2, crate::agent_turn_ledger::TurnState::Active)));
+    }
+
+    #[test]
+    fn codex_turn_end_stub_pty_turn_decays_to_done_closes_ledger_and_hides_stop() {
+        let mut st = isolated_683_state(68394);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'printf \"\\033]0;\\342\\240\\213 codex\\007\"; sleep 5'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex stub");
+        st.tabs.push(tab);
+        st.active_tab = 0;
+
+        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+        while !matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)) && std::time::Instant::now() < deadline {
+            let _ = st.poll_live_agent_bridge();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert!(matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)), "stub Codex PTY spinner must enter Working");
+        assert!(crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "Stop must be eligible while Codex is Working");
+        let working = st.is_tab_working(0);
+        st.tabs[0].turn_ledger.tick(working, std::time::Instant::now());
+        assert_eq!(st.tabs[0].turn_ledger.turns.last().map(|t| t.state), Some(crate::agent_turn_ledger::TurnState::Active));
+
+        // Advance quiet time to 1.5 s and poll.
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(std::time::Instant::now() - PTY_HEURISTIC_WORKING_DECAY);
+        let _ = st.poll_live_agent_bridge();
+        let working_after_decay = st.is_tab_working(0);
+        st.tabs[0].turn_ledger.tick(working_after_decay, std::time::Instant::now());
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Done, "Codex tab must decay to Done after 1.5 s of PTY quiet");
+        assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "Stop must hide once Codex turn decays to Done");
+        assert!(st.tabs[0].turn_ledger.turns.is_empty(), "active heuristic turn must close on decay");
+        kill_tabs(&mut st);
+    }
+
+    /// The PTY-heuristic poll writes back only the quiet `Working → Done` decay. Fresh PTY bytes
+    /// show `Done`/`Idle` as `Working(None)` for display, but composer echo is not a turn, so that
+    /// promotion is never written back or announced (`#1194`).
+    #[test]
+    fn codex_status_poll_persists_only_the_working_to_done_decay() {
+        let working = AgentTabStatus::Working(Some("Working…".into()));
+        let shown_working = AgentTabStatus::Working(None);
+        assert_eq!(persisted_pty_heuristic_status(&working, &AgentTabStatus::Done), Some(AgentTabStatus::Done));
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Done, &shown_working), None, "composer echo after a turn");
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Idle, &shown_working), None, "composer echo before a turn");
+        assert_eq!(persisted_pty_heuristic_status(&working, &working), None);
+        let waiting = AgentTabStatus::WaitingForInput(None);
+        assert_eq!(persisted_pty_heuristic_status(&waiting, &waiting), None);
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Stopped, &AgentTabStatus::Stopped), None);
+
+        let now = std::time::Instant::now();
+        let echo = resolve_pty_heuristic_status(AgentTabStatus::Done, Some(now), now);
+        assert_eq!(echo, shown_working, "output under 600 ms still displays as Working");
+        assert_eq!(persisted_pty_heuristic_status(&AgentTabStatus::Done, &echo), None);
+        let quiet = resolve_pty_heuristic_status(working.clone(), Some(now - PTY_HEURISTIC_WORKING_DECAY), now);
+        assert_eq!(persisted_pty_heuristic_status(&working, &quiet), Some(AgentTabStatus::Done));
     }
 
     #[test]
@@ -10327,9 +10863,79 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Done);
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 1".to_string())));
         assert_eq!(st.tabs[0].last_turn_receipt().map(|r| r.format_line()), Some("Ended without reporting a result".to_string()));
         assert_eq!(sink.count(), 1, "process exit during a running turn while unfocused must send a Finished notification");
+    }
+
+    #[test]
+    fn codex_turn_end_pty_exit_while_working_or_waiting_maps_stop_and_errors_across_presets() {
+        // 1. User-requested Stop while Working ends as Stopped on PTY exit
+        {
+            let mut st = isolated_683_state(68395);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'exit 0'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex exit stub");
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            tab.stop_in_flight.store(true, std::sync::atomic::Ordering::Relaxed);
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Stopped);
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]));
+            kill_tabs(&mut st);
+        }
+
+        // 2. Exit 0 without user stop while Working or WaitingForInput ends as Error("exit code 0") across presets
+        for (i, (preset, initial_status)) in [
+            (AgentCliPreset::Codex, AgentTabStatus::Working(None)),
+            (AgentCliPreset::Claude, AgentTabStatus::WaitingForInput(Some("Bash".into()))),
+            (AgentCliPreset::Grok, AgentTabStatus::Working(Some("Working…".into()))),
+            (AgentCliPreset::Antigravity, AgentTabStatus::WaitingForInput(None)),
+            (AgentCliPreset::Gemini, AgentTabStatus::Working(None)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut st = isolated_683_state(68396 + i as u64);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo ok; exit 0'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, preset, 24, 80, None, None, Some(cmd)).expect("spawn preset exit 0 stub");
+            *tab.agent_status.lock().unwrap() = initial_status;
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 0".to_string())), "{preset:?}");
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]), "{preset:?}");
+            kill_tabs(&mut st);
+        }
+
+        // 3. Non-zero exit (code 7) while Working ends as Error("exit code 7")
+        {
+            let mut st = isolated_683_state(68410);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo crash; exit 7'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex exit 7 stub");
+            *tab.agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+            st.tabs.push(tab);
+            st.active_tab = 0;
+            let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
+            while !st.tabs[0].exited_notice_shown && std::time::Instant::now() < deadline {
+                let _ = st.poll_live_agent_bridge();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Error(Some("exit code 7".to_string())));
+            assert!(!crate::agent_stop::is_tab_turn_running(&st.tabs[0]));
+            kill_tabs(&mut st);
+        }
     }
 
     #[test]
@@ -10700,7 +11306,9 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab"] {
+        for preset_slug in
+            ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"]
+        {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);

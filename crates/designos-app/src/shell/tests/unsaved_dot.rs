@@ -42,14 +42,14 @@ pub(super) fn two_rects() -> Document {
     d
 }
 
-/// A sim on the library's seeded "Welcome" file, tab bar shown.
+/// A sim on the library's seeded "DESIGN-OS Studio Starter" file, tab bar shown.
 pub(super) fn library_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let mut s = Sim::with(Options { home: true, library: Some(dir.0.join("lib")), ..Default::default() });
     s.shell.app.tabs.always_visible = true;
     let id = {
         let home = s.app().home.as_ref().unwrap();
-        home.snap.files.iter().find(|f| f.name == "Welcome").unwrap().id.clone()
+        home.snap.files.iter().find(|f| f.name == "DESIGN-OS Studio Starter").unwrap().id.clone()
     };
     crate::home::apply(&mut s.shell.app, Act::Open(id));
     wait(&mut s, SETTLED);

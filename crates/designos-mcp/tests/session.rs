@@ -280,3 +280,104 @@ fn a_missing_file_inside_the_workspace_is_reported_as_missing_not_as_unsaved_cha
 
     assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
 }
+
+#[test]
+fn web_capture_between_64_and_512_mib_passes_the_size_gate() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+
+    let cap_65 = dir.0.join("capture_65mib.json");
+    let f = fs::File::create(&cap_65).unwrap();
+    f.set_len(65 * 1024 * 1024).unwrap();
+    drop(f);
+
+    let err = s.call("designos_import_web_capture", json!({"path": "capture_65mib.json"})).unwrap_err().to_json_value();
+    let _ = fs::remove_file(&cap_65);
+
+    assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
+    let msg = err["message"].as_str().unwrap();
+    assert!(msg.contains("invalid capture JSON"), "expected JSON parse error past size gate, got: {msg}");
+    assert!(!msg.contains("import limit"), "65 MiB capture must not hit an import limit: {msg}");
+}
+
+#[test]
+fn web_capture_over_512_mib_is_file_too_large() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+
+    let cap_513 = dir.0.join("capture_513mib.json");
+    let len: u64 = 513 * 1024 * 1024;
+    let f = fs::File::create(&cap_513).unwrap();
+    f.set_len(len).unwrap();
+    drop(f);
+
+    let err = s.call("designos_import_web_capture", json!({"path": "capture_513mib.json"})).unwrap_err().to_json_value();
+    let _ = fs::remove_file(&cap_513);
+
+    assert_eq!(err["code"], "FILE_TOO_LARGE", "{err}");
+    assert_eq!(err["path"], "/path", "{err}");
+    assert_eq!(err["received"], json!(len), "{err}");
+    assert_eq!(err["expected"], "<= 536870912 bytes", "{err}");
+    assert_eq!(err["message"], "Input file exceeds the 512 MiB import limit", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert!(err["next_step"].as_str().unwrap().contains("Studio"), "{err}");
+}
+
+#[test]
+fn open_file_between_64_and_512_mib_passes_the_size_gate() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+
+    let doc_65 = dir.0.join("sparse_65mib.designos");
+    let f = fs::File::create(&doc_65).unwrap();
+    f.set_len(65 * 1024 * 1024).unwrap();
+    drop(f);
+
+    let err = s.call("designos_open_file", json!({"path": "sparse_65mib.designos", "discard_changes": true})).unwrap_err().to_json_value();
+    let _ = fs::remove_file(&doc_65);
+
+    assert_eq!(err["code"], "DOCUMENT_INVALID", "{err}");
+    assert_ne!(err["code"], "FILE_TOO_LARGE", "{err}");
+}
+
+#[test]
+fn import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos() {
+    use std::io::Write;
+
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let before = s.call("designos_get_document", json!({})).unwrap();
+
+    // 1. Exactly 536,870,912 bytes (512 MiB) is accepted by the size gate on web capture.
+    let exact_cap = dir.0.join("exact_512mib.json");
+    let f = fs::File::create(&exact_cap).unwrap();
+    f.set_len(512 * 1024 * 1024).unwrap();
+    drop(f);
+    let cap_err = s.call("designos_import_web_capture", json!({"path": "exact_512mib.json"})).unwrap_err().to_json_value();
+    let _ = fs::remove_file(&exact_cap);
+    assert_ne!(cap_err["code"], "FILE_TOO_LARGE", "exact 512 MiB capture must pass the size gate: {cap_err}");
+    assert!(cap_err["message"].as_str().unwrap().contains("invalid capture JSON"), "{cap_err}");
+
+    // 2. A valid .designos file whose size exceeds 512 MiB is refused with FILE_TOO_LARGE and never opened partially.
+    let mut valid_doc = designos_doc::Document::new("OversizedSentinelDoc");
+    let page = valid_doc.add_page("SentinelPage");
+    let id = valid_doc.alloc_id();
+    valid_doc.insert(page, designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let oversized_path = dir.0.join("oversized_valid.designos");
+    let mut f = fs::File::create(&oversized_path).unwrap();
+    f.write_all(valid_doc.to_json().unwrap().as_bytes()).unwrap();
+    let over_len: u64 = 512 * 1024 * 1024 + 1;
+    f.set_len(over_len).unwrap();
+    drop(f);
+
+    let open_err = s.call("designos_open_file", json!({"path": "oversized_valid.designos", "discard_changes": true})).unwrap_err().to_json_value();
+    let _ = fs::remove_file(&oversized_path);
+
+    assert_eq!(open_err["code"], "FILE_TOO_LARGE", "{open_err}");
+    assert_eq!(open_err["path"], "/path", "{open_err}");
+    assert_eq!(open_err["received"], json!(over_len), "{open_err}");
+    assert_eq!(open_err["expected"], "<= 536870912 bytes", "{open_err}");
+    assert_eq!(open_err["safe_to_retry"], false, "{open_err}");
+    assert!(open_err["next_step"].as_str().unwrap().contains("Studio"), "{open_err}");
+    assert_eq!(s.call("designos_get_document", json!({})).unwrap(), before, "session document must not be partially replaced");
+}

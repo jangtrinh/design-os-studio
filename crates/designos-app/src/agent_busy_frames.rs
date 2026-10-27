@@ -305,7 +305,7 @@ impl AgentBusyFrames {
         let (user_edited, agent_edited, both) = (&mut self.user_edited_fields, &self.agent_edited_fields, &mut self.both_changed);
         crate::node_field_diff::for_each_changed_field(before, after, |field| {
             let key = (id, field.to_owned());
-            if agent_edited.get(&key) == Some(&turn) {
+            if !agent_edited.is_empty() && agent_edited.get(&key) == Some(&turn) {
                 both.insert(key.clone(), turn);
             }
             user_edited.insert(key, turn);

@@ -370,6 +370,14 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: ERect) {
         app.first_fit_done = true;
         match app.startup_zoom.take() {
             Some(z) => app.zoom_on_content(z),
+            None if app.startup_fit_selection => {
+                app.startup_fit_selection = false;
+                if app.selection.is_empty() {
+                    app.fit_all();
+                } else {
+                    app.fit_selection();
+                }
+            }
             None if app.is_deck() => {
                 if let Some(id) = app.active_slide() {
                     app.select_slide(id);

@@ -212,8 +212,15 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
                 report.needs_layout.push(id);
             }
-            report.touched.push((id, TouchKind::Updated));
-            Some(crate::writer_command(doc, Command::Update { node: Box::new(merged) }).cmd)
+            let wc = crate::writer_command(doc, Command::Update { node: Box::new(merged) });
+            for part in &wc.parts {
+                if let Command::Update { node } = part {
+                    if !report.touched.contains(&(node.id, TouchKind::Updated)) {
+                        report.touched.push((node.id, TouchKind::Updated));
+                    }
+                }
+            }
+            Some(wc.cmd)
         }
         LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
             let (id, id_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);

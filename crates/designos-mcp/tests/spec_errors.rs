@@ -138,6 +138,25 @@ fn round3_nested_spec_errors_carry_path_from_root() {
         "expected nested path in {:?}",
         err_nested.message
     );
+
+    let err_nested_children = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page,
+                "spec": {
+                    "kind": "frame",
+                    "name": "Root",
+                    "children": [{"kind": "frame", "name": "Card", "children": [[{"kind": "rectangle", "name": "Box"}]]}]
+                }
+            }),
+        )
+        .expect_err("nested array-of-arrays children must fail");
+    assert!(
+        err_nested_children.message.contains("children/0/children must be an array of NodeSpec objects"),
+        "expected nested JSON path and plain-words message in {:?}",
+        err_nested_children.message
+    );
 }
 
 #[test]

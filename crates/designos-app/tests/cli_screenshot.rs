@@ -44,11 +44,12 @@ fn cli_screenshot_refuses_broken_files_and_captures_good_file() {
     let fig_bytes = designos_fig::export_fig(&good_doc).expect("export valid .fig");
 
     std::fs::write(dir.join("trunc.fig"), &fig_bytes[..24.min(fig_bytes.len())]).unwrap();
+    std::fs::write(dir.join("empty.fig"), b"").unwrap();
     std::fs::write(dir.join("corrupt.designos"), b"{corrupt designos json").unwrap();
     std::fs::write(dir.join("garbage.fig"), b"not a fig file at all").unwrap();
 
     for (bin_name, bin_path) in BINARIES {
-        for broken in ["trunc.fig", "corrupt.designos", "garbage.fig"] {
+        for broken in ["trunc.fig", "empty.fig", "corrupt.designos", "garbage.fig"] {
             let png_name = format!("{bin_name}_{broken}.png");
             let png_path = dir.join(&png_name);
             let _ = std::fs::remove_file(&png_path);

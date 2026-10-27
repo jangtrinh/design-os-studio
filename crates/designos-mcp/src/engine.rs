@@ -399,22 +399,29 @@ impl Engine {
                         Some((id.0.to_string(), serde_json::to_value(ip).ok()?))
                     })
                     .collect();
+                let listed_styles: Vec<_> = self
+                    .doc
+                    .styles
+                    .iter()
+                    .filter(|(k, _)| self.doc.is_table_style(k))
+                    .map(|(key, values)| {
+                        let meta = self.doc.style_meta.get(key);
+                        let empty = std::collections::BTreeMap::new();
+                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
+                        "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
+                        "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
+                    })
+                    .collect();
                 Ok(json!({"name":self.doc.name,"kind":self.doc.kind,
                     "active_page_id":self.resolve_default_page().ok().map(|p| p.0),
                     "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(|n| summary(&self.doc, n)).collect::<Vec<_>>(),
                     "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
                     "comment_count":self.doc.comments.len(),
-                    "style_count":self.doc.styles.len(),
+                    "style_count":listed_styles.len(),
                     "in_progress_count":in_progress_nodes.len(),
                     "in_progress_nodes":in_progress_nodes,
                     "in_progress":in_progress_map,
-                    "styles":self.doc.styles.iter().map(|(key,values)|{
-                        let meta=self.doc.style_meta.get(key);
-                        let empty = std::collections::BTreeMap::new();
-                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
-                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
-                            "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
-                    }).collect::<Vec<_>>(),
+                    "styles":listed_styles,
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
             "designos_get_libraries" => {
@@ -1556,19 +1563,34 @@ pub(crate) fn has_control_or_bidi_char(s: &str) -> bool {
     })
 }
 
+pub(crate) fn is_whitespace_only_output_name(display_path: &str) -> bool {
+    if display_path.trim().is_empty() {
+        return true;
+    }
+    let p = std::path::Path::new(display_path);
+    if p.components().any(|comp| matches!(comp, std::path::Component::Normal(part) if part.to_str().is_some_and(|s| s.trim().is_empty()))) {
+        return true;
+    }
+    p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.trim().is_empty())
+}
+
 pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
     if has_control_or_bidi_char(display_path) {
         return Err(ToolError::new(
-            ErrorCode::InvalidArguments,
+            ErrorCode::InvalidName,
             ptr,
             format!("{display_path} has a name with a line break or a direction-control character. Rename it, then try again."),
         )
         .with_received(json!(display_path)));
     }
+    if is_whitespace_only_output_name(display_path) {
+        return Err(ToolError::new(ErrorCode::InvalidName, ptr, format!("{display_path} has a blank name. Give the file a name, then try again."))
+            .with_received(json!(display_path)));
+    }
     for comp in std::path::Path::new(display_path).components() {
         if let std::path::Component::Normal(part) = comp {
             if part.len() > 255 {
-                return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
+                return Err(ToolError::new(ErrorCode::NameTooLong, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
                     .with_received(json!(display_path)));
             }
         }

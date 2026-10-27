@@ -255,7 +255,7 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
         });
     }
     let imported: BTreeSet<&str> = doc.library.external.values().filter_map(|e| e.local_key.as_deref()).collect();
-    for k in doc.styles.keys().filter(|k| !imported.contains(k.as_str())) {
+    for k in doc.styles.keys().filter(|k| doc.is_table_style(k) && !imported.contains(k.as_str())) {
         out.push((format!("style:{k}"), LibraryAssetKind::Style, doc.style_name(k).to_string()));
     }
     for (id, c) in doc.variable_collections.iter().filter(|(id, _)| !imported.contains(id.as_str())) {

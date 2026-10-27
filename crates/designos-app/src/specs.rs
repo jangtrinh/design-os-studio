@@ -775,7 +775,7 @@ const V2_GATE_G5_MD: &str = include_str!("../../../plans/specs/designos-studio-v
 const FALLBACK_BRAINSTORM: &str = include_str!("../../../plans/specs/figma-parity-and-agentic-spec-reader/brainstorm.md");
 const FALLBACK_USECASES: &str = include_str!("../../../plans/specs/figma-parity-and-agentic-spec-reader/usecases.md");
 const FALLBACK_PLAN: &str = include_str!("../../../plans/specs/figma-parity-and-agentic-spec-reader/plan.md");
-const FALLBACK_SPEC_JSON: &str = include_str!("../../../examples/specs/easeui-agent-console.spec.json");
+const FALLBACK_SPEC_JSON: &str = include_str!("../assets/specs/easeui-agent-console.spec.json");
 
 impl SpecsState {
     pub fn ensure_loaded(&mut self) {
@@ -795,7 +795,7 @@ impl SpecsState {
         if standalone_specs.is_empty() {
             standalone_specs.push((
                 "easeui-agent-console.spec.json".to_string(),
-                PathBuf::from("examples/specs/easeui-agent-console.spec.json"),
+                PathBuf::from("crates/designos-app/assets/specs/easeui-agent-console.spec.json"),
                 FALLBACK_SPEC_JSON.to_string(),
             ));
         }

@@ -1,0 +1,50 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 5 tests
+
+thread 'terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab' (75347171) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:483:5:
+assertion `left == right` failed: AC-05: no PTY resize may be sent while zoom steps are still changing within the 120 ms debounce window, got 5
+  left: 5
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... FAILED
+
+thread 'terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn' (75347172) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:528:13:
+assertion `left == right` failed: streaming edge case: STREAM_LINE_01 must appear exactly once after mid-stream resize, got 2 (lines=["STREAM_LINE_01", "STREAM_LINE_02", "STREAM_LINE_03", "STREAM_LINE_04", "STREAM_LINE_05", "STREAM_LINE_06", "STREAM_LINE_07", "STREAM_LINE_01", "STREAM_LINE_02", "STREAM_LINE_03", "STREAM_LINE_04", "STREAM_LINE_05", "STREAM_LINE_06", "STREAM_LINE_07", "STREAM_LINE_08", "STREAM_LINE_09", "STREAM_LINE_10", "STREAM_LINE_11", "STREAM_LINE_12", "STREAM_LINE_13", "STREAM_LINE_14", "STREAM_LINE_15", "STREAM_LINE_16", "STREAM_LINE_17", "STREAM_LINE_18", "STREAM_LINE_19", "STREAM_LINE_20", "STREAM_LINE_21", "STREAM_LINE_22", "STREAM_LINE_23", "STREAM_LINE_24", "STREAM_LINE_25", "STREAM_LINE_26", "STREAM_LINE_27", "STREAM_LINE_28", "STREAM_LINE_29", "STREAM_LINE_30", "[stream_done winch_seq=1 rows=10 cols=86]"])
+  left: 2
+ right: 1
+test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... FAILED
+
+thread 'terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy' (75347170) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:454:5:
+AC-03: no stale narrow 70-column table copy may remain after resizing back to 100 columns (sb_len=6, lines=["┌──────────────────────────────────────────────────────────────────────────────────────────────────┐", "│ TABLE_WIDTH=100 SEQ=0                                                                            │", "┌────────────────────────────────────────────────────────────────────┐", "│ TABLE_WIDTH=70 SEQ=1                                               │", "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐", "│ TABLE_WIDTH=100 SEQ=2                                                                            │", "└──────────────────────────────────────────────────────────────────────────────────────────────────┘", "TABLE_HISTORY_01", "TABLE_HISTORY_02", "TABLE_HISTORY_03", "TABLE_HISTORY_04", "TABLE_HISTORY_05", "TABLE_HISTORY_06", "TABLE_HISTORY_07", "TABLE_HISTORY_08", "TABLE_HISTORY_09", "TABLE_HISTORY_10", "TABLE_HISTORY_11", "TABLE_HISTORY_12", "TABLE_HISTORY_13", "TABLE_HISTORY_14", "TABLE_HISTORY_15", "TABLE_HISTORY_16", "TABLE_HISTORY_17", "TABLE_HISTORY_18", "[winch_seq=2 rows=20 cols=100]"])
+test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... FAILED
+STEP0_MODE_A_COUNTS: scrollback_len=66 counts={"HISTORY_LINE_01": 6, "HISTORY_LINE_02": 6, "HISTORY_LINE_03": 6, "HISTORY_LINE_04": 6, "HISTORY_LINE_05": 6, "HISTORY_LINE_06": 6, "HISTORY_LINE_07": 6, "HISTORY_LINE_08": 6, "HISTORY_LINE_09": 6, "HISTORY_LINE_10": 6, "HISTORY_LINE_11": 6, "HISTORY_LINE_12": 1, "HISTORY_LINE_13": 1, "HISTORY_LINE_14": 1, "HISTORY_LINE_15": 1, "HISTORY_LINE_16": 1, "HISTORY_LINE_17": 1, "HISTORY_LINE_18": 1, "HISTORY_LINE_19": 1, "HISTORY_LINE_20": 1, "HISTORY_LINE_21": 1, "HISTORY_LINE_22": 1, "HISTORY_LINE_23": 1, "HISTORY_LINE_24": 1, "HISTORY_LINE_25": 1, "HISTORY_LINE_26": 1, "HISTORY_LINE_27": 1, "HISTORY_LINE_28": 1, "HISTORY_LINE_29": 1, "HISTORY_LINE_30": 1}
+
+thread 'terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom' (75347168) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:252:5:
+assertion `left == right` failed: AC-01 mode (a): scrollback must hold 11 lines after 5 resizes, got 66 (counts={"HISTORY_LINE_01": 6, "HISTORY_LINE_02": 6, "HISTORY_LINE_03": 6, "HISTORY_LINE_04": 6, "HISTORY_LINE_05": 6, "HISTORY_LINE_06": 6, "HISTORY_LINE_07": 6, "HISTORY_LINE_08": 6, "HISTORY_LINE_09": 6, "HISTORY_LINE_10": 6, "HISTORY_LINE_11": 6, "HISTORY_LINE_12": 1, "HISTORY_LINE_13": 1, "HISTORY_LINE_14": 1, "HISTORY_LINE_15": 1, "HISTORY_LINE_16": 1, "HISTORY_LINE_17": 1, "HISTORY_LINE_18": 1, "HISTORY_LINE_19": 1, "HISTORY_LINE_20": 1, "HISTORY_LINE_21": 1, "HISTORY_LINE_22": 1, "HISTORY_LINE_23": 1, "HISTORY_LINE_24": 1, "HISTORY_LINE_25": 1, "HISTORY_LINE_26": 1, "HISTORY_LINE_27": 1, "HISTORY_LINE_28": 1, "HISTORY_LINE_29": 1, "HISTORY_LINE_30": 1})
+  left: 66
+ right: 11
+test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... FAILED
+
+thread 'terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size' (75347169) panicked at crates/designos-app/src/terminal/zoom_scrollback_tests.rs:298:28:
+AC-02: terminal scrollbar track must be recorded when scrollback_len > 0
+test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... FAILED
+
+failures:
+
+failures:
+    terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom
+    terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size
+    terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy
+    terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab
+    terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 3336 filtered out; finished in 2.49s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,76 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-doc)
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-mcp)
+   Compiling designos-fonts v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-fonts)
+   Compiling designos-render v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-render)
+   Compiling designos-svg v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-svg)
+   Compiling designos-webcapture v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-webcapture)
+   Compiling designos-export v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-export)
+   Compiling designos-fig v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-fig)
+   Compiling designos-library v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-library)
+   Compiling designos-gpu v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-gpu)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1193-canvas-label-rename/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 7 tests
+
+thread 'shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names' (73590261) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:299:5:
+assertion `left == right` failed: un-overridden instance label follows main component
+  left: Some("Rectangle 1")
+ right: Some("Card")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names ... FAILED
+
+thread 'shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to' (73590260) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:409:5:
+assertion `left == right` failed: scrolled-to component paints new label
+  left: Some("Rectangle 1")
+ right: Some("Card")
+test shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to ... FAILED
+
+thread 'shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label' (73590632) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:144:5:
+assertion `left == right` failed: canvas frame label above component must update from 'Rectangle 1' to 'Card'
+  left: Some("Rectangle 1")
+ right: Some("Card")
+test shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label ... FAILED
+
+thread 'shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths' (73590640) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:233:5:
+assertion `left == right` failed
+  left: Some("Rectangle 1")
+ right: Some("Card")
+test shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths ... FAILED
+
+thread 'shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label' (73590942) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:321:5:
+assertion `left == right` failed
+  left: "Draft 2"
+ right: "Final Card"
+test shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label ... FAILED
+
+thread 'shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync' (73590950) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:189:5:
+assertion `left == right` failed
+  left: Some("Rectangle 1")
+ right: Some("Card")
+test shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync ... FAILED
+
+thread 'shell::tests::canvas_label_rename::user_rename_on_ctrl_alt_k_component_keeps_canvas_label_layers_and_properties_in_sync' (73591296) panicked at crates/designos-app/src/shell/tests/canvas_label_rename.rs:162:5:
+assertion `left == right` failed
+  left: "Rectangle 1"
+ right: "Card"
+test shell::tests::canvas_label_rename::user_rename_on_ctrl_alt_k_component_keeps_canvas_label_layers_and_properties_in_sync ... FAILED
+
+failures:
+
+failures:
+    shell::tests::canvas_label_rename::off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled_or_switched_to
+    shell::tests::canvas_label_rename::renaming_main_component_updates_instance_canvas_labels_and_preserves_overridden_instance_names
+    shell::tests::canvas_label_rename::repro_qa_1193_rectangle_ctrl_alt_k_agent_rename_updates_canvas_frame_label
+    shell::tests::canvas_label_rename::revert_on_agent_turn_card_restores_old_name_on_canvas_label_in_fast_and_fallback_paths
+    shell::tests::canvas_label_rename::several_renames_in_one_transaction_show_only_the_final_name_on_canvas_label
+    shell::tests::canvas_label_rename::undo_and_redo_after_component_rename_keep_canvas_label_layers_and_properties_in_sync
+    shell::tests::canvas_label_rename::user_rename_on_ctrl_alt_k_component_keeps_canvas_label_layers_and_properties_in_sync
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 3321 filtered out; finished in 4.96s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -17,7 +17,7 @@ const CONFLICT_TITLE: &str = "File changed on disk";
 fn visit_a_library_tab(s: &mut Sim, path: &Path) -> usize {
     s.shell.app.go_home();
     wait(s, SETTLED);
-    let id = s.app().home.as_ref().unwrap().snap.files.iter().find(|f| f.name == "Welcome").unwrap().id.clone();
+    let id = s.app().home.as_ref().unwrap().snap.files.iter().find(|f| f.name == "DESIGN-OS Studio Starter").unwrap().id.clone();
     crate::home::apply(&mut s.shell.app, Act::Open(id));
     wait(s, 2.0);
     s.app().tabs.entries.iter().position(|t| t.file_path.as_deref() == Some(path)).expect("a tab for the file")

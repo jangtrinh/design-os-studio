@@ -22,6 +22,8 @@ open-url = ["dep:open"]
 # `openh264` crate, so it needs a C++ compiler). Off by default: the default build stays pure Rust
 # and still plays Motion JPEG; other codecs show their poster with an "Unsupported codec" badge.
 video = ["dep:openh264"]
+# Built-in screenshot and test fixtures (`--fixture`, `--seed-library`). Off by default in shipped builds.
+fixtures = []
 
 [dependencies]
 open = { version = "5", optional = true }

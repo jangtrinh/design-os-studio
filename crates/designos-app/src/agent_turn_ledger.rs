@@ -791,9 +791,30 @@ pub fn snapshot_pre_step(doc: &Document, patch: &designos_doc::live_patch::LiveP
                     fps.insert(root.id, doc.get(root.id).map(node_fingerprint));
                 }
             }
-            designos_doc::live_patch::LiveOp::Update { id, .. }
-            | designos_doc::live_patch::LiveOp::Reparent { id, .. }
-            | designos_doc::live_patch::LiveOp::Remove { id } => {
+            designos_doc::live_patch::LiveOp::Update { id, set, .. } => {
+                if let Some(n) = doc.get(*id) {
+                    names.insert(*id, n.name.clone());
+                    fps.insert(*id, Some(node_fingerprint(n)));
+                    if let Some(pid) = n.parent {
+                        if let Some(p) = doc.get(pid) {
+                            fps.insert(pid, Some(node_fingerprint(p)));
+                        }
+                    }
+                    if let Some(new_name) = set.get("name").and_then(|v| v.as_str()) {
+                        for c in designos_doc::companion_component_rename_updates(doc, *id, &n.name, new_name) {
+                            if let Command::Update { node } = c {
+                                if let Some(cn) = doc.get(node.id) {
+                                    names.insert(node.id, cn.name.clone());
+                                    fps.insert(node.id, Some(node_fingerprint(cn)));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    fps.insert(*id, None);
+                }
+            }
+            designos_doc::live_patch::LiveOp::Reparent { id, .. } | designos_doc::live_patch::LiveOp::Remove { id } => {
                 if let Some(n) = doc.get(*id) {
                     names.insert(*id, n.name.clone());
                     fps.insert(*id, Some(node_fingerprint(n)));

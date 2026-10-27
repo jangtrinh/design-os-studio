@@ -100,6 +100,10 @@ pub enum ErrorCode {
     // Query codes (E15-17) (2)
     CursorStale,
     RuleUnavailable,
+
+    // Output filename validation codes (#1003 RT-05/RT-06) (2)
+    InvalidName,
+    NameTooLong,
 }
 
 #[allow(non_upper_case_globals)]
@@ -214,6 +218,8 @@ impl ErrorCode {
         Self::IdempotencyKeyStale,
         Self::CursorStale,
         Self::RuleUnavailable,
+        Self::InvalidName,
+        Self::NameTooLong,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -289,6 +295,8 @@ impl ErrorCode {
             Self::IdempotencyKeyStale => "IDEMPOTENCY_KEY_STALE",
             Self::CursorStale => "CURSOR_STALE",
             Self::RuleUnavailable => "RULE_UNAVAILABLE",
+            Self::InvalidName => "INVALID_NAME",
+            Self::NameTooLong => "NAME_TOO_LONG",
         }
     }
 
@@ -300,7 +308,10 @@ impl ErrorCode {
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
             Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
+            Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
+            Self::InvalidName => "Choose a valid file name without control or direction-control characters, then retry.",
+            Self::NameTooLong => "Choose a file name of at most 255 UTF-8 bytes, then retry.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
             Self::UnknownComponent | Self::AmbiguousComponent => "Use one of valid_options or prefix with the library name (<Library>/<Component>).",
             Self::UnknownVariable | Self::AmbiguousVariable => "Call designos_get_variables or pick one of valid_options.",
@@ -394,6 +405,8 @@ impl ErrorCode {
             "IDEMPOTENCY_KEY_STALE" => Some(Self::IdempotencyKeyStale),
             "CURSOR_STALE" => Some(Self::CursorStale),
             "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
+            "INVALID_NAME" => Some(Self::InvalidName),
+            "NAME_TOO_LONG" => Some(Self::NameTooLong),
             _ => None,
         }
     }
@@ -440,7 +453,7 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: true,
+            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
             next_step: code.default_next_step().to_string(),
         }
     }

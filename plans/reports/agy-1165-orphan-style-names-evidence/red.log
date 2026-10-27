@@ -1,0 +1,109 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-10039364b328c9e9)
+
+running 13 tests
+
+thread 'us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks' (82558255) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:656:5:
+assertion `left == right` failed
+  left: "2:201"
+ right: "Unnamed fill style"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test legacy_inherit_refs_resolve_to_the_style_nodes ... ok
+test consumers_take_effect_and_grid_values_from_the_style_node ... ok
+test a_stroke_style_node_is_a_stroke_style ... ok
+test us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks ... FAILED
+test style_values_and_metadata_are_imported ... ok
+test fig_style_colorvar_round_trips ... ok
+test effect_style_shadow_vars_round_trip ... ok
+test fill_style_gradient_stop_binding_round_trips ... ok
+
+thread 'a_soft_deleted_style_is_ignored' (82558242) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:172:5:
+assertion `left == right` failed: the consumer keeps style_refs so .fig export round-trips
+  left: None
+ right: Some("2:102")
+test a_soft_deleted_style_is_ignored ... FAILED
+test text_style_paragraph_indent_and_weight_round_trip ... ok
+test export_then_import_keeps_effect_and_grid_styles_and_their_links ... ok
+
+thread 'us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs' (82558254) panicked at crates/designos-fig/tests/fig_effect_grid_styles.rs:620:13:
+assertion `left == right` failed: imported: SoftDeletedStyleLayer keeps style_refs
+  left: None
+ right: Some("2:102")
+test us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs ... FAILED
+test noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport ... ok
+
+failures:
+
+failures:
+    a_soft_deleted_style_is_ignored
+    us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs
+    us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks
+
+test result: FAILED. 10 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_effect_grid_styles`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.76s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 4 tests
+
+thread 'panels::style_picker::tests::us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed' (82562723) panicked at crates/designos-app/src/panels/style_picker.rs:291:9:
+assertion `left == right` failed
+  left: ["1186:100350", "2:102", "S:orphan-fx", "2:108", "2:107", "2:100"]
+ right: ["2:108", "2:100", "2:107"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test panels::style_picker::tests::us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed ... FAILED
+
+thread 'panels::style_picker::tests::us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip' (82562724) panicked at crates/designos-app/src/panels/style_picker.rs:319:9:
+assertion `left == right` failed: deleted/orphan style shows no chip on the layer
+  left: Some("1186:100350")
+ right: None
+
+thread 'panels::style_picker::tests::us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip' (82562725) panicked at crates/designos-app/src/panels/style_picker.rs:336:80:
+unnamed style row present
+test panels::style_picker::tests::us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip ... FAILED
+test panels::style_picker::tests::us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip ... FAILED
+test panels::style_picker::tests::the_create_row_uses_the_noun_of_the_empty_state_row ... ok
+
+failures:
+
+failures:
+    panels::style_picker::tests::us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed
+    panels::style_picker::tests::us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip
+    panels::style_picker::tests::us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 3345 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.34s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+
+thread 'tools::search_design_system::tests::us01_ac02_mcp_excludes_orphan_styles_from_search_and_get_document' (82564458) panicked at crates/designos-mcp/src/tools/search_design_system.rs:2485:9:
+assertion `left == right` failed: orphan style must not be listed in search_design_system: Object {"libraries_searched": Array [String("local")], "results": Array [Object {"example": Object {"effect_style": String("1186:100350")}, "kind": String("style"), "name": String("1186:100350"), "origin": Object {"type": String("local")}, "ref": String("style:1186:100350"), "score": Number(105), "style_type": String("effect"), "summary": String("1 effect(s)")}], "total": Number(1)}
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test tools::search_design_system::tests::us01_ac02_mcp_excludes_orphan_styles_from_search_and_get_document ... FAILED
+
+failures:
+
+failures:
+    tools::search_design_system::tests::us01_ac02_mcp_excludes_orphan_styles_from_search_and_get_document
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

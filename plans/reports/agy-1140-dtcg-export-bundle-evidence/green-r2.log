@@ -1,0 +1,15 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1140-dtcg-export-bundle/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.86s
+     Running unittests src/lib.rs (target/debug/deps/designos_fig-8c931ce94e001702)
+
+running 4 tests
+test variables_dtcg::tests::mode_export_without_resolve_aliases_writes_default_mode_target_so_no_alias_dangles ... ok
+test variables_dtcg::tests::resolve_aliases_counts_default_mode_fallback_and_never_uses_non_default_mode ... ok
+test variables_dtcg::tests::collection_selected_by_both_name_and_id_is_not_in_skipped_collections ... ok
+test variables_dtcg::tests::variable_with_no_value_in_any_mode_is_refused_when_aliased_and_omitted_when_unreferenced ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 0.00s
+

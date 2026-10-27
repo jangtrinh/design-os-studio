@@ -7,6 +7,7 @@ pub mod bar;
 pub mod canvas;
 pub mod connect;
 pub mod create;
+#[cfg(any(test, feature = "fixtures"))]
 pub mod demo;
 pub mod preview;
 pub mod toolbar;
