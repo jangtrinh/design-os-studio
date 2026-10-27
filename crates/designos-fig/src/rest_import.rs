@@ -4093,22 +4093,32 @@ mod expand_depth_tests {
         handle.join().expect("import must not overflow the stack");
     }
 
+    fn chained_links_test_params() -> (usize, usize, usize) {
+        (5_000, MAX_IMPORT_CLONES, 1_001)
+    }
+
     #[test]
     fn chained_links_stop_at_the_global_clone_budget() {
+        assert_eq!(MAX_IMPORT_CLONES, 8_000_000);
+        let (chain_len, budget, expected_unexpanded) = chained_links_test_params();
+        assert!(
+            budget <= 100_000,
+            "chained_links_stop_at_the_global_clone_budget must stay <= 100,000 clones in CI (got {budget})"
+        );
         // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with MAX_IMPORT_CLONES (8,000,000)
         // it stops at 8,000,000 cloned nodes (never exceeding MAX_IMPORT_CLONES) and leaves 1,001 instances empty.
-        let chain = component_chain(5_000);
-        let base_nodes = 1 + 2 * 5_000 + 1; // page + 5000*(comp + inner) + Use
+        let chain = component_chain(chain_len);
+        let base_nodes = 1 + 2 * chain_len + 1; // page + len*(comp + inner) + Use
         let started = std::time::Instant::now();
-        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, MAX_IMPORT_CLONES).unwrap();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, budget).unwrap();
         let elapsed = started.elapsed();
         let cloned = doc.nodes.len().saturating_sub(base_nodes);
-        assert!(cloned <= MAX_IMPORT_CLONES, "cloned {cloned} > MAX_IMPORT_CLONES");
-        assert_eq!(cloned, MAX_IMPORT_CLONES);
-        assert_eq!(report.instances_left_unexpanded, 1_001);
+        assert!(cloned <= budget, "cloned {cloned} > {budget}");
+        assert_eq!(cloned, budget);
+        assert_eq!(report.instances_left_unexpanded, expected_unexpanded);
         // The count asserts above prove the budget stops cloning; wall time is bounded in release builds only.
         if !cfg!(debug_assertions) {
-            assert!(elapsed.as_secs() < 15, "5,000-link chain took {elapsed:?}");
+            assert!(elapsed.as_secs() < 15, "chain took {elapsed:?}");
         }
     }
 

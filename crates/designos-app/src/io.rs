@@ -1213,8 +1213,7 @@ mod tests {
         assert_eq!(al.item_spacing, 16.0);
     }
 
-    #[test]
-    fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
+    fn budget_kit_fixture() -> (String, usize) {
         let mut children = Vec::with_capacity(207);
         let c0_rects: Vec<String> = (0..99)
             .map(|i| {
@@ -1256,6 +1255,20 @@ mod tests {
             r#"{{"name": "BudgetKit", "version": "1", "schemaVersion": 0, "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{{"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": [{}]}}]}}}}"#,
             children.join(",")
         );
+        (json, designos_fig::MAX_IMPORT_CLONES)
+    }
+
+    #[test]
+    fn clone_budget_notice_keeps_user_facing_8m_limit() {
+        assert_eq!(designos_fig::MAX_IMPORT_CLONES, 8_000_000);
+        assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
+    }
+
+    #[test]
+    fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
+        let (json, budget) = budget_kit_fixture();
+        assert!(json.len() <= 8 * 1024, "BudgetKit fixture must stay <= 8 KiB for CI (got {} bytes)", json.len());
+        assert!(budget <= 10_000, "BudgetKit test clone budget must stay <= 10,000 for CI (got {budget})");
         let p = tmp("budget_kit_warning.json");
         std::fs::write(&p, json).unwrap();
         let mut app = crate::app::App::new(Document::new("Init"));
@@ -1267,5 +1280,6 @@ mod tests {
             toast.text,
             "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty."
         );
+        assert!(app.doc.nodes.len() <= 10_000, "BudgetKit test must not allocate millions of nodes in CI (got {})", app.doc.nodes.len());
     }
 }
