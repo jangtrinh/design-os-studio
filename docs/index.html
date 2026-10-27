@@ -465,9 +465,28 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.1, a short list. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.3. 0.6.3, 0.6.2 and 0.6.1 are short lists. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--063" id="new-in-v063" aria-labelledby="v063-h">
+          <h3 id="v063-h" class="new-ver">0.6.3</h3>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> Hook outputs (<code>agent-status.json</code>, <code>agent-events.jsonl</code>, <code>turn-marks.jsonl</code>, <code>claude-transcript.json</code>) and Claude’s prompt-hook replies live in a Studio-private <code>hook-out</code> folder outside the session folder, <code>$TMPDIR</code>, <code>/tmp</code>, <code>/var/tmp</code> and every folder an agent CLI is granted, and the turn-mark hook reads <code>doc-patch.jsonl</code> size with <code>stat -L</code> instead of opening it.</li>
+            <li><strong>CLI and MCP.</strong> <code>--screenshot</code> on a missing, empty or corrupt file exits 1 with an error message and writes no PNG. <code>--apply-spec</code>, <code>designos_apply_spec</code> and <code>designos_apply_batch</code> report invalid <code>NodeSpec</code> fields in plain words instead of serde type errors, and the docs note that Ask covers agent tabs started from Studio while your own <code>designos</code> CLI and external <code>designos-mcp</code> hosts approve their own calls.</li>
+            <li><strong>Linux.</strong> Home › <code>Import</code> opens the file chooser when <code>org.freedesktop.portal.Desktop</code> starts on first use or when <code>zenity</code> is installed, and when no file dialog can open it names the cause and offers <code>Enter a path…</code>.</li>
+          </ul>
+        </article>
+        <article class="new-release new-release--062" id="new-in-v062" aria-labelledby="v062-h">
+          <h3 id="v062-h" class="new-ver">0.6.2</h3>
+          <ul class="new-bullets">
+            <li><strong>Agents panel.</strong> Ask-mode approvals, Claude’s hooks and MCP config, and session folders for unsaved files live in Studio’s own data folder, and Studio and <code>designos-mcp</code> refuse links and FIFOs in session files. The skill and agent files no longer include the document or page name.</li>
+            <li><strong>Gemini, Grok and Antigravity.</strong> Gemini CLI tabs in Ask mode show <code>Needs approval</code> with an <code>Open tab</code> button and hold the composer while Gemini’s confirmation prompt is on screen. Ask-mode Grok and Antigravity tabs move non-Studio session configs aside before starting, and Grok never evaluates a <code>.envrc</code>.</li>
+            <li><strong>Styles and Properties.</strong> Create a text style from a text layer in the Typography section (<code>Create text style</code>), pick styles from enabled libraries when the file has none of its own, and export a page from the page panel’s Export section.</li>
+            <li><strong>Components and Dev Mode.</strong> Syncing a main component keeps its instances’ own layer names. Dev Mode keeps each code line on one row with horizontal scrolling, grows the MCP prompt box to fit, and escapes <code>\</code>, <code>"</code>, <code>\(</code> and control characters in SwiftUI strings.</li>
+            <li><strong>Command palette.</strong> Rename layers semantically and Boost resolution take about a second per click on a very large page, where they took about four.</li>
+            <li><strong>CLI and MCP.</strong> <code>designos-diff --version</code> prints the version. MCP file writes (<code>designos_save_file</code>, <code>designos_render_png</code>, <code>designos_export_fig_file</code>) refuse links, control or bidi characters, and names over 255 bytes; <code>designos_export_fig_file</code> refuses an existing file unless <code>overwrite</code> is set; and outside-workspace errors no longer echo the path.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--061" id="new-in-v061" aria-labelledby="v061-h">
           <h3 id="v061-h" class="new-ver">0.6.1</h3>
           <ul class="new-bullets">
