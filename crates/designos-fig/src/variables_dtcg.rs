@@ -161,6 +161,8 @@ pub struct ModeExportReport {
     #[serde(default)]
     pub aliases_resolved_via_default_mode: usize,
     #[serde(default)]
+    pub values_from_default_mode: usize,
+    #[serde(default)]
     pub color_format: ColorFormat,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub omitted_extensions: Vec<SkippedVariable>,
@@ -1122,6 +1124,7 @@ pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u
         tokens: total_tokens,
         aliases_resolved,
         aliases_resolved_via_default_mode,
+        values_from_default_mode: 0,
         color_format: opts.color_format,
         omitted_extensions: collect_omitted_extensions_excluding(doc, &["$deprecated"]),
     };
@@ -3243,6 +3246,7 @@ mod tests {
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, opts).unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert_eq!(bundle.files.len(), 2);
         assert_eq!(bundle.files[0].0, "Light.tokens.json");
         assert_eq!(bundle.files[1].0, "Dark.tokens.json");
@@ -3365,6 +3369,7 @@ mod tests {
         assert!(tint.mode_extensions["Dark"].contains_key("com.figma.composedColor"));
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let out_light: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
         let out_dark: Value = serde_json::from_slice(&bundle.files[1].1).unwrap();
         let expected_light: Value = serde_json::from_str(light).unwrap();
@@ -3462,6 +3467,7 @@ mod tests {
         assert!(!v.mode_extensions.contains_key("Light"));
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let exported: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
         assert_eq!(exported["Surface"]["$extensions"]["com.figma.aliasData"]["targetVariableName"], "Neutral/White");
     }
@@ -3492,9 +3498,11 @@ mod tests {
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
 
         let rest_bundle = export_variables(&doc, VariablesFormat::FigmaRest).unwrap();
+        assert_all_aliases_resolve_in_bundle(&rest_bundle);
         assert!(!rest_bundle.omitted_extensions.is_empty(), "expected omitted_extensions on figma-rest export");
 
         let dtcg_bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&dtcg_bundle);
         assert!(!dtcg_bundle.omitted_extensions.is_empty(), "expected omitted_extensions on dtcg export");
 
         let (_fig_bytes, fig_rep) = crate::export_fig_with_report(&doc).unwrap();
@@ -3570,6 +3578,7 @@ mod tests {
         );
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let sem_zip = bundle.files.iter().find(|(n, _)| n == "Semantic.zip").unwrap();
         let sem_entries = extract_zip_json_files(&sem_zip.1, None).unwrap();
         let sem_light = sem_entries.iter().find(|(n, _)| n == "Light.tokens.json").unwrap();
@@ -3590,6 +3599,7 @@ mod tests {
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert_eq!(bundle.format, VariablesFormat::Dtcg);
         assert!(bundle.files.len() >= 2);
         for (fname, bytes) in &bundle.files {
@@ -3623,6 +3633,7 @@ mod tests {
         assert_eq!(doc.variables["VariableID:10:4"].mode_extensions["Light"].get("$deprecated"), Some(&Value::Bool(true)));
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let zip_bytes = bundle.to_zip_bytes().unwrap();
 
         let mut reimported = Document::new("reimported");
@@ -3663,6 +3674,7 @@ mod tests {
         import_variables(&mut doc, dtcg_src, VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let token_file = bundle.files.iter().find(|(n, _)| n.ends_with(".tokens.json")).unwrap();
         let exported_json: Value = serde_json::from_slice(&token_file.1).unwrap();
         assert_eq!(exported_json["Theme"]["OldFlag"]["$deprecated"], Value::Bool(true));
@@ -3707,6 +3719,7 @@ mod tests {
         .unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         for (fname, bytes) in &bundle.files {
             let text = std::str::from_utf8(bytes).unwrap();
             assert!(!text.contains("com.figma."), "DTCG file {fname} must not contain com.figma.* keys:\n{text}");
@@ -3725,6 +3738,7 @@ mod tests {
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert_eq!(bundle.files.len(), 1);
         assert_eq!(bundle.files[0].0, "Light.tokens.json");
         let v: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
@@ -3752,6 +3766,7 @@ mod tests {
         }
 
         let rest_bundle = export_variables(&doc, VariablesFormat::FigmaRest).unwrap();
+        assert_all_aliases_resolve_in_bundle(&rest_bundle);
         let rest_text = std::str::from_utf8(&rest_bundle.files[0].1).unwrap();
         assert_eq!(detect_variables_format(rest_text).unwrap(), VariablesFormat::FigmaRest);
 
@@ -3944,6 +3959,7 @@ mod tests {
         }
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert!(
             !bundle.omitted_extensions.iter().any(|s| s.reason.contains("$deprecated")),
             "DTCG export writes $deprecated so omitted_extensions must not report it: {:?}",
@@ -4054,6 +4070,7 @@ mod tests {
         );
 
         let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert_eq!(bundle.files.len(), 2);
         assert_eq!(bundle.files[0].0, "Primitives.zip");
         assert_eq!(bundle.files[1].0, "Theme.zip");
@@ -4432,6 +4449,7 @@ mod tests {
     fn dtcg_export_gives_same_named_collections_unique_groups_and_files() {
         let doc = make_1140_fixture_doc();
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let file_names: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
         assert!(file_names.contains(&"_Primitives.Style.tokens.json"), "missing local _Primitives file in {file_names:?}");
         assert!(file_names.contains(&"_Primitives (2).Style.tokens.json"), "missing library _Primitives (2) file in {file_names:?}");
@@ -4472,6 +4490,7 @@ mod tests {
             },
         );
         let b3 = export_variables(&doc3, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&b3);
         let m3: Value = serde_json::from_slice(&b3.files[0].1).unwrap();
         let c3 = m3["collections"].as_array().unwrap();
         assert_eq!(c3.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap()["group"], "_Primitives");
@@ -4483,6 +4502,7 @@ mod tests {
         doc_nolocal.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().source_library_key = Some("lib-a".into());
         doc_nolocal.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().source_library_key = Some("lib-b".into());
         let b_nl = export_variables(&doc_nolocal, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&b_nl);
         let m_nl: Value = serde_json::from_slice(&b_nl.files[0].1).unwrap();
         let c_nl = m_nl["collections"].as_array().unwrap();
         assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap()["group"], "_Primitives");
@@ -4493,6 +4513,7 @@ mod tests {
     fn dtcg_zip_export_with_same_named_collections_succeeds() {
         let doc = make_1140_fixture_doc();
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         assert_eq!(bundle.files.len(), 6, "1 manifest + 5 mode files");
         let zip_bytes = bundle.to_zip_bytes().expect("zip export with same-named collections must succeed");
         let archive = zip::ZipArchive::new(Cursor::new(zip_bytes)).unwrap();
@@ -4513,6 +4534,7 @@ mod tests {
     fn dtcg_round_trip_keeps_every_collection() {
         let doc = make_1140_fixture_doc();
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
 
         let manifest_bytes = bundle.files.iter().find(|(n, _)| n == "tokens.manifest.json").unwrap().1.clone();
         let additional: Vec<(String, Vec<u8>)> =
@@ -4572,6 +4594,90 @@ mod tests {
         }
     }
 
+    fn assert_all_aliases_resolve_in_dtcg_file(bytes: &[u8]) -> Value {
+        let root: Value = serde_json::from_slice(bytes).expect("valid JSON in exported DTCG file");
+        let mut refs = Vec::new();
+        collect_dtcg_alias_refs(&root, &mut refs);
+        for r in &refs {
+            assert!(
+                resolve_dtcg_ref_in_root(&root, r).is_some(),
+                "Rule 5 violation: alias {{{r}}} does not name a token in the same output file"
+            );
+        }
+        root
+    }
+
+    fn assert_all_aliases_resolve_in_bundle(bundle: &ExportBundle) {
+        match bundle.format {
+            VariablesFormat::Dtcg => {
+                let mut merged_root = Map::new();
+                for (fname, bytes) in &bundle.files {
+                    if fname == "tokens.manifest.json" {
+                        continue;
+                    }
+                    let val: Value = serde_json::from_slice(bytes).expect("valid JSON in DTCG bundle file");
+                    if let Some(obj) = val.as_object() {
+                        for (k, v) in obj {
+                            let entry = merged_root.entry(k.clone()).or_insert_with(|| Value::Object(Map::new()));
+                            if let (Some(dst), Some(src)) = (entry.as_object_mut(), v.as_object()) {
+                                for (tk, tv) in src {
+                                    dst.insert(tk.clone(), tv.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                let merged_val = Value::Object(merged_root);
+                for (fname, bytes) in &bundle.files {
+                    if fname == "tokens.manifest.json" {
+                        continue;
+                    }
+                    let val: Value = serde_json::from_slice(bytes).unwrap();
+                    let mut refs = Vec::new();
+                    collect_dtcg_alias_refs(&val, &mut refs);
+                    for r in &refs {
+                        assert!(
+                            resolve_dtcg_ref_in_root(&merged_val, r).is_some(),
+                            "Rule 5 violation: alias {{{r}}} in {fname} does not name a token in the bundle"
+                        );
+                    }
+                }
+            }
+            VariablesFormat::FigmaNative => {
+                for (fname, bytes) in &bundle.files {
+                    if fname.ends_with(".zip") {
+                        let entries = extract_zip_json_files(bytes, None).expect("valid collection zip in FigmaNative bundle");
+                        for (_ename, ebytes) in entries {
+                            assert_all_aliases_resolve_in_dtcg_file(&ebytes);
+                        }
+                    } else if fname.ends_with(".json") {
+                        assert_all_aliases_resolve_in_dtcg_file(bytes);
+                    }
+                }
+            }
+            VariablesFormat::FigmaRest | VariablesFormat::Auto => {
+                for (_fname, bytes) in &bundle.files {
+                    let val: Value = serde_json::from_slice(bytes).expect("valid JSON in FigmaRest bundle");
+                    if let Some(vars) = val.get("variables").and_then(Value::as_object) {
+                        for (vid, vobj) in vars {
+                            if let Some(values_by_mode) = vobj.get("valuesByMode").and_then(Value::as_object) {
+                                for (_mid, mval) in values_by_mode {
+                                    if mval.get("type").and_then(Value::as_str) == Some("VARIABLE_ALIAS") {
+                                        let target_id = mval.get("id").and_then(Value::as_str).unwrap_or("");
+                                        assert!(
+                                            vars.contains_key(target_id),
+                                            "Rule 5 violation: VARIABLE_ALIAS in {vid} targets missing '{target_id}'"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn mode_export_is_one_self_contained_file() {
         let doc = make_1140_fixture_doc();
@@ -4580,13 +4686,10 @@ mod tests {
             &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: false, color_format: ColorFormat::Object },
         )
         .expect("single-mode export succeeds");
-        let root: Value = serde_json::from_slice(&bytes).unwrap();
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         let mut refs = Vec::new();
         collect_dtcg_alias_refs(&root, &mut refs);
         assert!(!refs.is_empty(), "expected alias references in unresolved mode export");
-        for r in &refs {
-            assert!(resolve_dtcg_ref_in_root(&root, r).is_some(), "alias {{{r}}} must resolve inside the same file");
-        }
         assert!(
             report.inlined_for_aliases.contains(&"_Primitives (2)".to_string()),
             "inlined_for_aliases must list _Primitives (2), got {:?}",
@@ -4599,12 +4702,7 @@ mod tests {
             &DtcgModeOptions { mode: "Dark".into(), collections: vec!["Color modes".into()], resolve_aliases: false, color_format: ColorFormat::Object },
         )
         .expect("narrowed single-mode export succeeds");
-        let root_narrow: Value = serde_json::from_slice(&bytes_narrow).unwrap();
-        let mut refs_narrow = Vec::new();
-        collect_dtcg_alias_refs(&root_narrow, &mut refs_narrow);
-        for r in &refs_narrow {
-            assert!(resolve_dtcg_ref_in_root(&root_narrow, r).is_some(), "alias {{{r}}} must resolve inside narrowed file");
-        }
+        assert_all_aliases_resolve_in_dtcg_file(&bytes_narrow);
         assert_eq!(rep_narrow.inlined_for_aliases, vec!["_Primitives (2)".to_string()]);
     }
 
@@ -4724,7 +4822,7 @@ mod tests {
             &DtcgModeOptions { mode: "Dark".into(), collections: vec!["Color modes".into()], resolve_aliases: true, color_format: ColorFormat::Object },
         )
         .expect("resolved mode export succeeds");
-        let root: Value = serde_json::from_slice(&bytes).unwrap();
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         let mut refs = Vec::new();
         collect_dtcg_alias_refs(&root, &mut refs);
         assert!(refs.is_empty(), "resolved file must contain no {{…}} alias strings, found {refs:?}");
@@ -4757,7 +4855,7 @@ mod tests {
         let (bytes, _) =
             export_dtcg_mode(&doc, &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: true, color_format: ColorFormat::Hex })
                 .expect("hex mode export succeeds");
-        let root: Value = serde_json::from_slice(&bytes).unwrap();
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         assert_eq!(root["Color modes"]["Colors"]["Background"]["bg-primary"]["$value"], "#0A0A0A");
         assert_eq!(root["Color modes"]["Colors"]["Background"]["bg-overlay"]["$value"], "#FFFFFF80");
         assert_eq!(root["_Primitives (2)"]["Colors"]["Alpha"]["white-50"]["$value"], "#FFFFFF80");
@@ -4765,6 +4863,7 @@ mod tests {
 
         // Also valid with full DTCG bundle export (`export_dtcg_with_color_format`).
         let bundle = export_dtcg_with_color_format(&doc, ColorFormat::Hex).unwrap();
+        assert_all_aliases_resolve_in_bundle(&bundle);
         let prim2_bytes = &bundle.files.iter().find(|(n, _)| n == "_Primitives (2).Style.tokens.json").unwrap().1;
         let prim2: Value = serde_json::from_slice(prim2_bytes).unwrap();
         assert_eq!(prim2["_Primitives (2)"]["Colors"]["Gray (dark mode)"]["950"]["$value"], "#0A0A0A");
@@ -4827,6 +4926,7 @@ mod tests {
             &DtcgModeOptions { mode: "Dark".into(), collections: vec!["_Primitives".into()], resolve_aliases: false, color_format: ColorFormat::Hex },
         )
         .expect("collection filter succeeds");
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
         assert_eq!(report.collections.len(), 1);
         assert_eq!(report.collections[0].id, "VariableCollectionId:10:1", "prefers local _Primitives");
         assert_eq!(report.collections[0].group, "_Primitives");
@@ -4835,12 +4935,11 @@ mod tests {
             "report lists the shadowed library collection id: {:?}",
             report.skipped_collections
         );
-        let root: Value = serde_json::from_slice(&bytes).unwrap();
         assert!(root.get("_Primitives").is_some());
         assert!(root.get("_Primitives (2)").is_none());
 
         // `id:<collection id>` selects the library copy explicitly.
-        let (_, report_by_id) = export_dtcg_mode(
+        let (bytes_by_id, report_by_id) = export_dtcg_mode(
             &doc,
             &DtcgModeOptions {
                 mode: "Dark".into(),
@@ -4850,7 +4949,315 @@ mod tests {
             },
         )
         .expect("id selector succeeds");
+        assert_all_aliases_resolve_in_dtcg_file(&bytes_by_id);
         assert_eq!(report_by_id.collections.len(), 1);
         assert_eq!(report_by_id.collections[0].id, "VariableCollectionId:20:2");
+    }
+
+    fn make_mix_semantic_doc() -> Document {
+        let mut doc = Document::new("MixSemantic");
+        doc.variable_collections.insert(
+            "VariableCollectionId:50:1".into(),
+            VariableCollection {
+                id: "VariableCollectionId:50:1".into(),
+                name: "Mix".into(),
+                modes: vec![
+                    VariableMode { id: "m:dark".into(), name: "Dark".into() },
+                    VariableMode { id: "m:light".into(), name: "Light".into() },
+                ],
+                default_mode: "m:light".into(),
+                variables: vec!["VariableID:50:red".into(), "VariableID:50:blue".into()],
+                key: None,
+                source_library_key: None,
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:50:red".into(),
+            Variable {
+                id: "VariableID:50:red".into(),
+                name: "Colors/Red".into(),
+                collection: "VariableCollectionId:50:1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("m:light".into(), VariableValue::Color(Color::rgb(255, 255, 255)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:50:blue".into(),
+            Variable {
+                id: "VariableID:50:blue".into(),
+                name: "Colors/Blue".into(),
+                collection: "VariableCollectionId:50:1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([
+                    ("m:dark".into(), VariableValue::Color(Color::rgb(0, 0, 255))),
+                    ("m:light".into(), VariableValue::Color(Color::rgb(136, 136, 255))),
+                ]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        doc.variable_collections.insert(
+            "VariableCollectionId:60:1".into(),
+            VariableCollection {
+                id: "VariableCollectionId:60:1".into(),
+                name: "Semantic".into(),
+                modes: vec![VariableMode { id: "s:dark".into(), name: "Dark".into() }],
+                default_mode: "s:dark".into(),
+                variables: vec!["VariableID:60:b".into()],
+                key: None,
+                source_library_key: None,
+                extensions: FigmaExtensions::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:60:b".into(),
+            Variable {
+                id: "VariableID:60:b".into(),
+                name: "B".into(),
+                collection: "VariableCollectionId:60:1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("s:dark".into(), VariableValue::Alias("VariableID:50:red".into()))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc
+    }
+
+    #[test]
+    fn mode_export_without_resolve_aliases_writes_default_mode_target_so_no_alias_dangles() {
+        let doc = make_mix_semantic_doc();
+
+        // 1. Without `--collection`: both Mix and Semantic are selected at Dark, and Red (only in Mix's default Light) is written.
+        let (bytes, report) = export_dtcg_mode(
+            &doc,
+            &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: false, color_format: ColorFormat::Hex },
+        )
+        .expect("mode export without resolve_aliases succeeds");
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
+        assert_eq!(root["Semantic"]["B"]["$value"], "{Mix.Colors.Red}");
+        assert_eq!(root["Mix"]["Colors"]["Red"]["$value"], "#FFFFFF");
+        assert_eq!(root["Mix"]["Colors"]["Blue"]["$value"], "#0000FF");
+        assert_eq!(report.values_from_default_mode, 1);
+        assert_eq!(report.aliases_resolved, 0);
+        assert_eq!(report.aliases_resolved_via_default_mode, 0);
+
+        // 2. With `--collection Semantic`: Mix is inlined for aliases and Red is written via default mode while Blue keeps Dark.
+        let (bytes_narrow, report_narrow) = export_dtcg_mode(
+            &doc,
+            &DtcgModeOptions {
+                mode: "Dark".into(),
+                collections: vec!["Semantic".into()],
+                resolve_aliases: false,
+                color_format: ColorFormat::Hex,
+            },
+        )
+        .expect("narrowed mode export without resolve_aliases succeeds");
+        let root_narrow = assert_all_aliases_resolve_in_dtcg_file(&bytes_narrow);
+        assert_eq!(root_narrow["Semantic"]["B"]["$value"], "{Mix.Colors.Red}");
+        assert_eq!(root_narrow["Mix"]["Colors"]["Red"]["$value"], "#FFFFFF");
+        assert_eq!(root_narrow["Mix"]["Colors"]["Blue"]["$value"], "#0000FF");
+        assert_eq!(report_narrow.values_from_default_mode, 1);
+    }
+
+    #[test]
+    fn resolve_aliases_counts_default_mode_fallback_and_never_uses_non_default_mode() {
+        let doc = make_mix_semantic_doc();
+
+        // 1. Target collection Mix HAS mode Dark, but Red only has a value in Mix's default mode Light.
+        let (bytes, report) = export_dtcg_mode(
+            &doc,
+            &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: true, color_format: ColorFormat::Hex },
+        )
+        .expect("resolved mode export succeeds");
+        let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
+        assert_eq!(root["Semantic"]["B"]["$value"], "#FFFFFF");
+        assert_eq!(report.aliases_resolved, 1);
+        assert_eq!(report.aliases_resolved_via_default_mode, 1);
+        assert_eq!(report.values_from_default_mode, 1);
+
+        // 2. Multi-hop chain where two hops each fall back to default mode: both hops are counted.
+        let mut doc_two_hops = make_mix_semantic_doc();
+        doc_two_hops.variables.insert(
+            "VariableID:50:red_mid".into(),
+            Variable {
+                id: "VariableID:50:red_mid".into(),
+                name: "Colors/RedMid".into(),
+                collection: "VariableCollectionId:50:1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("m:light".into(), VariableValue::Alias("VariableID:50:red".into()))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc_two_hops.variable_collections.get_mut("VariableCollectionId:50:1").unwrap().variables.push("VariableID:50:red_mid".into());
+        doc_two_hops
+            .variables
+            .get_mut("VariableID:60:b")
+            .unwrap()
+            .values
+            .insert("s:dark".into(), VariableValue::Alias("VariableID:50:red_mid".into()));
+        let (bytes_2, report_2) = export_dtcg_mode(
+            &doc_two_hops,
+            &DtcgModeOptions {
+                mode: "Dark".into(),
+                collections: vec!["Semantic".into()],
+                resolve_aliases: true,
+                color_format: ColorFormat::Hex,
+            },
+        )
+        .expect("two-hop resolved export succeeds");
+        let root_2 = assert_all_aliases_resolve_in_dtcg_file(&bytes_2);
+        assert_eq!(root_2["Semantic"]["B"]["$value"], "#FFFFFF");
+        assert_eq!(report_2.aliases_resolved, 1);
+        assert_eq!(report_2.aliases_resolved_via_default_mode, 2);
+        assert_eq!(report_2.values_from_default_mode, 0);
+
+        // 3. Target variable has no Dark value and no default-mode (Light) value, only a non-default third mode High Contrast: refused.
+        let mut doc_non_default = make_mix_semantic_doc();
+        doc_non_default
+            .variable_collections
+            .get_mut("VariableCollectionId:50:1")
+            .unwrap()
+            .modes
+            .push(VariableMode { id: "m:hc".into(), name: "High Contrast".into() });
+        doc_non_default.variables.get_mut("VariableID:50:red").unwrap().values =
+            BTreeMap::from([("m:hc".into(), VariableValue::Color(Color::rgb(255, 0, 0)))]);
+
+        assert!(
+            export_dtcg_mode(
+                &doc_non_default,
+                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: true, color_format: ColorFormat::Hex },
+            )
+            .is_err(),
+            "must refuse alias whose target only has a non-default mode value (resolve_aliases=true)"
+        );
+        assert!(
+            export_dtcg_mode(
+                &doc_non_default,
+                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases: false, color_format: ColorFormat::Hex },
+            )
+            .is_err(),
+            "must refuse alias whose target only has a non-default mode value (resolve_aliases=false)"
+        );
+    }
+
+    #[test]
+    fn collection_selected_by_both_name_and_id_is_not_in_skipped_collections() {
+        let doc = make_1140_fixture_doc();
+
+        for collections in [
+            vec!["_Primitives".to_string(), "id:VariableCollectionId:20:2".to_string()],
+            vec!["id:VariableCollectionId:20:2".to_string(), "_Primitives".to_string()],
+        ] {
+            let (bytes, report) = export_dtcg_mode(
+                &doc,
+                &DtcgModeOptions { mode: "Style".into(), collections: collections.clone(), resolve_aliases: false, color_format: ColorFormat::Hex },
+            )
+            .expect("export with name + id collection filters succeeds");
+            let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
+            assert!(root.get("_Primitives").is_some());
+            assert!(root.get("_Primitives (2)").is_some());
+
+            let exported_ids: Vec<&str> = report.collections.iter().map(|c| c.id.as_str()).collect();
+            assert_eq!(exported_ids.len(), 2, "expected 2 exported collections for filters {collections:?}, got {exported_ids:?}");
+            assert!(exported_ids.contains(&"VariableCollectionId:10:1"));
+            assert!(exported_ids.contains(&"VariableCollectionId:20:2"));
+            assert!(
+                report.skipped_collections.is_empty(),
+                "a selected collection must never appear in skipped_collections (filters={collections:?}): {:?}",
+                report.skipped_collections
+            );
+        }
+    }
+
+    #[test]
+    fn variable_with_no_value_in_any_mode_is_refused_when_aliased_and_omitted_when_unreferenced() {
+        let mut doc = make_1140_fixture_doc();
+        doc.variables.insert(
+            "VariableID:20:ghost".into(),
+            Variable {
+                id: "VariableID:20:ghost".into(),
+                name: "Colors/Ghost".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::new(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().variables.push("VariableID:20:ghost".into());
+
+        // 1. Nothing points at Colors/Ghost: it is simply omitted and export succeeds (both resolve_aliases=false and true).
+        for resolve_aliases in [false, true] {
+            let (bytes, _) = export_dtcg_mode(
+                &doc,
+                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex },
+            )
+            .expect("unreferenced valueless variable must not fail export");
+            let root = assert_all_aliases_resolve_in_dtcg_file(&bytes);
+            assert!(
+                root["_Primitives (2)"]["Colors"].get("Ghost").is_none(),
+                "valueless variable must not be written (resolve_aliases={resolve_aliases})"
+            );
+        }
+
+        // 2. Something points at Colors/Ghost (including via default-mode fallback): export is refused (both resolve_aliases=false and true).
+        let mut doc_default_alias = doc.clone();
+        doc_default_alias.variables.get_mut("VariableID:30:bg_primary").unwrap().values =
+            BTreeMap::from([("30:light".into(), VariableValue::Alias("VariableID:20:ghost".into()))]);
+        for resolve_aliases in [false, true] {
+            let err = export_dtcg_mode(
+                &doc_default_alias,
+                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex },
+            )
+            .expect_err("alias from default-mode fallback targeting valueless variable must be refused")
+            .to_string();
+            assert!(err.contains("VariableID:20:ghost"), "error must name the valueless target variable: {err:?}");
+        }
+
+        doc.variables
+            .get_mut("VariableID:30:bg_primary")
+            .unwrap()
+            .values
+            .insert("30:dark".into(), VariableValue::Alias("VariableID:20:ghost".into()));
+        for resolve_aliases in [false, true] {
+            let err = export_dtcg_mode(
+                &doc,
+                &DtcgModeOptions { mode: "Dark".into(), collections: Vec::new(), resolve_aliases, color_format: ColorFormat::Hex },
+            )
+            .expect_err("alias targeting valueless variable must be refused")
+            .to_string();
+            assert!(err.contains("VariableID:20:ghost"), "error must name the valueless target variable: {err:?}");
+        }
     }
 }
