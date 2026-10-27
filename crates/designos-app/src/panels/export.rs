@@ -10,7 +10,6 @@ use crate::widgets::{self, elide};
 use designos_doc::{Document, ExportConstraint, ExportFileFormat, ExportPreset, NodeId, Rect as DRect};
 use designos_export::{ExportFormat, ExportScale, ExportSetting};
 use egui::{Align2, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Ui, Vec2};
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -84,13 +83,13 @@ pub fn setting_of(p: &ExportPreset) -> ExportSetting {
 
 /// Output file name: layer name + the preset's suffix (or the `@2x` style default).
 pub fn preset_file_name(p: &ExportPreset, layer: &str) -> String {
+    let clean = crate::io::sanitize_export_name(layer);
     let s = setting_of(p);
-    let name = s.file_name(layer);
     if p.suffix.is_empty() {
-        return name;
+        return s.file_name(&clean);
     }
     let ext = s.format.extension();
-    format!("{}{}.{ext}", designos_export::sanitize_file_name(layer), p.suffix)
+    format!("{clean}{}.{ext}", p.suffix)
 }
 
 /// Rows every selected node has (in the first node's order). With one node: all its rows.
@@ -398,16 +397,6 @@ pub struct ExportJob {
 /// page per layer, in selection order, named after the layer (one) or the document (several).
 pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
     let mut jobs: Vec<ExportJob> = Vec::new();
-    let mut seen: HashMap<String, u32> = HashMap::new();
-    let mut unique = |file: String, ext: &str| -> String {
-        let count = seen.entry(file.clone()).or_insert(0);
-        *count += 1;
-        if *count == 1 {
-            return file;
-        }
-        let stem = file.rsplit_once('.').map_or(file.as_str(), |(a, _)| a);
-        format!("{stem} {count}.{ext}")
-    };
     let mut pdf: Option<(ExportPreset, Vec<NodeId>)> = None;
     for id in ids {
         let Some(n) = doc.get(*id) else { continue };
@@ -415,7 +404,7 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
         for p in &n.export_settings {
             let s = setting_of(p);
             if s.format != ExportFormat::Pdf {
-                let file = unique(preset_file_name(p, &n.name), s.format.extension());
+                let file = preset_file_name(p, &n.name);
                 jobs.push(ExportJob { file, nodes: vec![*id], setting: s });
             } else if !in_pdf {
                 in_pdf = true;
@@ -435,9 +424,9 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
     if let Some((preset, nodes)) = pdf {
         let file = match nodes.as_slice() {
             [one] => preset_file_name(&preset, doc.get(*one).map_or("export", |n| n.name.as_str())),
-            _ => format!("{}.pdf", designos_export::sanitize_file_name(&doc.name)),
+            _ => format!("{}.pdf", crate::io::sanitize_export_name(&doc.name)),
         };
-        jobs.push(ExportJob { file: unique(file, "pdf"), nodes, setting: setting_of(&preset) });
+        jobs.push(ExportJob { file, nodes, setting: setting_of(&preset) });
     }
     jobs
 }
@@ -446,19 +435,15 @@ pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
 enum Sink {
     /// The one file the save dialog chose.
     File(PathBuf),
-    /// A folder: the chosen one (files are replaced) or the fallback one (nothing is replaced).
-    Dir { dir: PathBuf, keep_existing: bool },
+    /// A folder: the chosen one or the fallback one. Existing files are never replaced.
+    Dir(PathBuf),
 }
 
 impl Sink {
     fn write(&self, job: &ExportJob, bytes: &[u8]) -> Result<PathBuf, (PathBuf, std::io::Error)> {
         match self {
-            Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()).map_err(|e| (path.clone(), e)),
-            Sink::Dir { dir, keep_existing: false } => {
-                let path = dir.join(&job.file);
-                std::fs::write(&path, bytes).map(|()| path.clone()).map_err(|e| (path, e))
-            }
-            Sink::Dir { dir, keep_existing: true } => crate::io::write_new_in(dir, &job.file, bytes).map_err(|e| (dir.join(&job.file), e)),
+            Sink::File(path) => crate::io::write_new_dashed_path(path, bytes).map_err(|e| (path.clone(), e)),
+            Sink::Dir(dir) => crate::io::write_new_dashed_in(dir, &job.file, bytes).map_err(|e| (dir.join(&job.file), e)),
         }
     }
 }
@@ -490,9 +475,9 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
     let (sink, without_dialog) = match outcome {
         DialogOutcome::Cancelled => return,
         DialogOutcome::Picked(path) if single => (Sink::File(path), false),
-        DialogOutcome::Picked(dir) => (Sink::Dir { dir, keep_existing: false }, false),
+        DialogOutcome::Picked(dir) => (Sink::Dir(dir), false),
         DialogOutcome::Unavailable => match dialogs.fallback_dir() {
-            Some(dir) => (Sink::Dir { dir, keep_existing: true }, true),
+            Some(dir) => (Sink::Dir(dir), true),
             None => {
                 app.show_toast(crate::io::NO_FALLBACK_FOLDER, true);
                 return;
@@ -535,7 +520,7 @@ pub fn run_export_with(app: &mut App, ids: &[NodeId], dialogs: &dyn crate::io::F
         [one] => show_export_toast(app, format!("Exported {}{skipped}", one.display()), one.clone(), partial),
         many => {
             let dir = match &sink {
-                Sink::Dir { dir, .. } => dir.clone(),
+                Sink::Dir(dir) => dir.clone(),
                 Sink::File(path) => path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
             };
             let text = if without_dialog {

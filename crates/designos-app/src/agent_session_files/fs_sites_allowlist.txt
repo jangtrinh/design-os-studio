@@ -150,8 +150,6 @@ LINE	live_log_wake.rs	1	let now = std::fs::metadata(&path).ok().map(|m| (m.len()
 LINE	live_patch_log.rs	1	doc_sync_path: path.with_file_name("doc-sync.designos"),	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
 LINE	live_patch_log.rs	1	fn identity(meta: &std::fs::Metadata) -> FileIdentity {	the name of a type, not a call
 LINE	live_patch_log.rs	1	path.file_name().and_then(|n| n.to_str()).unwrap_or("doc-patch.jsonl").to_string()	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
-LINE	panels/export.rs	1	Sink::File(path) => std::fs::write(path, bytes).map(|()| path.clone()).map_err(|e| (path.clone(), e)),	an export the user saves, at a path the user chose
-LINE	panels/export.rs	1	std::fs::write(&path, bytes).map(|()| path.clone()).map_err(|e| (path, e))	an export the user saves, at a path the user chose
 LINE	panels/inspect.rs	1	match std::fs::write(&path, bytes) {	an export the user saves, at a path the user chose
 LINE	panels/menus.rs	1	leaf("Increase font size", "Ctrl+Shift+>", Action::TextSizeUp).off(!has_text),	text: the label of a keyboard shortcut
 LINE	panels/properties.rs	1	match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {	an image the user picks
