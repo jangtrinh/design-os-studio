@@ -9,11 +9,8 @@ html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-smooth { scroll-behavior: auto !important; }
 .lenis.lenis-stopped { overflow: hidden; }
 
-/* ---- scene 1: cascade entrance (hidden state only while the cascade is pending) ---- */
+/* ---- scene 1: cascade entrance (JS owns the animated state; static HTML stays readable) ---- */
 @media (prefers-reduced-motion: no-preference) {
-  html.v2-pre .topbar .brand,
-  html.v2-pre .topbar .navlinks li,
-  html.v2-pre .topbar .btn,
   html.v2-pre .hero h1,
   html.v2-pre .hero .sub,
   html.v2-pre .hero .cta,

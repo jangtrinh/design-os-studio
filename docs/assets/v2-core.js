@@ -98,7 +98,10 @@
     var blocks = ['.hero h1', '.hero .sub', '.hero .cta', '.hero .cta-note', '.hero .film']
       .map(function (s) { return document.querySelector(s); }).filter(Boolean);
     var all = headerEls.concat(blocks);
-    gsap.set(all, { opacity: 0, y: 24, filter: 'blur(6px)' });
+    // The header stays fully opaque from the first frame so its links and button are always readable
+    // and clickable; it only settles into place. The hero blocks fade in.
+    gsap.set(headerEls, { y: 24, filter: 'blur(6px)' });
+    gsap.set(blocks, { opacity: 0, y: 24, filter: 'blur(6px)' });
     html.classList.remove('v2-pre');
     var shown = { opacity: 1, y: 0, filter: 'blur(0px)', duration: 1.1, ease: 'power2.out' };
     var tl = gsap.timeline({ onComplete: function () { gsap.set(all, { clearProps: 'opacity,transform,filter' }); } });
