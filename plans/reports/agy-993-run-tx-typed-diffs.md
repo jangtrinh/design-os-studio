@@ -247,3 +247,192 @@ test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an
 - None (`0` unverified assumptions; all decisions were verified against the codebase and Controller Rulings 1–7).
 
 Status: DONE — Dropped unchanged and deleted nodes before the `run_tx` record loop via `Tx::commit_with_before` and a zero-allocation `properties_changed`, eliminated `before_nodes` cloning in `App::run_tx` and duplicate `Node` equality passes in `node_field_diff::for_each_changed_field`, and verified R1–R4, AC-01..AC-04 (`35.81 ms` auto-fix / `9.74 ms` whole-page `run_tx` in release on a 21,978-node synthetic kit page; `105` allocations for 10,000 touched / 10 changed nodes), and all 5 edge cases.
+
+---
+
+## Round 2
+
+### 1. What Could NOT Be Verified
+1. **Real Untitled UI PRO v8.0 kit and VSF client file measurements (`AC-01` & `AC-04` on real files):**
+   - **FACT:** Per the Round 2 task specification ("**Never** point it at the Untitled UI kit or a client file; the controller does that"), neither the Untitled UI kit nor any VSF client file was opened during this worker run.
+   - **FACT:** The opt-in harness `ac01_ac04_measure_on_a_real_file` ([`crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:699-760`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/agent_busy_frames/field_diff_tests.rs#L699-L760)) was verified end-to-end in `--release` on a 21,978-node synthetic `.designos` file written to `/tmp/synthetic-kit-page.designos` on both base `6f0c3bb2` (via cherry-pick on a temporary branch that was deleted immediately after) and `HEAD` (`86fc6d56c`).
+
+### 2. Conclusion & Epistemic Ledger
+- **Conclusion (FACT):** Added the `#[ignore]` benchmark test [`ac01_ac04_measure_on_a_real_file`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/agent_busy_frames/field_diff_tests.rs#L699-L760) to [`crates/designos-app/src/agent_busy_frames/field_diff_tests.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/agent_busy_frames/field_diff_tests.rs). On our 21,978-node synthetic `.designos` file in `--release`, `autofix_ms` dropped from `209.53 ms` (`6f0c3bb2`) to `38.14 ms` (`HEAD`, `5.49×` faster), `record_loop_ms` (`App::run_tx` after the auto-fix mutation) dropped from `139.69 ms` (`6f0c3bb2`) to `18.84 ms` (`HEAD`, `7.41×` faster), `tx_allocs` dropped from `177,695` (`6f0c3bb2`) to `7,100` (`HEAD`, `25.0×` fewer allocations), and `user_edited_fields` remained identical at `588`.
+- **Epistemic Ledger:**
+  - **FACT:** `ac01_ac04_measure_on_a_real_file` reads `DESIGNOS_BENCH_FILE` (printing `[BENCH] skipped: DESIGNOS_BENCH_FILE is unset` when unset), loads the file via `crate::io::load_path(&path)` (which dispatches `.fig` through `designos_fig::import_fig_with_report` and `.designos` through `Document::from_json_with_report`), selects the page matching `DESIGNOS_BENCH_PAGE` (or the page with the largest `doc.page_node_count(p)` when unset), calls `doc.ensure_page_hydrated(page)` so deferred `.fig` pages expand their component instances just as `App::switch_page` does, runs the whole-page palette auto-fix (#988) mutation (`tx.ed.touch` across the page subtree + `crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &[], None)` + `tx.ed.rebase_layout_epoch`), times `App::run_tx(tx)` (`record_loop_ms`) and counts its allocations (`tx_allocs`) via `allocations_in`, records `app.agent_busy_frames.user_edited_fields.len()`, and asserts `(len, modified)` metadata of the input file on disk is unchanged after the run.
+  - **FACT:** The test was placed in `field_diff_tests.rs` immediately before `record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn` so its surrounding context is identical between `6f0c3bb2` and `HEAD`, allowing conflict-free `git cherry-pick` onto `6f0c3bb2`.
+  - **INFERENCE:** On the real 21,978-node Untitled UI kit page (where nodes carry heavier vector geometry and component instances than the synthetic page), dropping the ~21k unchanged nodes before cloning/reverting/recording in `App::run_tx` will eliminate the same ~97%+ unchanged-node overhead observed here.
+  - **ASSUMPTION:** None (`0` unverified assumptions).
+- **Weakest Link:** The real Untitled UI kit and VSF `.fig` files could not be opened by this worker per controller rule, so the final real-file millisecond numbers depend on the controller running the command in Section 4 below.
+
+### 3. Synthetic `.designos` Release Measurements (`6f0c3bb2` vs `HEAD`)
+- **Base (`6f0c3bb2` with `86fc6d56c` cherry-picked onto temporary branch `tmp-bench-6f0c3bb2`, then deleted):**
+  ```text
+  [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=209.53 record_loop_ms=139.69 tx_allocs=177695 user_edited_fields=588
+  ```
+- **Head (`86fc6d56c` on `jangtrinh/agy-993-run-tx-typed-diffs`):**
+  ```text
+  [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=38.14 record_loop_ms=18.84 tx_allocs=7100 user_edited_fields=588
+  ```
+- **Head with explicit `DESIGNOS_BENCH_PAGE=Components`:**
+  ```text
+  [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=33.66 record_loop_ms=14.66 tx_allocs=7100 user_edited_fields=588
+  ```
+- **Head with `DESIGNOS_BENCH_FILE` unset:**
+  ```text
+  [BENCH] skipped: DESIGNOS_BENCH_FILE is unset
+  ```
+
+### 4. Exact Command for the Controller
+```bash
+DESIGNOS_BENCH_FILE="/path/to/file.fig" cargo test --release -p designos-app --bin designos --locked -- --ignored ac01_ac04_measure_on_a_real_file --nocapture --test-threads=1
+```
+(Optionally prepend `DESIGNOS_BENCH_PAGE="<exact page name>"` to target a specific page instead of the page with the most nodes. To compare against `6f0c3bb2`, `git cherry-pick 86fc6d56c` applies cleanly onto `6f0c3bb2` with zero conflicts.)
+
+### 5. Skills Loaded & Changes Made Because of Them
+- **`es:dev` -> `es:feature-dev`** (`~/.gemini/config/skills/es-dev/SKILL.md`, `~/.gemini/config/skills/es-feature-dev/SKILL.md`): Operated in the DEV phase against the accepted Round 2 specification without re-entering brainstorm/plan gates; verified all gates after the final code edit.
+- **`es:rust`** (`~/.gemini/config/skills/es-rust/SKILL.md`): Pre-sized `page_nodes` (`Vec::with_capacity(nodes)`) before walking the page subtree and avoided any extra `Document` or `Node` clones in the benchmark harness so `tx_allocs` measures only `App::run_tx(tx)`.
+- **`es:rust-gpu-canvas`** (`~/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Ensured the selected page is hydrated via `doc.ensure_page_hydrated(page)` before counting nodes or building `App`, matching the app's own page-switch lifecycle on multi-page `.fig` files.
+- **`es:astra-work` & `es:fable-thinking`** (`~/.gemini/config/skills/es-astra-work/SKILL.md`, `~/.gemini/config/skills/es-fable-thinking/SKILL.md`): Predicted outcomes before each command, placed `ac01_ac04_measure_on_a_real_file` at a shared-context boundary in `field_diff_tests.rs` so cherry-picking onto `6f0c3bb2` is conflict-free, and verified input-file immutability via `(meta.len(), meta.modified())` assertions.
+
+### 6. Exact Commands Run & Exact Output
+
+#### 6.1 Release Benchmark on `6f0c3bb2` and `HEAD`
+Commands:
+```bash
+git checkout -b tmp-bench-6f0c3bb2 6f0c3bb2
+git cherry-pick 86fc6d56c
+DESIGNOS_BENCH_FILE=/tmp/synthetic-kit-page.designos cargo test --release -p designos-app --bin designos --locked -- --ignored ac01_ac04_measure_on_a_real_file --nocapture --test-threads=1
+git checkout jangtrinh/agy-993-run-tx-typed-diffs
+git branch -D tmp-bench-6f0c3bb2
+DESIGNOS_BENCH_FILE=/tmp/synthetic-kit-page.designos cargo test --release -p designos-app --bin designos --locked -- --ignored ac01_ac04_measure_on_a_real_file --nocapture --test-threads=1
+DESIGNOS_BENCH_FILE=/tmp/synthetic-kit-page.designos DESIGNOS_BENCH_PAGE=Components cargo test --release -p designos-app --bin designos --locked -- --ignored ac01_ac04_measure_on_a_real_file --nocapture --test-threads=1
+env -u DESIGNOS_BENCH_FILE cargo test --release -p designos-app --bin designos --locked -- --ignored ac01_ac04_measure_on_a_real_file --nocapture --test-threads=1
+rm -f /tmp/synthetic-kit-page.designos
+```
+Exact output:
+```text
+Switched to a new branch 'tmp-bench-6f0c3bb2'
+Auto-merging crates/designos-app/src/agent_busy_frames/field_diff_tests.rs
+[tmp-bench-6f0c3bb2 f391f0c1] test(app): add opt-in ac01_ac04_measure_on_a_real_file benchmark (#993)
+ Date: Tue Oct 27 13:30:54 2026 +0700
+ 1 file changed, 63 insertions(+)
+=== RUN ON 6f0c3bb2 (cherry-picked test) ===
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `release` profile [optimized] target(s) in 3m 06s
+     Running unittests src/main.rs (target/release/deps/designos-e6441832b78550da)
+
+running 1 test
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=209.53 record_loop_ms=139.69 tx_allocs=177695 user_edited_fields=588
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3344 filtered out; finished in 0.30s
+
+Switched to branch 'jangtrinh/agy-993-run-tx-typed-diffs'
+Your branch is ahead of 'origin/jangtrinh/agy-993-run-tx-typed-diffs' by 1 commit.
+Deleted branch tmp-bench-6f0c3bb2 (was f391f0c1).
+=== RUN ON HEAD (86fc6d56c) ===
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `release` profile [optimized] target(s) in 4m 14s
+     Running unittests src/main.rs (target/release/deps/designos-e6441832b78550da)
+
+running 1 test
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=38.14 record_loop_ms=18.84 tx_allocs=7100 user_edited_fields=588
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3353 filtered out; finished in 0.10s
+
+=== RUN ON HEAD WITH DESIGNOS_BENCH_PAGE=Components ===
+     Running unittests src/main.rs (target/release/deps/designos-e6441832b78550da)
+
+running 1 test
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... [BENCH] file=synthetic-kit-page.designos page=Components nodes=21978 autofix_ms=33.66 record_loop_ms=14.66 tx_allocs=7100 user_edited_fields=588
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3353 filtered out; finished in 0.13s
+
+=== RUN ON HEAD WITH DESIGNOS_BENCH_FILE UNSET ===
+     Running unittests src/main.rs (target/release/deps/designos-e6441832b78550da)
+
+running 1 test
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... [BENCH] skipped: DESIGNOS_BENCH_FILE is unset
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3353 filtered out; finished in 0.00s
+```
+
+#### 6.2 Final Commit Gates
+1. `cargo fmt --all -- --check`:
+```text
+=== GATE 1: cargo fmt --all -- --check ===
+fmt_exit=0
+```
+2. `cargo clippy --workspace --all-targets --locked -- -D warnings`:
+```text
+=== GATE 2: cargo clippy --workspace --all-targets --locked -- -D warnings ===
+    Checking designos-gpu v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-gpu)
+    Checking designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-fig)
+    Checking designos-library v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-library)
+    Checking designos-eval v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-eval)
+    Checking designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 52s
+clippy_exit=0
+```
+3. `cargo test -p designos-app --bin designos --locked agent_busy_frames`:
+```text
+=== GATE 3: cargo test -p designos-app --bin designos --locked agent_busy_frames ===
+     Running unittests src/main.rs (target/debug/deps/designos-f103f8deb2404a79)
+
+running 39 tests
+test agent_busy_frames::field_diff_tests::ac01_ac04_measure_on_a_real_file ... ignored, opt-in real-file benchmark: set DESIGNOS_BENCH_FILE
+test agent_busy_frames::field_diff_tests::a_field_that_serializes_as_absent_is_a_change_against_one_that_serializes_as_null ... ok
+test agent_busy_frames::field_diff_tests::an_edit_of_identity_or_tree_position_reports_nothing ... ok
+test agent_busy_frames::field_diff_tests::floats_the_json_form_cannot_tell_apart_are_not_a_change ... ok
+test agent_busy_frames::field_diff_tests::only_the_fields_that_changed_are_encoded_not_the_geometry_around_them ... ok
+test agent_busy_frames::field_diff_tests::record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn ... ok
+test agent_busy_frames::field_diff_tests::recording_a_renamed_heavy_node_allocates_a_bounded_number_of_times_and_builds_no_json ... ok
+test agent_busy_frames::field_diff_tests::edge_case_deleted_node_in_tx_records_deletion_without_field_diff ... ok
+test agent_busy_frames::field_diff_tests::edge_case_new_node_in_tx_records_fields_as_before ... ok
+test agent_busy_frames::field_diff_tests::the_corpus_edits_every_field_a_populated_node_serializes ... ok
+test agent_busy_frames::field_diff_tests::nodes_a_step_touched_and_left_alone_add_no_entries_and_no_work ... ok
+test agent_busy_frames::field_diff_tests::a_user_edit_through_the_app_records_what_the_value_diff_finds_in_each_touched_node ... ok
+test agent_busy_frames::field_diff_tests::values_that_differ_but_serialize_alike_are_not_a_change ... ok
+test agent_busy_frames::field_diff_tests::edge_case_agent_turn_running_during_edit_loses_no_fields ... ok
+test agent_busy_frames::field_diff_tests::edge_case_empty_transaction_records_nothing ... ok
+test agent_busy_frames::field_diff_tests::ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour ... ok
+test agent_busy_frames::field_diff_tests::every_field_edit_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::nodes_of_real_documents_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::tests::free_spot_skips_overlapping_siblings ... ok
+test agent_busy_frames::tests::banner_clears_when_the_run_ends_or_stops ... ok
+test agent_busy_frames::tests::banner_never_moves_the_view_or_the_selection ... ok
+test agent_busy_frames::tests::edit_anyway_hides_the_banner_until_the_run_ends ... ok
+test agent_busy_frames::tests::auto_layout_parent_inserts_the_copy_as_the_next_sibling ... ok
+test agent_busy_frames::tests::make_a_copy_creates_one_duplicate_in_free_space_selected ... ok
+test agent_busy_frames::tests::remapped_agent_patch_node_id_matches_user_edited_field ... ok
+test agent_busy_frames::tests::no_banner_for_frames_no_agent_works_on ... ok
+test agent_busy_frames::tests::selecting_a_node_in_a_busy_frame_shows_the_banner_with_the_agent_name ... ok
+test agent_busy_frames::tests::apply_node_spec_preserves_descendant_in_progress_flags ... ok
+test agent_busy_frames::tests::undo_of_unrelated_edit_after_deleting_copy_does_not_reset_selection ... ok
+test agent_busy_frames::tests::the_copy_carries_no_busy_flag_or_owner ... ok
+test agent_busy_frames::tests::same_field_edits_are_listed_as_changed_by_both ... ok
+test agent_busy_frames::tests::later_agent_writes_land_only_on_the_original ... ok
+test agent_busy_frames::tests::drag_and_text_tx_commits_record_into_both_changed_and_clear_in_progress_advances_turn ... ok
+test agent_busy_frames::field_diff_tests::edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields ... ok
+test agent_busy_frames::field_diff_tests::ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json ... ok
+test agent_busy_frames::field_diff_tests::a_change_between_any_two_kinds_is_reported_as_the_value_diff_reported_it ... ok
+test agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms ... ok
+test agent_busy_frames::field_diff_tests::random_combinations_of_edits_are_reported_as_the_value_diff_reported_them ... ok
+test agent_busy_frames::field_diff_tests::ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len ... ok
+
+test result: ok. 38 passed; 0 failed; 1 ignored; 0 measured; 3317 filtered out; finished in 1.07s
+
+test_exit=0
+```
+
+### 7. Unresolved Questions
+- None.
+
+Status: DONE — Added `#[ignore]` benchmark test `ac01_ac04_measure_on_a_real_file` (`DESIGNOS_BENCH_FILE` / `DESIGNOS_BENCH_PAGE`), verified in `--release` on a 21,978-node `.designos` file on `6f0c3bb2` (`autofix_ms=209.53 record_loop_ms=139.69 tx_allocs=177695 user_edited_fields=588`) and `HEAD` (`autofix_ms=38.14 record_loop_ms=18.84 tx_allocs=7100 user_edited_fields=588`), and passed `cargo fmt`, `cargo clippy`, and `agent_busy_frames` test gates.
