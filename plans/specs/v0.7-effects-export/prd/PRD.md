@@ -8,28 +8,28 @@ primary: true
 ---
 
 ## 1. Problem
-Xem [contract](../contract/FC-V07.md).
+See [contract](../contract/FC-V07.md).
 
-## 2. Yêu cầu
+## 2. Requirements
 
-| ID | Yêu cầu | Nguồn | US |
+| ID | Requirement | Source | US |
 |---|---|---|---|
-| REQ-01 | Shadow trên device mockup khớp Figma: sửa xong theo AC. | #520 | US-01 |
-| REQ-02 | Export bounds khớp Figma trên 10 kit frame: sửa xong theo AC. | #528 | US-02 |
-| REQ-03 | Duyệt / từ chối tool call của Codex trong Agents panel: sửa xong theo AC. | #930 | US-03 |
-| REQ-04 | MCP không xoá con của instance: sửa xong theo AC. | #985 | US-04 |
-| REQ-05 | Writer headless từ chối symlink và kiểm đuôi file: sửa xong theo AC. | #1009 | US-05 |
-| REQ-06 | Agent không gỡ được tool restriction của người dùng: sửa xong theo AC. | #1049 | US-06 |
-| REQ-07 | Status hook không ghi theo symlink trong session: sửa xong theo AC. | #1050 | US-07 |
-| REQ-08 | Document chưa lưu không cấp cả ổ đĩa cho designos-mcp: sửa xong theo AC. | #1074 | US-08 |
-| REQ-09 | Ghi qua MCP và CLI đi qua Ask gate: sửa xong theo AC. | #1101 | US-09 |
-| REQ-10 | CI dùng cargo-nextest với retry và quarantine: sửa xong theo AC. | #1160 | US-10 |
-| REQ-11 | Job check nhanh ~2 phút trước test matrix: sửa xong theo AC. | #1161 | US-11 |
-| REQ-12 | Chất lượng contributor: CONTRIBUTING, PR template, gate fork-safe: sửa xong theo AC. | #1163 | US-12 |
-| REQ-13 | Gemini Ask mode không đọc tools.allowed từ session: sửa xong theo AC. | #1047 | US-13 |
-| REQ-14 | agy, Gemini, Grok không chạy MCP từ config agent ghi được: sửa xong theo AC. | #1048 | US-14 |
+| REQ-01 | Shadows on device mockups match Figma, fixed per the AC. | #520 | US-01 |
+| REQ-02 | Export bounds match Figma on the 10 kit frames, fixed per the AC. | #528 | US-02 |
+| REQ-03 | Approve / deny Codex tool calls in the Agents panel, fixed per the AC. | #930 | US-03 |
+| REQ-04 | MCP does not delete an instance's children, fixed per the AC. | #985 | US-04 |
+| REQ-05 | Headless writers refuse symlinks and check the file extension, fixed per the AC. | #1009 | US-05 |
+| REQ-06 | An agent cannot lift the user's tool restriction, fixed per the AC. | #1049 | US-06 |
+| REQ-07 | Status hooks do not write through a symlink in the session, fixed per the AC. | #1050 | US-07 |
+| REQ-08 | An unsaved document does not give designos-mcp the whole disk, fixed per the AC. | #1074 | US-08 |
+| REQ-09 | MCP and CLI writes go through the Ask gate, fixed per the AC. | #1101 | US-09 |
+| REQ-10 | CI uses cargo-nextest with retry and quarantine, fixed per the AC. | #1160 | US-10 |
+| REQ-11 | A fast ~2-minute check job before the test matrix, fixed per the AC. | #1161 | US-11 |
+| REQ-12 | Contributor quality: CONTRIBUTING, PR template, fork-safe gate, fixed per the AC. | #1163 | US-12 |
+| REQ-13 | Gemini Ask mode does not read tools.allowed from the session, fixed per the AC. | #1047 | US-13 |
+| REQ-14 | agy, Gemini and Grok do not start MCP from agent-writable config, fixed per the AC. | #1048 | US-14 |
 
-## 3. Ràng buộc
-- Mọi thay đổi `.github/workflows` (REQ-10..12) cần Jang review khi merge.
-- Ship v0.6.3+ khi Windows đỏ là quyết định mở của Jang; spec không giả định.
-- AI không ghi `GATE: APPROVED`.
+## 3. Constraints
+- Every `.github/workflows` change (REQ-10..12) needs Jang's review at merge.
+- Shipping v0.6.3+ while Windows is red is an open decision for Jang; the spec assumes nothing.
+- AI does not write `GATE: APPROVED`.

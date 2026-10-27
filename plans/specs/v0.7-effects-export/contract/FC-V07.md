@@ -6,15 +6,14 @@ status: Draft
 updated: 2026-10-25
 primary: true
 ---
-
 - Version 0.1 (draft G2) · owner PM (jangtrinh) · inherits `plans/specs/designos-studio-v2/contract/FC-001.md`
 
-## 1. Problem và outcome
-Agent còn ghi được hook, session config và bỏ qua Ask gate qua MCP/CLI; export bounds lệch Figma 1–84 px. Outcome cuối 26/10: năm patch v0.7.0–v0.7.4 ship, không còn đường ghi qua link hoặc config agent ghi được, export bounds khớp Figma trên 10 kit frame.
+## 1. Problem and outcome
+Agents can still write hooks and session config, and can skip the Ask gate through MCP/CLI; export bounds are off from Figma by 1–84 px. Outcome by the end of 26/10: five patches v0.7.0–v0.7.4 ship, no write path remains through a link or agent-writable config, and export bounds match Figma on the 10 kit frames.
 
 ## 2. Scope
 
-| ID | Trong scope | Patch |
+| ID | In scope | Patch |
 |---|---|---|
 | SC-1 | Core: agent hook safety, Codex approvals, export bounds | v0.7.0 |
 | SC-2 | Headless and MCP write safety | v0.7.1 |
@@ -22,20 +21,20 @@ Agent còn ghi được hook, session config và bỏ qua Ask gate qua MCP/CLI; 
 | SC-4 | Session config for agy/Gemini/Grok | v0.7.3 |
 | SC-5 | Effects: shadow blend modes, effect caps | v0.7.4 |
 
-Ngoài scope: phần Effects & Export khác (Backlog, from:v0.7), plugin runtime, codegen Vue/Flutter/Web Components.
+Out of scope: the rest of Effects & Export (Backlog, from:v0.7), plugin runtime, Vue/Flutter/Web Components codegen.
 
 ## 3. Selection
-PRD và stories viết ở stage prd/us tối 25/10, migrate AC từ `docs/specs/v0.7/161-*`, `162-*`, `528-*`. Mỗi patch một story; mỗi issue ít nhất một AC.
+PRD and stories are written at the prd/us stage on the evening of 25/10, migrating ACs from `docs/specs/v0.7/161-*`, `162-*`, `528-*`. One story per patch; at least one AC per issue.
 
-## 4. Acceptance (cấp contract)
+## 4. Acceptance (contract level)
 
-| Patch | Done khi |
+| Patch | Done when |
 |---|---|
-| v0.7.0 | Hook không ghi theo link; Codex tool call duyệt/từ chối được trong panel; export bounds của 10 kit frame khớp Figma ±0 px; shadow trên device mockup khớp Figma (#520). |
-| v0.7.1 | Mọi writer headless từ chối symlink và kiểm đuôi file; agent không gỡ được tool restriction; status hook không theo link; MCP không xoá hết con của instance. |
-| v0.7.2 | Ghi qua MCP/CLI đi qua Ask gate; document không có path không cấp cả ổ đĩa. |
-| v0.7.3 | agy/Gemini/Grok không chạy MCP từ config agent ghi được; Gemini Ask mode không đọc tools.allowed từ session. |
-| v0.7.4 | Drop/inner shadow có blend mode và round-trip .fig; nút + giới hạn số effect mà không cắt effect import. |
+| v0.7.0 | Hooks don't write through a link; Codex tool calls can be approved/denied in the panel; export bounds of the 10 kit frames match Figma ±0 px; shadows on device mockups match Figma (#520). |
+| v0.7.1 | Every headless writer refuses symlinks and checks the file extension; an agent can't lift the tool restriction; status hooks don't follow links; MCP doesn't delete all of an instance's children. |
+| v0.7.2 | MCP/CLI writes go through the Ask gate; a document without a path doesn't grant the whole disk. |
+| v0.7.3 | agy/Gemini/Grok don't start MCP from agent-writable config; Gemini Ask mode doesn't read tools.allowed from the session. |
+| v0.7.4 | Drop/inner shadows have blend modes and round-trip through .fig; the + button caps the effect count without cutting imported effects. |
 
-## 5. Gates và handoff
-G1 intake này, G2 contract này: PM khoá tối 25/10 (D2 của spec v0.6). G3 sau khi viết us. Ship theo `pm/RELEASE-RUNBOOK.md`.
+## 5. Gates and handoff
+G1 is this intake, G2 is this contract: PM locks them on the evening of 25/10 (D2 of spec v0.6). G3 after the us stage. Ship per `pm/RELEASE-RUNBOOK.md`.

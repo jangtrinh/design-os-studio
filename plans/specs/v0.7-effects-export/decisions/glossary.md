@@ -10,7 +10,7 @@ updated: 2026-10-25
 
 | Term | Anchor | Definition | Source |
 |---|---|---|---|
-| Patch | patch | Một bản phát hành nhỏ v0.7.x chứa một delivery slice. | [decision log](decision-log.md) |
+| Patch | patch | A small v0.7.x release that holds one delivery slice. | [decision log](decision-log.md) |
 
 ## Ban list
 

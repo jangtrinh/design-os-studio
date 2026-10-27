@@ -6,14 +6,14 @@ status: Draft
 updated: 2026-10-25
 ---
 
-- Nguồn: milestones v0.7 Effects & Export (#5) và v0.7.1–v0.7.4 (#53–#56); `docs/specs/v0.7` (v1, 18 file theo issue, sẽ migrate ở bước prd/us).
+- Sources: milestones v0.7 Effects & Export (#5) and v0.7.1–v0.7.4 (#53–#56); `docs/specs/v0.7` (v1, 18 per-issue files, to be migrated at the prd/us step).
 - Nature: `roadmap` + `defect`.
-- Duplicate search: #1008/#1087 đã xong trong v0.6.2 (D3).
-- Lý do: tiếp tục đóng lỗ agent sandbox trước, rồi lát Effects đầu tiên.
+- Duplicate search: #1008/#1087 were already done in v0.6.2 (D3).
+- Rationale: keep closing agent sandbox holes first, then the first Effects slice.
 
-## Issue nguồn
+## Source issues
 
-| Issue | Tiêu đề | Patch |
+| Issue | Title | Patch |
 |---|---|---|
 | #1072 | Agent hook commands write through a link an agent plants in the session folder | v0.7.0 |
 | #930 | Approve or deny Codex tool calls from the Agents panel | v0.7.0 |
