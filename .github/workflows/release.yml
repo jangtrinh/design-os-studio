@@ -157,6 +157,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
@@ -171,25 +173,29 @@ jobs:
           cat dist/SHA256SUMS
           cat dist/release-manifest.json
 
+      - name: Build release notes from template
+        run: |
+          tag="${GITHUB_REF_NAME}"; v="${tag#v}"
+          notes="docs/releases/${tag}.md"
+          test -f "$notes" || { echo "::error::Missing $notes (Highlights/Fixes/Known issues)"; exit 1; }
+          { cat "$notes"; echo; echo "## Downloads"; echo
+            echo "DESIGN:OS Studio is free. Every package includes designos-studio, designos, designos-mcp and designos-diff."; echo
+            echo "| OS | File |"; echo "|---|---|"
+            for f in dist/*.dmg dist/*-setup.exe dist/*.zip dist/*.deb dist/*.tar.gz; do [ -e "$f" ] || continue
+              n=$(basename "$f"); case "$n" in *.dmg|*macos*) os=macOS;; *windows*|*.exe) os="Windows x64";; *) os="Linux x64";; esac
+              echo "| $os | \`$n\` |"; done
+            echo; echo "Install guide: [docs/install.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/install.md)"
+            echo; echo "## Checksums"; echo; echo '```'; cat dist/SHA256SUMS; echo '```'
+            prev=$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)
+            [ -n "$prev" ] && echo && echo "**Full changelog:** https://github.com/${GITHUB_REPOSITORY}/compare/${prev}...${tag}"
+          } > dist/RELEASE_NOTES.md
+
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
-          body: |
-            ### Installing **design:os studio**
-
-            Download the installer for your platform below. Every package includes all 4 tools (`designos-studio`, `designos`, `designos-mcp`, and `designos-diff`):
-
-            - **macOS (Apple Silicon & Intel Universal):**
-              - Download `designos-<version>-macos.dmg`, open it, and drag **designos.app** to **Applications**.
-              - *(Optional)* Double-click `install-cli.command` inside the DMG to clear the macOS quarantine attribute and symlink `designos-studio`, `designos`, `designos-mcp`, and `designos-diff` onto your `PATH`.
-            - **Windows (x64):**
-              - **GUI Installer (when attached):** `designos-<version>-x86_64-pc-windows-msvc-setup.exe` is a per-user install with no Administrator prompt. It creates Desktop and Start Menu shortcuts and registers `.designos` and `.fig` files. It is only built when the runner has NSIS; otherwise use the ZIP below.
-              - **Portable ZIP / PowerShell:** Unzip `designos-<version>-x86_64-pc-windows-msvc.zip` and run `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
-            - **Linux (x64):**
-              - **Ubuntu / Debian (`.deb`):** `sudo apt install ./designos_<version>_amd64.deb`
-              - **Any Linux distro (`.tar.gz`):** Unpack `designos-<version>-x86_64-unknown-linux-gnu.tar.gz` and run `./install.sh` (installs under `~/.local`, no `sudo` needed).
-
-            Full instructions: [docs/install.md](https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md). Verify downloads against `SHA256SUMS` or `release-manifest.json`.
+          name: DESIGN:OS Studio ${{ github.ref_name }}${{ vars.RELEASE_PACK && format(' — {0}', vars.RELEASE_PACK) || '' }}
+          # Body = hand-written notes from docs/releases/<tag>.md (Highlights/Fixes/Known issues),
+          # then generated Downloads table + Checksums. Fails if notes file is missing.
+          body_path: dist/RELEASE_NOTES.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/*.dmg
