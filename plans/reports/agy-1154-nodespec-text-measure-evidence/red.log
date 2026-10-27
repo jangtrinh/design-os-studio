@@ -1,0 +1,219 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-f1803cb41fc94f64)
+
+running 1 test
+test spec::tests::no_measurer_keeps_the_estimate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 633 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-doc)
+   Compiling designos-fonts v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-fonts)
+   Compiling designos-render v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-render)
+   Compiling designos-svg v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-svg)
+   Compiling designos-webcapture v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-webcapture)
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.47s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-cad84a2772bbdc15)
+
+running 1 test
+test text::tests::semibold_measures_wider_than_regular ... FAILED
+
+failures:
+
+---- text::tests::semibold_measures_wider_than_regular stdout ----
+
+thread 'text::tests::semibold_measures_wider_than_regular' (82026286) panicked at crates/designos-render/src/text.rs:1048:9:
+expected 14px Semibold Inter 'Delete' (48) to measure wider than Regular (48)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    text::tests::semibold_measures_wider_than_regular
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 57 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.34s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::delete_button_label_has_equal_side_padding ... FAILED
+
+failures:
+
+---- engine::tests::delete_button_label_has_equal_side_padding stdout ----
+
+thread 'engine::tests::delete_button_label_has_equal_side_padding' (82027303) panicked at crates/designos-mcp/src/engine.rs:3993:9:
+label width (52) must match measured_text_box (48) within 0.5px and be < 42.0 (not 48.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::delete_button_label_has_equal_side_padding
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::create_node_text_without_size_hugs_its_content ... FAILED
+
+failures:
+
+---- engine::tests::create_node_text_without_size_hugs_its_content stdout ----
+
+thread 'engine::tests::create_node_text_without_size_hugs_its_content' (82028430) panicked at crates/designos-mcp/src/engine.rs:4020:9:
+expected 'Cancel' width < 60.0 (not 100.0), got 100
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::create_node_text_without_size_hugs_its_content
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.77s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::create_node_text_with_size_is_fixed ... FAILED
+
+failures:
+
+---- engine::tests::create_node_text_with_size_is_fixed stdout ----
+
+thread 'engine::tests::create_node_text_with_size_is_fixed' (82029360) panicked at crates/designos-mcp/src/engine.rs:4043:9:
+assertion `left == right` failed
+  left: WidthAndHeight
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::create_node_text_with_size_is_fixed
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.42s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::update_node_text_change_remeasures_hug_text ... FAILED
+
+failures:
+
+---- engine::tests::update_node_text_change_remeasures_hug_text stdout ----
+
+thread 'engine::tests::update_node_text_change_remeasures_hug_text' (82030341) panicked at crates/designos-mcp/src/engine.rs:4096:9:
+label width must grow from 24 to 24
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::update_node_text_change_remeasures_hug_text
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.50s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::instance_text_override_is_measured ... FAILED
+
+failures:
+
+---- engine::tests::instance_text_override_is_measured stdout ----
+
+thread 'engine::tests::instance_text_override_is_measured' (82031481) panicked at crates/designos-mcp/src/engine.rs:4162:9:
+instance override label width (161) must match measured (157) within 0.5px and be < 145.0 (not 157.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::instance_text_override_is_measured
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.45s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::apply_spec_is_one_undo_step_and_one_patch ... FAILED
+
+failures:
+
+---- engine::tests::apply_spec_is_one_undo_step_and_one_patch stdout ----
+
+thread 'engine::tests::apply_spec_is_one_undo_step_and_one_patch' (82032157) panicked at crates/designos-mcp/src/engine.rs:4212:17:
+LiveOp::Insert text node must already carry measured width (< 42.0), got 52
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::apply_spec_is_one_undo_step_and_one_patch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1154-nodespec-text-measure/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.35s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test engine::tests::fallback_font_is_reported ... FAILED
+
+failures:
+
+---- engine::tests::fallback_font_is_reported stdout ----
+
+thread 'engine::tests::fallback_font_is_reported' (82032916) panicked at crates/designos-mcp/src/engine.rs:4238:14:
+called `Result::unwrap()` on an `Err` value: ToolError { code: UnknownField, message: "Unknown field `font_family`", path: "/spec/font_family", received: Some(String("font_family")), expected: None, valid_options: ["font_size", "font_weight", "opacity", "name", "fill"], valid_options_total: None, corrected_example: Some(Object {"parent_id": Number(1), "spec": Object {"kind": String("text"), "name": String("FallbackText"), "text": String("Missing face")}}), cause: None, failed_op: None, op: None, safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::fallback_font_is_reported
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 251 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

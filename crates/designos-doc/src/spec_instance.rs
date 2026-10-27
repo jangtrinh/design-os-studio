@@ -2,7 +2,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use crate::spec::{estimate_intrinsic_text_size, parse_sizing, FalseLiteral, SlotFillSpec};
+use crate::spec::{parse_sizing, FalseLiteral, SlotFillSpec};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -176,6 +176,7 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub bindings_created: usize,
     pub styles_linked: usize,
     pub warnings: Vec<crate::SpecWarning>,
+    pub measured_with_fallback: Vec<u64>,
     pub touched_slot_containers: HashMap<NodeId, String>,
 }
 
@@ -202,6 +203,7 @@ impl<'a> SpecBuildCtx<'a> {
             bindings_created: 0,
             styles_linked: 0,
             warnings: Vec::new(),
+            measured_with_fallback: Vec::new(),
             touched_slot_containers: HashMap::new(),
         }
     }
@@ -1077,9 +1079,49 @@ pub(crate) fn apply_instance_props_with_ctx(
             PropKind::Variant { .. } | PropKind::Slot => unreachable!(),
         };
 
+        let is_text_prop = matches!(def.kind, PropKind::Text);
         let def_name = def.name.clone();
         let cmd = set_instance_prop(doc, instance_id, &def_name, Some(pv));
         cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+        if is_text_prop {
+            let mut bound_text_ids = Vec::new();
+            doc.walk(instance_id, |n, _| {
+                if matches!(n.kind, NodeKind::Text(_)) && !n.component.overrides.contains(&OverrideField::Size) {
+                    let bound_here = n.component.bindings.get(&OverrideField::Characters) == Some(&def_name);
+                    let bound_src =
+                        n.component.source.and_then(|s| doc.get(s)).is_some_and(|sn| sn.component.bindings.get(&OverrideField::Characters) == Some(&def_name));
+                    if bound_here || bound_src {
+                        bound_text_ids.push(n.id);
+                    }
+                }
+            });
+            for tid in bound_text_ids {
+                if let Some(node) = doc.get_mut(tid) {
+                    if let NodeKind::Text(tp) = &node.kind {
+                        let mut measured = false;
+                        let new_size = match tp.auto_resize {
+                            TextAutoResize::WidthAndHeight => {
+                                measured = true;
+                                Some(crate::text_measure::intrinsic_text_size(tp, None))
+                            }
+                            TextAutoResize::Height => {
+                                measured = true;
+                                let h = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                Some(Vec2::new(node.size.x, h))
+                            }
+                            TextAutoResize::None | TextAutoResize::Truncate => None,
+                        };
+                        let fallback = measured && crate::text_measure::uses_fallback_font(tp);
+                        if let Some(sz) = new_size {
+                            node.size = sz;
+                        }
+                        if fallback && !ctx.measured_with_fallback.contains(&tid.0) {
+                            ctx.measured_with_fallback.push(tid.0);
+                        }
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1260,16 +1302,20 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                     tp.content = text_val.clone();
                     tp.runs.clear();
                     if !has_size_override {
-                        let est = estimate_intrinsic_text_size(tp);
+                        let mut measured = false;
                         match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
-                                node.size = est;
+                                node.size = crate::text_measure::intrinsic_text_size(tp, None);
+                                measured = true;
                             }
                             TextAutoResize::Height => {
-                                let lines = (est.x / node.size.x.max(20.0)).ceil().max(1.0);
-                                node.size.y = (lines * tp.style.font_size.max(8.0) * 1.45).ceil();
+                                node.size.y = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                measured = true;
                             }
                             TextAutoResize::None | TextAutoResize::Truncate => {}
+                        }
+                        if measured && crate::text_measure::uses_fallback_font(tp) && !ctx.measured_with_fallback.contains(&target_id.0) {
+                            ctx.measured_with_fallback.push(target_id.0);
                         }
                     }
                 }
@@ -2085,6 +2131,7 @@ impl Document {
             visible: (!n.visible).then_some(BoolOrVar::Bool(false)),
             clips_content: None,
             text: None,
+            font_family: None,
             font_size: None,
             line_height: None,
             font_weight: None,
@@ -2334,6 +2381,20 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     report.bindings_created += ctx.bindings_created;
     report.styles_linked += ctx.styles_linked;
     report.warnings.extend(ctx.warnings.clone());
+    for fid in &ctx.measured_with_fallback {
+        if !report.measured_with_fallback.contains(fid) {
+            report.measured_with_fallback.push(*fid);
+        }
+    }
+    if !report.measured_with_fallback.is_empty() && !report.warnings.iter().any(|w| w.code == "TEXT_MEASURED_WITH_FALLBACK_FONT") {
+        report.warnings.push(crate::SpecWarning {
+            code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
+            path: "spec".to_string(),
+            token: None,
+            replacement: None,
+            message: Some("One or more text nodes were measured with a fallback font because the requested font_family is not loaded.".to_string()),
+        });
+    }
 
     let created_library_page = prev_library_page.is_none().then_some(doc.library_page).flatten();
     let data_after = crate::spec_data::SpecDataSnapshot::of(doc);
