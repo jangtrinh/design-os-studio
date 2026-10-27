@@ -1,0 +1,870 @@
+diff --git a/crates/designos-app/src/terminal.rs b/crates/designos-app/src/terminal.rs
+index 3c18a505..a96bf8c6 100644
+--- a/crates/designos-app/src/terminal.rs
++++ b/crates/designos-app/src/terminal.rs
+@@ -59,6 +59,141 @@ pub const STATUS_INFO_BORDER: Color32 = Color32::from_rgb(0x2F, 0x45, 0x77);
+ const CHAR_W: f32 = 7.8;
+ const ROW_H: f32 = 16.0;
+ const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
++const TERM_SCROLLBACK_LINES: usize = 5000;
++const TERM_MIN_ROWS: u16 = 4;
++const TERM_MAX_ROWS: u16 = 120;
++const TERM_MIN_COLS: u16 = 16;
++const TERM_MAX_COLS: u16 = 320;
++/// Debounce window (`120 ms`) before a viewport resize is forwarded to the OS PTY and `vt100` parser (`#1171` R1).
++pub const RESIZE_DEBOUNCE_SECS: f64 = 0.120;
++
++/// Returns the current number of lines stored in `parser`'s scrollback buffer in O(1) without allocating (`#1171`).
++pub(crate) fn parser_scrollback_len(parser: &mut vt100::Parser) -> usize {
++    let prev = parser.screen().scrollback();
++    parser.set_scrollback(usize::MAX);
++    let len = parser.screen().scrollback();
++    parser.set_scrollback(prev);
++    len
++}
++
++/// Runs `f` on `parser.screen()` while working around `vt100 0.15.2`'s `rows_len - self.scrollback_offset`
++/// subtraction in `Grid::visible_rows` when `scrollback_offset > rows` (`#1171`).
++///
++/// In debug builds (`cfg(debug_assertions)`), overflow checks are enabled and `rows_len - self.scrollback_offset`
++/// panics whenever `scrollback_offset > rows`, so we temporarily widen `parser` to `offset` rows for `f`.
++/// In release builds (`cfg(not(debug_assertions))`), overflow checks are off: `rows_len - self.scrollback_offset`
++/// wraps to a large `usize`, and because `self.scrollback.iter().skip(scrollback_len - self.scrollback_offset)`
++/// already yields `scrollback_offset` (`> rows`) rows before the chained `self.rows.iter().take(...)`,
++/// `take()` yields the same visible rows with zero per-frame allocation.
++pub(crate) fn with_scrollback_safe_screen<R>(parser: &mut vt100::Parser, f: impl FnOnce(&vt100::Screen) -> R) -> R {
++    #[cfg(debug_assertions)]
++    let restore = {
++        let (rows, cols) = parser.screen().size();
++        let offset = parser.screen().scrollback();
++        if offset > usize::from(rows) && offset <= usize::from(u16::MAX) {
++            parser.set_size(offset as u16, cols);
++            Some((rows, cols))
++        } else {
++            None
++        }
++    };
++    let out = f(parser.screen());
++    #[cfg(debug_assertions)]
++    if let Some((rows, cols)) = restore {
++        parser.set_size(rows, cols);
++    }
++    out
++}
++
++/// Clears `parser`'s scrollback buffer on `ESC[3J` / `ESC[?3J` (`ED 3`) while keeping the visible
++/// screen, cursor position, active SGR attributes, input modes, title, and alternate screen intact (`#1171` R2).
++pub(crate) fn clear_parser_scrollback(parser: &mut vt100::Parser) {
++    let (rows, cols) = parser.screen().size();
++    if parser.screen().alternate_screen() {
++        let alt_state = parser.screen().state_formatted();
++        parser.process(b"\x1b[?47l");
++        parser.set_scrollback(0);
++        let main_state = parser.screen().state_formatted();
++        let mut fresh = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
++        fresh.process(&main_state);
++        fresh.process(b"\x1b[?47h");
++        fresh.process(&alt_state);
++        *parser = fresh;
++    } else {
++        parser.set_scrollback(0);
++        let main_state = parser.screen().state_formatted();
++        let mut fresh = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
++        fresh.process(&main_state);
++        *parser = fresh;
++    }
++}
++
++/// Advances the `ESC[3J` / `ESC[?3J` (`ED 3`) byte scanner by one byte and returns `true` when the final `'J'` is reached.
++#[inline]
++fn advance_esc3j_scanner(state: &mut u8, b: u8) -> bool {
++    match (*state, b) {
++        (_, 0x1b) => {
++            *state = 1;
++            false
++        }
++        (1, b'[') => {
++            *state = 2;
++            false
++        }
++        (2, b'?') | (2, b'0') | (3, b'0') => {
++            *state = 3;
++            false
++        }
++        (2 | 3, b'3') => {
++            *state = 4;
++            false
++        }
++        (4, b'J') => {
++            *state = 0;
++            true
++        }
++        _ => {
++            *state = 0;
++            false
++        }
++    }
++}
++
++/// Feeds PTY output bytes into `parser`, honouring `ESC[3J` / `ESC[?3J` to clear the scrollback buffer (`#1171` R2)
++/// and preserving a non-zero user scrollback reading position across `ESC[3J` full-history reprints.
++pub(crate) fn process_pty_bytes(parser: &mut vt100::Parser, bytes: &[u8], esc3j_state: &mut u8, restore_scrollback: &std::sync::atomic::AtomicUsize) {
++    let mut seg_start = 0usize;
++    let mut saw_esc3j = false;
++    for (i, &b) in bytes.iter().enumerate() {
++        if advance_esc3j_scanner(esc3j_state, b) {
++            let cur_sb = parser.screen().scrollback();
++            if cur_sb > 0 {
++                restore_scrollback.store(cur_sb, std::sync::atomic::Ordering::Release);
++            }
++            if restore_scrollback.load(std::sync::atomic::Ordering::Acquire) > 0 {
++                parser.set_scrollback(0);
++            }
++            parser.process(&bytes[seg_start..=i]);
++            clear_parser_scrollback(parser);
++            seg_start = i + 1;
++            saw_esc3j = true;
++        }
++    }
++    if seg_start < bytes.len() {
++        if restore_scrollback.load(std::sync::atomic::Ordering::Acquire) > 0 {
++            parser.set_scrollback(0);
++        }
++        parser.process(&bytes[seg_start..]);
++    }
++    let target = restore_scrollback.load(std::sync::atomic::Ordering::Acquire);
++    if target > 0 {
++        let new_len = parser_scrollback_len(parser);
++        parser.set_scrollback(target.min(new_len));
++        if new_len >= target && (!saw_esc3j || seg_start < bytes.len()) {
++            restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
++        }
++    }
++}
+ 
+ /// The status line of a tab whose process could not start: the error, and what was moved aside for the start before it failed (the
+ /// entries stay moved whether or not the tab came up).
+@@ -599,6 +734,12 @@ pub struct TerminalTab {
+     pub last_user_prompt: Option<String>,
+     /// Current uncommitted interactive line typed into the VT100 viewport before `Enter`.
+     pub input_line_buffer: String,
++    /// Number of PTY and parser resizes applied to this tab (`#1171`).
++    pub resize_count: usize,
++    /// Candidate `(rows, cols)` and frame timestamp (`s`) waiting for the `120 ms` debounce window (`#1171` R1).
++    pub pending_resize: Option<((u16, u16), f64)>,
++    /// Scrollback offset to restore across an `ESC[3J` full-history reprint when the user was scrolled into history (`#1171`).
++    pub restore_scrollback: Arc<std::sync::atomic::AtomicUsize>,
+ }
+ 
+ impl TerminalTab {
+@@ -648,8 +789,8 @@ impl TerminalTab {
+         session: Option<&SessionEnv>,
+         cmd_override: Option<CommandBuilder>,
+     ) -> Result<Self, String> {
+-        let rows = rows.max(6);
+-        let cols = cols.max(20);
++        let rows = rows.max(TERM_MIN_ROWS);
++        let cols = cols.max(TERM_MIN_COLS);
+         agent_session_failure::warm_cli_version_cache(preset);
+         let pty_system = native_pty_system();
+         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("openpty failed: {e}"))?;
+@@ -726,7 +867,7 @@ impl TerminalTab {
+         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn_command failed: {e}"))?;
+         let slave = Arc::new(Mutex::new(Some(pair.slave)));
+ 
+-        let init_parser = vt100::Parser::new(rows, cols, 5000);
++        let init_parser = vt100::Parser::new(rows, cols, TERM_SCROLLBACK_LINES);
+         let parser = Arc::new(Mutex::new(init_parser));
+         let raw_log = Arc::new(Mutex::new(String::new()));
+         let raw_log_drained = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+@@ -736,6 +877,7 @@ impl TerminalTab {
+         let screen_rev = Arc::new(std::sync::atomic::AtomicU64::new(0));
+         let pty_waiting_heuristic = Arc::new(std::sync::atomic::AtomicBool::new(false));
+         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
++        let restore_scrollback = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+ 
+         let parser_bg = Arc::clone(&parser);
+         let log_bg = Arc::clone(&raw_log);
+@@ -747,12 +889,14 @@ impl TerminalTab {
+         let waiting_heuristic_bg = Arc::clone(&pty_waiting_heuristic);
+         let slave_bg = Arc::downgrade(&slave);
+         let stop_bg = Arc::clone(&stop_in_flight);
++        let restore_sb_bg = Arc::clone(&restore_scrollback);
+ 
+         let uses_pty_heuristic = preset == AgentCliPreset::Codex;
+         std::thread::Builder::new()
+             .name(format!("designos-pty-reader-{id}"))
+             .spawn(move || {
+                 let mut buf = [0u8; 4096];
++                let mut esc3j_state = 0u8;
+                 loop {
+                     match reader.read(&mut buf) {
+                         Ok(0) => break,
+@@ -788,11 +932,8 @@ impl TerminalTab {
+                                 }
+                             }
+                             if let Ok(mut p) = parser_bg.lock() {
+-                                if clean_chunk.len() == chunk.len() {
+-                                    p.process(&buf[..n]);
+-                                } else {
+-                                    p.process(clean_chunk.as_bytes());
+-                                }
++                                let bytes = if clean_chunk.len() == chunk.len() { &buf[..n] } else { clean_chunk.as_bytes() };
++                                process_pty_bytes(&mut p, bytes, &mut esc3j_state, &restore_sb_bg);
+                             }
+                             // After the screen has the chunk: a reader that sees the new number reads a screen that has it.
+                             screen_rev_bg.fetch_add(1, std::sync::atomic::Ordering::Release);
+@@ -880,6 +1021,9 @@ impl TerminalTab {
+             last_scanned_log_len: 0,
+             last_user_prompt: None,
+             input_line_buffer: String::new(),
++            resize_count: 0,
++            pending_resize: None,
++            restore_scrollback,
+         })
+     }
+ 
+@@ -991,13 +1135,15 @@ impl TerminalTab {
+ 
+     /// Resizes both the underlying OS PTY and the `vt100::Parser` when the viewport changes.
+     pub fn resize(&mut self, rows: u16, cols: u16) {
+-        let rows = rows.max(4);
+-        let cols = cols.max(16);
++        let rows = rows.max(TERM_MIN_ROWS);
++        let cols = cols.max(TERM_MIN_COLS);
++        self.pending_resize = None;
+         if self.rows == rows && self.cols == cols {
+             return;
+         }
+         self.rows = rows;
+         self.cols = cols;
++        self.resize_count += 1;
+         let _ = self.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+         if let Ok(mut p) = self.parser.lock() {
+             p.set_size(rows, cols);
+@@ -1005,6 +1151,32 @@ impl TerminalTab {
+         self.screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+     }
+ 
++    /// Schedules a debounced PTY and parser resize (`#1171` R1), applying it only once `(rows, cols)` has
++    /// stayed unchanged for [`RESIZE_DEBOUNCE_SECS`] (`120 ms`) of frame time. Returns `true` while waiting.
++    pub fn request_resize(&mut self, rows: u16, cols: u16, now_s: f64) -> bool {
++        let rows = rows.max(TERM_MIN_ROWS);
++        let cols = cols.max(TERM_MIN_COLS);
++        if self.rows == rows && self.cols == cols {
++            self.pending_resize = None;
++            return false;
++        }
++        match self.pending_resize {
++            Some(((pr, pc), since)) if pr == rows && pc == cols => {
++                if now_s - since >= RESIZE_DEBOUNCE_SECS {
++                    self.pending_resize = None;
++                    self.resize(rows, cols);
++                    false
++                } else {
++                    true
++                }
++            }
++            _ => {
++                self.pending_resize = Some(((rows, cols), now_s));
++                true
++            }
++        }
++    }
++
+     /// Writes raw bytes directly to the PTY master stdin, returning any I/O error.
+     pub fn try_write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+         #[cfg(test)]
+@@ -1337,6 +1509,8 @@ pub struct TerminalState {
+     write_backoff: crate::agent_session_files::WriteBackoff,
+     /// What the last provisioning moved out of the way of Grok or Antigravity, as a sentence for the Spawned line (`None` when nothing).
+     set_aside_note: Option<String>,
++    /// Last computed `(rows, cols)` of the VT100 viewport (`#1171`).
++    pub viewport_size: (u16, u16),
+ }
+ 
+ impl Default for TerminalState {
+@@ -1599,6 +1773,7 @@ impl TerminalState {
+             session_closed: false,
+             write_backoff: crate::agent_session_files::WriteBackoff::default(),
+             set_aside_note: None,
++            viewport_size: (28, 100),
+         }
+     }
+ 
+@@ -1727,6 +1902,24 @@ impl TerminalState {
+                     }
+                 }
+             }
++            "agents-scrollback" => {
++                let mut history = String::new();
++                for idx in 1..=120 {
++                    history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
++                }
++                if let Some(tab) = self.active_tab_mut() {
++                    tab.preset = AgentCliPreset::Grok;
++                    tab.title = "Grok CLI #1".into();
++                    if let Ok(mut st) = tab.agent_status.lock() {
++                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
++                    }
++                    if let Ok(mut parser) = tab.parser.lock() {
++                        parser.process(history.as_bytes());
++                        parser.set_scrollback(45);
++                    }
++                    tab.restore_scrollback.store(45, std::sync::atomic::Ordering::Release);
++                }
++            }
+             _ => {}
+         }
+     }
+@@ -2964,7 +3157,8 @@ impl TerminalState {
+         isolate_zsh_from_home(&mut cmd);
+         cmd.cwd(&self.session_dir);
+ 
+-        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, 28, 100, file_path, Some(&env), Some(cmd)) {
++        let (init_rows, init_cols) = self.viewport_size;
++        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, init_rows, init_cols, file_path, Some(&env), Some(cmd)) {
+             Ok(mut tab) => {
+                 tab.preset = AgentCliPreset::Shell;
+                 tab.title = clean_title.to_string();
+@@ -3082,7 +3276,8 @@ impl TerminalState {
+             };
+             cmd
+         });
+-        match TerminalTab::spawn_with_session_cmd(id, preset, 28, 100, file_path, Some(&env), cmd_override) {
++        let (init_rows, init_cols) = self.viewport_size;
++        match TerminalTab::spawn_with_session_cmd(id, preset, init_rows, init_cols, file_path, Some(&env), cmd_override) {
+             Ok(mut tab) => {
+                 #[cfg(test)]
+                 if preset.is_agent()
+@@ -5996,6 +6191,16 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+     } else {
+         viewport_rect
+     };
++    let pad_x = 12.0;
++    let pad_y = 8.0;
++    let origin_x = viewport_rect.left() + pad_x;
++    let origin_y = viewport_rect.top() + pad_y;
++    let grid_w = (viewport_rect.width() - pad_x * 2.0).max(CHAR_W * f32::from(TERM_MIN_COLS));
++    let grid_h = (viewport_rect.height() - pad_y * 2.0).max(ROW_H * f32::from(TERM_MIN_ROWS));
++    let cols = ((grid_w / CHAR_W).floor() as u16).clamp(TERM_MIN_COLS, TERM_MAX_COLS);
++    let rows = ((grid_h / ROW_H).floor() as u16).clamp(TERM_MIN_ROWS, TERM_MAX_ROWS);
++    state.viewport_size = (rows, cols);
++
+     if state.picker_open || state.tabs.is_empty() {
+         if !state.runtime_dropdown_open && !state.sessions_popover_open {
+             if state.tabs.is_empty() {
+@@ -6009,15 +6214,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+         return;
+     }
+ 
+-    let pad_x = 12.0;
+-    let pad_y = 8.0;
+-    let origin_x = viewport_rect.left() + pad_x;
+-    let origin_y = viewport_rect.top() + pad_y;
+-    let grid_w = (viewport_rect.width() - pad_x * 2.0).max(120.0);
+-    let grid_h = (viewport_rect.height() - pad_y * 2.0).max(32.0);
+-    let cols = ((grid_w / CHAR_W).floor() as u16).clamp(20, 320);
+-    let rows = ((grid_h / ROW_H).floor() as u16).clamp(4, 120);
+-
+     let vp_resp = ui.interact(viewport_rect, Id::new((surface_id, "term-vt100-viewport")), Sense::click_and_drag());
+     if vp_resp.clicked() || vp_resp.drag_started() {
+         state.viewport_focused = true;
+@@ -6041,23 +6237,75 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+     let mut search_matches = 0usize;
+ 
+     if let Some(tab) = state.active_tab_mut() {
+-        tab.resize(rows, cols);
+-
+-        // Pointer click & drag cell selection
+-        if vp_resp.clicked() && !vp_resp.dragged() {
+-            tab.selection = None;
++        let now_s = ui.input(|i| i.time);
++        if tab.request_resize(rows, cols, now_s) {
++            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(RESIZE_DEBOUNCE_SECS));
+         }
+-        if vp_resp.drag_started() {
+-            if let Some(pos) = ui.input(|i| i.pointer.press_origin().or_else(|| i.pointer.interact_pos())) {
+-                let cell = pos_to_cell(pos);
+-                tab.selection = Some((cell, cell));
++
++        let scrollback_len = tab.parser.lock().ok().map(|mut pg| parser_scrollback_len(&mut pg)).unwrap_or(0);
++        let track_rect = Rect::from_min_size(
++            Pos2::new(viewport_rect.right() - theme::TARGET_MIN, viewport_rect.top()),
++            Vec2::new(theme::TARGET_MIN, viewport_rect.height()),
++        );
++        let mut press_in_scrollbar = false;
++        let mut sb_active = false;
++        if scrollback_len > 0 && viewport_rect.height() > 0.0 {
++            let sb_resp = ui.interact(track_rect, Id::new((surface_id, "term-scrollbar")), Sense::click_and_drag());
++            press_in_scrollbar = sb_resp.clicked()
++                || sb_resp.dragged()
++                || sb_resp.is_pointer_button_down_on()
++                || ui.input(|i| {
++                    i.pointer.press_origin().is_some_and(|p| track_rect.contains(p))
++                        || i.events.iter().any(|ev| {
++                            matches!(ev, Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } if track_rect.contains(*pos))
++                        })
++                });
++            sb_active = sb_resp.hovered() || sb_resp.dragged() || press_in_scrollbar;
++            if press_in_scrollbar {
++                let pointer_y = ui.input(|i| {
++                    i.pointer.interact_pos().map(|p| p.y).or_else(|| {
++                        i.events.iter().rev().find_map(|ev| match ev {
++                            Event::PointerButton { pos, button: egui::PointerButton::Primary, .. } | Event::PointerMoved(pos) => Some(pos.y),
++                            _ => None,
++                        })
++                    })
++                });
++                if let Some(py) = pointer_y {
++                    let track_len = track_rect.height();
++                    let total_lines = (scrollback_len + usize::from(rows)).max(1);
++                    let ratio = (f32::from(rows) / total_lines as f32).clamp(0.0, 1.0);
++                    let max_thumb = (track_len * 0.5).max(theme::SPACE_FACT);
++                    let min_thumb = theme::TARGET_MIN.min(max_thumb);
++                    let thumb_h = (track_len * ratio).clamp(min_thumb, max_thumb);
++                    let denom = (track_len - thumb_h).max(1.0);
++                    let from_top = ((py - track_rect.top() - thumb_h * 0.5) / denom).clamp(0.0, 1.0);
++                    let new_frac = 1.0 - from_top;
++                    let new_offset = (new_frac * scrollback_len as f32).round() as usize;
++                    tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
++                    if let Ok(mut pg) = tab.parser.lock() {
++                        pg.set_scrollback(new_offset);
++                    }
++                }
+             }
+         }
+-        if vp_resp.dragged() {
+-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+-                let cur = pos_to_cell(pos);
+-                let start = tab.selection.map(|(s, _)| s).unwrap_or(cur);
+-                tab.selection = Some((start, cur));
++
++        // Pointer click & drag cell selection
++        if !press_in_scrollbar {
++            if vp_resp.clicked() && !vp_resp.dragged() {
++                tab.selection = None;
++            }
++            if vp_resp.drag_started() {
++                if let Some(pos) = ui.input(|i| i.pointer.press_origin().or_else(|| i.pointer.interact_pos())) {
++                    let cell = pos_to_cell(pos);
++                    tab.selection = Some((cell, cell));
++                }
++            }
++            if vp_resp.dragged() {
++                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
++                    let cur = pos_to_cell(pos);
++                    let start = tab.selection.map(|(s, _)| s).unwrap_or(cur);
++                    tab.selection = Some((start, cur));
++                }
+             }
+         }
+ 
+@@ -6077,6 +6325,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+                     let seq = format!("\x1b[<{button};{};{}M", c0 + 1, r0 + 1);
+                     tab.write_bytes(seq.as_bytes());
+                 } else if let Ok(mut pg) = tab.parser.lock() {
++                    tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+                     let step = ((delta_y.abs() / ROW_H).ceil() as usize).max(1);
+                     let cur_sb = pg.screen().scrollback();
+                     let next_sb = if delta_y > 0.0 { cur_sb.saturating_add(step) } else { cur_sb.saturating_sub(step) };
+@@ -6223,14 +6472,15 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+                 tab.selection = Some(((0, 0), (rows.saturating_sub(1), cols.saturating_sub(1))));
+             }
+             if clear_scrollback {
++                tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+                 if let Ok(mut pg) = tab.parser.lock() {
+                     pg.set_scrollback(0);
+                 }
+             }
+             if copy_selection {
+                 if let Some(sel) = tab.selection.take() {
+-                    if let Ok(pg) = tab.parser.lock() {
+-                        let copied = extract_selected_terminal_text(pg.screen(), sel, rows, cols);
++                    if let Ok(mut pg) = tab.parser.lock() {
++                        let copied = with_scrollback_safe_screen(&mut pg, |screen| extract_selected_terminal_text(screen, sel, rows, cols));
+                         if !copied.is_empty() {
+                             ui.ctx().copy_text(copied);
+                         }
+@@ -6238,6 +6488,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+                 }
+             }
+             if !raw_bytes.is_empty() {
++                tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+                 if let Ok(mut pg) = tab.parser.lock() {
+                     pg.set_scrollback(0);
+                 }
+@@ -6252,191 +6503,202 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect:
+ 
+         clipped(ui, viewport_rect, |ui| {
+             let p = ui.painter().clone();
+-            let Ok(parser) = tab.parser.lock() else {
++            let Ok(mut parser) = tab.parser.lock() else {
+                 return;
+             };
+-            let screen = parser.screen();
+-            let scrollback_offset = screen.scrollback();
+-            let (cur_row, cur_col) = screen.cursor_position();
+-            let font_id = FontId::new(11.5, FontFamily::Monospace);
++            with_scrollback_safe_screen(&mut parser, |screen| {
++                let scrollback_offset = screen.scrollback();
++                let (cur_row, cur_col) = screen.cursor_position();
++                let font_id = FontId::new(11.5, FontFamily::Monospace);
+ 
+-            let needle = if search_open && !search_query.is_empty() {
+-                Some(if search_case_sensitive { search_query.clone() } else { search_query.to_ascii_lowercase() })
+-            } else {
+-                None
+-            };
+-
+-            for r in 0..rows {
+-                let row_y = origin_y + r as f32 * ROW_H;
+-                if row_y + ROW_H < viewport_rect.top() || row_y > viewport_rect.bottom() {
+-                    continue;
+-                }
++                let needle = if search_open && !search_query.is_empty() {
++                    Some(if search_case_sensitive { search_query.clone() } else { search_query.to_ascii_lowercase() })
++                } else {
++                    None
++                };
+ 
+-                // Compute search match columns for row `r` when `Cmd+F` search is active
+-                let mut row_search_hit = vec![false; cols as usize];
+-                if let Some(ref q) = needle {
+-                    let mut row_chars: Vec<char> = Vec::with_capacity(cols as usize);
+-                    for c in 0..cols {
+-                        let ch = screen.cell(r, c).and_then(|cell| cell.contents().chars().next()).unwrap_or(' ');
+-                        row_chars.push(if search_case_sensitive { ch } else { ch.to_ascii_lowercase() });
++                for r in 0..rows {
++                    let row_y = origin_y + r as f32 * ROW_H;
++                    if row_y + ROW_H < viewport_rect.top() || row_y > viewport_rect.bottom() {
++                        continue;
+                     }
+-                    let q_chars: Vec<char> = q.chars().collect();
+-                    if !q_chars.is_empty() && q_chars.len() <= row_chars.len() {
+-                        for start_c in 0..=(row_chars.len() - q_chars.len()) {
+-                            if row_chars[start_c..start_c + q_chars.len()] == q_chars[..] {
+-                                search_matches += 1;
+-                                row_search_hit[start_c..start_c + q_chars.len()].fill(true);
++
++                    // Compute search match columns for row `r` when `Cmd+F` search is active
++                    let mut row_search_hit = vec![false; cols as usize];
++                    if let Some(ref q) = needle {
++                        let mut row_chars: Vec<char> = Vec::with_capacity(cols as usize);
++                        for c in 0..cols {
++                            let ch = screen.cell(r, c).and_then(|cell| cell.contents().chars().next()).unwrap_or(' ');
++                            row_chars.push(if search_case_sensitive { ch } else { ch.to_ascii_lowercase() });
++                        }
++                        let q_chars: Vec<char> = q.chars().collect();
++                        if !q_chars.is_empty() && q_chars.len() <= row_chars.len() {
++                            for start_c in 0..=(row_chars.len() - q_chars.len()) {
++                                if row_chars[start_c..start_c + q_chars.len()] == q_chars[..] {
++                                    search_matches += 1;
++                                    row_search_hit[start_c..start_c + q_chars.len()].fill(true);
++                                }
+                             }
+                         }
+                     }
+-                }
+ 
+-                let mut job = LayoutJob::default();
+-                let mut run_text = String::new();
+-                let mut run_style: Option<(Color32, bool, bool, bool)> = None;
++                    let mut job = LayoutJob::default();
++                    let mut run_text = String::new();
++                    let mut run_style: Option<(Color32, bool, bool, bool)> = None;
+ 
+-                for c in 0..cols {
+-                    let Some(cell) = screen.cell(r, c) else {
+-                        continue;
+-                    };
+-                    if cell.is_wide_continuation() {
+-                        continue;
+-                    }
+-                    let mut fg = vt100_color_to_egui(cell.fgcolor(), true);
+-                    let mut bg = vt100_color_to_egui(cell.bgcolor(), false);
+-                    if cell.inverse() {
+-                        std::mem::swap(&mut fg, &mut bg);
+-                        if bg == Color32::TRANSPARENT {
+-                            bg = TERM_FG_DEFAULT;
++                    for c in 0..cols {
++                        let Some(cell) = screen.cell(r, c) else {
++                            continue;
++                        };
++                        if cell.is_wide_continuation() {
++                            continue;
+                         }
+-                        if fg == Color32::TRANSPARENT {
+-                            fg = TERM_BG_VIEWPORT;
++                        let mut fg = vt100_color_to_egui(cell.fgcolor(), true);
++                        let mut bg = vt100_color_to_egui(cell.bgcolor(), false);
++                        if cell.inverse() {
++                            std::mem::swap(&mut fg, &mut bg);
++                            if bg == Color32::TRANSPARENT {
++                                bg = TERM_FG_DEFAULT;
++                            }
++                            if fg == Color32::TRANSPARENT {
++                                fg = TERM_BG_VIEWPORT;
++                            }
+                         }
+-                    }
+ 
+-                    let cell_rect = Rect::from_min_size(Pos2::new(origin_x + c as f32 * CHAR_W, row_y), Vec2::new(CHAR_W, ROW_H));
+-                    let is_selected = norm_sel.is_some_and(|(s, e)| (r, c) >= s && (r, c) <= e);
+-                    let is_search_hit = row_search_hit.get(c as usize).copied().unwrap_or(false);
+-
+-                    // Paint exact cell-aligned background / selection / search highlight BEFORE text layout (zero vertical seams)
+-                    if is_selected {
+-                        p.rect_filled(cell_rect, 0.0, TERM_SELECTION_BG);
+-                    } else if is_search_hit {
+-                        p.rect_filled(cell_rect, 0.0, Color32::from_rgb(0x5C, 0x4A, 0x00));
+-                    } else if bg != Color32::TRANSPARENT {
+-                        p.rect_filled(cell_rect, 0.0, bg);
+-                    }
++                        let cell_rect = Rect::from_min_size(Pos2::new(origin_x + c as f32 * CHAR_W, row_y), Vec2::new(CHAR_W, ROW_H));
++                        let is_selected = norm_sel.is_some_and(|(s, e)| (r, c) >= s && (r, c) <= e);
++                        let is_search_hit = row_search_hit.get(c as usize).copied().unwrap_or(false);
++
++                        // Paint exact cell-aligned background / selection / search highlight BEFORE text layout (zero vertical seams)
++                        if is_selected {
++                            p.rect_filled(cell_rect, 0.0, TERM_SELECTION_BG);
++                        } else if is_search_hit {
++                            p.rect_filled(cell_rect, 0.0, Color32::from_rgb(0x5C, 0x4A, 0x00));
++                        } else if bg != Color32::TRANSPARENT {
++                            p.rect_filled(cell_rect, 0.0, bg);
++                        }
+ 
+-                    let style_key = (fg, cell.bold(), cell.italic(), cell.underline());
+-                    if run_style != Some(style_key) {
+-                        if let Some((p_fg, _bold, italics, underline)) = run_style {
+-                            if !run_text.is_empty() {
+-                                job.append(
+-                                    &run_text,
+-                                    0.0,
+-                                    TextFormat {
+-                                        font_id: font_id.clone(),
+-                                        color: p_fg,
+-                                        background: Color32::TRANSPARENT,
+-                                        italics,
+-                                        underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
+-                                        ..Default::default()
+-                                    },
+-                                );
+-                                run_text.clear();
++                        let style_key = (fg, cell.bold(), cell.italic(), cell.underline());
++                        if run_style != Some(style_key) {
++                            if let Some((p_fg, _bold, italics, underline)) = run_style {
++                                if !run_text.is_empty() {
++                                    job.append(
++                                        &run_text,
++                                        0.0,
++                                        TextFormat {
++                                            font_id: font_id.clone(),
++                                            color: p_fg,
++                                            background: Color32::TRANSPARENT,
++                                            italics,
++                                            underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
++                                            ..Default::default()
++                                        },
++                                    );
++                                    run_text.clear();
++                                }
+                             }
++                            run_style = Some(style_key);
+                         }
+-                        run_style = Some(style_key);
+-                    }
+ 
+-                    let contents = cell.contents();
+-                    let mut chars_it = contents.chars();
+-                    if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
+-                        if paint_custom_terminal_glyph(&p, cell_rect, ch, fg) {
++                        let contents = cell.contents();
++                        let mut chars_it = contents.chars();
++                        if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
++                            if paint_custom_terminal_glyph(&p, cell_rect, ch, fg) {
++                                run_text.push(' ');
++                            } else {
++                                run_text.push(ch);
++                            }
++                        } else if contents.is_empty() {
+                             run_text.push(' ');
+                         } else {
+-                            run_text.push(ch);
++                            run_text.push_str(&contents);
+                         }
+-                    } else if contents.is_empty() {
+-                        run_text.push(' ');
+-                    } else {
+-                        run_text.push_str(&contents);
+                     }
+-                }
+ 
+-                let trimmed_len = run_text.trim_end_matches(' ').len();
+-                let has_underline = run_style.is_some_and(|(_, _, _, ul)| ul);
+-                if !has_underline {
+-                    run_text.truncate(trimmed_len);
+-                }
+-                if let Some((p_fg, _bold, italics, underline)) = run_style {
+-                    if !run_text.is_empty() {
+-                        job.append(
+-                            &run_text,
+-                            0.0,
+-                            TextFormat {
+-                                font_id: font_id.clone(),
+-                                color: p_fg,
+-                                background: Color32::TRANSPARENT,
+-                                italics,
+-                                underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
+-                                ..Default::default()
+-                            },
+-                        );
++                    let trimmed_len = run_text.trim_end_matches(' ').len();
++                    let has_underline = run_style.is_some_and(|(_, _, _, ul)| ul);
++                    if !has_underline {
++                        run_text.truncate(trimmed_len);
++                    }
++                    if let Some((p_fg, _bold, italics, underline)) = run_style {
++                        if !run_text.is_empty() {
++                            job.append(
++                                &run_text,
++                                0.0,
++                                TextFormat {
++                                    font_id: font_id.clone(),
++                                    color: p_fg,
++                                    background: Color32::TRANSPARENT,
++                                    italics,
++                                    underline: if underline { Stroke::new(1.0, p_fg) } else { Stroke::NONE },
++                                    ..Default::default()
++                                },
++                            );
++                        }
+                     }
+-                }
+ 
+-                if !job.text.is_empty() {
+-                    let galley = ui.fonts_mut(|f| f.layout_job(job));
+-                    p.galley(Pos2::new(origin_x, row_y), galley, TERM_FG_DEFAULT);
++                    if !job.text.is_empty() {
++                        let galley = ui.fonts_mut(|f| f.layout_job(job));
++                        p.galley(Pos2::new(origin_x, row_y), galley, TERM_FG_DEFAULT);
++                    }
+                 }
+-            }
+ 
+-            // Orca Cursor: solid `#FFFFFF` block + `#1D1F21` cursorAccent when focused; `1px` `#A1A1AA` outline when unfocused
+-            if scrollback_offset == 0 && !screen.hide_cursor() && cur_row < rows && cur_col < cols {
+-                let cx = origin_x + cur_col as f32 * CHAR_W;
+-                let cy = origin_y + cur_row as f32 * ROW_H;
+-                let cursor_rect = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(CHAR_W, ROW_H - 1.0));
+-                if viewport_focused {
+-                    p.rect_filled(cursor_rect, CornerRadius::same(1), Color32::WHITE);
+-                    if let Some(cur_cell) = screen.cell(cur_row, cur_col) {
+-                        let s = cur_cell.contents();
+-                        if !s.trim().is_empty() {
+-                            let accent = Color32::from_rgb(0x1D, 0x1F, 0x21);
+-                            let mut chars_it = s.chars();
+-                            if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
+-                                if !paint_custom_terminal_glyph(&p, cursor_rect, ch, accent) {
++                // Orca Cursor: solid `#FFFFFF` block + `#1D1F21` cursorAccent when focused; `1px` `#A1A1AA` outline when unfocused
++                if scrollback_offset == 0 && !screen.hide_cursor() && cur_row < rows && cur_col < cols {
++                    let cx = origin_x + cur_col as f32 * CHAR_W;
++                    let cy = origin_y + cur_row as f32 * ROW_H;
++                    let cursor_rect = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(CHAR_W, ROW_H - 1.0));
++                    if viewport_focused {
++                        p.rect_filled(cursor_rect, CornerRadius::same(1), Color32::WHITE);
++                        if let Some(cur_cell) = screen.cell(cur_row, cur_col) {
++                            let s = cur_cell.contents();
++                            if !s.trim().is_empty() {
++                                let accent = Color32::from_rgb(0x1D, 0x1F, 0x21);
++                                let mut chars_it = s.chars();
++                                if let (Some(ch), None) = (chars_it.next(), chars_it.next()) {
++                                    if !paint_custom_terminal_glyph(&p, cursor_rect, ch, accent) {
++                                        p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
++                                    }
++                                } else {
+                                     p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
+                                 }
+-                            } else {
+-                                p.text(Pos2::new(cx, cy), Align2::LEFT_TOP, s, font_id.clone(), accent);
+                             }
+                         }
++                    } else {
++                        p.rect_stroke(cursor_rect, CornerRadius::same(1), Stroke::new(1.0, Color32::from_rgb(0xA1, 0xA1, 0xAA)), StrokeKind::Inside);
+                     }
+-                } else {
+-                    p.rect_stroke(cursor_rect, CornerRadius::same(1), Stroke::new(1.0, Color32::from_rgb(0xA1, 0xA1, 0xAA)), StrokeKind::Inside);
+                 }
+-            }
+ 
+-            // Orca slim `7px` scrollbar + `"↑ Scrollback"` pill when scrolled into history
+-            if scrollback_offset > 0 {
+-                let track_h = (viewport_rect.height() - 8.0).max(24.0);
+-                let thumb_h = (track_h * 0.22).clamp(18.0, 64.0);
+-                let frac = (scrollback_offset as f32 / 500.0).clamp(0.0, 1.0);
+-                let thumb_y = viewport_rect.bottom() - 4.0 - thumb_h - (track_h - thumb_h) * frac;
+-                let sb_rect = Rect::from_min_size(Pos2::new(viewport_rect.right() - 9.0, thumb_y), Vec2::new(7.0, thumb_h));
+-                p.rect_filled(sb_rect, CornerRadius::same(4), Color32::from_rgba_unmultiplied(180, 180, 185, 102));
+-
+-                let pill_w = 88.0;
+-                let pill_h = 20.0;
+-                let pill_r = Rect::from_min_size(
+-                    Pos2::new((viewport_rect.right() - pill_w - 14.0).max(viewport_rect.left() + 8.0), viewport_rect.bottom() - pill_h - 8.0),
+-                    Vec2::new(pill_w, pill_h),
+-                );
+-                p.rect_filled(pill_r, CornerRadius::same(10), TERM_BG_ELEVATED);
+-                p.rect_stroke(pill_r, CornerRadius::same(10), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
+-                p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_caption_medium(), STATUS_INFO_TEXT);
+-            }
++                // Interactive panel-aligned scrollbar (`#1171` R3: real `scrollback_len`, `24 px` target) + `"↑ Scrollback"` pill
++                if scrollback_len > 0 && viewport_rect.height() > 0.0 {
++                    let track_len = track_rect.height();
++                    let total_lines = (scrollback_len + usize::from(rows)).max(1);
++                    let ratio = (f32::from(rows) / total_lines as f32).clamp(0.0, 1.0);
++                    let max_thumb = (track_len * 0.5).max(theme::SPACE_FACT);
++                    let min_thumb = theme::TARGET_MIN.min(max_thumb);
++                    let thumb_h = (track_len * ratio).clamp(min_thumb, max_thumb);
++                    let frac = (scrollback_offset as f32 / scrollback_len as f32).clamp(0.0, 1.0);
++                    let thumb_y = track_rect.top() + (track_len - thumb_h) * (1.0 - frac);
++                    let thumb_rect =
++                        Rect::from_min_size(Pos2::new(viewport_rect.right() - theme::INSET_SEGMENT, thumb_y), Vec2::new(theme::SPACE_FACT, thumb_h));
++                    let thumb_color = if sb_active { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY };
++                    p.rect_filled(thumb_rect, theme::cr(theme::RADIUS_MARK), thumb_color);
++                    widgets::record(ui, "term-scrollbar-track", track_rect);
++                    widgets::record(ui, "term-scrollbar-thumb", thumb_rect);
++                }
++
++                if scrollback_offset > 0 {
++                    let pill_w = 88.0;
++                    let pill_h = 20.0;
++                    let pill_r = Rect::from_min_size(
++                        Pos2::new((viewport_rect.right() - pill_w - 14.0).max(viewport_rect.left() + 8.0), viewport_rect.bottom() - pill_h - 8.0),
++                        Vec2::new(pill_w, pill_h),
++                    );
++                    p.rect_filled(pill_r, CornerRadius::same(10), TERM_BG_ELEVATED);
++                    p.rect_stroke(pill_r, CornerRadius::same(10), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
++                    p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_caption_medium(), STATUS_INFO_TEXT);
++                }
++            });
+         });
+     }
+ 
+@@ -6626,6 +6888,9 @@ mod gemini_range_tests;
+ #[cfg(all(test, unix))]
+ mod real_cli_launch_tests;
+ 
++#[cfg(all(test, unix))]
++mod zoom_scrollback_tests;
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -10700,7 +10965,7 @@ mod tests {
+ 
+     #[test]
+     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
+-        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab"] {
++        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-scrollback"] {
+             let ctx = egui::Context::default();
+             crate::theme::install_fonts(&ctx);
+             crate::theme::apply(&ctx);

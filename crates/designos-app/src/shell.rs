@@ -330,7 +330,7 @@ impl Shell {
                 app.terminal.ensure_default_tab(app.file_path.as_deref());
                 app.ui.permissions_modal_open = true;
             }
-            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab")) => {
+            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab" | "agents-scrollback")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_approval_fixture(p, app.file_path.as_deref());
