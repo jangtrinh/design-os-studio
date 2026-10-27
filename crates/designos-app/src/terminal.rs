@@ -2032,6 +2032,7 @@ impl TerminalState {
     }
 
     /// The `--panel agents-codex-*` previews of the Codex cards (`#930`): a Codex tab in Ask mode with cards set directly, no server.
+    #[cfg(unix)]
     fn open_codex_card_fixture(&mut self, preset_slug: &str) {
         use crate::codex_remote::card_mapping::CodexCard;
         use crate::codex_remote::file_changes::FileLine;
@@ -2078,6 +2079,19 @@ impl TerminalState {
             tab.preset = AgentCliPreset::Codex;
             tab.title = "Codex CLI #1".into();
             tab.codex = crate::agent_codex_cards::CodexTab::preview(cards, link_lost, fallback);
+            if let Ok(mut st) = tab.agent_status.lock() {
+                *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+            }
+        }
+    }
+
+    /// Without Unix sockets there is no Codex link, so the previews show the #1195 banner path.
+    #[cfg(not(unix))]
+    fn open_codex_card_fixture(&mut self, _preset_slug: &str) {
+        if let Some(tab) = self.active_tab_mut() {
+            tab.preset = AgentCliPreset::Codex;
+            tab.title = "Codex CLI #1".into();
+            tab.codex = crate::agent_codex_cards::CodexTab::preview(Vec::new(), false, None);
             if let Ok(mut st) = tab.agent_status.lock() {
                 *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
             }
