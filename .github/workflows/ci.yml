@@ -135,6 +135,24 @@ jobs:
         with:
           tool: nextest@0.9.149
 
+      # Evidence only (#1205): samples RAM and the top RSS processes every 5 s so a future runner kill can be
+      # traced to the test that caused it. It never fails the job.
+      - name: Start memory sampler
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          (
+            while true; do
+              {
+                date -u +%FT%TZ
+                free -m
+                ps -eo rss,comm --sort=-rss | head -n 6
+              } >> "$RUNNER_TEMP/mem.log" 2>&1 || true
+              sleep 5
+            done
+          ) >/dev/null 2>&1 &
+          echo "memory sampler started"
+
       - name: Test workspace
         if: runner.os != 'Linux'
         run: cargo nextest run --workspace --locked --profile ci
@@ -144,6 +162,15 @@ jobs:
       - name: Test workspace (Linux)
         if: runner.os == 'Linux'
         run: cargo nextest run --workspace --locked --profile ci --test-threads 2
+
+      - name: Upload memory log
+        if: always() && runner.os == 'Linux'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mem-log-${{ matrix.os }}
+          path: ${{ runner.temp }}/mem.log
+          if-no-files-found: ignore
 
       - name: Test workspace doctests
         run: cargo test --workspace --doc --locked

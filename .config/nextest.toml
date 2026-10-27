@@ -38,8 +38,9 @@ max-threads = 1
 filter = "package(designos-webcapture) & binary(capture_tests)"
 test-group = "webcapture-serial"
 
-# Heavy 8M-node clone-budget expansion tests and tight wall-clock / frame-budget benchmarks contend for CPU and
-# memory bandwidth when run concurrently across process-per-test workers on 3-vCPU CI runners.
+# Clone-budget tests (scaled to a small injected budget since #1205, so each peaks well under 2 GiB) and tight
+# wall-clock / frame-budget benchmarks contend for CPU and memory bandwidth when run concurrently across
+# process-per-test workers on 3-vCPU CI runners. The override is kept: it is harmless and keeps timings stable.
 [[profile.default.overrides]]
 filter = "test(=io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast) | test(=rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget) | test(=tools::batch::tests::trial_clone_budget_on_large_synthetic)"
 threads-required = "num-cpus"
