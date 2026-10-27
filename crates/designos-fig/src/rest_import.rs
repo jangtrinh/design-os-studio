@@ -4094,19 +4094,16 @@ mod expand_depth_tests {
     }
 
     fn chained_links_test_params() -> (usize, usize, usize) {
-        (5_000, MAX_IMPORT_CLONES, 1_001)
+        (500, 80_000, 101)
     }
 
     #[test]
     fn chained_links_stop_at_the_global_clone_budget() {
         assert_eq!(MAX_IMPORT_CLONES, 8_000_000);
         let (chain_len, budget, expected_unexpanded) = chained_links_test_params();
-        assert!(
-            budget <= 100_000,
-            "chained_links_stop_at_the_global_clone_budget must stay <= 100,000 clones in CI (got {budget})"
-        );
-        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with MAX_IMPORT_CLONES (8,000,000)
-        // it stops at 8,000,000 cloned nodes (never exceeding MAX_IMPORT_CLONES) and leaves 1,001 instances empty.
+        assert!(budget <= 100_000, "chained_links_stop_at_the_global_clone_budget must stay <= 100,000 clones in CI (got {budget})");
+        // 500-link chain: without a global budget this clones 125,250 nodes; with budget 80,000
+        // it stops at 80,000 cloned nodes (never exceeding the budget) and leaves 101 instances empty.
         let chain = component_chain(chain_len);
         let base_nodes = 1 + 2 * chain_len + 1; // page + len*(comp + inner) + Use
         let started = std::time::Instant::now();
