@@ -92,11 +92,9 @@ macro_rules! differing_fields {
 /// Calls `report` once for each serialized field of `Node` that `serde_json::to_value` would give a
 /// different value for in `before` and `after`, in no particular order.
 pub(crate) fn for_each_changed_field(before: &Node, after: &Node, mut report: impl FnMut(&'static str)) {
-    if before == after {
+    if std::ptr::eq(before, after) {
         return;
     }
-    #[cfg(test)]
-    FIELD_PASSES.with(|n| n.set(n.get() + 1));
     let candidates = differing_fields!(before, after;
         source_id, name, kind, visible, locked, opacity, blend, transform, size, fills, stroke, effects, corner_radii,
         corner_smoothing, constraints, layout_child, is_mask, style_refs, fill_geometry, stroke_geometry, component,
@@ -105,6 +103,8 @@ pub(crate) fn for_each_changed_field(before: &Node, after: &Node, mut report: im
     if candidates.len == 0 {
         return;
     }
+    #[cfg(test)]
+    FIELD_PASSES.with(|n| n.set(n.get() + 1));
     let mut changed = FieldSet::new();
     TAPES.with(|tapes| {
         let (before_tape, after_tape) = &mut *tapes.borrow_mut();

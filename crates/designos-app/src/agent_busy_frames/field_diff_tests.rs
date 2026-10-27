@@ -697,6 +697,69 @@ fn only_the_fields_that_changed_are_encoded_not_the_geometry_around_them() {
 }
 
 #[test]
+#[ignore = "opt-in real-file benchmark: set DESIGNOS_BENCH_FILE"]
+fn ac01_ac04_measure_on_a_real_file() {
+    let Some(raw_path) = std::env::var_os("DESIGNOS_BENCH_FILE").filter(|v| !v.is_empty()) else {
+        eprintln!("[BENCH] skipped: DESIGNOS_BENCH_FILE is unset");
+        return;
+    };
+    let path = std::path::PathBuf::from(raw_path);
+    let basename = path.file_name().and_then(|s| s.to_str()).unwrap_or("<unknown>").to_owned();
+    let meta_before = std::fs::metadata(&path).unwrap_or_else(|e| panic!("stat DESIGNOS_BENCH_FILE {}: {e}", path.display()));
+
+    let mut doc = crate::io::load_path(&path).unwrap_or_else(|e| panic!("load DESIGNOS_BENCH_FILE {}: {e}", path.display()));
+    let page = match std::env::var("DESIGNOS_BENCH_PAGE").ok().filter(|s| !s.is_empty()) {
+        Some(wanted) => doc.pages.iter().copied().find(|&p| doc.get(p).is_some_and(|n| n.name == wanted)).unwrap_or_else(|| {
+            let available: Vec<String> = doc.pages.iter().filter_map(|&p| doc.get(p).map(|n| n.name.clone())).collect();
+            panic!("DESIGNOS_BENCH_PAGE={wanted:?} not found in {basename}; available pages: {available:?}")
+        }),
+        None => doc.pages.iter().copied().max_by_key(|&p| doc.page_node_count(p)).expect("document has at least one page"),
+    };
+    doc.ensure_page_hydrated(page);
+
+    let page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_default();
+    let nodes = doc.page_node_count(page);
+
+    let mut app = App::new(doc);
+    app.page = page;
+    app.selection.clear();
+
+    let mut page_nodes = Vec::with_capacity(nodes);
+    if let Some(pg) = app.doc.get(page) {
+        for root in pg.children.clone() {
+            app.doc.walk(root, |n, _| page_nodes.push(n.id));
+        }
+    }
+
+    let t0 = std::time::Instant::now();
+    let mut tx = Tx::new();
+    for &id in &page_nodes {
+        tx.ed.touch(&app.doc, id);
+    }
+    let queue_was_idle = app.doc.pending_relayout().is_empty();
+    let _fixed = crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &[], None);
+    if queue_was_idle {
+        tx.ed.rebase_layout_epoch(&app.doc);
+    }
+    let t_record = std::time::Instant::now();
+    let (_committed, tx_allocs) = allocations_in(|| app.run_tx(tx));
+    let record_loop_ms = t_record.elapsed().as_secs_f64() * 1000.0;
+    let autofix_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let user_edited_fields = app.agent_busy_frames.user_edited_fields.len();
+
+    let meta_after = std::fs::metadata(&path).unwrap_or_else(|e| panic!("stat DESIGNOS_BENCH_FILE after run {}: {e}", path.display()));
+    assert_eq!(
+        (meta_after.len(), meta_after.modified().ok()),
+        (meta_before.len(), meta_before.modified().ok()),
+        "ac01_ac04_measure_on_a_real_file must never write the input file"
+    );
+
+    eprintln!(
+        "[BENCH] file={basename} page={page_name} nodes={nodes} autofix_ms={autofix_ms:.2} record_loop_ms={record_loop_ms:.2} tx_allocs={tx_allocs} user_edited_fields={user_edited_fields}"
+    );
+}
+
+#[test]
 fn record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn() {
     let mut before = populated();
     before.id = NodeId(40);
@@ -711,4 +774,582 @@ fn record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field
     assert_eq!(frames.both_changed_for_turn(3), vec![(NodeId(40), "opacity".to_string())]);
     let user: Vec<_> = frames.user_edited_fields.iter().map(|((id, f), t)| (*id, f.clone(), *t)).collect();
     assert_eq!(user, vec![(NodeId(40), "name".to_string(), 3), (NodeId(40), "opacity".to_string(), 3)]);
+}
+
+const SYNTHETIC_KIT_PAGE_TOTAL_NODES: usize = 21_978;
+
+fn make_text_node(id: NodeId, x: f32, y: f32, content: impl Into<String>, font_size: f32) -> Node {
+    use designos_doc::{Rect, TextStyle};
+    Node::text(id, Rect::new(x, y, 120.0, 20.0), content, TextStyle { font_size, ..Default::default() })
+}
+
+/// Builds a synthetic 21,978-node document shaped like a design-system kit page:
+/// 1 `Page` root + 21,977 nested auto-layout section frames, component cards, header/body/footer groups,
+/// interactive buttons, vector icons, and text nodes with fills.
+fn build_synthetic_kit_page_21978_nodes() -> (Document, NodeId, Vec<NodeId>) {
+    use designos_doc::{AutoLayout, Rect};
+
+    let mut doc = Document::new("Synthetic Kit Page");
+    let page = doc.add_page("Components");
+    let mut card_ids = Vec::with_capacity(1_600);
+
+    // 39 section frames * 40 component cards * (1 card + 13 children) = 21,840 nodes + 39 sections + 1 page = 21,880 nodes.
+    for sec_idx in 0..39u32 {
+        let sec_id = doc.alloc_id();
+        let mut sec = Node::frame(sec_id, Rect::new(0.0, sec_idx as f32 * 420.0, 1440.0, 400.0));
+        sec.name = format!("Section {sec_idx}");
+        sec.fills = vec![Paint::solid(Color::rgb(18, 18, 22))];
+        if let Some(fp) = sec.kind.frame_props_mut() {
+            fp.auto_layout = Some(AutoLayout { item_spacing: 16.0, padding: [16.0, 16.0, 16.0, 16.0], ..Default::default() });
+        }
+        doc.insert(page, sec).expect("insert section");
+
+        for card_idx in 0..40u32 {
+            let ordinal = sec_idx * 40 + card_idx;
+            let needs_fix = ordinal % 16 == 0;
+            let card_id = doc.alloc_id();
+            let mut card = Node::frame(card_id, Rect::new(card_idx as f32 * 260.0, 0.0, 240.0, 320.0));
+            card.name = format!("Card {ordinal}");
+            card.fills = vec![Paint::solid(Color::rgb(28, 28, 34))];
+            if let Some(fp) = card.kind.frame_props_mut() {
+                fp.auto_layout = Some(AutoLayout {
+                    // Off-4px spacing on `needs_fix` cards triggers `auto_fix_design_gate`
+                    item_spacing: if needs_fix { 10.0 } else { 12.0 },
+                    padding: if needs_fix { [14.0, 16.0, 14.0, 16.0] } else { [16.0, 16.0, 16.0, 16.0] },
+                    ..Default::default()
+                });
+            }
+            doc.insert(sec_id, card).expect("insert card");
+            card_ids.push(card_id);
+
+            // 1. Header frame + 2 texts + 1 badge frame + 1 badge text (5 nodes)
+            let header_id = doc.alloc_id();
+            let mut header = Node::frame(header_id, Rect::new(0.0, 0.0, 208.0, 48.0));
+            header.name = "Header".into();
+            doc.insert(card_id, header).expect("insert header");
+
+            let title_id = doc.alloc_id();
+            let mut title = make_text_node(title_id, 0.0, 0.0, format!("Component {ordinal}"), 14.0);
+            title.fills = vec![Paint::solid(Color::rgb(244, 244, 246))];
+            doc.insert(header_id, title).expect("insert title");
+
+            let subtitle_id = doc.alloc_id();
+            let mut subtitle = make_text_node(subtitle_id, 0.0, 20.0, "Subtitle caption", if needs_fix { 10.0 } else { 12.0 });
+            subtitle.fills = vec![Paint::solid(Color::rgb(160, 160, 172))];
+            doc.insert(header_id, subtitle).expect("insert subtitle");
+
+            let badge_id = doc.alloc_id();
+            let mut badge = Node::frame(badge_id, Rect::new(148.0, 0.0, 60.0, 24.0));
+            badge.name = "Status Badge".into();
+            badge.fills = vec![Paint::solid(Color::rgb(34, 197, 94))];
+            doc.insert(header_id, badge).expect("insert badge");
+
+            let badge_txt_id = doc.alloc_id();
+            let badge_txt = make_text_node(badge_txt_id, 8.0, 4.0, "Active", 12.0);
+            doc.insert(badge_id, badge_txt).expect("insert badge text");
+
+            // 2. Body frame + 1 description text + 1 vector icon + 1 divider rect (4 nodes)
+            let body_id = doc.alloc_id();
+            let mut body = Node::frame(body_id, Rect::new(0.0, 60.0, 208.0, 140.0));
+            body.name = "Body".into();
+            doc.insert(card_id, body).expect("insert body");
+
+            let desc_id = doc.alloc_id();
+            let mut desc = make_text_node(desc_id, 0.0, 0.0, "Nested kit card body text", 12.0);
+            desc.fills = vec![Paint::solid(Color::rgb(212, 212, 216))];
+            doc.insert(body_id, desc).expect("insert desc");
+
+            let icon_id = doc.alloc_id();
+            let mut icon = Node::new(icon_id, NodeKind::Vector { paths: vec![path_with(8)], network: None });
+            icon.name = "Icon Vector".into();
+            icon.size = Vec2::new(20.0, 20.0);
+            icon.fills = vec![Paint::solid(Color::rgb(59, 130, 246))];
+            doc.insert(body_id, icon).expect("insert icon");
+
+            let div_id = doc.alloc_id();
+            let mut div = Node::rectangle(div_id, Rect::new(0.0, 120.0, 208.0, 1.0));
+            div.name = "Divider".into();
+            div.fills = vec![Paint::solid(Color::rgb(63, 63, 70))];
+            doc.insert(body_id, div).expect("insert divider");
+
+            // 3. Footer frame + 1 button frame + 1 button text + 1 meta text (4 nodes)
+            let footer_id = doc.alloc_id();
+            let mut footer = Node::frame(footer_id, Rect::new(0.0, 212.0, 208.0, 48.0));
+            footer.name = "Footer".into();
+            doc.insert(card_id, footer).expect("insert footer");
+
+            let btn_id = doc.alloc_id();
+            let mut btn = Node::frame(btn_id, Rect::new(0.0, 0.0, 96.0, if needs_fix { 28.0 } else { 36.0 }));
+            btn.name = "Button Primary".into();
+            btn.fills = vec![Paint::solid(Color::rgb(37, 99, 235))];
+            doc.insert(footer_id, btn).expect("insert button");
+
+            let btn_txt_id = doc.alloc_id();
+            let btn_txt = make_text_node(btn_txt_id, 16.0, 8.0, "Action", 12.0);
+            doc.insert(btn_id, btn_txt).expect("insert button text");
+
+            let meta_id = doc.alloc_id();
+            let meta = make_text_node(meta_id, 112.0, 8.0, "v8.0", 12.0);
+            doc.insert(footer_id, meta).expect("insert meta");
+        }
+    }
+
+    // Pad with nested [Frame -> Text] pairs to reach exactly 21,978 nodes in `doc.nodes`.
+    while doc.nodes.len() < SYNTHETIC_KIT_PAGE_TOTAL_NODES {
+        let id = doc.alloc_id();
+        if doc.nodes.len() + 1 < SYNTHETIC_KIT_PAGE_TOTAL_NODES {
+            let mut chip = Node::frame(id, Rect::new(0.0, 0.0, 64.0, 32.0));
+            chip.name = "Chip".into();
+            chip.fills = vec![Paint::solid(Color::rgb(39, 39, 42))];
+            doc.insert(page, chip).expect("insert chip");
+            let label_id = doc.alloc_id();
+            let label = make_text_node(label_id, 8.0, 6.0, "Tag", 12.0);
+            doc.insert(id, label).expect("insert tag");
+        } else {
+            let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 32.0, 32.0));
+            rect.fills = vec![Paint::solid(Color::rgb(39, 39, 42))];
+            doc.insert(page, rect).expect("insert final rect");
+        }
+    }
+    assert_eq!(doc.nodes.len(), SYNTHETIC_KIT_PAGE_TOTAL_NODES);
+    (doc, page, card_ids)
+}
+
+#[test]
+fn ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms() {
+    let (doc, page, card_ids) = build_synthetic_kit_page_21978_nodes();
+    let mut app = App::new(doc);
+    app.page = page;
+    app.selection.clear();
+
+    // 1. Run the palette auto-fix (#988) path (`run_auto_fix_design_gate`) on the 21,978-node synthetic page.
+    let passes_before_autofix = crate::node_field_diff::field_passes_on_this_thread();
+    let t0 = std::time::Instant::now();
+    let outcome = crate::cmdk::run_auto_fix_design_gate(&mut app);
+    let autofix_elapsed = t0.elapsed();
+    let autofix_passes = crate::node_field_diff::field_passes_on_this_thread() - passes_before_autofix;
+    let autofix_edited_len = app.agent_busy_frames.user_edited_fields.len();
+    assert!(matches!(outcome, crate::cmdk::AutoFixOutcome::Committed { .. }), "expected Committed, got {outcome:?}");
+
+    // 2. Run a whole-page `run_tx` touching all 21,977 page nodes and updating 100 card fills.
+    let all_page_nodes: Vec<NodeId> = app.doc.nodes.keys().copied().filter(|&id| id != page).collect();
+    assert_eq!(all_page_nodes.len(), SYNTHETIC_KIT_PAGE_TOTAL_NODES - 1);
+    let mut tx = Tx::new();
+    for &id in &all_page_nodes {
+        tx.ed.touch(&app.doc, id);
+    }
+    for &id in card_ids.iter().take(100) {
+        tx.ed.node(&mut app.doc, id).expect("card").fills = vec![Paint::solid(Color::rgb(16, 185, 129))];
+    }
+    let passes_before_tx = crate::node_field_diff::field_passes_on_this_thread();
+    let t1 = std::time::Instant::now();
+    let (committed, tx_allocs) = allocations_in(|| app.run_tx(tx));
+    let tx_elapsed = t1.elapsed();
+    let tx_passes = crate::node_field_diff::field_passes_on_this_thread() - passes_before_tx;
+    assert!(committed);
+
+    eprintln!(
+        "[AC-01] nodes={} autofix_ms={:.2} autofix_passes={} autofix_user_edited_fields={} whole_page_run_tx_ms={:.2} tx_passes={} tx_allocs={}",
+        app.doc.nodes.len(),
+        autofix_elapsed.as_secs_f64() * 1000.0,
+        autofix_passes,
+        autofix_edited_len,
+        tx_elapsed.as_secs_f64() * 1000.0,
+        tx_passes,
+        tx_allocs,
+    );
+
+    assert_eq!(
+        tx_passes, 100,
+        "R1: unchanged nodes on the 21,978-node page must be dropped before the record loop (expected 100 field passes, got {tx_passes})"
+    );
+    assert!(
+        tx_allocs < 2_500,
+        "R1/R2: whole-page run_tx with 100 changed nodes allocated {tx_allocs} times (expected < 2,500 without cloning 21,977 before_nodes)"
+    );
+}
+
+#[test]
+fn ac02_tx_touching_10000_nodes_changing_10_drops_unchanged_before_record_loop_and_builds_no_json() {
+    use designos_doc::Rect;
+
+    let mut doc = Document::new("AC-02");
+    let page = doc.add_page("Page 1");
+    let mut ids = Vec::with_capacity(10_000);
+    for i in 0..10_000u32 {
+        let id = doc.alloc_id();
+        let mut node = if i % 3 == 0 {
+            Node::frame(id, Rect::new(0.0, 0.0, 120.0, 48.0))
+        } else if i % 3 == 1 {
+            make_text_node(id, 0.0, 0.0, format!("Label {i}"), 13.0)
+        } else {
+            Node::rectangle(id, Rect::new(0.0, 0.0, 64.0, 32.0))
+        };
+        node.fills = vec![Paint::solid(Color::rgb(40, 44, 52))];
+        doc.insert(page, node).expect("insert");
+        ids.push(id);
+    }
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    // Warm up thread-local tape buffers so buffer growth is not conflated with per-tx allocations.
+    if let (Some(a), Some(b)) = (app.doc.get(ids[0]).cloned(), app.doc.get(ids[1]).cloned()) {
+        app.agent_busy_frames.record_user_node_update(&a, &b);
+        app.agent_busy_frames.user_edited_fields.clear();
+    }
+
+    let mut tx = Tx::new();
+    for &id in &ids {
+        tx.ed.touch(&app.doc, id);
+    }
+    let changed_ids: Vec<NodeId> = (0..10).map(|k| ids[k * 1_000 + 7]).collect();
+    for &id in &changed_ids {
+        tx.ed.node(&mut app.doc, id).expect("node").fills = vec![Paint::solid(Color::rgb(239, 68, 68))];
+    }
+
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    let (committed, allocs) = allocations_in(|| app.run_tx(tx));
+    let passes_delta = crate::node_field_diff::field_passes_on_this_thread() - passes_before;
+    assert!(committed);
+
+    let recorded: Vec<(NodeId, String)> = app.agent_busy_frames.user_edited_fields.keys().cloned().collect();
+    let mut expected: Vec<(NodeId, String)> = changed_ids.iter().map(|&id| (id, "fills".to_string())).collect();
+    expected.sort();
+    assert_eq!(recorded, expected, "AC-02: only the 10 changed nodes are recorded");
+    assert_eq!(passes_delta, 10, "AC-02 / R1: only the 10 changed nodes reach the field diff pass");
+    eprintln!("[AC-02] 10,000 touched / 10 changed: run_tx allocations = {allocs}, field_passes = {passes_delta}");
+    assert!(
+        allocs < 300,
+        "AC-02: run_tx allocated {allocs} times for 10 changed nodes out of 10,000 touched (unchanged nodes must be dropped before cloning/reverting/recording)"
+    );
+}
+
+#[test]
+fn ac03_user_edits_fill_then_new_agent_turn_sees_exact_same_fields_as_old_behaviour() {
+    use designos_doc::Rect;
+
+    let mut doc = Document::new("AC-03");
+    let page = doc.add_page("Page 1");
+    let ids: Vec<NodeId> = (0..200u32)
+        .map(|i| {
+            let id = doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(i as f32 * 16.0, 0.0, 12.0, 12.0));
+            n.fills = vec![Paint::solid(Color::rgb(20, 30, 40))];
+            doc.insert(page, n).expect("insert");
+            id
+        })
+        .collect();
+
+    let snapshot_before: std::collections::BTreeMap<NodeId, Node> = ids.iter().map(|&id| (id, doc.get(id).expect("node").clone())).collect();
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    let mut tx = Tx::new();
+    for &id in &ids {
+        tx.ed.touch(&app.doc, id);
+    }
+    tx.ed.node(&mut app.doc, ids[5]).expect("node").fills = vec![Paint::solid(Color::rgb(250, 204, 21))];
+    tx.ed.node(&mut app.doc, ids[42]).expect("node").fills = vec![Paint::solid(Color::rgb(56, 189, 248))];
+    tx.ed.node(&mut app.doc, ids[42]).expect("node").opacity = 0.75;
+
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    let (committed, tx_allocs) = allocations_in(|| app.run_tx(tx));
+    let passes_delta = crate::node_field_diff::field_passes_on_this_thread() - passes_before;
+    assert!(committed);
+    assert_eq!(passes_delta, 2, "only the 2 modified nodes are diffed");
+    assert!(
+        tx_allocs < 80,
+        "AC-03 / R1: touching 200 nodes and editing 2 must drop the 198 unchanged nodes before cloning/reverting in run_tx (got {tx_allocs} allocations)"
+    );
+
+    // Compare against the old serde_json::Value diff oracle across all 200 touched nodes (R4).
+    let mut oracle_fields = Vec::new();
+    for &id in &ids {
+        let before = &snapshot_before[&id];
+        let after = app.doc.get(id).expect("node");
+        for f in value_diff_oracle(before, after) {
+            oracle_fields.push((id, f));
+        }
+    }
+    oracle_fields.sort();
+    let actual_fields: Vec<(NodeId, String)> = app.agent_busy_frames.user_edited_fields.keys().cloned().collect();
+    assert_eq!(actual_fields, oracle_fields, "R4 / AC-03: user_edited_fields must match value_diff_oracle");
+
+    // Now the agent turn runs in the same turn window and writes `fills` on `ids[5]` and `name` on `ids[10]`.
+    let state = LivePatchState::default();
+    let mut set_5 = serde_json::Map::new();
+    set_5.insert("fills".into(), serde_json::json!([]));
+    let mut set_10 = serde_json::Map::new();
+    set_10.insert("name".into(), serde_json::json!("Agent Renamed"));
+    let ops = vec![LiveOp::Update { id: ids[5], set: set_5, unset: vec![] }, LiveOp::Update { id: ids[10], set: set_10, unset: vec![] }];
+    app.agent_busy_frames.record_agent_patch_ops(&ops, &state);
+    assert_eq!(
+        app.agent_busy_frames.both_changed_for_turn(app.agent_busy_frames.current_turn),
+        vec![(ids[5], "fills".to_string())],
+        "AC-03: agent turn sees the user's fill edit on ids[5] in both_changed"
+    );
+}
+
+#[test]
+fn ac04_synthetic_page_whole_page_edit_reports_user_edited_fields_len() {
+    let (doc, page, _card_ids) = build_synthetic_kit_page_21978_nodes();
+    let before_snapshot: std::collections::BTreeMap<NodeId, Node> = doc.nodes.clone();
+
+    let mut app = App::new(doc);
+    app.page = page;
+    app.selection.clear();
+
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    let outcome = crate::cmdk::run_auto_fix_design_gate(&mut app);
+    let passes_delta = crate::node_field_diff::field_passes_on_this_thread() - passes_before;
+    assert!(matches!(outcome, crate::cmdk::AutoFixOutcome::Committed { .. }));
+
+    let mut oracle_entries = Vec::new();
+    for (&id, before) in &before_snapshot {
+        if id == page {
+            continue;
+        }
+        if let Some(after) = app.doc.get(id) {
+            for field in value_diff_oracle(before, after) {
+                oracle_entries.push((id, field));
+            }
+        }
+    }
+    oracle_entries.sort();
+
+    let actual_entries: Vec<(NodeId, String)> = app.agent_busy_frames.user_edited_fields.keys().cloned().collect();
+    eprintln!("[AC-04] synthetic 21,978-node page whole-page edit: len(user_edited_fields) = {}, field_passes = {}", actual_entries.len(), passes_delta,);
+    assert_eq!(actual_entries, oracle_entries, "AC-04 / R4: user_edited_fields on the 21,978-node synthetic page must exactly match value_diff_oracle");
+
+    // Also verify `retain_changed` on a whole-page edit of the 21,978-node synthetic page does zero heap allocations in `properties_changed`.
+    let mut tx = Tx::new();
+    for &id in before_snapshot.keys().filter(|&&id| id != page) {
+        tx.ed.touch(&app.doc, id);
+    }
+    for &id in before_snapshot.keys().filter(|&&id| id != page).take(588) {
+        tx.ed.node(&mut app.doc, id).expect("node").opacity = 0.9;
+    }
+    let ((), retain_allocs) = allocations_in(|| tx.ed.retain_changed(&app.doc));
+    assert_eq!(
+        retain_allocs, 0,
+        "AC-04 / R1: retain_changed (properties_changed) across 21,977 nodes with 588 changed must not clone nodes (got {retain_allocs} allocations)"
+    );
+}
+
+#[test]
+fn edge_case_empty_transaction_records_nothing() {
+    use designos_doc::Rect;
+
+    let mut doc = Document::new("Empty Tx");
+    let page = doc.add_page("Page 1");
+    let ids: Vec<NodeId> = (0..1_000u32)
+        .map(|i| {
+            let id = doc.alloc_id();
+            doc.insert(page, Node::rectangle(id, Rect::new(i as f32 * 10.0, 0.0, 8.0, 8.0))).expect("insert");
+            id
+        })
+        .collect();
+    let mut app = App::new(doc);
+    app.page = page;
+
+    // 1. Completely empty Tx
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    let (committed_empty, allocs_empty) = allocations_in(|| app.run_tx(Tx::new()));
+    assert!(!committed_empty);
+    assert_eq!(allocs_empty, 0, "empty Tx allocates nothing in run_tx");
+    assert!(app.agent_busy_frames.user_edited_fields.is_empty());
+
+    // 2. Tx that touches 1,000 nodes but changes none of them
+    let mut tx = Tx::new();
+    for &id in &ids {
+        tx.ed.touch(&app.doc, id);
+    }
+    let (committed_noop, allocs_noop) = allocations_in(|| app.run_tx(tx));
+    assert!(!committed_noop);
+    assert_eq!(crate::node_field_diff::field_passes_on_this_thread(), passes_before, "no-op transaction must not run field diff passes");
+    assert!(app.agent_busy_frames.user_edited_fields.is_empty());
+    assert_eq!(
+        allocs_noop, 0,
+        "no-op transaction touching 1,000 unchanged nodes must drop them before cloning or reverting in run_tx (got {allocs_noop} allocations)"
+    );
+}
+
+#[test]
+fn edge_case_deleted_node_in_tx_records_deletion_without_field_diff() {
+    use designos_doc::{Command, Rect};
+
+    let mut doc = Document::new("Delete in Tx");
+    let page = doc.add_page("Page 1");
+    let parent_frame = doc.alloc_id();
+    doc.insert(page, Node::frame(parent_frame, Rect::new(0.0, 0.0, 200.0, 200.0))).expect("insert frame");
+    let child_to_delete = doc.alloc_id();
+    doc.insert(parent_frame, Node::rectangle(child_to_delete, Rect::new(10.0, 10.0, 50.0, 50.0))).expect("insert child");
+    let sibling = doc.alloc_id();
+    doc.insert(parent_frame, Node::rectangle(sibling, Rect::new(70.0, 10.0, 50.0, 50.0))).expect("insert sibling");
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    let mut tx = Tx::new();
+    // Touch parent frame, deleted child, and untouched sibling before removing the child.
+    tx.ed.touch(&app.doc, parent_frame);
+    tx.ed.touch(&app.doc, child_to_delete);
+    tx.ed.touch(&app.doc, sibling);
+    tx.cmd(&mut app.doc, Command::Remove { id: child_to_delete }).expect("remove child");
+
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    assert!(app.run_tx(tx));
+    let passes_delta = crate::node_field_diff::field_passes_on_this_thread() - passes_before;
+
+    assert!(app.doc.get(child_to_delete).is_none(), "deleted node is removed");
+    assert!(app.agent_busy_frames.user_edited_fields.is_empty(), "deleting a node records no field updates");
+    assert_eq!(passes_delta, 0, "neither the deleted child nor the parent frame whose `children` changed should run a field diff pass");
+}
+
+#[test]
+fn edge_case_new_node_in_tx_records_fields_as_before() {
+    use designos_doc::{Command, Rect};
+
+    let mut doc = Document::new("New Node in Tx");
+    let page = doc.add_page("Page 1");
+    let parent_frame = doc.alloc_id();
+    doc.insert(page, Node::frame(parent_frame, Rect::new(0.0, 0.0, 300.0, 300.0))).expect("insert frame");
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    // 1. Insert a brand-new node via Command::Insert while parent_frame is touched in `tx.ed`.
+    let new_plain = app.doc.alloc_id();
+    let mut node_plain = Node::rectangle(new_plain, Rect::new(10.0, 10.0, 40.0, 40.0));
+    node_plain.fills = vec![Paint::solid(Color::rgb(100, 116, 139))];
+
+    // 2. Insert a second new node via Command::Insert and then modify its `fills` via `tx.ed.node` in the same Tx.
+    let new_edited = app.doc.alloc_id();
+    let mut node_edited = Node::rectangle(new_edited, Rect::new(60.0, 10.0, 40.0, 40.0));
+    node_edited.fills = vec![Paint::solid(Color::rgb(100, 116, 139))];
+    let node_edited_before = node_edited.clone();
+
+    let mut tx = Tx::new();
+    tx.ed.touch(&app.doc, parent_frame);
+    tx.cmd(&mut app.doc, Command::Insert { parent: parent_frame, index: 0, nodes: vec![node_plain] }).expect("insert plain");
+    tx.cmd(&mut app.doc, Command::Insert { parent: parent_frame, index: 1, nodes: vec![node_edited] }).expect("insert edited");
+    tx.ed.node(&mut app.doc, new_edited).expect("new_edited").fills = vec![Paint::solid(Color::rgb(14, 165, 233))];
+
+    let passes_before = crate::node_field_diff::field_passes_on_this_thread();
+    assert!(app.run_tx(tx));
+    let passes_delta = crate::node_field_diff::field_passes_on_this_thread() - passes_before;
+
+    let expected_edited_fields = value_diff_oracle(&node_edited_before, app.doc.get(new_edited).expect("new_edited"));
+    let recorded: Vec<(NodeId, String)> = app.agent_busy_frames.user_edited_fields.keys().cloned().collect();
+    let expected: Vec<(NodeId, String)> = expected_edited_fields.into_iter().map(|f| (new_edited, f)).collect();
+    assert_eq!(recorded, expected, "new node edited in tx records the exact same fields as before");
+    assert_eq!(passes_delta, 1, "only new_edited is diffed; parent_frame (children-only change) is dropped");
+}
+
+#[test]
+fn edge_case_undo_of_large_edit_has_bounded_cost_and_does_not_rerecord_edited_fields() {
+    use designos_doc::Rect;
+
+    let mut doc = Document::new("Undo Large Edit");
+    let page = doc.add_page("Page 1");
+    let ids: Vec<NodeId> = (0..10_000u32)
+        .map(|_i| {
+            let id = doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills = vec![Paint::solid(Color::rgb(30, 41, 59))];
+            doc.insert(page, n).expect("insert");
+            id
+        })
+        .collect();
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    let mut tx = Tx::new();
+    for &id in &ids {
+        tx.ed.touch(&app.doc, id);
+    }
+    let changed_ids: Vec<NodeId> = (0..10).map(|k| ids[k * 1_000]).collect();
+    for &id in &changed_ids {
+        tx.ed.node(&mut app.doc, id).expect("node").opacity = 0.4;
+    }
+
+    let (committed, tx_allocs) = allocations_in(|| app.run_tx(tx));
+    assert!(committed);
+    assert_eq!(app.agent_busy_frames.user_edited_fields.len(), 10);
+
+    let passes_before_undo = crate::node_field_diff::field_passes_on_this_thread();
+    let ((), undo_allocs) = allocations_in(|| app.undo());
+    let passes_during_undo = crate::node_field_diff::field_passes_on_this_thread() - passes_before_undo;
+
+    for &id in &changed_ids {
+        assert_eq!(app.doc.get(id).expect("node").opacity, 1.0, "undo restores the 10 changed nodes");
+    }
+    assert_eq!(passes_during_undo, 0, "undo does not run node_field_diff");
+    assert_eq!(app.agent_busy_frames.user_edited_fields.len(), 10, "undo leaves user_edited_fields intact for the turn");
+    assert!(
+        tx_allocs + undo_allocs < 500,
+        "large edit (10,000 touched, 10 changed) + undo allocated {} + {} = {} times (expected < 500)",
+        tx_allocs,
+        undo_allocs,
+        tx_allocs + undo_allocs
+    );
+}
+
+#[test]
+fn edge_case_agent_turn_running_during_edit_loses_no_fields() {
+    use designos_doc::Rect;
+
+    let mut doc = Document::new("Agent Turn Running During Edit");
+    let page = doc.add_page("Page 1");
+    let ids: Vec<NodeId> = (0..1_000u32)
+        .map(|_i| {
+            let id = doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 50.0, 50.0));
+            n.fills = vec![Paint::solid(Color::rgb(51, 65, 85))];
+            doc.insert(page, n).expect("insert");
+            id
+        })
+        .collect();
+
+    let mut app = App::new(doc);
+    app.page = page;
+
+    // Agent turn 5 is active and has already patched `fills` on `ids[0]` and `opacity` on `ids[1]`.
+    app.agent_busy_frames.start_turn(5);
+    let state = LivePatchState::default();
+    let mut set_0 = serde_json::Map::new();
+    set_0.insert("fills".into(), serde_json::json!([]));
+    let mut set_1 = serde_json::Map::new();
+    set_1.insert("opacity".into(), serde_json::json!(0.8));
+    app.agent_busy_frames
+        .record_agent_patch_ops(&[LiveOp::Update { id: ids[0], set: set_0, unset: vec![] }, LiveOp::Update { id: ids[1], set: set_1, unset: vec![] }], &state);
+
+    // While agent turn 5 is running, the user runs a transaction touching all 1,000 nodes and editing `ids[0].fills` and `ids[2].name`.
+    let mut tx = Tx::new();
+    for &id in &ids {
+        tx.ed.touch(&app.doc, id);
+    }
+    tx.ed.node(&mut app.doc, ids[0]).expect("node 0").fills = vec![Paint::solid(Color::rgb(249, 115, 22))];
+    tx.ed.node(&mut app.doc, ids[2]).expect("node 2").name = "User Edited Mid-Turn".into();
+
+    let (committed, allocs) = allocations_in(|| app.run_tx(tx));
+    assert!(committed);
+    assert!(allocs < 200, "mid-turn user edit touching 1,000 nodes and changing 2 allocated {allocs} times (expected < 200)");
+
+    // Agent turn 5 continues and edits `ids[2].name`.
+    let mut set_2 = serde_json::Map::new();
+    set_2.insert("name".into(), serde_json::json!("Agent Overwrote Name"));
+    app.agent_busy_frames.record_agent_patch_ops(&[LiveOp::Update { id: ids[2], set: set_2, unset: vec![] }], &state);
+
+    assert_eq!(
+        app.agent_busy_frames.both_changed_for_turn(5),
+        vec![(ids[0], "fills".to_string()), (ids[2], "name".to_string())],
+        "both agent-before-user and user-before-agent field edits in the active turn are recorded in both_changed"
+    );
+    let user_turn_5: Vec<(NodeId, String)> =
+        app.agent_busy_frames.user_edited_fields.iter().filter(|(_, &t)| t == 5).map(|((id, f), _)| (*id, f.clone())).collect();
+    assert_eq!(user_turn_5, vec![(ids[0], "fills".to_string()), (ids[2], "name".to_string())]);
 }
