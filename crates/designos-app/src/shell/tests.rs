@@ -1176,6 +1176,7 @@ mod agent_panel_keyboard;
 mod agent_picker_return;
 mod agents_panel_only;
 mod agents_tab_strip;
+mod approval_banner_tab;
 mod assets_thumbs;
 mod libraries;
 mod lint;
