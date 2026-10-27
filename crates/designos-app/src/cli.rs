@@ -396,6 +396,10 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
   --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
+  --mode     with --export-variables PATH.json --format dtcg: export one self-contained DTCG file for mode NAME
+  --collection  with --mode: narrow single-mode DTCG export to collection NAME or id:<collection_id> (repeatable)
+  --resolve-aliases  with --mode: replace DTCG {Group.token} alias strings with resolved literal values
+  --color-format  with --export-variables --format dtcg: colour $value encoding (hex|object, default object)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]

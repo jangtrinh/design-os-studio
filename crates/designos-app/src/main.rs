@@ -258,6 +258,51 @@ fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Op
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
+    // Validate `--export-variables` option combinations (`#1140` §3 rule 10) before loading or creating anything.
+    if opts.export_variables.is_none() {
+        if opts.mode.is_some() {
+            return Err("--mode requires --export-variables".into());
+        }
+        if !opts.collections.is_empty() {
+            return Err("--collection requires --export-variables and --mode".into());
+        }
+        if opts.resolve_aliases {
+            return Err("--resolve-aliases requires --export-variables and --mode".into());
+        }
+        if opts.color_format.is_some() {
+            return Err("--color-format requires --export-variables --format dtcg".into());
+        }
+    } else if let Some(out_target) = &opts.export_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
+        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if opts.mode.is_some() {
+            if fmt != designos_fig::VariablesFormat::Dtcg {
+                return Err("--mode requires --format dtcg".into());
+            }
+            if !ext.eq_ignore_ascii_case("json") {
+                return Err("--mode requires a .json output file path".into());
+            }
+        } else {
+            if !opts.collections.is_empty() {
+                return Err("--collection requires --mode <name>".into());
+            }
+            if opts.resolve_aliases {
+                return Err("--resolve-aliases requires --mode <name>".into());
+            }
+            if fmt == designos_fig::VariablesFormat::Dtcg && ext.eq_ignore_ascii_case("json") {
+                return Err("DTCG export to a .json path requires --mode <name>; pass a directory, a .zip file, or --mode <name>".into());
+            }
+        }
+        if let Some(cf) = &opts.color_format {
+            if fmt != designos_fig::VariablesFormat::Dtcg {
+                return Err("--color-format requires --format dtcg".into());
+            }
+            if designos_fig::ColorFormat::parse_label(cf).is_none() {
+                return Err(format!("unknown --color-format {cf:?} (expected hex or object)"));
+            }
+        }
+    }
+
     // An unusable --export-fig target stops the command before it loads, applies or saves anything.
     if let Some(out_path) = &opts.export_fig {
         cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
@@ -444,49 +489,79 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
     if let Some(out_target) = &opts.export_variables {
         let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
-        let bundle = designos_fig::export_variables(&doc, fmt).map_err(|e| format!("Cannot export variables: {e}"))?;
-        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext.eq_ignore_ascii_case("zip") {
+        let color_format = opts.color_format.as_deref().and_then(designos_fig::ColorFormat::parse_label).unwrap_or(designos_fig::ColorFormat::Object);
+
+        if let Some(mode_name) = &opts.mode {
+            let mode_opts = designos_fig::DtcgModeOptions {
+                mode: mode_name.clone(),
+                collections: opts.collections.clone(),
+                resolve_aliases: opts.resolve_aliases,
+                color_format,
+            };
+            let (bytes, report) = designos_fig::export_dtcg_mode(&doc, &mode_opts).map_err(|e| format!("Cannot export variables: {e}"))?;
             if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
-            std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
-        } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
-            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            std::fs::write(out_target, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            let out = serde_json::json!({
+                "format": "dtcg",
+                "path": out_target,
+                "mode": report.mode,
+                "collections": report.collections,
+                "skipped_collections": report.skipped_collections,
+                "inlined_for_aliases": report.inlined_for_aliases,
+                "tokens": report.tokens,
+                "aliases_resolved": report.aliases_resolved,
+                "aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode,
+                "color_format": report.color_format.label(),
+                "omitted_extensions": report.omitted_extensions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
         } else {
-            let mut seen_names = std::collections::BTreeSet::new();
-            let mut dup_names = Vec::new();
-            for (name, _) in &bundle.files {
-                if !seen_names.insert(name.as_str()) && !dup_names.contains(&name.as_str()) {
-                    dup_names.push(name.as_str());
+            let bundle = designos_fig::export_variables_with_color_format(&doc, fmt, color_format).map_err(|e| format!("Cannot export variables: {e}"))?;
+            let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("zip") {
+                if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
+                std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
+                if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            } else {
+                let mut seen_names = std::collections::BTreeSet::new();
+                let mut dup_names = Vec::new();
+                for (name, _) in &bundle.files {
+                    if !seen_names.insert(name.as_str()) && !dup_names.contains(&name.as_str()) {
+                        dup_names.push(name.as_str());
+                    }
+                }
+                if !dup_names.is_empty() {
+                    return Err(format!("Refusing to overwrite duplicate export file(s): {}", dup_names.join(", ")));
+                }
+                std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
+                for (name, bytes) in &bundle.files {
+                    let safe_name = std::path::Path::new(name)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                        .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
+                    let dest = out_target.join(safe_name);
+                    std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
                 }
             }
-            if !dup_names.is_empty() {
-                return Err(format!("Refusing to overwrite duplicate export file(s): {}", dup_names.join(", ")));
-            }
-            std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
-            for (name, bytes) in &bundle.files {
-                let safe_name = std::path::Path::new(name)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
-                    .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
-                let dest = out_target.join(safe_name);
-                std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
-            }
+            let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
+            let out = serde_json::json!({
+                "format": bundle.format.label(),
+                "path": out_target,
+                "files": files_written,
+                "omitted_extensions": bundle.omitted_extensions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
         }
-        let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
-        let out = serde_json::json!({
-            "format": bundle.format.label(),
-            "path": out_target,
-            "files": files_written,
-            "omitted_extensions": bundle.omitted_extensions,
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
     if let Some(lang_id) = &opts.codegen {

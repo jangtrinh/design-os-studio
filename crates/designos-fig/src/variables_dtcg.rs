@@ -160,6 +160,8 @@ pub struct ModeExportReport {
     pub aliases_resolved: usize,
     #[serde(default)]
     pub aliases_resolved_via_default_mode: usize,
+    #[serde(default)]
+    pub color_format: ColorFormat,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub omitted_extensions: Vec<SkippedVariable>,
 }
@@ -575,6 +577,27 @@ fn color_to_dtcg_obj(c: Color) -> Value {
     })
 }
 
+fn color_to_dtcg_value(c: Color, color_format: ColorFormat) -> Value {
+    match color_format {
+        ColorFormat::Object => color_to_dtcg_obj(c),
+        ColorFormat::Hex => {
+            let r = clamp01(c.r);
+            let g = clamp01(c.g);
+            let b = clamp01(c.b);
+            let a = if c.a.is_finite() { c.a.clamp(0.0, 1.0) } else { 1.0 };
+            let ri = (r * 255.0).round() as u8;
+            let gi = (g * 255.0).round() as u8;
+            let bi = (b * 255.0).round() as u8;
+            let ai = (a * 255.0).round() as u8;
+            if ai == 255 {
+                Value::String(format!("#{ri:02X}{gi:02X}{bi:02X}"))
+            } else {
+                Value::String(format!("#{ri:02X}{gi:02X}{bi:02X}{ai:02X}"))
+            }
+        }
+    }
+}
+
 fn sanitize_dtcg_segment(seg: &str) -> (String, bool) {
     let mut changed = false;
     let mut out = String::with_capacity(seg.len());
@@ -703,13 +726,406 @@ pub fn export_variables_with_color_format(doc: &Document, format: VariablesForma
 }
 
 /// Exports all collections/modes in DTCG format with the given [`ColorFormat`] (`#1140` §5).
-pub fn export_dtcg_with_color_format(doc: &Document, _color_format: ColorFormat) -> Result<ExportBundle, FigError> {
-    export_dtcg(doc)
+pub fn export_dtcg_with_color_format(doc: &Document, color_format: ColorFormat) -> Result<ExportBundle, FigError> {
+    export_dtcg_inner(doc, color_format)
 }
 
 /// Exports a single self-contained DTCG `.tokens.json` payload for one mode (`#1140` §3 rules 4–9, §4, §5).
-pub fn export_dtcg_mode(_doc: &Document, _opts: &DtcgModeOptions) -> Result<(Vec<u8>, ModeExportReport), FigError> {
-    Err(FigError::Unsupported("export_dtcg_mode not implemented".into()))
+pub fn export_dtcg_mode(doc: &Document, opts: &DtcgModeOptions) -> Result<(Vec<u8>, ModeExportReport), FigError> {
+    if doc.variable_collections.is_empty() {
+        return Err(FigError::Export("no variable collections in document".into()));
+    }
+
+    let mut available_modes: Vec<String> = Vec::new();
+    for coll in doc.variable_collections.values() {
+        for m in &coll.modes {
+            if !available_modes.contains(&m.name) {
+                available_modes.push(m.name.clone());
+            }
+        }
+    }
+    if !available_modes.iter().any(|m| m == &opts.mode) {
+        return Err(FigError::Export(format!("unknown mode '{}' (available modes: {})", opts.mode, available_modes.join(", "))));
+    }
+
+    let coll_group_names = compute_unique_dtcg_group_names(doc);
+    let mut coll_prefixes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for coll in doc.variable_collections.values() {
+        let vars = ordered_collection_variables(doc, coll);
+        coll_prefixes.insert(coll.id.clone(), compute_group_prefixes(&vars));
+    }
+
+    // Selected collection id -> (mode_id, mode_name)
+    let mut selected_order: Vec<String> = Vec::new();
+    let mut selected_modes: BTreeMap<String, (String, String)> = BTreeMap::new();
+    let mut skipped_collections: Vec<SkippedModeCollection> = Vec::new();
+
+    let pick_mode_for_coll = |coll: &VariableCollection| -> Option<(String, String)> {
+        if let Some(m) = coll.modes.iter().find(|m| m.name == opts.mode) {
+            Some((m.id.clone(), m.name.clone()))
+        } else if coll.modes.len() == 1 {
+            Some((coll.modes[0].id.clone(), coll.modes[0].name.clone()))
+        } else {
+            None
+        }
+    };
+
+    if opts.collections.is_empty() {
+        for coll in doc.variable_collections.values() {
+            if let Some((mid, mname)) = pick_mode_for_coll(coll) {
+                selected_order.push(coll.id.clone());
+                selected_modes.insert(coll.id.clone(), (mid, mname));
+            } else {
+                skipped_collections.push(SkippedModeCollection {
+                    id: coll.id.clone(),
+                    name: coll.name.clone(),
+                    modes: coll.modes.iter().map(|m| m.name.clone()).collect(),
+                });
+            }
+        }
+    } else {
+        for filter in &opts.collections {
+            let chosen: &VariableCollection = if let Some(want_id) = filter.strip_prefix("id:") {
+                doc.variable_collections.get(want_id).ok_or_else(|| FigError::Export(format!("unknown collection '{filter}'")))?
+            } else {
+                let matching: Vec<&VariableCollection> = doc
+                    .variable_collections
+                    .values()
+                    .filter(|c| c.name == *filter || coll_group_names.get(&c.id).is_some_and(|g| g == filter) || sanitize_dtcg_segment(&c.name).0 == *filter)
+                    .collect();
+                if matching.is_empty() {
+                    return Err(FigError::Export(format!("unknown collection '{filter}'")));
+                }
+                let winner = matching.iter().find(|c| !c.is_library()).copied().unwrap_or(matching[0]);
+                if matching.len() > 1 {
+                    for shadowed in &matching {
+                        if shadowed.id != winner.id && !skipped_collections.iter().any(|s| s.id == shadowed.id) {
+                            skipped_collections.push(SkippedModeCollection {
+                                id: shadowed.id.clone(),
+                                name: shadowed.name.clone(),
+                                modes: shadowed.modes.iter().map(|m| m.name.clone()).collect(),
+                            });
+                        }
+                    }
+                }
+                winner
+            };
+
+            if !selected_modes.contains_key(&chosen.id) {
+                if let Some((mid, mname)) = pick_mode_for_coll(chosen) {
+                    selected_order.push(chosen.id.clone());
+                    selected_modes.insert(chosen.id.clone(), (mid, mname));
+                } else if !skipped_collections.iter().any(|s| s.id == chosen.id) {
+                    skipped_collections.push(SkippedModeCollection {
+                        id: chosen.id.clone(),
+                        name: chosen.name.clone(),
+                        modes: chosen.modes.iter().map(|m| m.name.clone()).collect(),
+                    });
+                }
+            }
+        }
+    }
+
+    let explicitly_selected_ids: HashSet<String> = selected_order.iter().cloned().collect();
+    let mut inlined_for_aliases: Vec<String> = Vec::new();
+    let mut inlined_seen: HashSet<String> = HashSet::new();
+
+    // When `resolve_aliases` is false (`#1140` §3 rule 5), transitively include any collection
+    // that an exported alias points into, and record in `inlined_for_aliases` any target collection
+    // that was either excluded by `--collection` or has no mode named `opts.mode`.
+    if !opts.resolve_aliases {
+        let mut idx = 0usize;
+        while idx < selected_order.len() {
+            let cid = selected_order[idx].clone();
+            let (mid, mname) = selected_modes[&cid].clone();
+            idx += 1;
+            let Some(coll) = doc.variable_collections.get(&cid) else { continue };
+            for v in ordered_collection_variables(doc, coll) {
+                let Some(VariableValue::Alias(first_target_id)) = v.values.get(&mid) else { continue };
+                let mut cur_id = first_target_id.clone();
+                let mut cur_mode_id = mid.clone();
+                let mut cur_mode_name = mname.clone();
+                for _ in 0..16 {
+                    let Some(target_var) = doc.variables.get(&cur_id) else { break };
+                    let Some(target_coll) = doc.variable_collections.get(&target_var.collection) else { break };
+                    let effective_mode_id = if target_var.values.contains_key(&cur_mode_id) && target_coll.modes.iter().any(|m| m.id == cur_mode_id) {
+                        cur_mode_id.clone()
+                    } else if let Some(m) = target_coll.modes.iter().find(|m| m.name == cur_mode_name && target_var.values.contains_key(&m.id)) {
+                        m.id.clone()
+                    } else {
+                        target_coll.default_mode.clone()
+                    };
+                    let effective_mode_name =
+                        target_coll.modes.iter().find(|m| m.id == effective_mode_id).map(|m| m.name.clone()).unwrap_or_else(|| effective_mode_id.clone());
+
+                    let target_has_requested_mode = target_coll.modes.iter().any(|m| m.name == opts.mode);
+                    let was_excluded = !explicitly_selected_ids.contains(&target_coll.id);
+                    if was_excluded || !target_has_requested_mode {
+                        let gname = coll_group_names.get(&target_coll.id).cloned().unwrap_or_else(|| target_coll.name.clone());
+                        if inlined_seen.insert(gname.clone()) {
+                            inlined_for_aliases.push(gname);
+                        }
+                    }
+                    if !selected_modes.contains_key(&target_coll.id) {
+                        selected_order.push(target_coll.id.clone());
+                        selected_modes.insert(target_coll.id.clone(), (effective_mode_id.clone(), effective_mode_name.clone()));
+                        skipped_collections.retain(|s| s.id != target_coll.id);
+                    }
+
+                    let Some(next_val) = target_var
+                        .values
+                        .get(&effective_mode_id)
+                        .or_else(|| target_var.values.get(&target_coll.default_mode))
+                        .or_else(|| target_var.values.values().next())
+                    else {
+                        break;
+                    };
+                    cur_mode_id = effective_mode_id;
+                    cur_mode_name = effective_mode_name;
+                    match next_val {
+                        VariableValue::Alias(next_id) => cur_id = next_id.clone(),
+                        _ => break,
+                    }
+                }
+            }
+        }
+    }
+
+    let mut file_root = Map::new();
+    let mut report_collections = Vec::new();
+    let mut total_tokens = 0usize;
+    let mut aliases_resolved = 0usize;
+    let mut aliases_resolved_via_default_mode = 0usize;
+    let mut broken_aliases: Vec<String> = Vec::new();
+
+    for cid in &selected_order {
+        let Some(coll) = doc.variable_collections.get(cid) else { continue };
+        let (mode_id, mode_name) = &selected_modes[cid];
+        let vars = ordered_collection_variables(doc, coll);
+        let group_prefixes = &coll_prefixes[&coll.id];
+        let clean_coll_name = &coll_group_names[&coll.id];
+        let mut coll_group = Map::new();
+
+        for v in &vars {
+            let Some(val) = v.values.get(mode_id) else {
+                continue;
+            };
+            let (segments, name_escaped) = sanitize_dtcg_path(&v.name);
+            let is_prefix = group_prefixes.contains(&v.name);
+            let token_full_path = format!("{}.{}", clean_coll_name, segments.join("."));
+
+            let mut dos_ext = Map::new();
+            dos_ext.insert("id".into(), Value::String(v.id.clone()));
+            dos_ext.insert("collection_id".into(), Value::String(coll.id.clone()));
+            if name_escaped {
+                dos_ext.insert("original_name".into(), Value::String(v.name.clone()));
+            }
+            if !v.scopes.is_empty() {
+                dos_ext.insert("scopes".into(), json!(v.scopes));
+            }
+            if !v.code_syntax.is_empty() {
+                let cs: Map<String, Value> = v.code_syntax.iter().map(|(p, code)| (p.label().to_string(), Value::String(code.clone()))).collect();
+                dos_ext.insert("code_syntax".into(), Value::Object(cs));
+            }
+            if v.hidden_from_publishing {
+                dos_ext.insert("hidden_from_publishing".into(), Value::Bool(true));
+            }
+            if let Some(k) = &v.key {
+                dos_ext.insert("key".into(), Value::String(k.clone()));
+            }
+
+            let (opt_type, val_json) = match val {
+                VariableValue::Color(c) => (Some("color"), color_to_dtcg_value(*c, opts.color_format)),
+                VariableValue::Number(n) => {
+                    if is_all_geometric_scopes(&v.scopes) {
+                        (Some("dimension"), json!({ "value": finite_f32(*n), "unit": "px" }))
+                    } else {
+                        (Some("number"), json!(finite_f32(*n)))
+                    }
+                }
+                VariableValue::String(s) => {
+                    if v.scopes.iter().any(|sc| sc == "FONT_FAMILY") {
+                        (Some("fontFamily"), Value::String(s.clone()))
+                    } else {
+                        dos_ext.insert("kind".into(), Value::String("string".into()));
+                        (None, Value::String(s.clone()))
+                    }
+                }
+                VariableValue::Boolean(b) => {
+                    dos_ext.insert("kind".into(), Value::String("boolean".into()));
+                    dos_ext.insert("boolean".into(), Value::Bool(*b));
+                    (None, Value::Bool(*b))
+                }
+                VariableValue::Alias(target_id) => {
+                    let ref_str = if let Some(target_var) = doc.variables.get(target_id) {
+                        let target_coll_group = coll_group_names.get(&target_var.collection).cloned().unwrap_or_else(|| "Collection".to_string());
+                        let (target_segs, _) = sanitize_dtcg_path(&target_var.name);
+                        let mut full_ref = format!("{}.{}", target_coll_group, target_segs.join("."));
+                        if coll_prefixes.get(&target_var.collection).is_some_and(|p| p.contains(&target_var.name)) {
+                            full_ref.push_str(".$root");
+                        }
+                        format!("{{{full_ref}}}")
+                    } else {
+                        let (clean_id, _) = sanitize_dtcg_segment(target_id);
+                        format!("{{{clean_id}}}")
+                    };
+
+                    // Trace the alias chain up to 16 hops to validate target resolution and detect default-mode fallbacks.
+                    let mut cur_id = target_id.clone();
+                    let mut cur_mode_id = mode_id.clone();
+                    let mut cur_mode_name = mode_name.clone();
+                    let mut resolved_pair: Option<(&Variable, VariableValue)> = None;
+                    let mut fell_back_to_default = false;
+                    let mut break_reason: Option<String> = None;
+
+                    for _ in 0..16 {
+                        let Some(t_var) = doc.variables.get(&cur_id) else {
+                            break_reason = Some(format!("missing target variable '{cur_id}'"));
+                            break;
+                        };
+                        let Some(t_coll) = doc.variable_collections.get(&t_var.collection) else {
+                            break_reason = Some(format!("missing target collection '{}'", t_var.collection));
+                            break;
+                        };
+                        let effective_mode_id = if t_var.values.contains_key(&cur_mode_id) && t_coll.modes.iter().any(|m| m.id == cur_mode_id) {
+                            cur_mode_id.clone()
+                        } else if let Some(m) = t_coll.modes.iter().find(|m| m.name == cur_mode_name && t_var.values.contains_key(&m.id)) {
+                            m.id.clone()
+                        } else {
+                            if !t_coll.modes.iter().any(|m| m.name == opts.mode) {
+                                fell_back_to_default = true;
+                            }
+                            t_coll.default_mode.clone()
+                        };
+                        let Some(t_val) =
+                            t_var.values.get(&effective_mode_id).or_else(|| t_var.values.get(&t_coll.default_mode)).or_else(|| t_var.values.values().next())
+                        else {
+                            break_reason = Some(format!("target variable '{cur_id}' has no values"));
+                            break;
+                        };
+                        if let Some(m) = t_coll.modes.iter().find(|m| m.id == effective_mode_id) {
+                            cur_mode_name = m.name.clone();
+                        }
+                        cur_mode_id = effective_mode_id;
+                        match t_val {
+                            VariableValue::Alias(next_id) => {
+                                cur_id = next_id.clone();
+                            }
+                            other => {
+                                resolved_pair = Some((t_var, other.clone()));
+                                break;
+                            }
+                        }
+                    }
+
+                    let Some((_terminal_var, terminal_val)) = resolved_pair else {
+                        let reason = break_reason.unwrap_or_else(|| format!("alias cycle or chain deeper than 16 hops starting at '{target_id}'"));
+                        broken_aliases.push(format!("{token_full_path}: {reason}"));
+                        continue;
+                    };
+
+                    if opts.resolve_aliases {
+                        aliases_resolved += 1;
+                        if fell_back_to_default {
+                            aliases_resolved_via_default_mode += 1;
+                        }
+                        dos_ext.insert("alias_of".into(), Value::String(ref_str));
+                        dos_ext.insert("alias_of_id".into(), Value::String(target_id.clone()));
+
+                        match terminal_val {
+                            VariableValue::Color(c) => (Some("color"), color_to_dtcg_value(c, opts.color_format)),
+                            VariableValue::Number(n) => {
+                                if is_all_geometric_scopes(&v.scopes) {
+                                    (Some("dimension"), json!({ "value": finite_f32(n), "unit": "px" }))
+                                } else {
+                                    (Some("number"), json!(finite_f32(n)))
+                                }
+                            }
+                            VariableValue::String(s) => {
+                                if v.scopes.iter().any(|sc| sc == "FONT_FAMILY") {
+                                    (Some("fontFamily"), Value::String(s))
+                                } else {
+                                    dos_ext.insert("kind".into(), Value::String("string".into()));
+                                    (None, Value::String(s))
+                                }
+                            }
+                            VariableValue::Boolean(b) => {
+                                dos_ext.insert("kind".into(), Value::String("boolean".into()));
+                                dos_ext.insert("boolean".into(), Value::Bool(b));
+                                (None, Value::Bool(b))
+                            }
+                            VariableValue::Alias(_) => unreachable!(),
+                        }
+                    } else {
+                        let opt_ty = match v.kind {
+                            VariableKind::Color => Some("color"),
+                            VariableKind::Number => {
+                                if is_all_geometric_scopes(&v.scopes) {
+                                    Some("dimension")
+                                } else {
+                                    Some("number")
+                                }
+                            }
+                            VariableKind::String => {
+                                if v.scopes.iter().any(|sc| sc == "FONT_FAMILY") {
+                                    Some("fontFamily")
+                                } else {
+                                    dos_ext.insert("kind".into(), Value::String("string".into()));
+                                    None
+                                }
+                            }
+                            VariableKind::Boolean => {
+                                dos_ext.insert("kind".into(), Value::String("boolean".into()));
+                                None
+                            }
+                        };
+                        (opt_ty, Value::String(ref_str))
+                    }
+                }
+            };
+
+            let mut token = Map::new();
+            if let Some(ty) = opt_type {
+                token.insert("$type".into(), Value::String(ty.into()));
+            }
+            token.insert("$value".into(), val_json);
+            if !v.description.is_empty() {
+                token.insert("$description".into(), Value::String(v.description.clone()));
+            }
+            if let Some(dep) = v.mode_extensions.get(mode_id).and_then(|m| m.get("$deprecated")) {
+                token.insert("$deprecated".into(), dep.clone());
+            }
+            let mut ext = Map::new();
+            ext.insert("org.designos".into(), Value::Object(dos_ext));
+            token.insert("$extensions".into(), Value::Object(ext));
+
+            insert_token_at_path(&mut coll_group, &segments, is_prefix, Value::Object(token));
+            total_tokens += 1;
+        }
+
+        file_root.insert(clean_coll_name.clone(), Value::Object(coll_group));
+        report_collections.push(ModeExportCollection { id: coll.id.clone(), name: coll.name.clone(), group: clean_coll_name.clone(), mode: mode_name.clone() });
+    }
+
+    if !broken_aliases.is_empty() {
+        let shown: Vec<&str> = broken_aliases.iter().take(20).map(String::as_str).collect();
+        let suffix = if broken_aliases.len() > 20 { format!(" ... and {} more", broken_aliases.len() - 20) } else { String::new() };
+        return Err(FigError::Export(format!("unresolvable alias(es): {}{suffix}", shown.join("; "))));
+    }
+
+    let bytes = serde_json::to_vec_pretty(&Value::Object(file_root))?;
+    let report = ModeExportReport {
+        mode: opts.mode.clone(),
+        collections: report_collections,
+        skipped_collections,
+        inlined_for_aliases,
+        tokens: total_tokens,
+        aliases_resolved,
+        aliases_resolved_via_default_mode,
+        color_format: opts.color_format,
+        omitted_extensions: collect_omitted_extensions_excluding(doc, &["$deprecated"]),
+    };
+    Ok((bytes, report))
 }
 
 fn ordered_collection_variables<'a>(doc: &'a Document, coll: &VariableCollection) -> Vec<&'a Variable> {
@@ -972,7 +1388,7 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
     coll_group_names
 }
 
-fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
+fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<ExportBundle, FigError> {
     let mut files = Vec::new();
     let mut manifest_collections = Vec::new();
 
@@ -1024,7 +1440,7 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
                 }
 
                 let (opt_type, val_json) = match val {
-                    VariableValue::Color(c) => (Some("color"), color_to_dtcg_obj(*c)),
+                    VariableValue::Color(c) => (Some("color"), color_to_dtcg_value(*c, color_format)),
                     VariableValue::Number(n) => {
                         if is_all_geometric_scopes(&v.scopes) {
                             (Some("dimension"), json!({ "value": finite_f32(*n), "unit": "px" }))
