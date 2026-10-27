@@ -78,12 +78,12 @@ fn first_launch_shows_the_home_screen_with_the_getting_started_project() {
     let names: Vec<_> = home.snap.projects.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["Getting started"]);
     assert_eq!(home.snap.files.len(), 1);
-    assert_eq!(home.snap.files[0].name, "Welcome");
-    // the seeded file carries the demo document and already has a thumbnail
+    assert_eq!(home.snap.files[0].name, "DESIGN-OS Studio Starter");
+    // the seeded file carries the starter document and already has a thumbnail
     let l = lib(&s);
     assert!(l.load_file(&home.snap.files[0].id).unwrap().nodes.len() > 10);
     assert!(l.thumbnail_path(&home.snap.files[0]).is_some());
-    let card = s.rect_of("home-card-Welcome");
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
     assert!(card.width() > 150.0 && card.min.x > theme::HOME_SIDEBAR_W);
     s.rect_of("home-project-Getting started");
     s.rect_of("home-new-file");
@@ -106,22 +106,22 @@ fn new_design_file_creates_and_opens_an_untitled_library_file() {
 #[test]
 fn double_clicking_a_card_opens_it_and_single_click_selects() {
     let (mut s, _d) = home_sim();
-    let card = s.rect_of("home-card-Welcome");
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
     s.click(card.center());
-    assert_eq!(s.app().home.as_ref().unwrap().selected.as_deref(), Some(file_id(&s, "Welcome").as_str()));
+    assert_eq!(s.app().home.as_ref().unwrap().selected.as_deref(), Some(file_id(&s, "DESIGN-OS Studio Starter").as_str()));
     assert!(s.app().home.is_some());
-    let before = lib(&s).file(&file_id(&s, "Welcome")).unwrap().opened;
+    let before = lib(&s).file(&file_id(&s, "DESIGN-OS Studio Starter")).unwrap().opened;
     double_click(&mut s, card.center());
     assert!(s.app().home.is_none());
-    assert_eq!(s.app().lib_file.as_ref().unwrap().name, "Welcome");
-    assert!(s.app().doc.nodes.len() > 10, "the demo document loaded");
-    assert!(lib(&s).file(&file_id(&s, "Welcome")).unwrap().opened > before, "opening updates Recents");
+    assert_eq!(s.app().lib_file.as_ref().unwrap().name, "DESIGN-OS Studio Starter");
+    assert!(s.app().doc.nodes.len() > 10, "the starter document loaded");
+    assert!(lib(&s).file(&file_id(&s, "DESIGN-OS Studio Starter")).unwrap().opened > before, "opening updates Recents");
 }
 
 #[test]
 fn the_editor_header_shows_project_and_file_and_none_of_the_account_labels() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     let r = s.rect_of("file-header");
     assert!(r.left() >= theme::RAIL_WIDTH, "the header sits in the left panel");
     // the second line is the save state, not a plan
@@ -132,7 +132,7 @@ fn the_editor_header_shows_project_and_file_and_none_of_the_account_labels() {
 #[test]
 fn renaming_in_the_header_persists_to_the_library() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     let id = s.app().lib_file.as_ref().unwrap().id.clone();
     let hit = s.rect_of("file-header");
     double_click(&mut s, Pos2::new(hit.left() + 90.0, hit.center().y));
@@ -153,7 +153,7 @@ fn renaming_in_the_header_persists_to_the_library() {
 #[test]
 fn renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     s.use_stub_agent_clis();
     click_rect(&mut s, "rail-Agents");
     let other = crate::agent_picker::rows_for_state(&mut s.shell.app.terminal)
@@ -194,7 +194,7 @@ fn renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open() {
 #[test]
 fn renaming_a_file_from_the_home_dialog_persists() {
     let (mut s, _d) = home_sim();
-    let id = file_id(&s, "Welcome");
+    let id = file_id(&s, "DESIGN-OS Studio Starter");
     crate::home::apply(&mut s.shell.app, Act::RenameFile(id.clone()));
     s.frame(vec![]);
     s.frame(vec![]);
@@ -210,7 +210,7 @@ fn renaming_a_file_from_the_home_dialog_persists() {
 #[test]
 fn right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it() {
     let (mut s, _d) = home_sim();
-    let card = s.rect_of("home-card-Welcome");
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
     s.right_click(card.center());
     assert!(s.app().home.as_ref().unwrap().menu.is_some(), "context menu open");
     // "Move to trash" is the 8th row, after three separators
@@ -226,7 +226,7 @@ fn right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it() {
     click_rect(&mut s, "home-trash");
     assert_eq!(s.app().home.as_ref().unwrap().section, Section::Trash);
     s.frame(vec![]);
-    click_rect(&mut s, "home-restore-Welcome");
+    click_rect(&mut s, "home-restore-DESIGN-OS Studio Starter");
     s.frame(vec![]);
     assert_eq!(l.all_files().len(), 1);
     assert!(l.list_trash().is_empty());
@@ -236,7 +236,7 @@ fn right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it() {
 #[test]
 fn emptying_the_trash_needs_a_confirmation() {
     let (mut s, _d) = home_sim();
-    let id = file_id(&s, "Welcome");
+    let id = file_id(&s, "DESIGN-OS Studio Starter");
     crate::home::apply(&mut s.shell.app, Act::Trash(id));
     s.frame(vec![]);
     click_rect(&mut s, "home-trash");
@@ -268,11 +268,11 @@ fn dragging_a_card_onto_a_project_moves_the_file() {
     s.shell.app.home.as_mut().unwrap().dirty = true;
     s.frame(vec![]);
     s.frame(vec![]);
-    let from = s.rect_of("home-card-Welcome").center();
+    let from = s.rect_of("home-card-DESIGN-OS Studio Starter").center();
     let to = s.rect_of("home-project-Marketing").center();
     s.drag(from, to);
     s.frame(vec![]);
-    let f = l.all_files().into_iter().find(|f| f.name == "Welcome").unwrap();
+    let f = l.all_files().into_iter().find(|f| f.name == "DESIGN-OS Studio Starter").unwrap();
     assert_eq!(f.project, other.id);
     // and into a folder via the action used by the folder rows
     let folder = l.create_folder(&other.id, None, "Q4").unwrap();
@@ -307,7 +307,7 @@ fn search_filters_files_and_the_sidebar_navigates_sections() {
 #[test]
 fn back_to_files_flushes_edits_and_returns_to_the_home_screen() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     let id = s.app().lib_file.as_ref().unwrap().id.clone();
     let before = lib(&s).load_file(&id).unwrap().nodes.len();
     s.key(Key::R);
@@ -325,7 +325,7 @@ fn back_to_files_flushes_edits_and_returns_to_the_home_screen() {
 #[test]
 fn autosave_runs_after_the_idle_delay_and_ctrl_s_saves_at_once() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     let id = s.app().lib_file.as_ref().unwrap().id.clone();
     let before = lib(&s).load_file(&id).unwrap().nodes.len();
     s.key(Key::R);
@@ -356,7 +356,7 @@ fn autosave_runs_after_the_idle_delay_and_ctrl_s_saves_at_once() {
 #[test]
 fn unchanged_documents_are_never_rewritten_by_autosave() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     let id = s.app().lib_file.as_ref().unwrap().id.clone();
     let m0 = lib(&s).file(&id).unwrap().modified;
     // zooming bumps the canvas revision but changes nothing in the document
@@ -423,7 +423,7 @@ fn account_and_plan_labels_are_gone_from_the_ui_sources() {
 #[test]
 fn help_menu_offers_shortcuts_about_and_a_confirmed_github_link() {
     let (mut s, _d) = home_sim();
-    open(&mut s, "Welcome");
+    open(&mut s, "DESIGN-OS Studio Starter");
     run_action(&mut s, crate::panels::menus::Action::Shortcuts);
     s.frame(vec![]);
     assert_eq!(s.app().dialog.as_ref().map(|d| d.intent.clone()), Some(Intent::Shortcuts));
@@ -759,10 +759,7 @@ fn ac02_no_arg_launch_opens_home_and_never_builtin_demo() {
     assert!(s.app().home.is_some(), "no-arg launch must open Home");
     assert_eq!(s.app().doc.name, "Untitled", "underlying editor document must be blank Untitled, not demo_document");
     assert_eq!(s.app().doc.nodes.len(), 1, "no-arg launch must build an empty document with only Page 1, never demo_document()");
-    assert!(
-        s.app().doc.nodes.values().all(|n| n.name != "Welcome" && n.name != "Hero"),
-        "no-arg launch must never build demo_document()"
-    );
+    assert!(s.app().doc.nodes.values().all(|n| n.name != "Welcome" && n.name != "Hero"), "no-arg launch must never build demo_document()");
 }
 
 #[test]
@@ -776,10 +773,7 @@ fn ac04_home_screen_contains_none_of_the_legacy_names() {
         }
         let painted = painted_texts(&s);
         for bad in forbidden {
-            assert!(
-                !painted.iter().any(|t| t.contains(bad)),
-                "Home view {nav} painted legacy sample name {bad:?} in {painted:?}"
-            );
+            assert!(!painted.iter().any(|t| t.contains(bad)), "Home view {nav} painted legacy sample name {bad:?} in {painted:?}");
         }
     }
 }
@@ -889,4 +883,3 @@ fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
     assert!(!d.0.join(".starter-seeded").exists(), "no .starter-seeded marker written when starter asset fails");
     assert!(!d.0.join(".seeded").exists(), "no .seeded marker written when fresh starter asset fails");
 }
-

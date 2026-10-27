@@ -41,6 +41,7 @@ mod cmdk;
 mod comments;
 mod comp_ops;
 mod decks;
+#[cfg(any(test, feature = "fixtures"))]
 mod demo;
 mod dev;
 mod edit;
@@ -80,11 +81,13 @@ mod paste_placement;
 mod plugins;
 mod present;
 mod proto;
+#[cfg(any(test, feature = "fixtures"))]
 mod protovars;
 mod richtext;
 #[cfg(test)]
 mod scratch_cli_home;
 mod shell;
+#[cfg(any(test, feature = "fixtures"))]
 mod showcase;
 mod skills;
 mod specs;
@@ -104,6 +107,7 @@ mod textmeasure;
 mod theme;
 mod util;
 mod variables;
+#[cfg(any(test, feature = "fixtures"))]
 mod vecfixture;
 mod vecops;
 mod video;
@@ -143,6 +147,7 @@ fn main() {
         std::process::exit(2);
     }
     if let Some(dir) = &opts.seed_library {
+        #[cfg(any(test, feature = "fixtures"))]
         match showcase::seed_library(dir) {
             Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
             Err(e) => {
@@ -150,6 +155,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        #[cfg(not(any(test, feature = "fixtures")))]
+        {
+            let _ = dir;
+            eprintln!("designos: --seed-library requires a build with the 'fixtures' feature");
+            std::process::exit(2);
+        }
+        #[cfg(any(test, feature = "fixtures"))]
         return;
     }
     if opts.is_agent_cli() {

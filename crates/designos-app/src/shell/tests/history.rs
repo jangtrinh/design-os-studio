@@ -24,11 +24,13 @@ impl Drop for TmpDir {
     }
 }
 
-/// An editor with the library's "Welcome" file open.
+/// An editor with a library demo fixture file open.
 fn file_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
     let mut s = Sim::with(Options { home: true, library: Some(dir.0.clone()), ..Default::default() });
-    let id = lib(&s).all_files().into_iter().find(|f| f.name == "Welcome").expect("seeded file").id;
+    let l = lib(&s);
+    let p = l.list_projects()[0].id.clone();
+    let id = l.create_file(&p, None, "Demo fixture", &crate::demo::demo_document()).expect("create demo fixture file").id;
     crate::home::apply(&mut s.shell.app, Act::Open(id));
     s.frame(vec![]);
     s.frame(vec![]);

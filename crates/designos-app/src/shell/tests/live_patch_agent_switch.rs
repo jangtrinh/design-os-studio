@@ -143,7 +143,7 @@ fn the_agents_document_does_not_overwrite_the_library_file() {
     assert_eq!(s.app().lib_file, None, "the agent's document is not a library file");
     assert_eq!(s.app().tabs.entries.len(), 1, "a library file autosaves: no tab is added to keep it");
     let on_disk = lib(&s).load_file(&id).unwrap();
-    assert_eq!((on_disk.name.as_str(), on_disk.nodes.len()), ("Welcome", edited), "the user's file holds the user's document");
+    assert_eq!((on_disk.name.as_str(), on_disk.nodes.len()), ("DESIGN-OS Studio Starter", edited), "the user's file holds the user's document");
 }
 
 fn append_to_log(log: &Path, patch: &designos_doc::live_patch::LivePatch) {

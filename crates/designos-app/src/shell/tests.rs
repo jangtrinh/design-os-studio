@@ -70,7 +70,10 @@ impl Sim {
     fn new() -> Self {
         Self::with(Options::default())
     }
-    fn with(opts: Options) -> Self {
+    fn with(mut opts: Options) -> Self {
+        if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
+            opts.fixture = Some("demo".into());
+        }
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
         script_empty_clipboard(&mut shell.app);

@@ -65,6 +65,11 @@ EXAMPLES_ALLOWED_HITS: List[Tuple[str, str, str]] = [
         "`examples/` (each a NodeSpec batch",
         "Describes the per-skill examples/ subfolder inside a skill pack directory layout",
     ),
+    (
+        "crates/designos-app/tests/fixtures/designos-studio-landing.designos",
+        "--apply-spec examples/specs/designos-studio-landing.spec.json",
+        "Test fixture moved from examples/landing/ per #1212; contains sample CLI text inside a serialized Text node",
+    ),
 ]
 
 

@@ -144,4 +144,3 @@ fn fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
-

@@ -4,6 +4,7 @@ use crate::app::{App, MenuKind};
 use crate::canvas::tools::Tool;
 use crate::canvas::{self, interact};
 use crate::cli::Options;
+#[cfg(any(test, feature = "fixtures"))]
 use crate::demo;
 use crate::icons::Icon;
 use crate::panels::menus::{self, Action};
@@ -133,39 +134,59 @@ impl Shell {
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
+            #[cfg(any(test, feature = "fixtures"))]
+            Some("demo") => demo::demo_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("no-selection") => demo::reference_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("variables") => demo::variables_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("variables-library" | "variables-library-open") => demo::variables_library_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::showcase::FIXTURE) => crate::showcase::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::protovars::FIXTURE) => crate::protovars::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::check_designs::FIXTURE) => crate::check_designs::fixture::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("deck") => crate::decks::demo::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("board") => crate::board::demo::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("board-empty") => crate::board::create::new_document("Untitled"),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(f) if crate::vecfixture::FIXTURES.contains(&f) => crate::vecfixture::document(),
-            None if opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
-            _ => demo::demo_document(),
+            #[cfg(any(test, feature = "fixtures"))]
+            Some("comments") => demo::demo_document(),
+            _ => {
+                let mut d = designos_doc::Document::new("Untitled");
+                d.add_page("Page 1");
+                d
+            }
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
         let session_id = app.tabs.active_session_id();
         app.terminal.bind_session(&session_id);
-        if !matches!(
-            opts.fixture.as_deref(),
-            Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
-        ) {
-            app.doc.name = "Untitled".into();
-        }
-        if opts.fixture.as_deref() == Some("deck") {
-            if let Some(id) = app.deck_slides().first().copied() {
-                app.select_slide(id);
+        #[cfg(any(test, feature = "fixtures"))]
+        {
+            if !matches!(
+                opts.fixture.as_deref(),
+                Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
+            ) {
+                app.doc.name = "Untitled".into();
             }
-        }
-        if opts.fixture.as_deref() == Some("comments") {
-            crate::comments::fixture::apply(&mut app);
-        }
-        if let Some(f) = opts.fixture.as_deref().filter(|f| crate::vecfixture::FIXTURES.contains(f)) {
-            crate::vecfixture::apply(&mut app, f);
+            if opts.fixture.as_deref() == Some("deck") {
+                if let Some(id) = app.deck_slides().first().copied() {
+                    app.select_slide(id);
+                }
+            }
+            if opts.fixture.as_deref() == Some("comments") {
+                crate::comments::fixture::apply(&mut app);
+            }
+            if let Some(f) = opts.fixture.as_deref().filter(|f| crate::vecfixture::FIXTURES.contains(f)) {
+                crate::vecfixture::apply(&mut app, f);
+            }
         }
         if let Some(root) = opts.library.clone() {
             app.attach_library(root);
@@ -273,7 +294,12 @@ impl Shell {
                 st.start_fullscreen = opts.fullscreen;
             }
             if opts.panel.as_deref() == Some("present-variables") {
-                if opts.fixture.as_deref() == Some(crate::protovars::FIXTURE) {
+                #[cfg(any(test, feature = "fixtures"))]
+                let is_proto_vars = opts.fixture.as_deref() == Some(crate::protovars::FIXTURE);
+                #[cfg(not(any(test, feature = "fixtures")))]
+                let is_proto_vars = false;
+                if is_proto_vars {
+                    #[cfg(any(test, feature = "fixtures"))]
                     crate::protovars::prime_present(&mut app);
                 } else if let Some(st) = app.proto.present.as_mut() {
                     st.show_vars = true;
@@ -362,7 +388,10 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                crate::protovars::open_editor(&mut app);
+                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
+                    app.selection = vec![add];
+                    app.proto.editing = Some((add, 0));
+                }
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),
@@ -3431,7 +3460,10 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
             }
             if is_proto {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                crate::protovars::open_editor(app);
+                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
+                    app.selection = vec![add];
+                    app.proto.editing = Some((add, 0));
+                }
             }
 
             let surf = if is_dark { Color::rgb(0x14, 0x14, 0x18) } else { Color::rgb(0xF4, 0xF4, 0xF6) };

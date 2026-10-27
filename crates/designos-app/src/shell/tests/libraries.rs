@@ -505,7 +505,9 @@ fn shared_libraries_follow_the_projects_library_root_and_open_its_files() {
     assert_eq!(s.shell.app.library().unwrap().root(), root.as_path());
 
     // Publish a projects-library file: the library remembers the file id.
-    let home_file = s.app().lib.as_ref().unwrap().all_files()[0].id.clone();
+    let lib_store = s.app().lib.as_ref().unwrap().clone();
+    let proj = lib_store.list_projects()[0].id.clone();
+    let home_file = lib_store.create_file(&proj, None, "Demo library", &crate::demo::demo_document()).unwrap().id;
     s.shell.app.open_library_file(&home_file);
     assert!(s.shell.app.publish_file());
     let lib_id = s.app().doc.library.published.clone().unwrap().library_id;
@@ -532,7 +534,9 @@ fn shared_libraries_follow_the_projects_library_root_and_open_its_files() {
 fn go_to_main_component_waits_for_the_save_changes_question_and_does_not_navigate_in_the_old_document() {
     let root = tmp("gotomainask");
     let mut s = Sim::with(Options { library: Some(root.clone()), ..Default::default() });
-    let home_file = s.app().lib.as_ref().unwrap().all_files()[0].id.clone();
+    let lib_store = s.app().lib.as_ref().unwrap().clone();
+    let proj = lib_store.list_projects()[0].id.clone();
+    let home_file = lib_store.create_file(&proj, None, "Demo library", &crate::demo::demo_document()).unwrap().id;
     s.shell.app.open_library_file(&home_file);
     assert!(s.shell.app.publish_file());
     let lib_id = s.app().doc.library.published.clone().unwrap().library_id;
