@@ -1,0 +1,21 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1242-instance-vector-scale/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+warning: function `find_in_subtree` is never used
+   --> crates/designos-fig/tests/bench_guard.rs:369:4
+    |
+369 | fn find_in_subtree<'a>(doc: &'a Document, root: NodeId, name: &str) -> ...
+    |    ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-fig` (test "bench_guard") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.45s
+     Running tests/bench_guard.rs (out/cargo/release/deps/bench_guard-abd73ccfc1bec94a)
+
+running 1 test
+BENCH_RESULT rest_file.json (13976 B) median_us=96.21 | legacy-0.4.0-rich.fig (11061 B) median_us=381.08 | legacy-0.4.0-grids.fig (10831 B) median_us=388.17
+test measure_repo_fixture_imports ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.02s
+
