@@ -11306,7 +11306,9 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"] {
+        for preset_slug in
+            ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"]
+        {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
