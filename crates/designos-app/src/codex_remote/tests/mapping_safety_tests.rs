@@ -136,7 +136,7 @@ fn titles_and_summaries_carry_no_invisible_or_bidi_characters() {
     let item = with(with(fixture("item-started-mcp"), "/params/item/tool", json!("t\u{202E}x")), "/params/item/arguments", args.clone());
     let request = with(fixture("mcp-elicitation-request"), "/params/_meta/tool_params", args);
     let tool = card(map(&request, &index(&[item])));
-    assert_eq!(tool.title, "Codex CLI wants to run t x");
+    assert_eq!(tool.title, "Codex CLI wants to use design:os t x");
     assert!(!tool.summary.chars().any(hidden), "{:?}", tool.summary);
     assert_eq!(tool.summary.split_whitespace().collect::<Vec<_>>(), ["designos", "\u{b7}", "name:", "\"echo", "txt.exe", "x", "end\""]);
 }

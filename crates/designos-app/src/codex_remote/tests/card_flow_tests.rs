@@ -41,7 +41,7 @@ fn approve_and_deny_on_an_mcp_card_send_the_exact_one_shot_replies_once() {
     h.conn.send(&fixture("thread-status-waiting"));
     h.conn.send(&fixture("mcp-elicitation-request"));
     let first = card(&h);
-    assert_eq!((first.kind, first.key.as_str(), first.title.as_str()), (CardKind::McpTool, "cx-7-2", "Codex CLI wants to run designos_new_document"));
+    assert_eq!((first.kind, first.key.as_str(), first.title.as_str()), (CardKind::McpTool, "cx-7-2", "Codex CLI wants to use design:os designos_new_document"));
     assert_eq!(first.summary, "designos · name: \"spike930b\"");
     click(&h, &first.key, Decision::Approve);
     assert_eq!(written(&mut h), r#"{"id":2,"result":{"action":"accept","content":null}}"#);
@@ -69,7 +69,7 @@ fn command_and_file_change_cards_reply_with_a_decision() {
     h.conn.send(&fixture("item-started-file-change.synthetic"));
     h.conn.send(&fixture("file-change-request.synthetic"));
     let files = card(&h);
-    assert_eq!((files.kind, files.title.as_str()), (CardKind::FileChange, "Codex CLI wants to change files"));
+    assert_eq!((files.kind, files.title.as_str()), (CardKind::FileChange, "Codex CLI wants to change 2 files"));
     click(&h, &files.key, Decision::Approve);
     replies.push(written(&mut h));
     assert_eq!(replies[2], r#"{"id":5,"result":{"decision":"accept"}}"#);
@@ -90,7 +90,7 @@ fn a_request_whose_item_was_not_seen_asks_for_the_turns_items_once() {
     let late = card(&h);
     assert_eq!(
         (late.key.as_str(), late.title.as_str(), late.summary.as_str()),
-        ("cx-7-0", "Codex CLI wants to run designos_new_document", "designos · name: \"spike930\"")
+        ("cx-7-0", "Codex CLI wants to use design:os designos_new_document", "designos · name: \"spike930\"")
     );
     assert!(h.conn.silence().is_empty(), "one lookup, and no reply before a click");
     h.conn.send(&with(request_with_id("mcp-elicitation-request-late", 20), "/params/turnId", json!("another-turn")));

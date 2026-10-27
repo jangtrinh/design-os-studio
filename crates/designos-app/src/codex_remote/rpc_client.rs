@@ -62,7 +62,7 @@ pub enum ClientCommand {
     Shutdown,
 }
 
-pub(super) enum Input {
+pub(crate) enum Input {
     Frame(Message),
     Command(ClientCommand),
     /// The reader hit the end of the stream or a frame it could not accept.
@@ -76,6 +76,13 @@ pub struct ClientHandle {
 }
 
 impl ClientHandle {
+    /// A handle whose commands land in the returned queue, with no client thread behind it.
+    #[cfg(test)]
+    pub(super) fn detached() -> (ClientHandle, Receiver<Input>) {
+        let (inbox, queue) = channel();
+        (ClientHandle { inbox }, queue)
+    }
+
     pub fn send(&self, command: ClientCommand) {
         // A client that already ended has nothing left to answer.
         let _ = self.inbox.send(Input::Command(command));

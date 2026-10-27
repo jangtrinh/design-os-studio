@@ -115,6 +115,7 @@ pub struct Decoder {
 }
 
 impl Decoder {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::default()
     }

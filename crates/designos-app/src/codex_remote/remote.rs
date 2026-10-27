@@ -61,13 +61,13 @@ impl CodexRemote {
         let config = ClientConfig {
             socket: rendezvous.clone(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
-            tab_title: crate::terminal::AgentCliPreset::Codex.tab_title().to_string(),
+            tab_title: crate::terminal::AgentCliPreset::Codex.short_agent_name().to_string(),
             ask_mode: ask_mode.clone(),
             session_folder: SessionFolder::new(launch.cwd()),
             timing: request.timing,
             wake: request.wake,
         };
         let client = rpc_client::spawn(config, tx).map_err(spawn_failed)?;
-        Ok(CodexRemote { link: CodexLink { events, client, ask_mode, _server: server }, rendezvous })
+        Ok(CodexRemote { link: CodexLink { events, client, ask_mode, _server: Some(server) }, rendezvous })
     }
 }

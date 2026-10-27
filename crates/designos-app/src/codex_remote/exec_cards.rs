@@ -1,7 +1,7 @@
 //! The text of command and file-change cards (#930): what Approve will run or change, shown exactly or not at all.
 
 use super::card_mapping::{is_set, MapContext, OpenTabReason};
-use super::file_changes::Changes;
+use super::file_changes::{Changes, FileLine};
 use crate::agent_permissions::MAX_INPUT_SUMMARY_CHARS;
 use crate::approval_text;
 use serde_json::Value;
@@ -46,18 +46,18 @@ pub(super) fn describe_command(ctx: &MapContext, params: &Value) -> Result<Strin
 /// first), when it asks for nothing beyond those files, every change is of a kind Studio describes, every path reads as it
 /// is, and the summary fits the shared limit: a cut would drop the last changes, and an edit of a shell startup file is as
 /// serious as a delete.
-pub(super) fn describe_file_change(ctx: &MapContext, thread_id: &str, params: &Value) -> Result<String, OpenTabReason> {
+pub(super) fn describe_file_change(ctx: &MapContext, thread_id: &str, params: &Value) -> Result<(String, Vec<FileLine>), OpenTabReason> {
     if is_set(&params["grantRoot"]) {
         return Err(OpenTabReason::Disqualified);
     }
     let item_id = params["itemId"].as_str().ok_or(OpenTabReason::Incomplete)?;
     match ctx.items.file_changes(thread_id, item_id) {
-        Some(Changes::Described(lines)) if !lines.is_empty() => {
+        Some(Changes::Described(lines, files)) if !lines.is_empty() => {
             let summary = lines.join(", ");
             if summary.chars().count() > MAX_INPUT_SUMMARY_CHARS {
                 return Err(OpenTabReason::ChangeCut);
             }
-            Ok(summary)
+            Ok((summary, files.clone()))
         }
         Some(Changes::UnknownKind) => Err(OpenTabReason::Disqualified),
         Some(Changes::PathNotShownExactly) => Err(OpenTabReason::PathNotShownExactly),

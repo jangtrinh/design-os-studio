@@ -67,7 +67,7 @@ pub(super) fn mcp_items() -> ItemIndex {
 fn an_mcp_tool_approval_is_titled_by_the_tool_of_the_matching_item() {
     let card = card(map(&fixture("mcp-elicitation-request"), &mcp_items()));
     assert_eq!((card.kind, card.key.as_str(), card.raw_id.clone()), (CardKind::McpTool, "cx-7-2", json!(2)));
-    assert_eq!(card.title, "Codex CLI wants to run designos_new_document");
+    assert_eq!(card.title, "Codex CLI wants to use design:os designos_new_document");
     assert_eq!(card.summary, "designos · name: \"spike930b\"");
     assert!(!card.truncated);
     assert_eq!((card.thread_id.as_str(), card.turn_id.as_str()), (THREAD, TURN2));
@@ -171,7 +171,7 @@ fn a_command_approval_that_is_more_than_a_plain_command_stays_in_the_terminal() 
 fn a_file_change_needs_no_extra_root_and_a_known_item_with_its_paths() {
     let items = index(&[fixture("item-started-file-change.synthetic")]);
     let card = card(map(&fixture("file-change-request.synthetic"), &items));
-    assert_eq!((card.kind, card.title.as_str()), (CardKind::FileChange, "Codex CLI wants to change files"));
+    assert_eq!((card.kind, card.title.as_str()), (CardKind::FileChange, "Codex CLI wants to change 2 files"));
     assert_eq!(card.summary, "add /session/notes/todo.md, edit /session/README.md");
     let grant = with(fixture("file-change-request.synthetic"), "/params/grantRoot", json!("/session"));
     assert_eq!(open_tab(map(&grant, &items)), OpenTabReason::Disqualified);

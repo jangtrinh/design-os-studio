@@ -5,6 +5,7 @@
 //! terminal's own menu: the tab shows the "Open tab" card for it.
 
 use super::exec_cards::{describe_command, describe_file_change};
+use super::file_changes::FileLine;
 use super::item_index::ItemIndex;
 use super::protocol::{method, CardKind};
 use super::session_folder::SessionFolder;
@@ -62,6 +63,20 @@ pub struct CodexCard {
     pub truncated: bool,
     pub thread_id: String,
     pub turn_id: String,
+    /// What the panel paints besides the title (boxed: the card travels through event queues).
+    pub detail: Box<CardDetail>,
+}
+
+/// The structured fields the card is painted from.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CardDetail {
+    /// A command card: the folder the command runs in (the tab's session folder, which the mapping checked).
+    pub cwd: Option<String>,
+    /// A tool card: the cleaned tool name, and the call's arguments as compact JSON (`None` when it has none).
+    pub tool: Option<String>,
+    pub input: Option<String>,
+    /// A file-change card: one entry per changed path, in the order of `summary`.
+    pub files: Vec<FileLine>,
 }
 
 pub enum Mapped {
@@ -129,9 +144,9 @@ fn describe_arguments(server: &str, arguments: &Value) -> String {
     }
 }
 
-/// `(tool, summary)` of an MCP tool approval. The summary comes from the running call's `arguments`, never from the
+/// `(tool, summary, arguments as JSON)` of an MCP tool approval. The summary comes from the running call's `arguments`, never from the
 /// request's display hints, and the request's own copy of the arguments (when it has one) must agree with them.
-fn describe_mcp(ctx: &MapContext, thread_id: &str, turn_id: &str, params: &Value) -> Result<(String, String), OpenTabReason> {
+fn describe_mcp(ctx: &MapContext, thread_id: &str, turn_id: &str, params: &Value) -> Result<(String, String, Option<String>), OpenTabReason> {
     if !is_plain_tool_form(params) {
         return Err(OpenTabReason::Disqualified);
     }
@@ -144,7 +159,8 @@ fn describe_mcp(ctx: &MapContext, thread_id: &str, turn_id: &str, params: &Value
     if params["_meta"].get("tool_params").is_some_and(|copy| !same_payload(copy, arguments)) {
         return Err(OpenTabReason::PayloadMismatch);
     }
-    Ok((tool.to_string(), describe_arguments(server, arguments)))
+    let input = is_set(arguments).then(|| approval_text::clean(&arguments.to_string()));
+    Ok((tool.to_string(), describe_arguments(server, arguments), input))
 }
 
 /// Decides whether a server request gets a card.
@@ -166,12 +182,23 @@ pub fn map_request(ctx: &MapContext, id: &Value, method_name: &str, params: &Val
     }
     let Some(turn_id) = params["turnId"].as_str() else { return reason(OpenTabReason::Incomplete) };
     let tab = ctx.tab_title;
+    let (mut cwd, mut tool, mut input, mut files) = (None, None, None, Vec::new());
     let described = match kind {
-        CardKind::McpTool => {
-            describe_mcp(ctx, thread_id, turn_id, params).map(|(tool, summary)| (format!("{tab} wants to run {}", approval_text::clean(&tool)), summary))
-        }
-        CardKind::Command => describe_command(ctx, params).map(|summary| (format!("{tab} wants to run a command"), summary)),
-        CardKind::FileChange => describe_file_change(ctx, thread_id, params).map(|summary| (format!("{tab} wants to change files"), summary)),
+        CardKind::McpTool => describe_mcp(ctx, thread_id, turn_id, params).map(|(name, summary, arguments)| {
+            let title = format!("{tab} wants to use design:os {}", approval_text::clean(&name));
+            tool = Some(approval_text::clean(&name));
+            input = arguments;
+            (title, summary)
+        }),
+        CardKind::Command => describe_command(ctx, params).map(|summary| {
+            cwd = params["cwd"].as_str().map(str::to_string);
+            (format!("{tab} wants to run a command"), summary)
+        }),
+        CardKind::FileChange => describe_file_change(ctx, thread_id, params).map(|(summary, changed)| {
+            let title = format!("{tab} wants to change {} file{}", changed.len(), if changed.len() == 1 { "" } else { "s" });
+            files = changed;
+            (title, summary)
+        }),
     };
     match described {
         Ok((title, raw_summary)) => {
@@ -180,7 +207,18 @@ pub fn map_request(ctx: &MapContext, id: &Value, method_name: &str, params: &Val
                 // The tail of a cut command is hidden, and an approved command may run outside the sandbox.
                 return reason(OpenTabReason::CommandCut);
             }
-            Mapped::Card(CodexCard { key, raw_id: id.clone(), kind, title, summary, truncated, thread_id: thread_id.into(), turn_id: turn_id.into() })
+            let input = input.map(|text| approval_text::finish(&text).0);
+            Mapped::Card(CodexCard {
+                key,
+                raw_id: id.clone(),
+                kind,
+                title,
+                summary,
+                truncated,
+                thread_id: thread_id.into(),
+                turn_id: turn_id.into(),
+                detail: Box::new(CardDetail { cwd, tool, input, files }),
+            })
         }
         Err(why) => reason(why),
     }

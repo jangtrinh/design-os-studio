@@ -52,6 +52,14 @@ impl TabEnv {
         TabEnv { vars: unique }
     }
 
+    /// This environment with the `DESIGNOS_*` values of `builder` laid over it: a session keeps one captured environment,
+    /// and each tab brings its own run id, page and files.
+    pub fn overlaid_with(&self, builder: &CommandBuilder) -> TabEnv {
+        let mut vars = self.vars.clone();
+        vars.extend(builder.iter_full_env_as_str().filter(|(name, _)| name.starts_with("DESIGNOS_")).map(|(name, value)| (name.into(), value.into())));
+        TabEnv::from_vars(vars)
+    }
+
     pub fn get(&self, name: &str) -> Option<&OsStr> {
         self.vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_os_str())
     }

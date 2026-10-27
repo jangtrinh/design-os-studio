@@ -39,8 +39,12 @@ pub const MCP_ENV_VARS: [&str; 14] = [
 /// waits for the pipe from Studio to close.
 const WATCHDOG_SCRIPT: &str = r#""$@" </dev/null & trap "" TERM; read _; kill -TERM 0; sleep 2; kill -KILL 0"#;
 
-/// `O_NOFOLLOW` on macOS (`<fcntl.h>`; this module is built there only): opening a link fails instead of following it.
+/// `O_NOFOLLOW` (`<fcntl.h>`): opening a link fails instead of following it. The card path runs on macOS only; the
+/// Linux value keeps this module's tests honest there.
+#[cfg(target_os = "macos")]
 const O_NOFOLLOW: i32 = 0x0100;
+#[cfg(not(target_os = "macos"))]
+const O_NOFOLLOW: i32 = 0x2_0000;
 
 /// A TOML basic string. JSON string escapes are a valid subset of TOML's (the same rendering `terminal.rs` uses).
 fn toml_string(s: &str) -> String {
@@ -109,6 +113,7 @@ pub struct ServerHandle {
 
 impl ServerHandle {
     /// The watchdog's pid, which is also the process group id of the whole server.
+    #[cfg(test)]
     pub fn pid(&self) -> u32 {
         self.child.as_ref().map_or(0, Child::id)
     }

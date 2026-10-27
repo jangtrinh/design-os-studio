@@ -9,9 +9,6 @@
 //! and `stale_socket` own the child, `launch` builds the TUI command, `ws`, `rpc_client` and `rpc_session` are the
 //! connection, `rpc_state` is its state machine, `card_mapping` makes the cards (the text through `approval_text`, the check
 //! that a command runs in the tab's folder through `session_folder`).
-// The integration that calls these items is a later change: remove this allow when it lands (#930).
-#![cfg_attr(not(test), allow(dead_code))]
-
 pub mod card_mapping;
 pub mod exec_cards;
 pub mod file_changes;
@@ -55,6 +52,8 @@ pub enum FallbackReason {
     SocketInUse,
     /// The server could not be started.
     SpawnFailed(String),
+    /// Not macOS: the card path is built and tested there only. The tab starts as today, with a note saying so.
+    PlatformUnsupported,
 }
 
 /// Which client initialized the server first. The first one names the process, and Studio wants the TUI to be it.
@@ -110,7 +109,7 @@ pub struct CodexLink {
     client: ClientHandle,
     ask_mode: Arc<AtomicBool>,
     /// Dropping the server closes the watchdog's pipe, which ends the server's whole process group.
-    _server: ServerHandle,
+    _server: Option<ServerHandle>,
 }
 
 impl CodexLink {
@@ -130,6 +129,16 @@ impl CodexLink {
     }
 }
 
+#[cfg(test)]
+impl CodexLink {
+    /// A link with no server behind it: the test feeds `events` and reads the answers the link sends.
+    pub(crate) fn for_test() -> (CodexLink, std::sync::mpsc::Sender<CodexEvent>, Receiver<rpc_client::Input>) {
+        let (tx, events) = std::sync::mpsc::channel();
+        let (client, sent) = ClientHandle::detached();
+        (CodexLink { events, client, ask_mode: Arc::new(AtomicBool::new(true)), _server: None }, tx, sent)
+    }
+}
+
 impl Drop for CodexLink {
     fn drop(&mut self) {
         self.client.send(ClientCommand::Shutdown);
@@ -138,6 +147,7 @@ impl Drop for CodexLink {
 
 #[cfg(test)]
 mod tests {
+    mod card_fields_tests;
     mod card_flow_tests;
     mod client_tests;
     mod command_cwd_tests;
