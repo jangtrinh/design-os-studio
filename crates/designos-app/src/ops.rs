@@ -208,10 +208,9 @@ impl App {
             self.changed();
             return true;
         }
-        let before_nodes = tx.ed.before_nodes().clone();
         let opened_at = tx.ed.opened_at();
-        match tx.commit(&mut self.doc, &mut self.hist) {
-            Ok(changed) => {
+        match tx.commit_with_before(&mut self.doc, &mut self.hist, None) {
+            Ok((changed, before_nodes)) => {
                 if changed {
                     // Every layout write of an editor edit goes through `tx.ed`, so the step holds the
                     // finished layout and undo and redo replay it as stored. Agent edits, agent turn
@@ -349,7 +348,8 @@ impl App {
         // A big document is only snapshotted around the selection, so layout it reflowed elsewhere is
         // not in the step: only a step diffed against the whole document is layout-recorded.
         let whole_doc = base.keys().eq(self.doc.nodes.keys());
-        let changed: Vec<NodeId> = base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| cur != *old)).map(|(id, _)| *id).collect();
+        let changed: Vec<NodeId> =
+            base.iter().filter(|(id, old)| self.doc.nodes.get(id).is_some_and(|cur| crate::edit::properties_changed(old, cur))).map(|(id, _)| *id).collect();
         for id in &changed {
             if let (Some(old), Some(cur)) = (base.get(id), self.doc.get(*id)) {
                 self.agent_busy_frames.record_user_node_update(old, cur);
