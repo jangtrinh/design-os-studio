@@ -1188,6 +1188,8 @@ mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+#[cfg(unix)]
+mod codex_cards;
 mod libraries;
 mod lint;
 mod plugins;

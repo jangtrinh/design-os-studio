@@ -18,14 +18,24 @@ pub enum CardAction {
     Deny(String),
     ShowPrompt,
     OpenTab(usize),
+    /// A click on a Codex card (`#930`): answered through that tab's app-server link, never through its PTY.
+    CodexApprove {
+        tab_id: usize,
+        key: String,
+    },
+    CodexDeny {
+        tab_id: usize,
+        key: String,
+    },
 }
 
 /// Height occupied by the approval card (including its top and bottom `SPACE_ROW` viewport margins).
-pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
+pub fn approval_card_outer_height(preset: AgentCliPreset, has_caption: bool) -> f32 {
     let is_claude = preset == AgentCliPreset::Claude;
     let summary_and_gap = if is_claude { theme::SPACE_ROW + theme::CONTROL_STANDARD } else { 0.0 };
     let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
-    card_h + theme::SPACE_ROW + theme::SPACE_ROW
+    let caption_h = if has_caption { theme::LINE_CAPTION + theme::SPACE_ROW } else { 0.0 };
+    card_h + theme::SPACE_ROW + theme::SPACE_ROW + caption_h
 }
 
 /// Paints the in-panel approval card pinned to the top of `viewport_rect` (inset by `SPACE_ROW`).
@@ -43,7 +53,7 @@ pub fn paint_approval_card(
     requests: &[ApprovalRequest],
     surface_id: &'static str,
 ) -> Option<CardAction> {
-    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id)
+    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), None, surface_id)
 }
 
 /// Paints the in-panel approval card for `tab_id` (`#656`, `#1195`).
@@ -56,6 +66,7 @@ pub fn paint_approval_card_for_tab(
     tab_id: usize,
     in_active_terminal: bool,
     total_pending: usize,
+    caption: Option<&str>,
     surface_id: &'static str,
 ) -> Option<CardAction> {
     let first_req = requests.first();
@@ -111,6 +122,13 @@ pub fn paint_approval_card_for_tab(
     let title_max_w = (header_r.right() - count_reserve - title_x).max(theme::CONTROL_DENSE);
     let title_elided = widgets::elide(&p, &raw_title, &title_font, title_max_w);
     p.text(Pos2::new(title_x, header_r.center().y), Align2::LEFT_CENTER, title_elided, title_font, theme::TEXT);
+
+    if let Some(caption) = caption {
+        // Why this tab asks in its terminal (`#930` F1): under the card, where it does not move the buttons.
+        let font = theme::font_caption();
+        let text = widgets::elide(&p, caption, &font, card_rect.width() - theme::INSET_FRAME - theme::INSET_FRAME);
+        p.text(Pos2::new(card_rect.left() + theme::INSET_FRAME, card_rect.bottom() + theme::SPACE_ROW), Align2::LEFT_TOP, text, font, theme::TEXT_SECONDARY);
+    }
 
     let mut y = header_r.bottom() + theme::SPACE_ROW;
 
@@ -168,8 +186,13 @@ pub fn paint_approval_card_for_tab(
     out
 }
 
+/// Width of a card button with `label`.
+pub(crate) fn card_button_width(p: &Painter, label: &str) -> f32 {
+    (widgets::text_width(p, label, &theme::font_body_medium()) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_ROW)
+}
+
 #[allow(clippy::too_many_arguments)]
-fn paint_card_button(
+pub(crate) fn paint_card_button(
     ui: &mut Ui,
     p: &Painter,
     id: impl std::hash::Hash + Copy + std::fmt::Debug,
@@ -180,7 +203,7 @@ fn paint_card_button(
     primary: bool,
 ) -> (Rect, egui::Response) {
     let font = theme::font_body_medium();
-    let w = (widgets::text_width(p, label, &font) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_ROW);
+    let w = card_button_width(p, label);
     let rect = Rect::from_min_size(Pos2::new(right_x - w, top_y), Vec2::new(w, theme::CONTROL_STANDARD));
     let resp = ui.interact(rect, Id::new(id), Sense::click());
     let fill = match (primary, resp.hovered()) {

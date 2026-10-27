@@ -393,8 +393,16 @@ impl Shell {
                 app.ui.permissions_modal_open = true;
             }
             Some(
-                p
-                @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab" | "agents-approval-background-tab" | "agents-scrollback"),
+                p @ ("agents-approval-command"
+                | "agents-approval-queued"
+                | "agents-approval-open-tab"
+                | "agents-approval-background-tab"
+                | "agents-scrollback"
+                | "agents-codex-command"
+                | "agents-codex-files"
+                | "agents-codex-tool"
+                | "agents-codex-gate"
+                | "agents-codex-lost"),
             ) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;

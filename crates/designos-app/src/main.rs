@@ -7,6 +7,11 @@ pub mod agent_cli_catalog;
 mod agent_cli_export_fig_tests;
 #[cfg(test)]
 mod agent_cli_select_tests;
+#[cfg(unix)]
+pub mod agent_codex_cards;
+#[cfg(not(unix))]
+#[path = "agent_codex_cards_stub.rs"]
+pub mod agent_codex_cards;
 pub mod agent_composer;
 mod agent_failure_redact;
 pub mod agent_hook_outputs;

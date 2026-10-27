@@ -149,7 +149,7 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 60] = [
+pub const PANELS: [&str; 65] = [
     "agents",
     "agents-chat",
     "agents-picker",
@@ -159,6 +159,11 @@ pub const PANELS: [&str; 60] = [
     "agents-approval-queued",
     "agents-approval-open-tab",
     "agents-approval-background-tab",
+    "agents-codex-command",
+    "agents-codex-files",
+    "agents-codex-tool",
+    "agents-codex-gate",
+    "agents-codex-lost",
     "agents-scrollback",
     "agent-permissions",
     "specs",
