@@ -71,6 +71,7 @@ impl Sim {
         Self::with(Options::default())
     }
     fn with(mut opts: Options) -> Self {
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
             opts.fixture = Some("demo".into());
         }

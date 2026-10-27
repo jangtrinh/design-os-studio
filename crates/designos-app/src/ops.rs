@@ -2144,7 +2144,15 @@ impl App {
         let _ = self.try_open_path(p);
     }
 
+    pub fn open_path_with_clone_budget(&mut self, p: PathBuf, clone_budget: usize) {
+        let _ = self.try_open_path_with_clone_budget(p, clone_budget);
+    }
+
     pub fn try_open_path(&mut self, p: PathBuf) -> Result<(), String> {
+        self.try_open_path_with_clone_budget(p, designos_fig::MAX_IMPORT_CLONES)
+    }
+
+    pub fn try_open_path_with_clone_budget(&mut self, p: PathBuf, clone_budget: usize) -> Result<(), String> {
         if io::is_web_capture_path(&p) {
             let raw = std::fs::read_to_string(&p).map_err(|e| {
                 let msg = format!("Cannot read {}: {e}", p.display());
@@ -2182,7 +2190,7 @@ impl App {
         if self.ask_before_open(&p) {
             return Ok(());
         }
-        match io::load_path_with_warning(&p) {
+        match io::load_path_with_clone_budget(&p, clone_budget) {
             Ok((doc, warning)) => {
                 let name = doc.name.clone();
                 // An SVG becomes a new unsaved document, never overwritten by Save.
