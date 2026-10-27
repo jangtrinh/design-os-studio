@@ -29,6 +29,74 @@ pub static SELECT_MISS: std::sync::OnceLock<String> = std::sync::OnceLock::new()
 /// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
 pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// Set when `--screenshot` gives up or rejects a malformed image, carrying the reason to `main`.
+pub static SHOT_FAILURE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Frames to wait for `Event::Screenshot` after sending `ViewportCommand::Screenshot` before counting the request as lost.
+pub const SHOT_IMAGE_WAIT_FRAMES: u32 = 10;
+
+/// Maximum number of screenshot requests per capture before giving up.
+pub const SHOT_MAX_REQUESTS: u32 = 5;
+
+/// Wall-clock timeout without a drawn frame after the first screenshot frame before the watchdog exits.
+pub const SHOT_WATCHDOG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Reason reported when the screenshot window stops drawing frames for 30 s.
+pub const SHOT_OCCLUDED_REASON: &str = "the window was not drawn for 30 s (occluded or minimised)";
+
+/// Reason reported when the screenshot window closes before a capture is written.
+pub const SHOT_CLOSED_REASON: &str = "the window closed before the capture";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShotOutcome {
+    Pending,
+    Written,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShotWatchdog {
+    last_frame_at: Option<std::time::Duration>,
+    done: bool,
+}
+
+impl ShotWatchdog {
+    pub const fn new() -> Self {
+        Self { last_frame_at: None, done: false }
+    }
+
+    pub fn arm(&mut self, _now: std::time::Duration) {}
+
+    pub fn disarm(&mut self) {
+        self.done = true;
+    }
+
+    pub fn check(&self, _now: std::time::Duration) -> Option<&'static str> {
+        None
+    }
+}
+
+pub fn failure_line(_outcome: &ShotOutcome) -> String {
+    "designos: screenshot was not captured".to_string()
+}
+
+pub fn failure_exit_code(_outcome: &ShotOutcome) -> i32 {
+    1
+}
+
+pub fn image_to_rgba(w: u32, h: u32, raw: Vec<u8>) -> Result<image::RgbaImage, String> {
+    image::RgbaImage::from_raw(w, h, raw).ok_or_else(String::new)
+}
+
+pub fn screenshot_viewport(w: u32, h: u32) -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_title("design:os studio")
+        .with_inner_size([w as f32, h as f32])
+        .with_min_inner_size([200.0, 200.0])
+        .with_resizable(true)
+        .with_active(false)
+}
+
 #[derive(Clone, Default)]
 pub struct MicroSeqHud {
     pub focus_page: designos_doc::Vec2,
@@ -76,8 +144,18 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    #[allow(dead_code)]
+    pub(crate) requests: u32,
+    #[allow(dead_code)]
+    pub(crate) requested_at: Option<u32>,
+    #[allow(dead_code)]
+    pub(crate) lost_frames: Vec<u32>,
+    #[allow(dead_code)]
+    pub(crate) last_surface_status: Option<String>,
     #[cfg(debug_assertions)]
-    drop_images: u32,
+    pub(crate) drop_images: u32,
+    #[allow(dead_code)]
+    pub(crate) outcome: ShotOutcome,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -498,8 +576,13 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            requests: 0,
+            requested_at: None,
+            lost_frames: Vec::new(),
+            last_surface_status: None,
             #[cfg(debug_assertions)]
             drop_images: std::env::var("DESIGNOS_SHOT_DROP_IMAGES").ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0),
+            outcome: ShotOutcome::Pending,
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
     }
