@@ -1,4 +1,4 @@
-use crate::Vec2;
+use crate::{LeadingTrim, Vec2};
 use serde::{Deserialize, Serialize};
 
 /// Straight (non-premultiplied) sRGB color, components 0..=1.
@@ -457,6 +457,18 @@ pub struct TextStyle {
     /// Letter spacing in px.
     pub letter_spacing: f32,
     pub paragraph_spacing: f32,
+    /// First-line indent in px. Shared text styles carry this value; text
+    /// layers keep the canonical copy in [`TextProps::paragraph`].
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub paragraph_indent: f32,
+    /// Extra spacing between consecutive list items in px. Shared text styles
+    /// carry this value; text layers keep the canonical copy in
+    /// [`TextProps::paragraph`].
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub list_spacing: f32,
+    /// Figma's vertical trim setting for a shared text style.
+    #[serde(default, skip_serializing_if = "is_default_leading_trim")]
+    pub leading_trim: LeadingTrim,
     pub align_h: TextAlignH,
     pub align_v: TextAlignV,
     pub case: TextCase,
@@ -527,6 +539,9 @@ impl Default for TextStyle {
             line_height: LineHeight::Auto,
             letter_spacing: 0.0,
             paragraph_spacing: 0.0,
+            paragraph_indent: 0.0,
+            list_spacing: 0.0,
+            leading_trim: LeadingTrim::None,
             align_h: TextAlignH::Left,
             align_v: TextAlignV::Top,
             case: TextCase::Original,
@@ -560,6 +575,10 @@ fn is_default_grid_align(a: &LayoutGridAlign) -> bool {
 
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
+}
+
+fn is_default_leading_trim(v: &LeadingTrim) -> bool {
+    *v == LeadingTrim::default()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

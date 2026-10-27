@@ -322,6 +322,9 @@ fn every_field(line_height: LineHeight, fills: Vec<Paint>) -> TextStyle {
         line_height,
         letter_spacing: 1.5,
         paragraph_spacing: 8.0,
+        paragraph_indent: 0.0,
+        list_spacing: 0.0,
+        leading_trim: designos_doc::LeadingTrim::None,
         align_h: TextAlignH::Center,
         align_v: TextAlignV::Bottom,
         case: TextCase::Upper,
@@ -341,21 +344,47 @@ fn a_created_text_style_survives_a_fig_export_and_import_in_every_field() {
         s.shell.app.edit_nodes(&[id], |n| {
             if let NodeKind::Text(t) = &mut n.kind {
                 t.style = expected.clone();
+                t.paragraph.indent = 5.0;
+                t.paragraph.list_spacing = 3.0;
+                t.paragraph.leading_trim = designos_doc::LeadingTrim::CapHeight;
             }
         });
         redraw(&mut s);
         pick(&mut s, BUTTON, 1, 1);
-        assert_eq!(style_of(&s, "Text style 1"), &expected, "{line_height:?}: the style holds all of the layer's values");
+        let expected_style = TextStyle {
+            align_h: TextAlignH::Left,
+            align_v: TextAlignV::Top,
+            paragraph_indent: 5.0,
+            list_spacing: 3.0,
+            leading_trim: designos_doc::LeadingTrim::CapHeight,
+            ..expected.clone()
+        };
+        assert_eq!(style_of(&s, "Text style 1"), &expected_style, "{line_height:?}: the style holds all style-owned values");
         let bytes = designos_fig::export_fig(&s.app().doc).expect("export .fig");
         let back = designos_fig::import_fig(&bytes).expect("import .fig");
         let key = find_style(&back, "Text style 1");
         assert_eq!(back.style_meta[&key].property, StyleProperty::Text);
         let Style::Text(ts) = &back.styles[&key] else { panic!("{:?} is not a text style", back.styles[&key]) };
         // Colour is not part of a text style, and a `.fig` text style carries none.
-        assert_eq!(&TextStyle { fills: expected.fills.clone(), ..ts.clone() }, &expected, "{line_height:?}: every field of the style comes back");
+        let expected_style = TextStyle {
+            align_h: TextAlignH::Left,
+            align_v: TextAlignV::Top,
+            paragraph_indent: 5.0,
+            list_spacing: 3.0,
+            leading_trim: designos_doc::LeadingTrim::CapHeight,
+            fills: expected.fills.clone(),
+            ..expected.clone()
+        };
+        assert_eq!(ts, &expected_style, "{line_height:?}: every style-owned field comes back");
         let name = s.app().doc.get(id).unwrap().name.clone();
         let layer = back.nodes.values().find(|n| n.name == name).expect("the layer is in the file");
         assert_eq!(layer.style_refs.get("text"), Some(&key), "the layer is still linked");
+        let NodeKind::Text(tp) = &layer.kind else { panic!("the imported layer is text") };
+        assert_eq!(tp.style.align_h, TextAlignH::Center, "layer alignment survives the shared style round trip");
+        assert_eq!(tp.style.align_v, TextAlignV::Bottom, "layer vertical alignment survives the shared style round trip");
+        assert_eq!(tp.paragraph.indent, 5.0);
+        assert_eq!(tp.paragraph.list_spacing, 3.0);
+        assert_eq!(tp.paragraph.leading_trim, designos_doc::LeadingTrim::CapHeight);
     }
 }
 

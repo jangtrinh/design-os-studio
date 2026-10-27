@@ -277,6 +277,17 @@ pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     if let Some(p) = fnum(v, "paragraphSpacing") {
         ts.paragraph_spacing = p;
     }
+    if let Some(p) = fnum(v, "paragraphIndent") {
+        ts.paragraph_indent = p.max(0.0);
+    }
+    if let Some(p) = fnum(v, "listSpacing") {
+        ts.list_spacing = p.max(0.0);
+    }
+    match fstr(v, "leadingTrim") {
+        Some("CAP_HEIGHT") => ts.leading_trim = LeadingTrim::CapHeight,
+        Some("NONE") => ts.leading_trim = LeadingTrim::None,
+        _ => {}
+    }
     // Percentage spacing from a partial `.fig` override: resolved against the final size.
     if let Some(p) = fnum(v, "letterSpacingPercent") {
         ts.letter_spacing = p / 100.0 * ts.font_size;
@@ -1286,7 +1297,17 @@ impl<'a> Ctx<'a> {
                     })),
                     "stroke" => Some(Style::Fill(n.stroke.paints.clone())),
                     "text" => match &n.kind {
-                        NodeKind::Text(t) => Some(Style::Text(t.style.clone())),
+                        NodeKind::Text(t) => {
+                            // Alignment belongs to the text layer, not the
+                            // shared style. A style inferred from its first
+                            // consumer must use the style defaults here too;
+                            // otherwise a .fig round trip reintroduces the
+                            // consumer's alignment into the style.
+                            let mut style = t.style.clone();
+                            style.align_h = TextAlignH::Left;
+                            style.align_v = TextAlignV::Top;
+                            Some(Style::Text(style))
+                        }
                         _ => None,
                     },
                     "effect" => Some(Style::Effect(n.effects.clone())),
