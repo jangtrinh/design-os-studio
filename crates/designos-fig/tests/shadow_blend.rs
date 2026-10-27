@@ -115,3 +115,14 @@ fn rest_shadows_without_a_blend_mode_load_as_normal() {
     let doc = import_rest_json(json).unwrap();
     assert_eq!(modes(find(&doc, "Shadowed")), vec![BlendMode::Normal, BlendMode::Normal]);
 }
+
+#[test]
+fn imported_pass_through_shadow_blend_round_trips_unchanged() {
+    // the Effects panel doesn't offer pass-through, but an imported value is kept as is
+    let d1 = import_fig(&fig_fixture(vec![kiwi_shadow("DROP_SHADOW", Some("PASS_THROUGH"))])).unwrap();
+    assert_eq!(modes(find(&d1, "Shadowed")), vec![BlendMode::PassThrough], "fig import");
+    let d2 = import_fig(&export_fig(&d1).unwrap()).unwrap();
+    assert_eq!(modes(find(&d2, "Shadowed")), vec![BlendMode::PassThrough], "fig re-import");
+    let back = import_rest_json(&export_rest_json(&d2).to_string()).unwrap();
+    assert_eq!(modes(find(&back, "Shadowed")), vec![BlendMode::PassThrough], "REST round trip");
+}
