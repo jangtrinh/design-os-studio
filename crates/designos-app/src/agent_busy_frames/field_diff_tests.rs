@@ -697,6 +697,69 @@ fn only_the_fields_that_changed_are_encoded_not_the_geometry_around_them() {
 }
 
 #[test]
+#[ignore = "opt-in real-file benchmark: set DESIGNOS_BENCH_FILE"]
+fn ac01_ac04_measure_on_a_real_file() {
+    let Some(raw_path) = std::env::var_os("DESIGNOS_BENCH_FILE").filter(|v| !v.is_empty()) else {
+        eprintln!("[BENCH] skipped: DESIGNOS_BENCH_FILE is unset");
+        return;
+    };
+    let path = std::path::PathBuf::from(raw_path);
+    let basename = path.file_name().and_then(|s| s.to_str()).unwrap_or("<unknown>").to_owned();
+    let meta_before = std::fs::metadata(&path).unwrap_or_else(|e| panic!("stat DESIGNOS_BENCH_FILE {}: {e}", path.display()));
+
+    let mut doc = crate::io::load_path(&path).unwrap_or_else(|e| panic!("load DESIGNOS_BENCH_FILE {}: {e}", path.display()));
+    let page = match std::env::var("DESIGNOS_BENCH_PAGE").ok().filter(|s| !s.is_empty()) {
+        Some(wanted) => doc.pages.iter().copied().find(|&p| doc.get(p).is_some_and(|n| n.name == wanted)).unwrap_or_else(|| {
+            let available: Vec<String> = doc.pages.iter().filter_map(|&p| doc.get(p).map(|n| n.name.clone())).collect();
+            panic!("DESIGNOS_BENCH_PAGE={wanted:?} not found in {basename}; available pages: {available:?}")
+        }),
+        None => doc.pages.iter().copied().max_by_key(|&p| doc.page_node_count(p)).expect("document has at least one page"),
+    };
+    doc.ensure_page_hydrated(page);
+
+    let page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_default();
+    let nodes = doc.page_node_count(page);
+
+    let mut app = App::new(doc);
+    app.page = page;
+    app.selection.clear();
+
+    let mut page_nodes = Vec::with_capacity(nodes);
+    if let Some(pg) = app.doc.get(page) {
+        for root in pg.children.clone() {
+            app.doc.walk(root, |n, _| page_nodes.push(n.id));
+        }
+    }
+
+    let t0 = std::time::Instant::now();
+    let mut tx = Tx::new();
+    for &id in &page_nodes {
+        tx.ed.touch(&app.doc, id);
+    }
+    let queue_was_idle = app.doc.pending_relayout().is_empty();
+    let _fixed = crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &[], None);
+    if queue_was_idle {
+        tx.ed.rebase_layout_epoch(&app.doc);
+    }
+    let t_record = std::time::Instant::now();
+    let (_committed, tx_allocs) = allocations_in(|| app.run_tx(tx));
+    let record_loop_ms = t_record.elapsed().as_secs_f64() * 1000.0;
+    let autofix_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let user_edited_fields = app.agent_busy_frames.user_edited_fields.len();
+
+    let meta_after = std::fs::metadata(&path).unwrap_or_else(|e| panic!("stat DESIGNOS_BENCH_FILE after run {}: {e}", path.display()));
+    assert_eq!(
+        (meta_after.len(), meta_after.modified().ok()),
+        (meta_before.len(), meta_before.modified().ok()),
+        "ac01_ac04_measure_on_a_real_file must never write the input file"
+    );
+
+    eprintln!(
+        "[BENCH] file={basename} page={page_name} nodes={nodes} autofix_ms={autofix_ms:.2} record_loop_ms={record_loop_ms:.2} tx_allocs={tx_allocs} user_edited_fields={user_edited_fields}"
+    );
+}
+
+#[test]
 fn record_user_node_update_sets_both_changed_when_the_agent_wrote_the_same_field_this_turn() {
     let mut before = populated();
     before.id = NodeId(40);
