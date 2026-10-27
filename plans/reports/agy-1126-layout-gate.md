@@ -1228,3 +1228,172 @@ PASS: no count rose above the baseline
   - None.
 
 Status: DONE — Round 6 comparer and test fixes (Major 1 and Minor 1 fixed red-to-green, Item 3 made load-resilient and proven to fail when the 5 s sleep loop is put back, Major 2 rejected per controller ruling) verified on `efc19e7e` with 0 fmt diffs, 0 clippy warnings, 1,281/0 workspace lib tests, 3,021/0 designos bin tests, 17/17 zero-fake UI gate, and 0 spacing regressions.
+
+
+---
+
+## Round 7 — Load-Proof Tests, Tier B Capture Script (`scripts/layout_baseline_capture.py`), and Local 74-Case Tier B Verification (`#1126` Step 8)
+
+### 1. What Could NOT Be Verified (First Section)
+
+1. **Step 9 Bless (`cases.json.bless_sha` and `crates/designos-app/tests/layout-baseline/*.layout.json`):**
+   - Explicitly excluded from Round 7 per controller brief: *"Not in this round: the bless (step 9). No `*.layout.json` baselines and no `cases.json.bless_sha`. Rule 11 needs `bless_sha` to be the parent of the squash commit, with nothing merging in between, so the controller runs the bless itself in a merge window agreed with the PM."*
+2. **Kit Cases (`kit-editor` and `kit-agents`):**
+   - Skipped during the headless local Tier B run (`SKIP kit-editor: no --kit` and `SKIP kit-agents: no --kit`) because `--kit` was omitted in the headless run (`Cases: 74 captured, 2 skipped (76 total)`).
+3. **Spec vs. Brief Differences Identified & Documented:**
+   - **Difference 1 (`--seed-library` in `scripts/layout_baseline_capture.py` vs. Spec L §5):** Spec L §5 shows `designos --seed-library "$RUN/lib"` inside the `env -i` block where `DESIGNOS_AGENT_CLI_DIR="$RUN/stubs"` is already exported. However, `cli_resolve::enforce_hermetic_startup_os()` (Rule 5) denies `DESIGNOS_AGENT_CLI_DIR` whenever `--screenshot` is not present on the command line (returning exit code `2` with `DESIGNOS_AGENT_CLI_DIR requires --screenshot`). Therefore `scripts/layout_baseline_capture.py` runs `designos --seed-library "$RUN/lib"` under `env -i` with `HOME`, `PATH`, `TMPDIR`, `DESIGNOS_LIBRARY` first, re-verifies `<run>/lib/.designos-hermetic`, and then executes the case capture under the exact 6-variable `env -i` block (`HOME`, `PATH`, `TMPDIR`, `DESIGNOS_LIBRARY`, `DESIGNOS_AGENT_CLI_DIR`, `DESIGNOS_STUB_LOG`).
+   - **Difference 2 (`cargo test -p designos-app --bin designos --locked` environment vs. Acceptance Table command):** Exporting `DESIGNOS_AGENT_CLI_DIR="$PWD/crates/designos-app/tests/fixtures/agent-stubs"` into the parent `cargo test --bin designos` process activates `cli_resolve::hermetic_mode_active()` (`std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()`), while `HERMETIC_AGENT_CLI_DIR: OnceLock<PathBuf>` is only populated by `enforce_hermetic_startup_os()` inside `main()`, which the Rust test harness does not call. Non-gate unit tests that call `build_agent_shell_cmd_checked_for_tab` (`terminal.rs:4414`) then fail with `Err("hermetic mode: startup-validated DESIGNOS_AGENT_CLI_DIR is missing")`. Running `cargo test -p designos-app --bin designos --locked` under the clean `PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.cargo/bin"` without parent-shell `DESIGNOS_AGENT_CLI_DIR` (letting each hermetic test scope `DESIGNOS_AGENT_CLI_DIR` via `ScopedCliDirs` or child `Command::env`) passes all `3,021` bin tests with `0` failures.
+   - **Difference 3 (macOS AMFI/syspolicy vnode cache warm-up for `"spawns": true` cases):** Copying stub scripts to a fresh temporary directory per case (`<run>/stubs`) creates new inodes on macOS `/var/folders/...`; on the first execution of a fresh script inode, macOS `syspolicy_check` can delay `/bin/sh` startup past the 12-frame headless screenshot window before `stubs/claude` appends its invocation line to `$DESIGNOS_STUB_LOG`. For `"spawns": true` cases (`i-agents-chat`, `i-agents-start-failure`), `copy_stubs_with_marker` warms the copied stub inodes by running `<stub> --version` under `env -i PATH=/usr/bin:/bin` (without `DESIGNOS_STUB_LOG` set) before launching `designos`.
+
+---
+
+### 2. Part A — Complete Audit of `Instant` / `Duration` Bounds Under 5 s in `git diff origin/main...HEAD`
+
+Committed in `7b0d108e9` (`test(app): make layout gate and cli resolver tests load-proof`). Every `Instant` / `Duration` occurrence in `git diff origin/main...HEAD` was audited:
+
+| # | Location | Original Bound / Usage | Action Taken in Round 7 | Why |
+|---|---|---|---|---|
+| 1 | `crates/designos-app/src/cli_resolve.rs:916` (`non_hermetic_catalog_path_prepends_install_and_extra_before_host_path`) | `SystemCommandRunner.run(..., Duration::from_secs(2))` | **Changed to `Duration::from_secs(30)`** | Under full-bin parallel load, `fork`/`exec` of `/bin/sh` exceeded 2 s and timed out with exit code `None`. `run()` returns as soon as the child exits, so 30 s makes the PATH check load-proof. |
+| 2 | `crates/designos-app/src/layout_snapshot.rs:1773-1792` (`agent_cases_do_not_depend_on_installed_clis` 8c child test) | `assert!(build_elapsed < Duration::from_millis(600), ...)` | **Replaced with time-independent state assertions** right after `Shell::build` before any frame runs (`pending_send == Some("Create a SaaS analytics card in Claude Code")`, `notice == Some("Starting Claude Code\u{2026} your message will be sent")`, `active_tab().is_some_and(\|t\| t.last_usage_status.is_none())`), plus set `app.terminal.active_runtime = AgentCliPreset::Claude` in `crates/designos-app/src/shell.rs:336` (`Some("agents-chat")`). | A 600 ms wall-clock bound cannot distinguish an 800 ms sleep loop from a loaded machine. If the old 800 ms `poll_live_agent_bridge()` loop in `Shell::build` is put back, `pending_send` is drained (`None`) and `notice` is cleared (`None`) during `Shell::build`, failing the new state check deterministically (`plans/reports/agy-1126-layout-gate-evidence/r7-red.log` lines 1–56). |
+| 3 | `crates/designos-app/src/layout_snapshot.rs:1824-1848` (8c test `i-agents-start-failure` wait) and `crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:109-132` (`run_spec_cases` `i-agents-start-failure` wait) | `Duration::from_secs(2)` deadline loop without post-loop exit assertion | **Changed deadline to `Duration::from_secs(15)`**, added `assert!(exited, "case {}: stub child did not exit within 15s deadline", ...)`, refreshed `t.spawned_at = Instant::now()` before the 2 diagnostic frames so `counts_as_failed_start` (`<= START_FAILURE_WINDOW`) is immune to slow OS spawn, and asserted `active_tab().is_some_and(\|t\| t.start_failure.is_some())`. | Prevents snapshotting a half-started state under heavy load while still breaking out of the poll loop immediately once the stub exits. |
+| 4 | `crates/designos-app/src/layout_snapshot.rs:2173-2203` (`open_failed_start_fixture_does_not_block_waiting_for_exit`) | `elapsed < Duration::from_secs(4)` combined with `!bridge_polled` | **Removed `Instant::now()` / `Duration::from_secs(4)` wall-clock check**; replaced with deterministic state check `!bridge_polled && unpolled_tab` (`!terminal.deferred_bridge_actions.is_empty()` and `active_tab().is_some_and(\|t\| t.start_failure.is_none() && t.last_usage_status.is_none())`). | Eliminates wall-clock sensitivity while directly verifying that `open_failed_start_fixture` neither drained `deferred_bridge_actions` nor polled the tab's exit status during fixture open. |
+| 5 | `crates/designos-app/src/layout_snapshot.rs:1833` and `crates/designos-app/src/shell/tests/layout_unchanged/mod.rs:118` | `std::thread::sleep(Duration::from_millis(10))` | **Left unchanged** | This is the 10 ms polling sleep interval inside the 15 s child-exit wait loop, not a timeout or deadline assertion. |
+| 6 | `crates/designos-app/src/showcase/mod.rs:101-130` | `Duration::from_secs(1_700_000_000)`, `Duration::from_secs(120)`, `Duration::from_secs(3_600)`, `Duration::from_secs(86_400)`, `Duration::from_secs(259_200)` | **Left unchanged** | Fixed epoch constants (`T_BASE - ...`) used by `--seed-library` for deterministic `modified` timestamps (Rule 7), not wall-clock bounds. |
+
+---
+
+### 3. Part B & Part C — Commits & Evidence Files
+
+- **Commits on `jangtrinh/agy-1126-layout-gate`:**
+  1. `b01caef60` — `Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1126-layout-gate`
+  2. `7b0d108e9` — `test(app): make layout gate and cli resolver tests load-proof`
+  3. `71a3c8744` — `test(scripts): add unit tests for layout_baseline_capture.py`
+  4. Final commit — `feat(scripts): add Tier B layout baseline capture and comparison script`
+- **Evidence Files in `plans/reports/agy-1126-layout-gate-evidence/`:**
+  - `r7-red.log` — Part A (8c test failing with the 800 ms `poll_live_agent_bridge` loop restored in `Shell::build`) + Part B (`python3 -m unittest discover -s scripts/tests -v` failing with `ModuleNotFoundError: No module named 'layout_baseline_capture'` before `scripts/layout_baseline_capture.py` existed).
+  - `r7-green.log` — Part A & Part B green runs (`LayoutBaselineCaptureTest` 9/9 passing, full `scripts/tests` 52/52 passing, and load-proof Rust tests passing).
+  - `r7-tierb.log` — Full 74-case local Tier B capture (`Cases: 74 captured, 2 skipped (76 total)`) and self-compare (`G6: 0 mismatches.`).
+  - `wireframe-d-window-chrome.png` & `r7-wireframe-d-window-chrome.png` — `d-window-chrome` wireframe overlay sheet (`7,544` bytes).
+  - `colour-sheet.png` & `r7-colour-sheet.png` — 8-column colour contact sheet (`974,173` bytes = `951 KB`, `< 1 MB`).
+  - `invocations.log` & `r7-invocations.log` — Stub invocation log from the 74-case Tier B capture (`2` lines: `.../run/stubs/claude --session-id ...` and `.../run/stubs/agy --mcp-config /nonexistent/mcp.json`).
+
+---
+
+### 4. Acceptance Table (All 8 Gates with Pasted Output)
+
+| Gate | Command | Verdict | Output Summary |
+|---|---|---|---|
+| **1. Clean `PATH`** | `for c in claude codex gemini grok agy opencode; do command -v $c; done` | **PASS** | Prints nothing (`0` lines) |
+| **2. Format** | `cargo fmt --all -- --check` | **PASS** | Exit `0` |
+| **3. Clippy** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** | Exit `0`, `0` warnings |
+| **4. Workspace lib** | `cargo test --workspace --locked --lib` | **PASS** | `1,281 passed; 0 failed` across 12 lib crates |
+| **5. Bin suite** | `cargo test -p designos-app --bin designos --locked` | **PASS** | `3,021 passed; 0 failed; 8 ignored` (incl. `non_hermetic_catalog_path_prepends_install_and_extra_before_host_path`, `agent_cases_do_not_depend_on_installed_clis`, `open_failed_start_fixture_does_not_block_waiting_for_exit`) |
+| **6. Zero-fake & spacing** | `python3 scripts/zero_fake_ui_gate.py && python3 scripts/check_spacing_relationships.py` | **PASS** | `17/17 invariants satisfied` & `PASS: no count rose above the baseline` |
+| **7. Script unit tests (Test 11)** | `python3 -m unittest discover -s scripts/tests -v` | **PASS** | `Ran 52 tests in 11.084s — OK` (`9/9` in `LayoutBaselineCaptureTest`) |
+| **8. Local Tier B (Test 10)** | `scripts/layout_baseline_capture.py` capture + `--compare` self-compare | **PASS** | `74 captured, 2 skipped (76 total)`, all 3 post-run checks passed, `--compare` exited `0` (`G6: 0 mismatches.`) |
+
+#### Pasted Gate Outputs
+
+```text
+=== 1. Clean PATH ===
+$ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.cargo/bin"
+$ for c in claude codex gemini grok agy opencode; do command -v $c; done
+(empty output — 0 lines)
+
+=== 2. Format ===
+$ cargo fmt --all -- --check
+(exit 0 — 0 lines)
+
+=== 3. Clippy ===
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.34s
+
+=== 4. Workspace lib ===
+$ cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.25s
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.11s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.49s
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.53s
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 35.15s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+=== 5. Bin suite ===
+$ cargo test -p designos-app --bin designos --locked
+running 3029 tests
+...
+test cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path ... ok
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+...
+test result: ok. 3021 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 155.22s
+
+=== 6. Zero-fake & spacing ===
+$ python3 scripts/zero_fake_ui_gate.py && python3 scripts/check_spacing_relationships.py
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+literal geometry outside theme.rs: offset_literals=1675, inset_literals=45, radius_literals=260, font_literals=25, nonconcentric_pairs=2
+note: 11 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+
+=== 7. Script unit tests (Test 11) ===
+$ python3 -m unittest discover -s scripts/tests -v
+test_clean_run_exits_0_and_writes_sheets (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_clean_run_exits_0_and_writes_sheets) ... ok
+test_compare_structural_drift_exits_3_and_prints_both_g1_g5_and_g6 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_compare_structural_drift_exits_3_and_prints_both_g1_g5_and_g6) ... ok
+test_corrupt_screenshot_png_exits_1 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_corrupt_screenshot_png_exits_1) ... ok
+test_log_line_outside_stubs_exits_2 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_log_line_outside_stubs_exits_2) ... ok
+test_missing_hermetic_active_file_exits_2 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_hermetic_active_file_exits_2) ... ok
+test_missing_kit_skips_kit_cases_and_exits_0 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_kit_skips_kit_cases_and_exits_0) ... ok
+test_missing_screenshot_exits_1_with_message (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_screenshot_exits_1_with_message) ... ok
+test_only_spec_unknown_key_exits_2 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_only_spec_unknown_key_exits_2) ... ok
+test_spawns_true_with_no_log_line_exits_2 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_spawns_true_with_no_log_line_exits_2) ... ok
+...
+----------------------------------------------------------------------
+Ran 52 tests in 11.084s
+
+OK
+
+=== 8. Local Tier B (Test 10) ===
+$ python3 scripts/layout_baseline_capture.py \
+    --bin "$PWD/out/cargo/release/designos" \
+    --cases crates/designos-app/tests/layout-baseline/cases.json \
+    --stubs crates/designos-app/tests/fixtures/agent-stubs \
+    --out "$PWD/out/layout-tierb/993afe38"
+SKIP kit-editor: no --kit
+SKIP kit-agents: no --kit
+Every case has its acknowledgement.
+Every spawns case logged a stub line.
+Every $0 in invocations.log starts with the stub dir (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-2an_jetj/run/stubs/).
+Cases: 74 captured, 2 skipped (76 total), wall time 437.87s
+
+$ python3 scripts/layout_baseline_capture.py \
+    --bin "$PWD/out/cargo/release/designos" \
+    --cases crates/designos-app/tests/layout-baseline/cases.json \
+    --stubs crates/designos-app/tests/fixtures/agent-stubs \
+    --out "$PWD/out/layout-tierb/993afe38-selfcheck" \
+    --compare "$PWD/out/layout-tierb/993afe38"
+SKIP kit-editor: no --kit
+SKIP kit-agents: no --kit
+G6: 0 mismatches.
+```
+
+---
+
+### 5. Assumptions & Skills Loaded
+
+- **Assumptions:**
+  - `FACT`: `cli_resolve::enforce_hermetic_startup_os()` rejects `DESIGNOS_AGENT_CLI_DIR` when `--screenshot` is not present, so `--seed-library` must execute before `DESIGNOS_AGENT_CLI_DIR` is added to the per-case `env -i` environment.
+  - `FACT`: `Shell::build` for `--fixture agents-chat` previously left `app.terminal.active_runtime` at `AgentCliPreset::default()` (`Auto`), which resolves the first alphabetical stub (`agy`) instead of `claude` and omits the `"Starting Claude Code… your message will be sent"` notice asserted by the 8c test. Setting `app.terminal.active_runtime = AgentCliPreset::Claude` in `Some("agents-chat")` aligns both Tier A and Tier B (`invocations.log` records `.../run/stubs/claude --session-id ...` for `i-agents-chat` and `.../run/stubs/agy --mcp-config /nonexistent/mcp.json` for `i-agents-start-failure`).
+- **Skills Loaded:**
+  - `es:dev`, `es:feature-dev`, `es:rust`, `es:rust-gpu-canvas`, `es:astra-work`, `es:fable-thinking`, `es:orca-native-orchestration`.
+
+Status: READY FOR CONTROLLER REVIEW (ROUND 7)

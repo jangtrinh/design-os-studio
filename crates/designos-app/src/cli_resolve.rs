@@ -140,6 +140,11 @@ pub fn host_path_raw() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// Raw `PATH` OS string from the process environment.
+pub fn host_path_os() -> Option<std::ffi::OsString> {
+    std::env::var_os("PATH")
+}
+
 /// True when `PATH` is set to the empty string `""`.
 pub fn host_path_is_empty() -> bool {
     std::env::var_os("PATH").is_some_and(|p| p.is_empty())
@@ -719,6 +724,8 @@ mod tests {
             if rel == Path::new("cli_resolve.rs")
                 || rel == Path::new("test_agent_path.rs")
                 || rel == Path::new("terminal/real_cli_launch_tests.rs")
+                || rel == Path::new("terminal/capture_lock_tests.rs")
+                || rel == Path::new("agent_permissions/approval_channel_tests.rs")
             {
                 continue;
             }

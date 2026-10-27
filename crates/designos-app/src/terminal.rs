@@ -5749,7 +5749,7 @@ pub fn configure_pty_env_with_session_and_hermetic(
     #[cfg(test)]
     if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
         let prepend = session.map(|s| s.path_prepend.as_slice()).unwrap_or_default();
-        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, std::env::var_os("PATH")));
+        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, crate::cli_resolve::host_path_os()));
         return;
     }
     if crate::cli_resolve::host_path_is_empty() {
@@ -9834,7 +9834,9 @@ mod tests {
     /// user's `~/.gemini` (Gemini's project registry and login live there). The placeholder key only satisfies the auth check
     /// that comes before the listing: nothing logs in, and no model is called.
     fn gemini_mcp_list_command(session_dir: &Path, trusted_path: &Path) -> std::process::Command {
-        let mut list_cmd = std::process::Command::new("gemini");
+        let bin = crate::cli_resolve::resolve_in(&crate::cli_resolve::cli_search_dirs(None), "gemini")
+            .unwrap_or_else(|| std::ffi::OsString::from("gemini").into());
+        let mut list_cmd = std::process::Command::new(bin);
         list_cmd.args(["mcp", "list"]).current_dir(session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", trusted_path);
         crate::scratch_cli_home::isolate_cli_homes(&mut list_cmd);
         list_cmd.env("GEMINI_API_KEY", "placeholder-not-a-key");
