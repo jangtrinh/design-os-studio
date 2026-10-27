@@ -3020,7 +3020,11 @@ mod tests {
         // nodes has ~5x uninlined allocator/drop overhead, so we enforce the strict §11 budgets
         // in release builds and a generous ceiling in debug builds while printing exact timings.
         let scale = if cfg!(debug_assertions) { 10.0 } else { 1.0 };
-        let cases = [(100_000usize, 400.0 * scale), (112_474usize, 450.0 * scale), (1_200_000usize, 5_000.0 * scale)];
+        // The 1.2M case holds the document, the dry-run trial clone and the commit clone at once: about 6 GiB peak
+        // RSS in a debug build, which kills a 16 GiB CI runner next to other tests (#1205). Debug builds run a
+        // 250,000-node largest case instead (well under 2 GiB); release builds keep the full 1.2M budget.
+        let largest = if cfg!(debug_assertions) { 250_000usize } else { 1_200_000usize };
+        let cases = [(100_000usize, 400.0 * scale), (112_474usize, 450.0 * scale), (largest, 5_000.0 * scale)];
 
         for (target_nodes, budget_ms) in cases {
             let (doc, page, target_board) = build_synthetic_document(target_nodes);
