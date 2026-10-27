@@ -1,0 +1,5 @@
+$ designos-studio --home --size 1440x900 --no-toast --screenshot ev/01-home-fresh-library.png   (fresh isolated HOME)
+exit=0
+library files:
+~/Library/Application Support/designos/library/.starter-seeded
+~/Library/Application Support/designos/library/projects/18e263fcc3d81f200000/files/18e263fcc4ae4f280001.designos

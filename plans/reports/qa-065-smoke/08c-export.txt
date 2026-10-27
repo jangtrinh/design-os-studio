@@ -1,0 +1,19 @@
+$ designos kit.fig --export-variables ev/08c-light.tokens.json --format dtcg --mode "Light mode"
+    }
+  ],
+  "color_format": "object",
+  "format": "dtcg",
+  "inlined_for_aliases": [
+    "_Primitives (2)",
+    "_Primitives"
+  ],
+  "mode": "Light mode",
+  "omitted_extensions": [],
+  "path": "/private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa065/ev/08c-light.tokens.json",
+  "skipped_collections": [],
+  "tokens": 697,
+  "values_from_default_mode": 0
+}
+exit=0
+top-level groups: 10 | alias refs: 160 | refs not resolving inside the file: 2 ['_Primitives.Spacing.1\\u20245 (6px)', '_Primitives.Spacing.0\\u20245 (2px)']
+recheck (no escaping): alias refs: 160 | not resolving inside the file: 0 []

@@ -1,0 +1,9 @@
+$ designos kit.fig --select name:Button --zoom fit --size 1440x900 --no-toast --screenshot ev/08a-select-button.png
+designos: --select "name:Button" matched 166 layers; selected id 27511 (first in page order; use id:<n> for another)
+exit=0
+248128 ev/08a-select-button.png
+
+$ designos kit.fig --select name:__no_such_layer__ --screenshot ev/08b-miss.png
+designos: --select "name:__no_such_layer__" matched no node (searched 864170 layers on 113 pages by name; use --inspect-json to list screens, or id:<n> / fig:<id>) (all pages expanded)
+exit=2
+ls: ev/08b-miss.png: No such file or directory

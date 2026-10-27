@@ -1,0 +1,2 @@
+$ designos-studio --size 1440x900 --no-toast --screenshot ev/02-no-file-arg.png   (fresh isolated HOME, no file argument)
+exit=0

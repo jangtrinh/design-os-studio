@@ -1,0 +1,7 @@
+$ designos-studio --panel agents-scrollback
+exit=0 147852 bytes
+$ designos-studio --panel agents-approval-background-tab
+exit=0 149469 bytes
+$ designos-studio /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa065/kit/kit.fig --select name:Console --zoom fit
+designos: --select "name:Console" matched no node (searched 864170 layers on 113 pages by name; use --inspect-json to list screens, or id:<n> / fig:<id>) (all pages expanded)
+exit=2 
