@@ -919,7 +919,7 @@ mod tests {
         let install_dir = make_temp_dir("r2-8f-install");
         write_exec_stub(&install_dir, "print-path", "#!/bin/sh\nprintf '%s' \"$PATH\"\n");
 
-        let out = SystemCommandRunner.run(&["print-path"], std::slice::from_ref(&install_dir), Duration::from_secs(2));
+        let out = SystemCommandRunner.run(&["print-path"], std::slice::from_ref(&install_dir), Duration::from_secs(30));
         assert_eq!(out.exit_code, Some(0), "print-path must succeed: stderr={}", out.stderr);
 
         let sep = if cfg!(windows) { ";" } else { ":" };

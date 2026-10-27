@@ -252,7 +252,10 @@ pub fn capture(ctx: &Context, regions: &ShellRegions) -> LayoutSnapshot {
 
     let widgets = ctx.viewport(|vp| vp.prev_pass.widgets.clone());
     let global_style = ctx.global_style();
-    let widget_info_enabled = cfg!(debug_assertions) && global_style.debug.show_interactive_widgets;
+    #[cfg(debug_assertions)]
+    let widget_info_enabled = global_style.debug.show_interactive_widgets;
+    #[cfg(not(debug_assertions))]
+    let widget_info_enabled = false;
     let bar_width = global_style.spacing.scroll.bar_width;
     let mut unnamed = Vec::new();
     let mut scroll_set: BTreeSet<(String, String, bool)> = BTreeSet::new();
@@ -1770,13 +1773,21 @@ mod tests {
                 let _scoped = crate::cli_resolve::ScopedCliDirs::enter(&stub_dir);
                 let ctx = Context::default();
                 let opts = Options { panel: panel.map(String::from), agent_cli_dir: Some(stub_dir.clone()), ..Default::default() };
-                let started = std::time::Instant::now();
                 let mut shell = Shell::build(&ctx, opts);
-                let build_elapsed = started.elapsed();
                 if panel == Some("agents-chat") {
+                    assert_eq!(
+                        shell.app.terminal.active_composer().pending_send.as_deref(),
+                        Some("Create a SaaS analytics card in Claude Code"),
+                        "agents-chat must queue prompt right after Shell::build before any frame runs"
+                    );
+                    assert_eq!(
+                        shell.app.terminal.active_composer().notice.as_deref(),
+                        Some("Starting Claude Code\u{2026} your message will be sent"),
+                        "agents-chat must set starting notice right after Shell::build before any frame runs"
+                    );
                     assert!(
-                        build_elapsed < std::time::Duration::from_millis(600),
-                        "agents-chat must be state-driven without the 800ms sleep loop, took {build_elapsed:?}"
+                        shell.app.terminal.active_tab().is_some_and(|t| t.last_usage_status.is_none()),
+                        "agents-chat must not run poll_live_agent_bridge() sleep loop inside Shell::build"
                     );
                 }
                 shell.apply_launch_defaults(screenshot_chrome);
@@ -1811,13 +1822,19 @@ mod tests {
                     let _ = ctx.run_ui(r, |ui| shell.draw(ui));
                 }
                 if id == "i-agents-start-failure" {
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                    let mut exited = false;
                     while std::time::Instant::now() < deadline {
                         let done = shell.app.terminal.tabs.first_mut().is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
                         if done {
+                            exited = true;
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    assert!(exited, "case {id}: stub child did not exit within 15s deadline");
+                    if let Some(t) = shell.app.terminal.tabs.first_mut() {
+                        t.spawned_at = std::time::Instant::now();
                     }
                     for i in 0..2 {
                         let mut r = raw.clone();
@@ -2173,16 +2190,15 @@ mod tests {
         let mut terminal = crate::terminal::TerminalState::default();
         terminal.path_override = Some(tmp.clone().into_os_string());
         terminal.deferred_bridge_actions.push(crate::terminal::TerminalAction::LiveSyncError("sentinel".into()));
-        let started = std::time::Instant::now();
         terminal.open_failed_start_fixture(None);
-        let elapsed = started.elapsed();
         let bridge_polled = terminal.deferred_bridge_actions.is_empty();
+        let unpolled_tab = terminal.active_tab().is_some_and(|t| t.start_failure.is_none() && t.last_usage_status.is_none());
         terminal.shutdown();
         let _ = std::fs::remove_dir_all(&tmp);
 
         assert!(
-            !bridge_polled && elapsed < std::time::Duration::from_secs(4),
-            "open_failed_start_fixture must not block in a 5s poll_live_agent_bridge sleep loop: bridge_polled={bridge_polled}, elapsed={elapsed:?}"
+            !bridge_polled && unpolled_tab,
+            "open_failed_start_fixture must return immediately after spawning without running poll_live_agent_bridge: bridge_polled={bridge_polled}, unpolled_tab={unpolled_tab}"
         );
     }
 

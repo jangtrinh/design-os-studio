@@ -107,17 +107,28 @@ pub fn run_spec_cases(spec_key: &str) {
                 sim.frame(vec![]);
             }
             if case.id == "i-agents-start-failure" {
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                let mut exited = false;
                 while std::time::Instant::now() < deadline {
                     let done = sim.shell.app.terminal.tabs.first_mut().is_none_or(|t| !t.is_alive() && t.reader_eof.load(std::sync::atomic::Ordering::Relaxed));
                     if done {
+                        exited = true;
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
+                assert!(exited, "case {}: stub child did not exit within 15s deadline", case.id);
+                if let Some(t) = sim.shell.app.terminal.tabs.first_mut() {
+                    t.spawned_at = std::time::Instant::now();
+                }
                 for _ in 0..2 {
                     sim.frame(vec![]);
                 }
+                assert!(
+                    sim.shell.app.terminal.active_tab().is_some_and(|t| t.start_failure.is_some()),
+                    "case {}: must capture the diagnosed start_failure state, never a half-started state",
+                    case.id
+                );
             }
 
             let mut snap = crate::layout_snapshot::capture(&sim.ctx, &sim.shell.app.ui.regions);
