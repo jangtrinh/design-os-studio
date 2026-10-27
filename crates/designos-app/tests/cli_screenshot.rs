@@ -9,6 +9,13 @@ use std::{
 
 const BINARIES: [(&str, &str); 2] = [("designos", env!("CARGO_BIN_EXE_designos")), ("designos-studio", env!("CARGO_BIN_EXE_designos-studio"))];
 
+/// `--screenshot` opens a window, which a Linux machine without a display cannot do (winit:
+/// "neither WAYLAND_DISPLAY nor DISPLAY is set"), so these runs skip there, as on the Linux CI runner.
+/// The messages themselves are covered headlessly by the `designos` unit tests (`main.rs`, `select_target`).
+fn no_display() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none()
+}
+
 fn run_cli_bin(exe: &str, cwd: &Path, args: &[&str]) -> Output {
     let mut child = Command::new(exe)
         .args(args)
@@ -34,6 +41,10 @@ fn run_cli_bin(exe: &str, cwd: &Path, args: &[&str]) -> Output {
 
 #[test]
 fn cli_screenshot_refuses_broken_files_and_captures_good_file() {
+    if no_display() {
+        eprintln!("skipped: --screenshot needs a display");
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("designos_rt04_cli_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();

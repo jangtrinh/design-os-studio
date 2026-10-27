@@ -53,6 +53,13 @@ impl Drop for Dir {
     }
 }
 
+/// `--screenshot` opens a window, which a Linux machine without a display cannot do (winit:
+/// "neither WAYLAND_DISPLAY nor DISPLAY is set"), so these runs skip there, as on the Linux CI runner.
+/// The messages themselves are covered headlessly by the `designos` unit tests (`main.rs`, `select_target`).
+fn no_display() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none()
+}
+
 fn run(dir: &Path, args: &[&str]) -> Output {
     let mut child = Command::new(BIN)
         .args(args)
@@ -189,6 +196,10 @@ fn a_bare_number_selects_the_node_and_says_how_to_be_exact() {
 
 #[test]
 fn a_screenshot_with_an_unknown_select_exits_2_and_writes_no_png() {
+    if no_display() {
+        eprintln!("skipped: --screenshot needs a display");
+        return;
+    }
     let dir = Dir::new("shot_miss");
     let out = run(&dir.0, &["two-cards.designos", "--select", "Card Z", "--size", "800x600", "--no-toast", "--screenshot", "shot.png"]);
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
