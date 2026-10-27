@@ -85,7 +85,7 @@ const MIXED_SELECTION_TIP: &str = "Selected text has mixed styles";
 /// Style of `prop` the first selected node is linked to, when that style exists.
 pub(super) fn linked_style(app: &App, sel: &[NodeId], prop: StyleProperty) -> Option<String> {
     let key = app.doc.get(*sel.first()?)?.style_refs.get(kind_of(prop).ref_key())?;
-    app.doc.styles.contains_key(key).then(|| key.clone())
+    app.doc.is_table_style(key).then(|| key.clone())
 }
 
 /// Whether the first selected node has effects or layout grids to turn into a style.
@@ -139,8 +139,8 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         }
         last_folder = Some(e.folder.clone());
         let label = if e.folder.is_empty() { e.leaf } else { format!("  {}", e.leaf) };
-        let desc = crate::styles::style_description(&app.doc, &e.key);
-        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())).tooltip(desc));
+        let tip = if app.doc.is_unnamed_style(&e.key) { e.key.as_str() } else { crate::styles::style_description(&app.doc, &e.key) };
+        items.push(MenuItem::new(label).checked(current.as_deref() == Some(e.key.as_str())).tooltip(tip));
         picks.push(Some(Pick::Apply(e.key)));
     }
     if items.is_empty() {
@@ -337,7 +337,7 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         if resp.double_clicked() && !read_only {
             app.props.style_rename = Some(prop);
         }
-        resp.on_hover_text(name);
+        resp.on_hover_text(if app.doc.is_unnamed_style(key) { key.to_string() } else { name });
     }
     let edit = pane.rect(theme::SECTION_TRAILING_X - theme::PANEL_ACTION_BUTTON - 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, &format!("{tag}-edit"), edit);
@@ -372,5 +372,134 @@ mod tests {
             let at = picks.iter().position(|p| matches!(p, Some(Pick::Create))).expect("every menu has a create row");
             assert_eq!(items[at].label, create);
         }
+    }
+
+    #[test]
+    fn us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        // Orphans in `styles` with no `style_meta` (GUID pairs and consumer-seeded `S:` keys).
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.styles.insert("2:102".into(), fx.clone());
+        doc.styles.insert("S:orphan-fx".into(), fx.clone());
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        rect.style_refs.insert("effect".into(), "S:orphan-fx".into());
+        doc.insert(page, rect).unwrap();
+
+        // Live local styles, including `_` and `.` prefixed names.
+        for (k, name) in [("2:100", "Shadow/Card"), ("2:107", "_Private/Shadow"), ("2:108", ".Hidden/Shadow")] {
+            doc.styles.insert(k.into(), fx.clone());
+            doc.style_meta.insert(k.into(), StyleMeta { name: name.into(), property: StyleProperty::Effect, ..Default::default() });
+        }
+
+        let listed: Vec<String> = style_entries_of(&doc, StyleKind::Effect).into_iter().map(|e| e.key).collect();
+        assert_eq!(listed, vec!["2:108".to_string(), "2:107".to_string(), "2:100".to_string()]);
+
+        // Reopening an old `.designos` JSON with orphans still hides them at listing time without migration.
+        let reopened = Document::from_json(&doc.to_json().unwrap()).unwrap();
+        let reopened_listed: Vec<String> = style_entries_of(&reopened, StyleKind::Effect).into_iter().map(|e| e.key).collect();
+        assert_eq!(reopened_listed, listed);
+    }
+
+    #[test]
+    fn us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.styles.insert("2:106".into(), fx);
+        doc.style_meta.insert("2:106".into(), StyleMeta { name: "Library/Elevation".into(), property: StyleProperty::Effect, ..Default::default() });
+
+        let orphan_layer = doc.alloc_id();
+        let mut n1 = Node::rectangle(orphan_layer, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.style_refs.insert("effect".into(), "1186:100350".into());
+        doc.insert(page, n1).unwrap();
+
+        let embedded_lib_layer = doc.alloc_id();
+        let mut n2 = Node::rectangle(embedded_lib_layer, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        n2.style_refs.insert("effect".into(), "2:106".into());
+        doc.insert(page, n2).unwrap();
+
+        let app = App::new(doc);
+        assert_eq!(linked_style(&app, &[orphan_layer], StyleProperty::Effect), None, "deleted/orphan style shows no chip on the layer");
+        assert_eq!(linked_style(&app, &[embedded_lib_layer], StyleProperty::Effect), Some("2:106".to_string()));
+        assert_eq!(app.doc.style_name("2:106"), "Library/Elevation");
+    }
+
+    #[test]
+    fn us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip() {
+        let mut doc = Document::new("t");
+        doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.style_meta.insert("1186:100350".into(), StyleMeta { name: "   ".into(), property: StyleProperty::Effect, ..Default::default() });
+        doc.styles.insert("2:100".into(), fx);
+        doc.style_meta.insert("2:100".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..Default::default() });
+
+        let app = App::new(doc);
+        let (items, _) = menu_model(&app, &[], StyleProperty::Effect);
+        let unnamed = items.iter().find(|i| i.label == "Unnamed effect style").expect("unnamed style row present");
+        assert_eq!(unnamed.tooltip, "1186:100350", "raw id appears only in the tooltip");
+        let named = items.iter().find(|i| i.label == "Shadow/Card").expect("named style row present");
+        assert_eq!(named.tooltip, "", "named style has no raw-id tooltip");
+    }
+
+    #[test]
+    fn us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+
+        // Populate 200,000 nodes in `doc.nodes` (1 page + 199,999 rectangles).
+        let mut children = Vec::with_capacity(199_999);
+        for i in 2..=200_000u64 {
+            let id = NodeId(i);
+            let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(page);
+            if i > 199_981 {
+                let idx = i - 199_982;
+                n.style_refs.insert("effect".into(), format!("S:orphan-{idx:02}"));
+            }
+            doc.nodes.insert(id, n);
+            children.push(id);
+        }
+        doc.reserve_ids(NodeId(200_000));
+        doc.nodes.get_mut(&page).unwrap().children = children;
+        assert_eq!(doc.nodes.len(), 200_000);
+
+        // 50 styles: 25 live table styles (`S:live-..` and `2:..` with `style_meta`)
+        // and 25 orphan styles without `style_meta` (20 `S:`-prefixed keys and 5 GUID keys).
+        let mut all_keys = Vec::with_capacity(50);
+        for i in 0..25 {
+            let k = if i < 15 { format!("S:live-{i:02}") } else { format!("2:{}", 100 + i) };
+            doc.styles.insert(k.clone(), fx.clone());
+            doc.style_meta.insert(k.clone(), StyleMeta { name: format!("Elevation/Level-{i:02}"), property: StyleProperty::Effect, ..Default::default() });
+            all_keys.push((k, true));
+        }
+        for i in 0..20 {
+            let k = format!("S:orphan-{i:02}");
+            doc.styles.insert(k.clone(), fx.clone());
+            all_keys.push((k, false));
+        }
+        for i in 0..5 {
+            let k = format!("1186:{}", 100_350 + i);
+            doc.styles.insert(k.clone(), fx.clone());
+            all_keys.push((k, false));
+        }
+        assert_eq!(doc.styles.len(), 50);
+
+        let budget = if cfg!(debug_assertions) { std::time::Duration::from_millis(50) } else { std::time::Duration::from_millis(5) };
+        let t0 = std::time::Instant::now();
+        let listed = style_entries_of(&doc, StyleKind::Effect);
+        let elapsed = t0.elapsed();
+
+        assert!(elapsed < budget, "style_entries_of on 200,000 nodes and 50 styles took {elapsed:?} (budget {budget:?}); must not walk nodes");
+        for (k, expected_table) in &all_keys {
+            assert_eq!(doc.is_table_style(k), *expected_table, "is_table_style({k:?}) mismatch");
+            assert_eq!(doc.is_orphan_style(k), !*expected_table, "is_orphan_style({k:?}) mismatch");
+        }
+        assert_eq!(listed.len(), 25, "only the 25 styles with style_meta must be listed");
     }
 }

@@ -1,0 +1,906 @@
+=== scripts/tests/test_shipped_resources.py ===
+FFF
+======================================================================
+FAIL: test_ac03_no_legacy_demos_in_shipped_code (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_ac03_no_legacy_demos_in_shipped_code)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/scripts/tests/test_shipped_resources.py", line 214, in test_ac03_no_legacy_demos_in_shipped_code
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        hits,
+        ^^^^^
+    ...<2 lines>...
+        + "\n".join(hits),
+        ^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['crates/designos-app/src/history/preset.r[1445 chars]();'] != []
+
+First list contains 14 additional elements.
+First extra element 0:
+'crates/designos-app/src/history/preset.rs:17: let mut doc = crate::demo::demo_document();'
+
+Diff is 1617 characters long. Set self.maxDiff to None to see it. : AC-03 violation — legacy demo builders referenced in shipped non-test, non-fixtures code:
+crates/designos-app/src/history/preset.rs:17: let mut doc = crate::demo::demo_document();
+crates/designos-app/src/home/mod.rs:683: TemplateKind::MobileBanking => ("Marlow \u{2014} Mobile Banking Kit", crate::showcase::document()),
+crates/designos-app/src/home/mod.rs:685: let mut s = crate::showcase::library_samples();
+crates/designos-app/src/home/mod.rs:690: let mut s = crate::showcase::library_samples();
+crates/designos-app/src/home/mod.rs:694: TemplateKind::FigJamBoard => ("Launch Brainstorm Board", crate::board::demo::document()),
+crates/designos-app/src/home/mod.rs:695: TemplateKind::SlideDeck => ("Product Exploration Deck", crate::decks::demo::document()),
+crates/designos-app/src/home/session.rs:539: match lib.seed_first_run(crate::demo::demo_document) {
+crates/designos-app/src/main.rs:136: match showcase::seed_library(dir) {
+crates/designos-app/src/shell.rs:139: Some(crate::showcase::FIXTURE) => crate::showcase::document(),
+crates/designos-app/src/shell.rs:142: Some("deck") => crate::decks::demo::document(),
+crates/designos-app/src/shell.rs:143: Some("board") => crate::board::demo::document(),
+crates/designos-app/src/shell.rs:147: _ => demo::demo_document(),
+crates/designos-app/src/shell.rs:155: Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
+crates/designos-app/src/showcase/mod.rs:735: let mut board = crate::board::demo::document();
+
+======================================================================
+FAIL: test_ac12_no_untitled_ui_in_shipped_resources_or_starter (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_ac12_no_untitled_ui_in_shipped_resources_or_starter)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/scripts/tests/test_shipped_resources.py", line 222, in test_ac12_no_untitled_ui_in_shipped_resources_or_starter
+    self.assertTrue(
+    ~~~~~~~~~~~~~~~^
+        STARTER_ASSET.is_file(),
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+        f"Missing starter asset at {STARTER_ASSET.relative_to(REPO)}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: False is not true : Missing starter asset at crates/designos-app/assets/starter/designos-studio-starter.designos
+
+======================================================================
+FAIL: test_examples_removed_and_unreferenced (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_examples_removed_and_unreferenced)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/scripts/tests/test_shipped_resources.py", line 276, in test_examples_removed_and_unreferenced
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        tracked,
+        ^^^^^^^^
+        [],
+        ^^^
+        f"git ls-files examples/ must be empty, found: {tracked}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['examples/landing/designos-studio-landing[107 chars]son'] != []
+
+First list contains 3 additional elements.
+First extra element 0:
+'examples/landing/designos-studio-landing.designos'
+
++ []
+- ['examples/landing/designos-studio-landing.designos',
+-  'examples/specs/designos-studio-landing.spec.json',
+-  'examples/specs/easeui-agent-console.spec.json'] : git ls-files examples/ must be empty, found: ['examples/landing/designos-studio-landing.designos', 'examples/specs/designos-studio-landing.spec.json', 'examples/specs/easeui-agent-console.spec.json']
+
+----------------------------------------------------------------------
+Ran 3 tests in 1.343s
+
+FAILED (failures=3)
+=== cli_version ===
+info: syncing channel updates for 1.93.1-aarch64-apple-darwin
+info: latest update on 2026-02-12 for version 1.93.1 (01f6ddf75 2026-02-11)
+info: downloading 5 components
+warn: the missing active toolchain `1.93.1-aarch64-apple-darwin` has been auto-installed
+warn: this might cause rustup commands to take longer time to finish than expected
+info: you may opt out with `RUSTUP_AUTO_INSTALL=0` or `rustup set auto-install disable`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded color_quant v1.1.0
+  Downloaded filedescriptor v0.8.3
+  Downloaded cgl v0.3.2
+  Downloaded futures-sink v0.3.34
+  Downloaded foreign-types-shared v0.3.1
+  Downloaded anstyle-query v1.1.5
+  Downloaded byteorder-lite v0.1.0
+  Downloaded equivalent v1.0.3
+  Downloaded core-graphics-types v0.1.3
+  Downloaded adler2 v2.0.1
+  Downloaded futures-io v0.3.34
+  Downloaded foreign-types v0.5.0
+  Downloaded dyn-clone v1.0.20
+  Downloaded foreign-types-macros v0.2.4
+  Downloaded downcast-rs v1.2.1
+  Downloaded core_maths v0.1.1
+  Downloaded anstyle-parse v1.0.0
+  Downloaded dispatch v0.2.0
+  Downloaded cfg_aliases v0.2.2
+  Downloaded arrayref v0.3.9
+  Downloaded form_urlencoded v1.2.2
+  Downloaded clap_lex v1.1.1
+  Downloaded cfg-if v1.0.5
+  Downloaded dlib v0.5.3
+  Downloaded futures-core v0.3.34
+  Downloaded futures-macro v0.3.34
+  Downloaded float_next_after v1.0.0
+  Downloaded document-features v0.2.12
+  Downloaded colorchoice v1.0.5
+  Downloaded rayon-core v1.13.0
+  Downloaded dirs-sys v0.4.1
+  Downloaded either v1.19.0
+  Downloaded core-foundation v0.9.4
+  Downloaded futures-executor v0.3.34
+  Downloaded fax v0.2.7
+  Downloaded foldhash v0.1.5
+  Downloaded itoa v1.0.18
+  Downloaded font-types v0.11.3
+  Downloaded anstream v1.0.0
+  Downloaded potential_utf v0.1.6
+  Downloaded clap_derive v4.6.7
+  Downloaded base64 v0.22.1
+  Downloaded vte_generate_state_changes v0.1.2
+  Downloaded accesskit v0.24.1
+  Downloaded unicode-bidi-mirroring v0.4.0
+  Downloaded egui-wgpu v0.35.0
+  Downloaded codespan-reporting v0.13.1
+  Downloaded arboard v3.6.1
+  Downloaded allocator-api2 v0.2.21
+  Downloaded ahash v0.8.12
+  Downloaded arrayvec v0.7.8
+  Downloaded accesskit_winit v0.32.2
+  Downloaded futures-channel v0.3.34
+  Downloaded float-cmp v0.9.0
+  Downloaded find-msvc-tools v0.1.14
+  Downloaded emath v0.35.0
+  Downloaded egui_glow v0.35.0
+  Downloaded crossbeam-utils v0.8.23
+  Downloaded crossbeam-epoch v0.9.21
+  Downloaded wayland-sys v0.31.11
+  Downloaded unicode-ccc v0.4.0
+  Downloaded linebender_resource_handle v0.1.1
+  Downloaded zerofrom-derive v0.1.8
+  Downloaded untrusted v0.9.0
+  Downloaded unicode-linebreak v0.1.5
+  Downloaded hexf-parse v0.2.1
+  Downloaded heck v0.5.0
+  Downloaded peniko v0.6.1
+  Downloaded pastey v0.2.3
+  Downloaded parking_lot v0.12.5
+  Downloaded parking_lot_core v0.9.12
+  Downloaded guillotiere v0.7.0
+  Downloaded objc2-core-image v0.2.2
+  Downloaded objc2-core-data v0.2.2
+  Downloaded icu_normalizer_data v2.3.0
+  Downloaded shell-words v1.1.1
+  Downloaded icu_locale_core v2.3.0
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded icu_provider v2.3.1
+  Downloaded imagesize v0.13.0
+  Downloaded percent-encoding v2.3.2
+  Downloaded zerotrie v0.2.5
+  Downloaded objc2-io-surface v0.3.2
+  Downloaded strict-num v0.1.1
+  Downloaded i_tree v0.20.0
+  Downloaded version_check v0.9.5
+  Downloaded getrandom v0.2.17
+  Downloaded strsim v0.11.1
+  Downloaded objc2-quartz-core v0.2.2
+  Downloaded webpki-roots v0.26.11
+  Downloaded ureq v2.12.1
+  Downloaded gpu-allocator v0.28.0
+  Downloaded khronos-egl v6.0.0
+  Downloaded glifo v0.1.1
+  Downloaded yazi v0.2.1
+  Downloaded lyon_geom v1.0.19
+  Downloaded ordered-float v5.5.0
+  Downloaded zerofrom v0.1.8
+  Downloaded zerovec-derive v0.11.6
+  Downloaded hashbrown v0.16.1
+  Downloaded siphasher v1.0.4
+  Downloaded winnow v1.0.4
+  Downloaded uuid v1.28.0
+  Downloaded vello_cpu v0.0.9
+  Downloaded futures-util v0.3.34
+  Downloaded toml_datetime v1.1.2+spec-1.1.0
+  Downloaded zerocopy-derive v0.8.62
+  Downloaded vello_common v0.0.9
+  Downloaded utf8parse v0.2.2
+  Downloaded wgpu v29.0.4
+  Downloaded webpki-roots v1.0.9
+  Downloaded image v0.25.10
+  Downloaded i_key_sort v0.12.0
+  Downloaded egui v0.35.0
+  Downloaded zmij v1.0.23
+  Downloaded i_overlay v9.1.0
+  Downloaded litrs v1.0.0
+  Downloaded zerocopy v0.8.62
+  Downloaded memmap2 v0.9.11
+  Downloaded rangemap v1.8.0
+  Downloaded tinyvec v1.13.3
+  Downloaded icu_normalizer v2.3.0
+  Downloaded objc2-app-kit v0.3.2
+  Downloaded wgpu-hal v29.0.4
+  Downloaded num-traits v0.2.19
+  Downloaded proc-macro2 v1.0.107
+  Downloaded lyon_path v1.0.19
+  Downloaded resvg v0.45.1
+  Downloaded winit v0.30.13
+  Downloaded zopfli v0.8.4
+  Downloaded tracing-core v0.1.36
+  Downloaded serde v1.0.229
+  Downloaded rfd v0.17.2
+  Downloaded epaint_default_fonts v0.35.0
+  Downloaded serde_core v1.0.229
+  Downloaded toml v1.1.8+spec-1.1.0
+  Downloaded spirv v0.4.0+sdk-1.4.341.0
+  Downloaded naga v29.0.4
+  Downloaded tiff v0.11.3
+  Downloaded schemars v1.2.3
+  Downloaded memchr v2.8.3
+  Downloaded libc v0.2.191
+  Downloaded serde_json v1.0.154
+  Downloaded png v0.18.1
+  Downloaded regex v1.13.1
+  Downloaded tokio-util v0.7.20
+  Downloaded itertools v0.14.0
+  Downloaded rayon v1.12.0
+  Downloaded hashbrown v0.17.1
+  Downloaded lyon_tessellation v1.0.22
+  Downloaded rustls-webpki v0.103.15
+  Downloaded ruzstd v0.9.1
+  Downloaded serde_derive v1.0.229
+  Downloaded ttf-parser v0.25.1
+  Downloaded tiny-skia v0.11.4
+  Downloaded roxmltree v0.20.0
+  Downloaded tiny-skia-path v0.11.4
+  Downloaded slotmap v1.1.1
+  Downloaded swash v0.2.10
+  Downloaded portable-pty v0.8.1
+  Downloaded wgpu-core v29.0.4
+  Downloaded twox-hash v2.1.5
+  Downloaded tracing-attributes v0.1.31
+  Downloaded rustybuzz v0.20.1
+  Downloaded skrifa v0.40.0
+  Downloaded toml_parser v1.1.5+spec-1.1.0
+  Downloaded skrifa v0.44.0
+  Downloaded syn v3.0.9
+  Downloaded regex-syntax v0.8.11
+  Downloaded syn v2.0.119
+  Downloaded rustls v0.23.45
+  Downloaded skrifa v0.42.1
+  Downloaded tinystr v0.8.4
+  Downloaded read-fonts v0.37.0
+  Downloaded tracing v0.1.44
+  Downloaded svgtypes v0.15.3
+  Downloaded smol_str v0.3.6
+  Downloaded smallvec v1.16.3
+  Downloaded read-fonts v0.39.2
+  Downloaded read-fonts v0.41.0
+  Downloaded self_cell v1.3.0
+  Downloaded rmcp v3.5.1
+  Downloaded pkg-config v0.3.34
+  Downloaded pin-project-lite v0.2.17
+  Downloaded regex-automata v0.4.18
+  Downloaded objc2-foundation v0.3.2
+  Downloaded jobserver v0.1.35
+  Downloaded objc-sys v0.3.5
+  Downloaded ash v0.38.0+1.3.281
+  Downloaded objc2-app-kit v0.2.2
+  Downloaded quote v1.0.47
+  Downloaded harfrust v0.7.0
+  Downloaded nix v0.31.3
+  Downloaded termcolor v1.4.1
+  Downloaded static_assertions v1.1.0
+  Downloaded shlex v2.0.1
+  Downloaded rgb v0.8.53
+  Downloaded objc2-foundation v0.2.2
+  Downloaded pxfm v0.1.30
+  Downloaded utf8_iter v1.0.4
+  Downloaded objc2-metal v0.3.2
+  Downloaded tokio v1.53.2
+  Downloaded harfrust v0.5.2
+  Downloaded objc2 v0.5.3
+  Downloaded unicode-width v0.2.2
+  Downloaded unicode-width v0.1.14
+  Downloaded toml_writer v1.1.3+spec-1.1.0
+  Downloaded thiserror-impl v2.0.21
+  Downloaded thiserror v2.0.21
+  Downloaded synstructure v0.14.0
+  Downloaded schemars_derive v1.2.3
+  Downloaded rustls-pki-types v1.15.1
+  Downloaded objc2 v0.6.5
+  Downloaded presser v0.3.1
+  Downloaded libm v0.2.16
+  Downloaded nix v0.25.1
+  Downloaded thiserror-impl v1.0.69
+  Downloaded thiserror v1.0.69
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded slab v0.4.12
+  Downloaded simplecss v0.2.2
+  Downloaded simd-adler32 v0.3.10
+  Downloaded serde_derive_internals v0.30.0
+  Downloaded polycool v0.4.0
+  Downloaded type-map v0.5.1
+  Downloaded pin-utils v0.1.1
+  Downloaded pico-args v0.5.0
+  Downloaded idna v1.1.0
+  Downloaded glow v0.17.0
+  Downloaded ring v0.17.14
+  Downloaded nohash-hasher v0.2.0
+  Downloaded memoffset v0.6.5
+  Downloaded kurbo v0.11.3
+  Downloaded moxcms v0.8.1
+  Downloaded zlib-rs v0.6.8
+  Downloaded winresource v0.1.34
+  Downloaded chrono v0.4.45
+  Downloaded hashbrown v0.15.5
+  Downloaded icu_properties_data v2.3.0
+  Downloaded zip v9.0.4
+  Downloaded fearless_simd v0.4.1
+  Downloaded yoke-derive v0.8.4
+  Downloaded xmlwriter v0.1.0
+  Downloaded writeable v0.6.4
+  Downloaded wgpu-core-deps-apple v29.0.4
+  Downloaded webbrowser v1.2.4
+  Downloaded weezl v0.1.12
+  Downloaded objc2-metal v0.2.2
+  Downloaded indexmap v2.14.2
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded zerovec v0.11.8
+  Downloaded objc2-core-foundation v0.3.2
+  Downloaded wgpu-naga-bridge v29.0.4
+  Downloaded vt100 v0.15.2
+  Downloaded cosmic-text v0.19.0
+  Downloaded yoke v0.8.3
+  Downloaded zune-jpeg v0.5.15
+  Downloaded typed-path v0.12.3
+  Downloaded wgpu-types v29.0.4
+  Downloaded clap_builder v4.6.7
+  Downloaded image-webp v0.2.4
+  Downloaded raw-window-handle v0.6.2
+  Downloaded icu_collections v2.3.0
+  Downloaded usvg v0.45.1
+  Downloaded termios v0.2.2
+  Downloaded kurbo v0.13.1
+  Downloaded log v0.4.34
+  Downloaded objc2-encode v4.1.0
+  Downloaded i_float v5.0.0
+  Downloaded libloading v0.8.9
+  Downloaded icu_properties v2.3.0
+  Downloaded aho-corasick v1.1.5
+  Downloaded zune-core v0.5.3
+  Downloaded unicode-ident v1.0.27
+  Downloaded unicode-bidi v0.3.18
+  Downloaded half v2.7.1
+  Downloaded miniz_oxide v0.9.1
+  Downloaded objc2-core-graphics v0.3.2
+  Downloaded eframe v0.35.0
+  Downloaded cc v1.7.0
+  Downloaded ioctl-rs v0.1.6
+  Downloaded idna_adapter v1.2.2
+  Downloaded gpu-descriptor-types v0.2.0
+  Downloaded gpu-descriptor v0.3.2
+  Downloaded glutin-winit v0.5.0
+  Downloaded futures-task v0.3.34
+  Downloaded iana-time-zone v0.1.65
+  Downloaded zeno v0.3.3
+  Downloaded unicode-script v0.5.8
+  Downloaded unicode-properties v0.1.4
+  Downloaded glutin v0.32.3
+  Downloaded sys-locale v0.3.2
+  Downloaded serial-unix v0.4.0
+  Downloaded serial-core v0.4.0
+  Downloaded epaint v0.35.0
+  Downloaded getrandom v0.4.3
+  Downloaded url v2.5.8
+  Downloaded png v0.17.16
+  Downloaded fontdb v0.23.0
+  Downloaded gif v0.14.1
+  Downloaded getrandom v0.3.4
+  Downloaded zeroize v1.9.1
+  Downloaded smol_str v0.2.2
+  Downloaded serial v0.4.0
+  Downloaded serde_spanned v1.1.2
+  Downloaded rustc-hash v2.1.3
+  Downloaded rustc-hash v1.1.0
+  Downloaded bumpalo v3.20.3
+  Downloaded unicode-vo v0.1.0
+  Downloaded memoffset v0.9.1
+  Downloaded lock_api v0.4.14
+  Downloaded i_shape v5.0.0
+  Downloaded vte v0.11.1
+  Downloaded unicode-general-category v1.1.0
+  Downloaded open v5.4.4
+  Downloaded once_cell v1.21.4
+  Downloaded objc2-quartz-core v0.3.2
+  Downloaded miniz_oxide v0.8.9
+  Downloaded ref-cast v1.0.27
+  Downloaded pollster v0.4.0
+  Downloaded flate2 v1.1.10
+  Downloaded euclid v0.22.14
+  Downloaded egui-winit v0.35.0
+  Downloaded color v0.3.3
+  Downloaded clap v4.6.7
+  Downloaded bytes v1.12.1
+  Downloaded bytemuck v1.25.2
+  Downloaded bitflags v2.13.2
+  Downloaded anyhow v1.0.104
+  Downloaded web-time v1.1.0
+  Downloaded litemap v0.8.3
+  Downloaded tokio-macros v2.7.2
+  Downloaded subtle v2.6.1
+  Downloaded scopeguard v1.2.0
+  Downloaded renderdoc-sys v1.1.0
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded raw-window-metal v1.1.0
+  Downloaded quick-error v2.0.1
+  Downloaded profiling v1.0.18
+  Downloaded futures v0.3.34
+  Downloaded font-types v0.12.7
+  Downloaded dispatch2 v0.3.1
+  Downloaded option-ext v0.2.0
+  Downloaded crc32fast v1.5.2
+  Downloaded core-foundation-sys v0.8.7
+  Downloaded ecolor v0.35.0
+  Downloaded displaydoc v0.2.7
+  Downloaded block2 v0.6.2
+  Downloaded accesskit_consumer v0.38.0
+  Downloaded fdeflate v0.3.7
+  Downloaded dirs v5.0.1
+  Downloaded autocfg v1.5.1
+  Downloaded accesskit_macos v0.26.3
+  Downloaded crossbeam-deque v0.8.8
+  Downloaded block2 v0.5.1
+  Downloaded bitflags v1.3.2
+  Downloaded foldhash v0.2.0
+  Downloaded core-graphics v0.23.2
+  Downloaded bit-set v0.9.1
+  Downloaded anstyle v1.0.14
+  Downloaded bit-vec v0.9.1
+  Downloaded dpi v0.1.2
+  Downloaded data-url v0.3.2
+  Downloaded cursor-icon v1.2.0
+  Downloaded bytemuck_derive v1.12.1
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling zerocopy v0.8.62
+   Compiling simd-adler32 v0.3.10
+   Compiling stable_deref_trait v1.2.1
+   Compiling thiserror v2.0.21
+   Compiling version_check v0.9.5
+   Compiling crc32fast v1.5.2
+   Compiling foldhash v0.2.0
+   Compiling adler2 v2.0.1
+   Compiling zlib-rs v0.6.8
+   Compiling miniz_oxide v0.9.1
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling writeable v0.6.4
+   Compiling bitflags v1.3.2
+   Compiling litemap v0.8.3
+   Compiling num-traits v0.2.19
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling shlex v2.0.1
+   Compiling linebender_resource_handle v0.1.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling core_maths v0.1.1
+   Compiling cc v1.7.0
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling quick-error v2.0.1
+   Compiling zune-core v0.5.3
+   Compiling itoa v1.0.18
+   Compiling serde_json v1.0.154
+   Compiling weezl v0.1.12
+   Compiling zeroize v1.9.1
+   Compiling equivalent v1.0.3
+   Compiling percent-encoding v2.3.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling form_urlencoded v1.2.2
+   Compiling indexmap v2.14.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling flate2 v1.1.10
+   Compiling objc2-foundation v0.3.2
+   Compiling zune-jpeg v0.5.15
+   Compiling slotmap v1.1.1
+   Compiling self_cell v1.3.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling pxfm v0.1.30
+   Compiling either v1.19.0
+   Compiling color_quant v1.1.0
+   Compiling synstructure v0.14.0
+   Compiling ref-cast v1.0.27
+   Compiling fax v0.2.7
+   Compiling crossbeam-utils v0.8.23
+   Compiling byteorder-lite v0.1.0
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling getrandom v0.2.17
+   Compiling png v0.18.1
+   Compiling ttf-parser v0.25.1
+   Compiling moxcms v0.8.1
+   Compiling hashbrown v0.16.1
+   Compiling raw-window-handle v0.6.2
+   Compiling untrusted v0.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling float-cmp v0.9.0
+   Compiling crossbeam-epoch v0.9.21
+   Compiling getrandom v0.4.3
+   Compiling ring v0.17.14
+   Compiling parking_lot_core v0.9.12
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling rustls v0.23.45
+   Compiling crossbeam-deque v0.8.8
+   Compiling dyn-clone v1.0.20
+   Compiling unicode-script v0.5.8
+   Compiling rustc-hash v2.1.3
+   Compiling base64 v0.22.1
+   Compiling scopeguard v1.2.0
+   Compiling regex-syntax v0.8.11
+   Compiling arrayref v0.3.9
+   Compiling tinyvec v1.13.3
+   Compiling objc-sys v0.3.5
+   Compiling lock_api v0.4.14
+   Compiling fontdb v0.23.0
+   Compiling webpki-roots v1.0.9
+   Compiling subtle v2.6.1
+   Compiling option-ext v0.2.0
+   Compiling rayon-core v1.13.0
+   Compiling unicode-bidi v0.3.18
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling uuid v1.28.0
+   Compiling regex-automata v0.4.18
+   Compiling parking_lot v0.12.5
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling zeno v0.3.3
+   Compiling bit-vec v0.9.1
+   Compiling yazi v0.2.1
+   Compiling unicode-width v0.2.2
+   Compiling profiling v1.0.18
+   Compiling codespan-reporting v0.13.1
+   Compiling bit-set v0.9.1
+   Compiling objc2 v0.5.3
+   Compiling i_shape v5.0.0
+   Compiling regex v1.13.1
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling i_tree v0.20.0
+   Compiling hexf-parse v0.2.1
+   Compiling i_key_sort v0.12.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling sys-locale v0.3.2
+   Compiling smol_str v0.3.6
+   Compiling rangemap v1.8.0
+   Compiling rustc-hash v1.1.0
+   Compiling i_overlay v9.1.0
+   Compiling kurbo v0.13.1
+   Compiling block2 v0.5.1
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling siphasher v1.0.4
+   Compiling utf8parse v0.2.2
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustls-webpki v0.103.15
+   Compiling dispatch v0.2.0
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-properties v0.1.4
+   Compiling objc2-foundation v0.2.2
+   Compiling objc2-quartz-core v0.3.2
+   Compiling svgtypes v0.15.3
+   Compiling raw-window-metal v1.1.0
+   Compiling core-foundation v0.9.4
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling unicode-general-category v1.1.0
+   Compiling imagesize v0.13.0
+   Compiling unicode-vo v0.1.0
+   Compiling data-url v0.3.2
+   Compiling futures-sink v0.3.34
+   Compiling foreign-types-shared v0.3.1
+   Compiling fearless_simd v0.4.1
+   Compiling roxmltree v0.20.0
+   Compiling futures-core v0.3.34
+   Compiling pico-args v0.5.0
+   Compiling xmlwriter v0.1.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling wgpu-core v29.0.4
+   Compiling winit v0.30.13
+   Compiling nix v0.31.3
+   Compiling litrs v1.0.0
+   Compiling winnow v1.0.4
+   Compiling document-features v0.2.12
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling nohash-hasher v0.2.0
+   Compiling dpi v0.1.2
+   Compiling colorchoice v1.0.5
+   Compiling bumpalo v3.20.3
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling slab v0.4.12
+   Compiling epaint_default_fonts v0.35.0
+   Compiling smol_str v0.2.2
+   Compiling futures-io v0.3.34
+   Compiling cursor-icon v1.2.0
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling futures-task v0.3.34
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling typed-path v0.12.3
+   Compiling strsim v0.11.1
+   Compiling thiserror v1.0.69
+   Compiling clap_lex v1.1.1
+   Compiling twox-hash v2.1.5
+   Compiling bytes v1.12.1
+   Compiling static_assertions v1.1.0
+   Compiling heck v0.5.0
+   Compiling accesskit_macos v0.26.3
+   Compiling ruzstd v0.9.1
+   Compiling clap_builder v4.6.7
+   Compiling zip v9.0.4
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling web-time v1.1.0
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling lyon_path v1.0.19
+   Compiling winresource v0.1.34
+   Compiling serial-unix v0.4.0
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling pastey v0.2.3
+   Compiling pin-utils v0.1.1
+   Compiling float_next_after v1.0.0
+   Compiling pollster v0.4.0
+   Compiling rfd v0.17.2
+   Compiling lyon_tessellation v1.0.22
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling clap_derive v4.6.7
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics v0.23.2
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app)
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-mcp)
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling bytemuck v1.25.2
+   Compiling serial v0.4.0
+   Compiling filedescriptor v0.8.3
+   Compiling dispatch2 v0.3.1
+   Compiling downcast-rs v1.2.1
+   Compiling tracing v0.1.44
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling unicode-width v0.1.14
+   Compiling shell-words v1.1.1
+   Compiling vt100 v0.15.2
+   Compiling portable-pty v0.8.1
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.41.0
+   Compiling read-fonts v0.37.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling tiny-skia v0.11.4
+   Compiling color v0.3.3
+   Compiling wgpu-types v29.0.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling ecolor v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling futures-util v0.3.34
+   Compiling tokio v1.53.2
+   Compiling rgb v0.8.53
+   Compiling usvg v0.45.1
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling skrifa v0.44.0
+   Compiling half v2.7.1
+   Compiling skrifa v0.40.0
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling tiff v0.11.3
+   Compiling chrono v0.4.45
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling image v0.25.10
+   Compiling schemars v1.2.3
+   Compiling swash v0.2.10
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling designos-doc v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-doc)
+   Compiling ureq v2.12.1
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.42.1
+   Compiling harfrust v0.7.0
+   Compiling futures-executor v0.3.34
+   Compiling arboard v3.6.1
+   Compiling futures v0.3.34
+   Compiling webbrowser v1.2.4
+   Compiling cosmic-text v0.19.0
+   Compiling epaint v0.35.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling designos-fonts v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-fonts)
+   Compiling designos-render v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-render)
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling designos-svg v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-svg)
+   Compiling egui v0.35.0
+   Compiling designos-webcapture v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-webcapture)
+   Compiling tokio-util v0.7.20
+   Compiling clap v4.6.7
+   Compiling accesskit_winit v0.32.2
+   Compiling designos-diff v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-diff)
+   Compiling designos-fig v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-fig)
+   Compiling designos-export v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-export)
+   Compiling resvg v0.45.1
+   Compiling open v5.4.4
+   Compiling designos-library v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-library)
+   Compiling egui-wgpu v0.35.0
+   Compiling egui-winit v0.35.0
+   Compiling eframe v0.35.0
+   Compiling designos-gpu v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 19s
+     Running tests/cli_version.rs (out/cargo/debug/deps/cli_version-fdc98e8236d68994)
+
+running 1 test
+test fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture ... FAILED
+
+failures:
+
+---- fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture stdout ----
+
+thread 'fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture' (82396251) panicked at crates/designos-app/tests/cli_version.rs:141:9:
+designos --fixture showcase must fail without fixtures feature
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 3.46s
+
+error: test failed, to rerun pass `-p designos-app --test cli_version`
+=== shell::tests::home ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.68s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 8 tests
+test shell::tests::home::ac01_fresh_library_seeds_getting_started_and_starter_file ... FAILED
+test shell::tests::home::ac02_no_arg_launch_opens_home_and_never_builtin_demo ... FAILED
+test shell::tests::home::ac04_home_screen_contains_none_of_the_legacy_names ... FAILED
+test shell::tests::home::ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash ... FAILED
+test shell::tests::home::ac06_missing_recent_file_shows_file_not_found_and_remove ... FAILED
+test shell::tests::home::ac10_help_open_starter_sample_creates_numbered_copies_in_current_project ... FAILED
+test shell::tests::home::corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker ... FAILED
+test shell::tests::home::starter_asset_exists_and_is_at_most_5_mb ... FAILED
+
+failures:
+
+---- shell::tests::home::ac01_fresh_library_seeds_getting_started_and_starter_file stdout ----
+
+thread 'shell::tests::home::ac01_fresh_library_seeds_getting_started_and_starter_file' (82403199) panicked at crates/designos-app/src/shell/tests/home.rs:746:5:
+assertion `left == right` failed
+  left: "Welcome"
+ right: "DESIGN-OS Studio Starter"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::home::ac02_no_arg_launch_opens_home_and_never_builtin_demo stdout ----
+
+thread 'shell::tests::home::ac02_no_arg_launch_opens_home_and_never_builtin_demo' (82403223) panicked at crates/designos-app/src/shell/tests/home.rs:761:5:
+assertion `left == right` failed: no-arg launch must build an empty document with only Page 1, never demo_document()
+  left: 0
+ right: 1
+
+---- shell::tests::home::ac04_home_screen_contains_none_of_the_legacy_names stdout ----
+
+thread 'shell::tests::home::ac04_home_screen_contains_none_of_the_legacy_names' (82403246) panicked at crates/designos-app/src/shell/tests/home.rs:779:13:
+Home view home-nav-recents painted legacy sample name "Welcome" in ["Personal Workspace", "v0.6.3", "Search", "", "Recents", "Templates & Specs", "P", "FILES & PROJECTS", "Drafts", "All folders", "Resources & Libraries", "Getting started", "Starred", "Trash", "Recents", "+ Design file", "+ FigJam board", "Import", "Filter: All files", "Sort: Last viewed", "Welcome", "Edited just now · In Getting started"]
+
+---- shell::tests::home::ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash stdout ----
+
+thread 'shell::tests::home::ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash' (82403267) panicked at crates/designos-app/src/shell/tests/home.rs:806:5:
+starter seeded once on upgrade: ["Welcome", "Marlow — Mobile Banking Kit"]
+
+---- shell::tests::home::ac06_missing_recent_file_shows_file_not_found_and_remove stdout ----
+
+thread 'shell::tests::home::ac06_missing_recent_file_shows_file_not_found_and_remove' (82403278) panicked at crates/designos-app/src/shell/tests/home.rs:850:5:
+missing recent file must show 'File not found', got ["Personal Workspace", "v0.6.3", "Search", "", "Recents", "Templates & Specs", "P", "FILES & PROJECTS", "Drafts", "All folders", "Resources & Libraries", "Getting started", "Starred", "Trash", "Recents", "+ Design file", "+ FigJam board", "Import", "Filter: All files", "Sort: Last viewed", "Missing draft", "Edited just now · In Getting started"]
+
+---- shell::tests::home::ac10_help_open_starter_sample_creates_numbered_copies_in_current_project stdout ----
+
+thread 'shell::tests::home::ac10_help_open_starter_sample_creates_numbered_copies_in_current_project' (82403286) panicked at crates/designos-app/src/shell/tests/home.rs:874:9:
+expected "DESIGN-OS Studio Starter (1)" in ["Welcome"]
+
+---- shell::tests::home::corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker stdout ----
+
+thread 'shell::tests::home::corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker' (82403399) panicked at crates/designos-app/src/shell/tests/home.rs:885:40:
+corrupt starter asset must show an error toast
+
+---- shell::tests::home::starter_asset_exists_and_is_at_most_5_mb stdout ----
+
+thread 'shell::tests::home::starter_asset_exists_and_is_at_most_5_mb' (82403432) panicked at crates/designos-app/src/shell/tests/home.rs:728:5:
+starter asset must exist at /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/assets/starter/designos-studio-starter.designos
+
+
+failures:
+    shell::tests::home::ac01_fresh_library_seeds_getting_started_and_starter_file
+    shell::tests::home::ac02_no_arg_launch_opens_home_and_never_builtin_demo
+    shell::tests::home::ac04_home_screen_contains_none_of_the_legacy_names
+    shell::tests::home::ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash
+    shell::tests::home::ac06_missing_recent_file_shows_file_not_found_and_remove
+    shell::tests::home::ac10_help_open_starter_sample_creates_numbered_copies_in_current_project
+    shell::tests::home::corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker
+    shell::tests::home::starter_asset_exists_and_is_at_most_5_mb
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 0.93s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

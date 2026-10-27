@@ -1833,12 +1833,51 @@ impl TerminalState {
         self.approval_notifier = notifier;
     }
 
-    /// True when the active tab has a pending approval request or is waiting for approval (`#656`).
+    /// True when any tab has a pending approval request or is waiting for approval (`#656`, `#1195`).
     pub fn needs_approval(&self) -> bool {
         if !self.pending_approvals.is_empty() {
             return true;
         }
-        self.active_tab().is_some_and(|t| t.needs_approval())
+        self.tabs.iter().any(|t| t.needs_approval())
+    }
+
+    /// Resolves the approval banner target across all tabs (`#1195`).
+    ///
+    /// Returns `(target_tab_id, preset, requests, is_active_tab, total_pending)` for the oldest waiting tab
+    /// (lowest tab slice order, i.e. spawn order). When multiple tabs are waiting, `total_pending` sums the
+    /// pending approvals across all waiting tabs (at least 1 per waiting tab), and the banner targets the oldest
+    /// waiting tab first so **Open tab** switches to that tab id (`AC-2`).
+    fn approval_banner_target(&self) -> Option<(usize, AgentCliPreset, Vec<crate::agent_permissions::ApprovalRequest>, bool, usize)> {
+        let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        let mut waiting: Vec<(usize, &TerminalTab)> = Vec::new();
+        for (idx, tab) in self.tabs.iter().enumerate() {
+            let is_active = idx == active_idx;
+            if tab.needs_approval() || (is_active && !self.pending_approvals.is_empty()) {
+                waiting.push((idx, tab));
+            }
+        }
+        if let Some(&(first_idx, first_tab)) = waiting.first() {
+            let is_active_tab = first_idx == active_idx;
+            let total_pending: usize =
+                waiting
+                    .iter()
+                    .map(|&(idx, tab)| {
+                        if idx == active_idx && !self.pending_approvals.is_empty() {
+                            self.pending_approvals.len()
+                        } else {
+                            tab.pending_approvals.len().max(1)
+                        }
+                    })
+                    .sum();
+            let reqs = if is_active_tab && !self.pending_approvals.is_empty() { self.pending_approvals.clone() } else { first_tab.pending_approvals.clone() };
+            return Some((first_tab.id, first_tab.preset, reqs, is_active_tab, total_pending));
+        }
+        if !self.pending_approvals.is_empty() {
+            let preset = self.active_tab().map(|t| t.preset).unwrap_or(self.active_runtime);
+            let total = self.pending_approvals.len();
+            return Some((0, preset, self.pending_approvals.clone(), true, total));
+        }
+        None
     }
 
     fn withdraw_tab_approvals(tab: &mut TerminalTab) {
@@ -1877,7 +1916,7 @@ impl TerminalState {
         }
     }
 
-    /// Handles a click on the in-panel approval card (`Approve`, `Deny`, or `Open tab`).
+    /// Handles a click on the in-panel approval card (`Approve`, `Deny`, `Show prompt`, or `Open tab`).
     pub fn handle_approval_card_action(&mut self, action: crate::agent_approval_card::CardAction) {
         match action {
             crate::agent_approval_card::CardAction::Approve(id) => {
@@ -1886,15 +1925,27 @@ impl TerminalState {
             crate::agent_approval_card::CardAction::Deny(id) => {
                 self.answer_pending_approval(&id, crate::agent_permissions::ApprovalDecision::Deny);
             }
-            crate::agent_approval_card::CardAction::OpenTab => {
+            crate::agent_approval_card::CardAction::ShowPrompt => {
+                self.picker_open = false;
                 self.side_panel_pty_open = true;
                 self.chat_mode = false;
+                self.chrome_focused = false;
+                self.viewport_focused = true;
+            }
+            crate::agent_approval_card::CardAction::OpenTab(tab_id) => {
+                if tab_id != 0 {
+                    let _ = self.focus_tab_by_id(tab_id);
+                }
+                self.picker_open = false;
+                self.side_panel_pty_open = true;
+                self.chat_mode = false;
+                self.chrome_focused = false;
                 self.viewport_focused = true;
             }
         }
     }
 
-    /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`).
+    /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`, `#1195`).
     pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>) {
         self.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         self.ensure_default_tab(file_path);
@@ -1948,6 +1999,22 @@ impl TerminalState {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
                     }
+                }
+            }
+            "agents-approval-background-tab" => {
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Codex;
+                    tab.title = "Codex CLI #1".into();
+                    tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                    if let Ok(mut st) = tab.agent_status.lock() {
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
+                    }
+                }
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Claude;
+                    tab.title = "Claude Code #2".into();
+                    tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
                 }
             }
             "agents-scrollback" => {
@@ -3076,7 +3143,7 @@ impl TerminalState {
     }
 
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
-    /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
+    /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Tab`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
         self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
     }
@@ -4000,11 +4067,15 @@ impl TerminalState {
             }
         }
 
-        let cli_label = self.active_tab().map(|t| t.preset.button_label()).unwrap_or_else(|| self.active_runtime.button_label());
+        let cli_label = self
+            .approval_banner_target()
+            .map(|(_, preset, _, _, _)| preset.button_label())
+            .or_else(|| self.active_tab().map(|t| t.preset.button_label()))
+            .unwrap_or_else(|| self.active_runtime.button_label());
         let request_key: Option<String> = if let Some(first) = self.pending_approvals.first() {
             Some(first.id.clone())
-        } else if self.needs_approval() {
-            Some("waiting".to_string())
+        } else if let Some((tab_id, _, reqs, _, _)) = self.approval_banner_target() {
+            Some(reqs.first().map(|r| r.id.clone()).unwrap_or_else(|| format!("waiting-{tab_id}")))
         } else {
             None
         };
@@ -4039,7 +4110,7 @@ impl TerminalState {
         out
     }
 
-    /// Selects and reveals the agent tab with `tab_id` when a notification is clicked (`#683` §3.6).
+    /// Selects and reveals the agent tab with `tab_id` when a notification is clicked (`#683` §3.6, `#1195`).
     pub fn focus_tab_by_id(&mut self, tab_id: usize) -> bool {
         let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return false;
@@ -4048,6 +4119,7 @@ impl TerminalState {
         self.tabs[idx].unread = false;
         self.surface_visible = true;
         self.window_focused = true;
+        self.sync_active_tab_approvals();
         true
     }
 
@@ -6132,13 +6204,21 @@ pub fn show_left_with_doc(
 
     // ---- C. Center Area (`between runtime bar and bottom composer`)
     let full_center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
-    let active_preset = state.active_tab().map(|t| t.preset).unwrap_or(state.active_runtime);
-    let center_rect = if state.needs_approval() {
-        let reqs = state.pending_approvals.clone();
-        if let Some(act) = crate::agent_approval_card::paint_approval_card(ui, full_center_rect, active_preset, &reqs, "agents-left-chat") {
+    let center_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+        let on_active_claude = is_active_tab && banner_preset == AgentCliPreset::Claude;
+        if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
+            ui,
+            full_center_rect,
+            banner_preset,
+            &reqs,
+            target_tab_id,
+            on_active_claude,
+            total_pending,
+            "agents-left-chat",
+        ) {
             state.handle_approval_card_action(act);
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(active_preset);
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if on_active_claude { banner_preset } else { AgentCliPreset::Codex });
         Rect::from_min_max(Pos2::new(full_center_rect.left(), (full_center_rect.top() + card_h).min(full_center_rect.bottom())), full_center_rect.max)
     } else {
         full_center_rect
@@ -6255,13 +6335,30 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let p = ui.painter().clone();
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
 
-    let active_preset = state.active_tab().map(|t| t.preset).unwrap_or(state.active_runtime);
-    let viewport_rect = if state.needs_approval() {
-        let reqs = state.pending_approvals.clone();
-        if let Some(act) = crate::agent_approval_card::paint_approval_card(ui, viewport_rect, active_preset, &reqs, surface_id) {
+    let mut card_activated = false;
+    let viewport_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+        let in_active_terminal = is_active_tab && state.side_panel_pty_open && !state.picker_open;
+        if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
+            ui,
+            viewport_rect,
+            banner_preset,
+            &reqs,
+            target_tab_id,
+            in_active_terminal,
+            total_pending,
+            surface_id,
+        ) {
+            card_activated = true;
             state.handle_approval_card_action(act);
+            if let Some(fid) = ui.ctx().memory(|m| m.focused()) {
+                ui.ctx().memory_mut(|m| m.surrender_focus(fid));
+            }
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(active_preset);
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if in_active_terminal && banner_preset == AgentCliPreset::Claude {
+            banner_preset
+        } else {
+            AgentCliPreset::Codex
+        });
         Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
     } else {
         viewport_rect
@@ -6411,6 +6508,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 
         // Direct raw keystroke, Agent CLI shortcuts & bracketed paste capture when the terminal viewport is focused
         if viewport_focused
+            && !card_activated
             && (!crate::agent_a11y::non_canvas_has_focus(ui.ctx())
                 || ui.ctx().memory(|m| m.has_focus(vp_resp.id) || m.has_focus(crate::agent_a11y::composer_id())))
         {
@@ -11225,7 +11323,9 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-scrollback"] {
+        for preset_slug in
+            ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"]
+        {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);

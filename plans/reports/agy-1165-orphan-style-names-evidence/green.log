@@ -1,0 +1,51 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-10039364b328c9e9)
+
+running 13 tests
+test consumers_take_effect_and_grid_values_from_the_style_node ... ok
+test a_stroke_style_node_is_a_stroke_style ... ok
+test a_soft_deleted_style_is_ignored ... ok
+test style_values_and_metadata_are_imported ... ok
+test legacy_inherit_refs_resolve_to_the_style_nodes ... ok
+test us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks ... ok
+test fig_style_colorvar_round_trips ... ok
+test text_style_paragraph_indent_and_weight_round_trip ... ok
+test effect_style_shadow_vars_round_trip ... ok
+test fill_style_gradient_stop_binding_round_trips ... ok
+test export_then_import_keeps_effect_and_grid_styles_and_their_links ... ok
+test us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs ... ok
+test noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.39s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 4 tests
+test panels::style_picker::tests::us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed ... ok
+test panels::style_picker::tests::the_create_row_uses_the_noun_of_the_empty_state_row ... ok
+test panels::style_picker::tests::us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip ... ok
+test panels::style_picker::tests::us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3345 filtered out; finished in 0.05s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1165-orphan-style-names/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.68s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test tools::search_design_system::tests::us01_ac02_mcp_excludes_orphan_styles_from_search_and_get_document ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.00s
+

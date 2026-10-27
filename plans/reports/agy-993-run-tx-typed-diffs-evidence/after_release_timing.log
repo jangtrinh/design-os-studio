@@ -1,0 +1,14 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `release` profile [optimized] target(s) in 1m 41s
+     Running unittests src/main.rs (out/cargo/release/deps/designos-e6441832b78550da)
+
+running 1 test
+test agent_busy_frames::field_diff_tests::ac01_synthetic_kit_page_21978_nodes_autofix_and_record_loop_under_200ms ... [AC-01] nodes=21978 autofix_ms=35.81 autofix_passes=588 autofix_user_edited_fields=588 whole_page_run_tx_ms=9.74 tx_passes=100 tx_allocs=1325
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3352 filtered out; finished in 0.07s
+

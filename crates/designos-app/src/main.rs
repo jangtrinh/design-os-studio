@@ -5,6 +5,8 @@ mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
+#[cfg(test)]
+mod agent_cli_select_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
 pub mod agent_hook_outputs;
@@ -41,6 +43,7 @@ mod cmdk;
 mod comments;
 mod comp_ops;
 mod decks;
+#[cfg(any(test, feature = "fixtures"))]
 mod demo;
 mod dev;
 mod edit;
@@ -80,11 +83,14 @@ mod paste_placement;
 mod plugins;
 mod present;
 mod proto;
+#[cfg(any(test, feature = "fixtures"))]
 mod protovars;
 mod richtext;
 #[cfg(test)]
 mod scratch_cli_home;
+mod select_target;
 mod shell;
+#[cfg(any(test, feature = "fixtures"))]
 mod showcase;
 mod skills;
 mod specs;
@@ -104,6 +110,7 @@ mod textmeasure;
 mod theme;
 mod util;
 mod variables;
+#[cfg(any(test, feature = "fixtures"))]
 mod vecfixture;
 mod vecops;
 mod video;
@@ -143,6 +150,7 @@ fn main() {
         std::process::exit(2);
     }
     if let Some(dir) = &opts.seed_library {
+        #[cfg(any(test, feature = "fixtures"))]
         match showcase::seed_library(dir) {
             Ok(()) => println!("designos: wrote the showcase sample files to {}", dir.display()),
             Err(e) => {
@@ -150,6 +158,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        #[cfg(not(any(test, feature = "fixtures")))]
+        {
+            let _ = dir;
+            eprintln!("designos: --seed-library requires a build with the 'fixtures' feature");
+            std::process::exit(2);
+        }
+        #[cfg(any(test, feature = "fixtures"))]
         return;
     }
     if opts.is_agent_cli() {
@@ -202,10 +217,27 @@ fn main() {
             eprintln!("{err}");
             std::process::exit(1);
         }
-        if !shell::SHOT_OK.load(Ordering::SeqCst) {
-            eprintln!("designos: screenshot was not captured");
-            std::process::exit(1);
+        let miss = shell::SELECT_MISS.get();
+        let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
+        match miss {
+            Some(message) => eprintln!("designos: {message}"),
+            None if !shot_ok => eprintln!("designos: screenshot was not captured"),
+            None => {}
         }
+        let code = exit_code(miss.is_some(), shot_ok);
+        if code != 0 {
+            std::process::exit(code);
+        }
+    }
+}
+
+/// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
+/// outranks 1 for a PNG that was not captured, and 0 otherwise.
+fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
+    match (select_miss, shot_ok) {
+        (true, _) => 2,
+        (false, false) => 1,
+        (false, true) => 0,
     }
 }
 
@@ -223,41 +255,52 @@ impl SaveTarget {
     }
 }
 
-fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Option<designos_doc::NodeId> {
-    let s = select?.trim();
-    if s.is_empty() || s.eq_ignore_ascii_case("none") {
-        return None;
-    }
-    if let Some(id) = s.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()) {
-        return Some(id);
-    }
-    for &pid in &doc.pages {
-        if let Some(p) = doc.get(pid) {
-            if p.name == s {
-                return Some(pid);
-            }
-            for &cid in &p.children {
-                if doc.get(cid).is_some_and(|c| c.name == s) {
-                    return Some(cid);
-                }
-            }
-        }
-    }
-    let mut found = None;
-    for &pid in &doc.pages {
-        doc.walk(pid, |n, _| {
-            if found.is_none() && (n.name == s || n.name.eq_ignore_ascii_case(s)) {
-                found = Some(n.id);
-            }
-        });
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
-}
-
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
+    // Validate `--export-variables` option combinations (`#1140` §3 rule 10) before loading or creating anything.
+    if opts.export_variables.is_none() {
+        if opts.mode.is_some() {
+            return Err("--mode requires --export-variables".into());
+        }
+        if !opts.collections.is_empty() {
+            return Err("--collection requires --export-variables and --mode".into());
+        }
+        if opts.resolve_aliases {
+            return Err("--resolve-aliases requires --export-variables and --mode".into());
+        }
+        if opts.color_format.is_some() {
+            return Err("--color-format requires --export-variables --format dtcg".into());
+        }
+    } else if let Some(out_target) = &opts.export_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
+        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if opts.mode.is_some() {
+            if fmt != designos_fig::VariablesFormat::Dtcg {
+                return Err("--mode requires --format dtcg".into());
+            }
+            if !ext.eq_ignore_ascii_case("json") {
+                return Err("--mode requires a .json output file path".into());
+            }
+        } else {
+            if !opts.collections.is_empty() {
+                return Err("--collection requires --mode <name>".into());
+            }
+            if opts.resolve_aliases {
+                return Err("--resolve-aliases requires --mode <name>".into());
+            }
+            if fmt == designos_fig::VariablesFormat::Dtcg && ext.eq_ignore_ascii_case("json") {
+                return Err("DTCG export to a .json path requires --mode <name>; pass a directory, a .zip file, or --mode <name>".into());
+            }
+        }
+        if let Some(cf) = &opts.color_format {
+            if fmt != designos_fig::VariablesFormat::Dtcg {
+                return Err("--color-format requires --format dtcg".into());
+            }
+            if designos_fig::ColorFormat::parse_label(cf).is_none() {
+                return Err(format!("unknown --color-format {cf:?} (expected hex or object)"));
+            }
+        }
+    }
+
     // An unusable --export-fig target stops the command before it loads, applies or saves anything.
     if let Some(out_path) = &opts.export_fig {
         cli_export_write::check_target(out_path, "fig", opts.overwrite)?;
@@ -291,6 +334,15 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
+    // Resolve --select before anything is imported, applied or saved: a miss must leave the file as it was.
+    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref())?;
+    let selected_node = selected_target.and_then(|t| t.node);
+    if let (Some(target), Some(raw)) = (selected_target, opts.select.as_deref()) {
+        if let Some(note) = target.note(raw.trim()) {
+            eprintln!("designos: {note}");
+        }
+    }
+
     if let Some(cap_path) = &opts.import_capture {
         let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
         let page = doc.pages.first().copied().ok_or("Document has no pages")?;
@@ -314,8 +366,6 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
-
-    let selected_node = resolve_select_node(&doc, opts.select.as_deref());
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
@@ -444,39 +494,80 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
     if let Some(out_target) = &opts.export_variables {
         let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
-        let bundle = designos_fig::export_variables(&doc, fmt).map_err(|e| format!("Cannot export variables: {e}"))?;
-        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext.eq_ignore_ascii_case("zip") {
+        let color_format = opts.color_format.as_deref().and_then(designos_fig::ColorFormat::parse_label).unwrap_or(designos_fig::ColorFormat::Object);
+
+        if let Some(mode_name) = &opts.mode {
+            let mode_opts = designos_fig::DtcgModeOptions {
+                mode: mode_name.clone(),
+                collections: opts.collections.clone(),
+                resolve_aliases: opts.resolve_aliases,
+                color_format,
+            };
+            let (bytes, report) = designos_fig::export_dtcg_mode(&doc, &mode_opts).map_err(|e| format!("Cannot export variables: {e}"))?;
             if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
-            std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
-        } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
-            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            std::fs::write(out_target, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            let out = serde_json::json!({
+                "format": "dtcg",
+                "path": out_target,
+                "mode": report.mode,
+                "collections": report.collections,
+                "skipped_collections": report.skipped_collections,
+                "inlined_for_aliases": report.inlined_for_aliases,
+                "tokens": report.tokens,
+                "aliases_resolved": report.aliases_resolved,
+                "aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode,
+                "values_from_default_mode": report.values_from_default_mode,
+                "color_format": report.color_format.label(),
+                "omitted_extensions": report.omitted_extensions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
         } else {
-            std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
-            for (name, bytes) in &bundle.files {
-                let safe_name = std::path::Path::new(name)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
-                    .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
-                let dest = out_target.join(safe_name);
-                std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+            let bundle = designos_fig::export_variables_with_color_format(&doc, fmt, color_format).map_err(|e| format!("Cannot export variables: {e}"))?;
+            let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("zip") {
+                if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
+                std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
+                if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+            } else {
+                let mut seen_names = std::collections::BTreeSet::new();
+                let mut dup_names = Vec::new();
+                for (name, _) in &bundle.files {
+                    if !seen_names.insert(name.as_str()) && !dup_names.contains(&name.as_str()) {
+                        dup_names.push(name.as_str());
+                    }
+                }
+                if !dup_names.is_empty() {
+                    return Err(format!("Refusing to overwrite duplicate export file(s): {}", dup_names.join(", ")));
+                }
+                std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
+                for (name, bytes) in &bundle.files {
+                    let safe_name = std::path::Path::new(name)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                        .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
+                    let dest = out_target.join(safe_name);
+                    std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+                }
             }
+            let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
+            let out = serde_json::json!({
+                "format": bundle.format.label(),
+                "path": out_target,
+                "files": files_written,
+                "omitted_extensions": bundle.omitted_extensions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
         }
-        let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
-        let out = serde_json::json!({
-            "format": bundle.format.label(),
-            "path": out_target,
-            "files": files_written,
-            "omitted_extensions": bundle.omitted_extensions,
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
     if let Some(lang_id) = &opts.codegen {
@@ -500,33 +591,74 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if opts.inspect_json {
-        let out = serde_json::json!({
-            "name": doc.name,
-            "kind": doc.kind,
-            "node_count": doc.nodes.len(),
-            "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
-            "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
-                "id": p.id.0,
-                "name": p.name,
-                "child_count": p.children.len(),
-                "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
-                    "id": c.id.0,
-                    "name": c.name,
-                    "kind": c.kind.default_name(),
-                    "width": c.size.x,
-                    "height": c.size.y,
-                    "dev_status": c.dev.status.map(|s| s.label()),
-                })).collect::<Vec<_>>()
-            })).collect::<Vec<_>>()
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node)).unwrap());
     }
 
     Ok(())
 }
 
+/// What `--inspect-json` prints: the pages and screens of the document (with their Figma ids), plus the node that
+/// `--select` addressed, in page coordinates, so an agent can read where it is without a second command.
+fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "name": doc.name,
+        "kind": doc.kind,
+        "node_count": doc.nodes.len(),
+        "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
+        "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
+            "id": p.id.0,
+            "name": p.name,
+            "child_count": p.children.len(),
+            "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
+                "id": c.id.0,
+                "name": c.name,
+                "kind": c.kind.default_name(),
+                "width": c.size.x,
+                "height": c.size.y,
+                "dev_status": c.dev.status.map(|s| s.label()),
+                "source_id": c.source_id,
+            })).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()
+    });
+    if let Some(n) = selected.and_then(|id| doc.get(id)) {
+        let b = designos_doc::node_world_bounds(doc, n.id);
+        out["selection"] = serde_json::json!({
+            "id": n.id.0,
+            "name": n.name,
+            "kind": n.kind.default_name(),
+            "page_id": doc.page_of(n.id).map(|p| p.0),
+            "source_id": n.source_id,
+            "x": b.x,
+            "y": b.y,
+            "width": b.w,
+            "height": b.h,
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod icon_tests {
+    #[test]
+    fn select_resolves_native_fig_and_name_selectors_without_fallback() {
+        let mut doc = designos_doc::Document::new("selector test");
+        let page = doc.add_page("Page");
+        let mut node = designos_doc::Node::new(designos_doc::NodeId(2), designos_doc::NodeKind::Rectangle);
+        node.name = "Card".into();
+        node.source_id = Some("12:34".into());
+        doc.insert(page, node).unwrap();
+
+        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| super::select_target::resolve_flag(doc, select).map(|t| t.and_then(|t| t.node));
+        assert_eq!(resolve(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert!(resolve(&mut doc, Some("id:999")).is_err());
+        assert!(resolve(&mut doc, Some("Missing")).is_err());
+        assert_eq!(resolve(&mut doc, Some("none")).unwrap(), None);
+        assert_eq!(resolve(&mut doc, None).unwrap(), None);
+    }
+
     #[test]
     fn embedded_window_icon_decodes() {
         let icon = super::window_icon().expect("icon decodes");
@@ -818,6 +950,244 @@ mod icon_tests {
         let bad_wc = dir.join("bad.webcapture.json");
         std::fs::write(&bad_wc, "{not valid json").unwrap();
         assert!(app.try_open_path(bad_wc).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_capture_with_unknown_select_writes_nothing() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_web_capture_select_miss_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cap_in = dir.join("card.capture.json");
+        let doc_out = dir.join("card.designos");
+        let original = b"existing document must survive selector failure";
+        std::fs::write(&doc_out, original).unwrap();
+        std::fs::write(
+            &cap_in,
+            r#"{"schema_version":1,"url":"https://example.com","title":"Card","viewport":{"width":800,"height":600,"dpr":1},"root":{"tag":"div","bounds":{"x":0,"y":0,"w":10,"h":10}}}"#,
+        )
+        .unwrap();
+
+        let opts = super::cli::parse([
+            "--import-capture".into(),
+            cap_in.to_string_lossy().into_owned(),
+            "--out".into(),
+            doc_out.to_string_lossy().into_owned(),
+            "--select".into(),
+            "Definitely-Missing-1127".into(),
+        ])
+        .unwrap();
+        let err = super::run_agent_cli(&opts).unwrap_err();
+        assert!(err.contains("matched no node"), "{err}");
+        assert_eq!(std::fs::read(&doc_out).unwrap(), original, "a selector miss must leave the output untouched");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod variables_cli_tests {
+    #[test]
+    fn cli_directory_export_never_overwrites_within_one_run() {
+        let dir = std::env::temp_dir().join(format!("designos_1140_dir_export_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("kit.designos");
+        let out_dir = dir.join("dtcg_out");
+
+        let mut doc = designos_doc::Document::new("Kit");
+        doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "VariableCollectionId:10:1".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:10:1".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "10:m1".into(), name: "Style".into() }],
+                default_mode: "10:m1".into(),
+                variables: vec!["VariableID:10:v1".into()],
+                key: None,
+                source_library_key: None,
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:10:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:10:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:10:1".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("10:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(10, 10, 10)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variable_collections.insert(
+            "VariableCollectionId:20:2".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:20:2".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "20:m1".into(), name: "Style".into() }],
+                default_mode: "20:m1".into(),
+                variables: vec!["VariableID:20:v1".into()],
+                key: Some("k-lib".into()),
+                source_library_key: Some("lib-1".into()),
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:20:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:20:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:20:2".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("20:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(20, 20, 20)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let opts = super::cli::parse([
+            doc_path.to_string_lossy().into_owned(),
+            "--export-variables".into(),
+            out_dir.to_string_lossy().into_owned(),
+            "--format".into(),
+            "dtcg".into(),
+        ])
+        .unwrap();
+        super::run_agent_cli(&opts).unwrap();
+
+        let bundle = designos_fig::export_variables(&doc, designos_fig::VariablesFormat::Dtcg).unwrap();
+        let on_disk_count = std::fs::read_dir(&out_dir).unwrap().filter_map(Result::ok).count();
+        assert_eq!(on_disk_count, bundle.files.len(), "files count in bundle must equal files on disk");
+        assert!(out_dir.join("_Primitives.Style.tokens.json").exists());
+        assert!(out_dir.join("_Primitives (2).Style.tokens.json").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dtcg_to_a_json_path_without_mode_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("designos_1140_json_no_mode_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("kit.designos");
+        let json_out = dir.join("x.json");
+
+        let mut doc = designos_doc::Document::new("Kit");
+        doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "VariableCollectionId:10:1".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:10:1".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "10:m1".into(), name: "Style".into() }],
+                default_mode: "10:m1".into(),
+                variables: vec!["VariableID:10:v1".into()],
+                key: None,
+                source_library_key: None,
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:10:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:10:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:10:1".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("10:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(10, 10, 10)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let opts = super::cli::parse([
+            doc_path.to_string_lossy().into_owned(),
+            "--export-variables".into(),
+            json_out.to_string_lossy().into_owned(),
+            "--format".into(),
+            "dtcg".into(),
+        ])
+        .unwrap();
+        let err = super::run_agent_cli(&opts).expect_err("dtcg export to .json without --mode must fail");
+        assert!(err.contains("--mode"), "error should mention --mode, got: {err:?}");
+        assert!(!json_out.exists(), "no directory or file named x.json may be created");
+
+        // Also check Rule 10 option combinations fail cleanly without writing output.
+        for bad_args in [
+            vec![doc_path.to_string_lossy().into_owned(), "--mode".into(), "Style".into()],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                json_out.to_string_lossy().into_owned(),
+                "--format".into(),
+                "figma-rest".into(),
+                "--mode".into(),
+                "Style".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out.zip").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--mode".into(),
+                "Style".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out_dir").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--resolve-aliases".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out_dir").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--collection".into(),
+                "_Primitives".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                json_out.to_string_lossy().into_owned(),
+                "--format".into(),
+                "figma-rest".into(),
+                "--color-format".into(),
+                "hex".into(),
+            ],
+        ] {
+            let parsed = super::cli::parse(bad_args.clone()).unwrap();
+            assert!(super::run_agent_cli(&parsed).is_err(), "expected error for args {bad_args:?}");
+        }
+        assert!(!json_out.exists(), "no output file created after bad args");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

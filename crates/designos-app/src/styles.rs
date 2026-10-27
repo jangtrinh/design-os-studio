@@ -62,7 +62,7 @@ pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
     let mut folder_rank: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut ranked: Vec<(usize, StyleEntry)> = ordered_style_keys(doc, None)
         .into_iter()
-        .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s)))
+        .filter(|k| doc.styles.get(k).is_some_and(|s| kind.holds(s) && doc.is_table_style(k)))
         .enumerate()
         .map(|(idx, k)| {
             let (folder, leaf) = split_name(doc.style_name(&k));

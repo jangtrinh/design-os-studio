@@ -4,6 +4,7 @@ use crate::app::{App, MenuKind};
 use crate::canvas::tools::Tool;
 use crate::canvas::{self, interact};
 use crate::cli::Options;
+#[cfg(any(test, feature = "fixtures"))]
 use crate::demo;
 use crate::icons::Icon;
 use crate::panels::menus::{self, Action};
@@ -21,6 +22,9 @@ const REVEAL_LABEL: &str = "Show in folder";
 
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
+/// The message of a `--select` (or `--edit-text`) that matched nothing in a `--screenshot` run: no PNG is written and
+/// the run exits 2. Set by `Shell::new`, the real window's entry, so a test window never touches it.
+pub static SELECT_MISS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Set when `--screenshot` fails to open `opts.file` during `Shell::build`.
 pub static SHOT_OPEN_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -69,6 +73,8 @@ struct Shot {
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
+    /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
+    /// and writes no PNG.
     open_failed: bool,
 }
 
@@ -90,6 +96,8 @@ pub struct Shell {
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
+    /// Why a `--select` or `--edit-text` named nothing, when it did not.
+    select_miss: Option<String>,
 }
 
 impl Shell {
@@ -107,6 +115,9 @@ impl Shell {
         if shell.app.ui.pages_height.is_none() {
             let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
             shell.app.ui.pages_height = crate::comments::settings::load_pages_height(&settings_root);
+        }
+        if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
+            let _ = SELECT_MISS.set(miss.clone());
         }
         if !screenshot && panel_was_none && !has_file {
             shell.app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -137,39 +148,59 @@ impl Shell {
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
+            #[cfg(any(test, feature = "fixtures"))]
+            Some("demo") => demo::demo_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("no-selection") => demo::reference_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("variables") => demo::variables_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("variables-library" | "variables-library-open") => demo::variables_library_document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::showcase::FIXTURE) => crate::showcase::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::protovars::FIXTURE) => crate::protovars::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(crate::check_designs::FIXTURE) => crate::check_designs::fixture::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("deck") => crate::decks::demo::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("board") => crate::board::demo::document(),
+            #[cfg(any(test, feature = "fixtures"))]
             Some("board-empty") => crate::board::create::new_document("Untitled"),
+            #[cfg(any(test, feature = "fixtures"))]
             Some(f) if crate::vecfixture::FIXTURES.contains(&f) => crate::vecfixture::document(),
-            None if opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
-            _ => demo::demo_document(),
+            #[cfg(any(test, feature = "fixtures"))]
+            Some("comments") => demo::demo_document(),
+            _ => {
+                let mut d = designos_doc::Document::new("Untitled");
+                d.add_page("Page 1");
+                d
+            }
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
         let session_id = app.tabs.active_session_id();
         app.terminal.bind_session(&session_id);
-        if !matches!(
-            opts.fixture.as_deref(),
-            Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
-        ) {
-            app.doc.name = "Untitled".into();
-        }
-        if opts.fixture.as_deref() == Some("deck") {
-            if let Some(id) = app.deck_slides().first().copied() {
-                app.select_slide(id);
+        #[cfg(any(test, feature = "fixtures"))]
+        {
+            if !matches!(
+                opts.fixture.as_deref(),
+                Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
+            ) {
+                app.doc.name = "Untitled".into();
             }
-        }
-        if opts.fixture.as_deref() == Some("comments") {
-            crate::comments::fixture::apply(&mut app);
-        }
-        if let Some(f) = opts.fixture.as_deref().filter(|f| crate::vecfixture::FIXTURES.contains(f)) {
-            crate::vecfixture::apply(&mut app, f);
+            if opts.fixture.as_deref() == Some("deck") {
+                if let Some(id) = app.deck_slides().first().copied() {
+                    app.select_slide(id);
+                }
+            }
+            if opts.fixture.as_deref() == Some("comments") {
+                crate::comments::fixture::apply(&mut app);
+            }
+            if let Some(f) = opts.fixture.as_deref().filter(|f| crate::vecfixture::FIXTURES.contains(f)) {
+                crate::vecfixture::apply(&mut app, f);
+            }
         }
         if let Some(root) = opts.library.clone() {
             app.attach_library(root);
@@ -204,16 +235,34 @@ impl Shell {
                 }
             }
         }
-        if let Some(name) = opts.select.as_ref().filter(|n| n.as_str() != "none") {
-            // a top-level layer (screen) wins over same-named layers deeper in the tree
-            let named =
-                |top: bool| app.doc.nodes.values().find(|n| &n.name == name && (!top || n.parent.is_some_and(|p| app.doc.pages.contains(&p)))).map(|n| n.id);
-            if let Some(id) = named(true).or_else(|| named(false)) {
-                if let Some(pg) = app.doc.page_of(id) {
-                    app.doc.ensure_page_hydrated(pg);
-                    app.page = pg;
+        let mut select_miss = None;
+        if opts.select.is_some() && !shot_open_failed {
+            match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref()) {
+                Ok(Some(target)) => {
+                    if let Some(note) = target.note(opts.select.as_deref().unwrap_or("").trim()) {
+                        eprintln!("designos: {note}");
+                    }
+                    if let Some(id) = target.node {
+                        if let Some(pg) = app.doc.page_of(id) {
+                            app.doc.ensure_page_hydrated(pg);
+                            app.page = pg;
+                        }
+                        if app.doc.pages.contains(&id) {
+                            app.selection.clear();
+                        } else {
+                            app.selection = vec![id];
+                        }
+                    }
                 }
-                app.selection = vec![id];
+                Ok(None) => app.selection.clear(),
+                Err(err) => {
+                    select_miss = Some(err.to_string());
+                    // A capture run reports it and exits 2 (no PNG); a person is not thrown out of the app for a typo.
+                    if opts.screenshot.is_none() {
+                        eprintln!("designos: {err}");
+                        app.show_toast(err.toast(), true);
+                    }
+                }
             }
         }
         if let Some(spec) = &opts.menu {
@@ -236,6 +285,7 @@ impl Shell {
             app.ui.pixel_grid = true;
         }
         app.startup_zoom = opts.zoom.map(|z| z / 100.0);
+        app.startup_fit_selection = opts.zoom_fit;
         if let Some(kind) = &opts.layout_grid {
             let target = app.selection.first().copied();
             if let Some(id) = target {
@@ -266,6 +316,9 @@ impl Shell {
                 }
             } else {
                 eprintln!("designos: no text layer named '{name}'");
+                if opts.screenshot.is_some() {
+                    select_miss.get_or_insert(format!("--edit-text \"{name}\" matched no text layer"));
+                }
             }
         }
         if opts.tab.as_deref() == Some("prototype") {
@@ -277,7 +330,12 @@ impl Shell {
                 st.start_fullscreen = opts.fullscreen;
             }
             if opts.panel.as_deref() == Some("present-variables") {
-                if opts.fixture.as_deref() == Some(crate::protovars::FIXTURE) {
+                #[cfg(any(test, feature = "fixtures"))]
+                let is_proto_vars = opts.fixture.as_deref() == Some(crate::protovars::FIXTURE);
+                #[cfg(not(any(test, feature = "fixtures")))]
+                let is_proto_vars = false;
+                if is_proto_vars {
+                    #[cfg(any(test, feature = "fixtures"))]
                     crate::protovars::prime_present(&mut app);
                 } else if let Some(st) = app.proto.present.as_mut() {
                     st.show_vars = true;
@@ -334,7 +392,10 @@ impl Shell {
                 app.terminal.ensure_default_tab(app.file_path.as_deref());
                 app.ui.permissions_modal_open = true;
             }
-            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab" | "agents-scrollback")) => {
+            Some(
+                p
+                @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab" | "agents-approval-background-tab" | "agents-scrollback"),
+            ) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_approval_fixture(p, app.file_path.as_deref());
@@ -366,7 +427,10 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                crate::protovars::open_editor(&mut app);
+                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
+                    app.selection = vec![add];
+                    app.proto.editing = Some((add, 0));
+                }
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),
@@ -426,9 +490,9 @@ impl Shell {
             last_try: false,
             seq: seq_capture,
             no_toast: opts.no_toast,
-            open_failed: shot_open_failed,
+            open_failed: shot_open_failed || select_miss.is_some(),
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default() }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -3447,7 +3511,10 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
             }
             if is_proto {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                crate::protovars::open_editor(app);
+                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
+                    app.selection = vec![add];
+                    app.proto.editing = Some((add, 0));
+                }
             }
 
             let surf = if is_dark { Color::rgb(0x14, 0x14, 0x18) } else { Color::rgb(0xF4, 0xF4, 0xF6) };

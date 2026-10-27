@@ -213,6 +213,7 @@ pub struct App {
     pub(crate) scrub_opened_at: u64,
     /// Zoom (as a factor) to apply on the first frame instead of fitting the page (`--zoom`).
     pub startup_zoom: Option<f32>,
+    pub startup_fit_selection: bool,
     /// The projects library (None until opened; tests run without one).
     pub lib: Option<designos_library::Library>,
     /// The library file open in the editor, if any (autosaved, shown in the header).
@@ -311,6 +312,7 @@ impl App {
             scrub: None,
             scrub_opened_at: 0,
             startup_zoom: None,
+            startup_fit_selection: false,
             lib: None,
             lib_file: None,
             home: None,

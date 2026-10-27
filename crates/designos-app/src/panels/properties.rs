@@ -257,8 +257,8 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
                 }
                 last_folder = Some(e.folder.clone());
                 let label = if e.folder.is_empty() { e.leaf.clone() } else { format!("  {}", e.leaf) };
-                let desc = crate::styles::style_description(&app.doc, &e.key);
-                items.push(crate::widgets::menu::MenuItem::new(label).tooltip(desc));
+                let tip = if app.doc.is_unnamed_style(&e.key) { e.key.as_str() } else { crate::styles::style_description(&app.doc, &e.key) };
+                items.push(crate::widgets::menu::MenuItem::new(label).tooltip(tip));
                 picks.push(Some(e.key.clone()));
             }
         }
@@ -267,7 +267,7 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
             .first()
             .and_then(|s| app.doc.get(*s))
             .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
-            .filter(|k| app.doc.styles.contains_key(*k))
+            .filter(|k| app.doc.is_table_style(k))
             .cloned();
         if let Some(last) = items.last_mut() {
             last.separator_after = true;
@@ -529,7 +529,9 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
 /// Text and colour styles grouped in folders by their "/" prefix. Clicking a
 /// row applies the style to `target`.
 fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
-    let applied = |app: &App, prop: &str| target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop).cloned());
+    let applied = |app: &App, prop: &str| {
+        target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop)).filter(|k| app.doc.is_table_style(k)).cloned()
+    };
     let mut shown_groups = 0;
     for (label, kind) in STYLE_GROUP_KINDS {
         if !target_accepts_style_kind(&app.doc, target, kind) {
@@ -1573,6 +1575,7 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         .first()
         .and_then(|s| app.doc.get(*s))
         .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
+        .filter(|k| app.doc.is_table_style(k))
         .map(|k| app.doc.style_name(k).to_string());
     if !paints.is_empty() {
         // Figma sits the first row 4px under the title row.

@@ -1,0 +1,121 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.88s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.46s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test fig_export::comment_notice_tests::an_export_of_a_document_with_comments_says_they_are_not_kept ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.02s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test fig_export::comment_notice_tests::an_export_of_a_document_without_comments_stays_quiet_about_them ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.93s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test fig_export::tests::palette_export_leaves_the_open_fig_file_untouched ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.32s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test scratch_cli_home::tests::a_test_never_runs_a_cli_version_probe_against_the_users_home ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.09s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test terminal::tests::the_live_check_of_gemini_uses_a_scratch_home ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.02s
+
+=== Rerun known flake shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one 3 times ===
+--- Run 1 ---
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.86s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.76s
+
+--- Run 2 ---
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.03s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.67s
+
+--- Run 3 ---
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-993-run-tx-typed-diffs/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.54s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3354 filtered out; finished in 0.82s
+

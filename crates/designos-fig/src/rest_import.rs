@@ -1276,7 +1276,7 @@ impl<'a> Ctx<'a> {
                     other => other,
                 };
                 n.style_refs.insert(key.to_string(), sid.to_string());
-                if self.doc.styles.contains_key(sid) {
+                if sid.starts_with("key:") || self.doc.styles.contains_key(sid) {
                     continue;
                 }
                 let def = match key {
@@ -3343,7 +3343,11 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
         }
     }
     for (id, m) in map {
-        if !doc.styles.contains_key(id) {
+        if !doc.styles.contains_key(id)
+            || fbool(m, "isSoftDeleted") == Some(true)
+            || fbool(m, "isSoftDeletedStyle") == Some(true)
+            || fstr(m, "phase") == Some("REMOVED")
+        {
             continue;
         }
         let property = match fstr(m, "styleType") {
