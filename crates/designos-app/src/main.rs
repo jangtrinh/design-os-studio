@@ -5,6 +5,8 @@ mod agent_busy_frames;
 pub mod agent_cli_catalog;
 #[cfg(test)]
 mod agent_cli_export_fig_tests;
+#[cfg(test)]
+mod agent_cli_select_tests;
 pub mod agent_composer;
 mod agent_failure_redact;
 pub mod agent_hook_outputs;
@@ -84,6 +86,7 @@ mod protovars;
 mod richtext;
 #[cfg(test)]
 mod scratch_cli_home;
+mod select_target;
 mod shell;
 mod showcase;
 mod skills;
@@ -202,10 +205,27 @@ fn main() {
             eprintln!("{err}");
             std::process::exit(1);
         }
-        if !shell::SHOT_OK.load(Ordering::SeqCst) {
-            eprintln!("designos: screenshot was not captured");
-            std::process::exit(1);
+        let miss = shell::SELECT_MISS.get();
+        let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
+        match miss {
+            Some(message) => eprintln!("designos: {message}"),
+            None if !shot_ok => eprintln!("designos: screenshot was not captured"),
+            None => {}
         }
+        let code = exit_code(miss.is_some(), shot_ok);
+        if code != 0 {
+            std::process::exit(code);
+        }
+    }
+}
+
+/// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
+/// outranks 1 for a PNG that was not captured, and 0 otherwise.
+fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
+    match (select_miss, shot_ok) {
+        (true, _) => 2,
+        (false, false) => 1,
+        (false, true) => 0,
     }
 }
 
@@ -221,40 +241,6 @@ impl SaveTarget {
             Self::Path(path) => io::save_path(doc, path).map(|_| ()),
         }
     }
-}
-
-fn resolve_select_node(doc: &designos_doc::Document, select: Option<&str>) -> Option<designos_doc::NodeId> {
-    let s = select?.trim();
-    if s.is_empty() || s.eq_ignore_ascii_case("none") {
-        return None;
-    }
-    if let Some(id) = s.parse::<u64>().ok().map(designos_doc::NodeId).filter(|id| doc.get(*id).is_some()) {
-        return Some(id);
-    }
-    for &pid in &doc.pages {
-        if let Some(p) = doc.get(pid) {
-            if p.name == s {
-                return Some(pid);
-            }
-            for &cid in &p.children {
-                if doc.get(cid).is_some_and(|c| c.name == s) {
-                    return Some(cid);
-                }
-            }
-        }
-    }
-    let mut found = None;
-    for &pid in &doc.pages {
-        doc.walk(pid, |n, _| {
-            if found.is_none() && (n.name == s || n.name.eq_ignore_ascii_case(s)) {
-                found = Some(n.id);
-            }
-        });
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
 }
 
 fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
@@ -336,6 +322,15 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
+    // Resolve --select before anything is imported, applied or saved: a miss must leave the file as it was.
+    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref())?;
+    let selected_node = selected_target.and_then(|t| t.node);
+    if let (Some(target), Some(raw)) = (selected_target, opts.select.as_deref()) {
+        if let Some(note) = target.note(raw.trim()) {
+            eprintln!("designos: {note}");
+        }
+    }
+
     if let Some(cap_path) = &opts.import_capture {
         let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
         let page = doc.pages.first().copied().ok_or("Document has no pages")?;
@@ -359,8 +354,6 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
-
-    let selected_node = resolve_select_node(&doc, opts.select.as_deref());
 
     if let Some(spec_path) = &opts.apply_spec {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
@@ -586,33 +579,74 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if opts.inspect_json {
-        let out = serde_json::json!({
-            "name": doc.name,
-            "kind": doc.kind,
-            "node_count": doc.nodes.len(),
-            "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
-            "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
-                "id": p.id.0,
-                "name": p.name,
-                "child_count": p.children.len(),
-                "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
-                    "id": c.id.0,
-                    "name": c.name,
-                    "kind": c.kind.default_name(),
-                    "width": c.size.x,
-                    "height": c.size.y,
-                    "dev_status": c.dev.status.map(|s| s.label()),
-                })).collect::<Vec<_>>()
-            })).collect::<Vec<_>>()
-        });
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node)).unwrap());
     }
 
     Ok(())
 }
 
+/// What `--inspect-json` prints: the pages and screens of the document (with their Figma ids), plus the node that
+/// `--select` addressed, in page coordinates, so an agent can read where it is without a second command.
+fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "name": doc.name,
+        "kind": doc.kind,
+        "node_count": doc.nodes.len(),
+        "unresolved_comments": doc.comments.iter().filter(|c| !c.resolved).count(),
+        "pages": doc.pages.iter().filter_map(|pid| doc.get(*pid)).map(|p| serde_json::json!({
+            "id": p.id.0,
+            "name": p.name,
+            "child_count": p.children.len(),
+            "screens": p.children.iter().filter_map(|cid| doc.get(*cid)).map(|c| serde_json::json!({
+                "id": c.id.0,
+                "name": c.name,
+                "kind": c.kind.default_name(),
+                "width": c.size.x,
+                "height": c.size.y,
+                "dev_status": c.dev.status.map(|s| s.label()),
+                "source_id": c.source_id,
+            })).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()
+    });
+    if let Some(n) = selected.and_then(|id| doc.get(id)) {
+        let b = designos_doc::node_world_bounds(doc, n.id);
+        out["selection"] = serde_json::json!({
+            "id": n.id.0,
+            "name": n.name,
+            "kind": n.kind.default_name(),
+            "page_id": doc.page_of(n.id).map(|p| p.0),
+            "source_id": n.source_id,
+            "x": b.x,
+            "y": b.y,
+            "width": b.w,
+            "height": b.h,
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod icon_tests {
+    #[test]
+    fn select_resolves_native_fig_and_name_selectors_without_fallback() {
+        let mut doc = designos_doc::Document::new("selector test");
+        let page = doc.add_page("Page");
+        let mut node = designos_doc::Node::new(designos_doc::NodeId(2), designos_doc::NodeKind::Rectangle);
+        node.name = "Card".into();
+        node.source_id = Some("12:34".into());
+        doc.insert(page, node).unwrap();
+
+        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| super::select_target::resolve_flag(doc, select).map(|t| t.and_then(|t| t.node));
+        assert_eq!(resolve(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert_eq!(resolve(&mut doc, Some("Card")).unwrap(), Some(designos_doc::NodeId(2)));
+        assert!(resolve(&mut doc, Some("id:999")).is_err());
+        assert!(resolve(&mut doc, Some("Missing")).is_err());
+        assert_eq!(resolve(&mut doc, Some("none")).unwrap(), None);
+        assert_eq!(resolve(&mut doc, None).unwrap(), None);
+    }
+
     #[test]
     fn embedded_window_icon_decodes() {
         let icon = super::window_icon().expect("icon decodes");
@@ -904,6 +938,38 @@ mod icon_tests {
         let bad_wc = dir.join("bad.webcapture.json");
         std::fs::write(&bad_wc, "{not valid json").unwrap();
         assert!(app.try_open_path(bad_wc).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_capture_with_unknown_select_writes_nothing() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_web_capture_select_miss_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cap_in = dir.join("card.capture.json");
+        let doc_out = dir.join("card.designos");
+        let original = b"existing document must survive selector failure";
+        std::fs::write(&doc_out, original).unwrap();
+        std::fs::write(
+            &cap_in,
+            r#"{"schema_version":1,"url":"https://example.com","title":"Card","viewport":{"width":800,"height":600,"dpr":1},"root":{"tag":"div","bounds":{"x":0,"y":0,"w":10,"h":10}}}"#,
+        )
+        .unwrap();
+
+        let opts = super::cli::parse([
+            "--import-capture".into(),
+            cap_in.to_string_lossy().into_owned(),
+            "--out".into(),
+            doc_out.to_string_lossy().into_owned(),
+            "--select".into(),
+            "Definitely-Missing-1127".into(),
+        ])
+        .unwrap();
+        let err = super::run_agent_cli(&opts).unwrap_err();
+        assert!(err.contains("matched no node"), "{err}");
+        assert_eq!(std::fs::read(&doc_out).unwrap(), original, "a selector miss must leave the output untouched");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
