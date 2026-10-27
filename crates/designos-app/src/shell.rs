@@ -76,6 +76,8 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    #[cfg(debug_assertions)]
+    drop_images: u32,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -496,6 +498,8 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            #[cfg(debug_assertions)]
+            drop_images: std::env::var("DESIGNOS_SHOT_DROP_IMAGES").ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0),
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
     }
@@ -514,6 +518,11 @@ impl Shell {
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
             if let Event::Screenshot { image, .. } = ev {
+                #[cfg(debug_assertions)]
+                if shot.drop_images > 0 {
+                    shot.drop_images -= 1;
+                    continue;
+                }
                 if !shot.captured_at_rest {
                     if !shot.last_try {
                         // Captured from a capped frame: ask again for the at-rest one.
