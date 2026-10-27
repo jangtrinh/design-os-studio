@@ -356,3 +356,227 @@ Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.
 - PRs `#1254` (`#1154`), `#1251` (`#1043`), and `#1256` (`#1242`) are still open against `release/v0.6.5`. Ready to merge `origin/release/v0.6.5` into `jangtrinh/agy-r065-release-notes` as soon as the controller notifies that they have landed.
 
 Status: DONE
+
+
+---
+
+## Round 2
+
+### 1. What Could NOT Be Verified (Stated First)
+
+- **Open PRs `#1254`, `#1251`, and `#1256` merge completion into `release/v0.6.5`:** Those three PRs are still running CI against `release/v0.6.5`. Their `CHANGELOG.md`, `README.md`, and PR `#1265` descriptions were rewritten in user terms in `ab143a4c5`.
+- **Tagged GitHub Release workflow (`.github/workflows/release.yml`):** Not triggered because no tag (`v*`) was created or pushed.
+
+### 2. Conclusion
+
+- Rewrote `## [0.6.5]` in `CHANGELOG.md` and `### 0.6.5` in `README.md` in user terms (`ab143a4c5`, `docs: v0.6.5 release notes in user terms`), removing all 26 internal Rust/Kiwi/test-preview identifiers and keeping only user-typed (`types`), user-seen (`sees`), and user-read (`reads`) backticked spans.
+- Replaced the unverified `0.4.0–0.6.4` starter-file range with what `.starter-seeded` does in both `CHANGELOG.md` and `README.md`: a new library gets the starter file, and an existing library gets it once on its first launch of `0.6.5`; existing files are not touched.
+- Split the `#1003` (`PR #1258`) item into two user-facing sentences stating which MCP tools (`designos_save_file`, `designos_render_png`, `designos_export_fig_file`) return `INVALID_NAME` and `NAME_TOO_LONG` and under what conditions, dropping the internal fallback ordering clause.
+- Trimmed all six `### 0.6.5` bullets in `README.md` to 316–388 characters each (all `<= 415`, the longest `0.6.3` bullet).
+- Updated Draft PR `#1265`'s body (`gh pr edit 1265 --body-file ...`) so it names the four duplicated `v0.6.4` PRs (`#1236`, `#1237`, `#1238`, `#1239`) and `#1213` once, uses the commit SHA `fbc51addd` for `v0.6.3` and the real branch commit SHAs (`10b2c271b`, `20525bd84`, `4a5d62ef4`, `ab143a4c5`), rewrites all table summaries in user terms, and remains a draft (`"isDraft": true`).
+
+### 3. Skills Loaded & Applied in Round 2
+
+- `es-dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`) & `es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Executed the Round 2 DEV specification directly on `jangtrinh/agy-r065-release-notes` above `4a5d62ef` with no rebase or force-push.
+- `es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`) & `es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Inspected `crates/designos-app/src/main.rs:511-525` and `crates/designos-mcp/src/engine.rs:1554-1575` to verify which strings are emitted on stdout/JSON vs internal Rust identifiers.
+- `es-astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`) & `es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`): Classified every remaining backticked span into `types`, `sees`, or `reads` and verified each with `git grep -I -n -F -e` before committing `ab143a4c5`.
+
+### 4. Epistemic Ledger (Round 2)
+
+- **FACT:** In `crates/designos-app/src/main.rs:511-525`, `designos FILE --export-variables OUT.json --format dtcg --mode MODE` prints a pretty-printed JSON object to stdout (`println!("{}", serde_json::to_string_pretty(&out).unwrap());`) containing `"aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode` (line 520) and `"values_from_default_mode": report.values_from_default_mode` (line 521). Both keys are therefore user-read CLI output (`reads`).
+- **FACT:** In `crates/designos-fig/src/variables_dtcg.rs:1032`, `--resolve-aliases` writes `"alias_of"` under `"$extensions": { "org.designos": ... }` in the exported `.tokens.json` file (`reads`).
+- **FACT:** `git rev-parse --short "v0.6.3^{commit}"` resolves to `fbc51addd` (`1a63b65f4` is the annotated tag object, not the commit).
+- **FACT:** Across `v0.6.3..origin/release/v0.6.5`, PRs `#1236`, `#1237`, `#1238`, and `#1239` appear twice (`a01e878b2`/`3ef09a8b3`, `65828fda5`/`511c264bc`, `bae8edd96`/`a39e402f6`, `5a4b5f53b`/`175095340`), while `#1213` (`6f0c3bb21`) appears once.
+- **FACT:** `grep -nE 'App::|_gate\b|Tracker|record_user|plan_constraint|apply_constrained|var_u64|TOAST_' CHANGELOG.md README.md` prints zero matches inside the `0.6.5` sections of `CHANGELOG.md` and `README.md` (its only match in either file is `README.md:576`, `zero_fake_ui_gate.py` in the repository directory tree).
+- **FACT:** The six `### 0.6.5` bullets in `README.md` measure 382, 371, 316, 383, 364, and 388 characters, all `<= 415` characters (the longest `0.6.3` bullet in `README.md`).
+- **INFERENCE:** None load-bearing; all 4 Round 2 acceptance checks were observed directly in this session.
+- **ASSUMPTION:** None.
+- **UNKNOWN:** Exact merge timestamps for open PRs `#1254`, `#1251`, and `#1256`.
+
+### 5. Where `values_from_default_mode` and `aliases_resolved_via_default_mode` Appear in CLI Output
+
+`crates/designos-app/src/main.rs:511-525` prints both keys to stdout when running `designos FILE --export-variables OUT.json --format dtcg --mode MODE`:
+
+```rust
+            let out = serde_json::json!({
+                "format": "dtcg",
+                "path": out_target,
+                "mode": report.mode,
+                "collections": report.collections,
+                "skipped_collections": report.skipped_collections,
+                "inlined_for_aliases": report.inlined_for_aliases,
+                "tokens": report.tokens,
+                "aliases_resolved": report.aliases_resolved,
+                "aliases_resolved_via_default_mode": report.aliases_resolved_via_default_mode,
+                "values_from_default_mode": report.values_from_default_mode,
+                "color_format": report.color_format.label(),
+                "omitted_extensions": report.omitted_extensions,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
+```
+
+### 6. Round 2 Backtick-Span Verification Table (`## [0.6.5]` in `CHANGELOG.md` + `### 0.6.5` in `README.md`)
+
+Every unique backticked span in `CHANGELOG.md` `## [0.6.5]` and `README.md` `### 0.6.5` (106 total: 104 found verbatim on `HEAD`, 1 found verbatim in PR `#1254`'s head branch, and 1 composed CLI command invocation):
+
+| # | Backticked Span | Category (`types` / `sees` / `reads`) | `git grep -I -n -F -e` Match / Notes |
+|---|---|---|---|
+| 1 | `DESIGN-OS Studio Starter` | sees | `crates/designos-app/assets/starter/designos-studio-starter.designos:1` |
+| 2 | `.tokens.json` | reads | `.agents/agents/curator-jang-designos-studio.md:16` |
+| 3 | `Getting started` | sees | `crates/designos-app/src/home/mod.rs:990` |
+| 4 | `Starter screens` | sees | `crates/designos-app/assets/starter/designos-studio-starter.designos:1` |
+| 5 | `About this file` | sees | `crates/designos-app/assets/starter/designos-studio-starter.designos:1` |
+| 6 | `Open starter sample` | sees | `crates/designos-app/src/home/mod.rs:1470` |
+| 7 | `Templates & Specs` | sees | `crates/designos-app/src/home/mod.rs:380` |
+| 8 | `Resources & Libraries` | sees | `crates/designos-app/src/home/mod.rs:381` |
+| 9 | `Help and account` | sees | `.brv/context-tree/features/phosphor-icons-and-figma-1to1-wave6/wave6-parity.md:16` |
+| 10 | `DESIGN-OS Studio Starter (1)` | sees | `crates/designos-app/src/home/mod.rs:2780` |
+| 11 | `(2)` | sees | `CLAUDE.md:74` |
+| 12 | `--seed-library` | types | `.brv/context-tree/architecture/crate-map.md:167` |
+| 13 | `--fixture` | types | `.brv/context-tree/architecture/crate-map.md:167` |
+| 14 | `examples/` | sees | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21` |
+| 15 | `designos FILE --export-variables OUT.json --format dtcg --mode MODE` | types | composed |
+| 16 | `--collection` | types | `crates/designos-app/src/cli.rs:383` |
+| 17 | `values_from_default_mode` | reads | `crates/designos-app/src/main.rs:521` |
+| 18 | `{…}` | reads | `crates/designos-fig/src/variables_dtcg.rs:4803` |
+| 19 | `--resolve-aliases` | types | `crates/designos-app/src/cli.rs:384` |
+| 20 | `alias_of` | reads | `crates/designos-doc/src/spec.rs:2108` |
+| 21 | `$extensions` | reads | `crates/designos-fig/src/variables_dtcg.rs:289` |
+| 22 | `aliases_resolved_via_default_mode` | reads | `crates/designos-app/src/main.rs:520` |
+| 23 | `--color-format` | types | `crates/designos-app/src/cli.rs:385` |
+| 24 | `hex` | types | `.agent/workflows/ui-audit.md:2` |
+| 25 | `object` | types | `crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:302` |
+| 26 | `#RRGGBB` | reads | `crates/designos-app/src/canvas/draw.rs:1262` |
+| 27 | `#RRGGBBAA` | reads | `crates/designos-app/src/widgets/picker.rs:331` |
+| 28 | `.zip` | reads | `.brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:22` |
+| 29 | `tokens.manifest.json` | reads | `crates/designos-app/src/main.rs:468` |
+| 30 | `Working…` | sees | `crates/designos-app/src/agent_open_flow.rs:49` |
+| 31 | `Done` | sees | `crates/designos-app/src/agent_a11y.rs:234` |
+| 32 | `Stop` | sees | `.brv/context-tree/architecture/crate-map.md:60` |
+| 33 | `Show prompt` | sees | `crates/designos-app/src/agent_approval_card.rs:36` |
+| 34 | `Open tab` | sees | `crates/designos-app/src/agent_approval_card.rs:36` |
+| 35 | `Enter` | types | `CONTRIBUTING.md:7` |
+| 36 | `Esc` | types | `crates/designos-app/src/agent_approval_card.rs:210` |
+| 37 | `Tab` | types | `.brv/context-tree/architecture/crate-map.md:59` |
+| 38 | `designos-mcp` | types | `.agents/agents/designer-jang-designos-studio.md:23` |
+| 39 | `…` | sees | `.agents/agents/curator-jang-designos-studio.md:35` |
+| 40 | `NodeSpec` | types | `.brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:12` |
+| 41 | `--apply-spec` | types | `.agents/agents/figma-jang-designos-studio.md:3` |
+| 42 | `designos_apply_spec` | types | `CLAUDE.md:61` |
+| 43 | `designos_create_node` | types | `CLAUDE.md:54` |
+| 44 | `designos_update_node` | types | `CLAUDE.md:55` |
+| 45 | `designos_apply_batch` | types | `CLAUDE.md:74` |
+| 46 | `font_family` | types | `crates/designos-app/assets/starter/designos-studio-starter.designos:1` |
+| 47 | `TEXT_MEASURED_WITH_FALLBACK_FONT` | reads | PR #1254 `crates/designos-doc/src/spec.rs:696` |
+| 48 | `Import` | sees | `.agent/workflows/ui-figma.md:2` |
+| 49 | `Enter a path…` | sees | `crates/designos-app/src/app.rs:147` |
+| 50 | `~` | types | `.brv/context-tree/architecture/performance/figma_engine_phase2_optimization.md:27` |
+| 51 | `~/…` | types | `crates/designos-app/src/home/dialog.rs:620` |
+| 52 | `file://` | types | `AGENTS.md:5` |
+| 53 | `Type the full path to the file, starting with / or ~/.` | sees | `crates/designos-app/src/home/dialog.rs:547` |
+| 54 | `designos: warn: import path` | reads | `crates/designos-app/src/home/dialog.rs:565` |
+| 55 | `.fig` | reads | `.agents/agents/designer-jang-designos-studio.md:23` |
+| 56 | `designos_get_document` | types | `CLAUDE.md:46` |
+| 57 | `designos_search_design_system` | types | `CLAUDE.md:49` |
+| 58 | `Unnamed fill style` | sees | `crates/designos-doc/src/lib.rs:760` |
+| 59 | `Unnamed text style` | sees | `crates/designos-doc/src/lib.rs:761` |
+| 60 | `Unnamed effect style` | sees | `crates/designos-app/src/panels/style_picker.rs:340` |
+| 61 | `Unnamed grid style` | sees | `crates/designos-doc/src/lib.rs:763` |
+| 62 | `designos_open_file` | types | `CLAUDE.md:78` |
+| 63 | `designos_import_web_capture` | types | `CLAUDE.md:68` |
+| 64 | `536870912` | reads | `crates/designos-mcp/tests/session.rs:320` |
+| 65 | `FILE_TOO_LARGE` | reads | `crates/designos-mcp/generated/rules.md:156` |
+| 66 | `/path` | reads | `crates/designos-app/src/agent_sessions.rs:687` |
+| 67 | `safe_to_retry: false` | reads | `crates/designos-mcp/src/server.rs:3437` |
+| 68 | `next_step` | reads | `crates/designos-app/src/agent_session_files.rs:16` |
+| 69 | `--version` | types | `crates/designos-app/src/agent_cli_catalog.rs:110` |
+| 70 | `Usage: designos-mcp --workspace DIRECTORY \| --version \| --list-lint-rules \| --help` | reads | `crates/designos-mcp/src/main.rs:29` |
+| 71 | `designos_save_file` | types | `CLAUDE.md:79` |
+| 72 | `designos_render_png` | types | `CLAUDE.md:80` |
+| 73 | `designos_export_fig_file` | types | `CLAUDE.md:64` |
+| 74 | `INVALID_NAME` | reads | `crates/designos-mcp/generated/rules.md:132` |
+| 75 | `NAME_TOO_LONG` | reads | `crates/designos-mcp/generated/rules.md:132` |
+| 76 | `overwrite: true` | types | `crates/designos-mcp/README.md:70` |
+| 77 | `designos` | types | `.agents/agents/curator-jang-designos-studio.md:2` |
+| 78 | `designos-studio` | types | `.agents/agents/curator-jang-designos-studio.md:2` |
+| 79 | `--select` | types | `.brv/context-tree/architecture/crate-map.md:167` |
+| 80 | `id:<n>` | types | `crates/designos-app/src/cli.rs:1` |
+| 81 | `fig:<figma id>` | types | `crates/designos-app/src/cli.rs:1` |
+| 82 | `name:<text>` | types | `crates/designos-app/src/cli.rs:1` |
+| 83 | `none` | types | `LICENSE:69` |
+| 84 | `--zoom fit` | types | `crates/designos-app/src/cli.rs:29` |
+| 85 | `--inspect-json` | types | `.agents/agents/figma-jang-designos-studio.md:3` |
+| 86 | `selection` | reads | `.agents/agents/designer-jang-designos-studio.md:16` |
+| 87 | `source_id` | reads | `crates/designos-app/assets/starter/designos-studio-starter.designos:1` |
+| 88 | `--select ""` | types | `crates/designos-app/src/select_target/error.rs:7` |
+| 89 | `--home` | types | `crates/designos-app/src/cli.rs:142` |
+| 90 | `--edit-text` | types | `crates/designos-app/src/cli.rs:327` |
+| 91 | `No, suggest changes` | sees | `crates/designos-app/src/gemini_dialog.rs:5` |
+| 92 | `workspace-write` | types | `crates/designos-app/src/agent_approval_channel.rs:6` |
+| 93 | `tools.allowed` | types | `docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135` |
+| 94 | `.gemini/settings.json` | sees | `crates/designos-app/src/agent_session_files/fs_sites_scan_tests/patterns.rs:53` |
+| 95 | `hooks` | types | `.gitignore:15` |
+| 96 | `tools.discoveryCommand` | types | `docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138` |
+| 97 | `.gemini` | sees | `commands/doctor.md:19` |
+| 98 | `ToolPermission` | reads | `crates/designos-app/src/agent_turn_status.rs:751` |
+| 99 | `ask_user` | sees | `crates/designos-app/src/gemini_dialog.rs:16` |
+| 100 | `exit_plan_mode` | sees | `crates/designos-app/src/gemini_dialog.rs:16` |
+| 101 | `Needs approval` | sees | `crates/designos-app/src/agent_a11y.rs:222` |
+| 102 | `permission_prompt` | reads | `crates/designos-app/src/agent_turn_status.rs:132` |
+| 103 | `.spec.json` | reads | `.brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:19` |
+| 104 | `designos_specs` | sees | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21` |
+| 105 | `tty` | reads | `.brv/context-tree/architecture/figma-vs-designos-engine.md:25` |
+| 106 | `~/` | types | `.brv/context-tree/features/wave7-agentic-chat-and-cross-platform-installers/wave7.md:19` |
+
+### 7. Exact Round 2 Acceptance Commands & Verbatim Output
+
+#### 7.1 Commit 1 (`docs: v0.6.5 release notes in user terms`)
+
+```text
+$ git add CHANGELOG.md README.md && git commit -m "docs: v0.6.5 release notes in user terms" && git show --stat HEAD
+[jangtrinh/agy-r065-release-notes ab143a4c] docs: v0.6.5 release notes in user terms
+ 2 files changed, 20 insertions(+), 20 deletions(-)
+commit ab143a4c53dd6d0112c2725f0793887f720660dd (HEAD -> jangtrinh/agy-r065-release-notes)
+Author: Jang Trịnh <trinhnguyengiang@gmail.com>
+Date:   Tue Oct 27 17:41:09 2026 +0700
+
+    docs: v0.6.5 release notes in user terms
+
+ CHANGELOG.md | 28 ++++++++++++++--------------
+ README.md    | 12 ++++++------
+ 2 files changed, 20 insertions(+), 20 deletions(-)
+```
+
+#### 7.2 Banned-Identifier Regex Check (`Acceptance #3`)
+
+```text
+$ grep -nE 'App::|_gate\b|Tracker|record_user|plan_constraint|apply_constrained|var_u64|TOAST_' CHANGELOG.md README.md
+README.md:576:│   ├── zero_fake_ui_gate.py        # Zero-Fake-UI deterministic enforcement gate
+```
+
+*(Zero matches in `CHANGELOG.md` and zero matches in the `0.6.5` section of `README.md`; line 576 is in the repository structure tree near the bottom of `README.md`.)*
+
+#### 7.3 Diff Stat Since `4a5d62ef` (`Acceptance #4`)
+
+```text
+$ git diff --stat 4a5d62ef..HEAD
+ CHANGELOG.md                                       |  28 +--
+ README.md                                          |  12 +-
+ .../r2-backtick-spans-grep.txt                     | 106 ++++++++
+ .../r2-gh-pr-view-1265.json                        |   1 +
+ plans/reports/agy-r065-release-notes.md            | 214 ++++++++++++++++
+ 5 files changed, 341 insertions(+), 20 deletions(-)
+```
+
+#### 7.4 `gh pr view 1265 --json isDraft,body` (`Acceptance #4`)
+
+```json
+{"body":"## Summary\n\n- **`docs: v0.6.5 release notes`** (`10b2c271b`) and **`docs: v0.6.5 release notes in user terms`** (`ab143a4c5`): Adds `## [0.6.5] - 2026-10-27` and `## [0.6.4] - 2026-10-27` (noting `0.6.4` was not published because the tag was pushed before the version bump, and its fixes ship in `0.6.5`) to `CHANGELOG.md`, and adds `<a id=\"new-in-v065\"></a>` + `### 0.6.5` to `README.md`, written in user terms.\n- **`release: 0.6.5`** (`20525bd84`): Bumps `[workspace.package] version` in `Cargo.toml` from `0.6.3` to `0.6.5` and refreshes the 13 workspace package entries in `Cargo.lock`.\n- **`docs(reports): v0.6.5 release notes report`** (`4a5d62ef4`, plus the Round 2 report commit): Adds `plans/reports/agy-r065-release-notes.md` and `plans/reports/agy-r065-release-notes-evidence/`.\n- Every change in `0.6.5` came through its own reviewed PR since `v0.6.3` (`fbc51addd`). The four `v0.6.4` fixes (`#1236`, `#1237`, `#1238` and `#1239`) appear twice in `v0.6.3..origin/release/v0.6.5` across the two lineages and are listed once below; `#1213` appears once.\n\n## Changes in 0.6.5\n\n| PR | Issue | Summary |\n|---|---|---|\n| #1213 | Refs #1192 | Home › `Import` › `Enter a path…` expands `~` and `~/…`, decodes percent-encoded `file://` links, refuses relative paths, and starts toast timers on the first painted frame |\n| #1236 | Fixes #1171 | Clears a tab's scrollback when an agent redraws on a UI zoom or terminal resize so output no longer repeats |\n| #1237 | Fixes #1193 | Repaints the canvas frame label after an agent rename via `designos-mcp` and keeps component and child shape names independent |\n| #1238 | Fixes #1194 | Changes a Codex tab's status from `Working…` to `Done` after 1.5 s of quiet after a turn ends and hides `Stop` |\n| #1239 | Fixes #1197 | Cuts canvas frame, component and instance name labels with `…` to fit the frame width like Figma |\n| #1247 | Fixes #1195 | Shows `Show prompt` on the current waiting tab to focus its terminal prompt, and switches tabs from `Open tab` when another tab is waiting |\n| #1249 | Fixes #993 | Large multi-layer edits, such as command-palette auto-fix on a big design-system page, finish faster because Studio records only the layers that changed |\n| #1252 | Fixes #1212 | Gives a new library (and an existing library once on its first launch of 0.6.5) the `DESIGN-OS Studio Starter` file in `Getting started` without touching existing files, adds `Open starter sample`, opens Home on no-arg launch, and removes the older built-in samples, `--seed-library`, release `--fixture` and `examples/` |\n| #1253 | Fixes #1140 | Exports one variable mode as a single DTCG `.tokens.json` file (`--mode`, `--collection`, `--resolve-aliases`, `--color-format`), with unique names for same-named collections |\n| #1255 | Fixes #1165 | Hides deleted, soft-deleted and orphan style records from style pickers, Assets, layer chips and MCP listings while keeping layer appearance and style links on `.fig` save, and names empty-named listed styles `Unnamed <type> style` |\n| #1257 | Fixes #1121 | Enforces one 512 MiB import file size limit returning `FILE_TOO_LARGE` (`safe_to_retry: false`) and lists `--version` in `designos-mcp` usage |\n| #1258 | Fixes #1003 | Returns `INVALID_NAME` on blank, whitespace-only or control/direction-control output names and `NAME_TOO_LONG` on path components over 255 UTF-8 bytes in `designos_save_file`, `designos_render_png` and `designos_export_fig_file` |\n| #1259 | Fixes #1127 | Addresses a node by name, id or Figma id (`id:<n>`, `fig:<figma id>`, `name:<text>`, `none`) in `--select`, supports `--zoom fit`, and exits 2 without writing on a miss |\n| #1254 | Fixes #1154 | Measures hug and fixed-width `NodeSpec` text with the text renderer instead of a character-count width estimate, honouring `font_family` and returning `TEXT_MEASURED_WITH_FALLBACK_FONT` on font fallback (CI running on `release/v0.6.5`) |\n| #1251 | Fixes #1043 | Imports `.fig` files with 64-bit values that use the top bit (such as some stroke seeds) without corrupting the rest of the file, and no longer writes an invalid 10-byte number on export (CI running on `release/v0.6.5`) |\n| #1256 | Fixes #1242 | Scales icons and vectors inside resized component instances in an imported `.fig` with the instance (stroke weight unchanged), and keeps strokes on stroke-only icons (CI running on `release/v0.6.5`) |\n\n## Verification\n\n- `git diff --stat origin/release/v0.6.5..HEAD` touches only `CHANGELOG.md`, `README.md`, `Cargo.toml`, `Cargo.lock`, `plans/reports/agy-r065-release-notes.md`, and `plans/reports/agy-r065-release-notes-evidence/*`.\n- `git diff --stat 10b2c271b..20525bd84` touches only `Cargo.toml` and `Cargo.lock`.\n- `cargo metadata --format-version 1 --no-deps --locked` reports `{'0.6.5'}` across all 13 workspace crates.\n- `cargo build -p designos-diff --locked` under an isolated `HOME`/`TMPDIR` harness succeeded (`0` warnings, `10.08s`), and `designos-diff --version` printed `designos-diff 0.6.5`.\n- `cargo fmt --all -- --check` exited `0`.\n- Full verification report: `plans/reports/agy-r065-release-notes.md`.\n","isDraft":true}
+```
+
+### 8. Weakest Link & Unresolved Questions
+
+- **Weakest link:** PRs `#1254`, `#1251`, and `#1256` are still open with CI running against `release/v0.6.5`; once they merge, `origin/release/v0.6.5` will need to be merged into `jangtrinh/agy-r065-release-notes` before PR `#1265` is marked ready.
+- **Unresolved questions:** None.
+
+Status: DONE — commits 10b2c271b, 20525bd84, 4a5d62ef4, ab143a4c5; PR #1265; tests 4/4 passed; ready for review
