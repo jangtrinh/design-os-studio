@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_session_files/session_io.rs
++++ b/crates/designos-app/src/agent_session_files/session_io.rs
+@@ -61,7 +61,7 @@
+ fn open_holder(place: &Place, create: bool) -> io::Result<Dir> {
+     let mut dir = match Dir::open_session_folder(&place.anchor) {
+         Err(e) if create && e.kind() == io::ErrorKind::NotFound => {
+-            if is_anchor_folder(&place.anchor) {
++            if false && is_anchor_folder(&place.anchor) {
+                 create_session_folder_in(ephemeral_sessions_root().as_deref(), &place.anchor)?;
+             } else {
+                 std::fs::create_dir_all(&place.anchor).map_err(|e| cannot("created", &place.anchor, e, Fix::CheckPermissions))?;

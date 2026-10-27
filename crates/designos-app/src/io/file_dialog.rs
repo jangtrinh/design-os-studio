@@ -9,6 +9,17 @@ use super::dialog_probe::dialog_outcome;
 use super::fallback_save::{fallback_dir_in, user_home, write_new_in};
 use crate::app::App;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// Guard ensuring only one native file chooser opens at a time for a window (`#1192`).
+pub struct DialogOpenGuard(Arc<AtomicBool>);
+
+impl Drop for DialogOpenGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Open, Save As, Import and every other dialog that cannot open and has nothing to fall back to.
 pub const NO_FILE_DIALOG: &str = "No file dialog. Install zenity or xdg-desktop-portal.";
@@ -108,7 +119,10 @@ impl FileDialogs for SystemDialogs {
         if cfg!(test) {
             return DialogOutcome::Unavailable;
         }
-        dialog_outcome(|| rfd_dialog(request).pick_files())
+        // `rfd::FileDialog::pick_files` on Linux returns `Some(vec![])` when the portal returns
+        // `ResponseCode::Other (2)` / `Cancelled (1)` or when `zenity` exits non-zero. Normalize empty
+        // selections to `None` so `dialog_outcome` classifies unavailable vs cancelled.
+        dialog_outcome(|| rfd_dialog(request).pick_files().filter(|v| !v.is_empty()))
     }
 
     fn fallback_dir(&self) -> Option<PathBuf> {
@@ -144,25 +158,47 @@ fn show_with_rfd(request: &FileRequest) -> Option<PathBuf> {
 }
 
 impl App {
+    /// Marks a file chooser as opening for this window; returns `None` if one is already opening.
+    pub fn try_begin_dialog(&self) -> Option<DialogOpenGuard> {
+        self.dialog_opening.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| DialogOpenGuard(self.dialog_opening.clone()))
+    }
+
+    /// Logs the `warn` line with the backend error and shows the `NO_FILE_DIALOG` error toast,
+    /// attaching the `Enter a path…` fallback action only when `enter_path` is `true` (`#1192`).
+    pub fn show_no_file_dialog_toast(&mut self, enter_path: bool) {
+        let reason =
+            super::dialog_probe::take_last_backend_error().unwrap_or_else(|| "no file dialog backend available (xdg-desktop-portal or zenity)".to_string());
+        let line = format!("designos: warn: file dialog unavailable: {reason}");
+        eprintln!("{line}");
+        self.last_dialog_warn = Some(line);
+        self.show_toast(NO_FILE_DIALOG, true);
+        if enter_path {
+            if let Some(toast) = self.toast.as_mut() {
+                toast.enter_path = true;
+                toast.stay_for(self.now, crate::theme::TOAST_REVEAL_SECONDS);
+            }
+        }
+    }
+
     /// The path a dialog gave. A cancel returns `None` in silence; a dialog that could not open says so first.
-    pub fn picked_path(&mut self, outcome: DialogOutcome) -> Option<PathBuf> {
+    pub fn picked_path(&mut self, outcome: DialogOutcome, enter_path: bool) -> Option<PathBuf> {
         match outcome {
             DialogOutcome::Picked(path) => Some(path),
             DialogOutcome::Cancelled => None,
             DialogOutcome::Unavailable => {
-                self.show_toast(NO_FILE_DIALOG, true);
+                self.show_no_file_dialog_toast(enter_path);
                 None
             }
         }
     }
 
     /// The paths a multi-select dialog gave, with the same silence on a cancel and message on a failure.
-    pub fn picked_paths(&mut self, outcome: DialogOutcome<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
+    pub fn picked_paths(&mut self, outcome: DialogOutcome<Vec<PathBuf>>, enter_path: bool) -> Option<Vec<PathBuf>> {
         match outcome {
             DialogOutcome::Picked(paths) => Some(paths),
             DialogOutcome::Cancelled => None,
             DialogOutcome::Unavailable => {
-                self.show_toast(NO_FILE_DIALOG, true);
+                self.show_no_file_dialog_toast(enter_path);
                 None
             }
         }
@@ -196,12 +232,22 @@ pub struct ScriptedDialogs {
     pub outcome: DialogOutcome,
     pub fallback: Option<PathBuf>,
     pub requests: std::cell::RefCell<Vec<FileRequest>>,
+    pub hang_ms: Option<u64>,
+    pub reenter_guard: Option<Arc<AtomicBool>>,
 }
 
 #[cfg(test)]
 impl ScriptedDialogs {
     pub fn answering(outcome: DialogOutcome) -> Self {
-        Self { outcome, fallback: None, requests: std::cell::RefCell::new(Vec::new()) }
+        Self { outcome, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: None, reenter_guard: None }
+    }
+
+    pub fn hanging() -> Self {
+        Self { outcome: DialogOutcome::Cancelled, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: Some(350), reenter_guard: None }
+    }
+
+    pub fn reentering(outcome: DialogOutcome, guard: Arc<AtomicBool>) -> Self {
+        Self { outcome, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: None, reenter_guard: Some(guard) }
     }
 
     pub fn with_fallback(mut self, dir: PathBuf) -> Self {
@@ -214,11 +260,52 @@ impl ScriptedDialogs {
 impl FileDialogs for ScriptedDialogs {
     fn pick(&self, request: &FileRequest) -> DialogOutcome {
         self.requests.borrow_mut().push(request.clone());
+        if let Some(ms) = self.hang_ms {
+            let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
+            let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+            let out = super::dialog_probe::dialog_outcome_bounded(
+                move || {
+                    let _ = release_rx.recv_timeout(std::time::Duration::from_millis(ms));
+                    Ok(())
+                },
+                std::time::Duration::from_millis(100),
+                || None,
+                std::time::Instant::now,
+                &env,
+            );
+            let _ = release_tx.send(());
+            super::dialog_probe::wait_for_test_probe_idle();
+            return out;
+        }
         self.outcome.clone()
     }
 
     fn pick_many(&self, request: &FileRequest) -> DialogOutcome<Vec<PathBuf>> {
         self.requests.borrow_mut().push(request.clone());
+        if let Some(guard) = &self.reenter_guard {
+            if self.requests.borrow().len() == 1 {
+                let mut second_app = crate::app::App::new(designos_doc::Document::new("Reenter"));
+                second_app.dialog_opening = guard.clone();
+                crate::home::import_files_dialog(&mut second_app, self);
+            }
+        }
+        if let Some(ms) = self.hang_ms {
+            let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
+            let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+            let out = super::dialog_probe::dialog_outcome_bounded(
+                move || {
+                    let _ = release_rx.recv_timeout(std::time::Duration::from_millis(ms));
+                    Ok(())
+                },
+                std::time::Duration::from_millis(100),
+                || None,
+                std::time::Instant::now,
+                &env,
+            );
+            let _ = release_tx.send(());
+            super::dialog_probe::wait_for_test_probe_idle();
+            return out;
+        }
         match &self.outcome {
             DialogOutcome::Picked(path) => DialogOutcome::Picked(vec![path.clone()]),
             DialogOutcome::Cancelled => DialogOutcome::Cancelled,

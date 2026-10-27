@@ -1,0 +1,45 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.20s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 4 tests
+test terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... FAILED
+test terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone ... FAILED
+
+failures:
+
+---- terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing stdout ----
+
+thread 'terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing' (52131353) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:83:13:
+ClaudeAsk, Missing: 10 of 20 hooks did not end at once with success:
+exit Some(0) after 8.616419416s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Notification","p":%s}' "$(date +%s)"
+exit Some(0) after 8.650637166s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PermissionRequest","p":%s}' "$(date 
+exit Some(0) after 8.669146417s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PostToolUse","p":%s}' "$(date +%s)" 
+exit Some(0) after 8.634898625s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PostToolUseFailure","p":%s}' "$(date
+exit Some(0) after 8.668028833s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PreToolUse","p":%s}' "$(date +%s)" "
+exit Some(0) after 8.635255375s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"SessionStart","p":%s}' "$(date +%s)"
+exit Some(0) after 8.768115791s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Stop","p":%s}' "$(date +%s)" "$p"); 
+exit Some(0) after 8.786946834s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopCancelled","p":%s}' "$(date +%s)
+exit Some(0) after 8.786951916s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopFailure","p":%s}' "$(date +%s)" 
+exit Some(0) after 8.80472475s, stderr "": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"UserPromptSubmit","p":%s}' "$(date +
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone stdout ----
+
+thread 'terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone' (52131355) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:134:5:
+the prompt hook waits for a reply in a folder that is gone: its quickest of three runs took 8.639849541s
+
+
+failures:
+    terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing
+    terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 3309 filtered out; finished in 26.93s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

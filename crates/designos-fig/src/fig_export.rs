@@ -700,14 +700,16 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         if let Some(k) = meta.and_then(|m| m.key.as_ref()) {
             fields.push(("key", V::String(k.clone())));
         }
-        let sort_pos = match meta.and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()) {
-            Some(sp) => sp.to_string(),
-            None => {
-                unpositioned_ordinal += 1;
-                generated_style_sort_position(&max_existing_pos, unpositioned_ordinal)
-            }
-        };
-        fields.push(("sortPosition", V::String(sort_pos)));
+        if cx.doc.is_table_style(&sid) {
+            let sort_pos = match meta.and_then(|m| m.sort_position.as_deref()).filter(|s| !s.is_empty()) {
+                Some(sp) => sp.to_string(),
+                None => {
+                    unpositioned_ordinal += 1;
+                    generated_style_sort_position(&max_existing_pos, unpositioned_ordinal)
+                }
+            };
+            fields.push(("sortPosition", V::String(sort_pos)));
+        }
         match &style {
             Style::Fill(paints) => {
                 fields

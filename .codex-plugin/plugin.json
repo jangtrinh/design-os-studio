@@ -33,7 +33,7 @@
     "websiteURL": "https://jangtrinh.github.io/design-os-studio/",
     "privacyPolicyURL": "https://github.com/jangtrinh/design-os-studio/blob/main/PRIVACY.md",
     "defaultPrompt": [
-      "Apply examples/specs/easeui-agent-console.spec.json onto the canvas, export a verified Figma .fig binary archive, and capture a 1600x1000 GPU screenshot.",
+      "Apply your-screen.spec.json (any NodeSpec JSON you or your agent write) onto the canvas, export a verified Figma .fig binary archive, and capture a 1600x1000 GPU screenshot.",
       "Open the 11-stage PRODUCT:OS Spec Driven v2 Reader and verify all User Stories, Gherkin scenarios, and g1..g5 verification gates.",
       "Inspect the selected frame in Dev Mode, generate React and SwiftUI code, and resolve all open canvas pin-comments."
     ],

@@ -105,6 +105,8 @@ pub enum EditKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snap {
     pub props: TextProps,
+    /// The text style the layer is linked to, which undo and redo bring back with the values.
+    pub style_ref: Option<String>,
     pub caret: usize,
     pub anchor: usize,
 }
@@ -187,6 +189,7 @@ mod tests {
                 max_lines: None,
                 ..Default::default()
             },
+            style_ref: None,
             caret: s.len(),
             anchor: s.len(),
         }

@@ -362,7 +362,7 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
         return false;
     }
     let explicit_status = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) {
+    if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open() {
         return false;
     }
     let bracketed = tab.parser.lock().ok().map(|p| p.screen().bracketed_paste()).unwrap_or(false);
@@ -374,6 +374,46 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
         return true;
     }
     tab.spawned_at.elapsed() >= crate::agent_start_failure::START_FAILURE_WINDOW
+}
+
+/// True when `tab`'s status says its agent waits on the user.
+fn status_waits(tab: &TerminalTab) -> bool {
+    tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_)))
+}
+
+/// True when `tab` takes its waiting state from what the CLI prints, not from hook records: Codex, and a tab whose
+/// `pty_waiting_heuristic` is on (Antigravity in Ask mode). The words "Allow " or "(y/n)" set it wherever they appear on screen.
+fn status_comes_from_output(tab: &TerminalTab) -> bool {
+    tab.spawn_preset == AgentCliPreset::Codex || tab.pty_waiting_heuristic.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// True when nothing may be pasted into `tab` now because its agent waits on the user: its status says so, for any CLI, or a Gemini
+/// dialog is on its screen, whatever its status says. A pasted prompt could answer the question.
+fn waits_on_the_user(tab: &TerminalTab) -> bool {
+    status_waits(tab) || tab.gemini_dialog_open()
+}
+
+/// True when the Enter that submits a pasted prompt must be held back. The rule of the send, applied later, with one narrowing: a
+/// status read from the CLI's output does not count here. The echo of the pasted prompt itself ("Allow users to export (y/n)") can
+/// set it, and that is no question, so the user's own Enter must go. A status set by hook records counts, and so does a Gemini dialog.
+fn holds_the_enter(tab: &TerminalTab) -> bool {
+    tab.gemini_dialog_open() || (status_waits(tab) && !status_comes_from_output(tab))
+}
+
+/// Writes the delayed `\r` that submits a pasted prompt. A tab that began to wait on the user after the paste (a hook record said
+/// so, or a Gemini dialog opened) gets no Enter, which would answer the question; for Gemini it would pick the highlighted "Allow
+/// once". The prompt stays pasted for the user to send.
+fn write_delayed_enter(tab: &mut TerminalTab) {
+    if !tab.accepts_agent_input() {
+        return;
+    }
+    if holds_the_enter(tab) {
+        tab.composer.awaiting_confirm_since = None;
+        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+        tab.composer.notice = Some(RefuseReason::Permission.message().to_string());
+        return;
+    }
+    let _ = tab.try_write_bytes(b"\r");
 }
 
 /// Writes `prompt` into the live agent tab with the fenced `skills_block` in front of it (`#573`). The block is empty when this send
@@ -467,9 +507,7 @@ impl TerminalState {
             if tab.composer.pending_enter_deadline.take().is_some() {
                 tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
-                if tab.accepts_agent_input() {
-                    let _ = tab.try_write_bytes(b"\r");
-                }
+                write_delayed_enter(tab);
             }
         }
     }
@@ -523,7 +561,7 @@ impl TerminalState {
                             self.status_msg = tab.composer.notice.clone();
                         }
                         None => {
-                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab) };
+                            let attachment = if system { None } else { crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir) };
                             let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                             let outcome = write_prompt_to_live_tab(tab, &queued, skills_block, &mut self.status_msg, system);
                             if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -543,9 +581,7 @@ impl TerminalState {
                     tab.composer.pending_enter_deadline = None;
                     tab.composer.pending_enter_delay = None;
                     tab.composer.pending_enter_sim_time = None;
-                    if tab.accepts_agent_input() {
-                        let _ = tab.try_write_bytes(b"\r");
-                    }
+                    write_delayed_enter(tab);
                 }
             }
 
@@ -677,8 +713,8 @@ impl TerminalState {
                 self.status_msg = Some(msg);
                 return SendOutcome::Refused(RefuseReason::NotReady);
             }
-            let waiting_permission = tab.agent_status.lock().ok().is_some_and(|st| matches!(*st, AgentTabStatus::WaitingForInput(_)));
-            if waiting_permission {
+            // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
+            if waits_on_the_user(tab) {
                 let msg = RefuseReason::Permission.message().to_string();
                 tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
                 tab.composer.notice = Some(msg.clone());
@@ -706,7 +742,7 @@ impl TerminalState {
                 self.active_mentions.clear();
                 self.mention_popup.close();
                 // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
-                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab);
+                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
                 let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
                 let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
                 if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
@@ -828,9 +864,7 @@ pub fn show_composer(
                 tab.composer.pending_enter_deadline = None;
                 tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
-                if tab.accepts_agent_input() {
-                    let _ = tab.try_write_bytes(b"\r");
-                }
+                write_delayed_enter(tab);
             }
         }
     }
@@ -2046,7 +2080,7 @@ mod tests {
         assert!(text.contains("Make a pricing card"));
         let reply = hook_reply(&st);
         assert!(reply.contains("designos-skill:claude-only@1.0.0"), "the hook reply must carry the chosen skill: {reply}");
-        let page_reply = std::fs::read_to_string(st.session_dir.join("page-context-reply.json")).expect("page reply file");
+        let page_reply = std::fs::read_to_string(st.prepared_hook_paths().page_reply()).expect("page reply file");
         assert!(!page_reply.contains("designos-skill:"), "the page reply stays the page context alone: {page_reply}");
 
         st.shutdown();
@@ -2223,7 +2257,7 @@ mod tests {
     /// handler's `additionalContext`.
     fn run_session_hook(st: &TerminalState, event: &str) -> String {
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(st)).expect("hooks.json")).expect("hooks json");
         let handlers = hooks["hooks"][event][0]["hooks"].as_array().expect("handlers");
         let tab_id = st.active_tab().map_or(0, |t| t.id);
         let mut stdout = String::new();
@@ -2242,7 +2276,8 @@ mod tests {
     /// The skills hook replies: what the Claude prompt hook prints for attached skills, every tab's files together; empty while no
     /// skills wait.
     fn hook_reply(st: &TerminalState) -> String {
-        skills_reply_files(&st.session_dir).iter().filter_map(|name| std::fs::read_to_string(st.session_dir.join(name)).ok()).collect::<Vec<_>>().join("\n")
+        let hook_folder = st.hook_paths().dir().to_path_buf();
+        skills_reply_files(&st.session_dir).iter().filter_map(|name| std::fs::read_to_string(hook_folder.join(name)).ok()).collect::<Vec<_>>().join("\n")
     }
 
     /// Lets a submitted prompt's skills leave the reply: they stay a moment after its `UserPromptSubmit` was seen.
@@ -2339,7 +2374,7 @@ mod tests {
         // A run's first prompt also gets the bootstrap block instead of the page reply; the skills are a handler of their own and
         // arrive next to it, not inside a reply the first-turn branch would skip.
         let bootstrap_reply = r#"{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"BOOTSTRAP-BLOCK"}}"#;
-        std::fs::write(st.session_dir.join("bootstrap-context-reply.json"), bootstrap_reply).expect("bootstrap reply");
+        std::fs::write(st.prepared_hook_paths().bootstrap_reply(), bootstrap_reply).expect("bootstrap reply");
         let first_prompt_hook = run_session_hook(&st, "UserPromptSubmit");
         assert!(first_prompt_hook.contains("BOOTSTRAP-BLOCK"), "the first prompt gets the bootstrap block: {first_prompt_hook}");
         assert!(first_prompt_hook.contains("designos-skill:claude-once@1.0.0"), "the first prompt's hook must also return the skills: {first_prompt_hook}");
@@ -2416,7 +2451,7 @@ mod tests {
     /// as Claude Code runs them. Returns the `additionalContext` each one printed; a handler that prints nothing adds nothing.
     fn skills_hook_contexts(st: &TerminalState, tab_id: usize) -> Vec<String> {
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(st)).expect("hooks.json")).expect("hooks json");
         let handlers = hooks["hooks"]["UserPromptSubmit"][0]["hooks"].as_array().expect("handlers");
         handlers
             .iter()
@@ -2434,9 +2469,10 @@ mod tests {
             .collect()
     }
 
-    /// Names of the skills hook reply files in `dir`, whatever their per-tab or per-part naming.
-    fn skills_reply_files(dir: &Path) -> Vec<String> {
-        crate::skills::hook_delivery::reply_file_names(dir)
+    /// Names of the skills hook reply files of the session folder `session_dir` (they lie in its hook folder), whatever their per-tab
+    /// or per-part naming.
+    fn skills_reply_files(session_dir: &Path) -> Vec<String> {
+        crate::skills::hook_delivery::reply_file_names(crate::agent_hook_outputs::HookPaths::locate(session_dir).dir())
     }
 
     #[test]
@@ -2452,7 +2488,7 @@ mod tests {
         let _sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
         let tab_id = st.active_tab().expect("tab").id;
         let bootstrap_reply = r#"{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"BOOTSTRAP-BLOCK"}}"#;
-        std::fs::write(st.session_dir.join("bootstrap-context-reply.json"), bootstrap_reply).expect("bootstrap reply");
+        std::fs::write(st.prepared_hook_paths().bootstrap_reply(), bootstrap_reply).expect("bootstrap reply");
 
         assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Written);
 
@@ -2479,7 +2515,7 @@ mod tests {
 
         // The bootstrap handler is untouched: the first prompt still gets the bootstrap block, and it never carries skills.
         let hooks: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json")).expect("hooks json");
+            serde_json::from_str(&std::fs::read_to_string(crate::agent_permissions::claude_hooks_path(&st)).expect("hooks.json")).expect("hooks json");
         let first_handler = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().expect("prompt handler").to_string();
         let out = std::process::Command::new("sh").arg("-c").arg(&first_handler).output().expect("run prompt hook");
         let printed = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -2513,14 +2549,15 @@ mod tests {
         let dir = temp_composer_dir("skills-reply-bind");
         let session_dir = dir.join("agent-sessions").join("doc-skills-bind");
         std::fs::create_dir_all(&session_dir).expect("session dir");
+        let hook_folder = crate::agent_hook_outputs::HookPaths::prepare(&session_dir).expect("the hook folder");
         for stale in ["skills-context-reply.json", "skills-context-reply-3-0.json", "skills-context-reply-3-1.json"] {
-            std::fs::write(session_dir.join(stale), "{}").expect("stale reply");
+            std::fs::write(hook_folder.dir().join(stale), "{}").expect("stale reply");
         }
-        std::fs::write(session_dir.join("bootstrap-context-reply.json"), "{}").expect("other reply");
+        std::fs::write(hook_folder.bootstrap_reply(), "{}").expect("other reply");
 
         let st = TerminalState::new_for_session("doc-skills-bind", "Skill Send", Some(&dir));
 
-        assert!(st.session_dir.join("bootstrap-context-reply.json").exists(), "only the skills replies go; the test bound the folder it planted in");
+        assert!(st.prepared_hook_paths().bootstrap_reply().exists(), "only the skills replies go; the test bound the folder it planted in");
         assert_eq!(skills_reply_files(&st.session_dir), Vec::<String>::new(), "a reply left by a quit before the hook settled must not reach this run");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2614,6 +2651,32 @@ mod tests {
         assert!(delay >= OTHER_CLI_BASE_ENTER_DELAY, "a big paste waits as long as for any other CLI: {delay:?}");
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them() {
+        let _turn = one_pty_test_at_a_time();
+        let dir = temp_composer_dir("skills-no-hook-folder");
+        crate::agent_approval_channel::without_private_root(|| {
+            let mut st = TerminalState::new_for_session("doc-skills-no-folder", "Skill Send", Some(&dir));
+            let selector = write_user_skill(&mut st, &dir, "armed-skill", "Keep gutters on the 8px grid.");
+            st.skills.toggle_skill(&selector);
+            assert!(st.skills.hook_chunks().is_some(), "the set is small enough for a hook to carry, if there were one");
+            let sent = spawn_ready_stub_cli(&mut st, &dir, AgentCliPreset::Claude);
+            assert!(!crate::agent_hook_outputs::HookPaths::locate(&st.session_dir).dir().exists(), "this session has no hook folder");
+
+            assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Written);
+
+            let text = take_written(&sent);
+            assert!(text.contains("designos-skill:armed-skill@1.0.0\n"), "the skills are pasted, not left for a hook that is not installed: {text:?}");
+            assert!(text.ends_with("Make a pricing card\x1b[201~"));
+            assert!(skills_reply_files(&st.session_dir).is_empty(), "nothing waits in the replies of a hook that is not there");
+            let runs = run_records(&st.session_dir);
+            assert_eq!(runs.len(), 1, "{runs:?}");
+            assert_eq!(record_skill_names(&runs[0]), ["armed-skill"]);
+            st.shutdown();
+        });
         let _ = std::fs::remove_dir_all(&dir);
     }
 

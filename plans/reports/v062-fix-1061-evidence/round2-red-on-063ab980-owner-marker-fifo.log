@@ -1,0 +1,26 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.57s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 1 test
+test agent_session_files::fifo_tests::a_fifo_at_a_session_file_is_refused_at_once_by_every_read ... FAILED
+
+failures:
+
+---- agent_session_files::fifo_tests::a_fifo_at_a_session_file_is_refused_at_once_by_every_read stdout ----
+
+thread 'agent_session_files::fifo_tests::a_fifo_at_a_session_file_is_refused_at_once_by_every_read' (34959776) panicked at crates/designos-app/src/agent_session_files/fifo_tests.rs:57:20:
+returned: "did not return: blocked on the FIFO"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::fifo_tests::a_fifo_at_a_session_file_is_refused_at_once_by_every_read
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3132 filtered out; finished in 30.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

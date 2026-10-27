@@ -323,8 +323,19 @@ fn follow_label(doc: &mut designos_doc::Document, tx: &mut Tx, id: NodeId) {
     }
 }
 
+/// The `style_refs` key of the text style a layer is linked to.
+fn text_ref() -> &'static str {
+    crate::styles::StyleKind::Text.ref_key()
+}
+
 /// Runs `f` on the edited text. `log` records an undo step (None = no step, for IME previews).
 fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
+    edit_props_linked(app, log, None, f);
+}
+
+/// [`edit_props`] that can also change the text style the edited layer is linked to (`link`: `Some(None)`
+/// unlinks), so a style pick and its link are one undo step: the log keeps the link with the values.
+fn edit_props_linked(app: &mut App, log: Option<(EditKind, bool)>, link: Option<Option<&str>>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
     let now = app.now;
     let App { doc, canvas, .. } = app;
     let Some(sess) = canvas.text.as_mut() else { return };
@@ -334,11 +345,24 @@ fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut 
     let mut added_faces = Vec::new();
     if let Some(n) = sess.tx.ed.node(doc, id) {
         let is_text = matches!(n.kind, NodeKind::Text(_));
+        let style_ref = n.style_refs.get(text_ref()).cloned();
         if let Some(t) = n.kind.any_text_mut() {
-            let snap = Snap { props: t.clone(), caret, anchor };
+            let snap = Snap { props: t.clone(), style_ref, caret, anchor };
             f(t, &mut caret, &mut anchor);
-            if *t != snap.props {
+            match link {
+                Some(Some(key)) => {
+                    n.style_refs.insert(text_ref().into(), key.into());
+                }
+                Some(None) => {
+                    n.style_refs.remove(text_ref());
+                }
+                None => {}
+            }
+            let props_changed = *t != snap.props;
+            if props_changed {
                 added_faces = designos_fonts::new_faces(&snap.props, t);
+            }
+            if props_changed || n.style_refs.get(text_ref()) != snap.style_ref.as_ref() {
                 before = Some(snap);
             }
             if is_text {
@@ -458,7 +482,8 @@ fn undo_step(app: &mut App, redo: bool) {
     let now = (|| {
         let t = stored_of(app)?;
         let s = app.canvas.text.as_ref()?;
-        Some(Snap { props: t, caret: s.caret, anchor: s.anchor })
+        let style_ref = app.doc.get(s.id)?.style_refs.get(text_ref()).cloned();
+        Some(Snap { props: t, style_ref, caret: s.caret, anchor: s.anchor })
     })();
     let Some(cur) = now else { return };
     let Some(sess) = app.canvas.text.as_mut() else { return };
@@ -469,6 +494,10 @@ fn undo_step(app: &mut App, redo: bool) {
     let id = sess.id;
     if let Some(n) = sess.tx.ed.node(doc, id) {
         let is_text = matches!(n.kind, NodeKind::Text(_));
+        match snap.style_ref {
+            Some(key) => n.style_refs.insert(text_ref().into(), key),
+            None => n.style_refs.remove(text_ref()),
+        };
         if let Some(t) = n.kind.any_text_mut() {
             *t = snap.props;
             if is_text {
@@ -521,6 +550,13 @@ pub fn style_selection_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditK
 /// Edits the base style of the edited text (paragraph level fields such as alignment).
 pub fn base_style(app: &mut App, f: impl Fn(&mut TextStyle)) {
     edit_props(app, Some((EditKind::Other, true)), |t, _, _| f(&mut t.style));
+}
+
+/// [`base_style`] that also links the edited layer to the shared text style `link`, or unlinks it
+/// (`None`). Values and link are one in-session undo step, so undo and redo never leave the layer
+/// linked to a style it does not match.
+pub fn base_style_linked(app: &mut App, link: Option<&str>, f: impl Fn(&mut TextStyle)) {
+    edit_props_linked(app, Some((EditKind::Other, true)), Some(link), |t, _, _| f(&mut t.style));
 }
 
 /// Edits the text properties of the open session's text (paragraph settings, lists, direction).

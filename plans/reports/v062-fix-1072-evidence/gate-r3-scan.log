@@ -1,0 +1,14 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.99s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test agent_session_files::fs_sites_scan_tests::every_file_system_call_and_session_file_name_in_shipped_code_is_routed_or_listed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3313 filtered out; finished in 13.52s
+
+scan exit=0

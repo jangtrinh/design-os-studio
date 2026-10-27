@@ -22,6 +22,8 @@ open-url = ["dep:open"]
 # `openh264` crate, so it needs a C++ compiler). Off by default: the default build stays pure Rust
 # and still plays Motion JPEG; other codecs show their poster with an "Unsupported codec" badge.
 video = ["dep:openh264"]
+# Built-in screenshot and test fixtures (`--fixture`, `--seed-library`). Off by default in shipped builds.
+fixtures = []
 
 [dependencies]
 open = { version = "5", optional = true }
@@ -54,11 +56,22 @@ portable-pty = "0.8"
 toml = "1"
 vt100 = "0.15"
 
+# Unix only: `openat`, `mkdirat`, `renameat` and `unlinkat` for the writes below an agent's session folder
+# (`src/agent_session_files/no_follow.rs`). `libc` is already in the lockfile, pulled in by several of the crates above.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # macOS only: the app menu's Quit item (`src/macos_menu.rs`). The versions and the feature set are the ones eframe
 # already builds for the app icon, so no package is added to the build.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+
+# Linux only: checks the session D-Bus for an active `org.freedesktop.portal.Desktop` owner before calling `rfd`
+# (`src/io/dialog_probe.rs`). Matches the version and features `accesskit_unix` (via `eframe`) already builds, so no
+# package is added to `Cargo.lock`.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }
 
 [build-dependencies]
 winresource = "0.1"

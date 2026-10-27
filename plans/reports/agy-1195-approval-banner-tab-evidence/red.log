@@ -1,0 +1,45 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1195-approval-banner-tab/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.18s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 5 tests
+
+thread 'shell::tests::approval_banner_tab::active_tab_approval_shows_show_prompt_and_focuses_terminal' (82268218) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:59:5:
+active-tab banner must show 'Show prompt': ["Learn more", "Get started", "Welcome", "Card", "Dashboard", "File", "Agents", "Assets", "Tools", "Variables", "Plugins", "Codex CLI #1", "Sessi…", "Skills", "@ Mention", "Needs approval", "Ask for changes", "PRD", "Skills", "CODEX", "Codex CLI needs approval in its terminal", "Open tab", "J", "Share", "Design", "Prototype", "86%", "Page", "5A5A5A", "5A5A5A", "100", "100", "%", "Styles", "Text styles", "Body", "Ag", "Regular", "16/24", "Heading", "Ag", "Large", "32/40", "Color styles", "Accent", "Sun", "Brand", "Primary", "Neutral", "Ink", "Export"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'shell::tests::approval_banner_tab::approval_answered_in_terminal_clears_banner_and_sends_nothing_twice' (82268219) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:177:5:
+assertion failed: painted_texts(&s).iter().any(|t| t == "Show prompt")
+test shell::tests::approval_banner_tab::active_tab_approval_shows_show_prompt_and_focuses_terminal ... FAILED
+test shell::tests::approval_banner_tab::approval_answered_in_terminal_clears_banner_and_sends_nothing_twice ... FAILED
+
+thread 'shell::tests::approval_banner_tab::background_tab_approval_shows_banner_and_open_tab_switches_to_waiting_tab' (82268220) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:104:5:
+background tab approval must surface needs_approval() on active view
+test shell::tests::approval_banner_tab::background_tab_approval_shows_banner_and_open_tab_switches_to_waiting_tab ... FAILED
+
+thread 'shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels' (82268221) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:231:5:
+assertion `left == right` failed: 'Open tab' must have Role::Button in AccessKit
+  left: None
+ right: Some(Button)
+test shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels ... FAILED
+
+thread 'shell::tests::approval_banner_tab::two_pending_approvals_in_two_tabs_shows_count_and_opens_oldest_first' (82268222) panicked at crates/designos-app/src/shell/tests/approval_banner_tab.rs:140:5:
+banner must show count '1 of 2' when two tabs have pending approvals: ["Learn more", "Get started", "Welcome", "Card", "Dashboard", "File", "Agents", "Assets", "Tools", "Variables", "Plugins", "Codex …", "Gr…", "Cl…", "Sessi…", "Skills", "@ Mention", "Ask for changes", "PRD", "Skills", "J", "Share", "Design", "Prototype", "86%", "Page", "5A5A5A", "5A5A5A", "100", "100", "%", "Styles", "Text styles", "Body", "Ag", "Regular", "16/24", "Heading", "Ag", "Large", "32/40", "Color styles", "Accent", "Sun", "Brand", "Primary", "Neutral", "Ink", "Export"]
+test shell::tests::approval_banner_tab::two_pending_approvals_in_two_tabs_shows_count_and_opens_oldest_first ... FAILED
+
+failures:
+
+failures:
+    shell::tests::approval_banner_tab::active_tab_approval_shows_show_prompt_and_focuses_terminal
+    shell::tests::approval_banner_tab::approval_answered_in_terminal_clears_banner_and_sends_nothing_twice
+    shell::tests::approval_banner_tab::background_tab_approval_shows_banner_and_open_tab_switches_to_waiting_tab
+    shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels
+    shell::tests::approval_banner_tab::two_pending_approvals_in_two_tabs_shows_count_and_opens_oldest_first
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 2.78s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

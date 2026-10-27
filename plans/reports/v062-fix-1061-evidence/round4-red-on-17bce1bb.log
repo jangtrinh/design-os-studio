@@ -1,0 +1,420 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.62
+   Compiling thiserror v2.0.21
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling crc32fast v1.5.2
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling miniz_oxide v0.9.1
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling bitflags v1.3.2
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling num-traits v0.2.19
+   Compiling fdeflate v0.3.7
+   Compiling linebender_resource_handle v0.1.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling cc v1.7.0
+   Compiling zmij v1.0.23
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling serde v1.0.229
+   Compiling objc2-foundation v0.3.2
+   Compiling core_maths v0.1.1
+   Compiling equivalent v1.0.3
+   Compiling zune-core v0.5.3
+   Compiling quick-error v2.0.1
+   Compiling weezl v0.1.12
+   Compiling zeroize v1.9.1
+   Compiling itoa v1.0.18
+   Compiling percent-encoding v2.3.2
+   Compiling synstructure v0.14.0
+   Compiling flate2 v1.1.10
+   Compiling serde_json v1.0.154
+   Compiling form_urlencoded v1.2.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling zune-jpeg v0.5.15
+   Compiling indexmap v2.14.2
+   Compiling slotmap v1.1.1
+   Compiling byteorder-lite v0.1.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling self_cell v1.3.0
+   Compiling fax v0.2.7
+   Compiling pxfm v0.1.30
+   Compiling ref-cast v1.0.27
+   Compiling unicode-segmentation v1.13.3
+   Compiling color_quant v1.1.0
+   Compiling either v1.19.0
+   Compiling getrandom v0.2.17
+   Compiling gif v0.14.1
+   Compiling image-webp v0.2.4
+   Compiling png v0.18.1
+   Compiling ring v0.17.14
+   Compiling moxcms v0.8.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling float-cmp v0.9.0
+   Compiling raw-window-handle v0.6.2
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.4.3
+   Compiling untrusted v0.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling crossbeam-epoch v0.9.21
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling rustls v0.23.45
+   Compiling crossbeam-deque v0.8.8
+   Compiling scopeguard v1.2.0
+   Compiling rustc-hash v2.1.3
+   Compiling arrayref v0.3.9
+   Compiling tinyvec v1.13.3
+   Compiling objc-sys v0.3.5
+   Compiling dyn-clone v1.0.20
+   Compiling unicode-script v0.5.8
+   Compiling regex-syntax v0.8.11
+   Compiling base64 v0.22.1
+   Compiling fontdb v0.23.0
+   Compiling regex-automata v0.4.18
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling option-ext v0.2.0
+   Compiling subtle v2.6.1
+   Compiling rayon-core v1.13.0
+   Compiling unicode-bidi v0.3.18
+   Compiling regex v1.13.1
+   Compiling dirs-sys v0.4.1
+   Compiling uuid v1.28.0
+   Compiling webpki-roots v0.26.11
+   Compiling parking_lot v0.12.5
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling profiling v1.0.18
+   Compiling zeno v0.3.3
+   Compiling bit-vec v0.9.1
+   Compiling yazi v0.2.1
+   Compiling unicode-width v0.2.2
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling i_shape v5.0.0
+   Compiling objc2 v0.5.3
+   Compiling dirs v5.0.1
+   Compiling rustls-webpki v0.103.15
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling rustc-hash v1.1.0
+   Compiling smol_str v0.3.6
+   Compiling i_tree v0.20.0
+   Compiling sys-locale v0.3.2
+   Compiling hexf-parse v0.2.1
+   Compiling unicode-linebreak v0.1.5
+   Compiling i_key_sort v0.12.0
+   Compiling rangemap v1.8.0
+   Compiling kurbo v0.13.1
+   Compiling i_overlay v9.1.0
+   Compiling block2 v0.5.1
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling unicode-ccc v0.4.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling dispatch v0.2.0
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling siphasher v1.0.4
+   Compiling utf8parse v0.2.2
+   Compiling svgtypes v0.15.3
+   Compiling objc2-foundation v0.2.2
+   Compiling core-foundation v0.9.4
+   Compiling objc2-quartz-core v0.3.2
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling raw-window-metal v1.1.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling unicode-vo v0.1.0
+   Compiling roxmltree v0.20.0
+   Compiling futures-sink v0.3.34
+   Compiling xmlwriter v0.1.0
+   Compiling futures-core v0.3.34
+   Compiling fearless_simd v0.4.1
+   Compiling pico-args v0.5.0
+   Compiling data-url v0.3.2
+   Compiling imagesize v0.13.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling unicode-general-category v1.1.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling wgpu-core v29.0.4
+   Compiling winit v0.30.13
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling nix v0.31.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling litrs v1.0.0
+   Compiling winnow v1.0.4
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling smol_str v0.2.2
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling document-features v0.2.12
+   Compiling futures-macro v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling anstyle-query v1.1.5
+   Compiling cursor-icon v1.2.0
+   Compiling bumpalo v3.20.3
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling nohash-hasher v0.2.0
+   Compiling epaint_default_fonts v0.35.0
+   Compiling dpi v0.1.2
+   Compiling zopfli v0.8.4
+   Compiling anstream v1.0.0
+   Compiling foreign-types v0.5.0
+   Compiling tokio-macros v2.7.2
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling core-graphics v0.23.2
+   Compiling memoffset v0.6.5
+   Compiling static_assertions v1.1.0
+   Compiling heck v0.5.0
+   Compiling strsim v0.11.1
+   Compiling typed-path v0.12.3
+   Compiling bytes v1.12.1
+   Compiling twox-hash v2.1.5
+   Compiling tracing v0.1.44
+   Compiling clap_lex v1.1.1
+   Compiling bytemuck v1.25.2
+   Compiling thiserror v1.0.69
+   Compiling clap_builder v4.6.7
+   Compiling zip v9.0.4
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling tiny-skia v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling futures-util v0.3.34
+   Compiling zerofrom v0.1.8
+   Compiling ecolor v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling yoke v0.8.3
+   Compiling usvg v0.45.1
+   Compiling half v2.7.1
+   Compiling harfrust v0.5.2
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tiff v0.11.3
+   Compiling skrifa v0.44.0
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling image v0.25.10
+   Compiling icu_provider v2.3.1
+   Compiling chrono v0.4.45
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling schemars v1.2.3
+   Compiling swash v0.2.10
+   Compiling url v2.5.8
+   Compiling skrifa v0.40.0
+   Compiling ureq v2.12.1
+   Compiling designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+   Compiling cosmic-text v0.19.0
+   Compiling harfrust v0.7.0
+   Compiling skrifa v0.42.1
+   Compiling epaint v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling egui v0.35.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling tokio v1.53.2
+   Compiling ruzstd v0.9.1
+   Compiling clap_derive v4.6.7
+   Compiling designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+   Compiling accesskit_macos v0.26.3
+   Compiling designos-render v0.6.1 (<worktree>/crates/designos-render)
+   Compiling designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+   Compiling designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling thiserror-impl v1.0.69
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling serial-core v0.4.0
+   Compiling ioctl-rs v0.1.6
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling web-time v1.1.0
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+   Compiling winresource v0.1.34
+   Compiling accesskit_winit v0.32.2
+   Compiling tokio-util v0.7.20
+   Compiling futures v0.3.34
+   Compiling webbrowser v1.2.4
+   Compiling arboard v3.6.1
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling pin-utils v0.1.1
+   Compiling float_next_after v1.0.0
+   Compiling pollster v0.4.0
+   Compiling pastey v0.2.3
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling rfd v0.17.2
+   Compiling vte v0.11.1
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+   Compiling lyon_tessellation v1.0.22
+   Compiling nix v0.25.1
+   Compiling egui-winit v0.35.0
+   Compiling egui-wgpu v0.35.0
+   Compiling clap v4.6.7
+   Compiling designos-library v0.6.1 (<worktree>/crates/designos-library)
+   Compiling designos-diff v0.6.1 (<worktree>/crates/designos-diff)
+   Compiling serial v0.4.0
+   Compiling designos-export v0.6.1 (<worktree>/crates/designos-export)
+   Compiling rgb v0.8.53
+   Compiling dispatch2 v0.3.1
+   Compiling downcast-rs v1.2.1
+   Compiling shell-words v1.1.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling unicode-width v0.1.14
+   Compiling vt100 v0.15.2
+   Compiling filedescriptor v0.8.3
+   Compiling portable-pty v0.8.1
+   Compiling resvg v0.45.1
+   Compiling eframe v0.35.0
+   Compiling designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+   Compiling open v5.4.4
+warning: unused import: `super::*`
+ --> crates/designos-app/src/agent_session_files/tailer_link_tests.rs:6:5
+  |
+6 | use super::*;
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning (run `cargo fix --bin "designos" -p designos-app --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 22s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 7 tests
+test agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure ... FAILED
+test agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure ... FAILED
+test agent_session_files::tailer_link_tests::a_link_swapped_in_for_the_patch_log_does_not_reset_what_was_read ... FAILED
+test agent_session_files::live_spec_tests::a_change_to_the_target_of_a_link_at_live_spec_json_asks_for_nothing ... FAILED
+test agent_session_files::live_spec_tests::a_plain_live_spec_is_still_applied ... ok
+test agent_session_files::live_spec_tests::a_link_at_live_spec_json_is_not_read_applied_or_reported ... FAILED
+test agent_session_files::live_spec_tests::a_fifo_at_live_spec_json_does_not_freeze_the_ui_thread ... FAILED
+
+failures:
+
+---- agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure stdout ----
+
+thread 'agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure' (36665280) panicked at crates/designos-app/src/agent_session_files/open_removed_link_tests.rs:56:5:
+assertion `left == right` failed: the folder is gone, which is not a failure to open it: <tmp>/b1061.EZGdRY/designos-folder-test-removed-anchor-library-14854406/agent-sessions/file-1 can't be opened: Not a directory (os error 20)
+  left: NotADirectory
+ right: NotFound
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure stdout ----
+
+thread 'agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure' (36665279) panicked at crates/designos-app/src/agent_session_files/open_removed_link_tests.rs:36:12:
+nothing is in the way any more, so the next attempt makes the folder and writes: Custom { kind: NotADirectory, error: Failed { message: "<tmp>/b1061.EZGdRY/designos test data/58544/sessions/p58544-removed-14854405/.gemini can't be opened: Not a directory (os error 20)", fix: CheckPermissions } }
+
+---- agent_session_files::tailer_link_tests::a_link_swapped_in_for_the_patch_log_does_not_reset_what_was_read stdout ----
+
+thread 'agent_session_files::tailer_link_tests::a_link_swapped_in_for_the_patch_log_does_not_reset_what_was_read' (36665281) panicked at crates/designos-app/src/agent_session_files/tailer_link_tests.rs:25:5:
+assertion `left == right` failed: the victim's length and identity were taken for the log's, and the log was read again from its top
+  left: 0
+ right: 8
+
+---- agent_session_files::live_spec_tests::a_change_to_the_target_of_a_link_at_live_spec_json_asks_for_nothing stdout ----
+
+thread 'agent_session_files::live_spec_tests::a_change_to_the_target_of_a_link_at_live_spec_json_asks_for_nothing' (36665275) panicked at crates/designos-app/src/agent_session_files/live_spec_tests.rs:90:5:
+a link is no spec
+
+---- agent_session_files::live_spec_tests::a_link_at_live_spec_json_is_not_read_applied_or_reported stdout ----
+
+thread 'agent_session_files::live_spec_tests::a_link_at_live_spec_json_is_not_read_applied_or_reported' (36665277) panicked at crates/designos-app/src/agent_session_files/live_spec_tests.rs:76:9:
+assertion `left == right` failed: a-spec.json: the file behind the link was applied
+  left: 2
+ right: 1
+
+---- agent_session_files::live_spec_tests::a_fifo_at_live_spec_json_does_not_freeze_the_ui_thread stdout ----
+
+thread 'agent_session_files::live_spec_tests::a_fifo_at_live_spec_json_does_not_freeze_the_ui_thread' (36665276) panicked at crates/designos-app/src/agent_session_files/live_spec_tests.rs:60:5:
+the poll and the handler of a frame were blocked on the FIFO for 30.059677125s
+
+
+failures:
+    agent_session_files::live_spec_tests::a_change_to_the_target_of_a_link_at_live_spec_json_asks_for_nothing
+    agent_session_files::live_spec_tests::a_fifo_at_live_spec_json_does_not_freeze_the_ui_thread
+    agent_session_files::live_spec_tests::a_link_at_live_spec_json_is_not_read_applied_or_reported
+    agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure
+    agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure
+    agent_session_files::tailer_link_tests::a_link_swapped_in_for_the_patch_log_does_not_reset_what_was_read
+
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 3194 filtered out; finished in 30.08s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

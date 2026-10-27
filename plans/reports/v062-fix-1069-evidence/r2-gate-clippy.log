@@ -1,0 +1,95 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling num-traits v0.2.19
+   Compiling serde_json v1.0.154
+    Checking regex-automata v0.4.18
+    Checking percent-encoding v2.3.2
+    Checking allocator-api2 v0.2.21
+   Compiling nix v0.31.3
+   Compiling getrandom v0.3.4
+   Compiling ahash v0.8.12
+    Checking errno v0.3.14
+    Checking mio v1.2.4
+   Compiling rmcp v3.5.1
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling jsonschema-value v0.59.0
+    Checking borrow-or-share v0.2.4
+    Checking bit-vec v0.8.0
+   Compiling strum_macros v0.28.0
+    Checking form_urlencoded v1.2.2
+    Checking signal-hook-registry v1.4.8
+    Checking fluent-uri v0.4.1
+    Checking url v2.5.8
+    Checking bit-set v0.8.0
+    Checking hashbrown v0.17.1
+    Checking outref v0.5.2
+    Checking vsimd v0.8.0
+    Checking bytecount v0.6.9
+    Checking tokio v1.53.2
+    Checking num-cmp v0.1.0
+    Checking micromap v0.3.0
+    Checking uuid-simd v0.8.0
+    Checking email_address v0.2.9
+    Checking indexmap v2.14.2
+    Checking ureq v2.12.1
+    Checking jsonschema-regex v0.59.0
+    Checking data-encoding v2.11.1
+    Checking quick-xml v0.41.0
+    Checking resvg v0.45.1
+    Checking webbrowser v1.2.4
+    Checking regex v1.13.1
+    Checking fancy-regex v0.19.2
+    Checking half v2.7.1
+    Checking chrono v0.4.45
+    Checking tiff v0.11.3
+    Checking moxcms v0.8.1
+    Checking euclid v0.22.14
+    Checking tokio-util v0.7.20
+    Checking tokio-stream v0.1.19
+    Checking naga v29.0.4
+    Checking num-integer v0.1.47
+    Checking num-complex v0.4.6
+    Checking num-bigint v0.4.8
+    Checking num-iter v0.1.46
+    Checking strum v0.28.0
+    Checking lyon_geom v1.0.19
+    Checking guillotiere v0.7.0
+    Checking schemars v1.2.3
+    Checking vello_common v0.0.9
+    Checking lyon_path v1.0.19
+    Checking lyon_tessellation v1.0.22
+    Checking num-rational v0.4.2
+    Checking designos-doc v0.6.1 (<worktree>/crates/designos-doc)
+    Checking vello_cpu v0.0.9
+    Checking num v0.4.3
+    Checking fraction v0.17.0
+    Checking image v0.25.10
+    Checking referencing v0.59.0
+    Checking epaint v0.35.0
+    Checking designos-diff v0.6.1 (<worktree>/crates/designos-diff)
+    Checking arboard v3.6.1
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-hal v29.0.4
+    Checking egui v0.35.0
+    Checking zip v9.0.4
+    Checking process-wrap v10.0.1
+    Checking jsonschema v0.59.0
+    Checking wgpu-core-deps-apple v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking egui-winit v0.35.0
+    Checking wgpu v29.0.4
+    Checking egui-wgpu v0.35.0
+    Checking eframe v0.35.0
+    Checking designos-fonts v0.6.1 (<worktree>/crates/designos-fonts)
+    Checking designos-render v0.6.1 (<worktree>/crates/designos-render)
+    Checking designos-svg v0.6.1 (<worktree>/crates/designos-svg)
+    Checking designos-export v0.6.1 (<worktree>/crates/designos-export)
+    Checking designos-gpu v0.6.1 (<worktree>/crates/designos-gpu)
+    Checking designos-webcapture v0.6.1 (<worktree>/crates/designos-webcapture)
+    Checking designos-fig v0.6.1 (<worktree>/crates/designos-fig)
+    Checking designos-library v0.6.1 (<worktree>/crates/designos-library)
+    Checking designos-eval v0.6.1 (<worktree>/crates/designos-eval)
+    Checking designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.59s
+clippy exit=0

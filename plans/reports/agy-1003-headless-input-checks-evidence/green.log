@@ -1,0 +1,138 @@
+=== [1] cargo test -p designos-export --locked --lib swiftui ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-6b0f6023697b9aea)
+
+running 9 tests
+test swiftui::tests::swiftui_hugging_row_all_fill_children ... ok
+test swiftui::tests::grid_child_horizontal_fill_unchanged ... ok
+test swiftui::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test swiftui::tests::grid_stretch_child_exports_its_solved_size ... ok
+test swiftui::tests::swiftui_grid_fill_child_exports_solved_height ... ok
+test swiftui::tests::golden_card ... ok
+test swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals ... ok
+test swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars ... ok
+test swiftui::tests::text_nodes_with_dollar_braces_and_swift_interpolation_parse_cleanly ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 0.88s
+
+=== [2] cargo test -p designos-app --test cli_screenshot --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.84s
+     Running tests/cli_screenshot.rs (out/cargo/debug/deps/cli_screenshot-b50776f854574c1b)
+
+running 1 test
+test cli_screenshot_refuses_broken_files_and_captures_good_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.55s
+
+=== [3] cargo test -p designos-mcp --test spec_errors --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.18s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-ac302b1139be2ae7)
+
+running 8 tests
+test round3_nested_spec_errors_carry_path_from_root ... ok
+test round3_batch_apply_spec_runs_same_walk_as_direct_apply_spec ... ok
+test apply_spec_reports_field_and_expected_type_in_plain_words ... ok
+test round3_set_slot_bad_child_item_in_fill_reports_child_path ... ok
+test round3_set_slot_bad_child_field_in_fill_reports_nested_path ... ok
+test round3_set_slot_bad_slot_reports_slot_field ... ok
+test round3_f32_overflow_and_comments_parity_with_serde ... ok
+test round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+=== [4] cargo test -p designos-mcp --test mcp_paths --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.57s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b150e51ef81633d8)
+
+running 22 tests
+test export_fig_rules_list_both_file_exists_and_internal_error ... ok
+test argument_errors_never_echo_outside_paths_in_corrected_example_or_received ... ok
+test export_fig_refuses_symlink_inside_workspace ... ok
+test export_fig_refuses_folder ... ok
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test render_png_refuses_existing_file_early_and_preserves_bytes ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test file_creation_tools_refuse_whitespace_only_names_and_accept_vietnamese_and_cjk ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+test in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted ... ok
+test new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes ... ok
+test render_png_race_loser_asks_for_unused_png_filename_without_overwrite_hint ... ok
+test concurrent_no_overwrite_saves_never_both_succeed_or_corrupt_json ... ok
+test file_planted_during_no_overwrite_export_is_never_overwritten ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.25s
+
+=== [5] cargo test -p designos-mcp --locked --lib every_code_has_a_fixture ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.44s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test server::tests::every_code_has_a_fixture ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 244 filtered out; finished in 0.16s
+
+=== [6] cargo test -p designos-mcp --locked --lib rules ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1003-headless-input-checks/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.57s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 25 tests
+test rules::tests::the_session_skill_points_at_the_open_file_and_page_without_naming_them ... ok
+test rules::tests::session_skill_matches_rules ... ok
+test rules::tests::the_session_skill_frontmatter_is_exactly_a_name_and_a_fixed_description ... ok
+test rules::tests::purpose_summary_never_ends_inside_a_token ... ok
+test rules::tests::the_session_skill_template_and_rules_pack_hold_no_at_path ... ok
+test rules::tests::yaml_double_quoted_turns_any_text_into_one_scalar_that_reads_back_whole ... ok
+test rules::tests::the_session_skill_template_and_rules_pack_hold_no_shell_placeholder ... ok
+test rules::tests::tools_added_after_the_snapshot_are_enabled ... ok
+test rules::tests::tool_disabled_next_step_points_at_the_config_file ... ok
+test rules::tests::studio_never_persists_the_default_list ... ok
+test prompts::tests::rules_from_fixture ... ok
+test tools::issues::tests::edge_cases_delete_collapsed_ignored_preexisting_and_skipped_text_rules ... ok
+test engine::tests::mcp_lint_rules_list_accepts_broken_style_binding ... ok
+test rules::tests::every_dispatched_alias_canonicalises_to_a_listed_tool ... ok
+test rules::tests::disabling_a_tool_removes_its_section ... ok
+test rules::tests::prompt_resource_tool_identical ... ok
+test rules::tests::rules_under_token_budget ... ok
+test rules::tests::edge_cases_template_validation_read_only_and_disabled_tool_errors ... ok
+test rules::tests::drift_check_fails_on_schema_change ... ok
+test rules::tests::create_and_update_list_the_variable_errors_and_say_fill_takes_a_var_reference ... ok
+test rules::tests::a_tool_added_after_the_session_was_written_is_listed_and_callable ... ok
+test tools::metadata::tests::lint_only_checks_emitted_nodes_and_merges_across_writers_without_dropping_rules ... ok
+test tools::bootstrap::tests::default_session_reports_every_registered_tool_and_the_generated_rules_pack ... ok
+test tools::bootstrap::tests::a_disabled_tool_is_absent_from_rules_and_enabled_tools ... ok
+test rules::tests::worked_examples_conform_to_tool_schemas_and_dispatch ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 0.15s
+

@@ -1,0 +1,22 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 10 tests
+test io::dialog_probe::tests::round3_f_release_build_hook_is_off ... ok
+test io::dialog_probe::tests::round3_a_zenity_with_no_owner_or_service_unknown_runs_show ... ok
+test io::dialog_probe::tests::round3_b_no_zenity_with_portal_activating_within_budget_runs_show ... ok
+test icon_tests::round3_cli_apply_spec_reports_nested_path ... ok
+test icon_tests::round3_cli_apply_spec_rejects_f32_overflow_with_clear_message ... ok
+test icon_tests::round3_cli_apply_spec_refuses_duplicate_keys ... ok
+test icon_tests::round3_cli_apply_spec_unknown_field_omits_code_prefix ... ok
+test io::dialog_probe::tests::round3_c_zenity_with_probe_timeout_is_unavailable_and_never_runs_show ... ok
+test io::dialog_probe::tests::round3_d_hanging_probe_thread_spawns_no_second_thread_and_reports_still_running ... ok
+test shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 3325 filtered out; finished in 0.25s
+

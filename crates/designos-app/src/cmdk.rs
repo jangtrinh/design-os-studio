@@ -849,13 +849,7 @@ fn synthesize_agent_console(_prompt: &str) -> NodeSpec {
         children: vec![
             badge_node("Agent Runtime Badge", "CLAUDE + CODEX + GROK PTY", "$easeui.accent.violet", "$easeui.text.primary"),
             text_node("Console Header", "Autonomous Design-to-Code Agent Bridge", 18.0, 700, "$easeui.text.primary"),
-            text_node(
-                "Console Stream",
-                "$ designos --apply-spec examples/specs/easeui-agent-console.spec.json --export-code react",
-                13.0,
-                500,
-                "$easeui.accent.emerald",
-            ),
+            text_node("Console Stream", "$ designos --apply-spec screen.spec.json --export-code react", 13.0, 500, "$easeui.accent.emerald"),
             button_node("Run Agent Task Button", "Sync Selection to Active PTY", true),
         ],
         ..Default::default()

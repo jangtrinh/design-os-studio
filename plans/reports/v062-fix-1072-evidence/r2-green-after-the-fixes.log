@@ -1,0 +1,36 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.19s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 24 tests
+test agent_session_files::refusal_tests::a_locked_entry_and_an_entry_nothing_can_be_read_about_each_get_their_own_next_step ... ok
+test agent_session_files::refusal_tests::a_note_on_what_was_moved_aside_comes_after_the_cause_and_its_fix_and_changes_neither ... ok
+test agent_session_files::refusal_tests::another_error_carries_its_own_next_step_and_is_not_a_refusal ... ok
+test agent_session_files::refusal_tests::a_failure_with_a_known_fix_puts_the_consequence_before_the_recovery ... ok
+test agent_session_files::refusal_tests::every_fix_names_what_to_do_and_a_missing_home_folder_always_needs_a_restart ... ok
+test agent_session_files::refusal_tests::a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery ... ok
+test agent_session_files::refusal_tests::the_line_of_files_not_updated_names_the_path_once ... ok
+test agent_session_files::private_anchor_tests::a_path_beside_the_private_root_is_no_anchor ... ok
+test agent_hook_outputs::tests::without_a_private_data_folder_every_path_is_one_no_read_or_write_can_use ... ok
+test agent_hook_outputs::tests::the_production_hook_folder_lies_outside_every_folder_an_agent_can_write ... ok
+test agent_hook_outputs::tests::prepare_makes_an_owner_only_folder_inside_the_approval_channel_and_the_routed_helpers_use_it ... ok
+test agent_session_files::private_anchor_tests::the_hook_folder_itself_and_everything_below_it_still_anchor_at_the_channel ... ok
+test agent_session_files::private_anchor_tests::a_path_in_the_hook_folder_anchors_at_the_channel_folder_of_its_session ... ok
+test agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write ... ok
+test agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder ... ok
+test agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable ... ok
+test agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked ... ok
+test agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in ... ok
+test terminal::fail_closed_hook_tests::without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode ... ok
+test terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file ... ok
+test terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... ok
+test agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 3281 filtered out; finished in 0.82s
+

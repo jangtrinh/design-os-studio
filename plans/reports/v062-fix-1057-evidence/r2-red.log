@@ -1,0 +1,164 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+warning: function `base_dir` is never used
+ --> crates/designos-app/src/agent_session_files/test_root.rs:8:4
+  |
+8 | fn base_dir() -> PathBuf {
+  |    ^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `test_sessions_root` is never used
+  --> crates/designos-app/src/agent_session_files/test_root.rs:13:15
+   |
+13 | pub(super) fn test_sessions_root() -> PathBuf {
+   |               ^^^^^^^^^^^^^^^^^^
+
+warning: `designos-app` (bin "designos" test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.55s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 47 tests
+test agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check ... FAILED
+test agent_session_files::folder_unit_tests::a_folder_of_another_user_is_refused ... ok
+test agent_session_files::folder_tests::a_file_at_a_session_path_is_refused ... ok
+test agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do ... FAILED
+test agent_session_files::folder_unit_tests::a_file_written_into_a_real_session_folder_may_create_its_subfolders ... ok
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_is_refused ... ok
+test agent_session_files::folder_unit_tests::only_a_direct_child_of_the_root_is_ephemeral_and_an_id_cannot_leave_the_root ... ok
+test agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own ... FAILED
+test agent_session_files::folder_unit_tests::a_link_in_place_of_the_sessions_folder_is_refused_and_a_loose_one_is_made_private ... ok
+test agent_session_files::folder_unit_tests::the_sweep_never_removes_a_folder_in_the_temp_folder_where_earlier_versions_kept_sessions ... ok
+test agent_session_files::folder_unit_tests::without_a_private_data_folder_no_session_folder_is_made ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it ... FAILED
+test agent_session_files::folder_unit_tests::the_production_root_sits_next_to_the_approval_channel_in_the_data_folder ... ok
+test agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder ... FAILED
+test agent_session_files::test_root::tests::a_link_named_like_a_dead_process_is_not_followed ... ok
+test agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty ... FAILED
+test agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete ... FAILED
+test agent_session_files::folder_tests::a_tab_does_not_start_in_a_planted_link_and_says_why ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file ... FAILED
+test agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same ... FAILED
+test agent_session_files::folder_tests::a_link_planted_at_the_next_ephemeral_session_path_is_refused ... ok
+test agent_session_files::folder_tests::new_session_folders_are_private_to_their_owner ... ok
+test agent_session_files::tests::mcp_without_a_session_dir_has_no_live_paths ... ok
+test agent_session_files::folder_tests::an_existing_real_session_folder_is_accepted_again ... ok
+test agent_session_files::folder_unit_tests::a_session_file_is_not_written_through_a_link_at_its_folder ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link ... FAILED
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_gets_no_lock_file ... ok
+test agent_session_files::tests::dropping_spec_into_window_a_never_applies_in_window_b ... ok
+test agent_session_files::tests::snapshot_write_failure_does_not_mark_key_synced ... ok
+test agent_session_files::tests::parse_ps_etime_secs_and_query_process_started_ms_work_on_unix ... ok
+test agent_session_files::tests::sweep_never_touches_library_agent_sessions ... ok
+test agent_session_files::tests::write_backoff_pauses_the_same_content_with_a_growing_delay_and_reports_it_once ... ok
+test agent_session_files::tests::no_global_tmp_path_in_shipped_code ... ok
+test agent_session_files::tests::startup_sweep_removes_only_dead_sessions_older_than_7_days ... ok
+test agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder ... FAILED
+test agent_session_files::tests::a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots ... ok
+test agent_session_files::folder_tests::a_library_file_whose_folder_is_a_planted_link_runs_in_the_private_fallback_and_writes_nothing_through_the_link ... ok
+test agent_session_files::tests::closing_a_tab_removes_its_ephemeral_session_dir ... ok
+test agent_session_files::tests::a_failing_write_is_not_retried_every_frame ... ok
+test agent_session_files::tests::coalesces_rapid_snapshots_to_the_latest_document ... ok
+test agent_session_files::tests::shutdown_removes_an_ephemeral_session_dir ... ok
+test agent_session_files::tests::snapshot_is_written_off_the_ui_thread ... ok
+test agent_session_files::tests::two_windows_never_touch_each_others_session_files ... ok
+test agent_session_files::tests::a_publish_after_shutdown_does_not_recreate_the_session_folder ... ok
+test agent_session_files::tests::a_publish_after_the_last_tab_closed_does_not_recreate_the_session_folder ... ok
+test agent_session_files::tests::ui_thread_cost_on_a_24k_node_document_stays_under_budget ... ok
+test agent_session_files::tests::a_bootstrap_build_that_finishes_after_shutdown_does_not_recreate_the_session_folder ... ok
+
+failures:
+
+---- agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check' (29827545) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:102:5:
+assertion `left == right` failed
+  left: "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Check your home folder setting and restart Studio"
+ right: "Studio has no private data folder for agent sessions (its user data folder is missing or inside a temporary folder). Make sure your home folder exists, then restart Studio"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do stdout ----
+
+thread 'agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do' (29827568) panicked at crates/designos-app/src/agent_session_files/folder_unit_tests.rs:77:5:
+names the folder: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-read-only-parent-17646924/agent-sessions/file-1 can't be made: Permission denied (os error 13). Check its permissions and free space, then try again
+
+---- agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own stdout ----
+
+thread 'agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own' (29827591) panicked at crates/designos-app/src/agent_session_files/folder_unit_tests.rs:104:5:
+assertion `left == right` failed: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions
+  left: Some("designos test data")
+ right: Some("86469")
+
+---- agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it' (29827547) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:65:5:
+assertion `left == right` failed
+  left: "Couldn't start Shell ($SHELL): /usr belongs to another user. Move or delete it and try again."
+ right: "Couldn't start Shell ($SHELL): /usr belongs to another user. Move or delete the folder and try again."
+
+---- agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder stdout ----
+
+thread 'agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder' (29827606) panicked at crates/designos-app/src/agent_session_files/folder_unit_tests.rs:89:59:
+a link as the sessions folder is not used: "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-probe-link-17646936/sessions"
+
+---- agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty stdout ----
+
+thread 'agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty' (29827617) panicked at crates/designos-app/src/agent_session_files/test_root.rs:52:9:
+the root of a process that is gone stays behind
+
+---- agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete' (29827544) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:81:5:
+assertion `left == right` failed
+  left: "Couldn't use this file's agent folder: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-message-library-17646918/agent-sessions/file-1 is a link, not a folder. Delete it and try again."
+ right: "Couldn't use this file's agent folder: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-message-library-17646918/agent-sessions/file-1 is a link, not a folder. This file's agents start in a temporary folder that is not kept. Delete the link and reopen the file."
+
+---- agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file' (29827546) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:51:5:
+assertion `left == right` failed
+  left: "Couldn't start Shell ($SHELL): /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646900 is a file, not a folder. Delete it and try again."
+ right: "Couldn't start Shell ($SHELL): /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646900 is a file, not a folder. Delete the file and try again."
+
+---- agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same' (29827543) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:73:5:
+assertion `left == right` failed
+  left: "Couldn't start My CLI: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646915 is a link, not a folder. Delete it and try again."
+ right: "Couldn't start My CLI: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646915 is a link, not a folder. Delete the link and try again."
+
+---- agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link stdout ----
+
+thread 'agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link' (29827548) panicked at crates/designos-app/src/agent_session_files/folder_message_tests.rs:43:5:
+assertion `left == right` failed
+  left: "Couldn't start Shell ($SHELL): /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646920 is a link, not a folder. Delete it and try again."
+ right: "Couldn't start Shell ($SHELL): /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos test data/sessions/p86469-tab-17646920 is a link, not a folder. Delete the link and try again."
+
+---- agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder stdout ----
+
+thread 'agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder' (29827616) panicked at crates/designos-app/src/agent_session_files/hook_quoting_tests.rs:81:9:
+/bin/sh rejects a hook command: /bin/sh: -c: line 0: unexpected EOF while looking for matching `''
+/bin/sh: -c: line 1: syntax error: unexpected end of file
+
+{ p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Notification","p":%s}' "$(date +%s)" "$p"); got_lock=0; i=0; while [ $i -lt 500 ]; do if mkdir '/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-hook-quoting-17646937/Jang'\''s folder/agent-sessions/file-1/agent-events.jsonl.lock' 2>/dev/null; then got_lock=1; break; fi; sleep 0.01; i=$((i+1)); done; printf '%s\n' "$line" >> '/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-hook-quoting-17646937/Jang'\''s folder/agent-sessions/file-1/agent-events.jsonl'; if [ "$got_lock" = 1 ]; then rmdir '/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-hook-quoting-17646937/Jang'\''s folder/agent-sessions/file-1/agent-events.jsonl.lock' 2>/dev/null || true; fi; }; printf '{"state":"waiting","run_id":"%s"}\n' "${DESIGNOS_AGENT_RUN_ID:-}" > '/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-folder-test-hook-quoting-17646937/Jang's folder/agent-sessions/file-1/agent-status.json'
+
+
+failures:
+    agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same
+    agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete
+    agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check
+    agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file
+    agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it
+    agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link
+    agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do
+    agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own
+    agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder
+    agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder
+    agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty
+
+test result: FAILED. 36 passed; 11 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.62s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

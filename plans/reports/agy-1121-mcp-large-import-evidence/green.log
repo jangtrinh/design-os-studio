@@ -1,0 +1,71 @@
+=== cargo test -p designos-mcp --test session --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.08s
+     Running tests/session.rs (out/cargo/debug/deps/session-4df572995caa9675)
+
+running 14 tests
+test web_capture_over_512_mib_is_file_too_large ... ok
+test web_capture_between_64_and_512_mib_passes_the_size_gate ... ok
+test node_id_without_allocation_headroom_is_refused_on_open ... ok
+test the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path ... ok
+test open_file_between_64_and_512_mib_passes_the_size_gate ... ok
+test a_missing_file_inside_the_workspace_is_reported_as_missing_not_as_unsaved_changes ... ok
+test open_file_refuses_a_path_outside_the_workspace_before_it_looks_at_unsaved_changes ... ok
+test imported_stale_id_counter_does_not_overwrite_existing_nodes ... ok
+test paths_and_bad_imports_cannot_replace_the_session ... ok
+test a_native_file_with_null_numbers_opens_and_the_result_reports_the_repair ... ok
+test session_writes_and_exports_only_a_finished_layout ... ok
+test exporting_a_fig_reports_the_comment_threads_it_leaves_out ... ok
+test import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos ... ok
+test saved_file_roundtrip_and_unsaved_changes_guard ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+=== cargo test -p designos-mcp --test version --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.44s
+     Running tests/version.rs (out/cargo/debug/deps/version-d25fd83ad46088c5)
+
+running 4 tests
+test help_lists_the_version_flag ... ok
+test version_is_not_mistaken_for_a_workspace_argument ... ok
+test usage_error_names_the_version_flag ... ok
+test version_flags_print_the_cargo_version ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+
+
+=== cargo test -p designos-mcp --lib --locked every_code_has_a_fixture ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.21s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test server::tests::every_code_has_a_fixture ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.06s
+
+
+=== cargo test -p designos-mcp --lib --locked file_too_large_is_not_safe_to_retry_and_names_the_next_step ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test server::tests::file_too_large_is_not_safe_to_retry_and_names_the_next_step ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.01s
+

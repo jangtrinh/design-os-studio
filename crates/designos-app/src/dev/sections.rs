@@ -1,8 +1,8 @@
 //! Sections of the Inspect panel added for Dev mode: status, component properties, annotations,
 //! links, box model, code, variables used and assets.
 
+pub use super::code_view::code_block;
 use super::data::{self, BoxModel};
-use super::highlight::{self, Span};
 use super::{AnnotEdit, Language, LinkEdit};
 use crate::app::App;
 use crate::panels::inspect::{copy, download, section_title, small_button, Asset, Cur, PAD, ROW_H};
@@ -376,37 +376,6 @@ pub fn box_model_section(ui: &mut Ui, c: &mut Cur, doc: &Document, id: NodeId) {
     let r = c.rect(PAD, 0.0, w, 150.0);
     paint_box_model(ui.painter(), r, &m);
     c.y += 158.0;
-}
-
-fn mono_char_w(p: &egui::Painter) -> f32 {
-    text_width(p, "MMMMMMMMMM", &theme::font_mono()) / 10.0
-}
-
-/// Syntax-highlighted code, wrapped to the panel width.
-pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
-    let font = theme::font_mono();
-    let line_h = theme::CODE_LINE_HEIGHT;
-    let inner_w = c.w - 2.0 * PAD - 16.0;
-    let cw = mono_char_w(ui.painter());
-    let cols = (inner_w / cw).floor() as usize;
-    let mut rows: Vec<Vec<Span>> = Vec::new();
-    for l in highlight::highlight(lang, code) {
-        rows.extend(highlight::wrap(&l, cols));
-    }
-    let h = rows.len() as f32 * line_h + 16.0;
-    let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, h);
-    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    let clip = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
-    let mut y = r.top() + 8.0;
-    for row in rows {
-        let mut x = r.left() + 8.0;
-        for s in row {
-            clip.text(Pos2::new(x, y + line_h / 2.0), Align2::LEFT_CENTER, &s.text, font.clone(), highlight::color(s.tok));
-            x += cw * s.text.chars().count() as f32;
-        }
-        y += line_h;
-    }
-    c.y += h + 8.0;
 }
 
 type DevCodeCacheKey = (u64, NodeId, u64, Language, bool, u64);
