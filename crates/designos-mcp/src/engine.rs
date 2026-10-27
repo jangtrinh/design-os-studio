@@ -118,6 +118,12 @@ pub struct Engine {
     pub ledger_entries: usize,
 }
 
+impl Engine {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
@@ -3941,5 +3947,302 @@ mod tests {
         let replayed_main = editor_doc.get(main_comp_id).expect("imported library main component must exist in replayed document");
         assert_eq!(replayed_main.name, "Icon/Arrow");
         assert_eq!(replayed_main.parent, editor_doc.library_page);
+    }
+
+    #[test]
+    fn delete_button_label_has_equal_side_padding() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "DeleteBtn",
+                        "height": 28.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 14.0, 0.0, 14.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "Delete",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let label_id = NodeId(res["name_to_id"]["DeleteBtn/Label"].as_u64().unwrap());
+        let btn = e.doc.get(btn_id).unwrap();
+        let label = e.doc.get(label_id).unwrap();
+        let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert_eq!(label.transform.tx, 14.0, "label x must equal left padding 14.0");
+        assert!((btn.size.x - (label.size.x + 28.0)).abs() <= 1e-3, "button width ({}) must equal label width ({}) + 28.0", btn.size.x, label.size.x);
+        assert!(
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 42.0,
+            "label width ({}) must match measured_text_box ({}) within 0.5px and be < 42.0 (not 48.0)",
+            label.size.x,
+            measured.x
+        );
+    }
+
+    #[test]
+    fn create_node_text_without_size_hugs_its_content() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "CancelLabel",
+                    "text": "Cancel"
+                }),
+            )
+            .unwrap();
+        let id = NodeId(res["node"]["id"].as_u64().unwrap());
+        let node = e.doc.get(id).unwrap();
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text node") };
+        assert_eq!(tp.auto_resize, designos_doc::TextAutoResize::WidthAndHeight);
+        assert!(node.size.x < 60.0, "expected 'Cancel' width < 60.0 (not 100.0), got {}", node.size.x);
+    }
+
+    #[test]
+    fn create_node_text_with_size_is_fixed() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "CancelFixed",
+                    "text": "Cancel",
+                    "width": 100.0,
+                    "height": 24.0
+                }),
+            )
+            .unwrap();
+        let id = NodeId(res["node"]["id"].as_u64().unwrap());
+        let node = e.doc.get(id).unwrap();
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text node") };
+        assert_eq!(tp.auto_resize, designos_doc::TextAutoResize::None);
+        assert_eq!((node.size.x, node.size.y), (100.0, 24.0));
+    }
+
+    #[test]
+    fn update_node_text_change_remeasures_hug_text() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "ActionBtn",
+                        "height": 28.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 12.0, 0.0, 12.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "OK",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let label_id = NodeId(res["name_to_id"]["ActionBtn/Label"].as_u64().unwrap());
+        let w_label_before = e.doc.get(label_id).unwrap().size.x;
+        let w_btn_before = e.doc.get(btn_id).unwrap().size.x;
+
+        e.call(
+            "designos_update_node",
+            json!({
+                "node_id": label_id.0,
+                "text": "Save changes"
+            }),
+        )
+        .unwrap();
+
+        let w_label_after = e.doc.get(label_id).unwrap().size.x;
+        let w_btn_after = e.doc.get(btn_id).unwrap().size.x;
+        assert!(w_label_after > w_label_before, "label width must grow from {w_label_before} to {w_label_after}");
+        assert!(w_btn_after > w_btn_before, "button width must grow from {w_btn_before} to {w_btn_after}");
+
+        e.call("designos_undo", json!({})).unwrap();
+        assert!((e.doc.get(label_id).unwrap().size.x - w_label_before).abs() <= 1e-3, "one undo must restore label width");
+        assert!((e.doc.get(btn_id).unwrap().size.x - w_btn_before).abs() <= 1e-3, "one undo must restore button width");
+    }
+
+    #[test]
+    fn instance_text_override_is_measured() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let comp_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "component",
+                        "name": "CtaButton",
+                        "height": 32.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 12.0, 0.0, 12.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "OK",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let _comp_id = comp_res["root_node_id"].as_u64().unwrap();
+
+        let inst_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "CheckoutInst",
+                        "component": "CtaButton",
+                        "overrides": [
+                            {
+                                "path": "Label",
+                                "text": "Continue to checkout"
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst_label_id = NodeId(inst_res["name_to_id"]["CheckoutInst/Label"].as_u64().unwrap());
+        let label = e.doc.get(inst_label_id).unwrap();
+        let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert!(
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 145.0,
+            "instance override label width ({}) must match measured ({}) within 0.5px and be < 145.0 (not 157.0)",
+            label.size.x,
+            measured.x
+        );
+    }
+
+    #[test]
+    fn apply_spec_is_one_undo_step_and_one_patch() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        e.live_ops = Some(Vec::new());
+        let undo_before = e.history.undo_depth();
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "OnePatchBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [6.0, 12.0, 6.0, 12.0]
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "Delete",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        assert_eq!(e.history.undo_depth(), undo_before + 1, "apply_spec must be one undo step");
+
+        let ops = e.take_live_ops();
+        assert_eq!(ops.len(), 1, "apply_spec must record exactly one LiveOp::Insert, got {ops:?}");
+        match &ops[0] {
+            designos_doc::live_patch::LiveOp::Insert { nodes, .. } => {
+                let text_node = nodes.iter().find(|n| n.name == "Label").expect("Label node in LiveOp::Insert");
+                assert!(text_node.size.x < 42.0, "LiveOp::Insert text node must already carry measured width (< 42.0), got {}", text_node.size.x);
+            }
+            other => panic!("expected LiveOp::Insert, got {other:?}"),
+        }
+
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root_id).is_none(), "one designos_undo must remove the whole subtree");
+    }
+
+    #[test]
+    fn fallback_font_is_reported() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "FallbackText",
+                        "text": "Missing face",
+                        "font_family": "NotARealFontFamily"
+                    }
+                }),
+            )
+            .unwrap();
+        let tid = res["root_node_id"].as_u64().unwrap();
+        let fb = res["measured_with_fallback"].as_array().expect("measured_with_fallback array in apply_spec reply");
+        assert!(fb.contains(&json!(tid)), "measured_with_fallback must contain text node id {tid}, got {fb:?}");
+        let warnings = res["warnings"].as_array().expect("warnings array in apply_spec reply");
+        assert!(
+            warnings.iter().any(|w| w["code"] == "TEXT_MEASURED_WITH_FALLBACK_FONT"),
+            "warnings must include TEXT_MEASURED_WITH_FALLBACK_FONT, got {warnings:?}"
+        );
     }
 }

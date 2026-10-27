@@ -778,8 +778,17 @@ pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
         return hit;
     }
     let geom = Rc::new(with_fonts(|f| compute_geometry(f, props, size)));
-    GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom.clone(), 256));
-    geom
+    GEOMS.with(|g| g.borrow_mut().insert(key, props, size, geom, 256));
+    GEOMS.with(|g| g.borrow().get(key, props, size).unwrap())
+}
+
+/// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`),
+/// rounded up to the next `0.25 px`.
+pub fn measure_text_box(tp: &TextProps, _wrap_width: Option<f32>) -> Vec2 {
+    let fs = tp.style.font_size.max(8.0);
+    let w = (tp.content.chars().count() as f32 * fs * 0.56).ceil().max(16.0);
+    let h = (fs * 1.45).ceil();
+    Vec2::new(w, h)
 }
 
 fn compute_geometry(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGeometry {
@@ -1022,5 +1031,20 @@ mod tests {
             assert!(blank.glyphs.is_empty() && blank.start == blank.end, "{content:?}: blank line has no extent");
             assert!(g.lines.windows(2).all(|w| w[0].start < w[1].start), "{content:?}: starts strictly increase");
         }
+    }
+
+    #[test]
+    fn semibold_measures_wider_than_regular() {
+        let mut regular = props("Delete", TextAutoResize::WidthAndHeight, None);
+        regular.style.font_family = "Inter".to_string();
+        regular.style.font_size = 14.0;
+        regular.style.font_weight = 400;
+
+        let mut semibold = regular.clone();
+        semibold.style.font_weight = 600;
+
+        let w400 = measure_text_box(&regular, None).x;
+        let w600 = measure_text_box(&semibold, None).x;
+        assert!(w600 > w400, "expected 14px Semibold Inter 'Delete' ({w600}) to measure wider than Regular ({w400})");
     }
 }

@@ -2177,4 +2177,21 @@ mod tests {
         assert!(doc.in_progress.is_empty(), "the root's flag set before the failure is rolled back");
         assert_eq!(doc.get(page).unwrap().children.len(), children_before, "no node survives the refused spec");
     }
+
+    #[test]
+    fn no_measurer_keeps_the_estimate() {
+        let mut doc = Document::new("Estimate fallback");
+        let page = doc.add_page("P");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "DeleteLabel",
+            "text": "Delete",
+            "font_size": 14.0,
+            "font_weight": 600
+        }))
+        .unwrap();
+        let tid = doc.apply_spec(page, &spec).unwrap();
+        let tn = doc.get(tid).unwrap();
+        assert_eq!(tn.size.x, 52.0, "without an installed measurer, 'Delete' at 14px Semibold keeps the 52.0px estimate");
+    }
 }
