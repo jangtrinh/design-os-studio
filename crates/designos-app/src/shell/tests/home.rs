@@ -731,6 +731,8 @@ fn starter_asset_exists_and_is_at_most_5_mb() {
     let text = std::str::from_utf8(&bytes).expect("starter asset is UTF-8");
     let doc = Document::from_json(text).expect("starter asset decodes as a valid Document");
     let page_names: Vec<&str> = doc.pages.iter().filter_map(|pid| doc.get(*pid).map(|n| n.name.as_str())).collect();
+    assert_eq!(doc.pages.len(), 2, "starter asset must have 2 pages, found {page_names:?}");
+    assert_eq!(doc.get(doc.pages[0]).unwrap().children.len(), 3, "first page of starter asset must have 3 frames");
     assert!(page_names.contains(&"About this file"), "starter asset must contain an 'About this file' page, found {page_names:?}");
 }
 
