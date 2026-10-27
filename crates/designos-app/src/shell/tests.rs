@@ -75,6 +75,52 @@ impl Sim {
         s.frame(vec![]);
         s
     }
+    fn with_starter(opts: Options) -> Self {
+        Self::with_starter_prep(opts, |_| {}, |_| {})
+    }
+    fn with_starter_prep(mut opts: Options, prep_doc: impl FnOnce(&mut designos_doc::Document), prep_app: impl FnOnce(&mut App)) -> Self {
+        const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-studio-starter.designos");
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
+        let had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
+        let mut temp_doc_path = None;
+        if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
+            static STARTER_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = STARTER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let starter_str = std::str::from_utf8(STARTER_BYTES).expect("starter utf8");
+            let mut doc = designos_doc::Document::from_json(starter_str).expect("parse starter document");
+            prep_doc(&mut doc);
+            let p = std::env::temp_dir().join(format!("designos-sim-starter-{}-{seq}.designos", std::process::id()));
+            std::fs::write(&p, doc.to_json().expect("serialize prepared starter")).expect("write prepared starter");
+            opts.file = Some(p.clone());
+            temp_doc_path = Some(p);
+        }
+        let ctx = Context::default();
+        let mut shell = Shell::build(&ctx, opts);
+        if let Some(p) = temp_doc_path {
+            let _ = std::fs::remove_file(p);
+            shell.app.file_path = None;
+            let ds = shell.app.autosave.disk_state();
+            shell.app.autosave.adopt_disk_state(ds, None);
+            shell.launch_had_panel_or_file = had_panel_or_file;
+        }
+        prep_app(&mut shell.app);
+        script_empty_clipboard(&mut shell.app);
+        let mut s = Sim {
+            ctx,
+            shell,
+            t: 0.0,
+            pos: Pos2::new(700.0, 500.0),
+            mods: Modifiers::NONE,
+            cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
+            accesskit_update: None,
+            commands: Vec::new(),
+            sent_commands: Vec::new(),
+        };
+        s.frame(vec![]);
+        s.frame(vec![]);
+        s
+    }
     fn frame(&mut self, events: Vec<Event>) {
         self.run_frame(events, false);
     }

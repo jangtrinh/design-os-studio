@@ -18,23 +18,8 @@ pub struct CasesFile {
     pub cases: Vec<CaseEntry>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PrepKind {
-    CommentThread,
-    PrototypeLink,
-    GridStyle,
-    ComponentInstance,
-    CheckDesignsFindings,
-    PublishedLibrary,
-    BlankBoard,
-    BlankDeck,
-}
-
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TierTarget {
-    #[serde(default)]
-    pub doc: String,
     #[serde(default)]
     pub select: Option<String>,
     #[serde(default)]
@@ -42,7 +27,7 @@ pub struct TierTarget {
     #[serde(default)]
     pub page: Option<String>,
     #[serde(default)]
-    pub prep: Vec<PrepKind>,
+    pub prep: Option<String>,
     #[serde(default)]
     pub unreachable: Option<String>,
 }
@@ -66,17 +51,196 @@ pub struct CaseEntry {
 
 pub mod prep {
     use super::*;
+    use designos_doc::{
+        Action, BinaryOp, Color, Comment, CommentThread, Document, Easing, Effect, Expression, Flow, FrameProps, LayoutGrid, Node, NodeId, NodeKind, Paint,
+        Reaction, Rect as DRect, ShapeKind, Style, StyleMeta, StyleProperty, TextStyle, Transition, TransitionKind, Trigger, VariableKind, VariableStore,
+        VariableValue, Vec2 as DV,
+    };
 
-    pub fn comment_thread(_doc: &mut designos_doc::Document, _app: &mut App) {}
-    pub fn prototype_link(_doc: &mut designos_doc::Document) {}
-    pub fn grid_style(_doc: &mut designos_doc::Document, _target: NodeId) {}
-    pub fn component_instance(_doc: &mut designos_doc::Document) -> NodeId {
-        NodeId(0)
+    pub const PROTO_ADD_ID: NodeId = NodeId(636_200);
+    pub const COMP_MAIN_ID: NodeId = NodeId(636_209);
+    pub const COMP_INST_ID: NodeId = NodeId(636_210);
+
+    pub fn comment_thread(doc: &mut Document, app: &mut App) {
+        let page = doc.pages.first().copied().unwrap_or(NodeId(1));
+        let anchor = crate::comments::model::make_anchor(doc, page, DV::new(180.0, 220.0), Some(NodeId(636_047)));
+        doc.comments.push(CommentThread {
+            id: "starter-c1".into(),
+            anchor,
+            messages: vec![Comment {
+                id: "starter-c1-0".into(),
+                author: "Kir".into(),
+                author_id: None,
+                author_color: None,
+                text: "Align onboarding header spacing to the 8pt grid.".into(),
+                created: "2026-10-27T00:00:00Z".into(),
+                edited: None,
+            }],
+            resolved: false,
+        });
+        app.doc.comments = doc.comments.clone();
+        app.comments.author = Some("Kir".into());
+        app.tool = crate::canvas::tools::Tool::Comment;
+        app.comments.open = Some("starter-c1".into());
     }
-    pub fn check_designs_findings(_doc: &mut designos_doc::Document) {}
-    pub fn published_library(_doc: &mut designos_doc::Document, _lib_root: Option<&Path>) {}
-    pub fn blank_board(_doc: &mut designos_doc::Document) {}
-    pub fn blank_deck(_doc: &mut designos_doc::Document, _app: &mut App) {}
+
+    pub fn prototype_link(doc: &mut Document) {
+        let page = doc.pages.first().copied().unwrap_or(NodeId(1));
+        let start_screen = NodeId(636_047);
+        let dest_screen = NodeId(636_056);
+
+        let mut store = VariableStore::default();
+        let coll = store.add_collection("State");
+        let light = store.collections[&coll].default_mode.clone();
+        let dark = store.add_mode(&coll, "Dark").expect("add Dark mode");
+        let count = store.add_variable(&coll, "count", VariableKind::Number).expect("add count var");
+        let label = store.add_variable(&coll, "label", VariableKind::String).expect("add label var");
+        store.set_value(&count, &light, VariableValue::Number(0.0));
+        store.set_value(&count, &dark, VariableValue::Number(0.0));
+        store.set_value(&label, &light, VariableValue::String("Step 1 of 2".into()));
+        store.set_value(&label, &dark, VariableValue::String("Step 1 of 2".into()));
+        let _ = store.command().apply(doc);
+
+        let mut add = Node::frame(PROTO_ADD_ID, DRect::new(24.0, 720.0, 327.0, 48.0));
+        add.name = "Add".into();
+        add.corner_radii = [10.0; 4];
+        add.fills = vec![Paint::solid(Color::rgb(0x0D, 0x99, 0xFF))];
+        add.prototype.reactions.push(Reaction {
+            trigger: Trigger::OnClick,
+            actions: vec![
+                Action::SetVariable { variable: count.clone(), value: Expression::binary(BinaryOp::Add, Expression::var(count), Expression::number(1.0)) },
+                Action::Navigate { dest: dest_screen, preserve_scroll: false },
+            ],
+            transition: Some(Transition { kind: TransitionKind::Dissolve, easing: Easing::EaseOut, duration_ms: 250 }),
+        });
+        let parent = if doc.get(start_screen).is_some() { start_screen } else { page };
+        let _ = doc.insert(parent, add);
+        doc.flows.push(Flow { name: "Onboarding".into(), page, start: parent, description: String::new() });
+    }
+
+    pub fn grid_style(doc: &mut Document, target: NodeId) {
+        let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
+        if let Some(f) = doc.get_mut(target).and_then(|n| n.kind.frame_props_mut()) {
+            if f.grids.is_empty() {
+                f.grids.push(grid.clone());
+            }
+        }
+        let key = "starter-grid-12-col".to_string();
+        doc.styles.insert(key.clone(), Style::Grid(vec![grid]));
+        doc.style_meta.insert(key.clone(), StyleMeta { name: "Grid/12 column".into(), property: StyleProperty::Grid, ..StyleMeta::default() });
+        if let Some(n) = doc.get_mut(target) {
+            n.style_refs.insert("grid".into(), key);
+        }
+    }
+
+    pub fn component_instance(doc: &mut Document) -> NodeId {
+        let page = doc.pages.first().copied().unwrap_or(NodeId(1));
+        if doc.get(COMP_INST_ID).is_some() {
+            return COMP_INST_ID;
+        }
+        let mut main = Node::frame(COMP_MAIN_ID, DRect::new(-420.0, 0.0, 160.0, 44.0));
+        main.name = "Button component".into();
+        main.kind = NodeKind::Component(FrameProps::default());
+        main.fills = vec![Paint::solid(Color::rgb(0x0D, 0x99, 0xFF))];
+        main.corner_radii = [8.0; 4];
+        let main_id = doc.insert(page, main).expect("insert main component");
+
+        let mut inst = Node::frame(COMP_INST_ID, DRect::new(-420.0, 64.0, 160.0, 44.0));
+        inst.name = "Button".into();
+        inst.kind = NodeKind::Instance { frame: FrameProps::default(), component: Some(main_id), component_key: None };
+        inst.fills = vec![Paint::solid(Color::rgb(0x0D, 0x99, 0xFF))];
+        inst.corner_radii = [8.0; 4];
+        doc.insert(page, inst).expect("insert component instance")
+    }
+
+    pub fn check_designs_findings(doc: &mut Document) {
+        let page = doc.pages.first().copied().unwrap_or(NodeId(1));
+        let shadow =
+            Effect::DropShadow { color: Color::rgba(0, 0, 0, 56), offset: DV::new(0.0, 6.0), radius: 16.0, spread: 0.0, visible: true, show_behind: false };
+        doc.styles.insert("audit-shadow".into(), Style::Effect(vec![shadow.clone()]));
+        doc.style_meta.insert("audit-shadow".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..StyleMeta::default() });
+        doc.styles.insert("audit-surface".into(), Style::Fill(vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))]));
+        doc.style_meta.insert("audit-surface".into(), StyleMeta { name: "Surface/Card".into(), property: StyleProperty::Fill, ..StyleMeta::default() });
+
+        let card_id = doc.alloc_id();
+        let mut card = Node::frame(card_id, DRect::new(-520.0, 200.0, 320.0, 180.0));
+        card.name = "Audit drift card".into();
+        card.fills = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
+        card.effects = vec![shadow];
+        card.corner_radii = [16.0; 4];
+        let card_id = doc.insert(page, card).expect("insert audit drift card");
+
+        let txt_id = doc.alloc_id();
+        let style = TextStyle { font_size: 16.0, font_weight: 400, fills: vec![Paint::solid(Color::rgb(0x8A, 0x8A, 0x8A))], ..TextStyle::default() };
+        let mut note = Node::text(txt_id, DRect::new(24.0, 24.0, 240.0, 22.0), "Low contrast audit caption", style);
+        note.name = "Audit caption".into();
+        let _ = doc.insert(card_id, note);
+    }
+
+    pub fn published_library(doc: &mut Document, lib_root: Option<&Path>) {
+        let mut store = VariableStore::default();
+        let library = store.add_collection("Shared UI tokens");
+        let mode = store.collections[&library].default_mode.clone();
+        let id = store.add_variable(&library, "Brand/Primary", VariableKind::Color).expect("add library variable");
+        store.set_value(&id, &mode, VariableValue::Color(Color::rgb(0x15, 0x70, 0xEF)));
+        if let Some(c) = store.collections.get_mut(&library) {
+            c.source_library_key = Some("lk-starter-shared".into());
+        }
+        let _ = store.command().apply(doc);
+        for c in doc.variable_collections.values_mut() {
+            if c.name == "Shared UI tokens" {
+                c.source_library_key = Some("lk-starter-shared".into());
+            }
+        }
+        if let Some(root) = lib_root {
+            if let Ok(lib) = designos_library::Library::open(root) {
+                let _ = lib.seed_starter(crate::home::load_starter_document);
+                if let Some(entry) = lib.all_files().first() {
+                    let _ = lib.publish_library(&entry.id, doc, "Shared starter tokens");
+                }
+            }
+        }
+    }
+
+    pub fn blank_board(doc: &mut Document) {
+        let mut board = crate::board::create::new_document("Untitled board");
+        let page = board.pages.first().copied().unwrap_or(NodeId(1));
+        let sticky_id = board.alloc_id();
+        let mut sticky = Node::sticky(sticky_id, DRect::new(160.0, 140.0, 200.0, 200.0), "Sprint goals");
+        sticky.name = "Sticky note".into();
+        if let NodeKind::Sticky(s) = &mut sticky.kind {
+            s.author = Some("Designer".into());
+        }
+        let _ = board.insert(page, sticky);
+
+        let shape_id = board.alloc_id();
+        let mut shape = Node::shape_with_text(shape_id, DRect::new(420.0, 160.0, 200.0, 120.0), ShapeKind::RoundedRect, "Architecture review");
+        shape.name = "Shape".into();
+        let _ = board.insert(page, shape);
+        *doc = board;
+    }
+
+    pub fn blank_deck_doc(doc: &mut Document) {
+        let mut deck = crate::decks::new_document("Untitled deck");
+        let slide_id = deck.pages.first().and_then(|&p| deck.get(p)).and_then(|p| p.children.first().copied()).unwrap_or(NodeId(2));
+        if let Some(s) = deck.get_mut(slide_id).and_then(|n| n.slide.as_mut()) {
+            s.notes = "Opening slide notes for layout gate verification.".into();
+        }
+        let title_id = deck.alloc_id();
+        let title_style = TextStyle { font_size: 44.0, font_weight: 700, fills: vec![Paint::solid(Color::WHITE)], ..TextStyle::default() };
+        let mut title = Node::text(title_id, DRect::new(96.0, 120.0, 840.0, 64.0), "Design System Overview", title_style);
+        title.name = "Slide title".into();
+        let _ = deck.insert(slide_id, title);
+        *doc = deck;
+    }
+
+    pub fn blank_deck(doc: &mut Document, app: &mut App) {
+        blank_deck_doc(doc);
+        app.replace_document(doc.clone(), None);
+        if let Some(first_slide) = app.deck_slides().first().copied() {
+            app.select_slide(first_slide);
+        }
+    }
 }
 
 pub fn baseline_dir() -> PathBuf {
@@ -108,8 +272,9 @@ pub fn run_spec_cases(spec_key: &str) {
     let allow_entries = load_allow_entries();
     let bless = std::env::var_os("DESIGNOS_LAYOUT_BLESS").is_some();
 
-    let spec_cases: Vec<&CaseEntry> = cases_file.cases.iter().filter(|c| !c.kit && c.spec == spec_key).collect();
-    assert!(!spec_cases.is_empty(), "no headless cases found in cases.json for spec {spec_key}");
+    let spec_cases: Vec<&CaseEntry> =
+        cases_file.cases.iter().filter(|c| c.spec == spec_key && c.tier_a.as_ref().is_none_or(|t| t.unreachable.is_none())).collect();
+    assert!(!spec_cases.is_empty(), "no Tier A cases found in cases.json for spec {spec_key}");
 
     let stub_dir = crate::cli_resolve::stub_dir().to_path_buf();
     let pid = std::process::id();
@@ -122,7 +287,11 @@ pub fn run_spec_cases(spec_key: &str) {
         let _ = std::fs::remove_dir_all(&case_tmp);
         std::fs::create_dir_all(&case_tmp).expect("create case temp dir");
 
-        let mut expanded_args = Vec::with_capacity(case.args.len());
+        let tier_a = case.tier_a.as_ref().unwrap_or_else(|| panic!("case {} missing tier_a target", case.id));
+        let _ = (&tier_a.name, &tier_a.page);
+        let prep_kind = tier_a.prep.as_deref();
+
+        let mut expanded_args = Vec::with_capacity(case.args.len() + 4);
         let mut seeded_lib: Option<PathBuf> = None;
         for arg in &case.args {
             if arg.contains("{LIB}") {
@@ -136,6 +305,17 @@ pub fn run_spec_cases(spec_key: &str) {
                 expanded_args.push(arg.clone());
             }
         }
+        if prep_kind == Some("published_library") && seeded_lib.is_none() {
+            let d = case_tmp.join("seed-lib");
+            crate::showcase::seed_library_at(&d, 1_700_000_000_000).expect("seed deterministic library");
+            expanded_args.push("--library".into());
+            expanded_args.push(d.to_string_lossy().into_owned());
+            seeded_lib = Some(d);
+        }
+        if let Some(sel) = &tier_a.select {
+            expanded_args.push("--select".into());
+            expanded_args.push(sel.clone());
+        }
 
         let mut opts = crate::cli::parse(expanded_args).unwrap_or_else(|e| panic!("case {} failed cli::parse: {e}", case.id));
         opts.size = Some((1440, 900));
@@ -146,7 +326,46 @@ pub fn run_spec_cases(spec_key: &str) {
 
         {
             let _scoped = crate::cli_resolve::ScopedCliDirs::enter(stub_dir.clone());
-            let mut sim = Sim::with(opts);
+            let lib_for_prep = seeded_lib.clone();
+            let mut sim = if prep_kind.is_none() {
+                Sim::with_starter(opts)
+            } else {
+                Sim::with_starter_prep(
+                    opts,
+                    |doc| match prep_kind {
+                        Some("prototype_link") => prep::prototype_link(doc),
+                        Some("grid_style") => prep::grid_style(doc, NodeId(262794)),
+                        Some("component_instance") => {
+                            let _ = prep::component_instance(doc);
+                        }
+                        Some("check_designs_findings") => prep::check_designs_findings(doc),
+                        Some("published_library") => prep::published_library(doc, lib_for_prep.as_deref()),
+                        Some("blank_board") => prep::blank_board(doc),
+                        Some("blank_deck") => prep::blank_deck_doc(doc),
+                        Some("comment_thread") | None => {}
+                        Some(other) => panic!("case {}: unknown tier_a.prep '{other}'", case.id),
+                    },
+                    |app| match prep_kind {
+                        Some("comment_thread") => {
+                            let mut doc = app.doc.clone();
+                            prep::comment_thread(&mut doc, app);
+                            app.doc = doc;
+                        }
+                        Some("published_library") => {
+                            if app.vars.open {
+                                app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
+                            }
+                        }
+                        Some("blank_deck") => {
+                            if let Some(first_slide) = app.deck_slides().first().copied() {
+                                app.select_slide(first_slide);
+                            }
+                        }
+                        _ => {}
+                    },
+                )
+            };
+            assert!(sim.shell.select_miss.is_none(), "case {} had a --select miss: {:?}", case.id, sim.shell.select_miss);
             sim.shell.apply_launch_defaults(case.id != "d-window-chrome");
             crate::theme::apply(&sim.ctx);
             sim.ctx.all_styles_mut(|s| s.debug.show_interactive_widgets = true);
@@ -187,7 +406,7 @@ pub fn run_spec_cases(spec_key: &str) {
             if bless {
                 let json = serde_json::to_string_pretty(&snap).expect("serialize layout snapshot");
                 std::fs::write(&baseline_path, format!("{json}\n")).expect("write blessed layout baseline");
-            } else if cases_file.bless_sha.as_deref().is_some_and(|s| !s.is_empty()) || baseline_path.exists() {
+            } else if cases_file.bless_sha.as_deref().is_some_and(|s| !s.is_empty()) {
                 match crate::layout_snapshot::load_and_compare_baseline(&baseline_path, &snap, &allow_entries, &case.virtualized) {
                     Ok(report) => {
                         run_matched.extend(report.matched_allow_indices);

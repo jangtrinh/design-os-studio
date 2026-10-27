@@ -751,36 +751,8 @@ pub fn seed_library(root: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Test-only (`#1126` §3 rule 7): seeds `root` with sample projects/files stamped with a fixed `modified` timestamp.
+/// Test-only (`#1126` §3 rule 7 & rule 14): seeds `root` with the shipped starter stamped with a fixed `modified` timestamp.
 #[cfg(test)]
 pub fn seed_library_at(root: &std::path::Path, modified: u64) -> Result<(), String> {
-    seed_library(root)?;
-    let projects_dir = root.join("projects");
-    if let Ok(entries) = std::fs::read_dir(&projects_dir) {
-        for entry in entries.flatten() {
-            let manifest_path = entry.path().join("project.json");
-            if let Ok(raw) = std::fs::read_to_string(&manifest_path) {
-                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    if let Some(obj) = val.as_object_mut() {
-                        obj.insert("created".into(), serde_json::json!(modified));
-                        obj.insert("modified".into(), serde_json::json!(modified));
-                        if let Some(files) = obj.get_mut("files").and_then(|v| v.as_array_mut()) {
-                            files.reverse();
-                            for f in files.iter_mut() {
-                                if let Some(fobj) = f.as_object_mut() {
-                                    fobj.insert("created".into(), serde_json::json!(modified));
-                                    fobj.insert("modified".into(), serde_json::json!(modified));
-                                    fobj.insert("opened".into(), serde_json::json!(modified));
-                                }
-                            }
-                        }
-                    }
-                    if let Ok(pretty) = serde_json::to_string_pretty(&val) {
-                        let _ = std::fs::write(&manifest_path, pretty);
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
+    crate::layout_snapshot::seed_library_at(root, modified)
 }

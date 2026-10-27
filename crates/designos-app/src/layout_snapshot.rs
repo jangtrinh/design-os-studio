@@ -931,6 +931,45 @@ pub fn load_and_compare_baseline(
     compare(&base, cur, allow, virtualized_regions)
 }
 
+/// Test-only (`#1126` §3 rule 7 & rule 14): seeds `root` with the shipped starter (`DESIGN-OS Studio Starter`)
+/// stamped with a fixed `modified` timestamp; never seeds the legacy showcase documents.
+#[cfg(test)]
+pub fn seed_library_at(root: &std::path::Path, modified: u64) -> Result<(), String> {
+    let lib = designos_library::Library::open(root).map_err(|e| e.to_string())?;
+    if let Some(entry) = lib.seed_starter(crate::home::load_starter_document).map_err(|e| e.to_string())? {
+        if let Ok(doc) = lib.load_file(&entry.id) {
+            crate::home::thumb::refresh(&lib, &entry.id, &doc);
+        }
+    }
+    let projects_dir = root.join("projects");
+    if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+        for entry in entries.flatten() {
+            let manifest_path = entry.path().join("project.json");
+            if let Ok(raw) = std::fs::read_to_string(&manifest_path) {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(obj) = val.as_object_mut() {
+                        obj.insert("created".into(), serde_json::json!(modified));
+                        obj.insert("modified".into(), serde_json::json!(modified));
+                        if let Some(files) = obj.get_mut("files").and_then(|v| v.as_array_mut()) {
+                            for f in files.iter_mut() {
+                                if let Some(fobj) = f.as_object_mut() {
+                                    fobj.insert("created".into(), serde_json::json!(modified));
+                                    fobj.insert("modified".into(), serde_json::json!(modified));
+                                    fobj.insert("opened".into(), serde_json::json!(modified));
+                                }
+                            }
+                        }
+                    }
+                    if let Ok(pretty) = serde_json::to_string_pretty(&val) {
+                        let _ = std::fs::write(&manifest_path, pretty);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1936,7 +1975,7 @@ mod tests {
         let lib_dir = std::env::temp_dir().join(format!("designos-8d-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&lib_dir);
         let t0: u64 = 1_700_000_000_000;
-        crate::showcase::seed_library_at(&lib_dir, t0).expect("seed_library_at");
+        seed_library_at(&lib_dir, t0).expect("seed_library_at");
 
         let run_home = |now_ms: u64| -> (LayoutSnapshot, Vec<String>) {
             crate::widgets::clear_pass_records();
@@ -1997,11 +2036,14 @@ mod tests {
         let png_path = tmp.join("d-editor-default.png");
         let json_path = tmp.join("d-editor-default.layout.json");
 
+        let starter_path = tmp.join("starter.designos");
+        std::fs::write(&starter_path, include_bytes!("../assets/starter/designos-studio-starter.designos")).expect("write starter copy");
+
         crate::widgets::clear_pass_records();
         let ctx = Context::default();
         let opts = Options {
-            fixture: Some("showcase".into()),
-            select: Some("none".into()),
+            file: Some(starter_path),
+            select: Some("id:1".into()),
             rulers: true,
             no_toast: true,
             size: Some((1440, 900)),
