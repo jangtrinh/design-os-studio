@@ -89,13 +89,13 @@ pub(crate) fn paints(ps: &[Paint]) -> Value {
 
 fn effect(e: &Effect) -> Value {
     match e {
-        Effect::DropShadow { color, offset, radius, spread, visible, show_behind } => json!({
+        Effect::DropShadow { color, offset, radius, spread, visible, show_behind, blend } => json!({
             "type": "DROP_SHADOW", "color": col(*color), "offset": v2(*offset), "radius": n(*radius),
-            "spread": n(*spread), "visible": visible, "showShadowBehindNode": show_behind, "blendMode": "NORMAL"
+            "spread": n(*spread), "visible": visible, "showShadowBehindNode": show_behind, "blendMode": blend_name(*blend)
         }),
-        Effect::InnerShadow { color, offset, radius, spread, visible } => json!({
+        Effect::InnerShadow { color, offset, radius, spread, visible, blend } => json!({
             "type": "INNER_SHADOW", "color": col(*color), "offset": v2(*offset), "radius": n(*radius),
-            "spread": n(*spread), "visible": visible, "blendMode": "NORMAL"
+            "spread": n(*spread), "visible": visible, "blendMode": blend_name(*blend)
         }),
         Effect::LayerBlur { radius, visible } => json!({"type": "LAYER_BLUR", "radius": n(*radius), "visible": visible}),
         Effect::BackgroundBlur { radius, visible } => json!({"type": "BACKGROUND_BLUR", "radius": n(*radius), "visible": visible}),

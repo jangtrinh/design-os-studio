@@ -23,6 +23,7 @@ fn render(white: bool) -> Pixmap {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         n
     });

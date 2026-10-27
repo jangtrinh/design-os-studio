@@ -1423,6 +1423,7 @@ pub mod fixtures {
                 spread: 0.0,
                 visible: true,
                 show_behind: false,
+                blend: Default::default(),
             }]),
         );
         doc.style_meta.insert(

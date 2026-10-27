@@ -44,7 +44,15 @@ fn effect_rectangle_and_text(effects: Vec<Effect>, text_x: f32) -> Fx {
 }
 
 fn shadow(offset_x: f32, visible: bool) -> Effect {
-    Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(offset_x, 0.0), radius: 10.0, spread: 0.0, visible, show_behind: false }
+    Effect::DropShadow {
+        color: Color::BLACK,
+        offset: Vec2::new(offset_x, 0.0),
+        radius: 10.0,
+        spread: 0.0,
+        visible,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 /// How many contrast findings the page has, and what "Fix all" lands.

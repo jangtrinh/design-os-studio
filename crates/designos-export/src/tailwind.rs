@@ -198,7 +198,7 @@ fn shadow_value(n: &Node) -> Option<String> {
                     css_color(color, 1.0).replace(", ", ",")
                 ));
             }
-            Effect::InnerShadow { color, offset, radius, spread, visible: true } => {
+            Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } => {
                 parts.push(format!(
                     "inset_{}px_{}px_{}px_{}px_{}",
                     num(offset.x),

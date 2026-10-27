@@ -202,6 +202,7 @@ pub fn drop_shadow_rrect(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     fill_alpha: f32,
     sil: Sil,
@@ -282,6 +283,6 @@ pub fn drop_shadow_rrect(
             composite(&mut pm, 0, 0, &knock, sk::BlendMode::DestinationOut, None);
         }
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    crate::effects::composite_blended(target, rx, ry, &pm, blend, clip);
     true
 }

@@ -55,13 +55,14 @@ fn run(c: &Case, fast: bool) -> sk::Pixmap {
     let bbox = (c.x, c.y, c.x + dw, c.y + dh);
     if fast {
         let rr = RRect { x: c.x, y: c.y, w: dw, h: dh, r: c.r.min(c.w.min(c.h) / 2.0) * c.scale };
-        if !drop_shadow_rrect(&mut target, None, rr, c.scale, &color, offset, c.radius, c.spread, c.show_behind, 1.0, c.fill_alpha, &sil) {
+        if !drop_shadow_rrect(&mut target, None, rr, c.scale, &color, offset, c.radius, c.spread, c.show_behind, d::BlendMode::Normal, 1.0, c.fill_alpha, &sil)
+        {
             // declined (sigma below the blur threshold): the generic path draws
             return run(c, false);
         }
     } else {
         let reference = |pm: &mut sk::Pixmap, s: f32, _o: (i32, i32)| gaussian_blur_reference(pm, s);
-        drop_shadow_with(&reference, &mut target, None, bbox, c.scale, &color, offset, c.radius, c.spread, c.show_behind, 1.0, &sil);
+        drop_shadow_with(&reference, &mut target, None, bbox, c.scale, &color, offset, c.radius, c.spread, c.show_behind, d::BlendMode::Normal, 1.0, &sil);
     }
     target
 }
@@ -172,7 +173,7 @@ fn identical_shadows_hit_the_cache() {
         };
         let sil = sil_for(&c);
         let rr = RRect { x: c.x, y: c.y, w: c.w, h: c.h, r: c.r };
-        assert!(drop_shadow_rrect(&mut target, None, rr, 1.0, &color, d::Vec2::new(0.0, 4.0), radius, 0.0, true, 1.0, 1.0, &sil));
+        assert!(drop_shadow_rrect(&mut target, None, rr, 1.0, &color, d::Vec2::new(0.0, 4.0), radius, 0.0, true, d::BlendMode::Normal, 1.0, 1.0, &sil));
     }
     assert_eq!(thread_patch_builds() - before, 1, "20 identical shadows must build one patch");
 }

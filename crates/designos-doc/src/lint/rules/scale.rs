@@ -1441,8 +1441,15 @@ mod tests {
         let primary = Color { r: 13.0 / 255.0, g: 153.0 / 255.0, b: 1.0, a: 1.0 };
         add_color_var(&mut d, "brand", "Brand", "primary", "Color/Primary", &[("default", primary)]);
 
-        let shadow =
-            Effect::DropShadow { color: Color::rgba(0, 0, 0, 56), offset: Vec2::new(0.0, 6.0), radius: 16.0, spread: 0.0, visible: true, show_behind: false };
+        let shadow = Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 56),
+            offset: Vec2::new(0.0, 6.0),
+            radius: 16.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        };
         d.styles.insert("shadow".into(), Style::Effect(vec![shadow.clone()]));
         d.style_meta.insert("shadow".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..Default::default() });
         d.styles.insert("surface".into(), Style::Fill(vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))]));

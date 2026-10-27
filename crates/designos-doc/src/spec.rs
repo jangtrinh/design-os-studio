@@ -504,6 +504,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                 spread: 0.0,
                 visible: true,
                 show_behind: false,
+                blend: Default::default(),
             }];
             if let Some(f) = node.kind.frame_props_mut() {
                 f.auto_layout = Some(AutoLayout {

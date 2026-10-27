@@ -1029,8 +1029,15 @@ mod tests {
         let mut h = History::default();
         let mut moved = d.get(leaf).unwrap().clone();
         moved.transform.tx = 3.0;
-        moved.effects =
-            vec![Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 1.0), radius: 2.0, spread: 0.0, visible: true, show_behind: false }];
+        moved.effects = vec![Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 1.0),
+            radius: 2.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        }];
         h.exec(&mut d, Command::Update { node: Box::new(moved) }).unwrap();
         crate::layout_apply::reset_solve_calls();
         h.undo(&mut d).unwrap();

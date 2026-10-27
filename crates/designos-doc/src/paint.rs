@@ -170,6 +170,12 @@ pub enum BlendMode {
     Luminosity,
 }
 
+impl BlendMode {
+    pub fn is_normal(&self) -> bool {
+        *self == BlendMode::Normal
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientStop {
     pub pos: f32,
@@ -302,6 +308,10 @@ pub enum Effect {
         spread: f32,
         visible: bool,
         show_behind: bool,
+        /// How the shadow composites over what is behind it. Files saved
+        /// before this field existed load as `Normal`.
+        #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+        blend: BlendMode,
     },
     InnerShadow {
         color: Color,
@@ -309,6 +319,8 @@ pub enum Effect {
         radius: f32,
         spread: f32,
         visible: bool,
+        #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+        blend: BlendMode,
     },
     LayerBlur {
         radius: f32,

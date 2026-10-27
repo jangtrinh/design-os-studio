@@ -119,7 +119,15 @@ mod tests {
         let page = d.add_page("p");
         let id = d.alloc_id();
         let mut n = Node::rectangle(id, Rect::new(50.0, 50.0, 100.0, 40.0));
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         (d, id)
     }

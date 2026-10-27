@@ -742,6 +742,7 @@ mod tests {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         for (k, v) in [("fills/0", "brand"), ("fills/0/opacity", "fade"), ("strokes/0/opacity", "fade"), ("effects/0/opacity", "fade")] {
             n.variables.bindings.insert(k.into(), v.into());

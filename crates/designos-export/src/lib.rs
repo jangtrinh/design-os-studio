@@ -198,6 +198,7 @@ mod tests {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         });
         let b = render_bounds(&d, id);
         // blur 4 reaches 4px left/right; offset 6 pushes the bottom out to 10
@@ -237,6 +238,7 @@ mod tests {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         });
         let png = export_png(&d, id, 2.0);
         let webp = export_webp(&d, id, 2.0);

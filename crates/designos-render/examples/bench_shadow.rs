@@ -10,7 +10,15 @@ use designos_render::{clear_shadow_cache, render_page, set_fast_effects, Viewpor
 use std::time::Instant;
 
 fn shadow(radius: f32, spread: f32) -> Effect {
-    Effect::DropShadow { color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.25 }, offset: Vec2::new(0.0, 4.0), radius, spread, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.25 },
+        offset: Vec2::new(0.0, 4.0),
+        radius,
+        spread,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 fn scene(kind: &str, radius: f32, count: usize) -> (Document, NodeId) {

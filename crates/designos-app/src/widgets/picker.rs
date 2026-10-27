@@ -1319,9 +1319,10 @@ fn picker_dropdown(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, options:
     picked
 }
 
-fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) -> bool {
+/// The blend modes the editor offers, in menu order, with their labels.
+pub(crate) const BLEND_MODES: [(designos_doc::BlendMode, &str); 16] = {
     use designos_doc::BlendMode as B;
-    const MODES: [(B, &str); 16] = [
+    [
         (B::Normal, "Normal"),
         (B::Darken, "Darken"),
         (B::Multiply, "Multiply"),
@@ -1338,7 +1339,11 @@ fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) ->
         (B::Saturation, "Saturation"),
         (B::Color, "Color"),
         (B::Luminosity, "Luminosity"),
-    ];
+    ]
+};
+
+fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) -> bool {
+    const MODES: [(designos_doc::BlendMode, &str); 16] = BLEND_MODES;
     let id = ui.id().with("picker-blend");
     crate::widgets::record(ui, "picker-blend", rect);
     let r = ui.interact(rect, id, Sense::click());
