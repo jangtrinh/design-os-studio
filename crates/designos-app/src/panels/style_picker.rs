@@ -266,4 +266,76 @@ mod tests {
             assert_eq!(items[at].label, create);
         }
     }
+
+    #[test]
+    fn us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        // Orphans in `styles` with no `style_meta` (GUID pairs and consumer-seeded `S:` keys).
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.styles.insert("2:102".into(), fx.clone());
+        doc.styles.insert("S:orphan-fx".into(), fx.clone());
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        rect.style_refs.insert("effect".into(), "S:orphan-fx".into());
+        doc.insert(page, rect).unwrap();
+
+        // Live local styles, including `_` and `.` prefixed names.
+        for (k, name) in [("2:100", "Shadow/Card"), ("2:107", "_Private/Shadow"), ("2:108", ".Hidden/Shadow")] {
+            doc.styles.insert(k.into(), fx.clone());
+            doc.style_meta.insert(k.into(), StyleMeta { name: name.into(), property: StyleProperty::Effect, ..Default::default() });
+        }
+
+        let listed: Vec<String> = style_entries_of(&doc, StyleKind::Effect).into_iter().map(|e| e.key).collect();
+        assert_eq!(listed, vec!["2:108".to_string(), "2:100".to_string(), "2:107".to_string()]);
+
+        // Reopening an old `.designos` JSON with orphans still hides them at listing time without migration.
+        let reopened = Document::from_json(&doc.to_json().unwrap()).unwrap();
+        let reopened_listed: Vec<String> = style_entries_of(&reopened, StyleKind::Effect).into_iter().map(|e| e.key).collect();
+        assert_eq!(reopened_listed, listed);
+    }
+
+    #[test]
+    fn us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.styles.insert("2:106".into(), fx);
+        doc.style_meta.insert("2:106".into(), StyleMeta { name: "Library/Elevation".into(), property: StyleProperty::Effect, ..Default::default() });
+
+        let orphan_layer = doc.alloc_id();
+        let mut n1 = Node::rectangle(orphan_layer, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.style_refs.insert("effect".into(), "1186:100350".into());
+        doc.insert(page, n1).unwrap();
+
+        let embedded_lib_layer = doc.alloc_id();
+        let mut n2 = Node::rectangle(embedded_lib_layer, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        n2.style_refs.insert("effect".into(), "2:106".into());
+        doc.insert(page, n2).unwrap();
+
+        let app = App::new(doc);
+        assert_eq!(linked_style(&app, &[orphan_layer], StyleProperty::Effect), None, "deleted/orphan style shows no chip on the layer");
+        assert_eq!(linked_style(&app, &[embedded_lib_layer], StyleProperty::Effect), Some("2:106".to_string()));
+        assert_eq!(app.doc.style_name("2:106"), "Library/Elevation");
+    }
+
+    #[test]
+    fn us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip() {
+        let mut doc = Document::new("t");
+        doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.style_meta.insert("1186:100350".into(), StyleMeta { name: "   ".into(), property: StyleProperty::Effect, ..Default::default() });
+        doc.styles.insert("2:100".into(), fx);
+        doc.style_meta.insert("2:100".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..Default::default() });
+
+        let app = App::new(doc);
+        let (items, _) = menu_model(&app, &[], StyleProperty::Effect);
+        let unnamed = items.iter().find(|i| i.label == "Unnamed effect style").expect("unnamed style row present");
+        assert_eq!(unnamed.tooltip, "1186:100350", "raw id appears only in the tooltip");
+        let named = items.iter().find(|i| i.label == "Shadow/Card").expect("named style row present");
+        assert_eq!(named.tooltip, "", "named style has no raw-id tooltip");
+    }
 }
