@@ -1,4 +1,4 @@
-"""Unit tests for scripts/layout_baseline_capture.py (Spec L / #1126 test 11).
+"""Unit tests for scripts/layout_baseline_capture.py (Spec L / #1126 test 11 + Round 8 Rule 14).
 
 Uses fake binaries only (never a real build, GPU, or window).
 Run: python3 -m unittest discover -s scripts/tests -v
@@ -74,6 +74,12 @@ def make_stub_dir(root: Path) -> Path:
     return stubs
 
 
+def make_fake_kit(root: Path) -> Path:
+    kit = root / "kit.fig"
+    kit.write_text("fake-kit-bytes\n", encoding="utf-8")
+    return kit
+
+
 def default_layout_json(case_id: str = "d-editor-default", named_non_empty: bool = True) -> dict:
     named = (
         {
@@ -132,10 +138,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             counter_file = root / "attempts.txt"
             cases_file = root / "cases.json"
             cases_file.write_text(
-                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]}]}),
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                 encoding="utf-8",
             )
             fake_bin = write_executable_python(
@@ -146,6 +153,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 if "--seed-library" in sys.argv:
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 cfile = Path({str(counter_file)!r})
                 n = int(cfile.read_text()) if cfile.exists() else 0
@@ -164,6 +176,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(stubs),
                 "--out",
                 str(out_dir),
+                "--kit",
+                str(kit_file),
             )
             self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
             self.assertEqual(int(counter_file.read_text(encoding="utf-8")), 3)
@@ -172,10 +186,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             counter_file = root / "attempts.txt"
             cases_file = root / "cases.json"
             cases_file.write_text(
-                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]}]}),
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                 encoding="utf-8",
             )
             fake_bin = write_executable_python(
@@ -186,6 +201,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 if "--seed-library" in sys.argv:
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 cfile = Path({str(counter_file)!r})
                 n = int(cfile.read_text()) if cfile.exists() else 0
@@ -206,6 +226,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(out_dir),
                 "--only-spec",
                 "D",
+                "--kit",
+                str(kit_file),
             )
             self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
             self.assertEqual(int(counter_file.read_text(encoding="utf-8")), 3)
@@ -214,9 +236,10 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
-                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]}]}),
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                 encoding="utf-8",
             )
             empty_snap = json.dumps(default_layout_json("d-editor-default", named_non_empty=False))
@@ -228,6 +251,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 if "--seed-library" in sys.argv:
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
@@ -249,6 +277,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(stubs),
                 "--out",
                 str(out_dir),
+                "--kit",
+                str(kit_file),
             )
             self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
             self.assertIn("named", (proc.stdout + proc.stderr).lower())
@@ -257,13 +287,14 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
                 json.dumps(
                     {
                         "cases": [
                             {"id": "h-home", "spec": "H", "args": ["--library", "{LIB}", "--home"]},
-                            {"id": "d-window-chrome", "spec": "D", "args": ["--fixture", "showcase"]},
+                            {"id": "d-window-chrome", "spec": "D", "args": []},
                         ]
                     }
                 ),
@@ -280,6 +311,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     lib_dir = Path(sys.argv[idx + 1])
                     lib_dir.mkdir(parents=True, exist_ok=True)
                     (lib_dir / "seeded.marker").write_text("ok")
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 if "LEAKED_HOST_VAR" in os.environ:
                     sys.stderr.write("LEAKED_HOST_VAR was not stripped by env -i\\n")
@@ -328,6 +364,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(stubs),
                 "--out",
                 str(out_dir),
+                "--kit",
+                str(kit_file),
                 extra_env={"LEAKED_HOST_VAR": "1"},
             )
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -339,9 +377,10 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp).resolve()
                 stubs = make_stub_dir(root)
+                kit_file = make_fake_kit(root)
                 cases_file = root / "cases.json"
                 cases_file.write_text(
-                    json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]}]}),
+                    json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                     encoding="utf-8",
                 )
                 valid_snap = json.dumps(default_layout_json("d-editor-default", named_non_empty=True))
@@ -353,6 +392,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     if "--seed-library" in sys.argv:
                         idx = sys.argv.index("--seed-library")
                         Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                        sys.exit(0)
+                    if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                        out_idx = sys.argv.index("--out")
+                        Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                        print("{{}}")
                         sys.exit(0)
                     tmpdir = Path(os.environ["TMPDIR"])
                     cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
@@ -378,6 +422,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     str(stubs),
                     "--out",
                     str(out_dir),
+                    "--kit",
+                    str(kit_file),
                 )
                 self.assertEqual(proc.returncode, 1, f"mode={mode}: {proc.stdout}\n{proc.stderr}")
 
@@ -385,6 +431,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
                 json.dumps(
@@ -393,7 +440,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                             {
                                 "id": "i-agents-chat",
                                 "spec": "I",
-                                "args": ["--fixture", "showcase", "--panel", "agents-chat"],
+                                "args": ["--panel", "agents-chat"],
                                 "spawns": True,
                             }
                         ]
@@ -410,6 +457,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 if "--seed-library" in sys.argv:
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
@@ -431,6 +483,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(stubs),
                 "--out",
                 str(out_dir),
+                "--kit",
+                str(kit_file),
             )
             self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
 
@@ -438,6 +492,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
                 json.dumps(
@@ -446,7 +501,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                             {
                                 "id": "i-agents-chat",
                                 "spec": "I",
-                                "args": ["--fixture", "showcase", "--panel", "agents-chat"],
+                                "args": ["--panel", "agents-chat"],
                                 "spawns": True,
                             }
                         ]
@@ -463,6 +518,11 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 if "--seed-library" in sys.argv:
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
+                    print("{{}}")
                     sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
@@ -486,47 +546,24 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 str(stubs),
                 "--out",
                 str(out_dir),
+                "--kit",
+                str(kit_file),
             )
             self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
 
-    def test_kit_case_without_kit_is_printed_as_skipped(self):
+    def test_missing_kit_exits_nonzero(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             stubs = make_stub_dir(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
-                json.dumps(
-                    {
-                        "cases": [
-                            {"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]},
-                            {
-                                "id": "kit-editor",
-                                "spec": "D",
-                                "args": ["{KIT}", "--select", "Page header"],
-                                "kit": True,
-                            },
-                        ]
-                    }
-                ),
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                 encoding="utf-8",
             )
-            valid_snap = json.dumps(default_layout_json("d-editor-default", named_non_empty=True))
             fake_bin = write_executable_python(
                 root / "fake-designos",
-                f"""
-                import os, sys
-                from pathlib import Path
-                if "--seed-library" in sys.argv:
-                    idx = sys.argv.index("--seed-library")
-                    Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
-                    sys.exit(0)
-                tmpdir = Path(os.environ["TMPDIR"])
-                cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
-                (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
-                shot = Path(sys.argv[sys.argv.index("--screenshot") + 1])
-                ljson = Path(sys.argv[sys.argv.index("--layout-json") + 1])
-                write_solid_png(shot, 200, 160)
-                ljson.write_text({valid_snap!r})
+                """
+                import sys
                 sys.exit(0)
                 """,
             )
@@ -541,9 +578,200 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 "--out",
                 str(out_dir),
             )
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            self.assertIn("--kit", proc.stderr)
+
+    def test_kit_imported_once_and_cloned_per_case_with_headless_prep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
+            calls_file = root / "calls.jsonl"
+            cases_file = root / "cases.json"
+            cases_file.write_text(
+                json.dumps(
+                    {
+                        "cases": [
+                            {
+                                "id": "d-editor-selected",
+                                "spec": "D",
+                                "args": ["--rulers"],
+                                "tier_b": {"select": "id:49152"},
+                            },
+                            {
+                                "id": "j-check-designs",
+                                "spec": "J",
+                                "args": ["--panel", "check-designs"],
+                                "tier_b": {"select": "id:49152", "prep": "check_designs_findings"},
+                            },
+                            {
+                                "id": "x-board",
+                                "spec": "X",
+                                "args": [],
+                                "tier_b": {
+                                    "select": None,
+                                    "prep": "blank_board",
+                                    "unreachable": "Board document kind is unreachable via CLI",
+                                },
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            valid_snap = json.dumps(default_layout_json("d-editor-selected", named_non_empty=True))
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                f"""
+                import json, os, sys
+                from pathlib import Path
+                calls_path = Path({str(calls_file)!r})
+                if "--seed-library" in sys.argv:
+                    idx = sys.argv.index("--seed-library")
+                    Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                if "--inspect-json" in sys.argv and "--out" in sys.argv:
+                    out_idx = sys.argv.index("--out")
+                    out_path = Path(sys.argv[out_idx + 1])
+                    out_path.write_text("imported-kit-designos\\n", encoding="utf-8")
+                    with calls_path.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps({{"kind": "import", "argv": sys.argv[1:], "out": str(out_path)}}) + "\\n")
+                    print("{{}}")
+                    sys.exit(0)
+                if "--apply-spec" in sys.argv:
+                    target_clone = Path(sys.argv[1])
+                    before = target_clone.read_text(encoding="utf-8")
+                    target_clone.write_text(before + "prep:check_designs_findings\\n", encoding="utf-8")
+                    with calls_path.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps({{
+                            "kind": "prep",
+                            "argv": sys.argv[1:],
+                            "target": str(target_clone),
+                            "before": before,
+                        }}) + "\\n")
+                    print(json.dumps({{"root_node_id": 990001, "saved": True}}))
+                    sys.exit(0)
+                tmpdir = Path(os.environ["TMPDIR"])
+                cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
+                (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
+                target_clone = Path(sys.argv[1])
+                shot = Path(sys.argv[sys.argv.index("--screenshot") + 1])
+                ljson = Path(sys.argv[sys.argv.index("--layout-json") + 1])
+                with calls_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({{
+                        "kind": "capture",
+                        "case": shot.stem,
+                        "argv": sys.argv[1:],
+                        "target": str(target_clone),
+                        "clone_content": target_clone.read_text(encoding="utf-8") if target_clone.is_file() else "",
+                    }}) + "\\n")
+                write_solid_png(shot, 200, 160)
+                snap = json.loads({valid_snap!r})
+                snap["case"] = shot.stem
+                ljson.write_text(json.dumps(snap), encoding="utf-8")
+                sys.exit(0)
+                """,
+            )
+            out_dir = root / "out"
+            proc = self.run_script(
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(cases_file),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            self.assertIn("SKIP kit-editor: no --kit", proc.stdout)
-            self.assertFalse((out_dir / "kit-editor.png").exists())
+            self.assertIn("SKIP x-board: unreachable in Tier B", proc.stdout)
+            calls = [json.loads(line) for line in calls_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+            imports = [c for c in calls if c["kind"] == "import"]
+            preps = [c for c in calls if c["kind"] == "prep"]
+            captures = [c for c in calls if c["kind"] == "capture"]
+            self.assertEqual(len(imports), 1, f"expected 1 kit import, got {imports}")
+            self.assertEqual(len(preps), 1, f"expected 1 headless prep call, got {preps}")
+            self.assertEqual(len(captures), 2, f"expected 2 captures, got {captures}")
+            # Prep targeted j-check-designs's per-case clone before capture opened it:
+            self.assertEqual(preps[0]["target"], captures[1]["target"])
+            self.assertIn("prep:check_designs_findings", captures[1]["clone_content"])
+            self.assertNotIn("prep:check_designs_findings", captures[0]["clone_content"])
+            # Each capture received --select id:49152:
+            for cap in captures:
+                argv = cap["argv"]
+                self.assertIn("--select", argv)
+                self.assertEqual(argv[argv.index("--select") + 1], "id:49152")
+            # Original kit.fig was never modified:
+            self.assertEqual(kit_file.read_text(encoding="utf-8"), "fake-kit-bytes\n")
+
+    def test_dry_run_prints_import_clone_prep_and_capture_without_spawning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
+            cases_file = root / "cases.json"
+            cases_file.write_text(
+                json.dumps(
+                    {
+                        "cases": [
+                            {
+                                "id": "d-editor-selected",
+                                "spec": "D",
+                                "args": ["--rulers"],
+                                "tier_b": {"select": "id:49152"},
+                            },
+                            {
+                                "id": "j-check-designs",
+                                "spec": "J",
+                                "args": ["--panel", "check-designs"],
+                                "tier_b": {"select": "id:49152", "prep": "check_designs_findings"},
+                            },
+                            {
+                                "id": "x-board",
+                                "spec": "X",
+                                "args": [],
+                                "tier_b": {
+                                    "select": None,
+                                    "prep": "blank_board",
+                                    "unreachable": "Board document kind is unreachable via CLI",
+                                },
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                """
+                import sys
+                sys.stderr.write("ERROR: fake-designos must not be executed during --dry-run\\n")
+                sys.exit(99)
+                """,
+            )
+            out_dir = root / "out"
+            proc = self.run_script(
+                "--dry-run",
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(cases_file),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("DRY-RUN clone-kit:", proc.stdout)
+            self.assertIn("DRY-RUN import-kit:", proc.stdout)
+            self.assertIn("DRY-RUN [d-editor-selected] clone: cp -c", proc.stdout)
+            self.assertIn("DRY-RUN [j-check-designs] prep (check_designs_findings):", proc.stdout)
+            self.assertIn("DRY-RUN [j-check-designs] capture:", proc.stdout)
+            self.assertIn("SKIP x-board: unreachable in Tier B", proc.stdout)
 
     def test_g6_builds_crop_and_ignore_list_from_fixture_layout_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -551,7 +779,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             stubs = make_stub_dir(root)
             cases_file = root / "cases.json"
             cases_file.write_text(
-                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": ["--fixture", "showcase"]}]}),
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
                 encoding="utf-8",
             )
             allow_file = root / "allow.json"
