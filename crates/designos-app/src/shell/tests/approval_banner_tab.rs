@@ -194,11 +194,7 @@ fn approval_answered_in_terminal_clears_banner_and_sends_nothing_twice() {
     let texts = painted_texts(&s);
     assert!(!texts.iter().any(|t| t.contains("needs approval in its terminal")), "approval banner must disappear: {texts:?}");
     assert!(!texts.iter().any(|t| t == "Show prompt" || t == "Open tab"), "no approval button may remain after clearing: {texts:?}");
-    assert_eq!(
-        s.app().terminal.tabs[0].written_bytes,
-        vec![b'\r'],
-        "clearing the banner must never send a second keystroke to the terminal"
-    );
+    assert_eq!(s.app().terminal.tabs[0].written_bytes, vec![b'\r'], "clearing the banner must never send a second keystroke to the terminal");
 
     finish(s);
 }
@@ -213,9 +209,11 @@ fn keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels(
     let claude_tab_id = s.app().terminal.tabs[claude_idx].id;
     assert_eq!(s.app().terminal.active_tab().map(|t| t.id), Some(claude_tab_id));
 
-    // 1. Background tab waiting -> "Open tab" button gets accessible label and is reachable via Tab + Enter.
+    // 1. Background tab waiting -> "Open tab" button gets accessible label and is reachable via Tab from panel chrome + Enter.
     seed_waiting_approval(&mut s, codex_idx);
     s.shell.app.terminal.viewport_focused = false;
+    s.shell.app.terminal.chrome_focused = true;
+    s.ctx.memory_mut(|m| m.request_focus(Id::new(("agents-left-tab-select", claude_tab_id))));
     let open_btn_id = Id::new(("agents-left-pty", "agent-approval-open-tab"));
     let mut open_a11y_label = None;
     let mut open_a11y_role = None;
@@ -243,22 +241,15 @@ fn keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels(
         }
         s.key(Key::Tab);
     }
-    assert!(reached_open_tab, "Tab must reach the 'Open tab' button");
+    assert!(reached_open_tab, "Tab from panel chrome must reach the 'Open tab' button");
 
     s.shell.app.terminal.tabs[0].written_bytes.clear();
     s.key(Key::Enter);
-    assert_eq!(
-        s.app().terminal.active_tab().map(|t| t.id),
-        Some(codex_tab_id),
-        "pressing Enter on focused 'Open tab' must switch to the waiting Codex tab"
-    );
+    assert_eq!(s.app().terminal.active_tab().map(|t| t.id), Some(codex_tab_id), "pressing Enter on focused 'Open tab' must switch to the waiting Codex tab");
     assert!(s.app().terminal.viewport_focused, "pressing Enter on 'Open tab' must focus the terminal viewport");
-    assert!(
-        s.app().terminal.tabs[0].written_bytes.is_empty(),
-        "activating 'Open tab' with Enter must not leak Enter into the CLI PTY"
-    );
+    assert!(s.app().terminal.tabs[0].written_bytes.is_empty(), "activating 'Open tab' with Enter must not leak Enter into the CLI PTY");
 
-    // 2. Active tab waiting -> "Show prompt" button gets accessible label and is reachable via Tab + Enter.
+    // 2. Active tab waiting -> "Show prompt" button gets accessible label and is reachable via Tab from panel chrome + Enter.
     let show_btn_id = Id::new(("agents-left-pty", "agent-approval-show-prompt"));
     let mut show_a11y_label = None;
     let mut show_a11y_role = None;
@@ -275,13 +266,12 @@ fn keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels(
         s.frame(vec![]);
     }
     assert_eq!(show_a11y_role, Some(Role::Button), "'Show prompt' must have Role::Button in AccessKit");
-    assert_eq!(
-        show_a11y_label.as_deref(),
-        Some("Show the Codex prompt"),
-        "'Show prompt' must expose an accessible label naming the active agent prompt"
-    );
+    assert_eq!(show_a11y_label.as_deref(), Some("Show the Codex prompt"), "'Show prompt' must expose an accessible label naming the active agent prompt");
 
     s.shell.app.terminal.viewport_focused = false;
+    s.shell.app.terminal.chrome_focused = true;
+    s.ctx.memory_mut(|m| m.request_focus(Id::new(("agents-left-tab-select", codex_tab_id))));
+    s.frame(vec![]);
     let mut reached_show_prompt = false;
     for _ in 0..80 {
         if s.ctx.memory(|m| m.focused()) == Some(show_btn_id) {
@@ -290,19 +280,77 @@ fn keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels(
         }
         s.key(Key::Tab);
     }
-    assert!(reached_show_prompt, "Tab must reach the 'Show prompt' button");
+    assert!(reached_show_prompt, "Tab from panel chrome must reach the 'Show prompt' button");
 
     s.shell.app.terminal.tabs[0].written_bytes.clear();
     s.key(Key::Enter);
     assert!(s.app().terminal.viewport_focused, "pressing Enter on focused 'Show prompt' must focus the terminal viewport");
-    assert!(
-        s.app().terminal.tabs[0].written_bytes.is_empty(),
-        "activating 'Show prompt' with Enter must not leak Enter into the CLI PTY"
-    );
+    assert!(s.app().terminal.tabs[0].written_bytes.is_empty(), "activating 'Show prompt' with Enter must not leak Enter into the CLI PTY");
 
     // Subsequent Enter reaches the CLI immediately.
     s.key(Key::Enter);
     assert_eq!(s.app().terminal.tabs[0].written_bytes, vec![b'\r'], "next Enter after 'Show prompt' must reach the CLI");
+
+    finish(s);
+}
+
+#[test]
+fn focused_terminal_receives_tab_while_background_or_active_tab_waits_for_approval() {
+    let mut s = approval_sim();
+    let codex_idx = s.shell.app.terminal.spawn_tab(AgentCliPreset::Codex, None).expect("stub codex starts");
+    let claude_idx = s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("stub claude starts");
+    let claude_tab_id = s.app().terminal.tabs[claude_idx].id;
+    assert_eq!(s.app().terminal.active_tab().map(|t| t.id), Some(claude_tab_id));
+
+    // Background Codex tab is waiting for approval while active Claude terminal viewport has focus.
+    seed_waiting_approval(&mut s, codex_idx);
+    s.shell.app.terminal.viewport_focused = true;
+    frames(&mut s, 2);
+    assert!(s.app().terminal.needs_approval());
+
+    s.shell.app.terminal.tabs[claude_idx].written_bytes.clear();
+    s.key(Key::Tab);
+    assert_eq!(
+        s.app().terminal.tabs[claude_idx].written_bytes,
+        vec![b'\t'],
+        "active focused terminal PTY must receive '\\t' even while a background tab waits for approval"
+    );
+
+    // Active waiting tab also receives Tab in its own focused terminal prompt.
+    let open_tab = s.rect_of("agent-approval-open-tab");
+    s.click(open_tab.center());
+    assert!(s.app().terminal.viewport_focused);
+    s.shell.app.terminal.tabs[codex_idx].written_bytes.clear();
+    s.key(Key::Tab);
+    assert_eq!(s.app().terminal.tabs[codex_idx].written_bytes, vec![b'\t'], "active waiting CLI must also receive '\\t' when its terminal viewport has focus");
+
+    finish(s);
+}
+
+#[test]
+fn canvas_single_key_shortcuts_work_when_canvas_clicked_while_background_tab_waits_for_approval() {
+    let mut s = approval_sim();
+    let codex_idx = s.shell.app.terminal.spawn_tab(AgentCliPreset::Codex, None).expect("stub codex starts");
+    let claude_idx = s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("stub claude starts");
+    let claude_tab_id = s.app().terminal.tabs[claude_idx].id;
+    assert_eq!(s.app().terminal.active_tab().map(|t| t.id), Some(claude_tab_id));
+
+    // Background tab waits for approval while the Agents panel is open on the terminal view.
+    seed_waiting_approval(&mut s, codex_idx);
+    frames(&mut s, 2);
+    assert!(s.app().terminal.needs_approval());
+    assert!(s.app().terminal.side_panel_pty_open);
+
+    // User clicks the canvas (terminal viewport is not focused) and presses R then V.
+    s.click(s.screen(900.0, 500.0));
+    assert!(!s.app().terminal.viewport_focused, "clicking the canvas must unfocus the terminal viewport");
+    assert_eq!(s.app().tool, Tool::Move);
+
+    s.key(Key::R);
+    assert_eq!(s.app().tool, Tool::Rectangle, "pressing R after clicking the canvas must switch to the Rectangle tool while a background tab waits");
+
+    s.key(Key::V);
+    assert_eq!(s.app().tool, Tool::Move, "pressing V after clicking the canvas must switch back to the Move tool while a background tab waits");
 
     finish(s);
 }
