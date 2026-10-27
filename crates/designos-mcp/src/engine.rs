@@ -392,22 +392,29 @@ impl Engine {
                         Some((id.0.to_string(), serde_json::to_value(ip).ok()?))
                     })
                     .collect();
+                let listed_styles: Vec<_> = self
+                    .doc
+                    .styles
+                    .iter()
+                    .filter(|(k, _)| self.doc.is_table_style(k))
+                    .map(|(key, values)| {
+                        let meta = self.doc.style_meta.get(key);
+                        let empty = std::collections::BTreeMap::new();
+                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
+                        "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
+                        "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
+                    })
+                    .collect();
                 Ok(json!({"name":self.doc.name,"kind":self.doc.kind,
                     "active_page_id":self.resolve_default_page().ok().map(|p| p.0),
                     "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(|n| summary(&self.doc, n)).collect::<Vec<_>>(),
                     "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
                     "comment_count":self.doc.comments.len(),
-                    "style_count":self.doc.styles.len(),
+                    "style_count":listed_styles.len(),
                     "in_progress_count":in_progress_nodes.len(),
                     "in_progress_nodes":in_progress_nodes,
                     "in_progress":in_progress_map,
-                    "styles":self.doc.styles.iter().map(|(key,values)|{
-                        let meta=self.doc.style_meta.get(key);
-                        let empty = std::collections::BTreeMap::new();
-                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
-                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
-                            "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
-                    }).collect::<Vec<_>>(),
+                    "styles":listed_styles,
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
             "designos_get_libraries" => {

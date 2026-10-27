@@ -56,7 +56,7 @@ pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
     let mut out: Vec<StyleEntry> = doc
         .styles
         .iter()
-        .filter(|(_, s)| kind.holds(s))
+        .filter(|(k, s)| kind.holds(s) && doc.is_table_style(k))
         .map(|(k, _)| {
             let (folder, leaf) = split_name(doc.style_name(k));
             StyleEntry { key: k.clone(), folder, leaf }

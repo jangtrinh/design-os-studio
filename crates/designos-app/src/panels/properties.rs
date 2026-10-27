@@ -247,14 +247,23 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
         let mut items: Vec<crate::widgets::menu::MenuItem> = if entries.is_empty() {
             vec![crate::widgets::menu::MenuItem::new("No color styles").disabled(true)]
         } else {
-            entries.iter().map(|(_, n)| crate::widgets::menu::MenuItem::new(n.clone())).collect()
+            entries
+                .iter()
+                .map(|(k, n)| {
+                    let mut item = crate::widgets::menu::MenuItem::new(n.clone());
+                    if app.doc.is_unnamed_style(k) {
+                        item = item.tooltip(k.clone());
+                    }
+                    item
+                })
+                .collect()
         };
         // The style this selection is linked to can be edited from here.
         let linked = sel
             .first()
             .and_then(|s| app.doc.get(*s))
             .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
-            .filter(|k| app.doc.styles.contains_key(*k))
+            .filter(|k| app.doc.is_table_style(k))
             .cloned();
         if let Some(last) = items.last_mut() {
             last.separator_after = true;
@@ -516,7 +525,9 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
 /// Text and colour styles grouped in folders by their "/" prefix. Clicking a
 /// row applies the style to `target`.
 fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
-    let applied = |app: &App, prop: &str| target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop).cloned());
+    let applied = |app: &App, prop: &str| {
+        target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop)).filter(|k| app.doc.is_table_style(k)).cloned()
+    };
     let mut shown_groups = 0;
     for (label, kind) in STYLE_GROUP_KINDS {
         if !target_accepts_style_kind(&app.doc, target, kind) {
@@ -1524,6 +1535,7 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         .first()
         .and_then(|s| app.doc.get(*s))
         .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
+        .filter(|k| app.doc.is_table_style(k))
         .map(|k| app.doc.style_name(k).to_string());
     if !paints.is_empty() {
         // Figma sits the first row 4px under the title row.
