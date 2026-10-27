@@ -194,8 +194,10 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
     let mut needs_derived_geo = HashSet::new();
     for nc in raw_changes.iter() {
         if matches!(nc.get("type").and_then(kiwi_str), Some("VECTOR" | "BOOLEAN_OPERATION" | "STAR" | "REGULAR_POLYGON" | "ELLIPSE" | "LINE" | "BRUSH")) {
-            if let Some(id) = nc.get("guid").and_then(kiwi_guid_str) {
-                needs_derived_geo.insert(id);
+            for key in ["guid", "overrideKey"] {
+                if let Some(id) = nc.get(key).and_then(kiwi_guid_str) {
+                    needs_derived_geo.insert(id);
+                }
             }
         }
     }
