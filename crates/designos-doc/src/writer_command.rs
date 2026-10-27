@@ -32,8 +32,69 @@ impl WriterCommand {
 /// writer (`Engine::exec`, live-patch replay).
 pub fn writer_command(doc: &Document, cmd: Command) -> WriterCommand {
     match cmd {
-        Command::Update { .. } => direction_flip_step(doc, cmd),
+        Command::Update { .. } => update_boundary_step(doc, cmd),
         other => slot_content_marked(doc, other),
+    }
+}
+
+/// Emits companion [`Command::Update`]s for un-renamed instances when a main component
+/// or component set is renamed (`#1193`).
+pub fn companion_component_rename_updates(doc: &Document, target_id: NodeId, old_name: &str, new_name: &str) -> Vec<Command> {
+    if old_name == new_name {
+        return Vec::new();
+    }
+    let Some(stored) = doc.get(target_id) else {
+        return Vec::new();
+    };
+    let is_standalone_component = matches!(stored.kind, crate::NodeKind::Component(_))
+        && !stored.parent.and_then(|pid| doc.get(pid)).is_some_and(|p| matches!(p.kind, crate::NodeKind::ComponentSet(_)));
+    if !is_standalone_component && !matches!(stored.kind, crate::NodeKind::ComponentSet(_)) {
+        return Vec::new();
+    }
+
+    let mut updated_ids = BTreeSet::from([target_id]);
+    let mut updates = Vec::new();
+    let comp_ids = crate::components_of(doc, target_id);
+    for inst_id in crate::instances_of_any(doc, &comp_ids) {
+        let Some(inst) = doc.get(inst_id) else { continue };
+        if !inst.component.overrides.contains(&OverrideField::Name) && inst.name == old_name && updated_ids.insert(inst_id) {
+            let mut updated = Node { children: Vec::new(), ..inst.clone() };
+            updated.name = new_name.to_string();
+            updates.push(Command::Update { node: Box::new(updated) });
+        }
+    }
+
+    updates
+}
+
+fn update_boundary_step(doc: &Document, cmd: Command) -> WriterCommand {
+    let Command::Update { mut node } = cmd else {
+        return WriterCommand::single(cmd);
+    };
+    let Some(stored) = doc.get(node.id) else {
+        return WriterCommand::single(Command::Update { node });
+    };
+    if matches!(node.kind, crate::NodeKind::Instance { .. }) && stored.name != node.name {
+        node.component.overrides.insert(OverrideField::Name);
+    }
+    let rename_updates = companion_component_rename_updates(doc, node.id, &stored.name, &node.name);
+    let mut wc = direction_flip_step(doc, Command::Update { node });
+    if rename_updates.is_empty() {
+        return wc;
+    }
+    for r_cmd in rename_updates {
+        if let Command::Update { node: ref r_node } = r_cmd {
+            if let Some(Command::Update { node: existing }) = wc.parts.iter_mut().find(|p| matches!(p, Command::Update { node } if node.id == r_node.id)) {
+                existing.name = r_node.name.clone();
+                continue;
+            }
+        }
+        wc.parts.push(r_cmd);
+    }
+    if wc.parts.len() == 1 {
+        WriterCommand::single(wc.parts.pop().unwrap())
+    } else {
+        WriterCommand { cmd: Command::Batch(wc.parts.clone()), parts: wc.parts }
     }
 }
 
