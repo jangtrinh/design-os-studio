@@ -91,6 +91,14 @@ pub struct Options {
     pub export_variables: Option<PathBuf>,
     /// Variable format for `--import-variables` / `--export-variables`: `auto`, `figma-rest`, `figma-native`, or `dtcg`.
     pub format: Option<String>,
+    /// With `--export-variables PATH --format dtcg`: export a single self-contained file for one mode (`#1140` §5).
+    pub mode: Option<String>,
+    /// With `--export-variables PATH --format dtcg --mode NAME`: narrow to named collection(s) or `id:<collection_id>` (`#1140` §5).
+    pub collections: Vec<String>,
+    /// With `--export-variables PATH --format dtcg --mode NAME`: replace aliases with resolved literals and record provenance (`#1140` §5).
+    pub resolve_aliases: bool,
+    /// With `--export-variables PATH --format dtcg`: colour value encoding (`hex` or `object`, default `object`) (`#1140` §5).
+    pub color_format: Option<String>,
     /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
     /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
     pub no_caption: bool,
@@ -122,6 +130,10 @@ impl Options {
             || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
             || self.import_variables.is_some()
             || self.export_variables.is_some()
+            || self.mode.is_some()
+            || !self.collections.is_empty()
+            || self.resolve_aliases
+            || self.color_format.is_some()
     }
 
     /// Whether a launch with these options starts on the home screen: explicitly
@@ -324,6 +336,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 }
                 o.format = Some(f);
             }
+            "--mode" => o.mode = Some(it.next().ok_or("--mode needs a mode name")?),
+            "--collection" => o.collections.push(it.next().ok_or("--collection needs a collection name or id:<id>")?),
+            "--resolve-aliases" => o.resolve_aliases = true,
+            "--color-format" => {
+                let cf = it.next().ok_or("--color-format needs hex or object")?;
+                if designos_fig::ColorFormat::parse_label(&cf).is_none() {
+                    return Err(format!("unknown color format '{cf}' (expected hex or object)"));
+                }
+                o.color_format = Some(cf);
+            }
             "-h" | "--help" => o.help = true,
             "-V" | "--version" => o.version = true,
             // Launch Services adds -psn_<serial> to some macOS launches; it names the process, not a file.
@@ -376,6 +398,10 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
   --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
+  --mode     with --export-variables PATH.json --format dtcg: export one self-contained DTCG file for mode NAME
+  --collection  with --mode: narrow single-mode DTCG export to collection NAME or id:<collection_id> (repeatable)
+  --resolve-aliases  with --mode: replace DTCG {Group.token} alias strings with resolved literal values
+  --color-format  with --export-variables --format dtcg: colour $value encoding (hex|object, default object)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]

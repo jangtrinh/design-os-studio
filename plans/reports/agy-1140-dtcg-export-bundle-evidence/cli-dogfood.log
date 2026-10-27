@@ -1,0 +1,651 @@
+=== 1. Directory DTCG Export ===
+{
+  "files": [
+    "tokens.manifest.json",
+    "_Primitives.Style.tokens.json",
+    "1_ Color modes.Light mode.tokens.json",
+    "1_ Color modes.Dark mode.tokens.json",
+    "1_ Color modes (2).Light mode.tokens.json",
+    "1_ Color modes (2).Dark mode.tokens.json",
+    "_Primitives (2).Style.tokens.json",
+    "2_ Radius.Mode 1.tokens.json",
+    "3_ Spacing.Value.tokens.json",
+    "4_ Widths.Mode 1.tokens.json",
+    "5_ Containers.Value.tokens.json",
+    "6_ Typography.Value.tokens.json",
+    "6_ Typography (2).Value.tokens.json"
+  ],
+  "format": "dtcg",
+  "omitted_extensions": [],
+  "path": "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/dtcg-dir"
+}
+Count on disk: 13
+
+=== 2. ZIP DTCG Export ===
+Zip entry count: 13
+
+=== 3. Single-Mode Resolved Hex DTCG Export (dark.tokens.json) ===
+{
+  "aliases_resolved": 115,
+  "aliases_resolved_via_default_mode": 115,
+  "collections": [
+    {
+      "group": "1_ Color modes",
+      "id": "VariableCollectionId:1333:27347",
+      "mode": "Dark mode",
+      "name": "1. Color modes"
+    }
+  ],
+  "color_format": "hex",
+  "format": "dtcg",
+  "inlined_for_aliases": [],
+  "mode": "Dark mode",
+  "omitted_extensions": [],
+  "path": "plans/reports/agy-1140-dtcg-export-bundle-evidence/dark.tokens.json",
+  "skipped_collections": [
+    {
+      "id": "VariableCollectionId:1333:99999",
+      "modes": [
+        "Light mode",
+        "Dark mode"
+      ],
+      "name": "1. Color modes"
+    }
+  ],
+  "tokens": 115,
+  "values_from_default_mode": 0
+}
+
+=== 4. ui ds import & ui ds a11y on dark.tokens.json ===
+ds import: 115 token(s) [115 color] across 5 categories → /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design
+  111 roles recognized, 12 gaps: card, popover, secondary, muted, accent, input, ring, destructive, success, warning, info, neutral
+  soul: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design/soul.md (draft — edit then set status: ratified)
+  heartbeat: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch/design/heartbeat.json
+  next: ui ds a11y --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch  ·  ui ds status --dir /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.1Oo3Aq8VOw/ds-scratch
+ds a11y: 1307 text×surface pair(s) checked (roles inferred from token names — cartesian; prefer -foreground pairing or --pairs), 585 below AA (4.5:1).
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-error-secondary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-secondary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-primary-alt — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-primary-solid — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-primary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-active — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-primary-alt — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-section — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-primary-hover — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-tertiary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-section-subtle — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-primary-alt — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-primary-solid — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-secondary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-active — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-section — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-primary-hover — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-secondary-hover — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-tertiary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-quaternary — 1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-primary — 1.04:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.04:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-success-solid — 1.04:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-warning-solid — 1.05:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-warning-solid — 1.05:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-warning-secondary — 1.06:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-success-secondary — 1.06:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-success-primary — 1.08:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-warning-primary — 1.08:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-success-primary — 1.08:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.08:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-warning-solid — 1.08:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-success-secondary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-success-secondary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-primary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-secondary-alt — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-section-subtle — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-primary-alt — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-primary-solid — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-secondary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-secondary-subtle — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-error-primary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-primary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-secondary-alt — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-secondary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-error-secondary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-error-primary — 1.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-brand-solid-hover — 1.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-warning-secondary — 1.15:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-warning-secondary — 1.15:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-secondary — 1.15:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-error-secondary — 1.15:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-success-solid — 1.17:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-success-solid — 1.17:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-solid — 1.18:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-warning-solid — 1.19:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-active — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-section — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-primary-hover — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-secondary-hover — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-tertiary — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-section-subtle — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-primary-alt — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-primary-solid — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-secondary — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-secondary-subtle — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-active — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-primary-alt — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-section — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-primary-hover — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-secondary-hover — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-tertiary — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-primary-alt — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-primary-solid — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-secondary — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 1.2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-error-solid — 1.21:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.21:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-error-primary — 1.22:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-success-primary — 1.23:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-warning-primary — 1.23:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-primary — 1.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-warning-solid — 1.25:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-warning-solid — 1.25:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-warning-solid — 1.26:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-warning-secondary — 1.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-secondary-solid — 1.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-primary — 1.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-error-solid — 1.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-error-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-success-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-error-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-success-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-warning-primary — 1.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-quaternary — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-active — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-primary-alt — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-section — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-primary-hover — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-secondary-hover — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-tertiary — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-primary — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-secondary-alt — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-primary — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-secondary-alt — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-error-secondary — 1.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-quaternary — 1.32:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-solid — 1.32:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-secondary — 1.32:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-quaternary — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-quaternary — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-active — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-primary-alt — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-section — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-primary-hover — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-secondary-hover — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-tertiary — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-success-solid — 1.33:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-primary — 1.36:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-success-secondary — 1.36:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-secondary-solid — 1.36:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-success-solid — 1.4:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-success-solid — 1.4:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-error-primary — 1.42:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-success-primary — 1.42:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-warning-primary — 1.42:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-success-solid — 1.42:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.42:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-quaternary — 1.43:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-success-secondary — 1.43:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-error-solid — 1.45:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-error-solid — 1.45:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-secondary-solid — 1.48:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-secondary-solid — 1.48:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-secondary — 1.48:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-error-secondary — 1.48:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-brand-solid — 1.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-warning-solid — 1.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-success-solid — 1.5:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-quaternary — 1.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-warning-secondary — 1.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.52:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-error-solid — 1.56:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-secondary-solid — 1.56:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-quaternary — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-quaternary — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-section-subtle — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-primary-alt — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-primary-solid — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-secondary — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-secondary-subtle — 1.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-error-primary — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-error-primary — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-success-primary — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-success-primary — 1.62:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.64:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.64:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-error-solid — 1.65:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-success-solid — 1.66:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.68:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-warning-solid — 1.68:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-brand-solid — 1.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-warning-solid — 1.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-warning-solid — 1.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-error-solid — 1.73:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-error-solid — 1.73:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-quaternary — 1.74:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-primary — 1.74:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-secondary-alt — 1.74:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-active — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-section — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-primary-hover — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-secondary-hover — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-tertiary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-active — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-section — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-primary-hover — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-secondary-hover — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-tertiary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-secondary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-error-secondary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-error-primary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-secondary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-error-secondary — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-error-solid — 1.75:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-solid-hover — 1.76:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-success-primary — 1.76:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-secondary-solid — 1.76:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-secondary-solid — 1.76:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-brand-solid — 1.78:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-brand-solid — 1.78:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-error-solid — 1.79:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-error-solid — 1.79:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-brand-solid — 1.8:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.81:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 1.81:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.83:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-error-primary — 1.85:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-success-primary — 1.86:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-warning-primary — 1.86:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-warning-solid — 1.89:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-warning-solid — 1.89:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-success-secondary — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-active — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-section — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-primary-hover — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-secondary-hover — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-tertiary — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-success-secondary — 1.9:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-success-solid — 1.92:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-success-solid — 1.93:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-success-solid — 1.93:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-quaternary — 1.94:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-primary — 1.94:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-secondary-solid — 1.94:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-warning-secondary — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-secondary-solid — 2:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-warning-secondary — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-active — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-primary-alt — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-section — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-primary-hover — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-secondary-hover — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-tertiary — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-warning-secondary — 2.01:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-success-solid — 2.04:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-error-solid — 2.06:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-primary-alt — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-primary-solid — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-secondary — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-error-secondary — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-error-secondary — 2.09:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-primary-alt — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-primary-solid — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-secondary — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-secondary — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-secondary — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-secondary-solid — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-secondary-solid — 2.1:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-brand-solid — 2.11:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-success-secondary — 2.12:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-secondary-solid — 2.12:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-success-solid — 2.12:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-success-solid — 2.12:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-brand-solid-hover — 2.13:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.16:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-success-solid — 2.21:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-success-solid — 2.22:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-warning-solid — 2.24:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.26:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-warning-secondary — 2.26:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-warning-secondary — 2.26:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-success-secondary — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-success-secondary — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-primary-alt — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-primary-solid — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-secondary — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.28:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-primary — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-secondary-alt — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-primary — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-secondary-alt — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-secondary — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-error-secondary — 2.29:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-secondary — 2.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-solid — 2.3:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-error-secondary — 2.31:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-error-solid — 2.36:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-error-primary — 2.38:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-error-solid — 2.38:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-error-solid — 2.38:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-success-primary — 2.39:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-warning-primary — 2.39:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.39:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-success-secondary — 2.39:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-success-secondary — 2.39:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-warning-secondary — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-warning-secondary — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-brand-section-subtle — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-primary-alt — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-primary-solid — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-secondary — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-secondary-subtle — 2.41:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-brand-solid — 2.45:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-brand-solid — 2.45:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.48:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-warning-solid — 2.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-success-secondary — 2.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-primary — 2.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-primary — 2.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-success-secondary on 1-color-modes-colors-background.bg-secondary-alt — 2.49:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-secondary-solid — 2.5:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-success-solid — 2.51:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-warning-secondary — 2.57:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-secondary-solid — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-active — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-primary-alt — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-section — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-primary-hover — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-secondary-hover — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-tertiary — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-secondary-solid — 2.59:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-brand-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.6:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-brand-secondary — 2.6:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-brand-secondary — 2.6:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-error-secondary on 1-color-modes-colors-background.bg-brand-solid-hover — 2.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-error-secondary — 2.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-error-secondary — 2.61:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-warning-secondary — 2.63:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-primary — 2.63:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-warning-secondary on 1-color-modes-colors-background.bg-secondary-alt — 2.63:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-error-solid — 2.63:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-error-solid — 2.63:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-brand-solid — 2.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-brand-solid — 2.69:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-warning-secondary — 2.7:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-warning-secondary — 2.7:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-success-secondary — 2.72:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-warning-secondary — 2.73:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary-hover on 1-color-modes-colors-background.bg-brand-solid-hover — 2.82:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-hover on 1-color-modes-colors-background.bg-brand-solid-hover — 2.82:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-success-secondary — 2.86:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-success-secondary — 2.86:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-success-secondary — 2.89:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-secondary-solid — 2.89:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-secondary-solid — 2.89:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-success-solid — 2.92:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary-hover on 1-color-modes-colors-background.bg-warning-solid — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-hover on 1-color-modes-colors-background.bg-warning-solid — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-brand-secondary — 2.95:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-error-secondary — 2.96:1 (fail); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-quaternary — 3.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-brand-solid — 3.06:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-brand-solid — 3.06:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-secondary-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-brand-section-subtle — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-primary-alt — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-primary-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-secondary — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-secondary-subtle — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-secondary-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary-alt on 1-color-modes-colors-background.bg-brand-solid-hover — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-error-solid — 3.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-brand-secondary — 3.11:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-error-secondary — 3.11:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-brand-secondary — 3.11:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-error-secondary — 3.11:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-error-solid — 3.14:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-error-solid — 3.14:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-brand-secondary — 3.14:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-error-secondary — 3.14:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-secondary-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-brand-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-secondary-solid — 3.18:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 3.19:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 3.19:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary-on-brand on 1-color-modes-colors-background.bg-brand-solid-hover — 3.19:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-warning-secondary — 3.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary-alt on 1-color-modes-colors-background.bg-warning-solid — 3.25:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-warning-solid — 3.27:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary-hover on 1-color-modes-colors-background.bg-success-solid — 3.31:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-hover on 1-color-modes-colors-background.bg-success-solid — 3.31:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-primary on 1-color-modes-colors-background.bg-brand-solid-hover — 3.33:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-white on 1-color-modes-colors-background.bg-brand-solid-hover — 3.33:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-white on 1-color-modes-colors-background.bg-brand-solid-hover — 3.33:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-primary on 1-color-modes-colors-background.bg-warning-solid — 3.34:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary on 1-color-modes-colors-background.bg-warning-solid — 3.34:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary-on-brand on 1-color-modes-colors-background.bg-warning-solid — 3.34:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-secondary-solid — 3.38:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-primary — 3.38:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-solid on 1-color-modes-colors-background.bg-secondary-alt — 3.38:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-success-secondary — 3.39:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-quaternary — 3.42:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-quaternary — 3.42:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder-subtle on 1-color-modes-colors-background.bg-brand-solid-hover — 3.42:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-primary on 1-color-modes-colors-background.bg-warning-solid — 3.49:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-white on 1-color-modes-colors-background.bg-warning-solid — 3.49:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-white on 1-color-modes-colors-background.bg-warning-solid — 3.49:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary-alt on 1-color-modes-colors-background.bg-success-solid — 3.65:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-brand-solid — 3.66:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-brand-solid — 3.66:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-brand-secondary — 3.69:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-primary on 1-color-modes-colors-background.bg-error-secondary — 3.69:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-error-primary — 3.71:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-warning-secondary — 3.71:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-warning-secondary — 3.71:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-success-primary — 3.72:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-warning-primary — 3.72:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-primary on 1-color-modes-colors-background.bg-success-solid — 3.74:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary on 1-color-modes-colors-background.bg-success-solid — 3.74:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-primary-on-brand on 1-color-modes-colors-background.bg-success-solid — 3.74:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary on 1-color-modes-colors-background.bg-error-solid — 3.75:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-subtle on 1-color-modes-colors-background.bg-error-solid — 3.75:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary-alt on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary-hover on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary-hover on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-secondary on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-on-brand on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-hover on 1-color-modes-colors-background.bg-secondary-solid — 3.76:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-success-solid — 3.88:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-success-solid — 3.88:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-primary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-quaternary on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-tertiary on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-brand-tertiary on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-placeholder on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-quaternary-on-brand on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-tertiary-on-brand on 1-color-modes-colors-background.bg-quaternary — 3.89:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-primary on 1-color-modes-colors-background.bg-success-solid — 3.91:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-white on 1-color-modes-colors-background.bg-success-solid — 3.91:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-white on 1-color-modes-colors-background.bg-success-solid — 3.91:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-success-secondary — 3.93:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-success-secondary — 3.93:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-brand-solid — 3.99:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-active — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-primary-alt — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-brand-section — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-primary-hover — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-secondary-hover — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-primary on 1-color-modes-colors-background.bg-tertiary — 4.03:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-error-secondary on 1-color-modes-colors-background.bg-quaternary — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary-hover on 1-color-modes-colors-background.bg-error-solid — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-warning-secondary — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-error-primary on 1-color-modes-colors-background.bg-quaternary — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-hover on 1-color-modes-colors-background.bg-error-solid — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-warning-secondary — 4.09:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-alt on 1-color-modes-colors-background.bg-error-solid — 4.1:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-primary on 1-color-modes-colors-background.bg-quaternary — 4.13:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-error-primary — 4.19:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-error-primary — 4.19:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-success-primary — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-warning-primary — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-success-primary — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-warning-primary — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-secondary-hover on 1-color-modes-colors-background.bg-brand-solid — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-secondary-hover on 1-color-modes-colors-background.bg-brand-solid — 4.2:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-brand-secondary — 4.27:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-brand-secondary — 4.27:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-success-secondary on 1-color-modes-colors-background.bg-error-secondary — 4.28:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-success-primary on 1-color-modes-colors-background.bg-error-secondary — 4.28:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-warning-secondary on 1-color-modes-colors-background.bg-success-secondary — 4.33:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-text.text-warning-primary on 1-color-modes-colors-background.bg-success-secondary — 4.33:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-background.bg-secondary-hover on 1-color-modes-colors-background.bg-warning-solid — 4.35:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-border.border-secondary on 1-color-modes-colors-background.bg-warning-solid — 4.35:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-primary on 1-color-modes-colors-background.bg-brand-primary — 4.39:1 (AA-large); fails normal-text AA
+  ✗ 1-color-modes-colors-foreground.fg-brand-secondary on 1-color-modes-colors-background.bg-brand-primary — 4.39:1 (AA-large); fails normal-text AA
+  NOTE: declared token pairs only — not rendered contrast; not a conformance claim. Fix the token; a11y beats the style source.
