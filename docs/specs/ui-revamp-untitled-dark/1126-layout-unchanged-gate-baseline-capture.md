@@ -137,7 +137,7 @@ There is no layout dump today.
      - A drag area is a `Sense::DRAG`-only widget whose rect contains a scrollbar's rect.
      - In `--layout-json` (no widget info in release), the same sense pattern is marked `"maybe": true`.
 4. **The Tier A gate.**
-   - It reads `cases.json` and skips `kit: true` cases.
+   - It reads `cases.json` and runs every case's Tier A entry on the starter (rule 14). It skips a case only when rule 14 lists it as unreachable in Tier A.
    - **One `#[test]` per spec key** (`layout_unchanged_d`, `…_e`, …) so they run in parallel. They run only in the `designos` binary (`env!("CARGO_BIN_NAME")`).
    - Each case:
      - parses `args` with `cli::parse`
@@ -206,7 +206,7 @@ There is no layout dump today.
    - `agents-start-failure` runs the stub `agy` with the fixture command.
    - Approval cases use their request files and `agent_status`, as today.
 7. **Determinism.**
-   - **Home:** the gate seeds its library with fixed `modified` values (a test-only `seed_library_at(dir, modified)` next to `showcase/mod.rs:742`) and a fixed `fixed_now`. Tier B cannot fix the clock, so the Home contact sheet masks the relative-time line and the version label rect.
+   - **Home:** the gate seeds its library with the shipped starter (what a new user gets, #1212) at fixed `modified` values (a test-only `seed_library_at(dir, modified)`; it never seeds the old showcase documents, rule 14) and a fixed `fixed_now`. Tier B cannot fix the clock, so the Home contact sheet masks the relative-time line and the version label rect.
    - **Every case:** at bless time the gate asserts that frame 8 equals frame 12, and the gate passes twice in a row with identical JSON. A case that fails either check is rewritten to a state-driven variant. It is never allow-listed.
 8. **Comparison rules (hard failures; tolerance ±0.5 pt unless stated).**
    - **G1 Regions.** `x` and `w` are equal; `y` and `h` are equal unless an allow entry covers the region.
@@ -257,7 +257,24 @@ There is no layout dump today.
     - Tier B treats an exit of 1 with `screenshot was not captured` (with or without spec R's `: <reason>`) as INFRA: it retries twice, then exits 3.
     - **Exception:** a case that is INFRA on every try **and** is owned by the PR's `--only-spec` key exits 1, because the PR may have broken that capture.
     - A case whose `.layout.json` has an empty `named` map also fails (exit 1). That proves the release `RECORDING` path ran.
-13. **Kit cases are Tier B only**, run with `--kit <path>`. The headless gate commits no JSON for them. The kit is never committed.
+13. **The kit is never committed.** Tier B needs `--kit <path>`; the headless gate commits no kit-derived JSON.
+14. **Document sources (owner ruling 2026-10-27; replaces the fixture-based case list).** Jang: drop the old built-in sample set entirely and verify with Untitled UI. Release builds since 0.6.5 (#1252) also reject `--fixture`: it exists only under `cfg(any(test, feature = "fixtures"))` (`cli.rs:238`, `:257`, `main.rs:46-168`), so the old list cannot run on a release binary anyway.
+    - **Banned in both tiers:** `--fixture` of any name (`showcase`, `proto-vars`, `no-selection`, `variables`, `variables-library`, `comments`, `check-designs`, `board`, `board-empty`, `deck`), the `showcase`, `board::demo`, `decks::demo` and `demo` builders, and any document they produce. Other unit tests may keep them (#1212 R1/R3); this gate does not use them. A test asserts that `cases.json` has no `--fixture` argument.
+    - **Tier B (every PNG anyone reviews): a copy of the Untitled UI PRO v8.0 kit.** `--kit` names the original `.fig`, which the script only reads. Once per run it imports the kit into `<run cache>/kit.designos`, outside the repo. Every case then gets its own APFS clone (`cp -c`), so no case sees another case's edits and nothing ever writes to the original. Kit layers keep their content and colours; nothing is recoloured or retouched (the `CLAUDE.md` marketing rule).
+    - **Tier A (CI geometry, committed): the shipped starter** `crates/designos-app/assets/starter/designos-studio-starter.designos`. The kit cannot be committed: Jang's 2026-10-26 ruling in #1212 says Untitled UI is never redistributed in any form. At `origin/release/v0.6.5` the starter has 646 nodes: 3 screens (`01 Onboarding`, `02 Bio Age`, `03 Console - All studies`), an `About` page, 24 styles and 79 variables. It has no components, comment threads, prototype links or grid styles.
+    - **States the document lacks are added on top of the copy, never taken from an old fixture.**
+      - In Tier B the script adds them with the app's own headless commands (`--add-comment`, `--apply-spec`, `--import-variables`) or `designos-mcp`. They go on a page named `Layout baseline scratch` in the per-case clone, and are written to disk **before** the capture opens it. The capture therefore opens a clean, saved document; #1274 must still land first, because an imported file can open dirty.
+      - In Tier A, `#[cfg(test)]` helpers in `layout_unchanged/` build the same states on an in-memory copy of the starter.
+      - Each case lists its additions in `cases.json` (`"prep"`), so the run is reproducible.
+      - Examples: a comment thread, a prototype link, a grid style, lint findings for Check designs, a published library, a component and an instance.
+    - **Board and deck cases** start from Studio's own Blank board and Blank deck, which ship and are not legacy samples, plus content the script or helper adds.
+    - **Selections** use `id:<n>` from `--inspect-json`, which is unique and deterministic, with the layer name recorded beside it. A name that matches more than one layer is never used as a selector.
+    - **Case mapping is reviewed before any capture.** Every case keeps its id, its spec key and its `--panel`/`--menu`/`--tab` flags. Only the document, the selection and the `prep` change. The first step of the next round delivers one table: case → kit node → starter node → prep. The controller reviews that table before anything is captured or blessed.
+    - **Unreachable state.** A case whose state cannot be reached in a tier by these means is listed as unreachable in that tier, with the reason, and the controller rules (drop it from that tier, or ask Jang). It never falls back to an old fixture.
+    - **Cost on the owner's Mac.**
+      - Before the case list is fixed, the round measures the load time and peak memory of the `.designos` copy against the `.fig`. Kit runs took about 50 s each in spec D; spec 1121 recorded 150 s and a 9.87 GB peak for an MCP import.
+      - If a case needs more than 20 s to reach its first frame, the round proposes a reduced copy (kit pages only, unchanged) and the controller rules.
+      - Tier B runs one GUI case at a time, checks `ioreg -c IOHIDSystem` HIDIdleTime first, and keeps the Mac awake with `caffeinate -dimsu`.
 
 ## 4. Data model / schema changes
 
@@ -295,7 +312,7 @@ None to documents.
 
 The numbers are illustrative; the real ones come from the bless run.
 
-**Case list** (`cases.json`): entries `{"id","spec","args",["kit"],["virtualized"],["spawns"]}` plus `"bless_sha"`. **74 headless cases**:
+**Case list** (`cases.json`): entries `{"id","spec","args",["virtualized"],["spawns"]}` plus, per tier, the document, the `id:<n>` selection and `prep` (rule 14), and `"bless_sha"`. `args` keeps only the surface flags (`--panel`, `--menu`, `--tab`, `--dev`, `--present`, `--find`, `--rulers`, `--zoom`, `--gpu`); it never holds `--fixture`. **76 cases**, each in both tiers unless rule 14 lists it as unreachable in one of them. The groups below are the surfaces; the documents they used to name are replaced by rule 14:
 
 | Group | Cases |
 |---|---|
@@ -306,7 +323,7 @@ The numbers are illustrative; the real ones come from the bless run.
 | J | `check-designs-fixed`, `plugin-install`, `ai-image-menu`, `ai-image-expand`, `ai-image-erase`, `web-capture-report` |
 | K / D | `present-variables` |
 | Mixed | 12 `micro-*` panels: `micro-autolayout`, `micro-components-variables`, `micro-css-grid`, `micro-dev-boxmodel`, `micro-inspector-math`, `micro-layer-picker`, `micro-scale-tool`, `micro-selection-corner`, `micro-shape-controls`, `micro-smart-selection`, `micro-typography-multiedit`, `micro-vector-edit` |
-| Kit (Tier B) | `kit-editor`: `<kit> --select "Page header" --zoom 100 --gpu`; `kit-agents`: `<kit> --select "Avatar group" --zoom 100 --panel agents --gpu` |
+| Kit views | `kit-editor` (`--zoom 100 --gpu`) and `kit-agents` (`--zoom 100 --panel agents --gpu`), each on a uniquely named kit frame chosen in the mapping table. They stay in the list, and their Tier A twins use the starter. |
 
 `micro-seq-hud` is not a case. It is a painter layer id (`shell.rs:3460`), not a `--panel` value, and `cli::parse` rejects it (`cli.rs:254-258`).
 
@@ -324,7 +341,8 @@ cargo test -p designos-app --bin designos layout_unchanged && cargo test -p desi
 python3 scripts/layout_baseline_capture.py --bin <build dir>/release/designos \
   --cases crates/designos-app/tests/layout-baseline/cases.json \
   --stubs crates/designos-app/tests/layout-baseline/stubs \
-  --out ~/designos-layout-baseline/<bless sha> [--kit ~/untitled-ui-kit.fig]
+  --out ~/designos-layout-baseline/<bless sha> \
+  --kit "$HOME/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig"   # read only; every case runs on its own clone (rule 14)
 ```
 
 Per case, the script:
@@ -436,10 +454,10 @@ Run:
 
 ## 11. Performance budgets
 
-- Tier A: 74 cases × 8 frames, split into one `#[test]` per spec key so they run in parallel. Agent cases no longer wait 800 ms or 5 s. Budget: the app binary's CI test time grows by at most 30 s (INFERENCE; today it is 63–64 s; measure in the PR).
+- Tier A: 76 cases × 8 frames (rule 14), split into one `#[test]` per spec key so they run in parallel. Agent cases no longer wait 800 ms or 5 s. Budget: the app binary's CI test time grows by at most 30 s (INFERENCE; today it is 63–64 s; measure in the PR).
 - Hermetic checks: one `OnceLock` read per resolution, with no cost when the variable is unset.
 - `ShellRegions`: a copy of ten `Option<Rect>`s per frame. Zero idle cost.
-- Committed baseline: 74 JSON files, estimated under 3 MB (INFERENCE).
+- Committed baseline: one JSON file per Tier A case (76 at most), estimated under 3 MB (INFERENCE).
 
 ## 12. Dependencies and build order
 
@@ -468,7 +486,7 @@ No revamp PR merges before this one.
    - every `$0` starts with the run's stub dir
 
    With `DESIGNOS_AGENT_CLI_DIR` set and any of the four markers or `--screenshot` missing, the binary exits 2 and writes nothing (H4, H9, and one manual run pasted).
-5. Every case in section 5 is in `cases.json` (74 headless and 2 kit cases), or is listed under "Not gated" with its owning spec.
+5. Every case in section 5 is in `cases.json` (76 cases), or is listed under "Not gated" with its owning spec. No case uses `--fixture` or an old sample document (rule 14). Every Tier B PNG shows a kit copy, and every Tier A snapshot comes from the starter. The controller has reviewed the mapping table, and every case unreachable in a tier carries the controller's ruling.
 6. `cases.json.bless_sha` is the parent of L's squash commit.
 7. `cargo test --workspace --locked` is green with the same pass count as `main`, plus exactly the tests this PR adds. No existing test's expected values change (changelog R2).
 
@@ -479,6 +497,8 @@ No revamp PR merges before this one.
 - R7: spec-driven; the PM coordinates delivery (and enforces the merge-at-once bless, rule 11).
 - 2026-09-22: visual evidence in every PR (colour sheets plus wireframe sheets).
 - Standing: `main` is protected (PR, green `Test (macos-14)`, Clippy, Rustfmt, squash).
+- 2026-10-26 (#1212): Untitled UI is never redistributed in any form, so the kit is never committed.
+- 2026-10-27: drop the old built-in sample set entirely and verify with Untitled UI (rule 14).
 
 ## Decisions on the open questions (writer, 2026-10-25)
 
@@ -498,6 +518,8 @@ No revamp PR merges before this one.
 None. All the calls here are technical. The visible outcome, "layout unchanged", was decided by R1 and R5.
 
 ## Changelog
+
+**Round 4 (2026-10-27): document sources.** Jang saw the first Tier B colour sheet. It was built on the old `showcase` fixture ("Balance card"), with 74 of its 76 cases on old fixtures. He restated the rule: drop the old set and verify with Untitled. This writer's round 3 broke it. Rule 14 replaces every old fixture: Tier B uses a kit copy, and Tier A uses the shipped starter. Missing states are added on top, and a reviewed mapping table comes before any capture. Rules 7 and 13, the case list, the capture command, acceptance 5 and section 13 are updated. The 2026-10-27 capture (`out/layout-tierb/993afe38`, built on fixtures) is discarded and not blessed.
 
 **Round 3 (2026-10-25)** answers `reviews/L-engineering-review-r2.md` and applies `reviews/L-counsel-kongming.md`.
 
