@@ -1,4 +1,4 @@
-//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<id>|name:<text>|LAYER|none] [--menu name]`.
+//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu name]`.
 
 use std::path::PathBuf;
 
@@ -9,7 +9,8 @@ pub struct Options {
     pub size: Option<(u32, u32)>,
     /// Device pixel ratio of `--screenshot` (`--scale 2` writes a PNG twice the `--size`, with crisp UI and text).
     pub scale: Option<f32>,
-    /// Select a node by id:<n>, fig:<id>, name:<text>, or layer name (handy for screenshots).
+    /// Address one node: `id:<n>`, `fig:<figma id>`, `name:<text>`, a layer name, or `none`. A selector that matches nothing is an
+    /// error (exit 2), never another node.
     pub select: Option<String>,
     /// Open a menu after loading: `main`, `main/File`, `shape`, `palette` (for screenshots).
     pub menu: Option<String>,
@@ -233,7 +234,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 let v = it.next().ok_or("--scale needs a factor (e.g. 2)")?;
                 o.scale = Some(parse_scale(&v).ok_or_else(|| format!("invalid scale '{v}' (expected 1..4, e.g. 2)"))?);
             }
-            "--select" => o.select = Some(it.next().ok_or("--select needs a layer name")?),
+            "--select" => {
+                let v = it.next().ok_or("--select needs a layer name, id:<n> or fig:<figma id>")?;
+                if v.trim().is_empty() {
+                    return Err("--select needs a layer name, id:<n> or fig:<figma id>, not an empty value".into());
+                }
+                o.select = Some(v);
+            }
             "--menu" => o.menu = Some(it.next().ok_or("--menu needs a name (main, main/File, shape, palette)")?),
             "--fixture" => o.fixture = Some(it.next().ok_or("--fixture needs a name (no-selection)")?),
             "--tab" => {
@@ -341,6 +348,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             }
         }
     }
+    // The home screen has no document to select in.
+    if o.select.is_some() && o.home {
+        return Err("--select needs a file".into());
+    }
     Ok(o)
 }
 
@@ -362,8 +373,10 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
     designos_mcp::tools::errors::parse_spec_json(raw)
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
+  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number is a layer name, else a node id. A selector that matches nothing exits 2 and changes nothing
+  --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
