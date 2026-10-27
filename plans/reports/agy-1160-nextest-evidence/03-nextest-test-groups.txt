@@ -1,0 +1,19 @@
+group: quarantine (max threads = 1)
+  * override for default profile with filter 'test(=shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one)' (from .config/nextest.toml):
+      designos-app::bin/designos:
+          shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+      designos-app::bin/designos-studio:
+          shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+  * override for default profile with filter 'test(=terminal::tests::stub_cli_drives_running_needs_input_done)' (from .config/nextest.toml):
+      designos-app::bin/designos:
+          terminal::tests::stub_cli_drives_running_needs_input_done
+      designos-app::bin/designos-studio:
+          terminal::tests::stub_cli_drives_running_needs_input_done
+  * override for default profile with filter 'test(=terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized)' (from .config/nextest.toml):
+      designos-app::bin/designos:
+          terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized
+      designos-app::bin/designos-studio:
+          terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized
+  * override for default profile with filter 'package(designos-fig) & test(=variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count)' (from .config/nextest.toml):
+      designos-fig:
+          variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count

@@ -1,0 +1,107 @@
+name: PR Gate
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: "1.93.1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate-fmt:
+    name: PR Gate (rustfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Rustfmt
+        run: cargo fmt --all --check
+
+  gate-clippy:
+    name: PR Gate (clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+  gate-lib-tests:
+    name: PR Gate (lib tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system libraries
+        run: |
+          sudo fallocate -l 16G /tmp/swapfile && sudo chmod 600 /tmp/swapfile && sudo mkswap /tmp/swapfile && sudo swapon /tmp/swapfile || true
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfontconfig1-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Library unit tests
+        run: RUST_TEST_THREADS=1 cargo test --workspace --lib --locked
+
+  gate-result:
+    name: PR Gate (result artifact)
+    needs: [gate-fmt, gate-clippy, gate-lib-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build pr-gate-result JSON from git diff --numstat
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true
+          python3 -B - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          base_sha, head_sha = os.environ["BASE_SHA"].strip(), os.environ["HEAD_SHA"].strip()
+          raw = subprocess.check_output(["git", "-c", "core.quotePath=false", "diff", "--numstat", base_sha, head_sha], text=True)
+          additions, deletions, paths = 0, 0, []
+          for line in raw.splitlines():
+              parts = line.split("\t", 2)
+              if len(parts) == 3:
+                  additions += int(parts[0]) if parts[0].isdigit() else 0
+                  deletions += int(parts[1]) if parts[1].isdigit() else 0
+                  paths.append(parts[2])
+          result = {"pr_number": int(os.environ["PR_NUMBER"]), "head_sha": head_sha, "additions": additions, "deletions": deletions, "lines_changed": additions + deletions, "changed_files": len(paths), "paths": paths}
+          out = Path(os.environ["RUNNER_TEMP"]) / "pr-gate-result" / "pr-gate-result.json"
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+      - name: Upload pr-gate-result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-gate-result
+          path: ${{ runner.temp }}/pr-gate-result/pr-gate-result.json
+          if-no-files-found: error
+          retention-days: 7

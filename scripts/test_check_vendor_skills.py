@@ -12,6 +12,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -264,6 +265,85 @@ class TestCheckVendorSkills(unittest.TestCase):
             case_sensitive_ids.index("better-interface/review-format#1"),
             "upper-case names sort first, as in the committed rules.lock",
         )
+
+    def _make_backslash_tree(self, jakub_dir: Path) -> None:
+        if os.sep == "\\":
+            return
+        upstream_dir = jakub_dir / "upstream"
+        skills_dir = upstream_dir / "skills"
+        files_to_move = [p for p in sorted(skills_dir.rglob("*")) if p.is_file()]
+        subdirs = [p for p in sorted(skills_dir.iterdir()) if p.is_dir()]
+        for fpath in files_to_move:
+            rel_parts = fpath.relative_to(skills_dir).parts
+            backslash_name = "\\".join(rel_parts)
+            target = skills_dir / backslash_name
+            target.write_bytes(fpath.read_bytes())
+            fpath.unlink()
+        for subdir in subdirs:
+            shutil.rmtree(subdir)
+
+    def test_crlf_lock_and_backslash_tree_verify_clean(self) -> None:
+        """A `rules.lock` with CRLF line ends and an upstream tree with `\\` separators both verify clean."""
+        tmp = self._copy_vendor_fixture()
+        jakub_dir = tmp / "skills" / "vendor" / "jakubkrehel-skills"
+        lock_path = jakub_dir / "rules.lock"
+        lock_bytes = lock_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        lock_path.write_bytes(lock_bytes)
+        self.assertIn(b"\r\n", lock_path.read_bytes())
+
+        upstream_toml_path = jakub_dir / "UPSTREAM.toml"
+        upstream_toml_text = upstream_toml_path.read_text(encoding="utf-8").replace(
+            '"skills/', '"skills\\\\'
+        )
+        upstream_toml_path.write_text(upstream_toml_text, encoding="utf-8")
+        self._make_backslash_tree(jakub_dir)
+
+        code_v, errors_v = cvs.cmd_verify(tmp, online=False)
+        self.assertEqual(code_v, 0, f"Expected verify exit 0, got: {errors_v}")
+
+        code_e, msgs_e = cvs.cmd_extract(tmp, write=False)
+        self.assertEqual(code_e, 0, f"Expected extract exit 0, got: {msgs_e}")
+
+        code_m, errors_m = cvs.cmd_map_coverage(tmp, write_canvas=False)
+        self.assertEqual(code_m, 0, f"Expected map-coverage exit 0, got: {errors_m}")
+
+        gitattributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn(
+            "skills/vendor/jakubkrehel-skills/rules.lock text eol=lf",
+            gitattributes.splitlines(),
+        )
+
+    def test_extract_writes_lf_and_posix_slashes_only(self) -> None:
+        """`extract --write` writes LF line endings (`newline='\\n'`) and `/` path separators only."""
+        tmp = self._copy_vendor_fixture()
+        jakub_dir = tmp / "skills" / "vendor" / "jakubkrehel-skills"
+        self._make_backslash_tree(jakub_dir)
+
+        recorded_newlines = []
+        orig_open = Path.open
+
+        def spy_open(self_path: Path, mode: str = "r", *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            if self_path.name == "rules.lock" and "w" in mode:
+                recorded_newlines.append(kwargs.get("newline"))
+            return orig_open(self_path, mode, *args, **kwargs)
+
+        with unittest.mock.patch.object(Path, "open", spy_open):
+            code, msgs = cvs.cmd_extract(tmp, write=True)
+        self.assertEqual(code, 0, f"Expected extract --write exit 0, got: {msgs}")
+
+        lock_path = jakub_dir / "rules.lock"
+        raw_bytes = lock_path.read_bytes()
+        self.assertIn(b"\n", raw_bytes)
+        self.assertNotIn(b"\r", raw_bytes)
+
+        for rule_id, _, _ in cvs.parse_rules_lock(lock_path):
+            self.assertIn("/", rule_id)
+            self.assertNotIn("\\", rule_id)
+
+        self.assertEqual(recorded_newlines, ["\n"])
+
+        expected_bytes = (REPO_ROOT / "skills" / "vendor" / "jakubkrehel-skills" / "rules.lock").read_bytes()
+        self.assertEqual(raw_bytes, expected_bytes)
 
     def test_fail_before_when_vendor_folder_missing(self) -> None:
         """When `skills/vendor` does not exist, `verify` exits 2."""

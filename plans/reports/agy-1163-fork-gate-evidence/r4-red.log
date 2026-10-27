@@ -1,0 +1,94 @@
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ok
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ok
+test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count (scripts.test_pr_labels.PrLabelsTests.test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count) ... ERROR
+test_fallback_uses_all_matches_from_commits_pulls_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_fallback_uses_all_matches_from_commits_pulls_then_artifact) ... ERROR
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ok
+test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching (scripts.test_pr_labels.PrLabelsTests.test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching) ... ERROR
+test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact (scripts.test_pr_labels.PrLabelsTests.test_head_label_resolves_fork_pr_when_commit_lookup_empty_and_no_artifact) ... ok
+test_head_label_with_different_head_sha_or_head_repo_is_not_used (scripts.test_pr_labels.PrLabelsTests.test_head_label_with_different_head_sha_or_head_repo_is_not_used) ... ok
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ok
+test_lookup_order_head_label_then_commit_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_lookup_order_head_label_then_commit_then_artifact) ... ok
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ok
+test_one_failed_pr_validation_still_labels_rest_and_fails_job (scripts.test_pr_labels.PrLabelsTests.test_one_failed_pr_validation_still_labels_rest_and_fails_job) ... ERROR
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... ok
+test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array (scripts.test_pr_labels.PrLabelsTests.test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array) ... ERROR
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ok
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+test_two_head_label_matches_with_different_diffs_label_each_from_own_diff (scripts.test_pr_labels.PrLabelsTests.test_two_head_label_matches_with_different_diffs_label_each_from_own_diff) ... ERROR
+
+======================================================================
+ERROR: test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count (scripts.test_pr_labels.PrLabelsTests.test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 635, in test_cap_at_20_matching_prs_labels_first_20_and_fails_naming_count
+    results, errors = pr_labels.evaluate_all_pr_labels(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_all_pr_labels'. Did you mean: 'evaluate_pr_labels'?
+
+======================================================================
+ERROR: test_fallback_uses_all_matches_from_commits_pulls_then_artifact (scripts.test_pr_labels.PrLabelsTests.test_fallback_uses_all_matches_from_commits_pulls_then_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 573, in test_fallback_uses_all_matches_from_commits_pulls_then_artifact
+    pr_labels.resolve_pr_numbers(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'resolve_pr_numbers'. Did you mean: 'resolve_pr_number'?
+
+======================================================================
+ERROR: test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching (scripts.test_pr_labels.PrLabelsTests.test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 547, in test_head_label_list_with_one_matching_and_one_non_matching_labels_only_matching
+    pr_labels.resolve_pr_numbers(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'resolve_pr_numbers'. Did you mean: 'resolve_pr_number'?
+
+======================================================================
+ERROR: test_one_failed_pr_validation_still_labels_rest_and_fails_job (scripts.test_pr_labels.PrLabelsTests.test_one_failed_pr_validation_still_labels_rest_and_fails_job)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 610, in test_one_failed_pr_validation_still_labels_rest_and_fails_job
+    results, errors = pr_labels.evaluate_all_pr_labels(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_all_pr_labels'. Did you mean: 'evaluate_pr_labels'?
+
+======================================================================
+ERROR: test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array (scripts.test_pr_labels.PrLabelsTests.test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 650, in test_paginated_parser_merges_adjacent_and_newline_arrays_and_refuses_junk_or_non_array
+    pr_labels.parse_paginated_arrays('[{"id": 1}][{"id": 2}, {"id": 3}]'),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'parse_paginated_arrays'
+
+======================================================================
+ERROR: test_two_head_label_matches_with_different_diffs_label_each_from_own_diff (scripts.test_pr_labels.PrLabelsTests.test_two_head_label_matches_with_different_diffs_label_each_from_own_diff)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 446, in test_two_head_label_matches_with_different_diffs_label_each_from_own_diff
+    pr_labels.evaluate_pr_labels(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        head_pulls=head_pulls,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        head_repo=fork_repo,
+        ^^^^^^^^^^^^^^^^^^^^
+    ),
+    ^
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/pr_labels.py", line 219, in evaluate_pr_labels
+    v = validate_pull(
+        pull, expected_pr_number=pr_number, expected_head_sha=expected_sha, expected_head_repo=expected_repo,
+    )
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/pr_labels.py", line 130, in validate_pull
+    raise ValueError(f"pull number {num!r} does not match expected {expected_pr_number}")
+ValueError: pull number 2000 does not match expected 2001
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.128s
+
+FAILED (errors=6)

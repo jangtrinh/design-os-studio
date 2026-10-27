@@ -1,0 +1,18 @@
+E
+======================================================================
+ERROR: test_pr_labels (unittest.loader._FailedTest.test_pr_labels)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_pr_labels
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 10, in <module>
+    import pr_labels  # noqa: E402
+    ^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'pr_labels'
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)

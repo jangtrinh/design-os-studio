@@ -1,0 +1,47 @@
++zsh:3> GH_REPO=jangtrinh/design-os-studio 
++zsh:4> EXPECTED_HEAD_SHA=+zsh:4> gh pr view 1184 --json headRefOid --jq .headRefOid
++zsh:4> EXPECTED_HEAD_SHA=2d3012ca1ea064fd03638753139fe56e614ac07c 
++zsh:5> EXPECTED_HEAD_REPO=jangtrinh/design-os-studio 
++zsh:6> work_dir=+zsh:6> mktemp -d
++zsh:6> work_dir=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ 
++zsh:7> trap 'rm -rf "$work_dir"' EXIT
++zsh:8> pulls_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/commits-pulls.json 
++zsh:9> pull_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/pull.json 
++zsh:10> files_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/files.json 
++zsh:11> lying_artifact_json=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/lying-artifact.json 
++zsh:13> gh api --paginate repos/jangtrinh/design-os-studio/commits/2d3012ca1ea064fd03638753139fe56e614ac07c/pulls
++zsh:14> candidate_pr=+zsh:15> python3 -B scripts/pr_labels.py --resolve-pr --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/commits-pulls.json --head-sha 2d3012ca1ea064fd03638753139fe56e614ac07c --head-repo jangtrinh/design-os-studio
++zsh:14> candidate_pr=1184 
++zsh:21> echo 'resolved_candidate_pr=1184'
+resolved_candidate_pr=1184
++zsh:23> gh api repos/jangtrinh/design-os-studio/pulls/1184
++zsh:24> jq '{number, head_sha: .head.sha, head_repo: .head.repo.full_name, additions, deletions, changed_files}' /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/pull.json
+{
+  "number": 1184,
+  "head_sha": "2d3012ca1ea064fd03638753139fe56e614ac07c",
+  "head_repo": "jangtrinh/design-os-studio",
+  "additions": 1387,
+  "deletions": 0,
+  "changed_files": 16
+}
++zsh:25> gh api --paginate repos/jangtrinh/design-os-studio/pulls/1184/files
++zsh:27> python3 -B scripts/pr_labels.py --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/files.json --head-sha 2d3012ca1ea064fd03638753139fe56e614ac07c --head-repo jangtrinh/design-os-studio
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++zsh:34> jq -n --arg sha 2d3012ca1ea064fd03638753139fe56e614ac07c $'{\n    pr_number: 1,\n    head_sha: $sha,\n    additions: 1,\n    deletions: 0,\n    lines_changed: 1,\n    changed_files: 1,\n    paths: ["README.md"]\n  }'
++zsh:43> cat /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/lying-artifact.json
+{
+  "pr_number": 1,
+  "head_sha": "2d3012ca1ea064fd03638753139fe56e614ac07c",
+  "additions": 1,
+  "deletions": 0,
+  "lines_changed": 1,
+  "changed_files": 1,
+  "paths": [
+    "README.md"
+  ]
+}
++zsh:45> python3 -B scripts/pr_labels.py --resolve-pr --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/commits-pulls.json --head-sha 2d3012ca1ea064fd03638753139fe56e614ac07c --head-repo jangtrinh/design-os-studio --artifact /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/lying-artifact.json
+1184
++zsh:52> python3 -B scripts/pr_labels.py --pulls /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/commits-pulls.json --pull /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/pull.json --files /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/files.json --head-sha 2d3012ca1ea064fd03638753139fe56e614ac07c --head-repo jangtrinh/design-os-studio --artifact /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ/lying-artifact.json
+{"pr_number": 1184, "labels": ["size/L", "sensitive-path"]}
++zsh:1> rm -rf /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp.aQTB2FRbhJ

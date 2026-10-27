@@ -41,6 +41,8 @@ pub struct MoveState {
     pub tx: Tx,
     pub ids: Vec<NodeId>,
     pub start: DV,
+    /// Last page-space pointer position observed while dragging. Used when a modal dialog interrupts release.
+    pub last: DV,
     pub orig_bbox: Rect,
     pub targets: Vec<Rect>,
     pub moved: bool,

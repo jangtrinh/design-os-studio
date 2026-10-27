@@ -1,0 +1,97 @@
+=== cargo nextest run --workspace --locked --profile ci -E 'test(=shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one) | (package(designos-fig) & test(=variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count)) | test(=terminal::tests::stub_cli_drives_running_needs_input_done) | test(=terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized)' ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.14s
+────────────
+ Nextest run ID e0d9128c-bc92-4601-9828-a68e8e2f4838 with nextest profile: ci
+    Starting 7 tests across 128 binaries (8110 tests skipped)
+        PASS [   0.371s] (1/7) designos-app::bin/designos shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+        PASS [   0.098s] (2/7) designos-app::bin/designos terminal::tests::stub_cli_drives_running_needs_input_done
+        PASS [   2.216s] (3/7) designos-app::bin/designos terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized
+        PASS [   0.477s] (4/7) designos-app::bin/designos-studio shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one
+        PASS [   0.094s] (5/7) designos-app::bin/designos-studio terminal::tests::stub_cli_drives_running_needs_input_done
+        PASS [   0.208s] (6/7) designos-app::bin/designos-studio terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized
+        PASS [   3.632s] (7/7) designos-fig variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count
+────────────
+     Summary [   7.166s] 7 tests run: 7 passed, 8110 skipped
+=== cargo test --workspace --doc --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1160-nextest/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s
+   Doc-tests designos_diff
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_doc
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_eval
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_export
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_fig
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_fonts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_library
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_render
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_svg
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_webcapture
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

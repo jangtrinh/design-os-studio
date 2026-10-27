@@ -1286,7 +1286,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
     let idx = active_index(app);
     let orig_bbox = union_all(ids.iter().map(|i| super::fast_world_aabb(&app.doc, idx, *i)))?;
     let targets = snap_targets(app, &ids);
-    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None, dup_blocked, main_copies })
+    Some(MoveState { tx, ids, start, last: start, orig_bbox, targets, moved: false, reorder: None, dup_blocked, main_copies })
 }
 
 fn parent_has_auto_layout(doc: &Document, id: NodeId) -> bool {
@@ -1298,6 +1298,7 @@ fn parent_has_auto_layout(doc: &Document, id: NodeId) -> bool {
 }
 
 fn update_move(app: &mut App, m: &mut MoveState, cur: DV, inp: &Inp) {
+    m.last = cur;
     m.tx.ed.revert(&mut app.doc);
     let mut d = sub(cur, m.start);
     let mut lock_x = false;
@@ -1724,7 +1725,7 @@ pub fn commit_auto_layout_inline_value(app: &mut App, id: NodeId, kind: handles:
 /// edits it made. Returns false when a slot limit refuses the drop (the caller undoes the drag).
 fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) -> bool {
     // Holding Space on release suppresses reparenting into a different container (MI-12).
-    if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur) {
+    if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur.or(Some(m.last))) {
         return false;
     }
     settle_main_copies(app, m);
@@ -2577,6 +2578,38 @@ mod tests {
 
     fn is_instance_of(app: &App, id: NodeId, main: NodeId) -> bool {
         app.doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { component: Some(c), .. } if c == main))
+    }
+
+    #[test]
+    fn interrupted_move_reparents_at_the_last_pointer_position() {
+        let (d, page, frames) = page_of_frames(2);
+        let child = d.get(frames[0]).unwrap().children[0];
+        let mut app = App::new(d);
+        app.page = page;
+        let mut m = start_move(&mut app, child, v2(20.0, 20.0), false).expect("move starts");
+        let inp = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+        update_move(&mut app, &mut m, v2(305.0, 5.0), &inp);
+
+        // A leave/save dialog can interrupt the release frame, so commit_open_gesture must finish
+        // the move at its last observed pointer position.
+        app.canvas.inter = Interaction::Move(m);
+        commit_open_gesture(&mut app);
+        assert_eq!(app.doc.get(child).and_then(|n| n.parent), Some(frames[1]));
     }
 
     #[test]

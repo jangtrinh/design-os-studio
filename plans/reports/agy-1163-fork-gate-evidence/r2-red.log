@@ -1,0 +1,108 @@
+$ python3 -B -m unittest scripts/test_pr_labels.py -v
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ERROR
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ERROR
+test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused) ... ERROR
+test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused) ... ERROR
+test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels) ... ERROR
+test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact) ... ERROR
+test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error) ... ERROR
+test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused) ... FAIL
+test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled) ... ERROR
+test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive) ... ERROR
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+
+======================================================================
+ERROR: test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 70, in test_10_files_adds_no_size_label_while_11_files_adds_size_l
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 51, in test_400_lines_adds_no_size_label_while_401_lines_adds_size_l
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_candidate_number_with_different_head_repo_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_repo_is_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 121, in test_candidate_number_with_different_head_repo_is_refused
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_candidate_number_with_different_head_sha_is_refused (scripts.test_pr_labels.PrLabelsTests.test_candidate_number_with_different_head_sha_is_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 110, in test_candidate_number_with_different_head_sha_is_refused
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_files_list_shorter_than_changed_files_gives_both_labels (scripts.test_pr_labels.PrLabelsTests.test_files_list_shorter_than_changed_files_gives_both_labels)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 187, in test_files_list_shorter_than_changed_files_gives_both_labels
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_labels_come_from_files_list_ignoring_conflicting_artifact (scripts.test_pr_labels.PrLabelsTests.test_labels_come_from_files_list_ignoring_conflicting_artifact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 143, in test_labels_come_from_files_list_ignoring_conflicting_artifact
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error (scripts.test_pr_labels.PrLabelsTests.test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 199, in test_no_pr_found_and_no_artifact_gives_no_labels_and_no_error
+    pr_labels.evaluate_pr_labels(pulls=[], head_sha=SHA_A, head_repo=REPO),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_pr_found_with_no_artifact_is_still_labelled (scripts.test_pr_labels.PrLabelsTests.test_pr_found_with_no_artifact_is_still_labelled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 222, in test_pr_found_with_no_artifact_is_still_labelled
+    pr_labels.evaluate_pr_labels(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'evaluate_pr_labels'
+
+======================================================================
+ERROR: test_rename_into_github_counts_as_one_file_and_is_sensitive (scripts.test_pr_labels.PrLabelsTests.test_rename_into_github_counts_as_one_file_and_is_sensitive)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 171, in test_rename_into_github_counts_as_one_file_and_is_sensitive
+    paths = pr_labels.extract_file_paths(files)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'pr_labels' has no attribute 'extract_file_paths'
+
+======================================================================
+FAIL: test_oversized_artifact_over_64_kib_is_refused (scripts.test_pr_labels.PrLabelsTests.test_oversized_artifact_over_64_kib_is_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1163-fork-gate/scripts/test_pr_labels.py", line 262, in test_oversized_artifact_over_64_kib_is_refused
+    self.assertEqual(proc.returncode, 1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 1
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.024s
+
+FAILED (failures=1, errors=9)

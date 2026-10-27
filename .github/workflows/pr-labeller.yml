@@ -1,0 +1,225 @@
+name: PR Labeller
+
+on:
+  workflow_run:
+    workflows: ["PR Gate"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: read
+  actions: read
+
+jobs:
+  label:
+    name: PR Labeller
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      EXPECTED_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+      HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      # Never check out PR code: fetch only scripts/pr_labels.py from the base default branch.
+      - name: Checkout trusted label script from default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            scripts/pr_labels.py
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve PR from GitHub API and apply labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          work_dir="$RUNNER_TEMP/pr-labeller"
+          mkdir -p "$work_dir"
+          head_pulls_json="$work_dir/head-pulls.json"
+          pulls_json="$work_dir/commits-pulls.json"
+          artifact_json="$work_dir/pr-gate-result.json"
+
+          # 1. First lookup: open PRs by head label (<owner>:<branch>).
+          gh api -X GET "repos/${GH_REPO}/pulls" \
+            -f state=open \
+            -f head="${HEAD_OWNER}:${HEAD_BRANCH}" \
+            --paginate > "$head_pulls_json"
+          printf '[]\n' > "$pulls_json"
+          candidate_prs="$(
+            python3 -B scripts/pr_labels.py \
+              --resolve-pr \
+              --head-pulls "$head_pulls_json" \
+              --pulls "$pulls_json" \
+              --head-sha "$EXPECTED_HEAD_SHA" \
+              --head-repo "$EXPECTED_HEAD_REPO"
+          )"
+
+          # 2. Second lookup: commits/{head_sha}/pulls when head-label lookup finds no match.
+          if [ -z "$candidate_prs" ]; then
+            gh api --paginate "repos/${GH_REPO}/commits/${EXPECTED_HEAD_SHA}/pulls" > "$pulls_json"
+            candidate_prs="$(
+              python3 -B scripts/pr_labels.py \
+                --resolve-pr \
+                --head-pulls "$head_pulls_json" \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO"
+            )"
+          fi
+
+          # 3. Third lookup: pr-gate-result artifact candidate when neither API lookup matched.
+          artifact_args=()
+          if [ -z "$candidate_prs" ]; then
+            artifacts_list="$work_dir/artifacts.json"
+            gh api "repos/${GH_REPO}/actions/runs/${RUN_ID}/artifacts" > "$artifacts_list"
+            artifact_meta="$(
+              jq -r '.artifacts[] | select(.name == "pr-gate-result" and .expired == false) | "\(.id)\t\(.size_in_bytes)"' \
+                "$artifacts_list" | head -n 1 || true
+            )"
+            if [ -z "$artifact_meta" ]; then
+              echo "::notice::No matching PR from pulls?state=open&head=${HEAD_OWNER}:${HEAD_BRANCH} or commits/${EXPECTED_HEAD_SHA}/pulls, and no pr-gate-result artifact for run ${RUN_ID} (PR was closed or its branch moved on); nothing to label."
+              python3 -B scripts/pr_labels.py \
+                --head-pulls "$head_pulls_json" \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO" >/dev/null
+              exit 0
+            fi
+            artifact_id="${artifact_meta%%$'\t'*}"
+            artifact_size="${artifact_meta#*$'\t'}"
+            if ! [[ "$artifact_size" =~ ^[0-9]+$ ]] || [ "$artifact_size" -gt 65536 ]; then
+              echo "::error::pr-gate-result artifact size (${artifact_size} bytes) exceeds 64 KiB limit"
+              exit 1
+            fi
+            gh api "repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" > "$work_dir/pr-gate-result.zip"
+            unzip -p "$work_dir/pr-gate-result.zip" pr-gate-result.json | head -c 65537 > "$artifact_json" || true
+            artifact_args=(--artifact "$artifact_json")
+            candidate_prs="$(
+              python3 -B scripts/pr_labels.py \
+                --resolve-pr \
+                --head-pulls "$head_pulls_json" \
+                --pulls "$pulls_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO" \
+                "${artifact_args[@]}"
+            )"
+          fi
+
+          matched_prs=()
+          while IFS= read -r candidate_pr; do
+            [ -z "$candidate_pr" ] && continue
+            if ! [[ "$candidate_pr" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Failed to resolve a valid PR number: $candidate_pr"
+              exit 1
+            fi
+            matched_prs+=("$candidate_pr")
+          done <<< "$candidate_prs"
+
+          total_matched="${#matched_prs[@]}"
+          if [ "$total_matched" -eq 0 ]; then
+            echo "::error::Failed to resolve a valid PR number"
+            exit 1
+          fi
+
+          ensure_label() {
+            local encoded="${1//\//%2F}"
+            gh api "repos/${GH_REPO}/labels/${encoded}" >/dev/null 2>&1 || \
+              gh api "repos/${GH_REPO}/labels" -X POST -f name="$1" -f color="$2" -f description="$3" >/dev/null
+          }
+
+          max_prs=20
+          prs_to_label=("${matched_prs[@]:0:$max_prs}")
+          had_failure=0
+
+          # 4. Fetch PR counts and file paths from GitHub for each matched PR (up to 20) and apply labels.
+          for candidate_pr in "${prs_to_label[@]}"; do
+            pull_json="$work_dir/pull-${candidate_pr}.json"
+            files_json="$work_dir/files-${candidate_pr}.json"
+            if ! gh api "repos/${GH_REPO}/pulls/${candidate_pr}" > "$pull_json"; then
+              echo "::error::Failed to fetch pulls/${candidate_pr}"
+              had_failure=1
+              continue
+            fi
+            if ! gh api --paginate "repos/${GH_REPO}/pulls/${candidate_pr}/files" > "$files_json"; then
+              echo "::error::Failed to fetch pulls/${candidate_pr}/files"
+              had_failure=1
+              continue
+            fi
+
+            # 5. Validate PR identity (head.sha and head.repo.full_name) and compute labels.
+            if ! eval_json="$(
+              python3 -B scripts/pr_labels.py \
+                --head-pulls "$head_pulls_json" \
+                --pulls "$pulls_json" \
+                --pr-number "$candidate_pr" \
+                --pull "$pull_json" \
+                --files "$files_json" \
+                --head-sha "$EXPECTED_HEAD_SHA" \
+                --head-repo "$EXPECTED_HEAD_REPO" \
+                ${artifact_args[@]+"${artifact_args[@]}"}
+            )"; then
+              echo "::error::Validation failed for PR #${candidate_pr}"
+              had_failure=1
+              continue
+            fi
+
+            pr_number="$(jq -r '.pr_number' <<< "$eval_json")"
+            if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Invalid resolved pr_number: $pr_number"
+              had_failure=1
+              continue
+            fi
+            labels_count="$(jq -r '.labels | length' <<< "$eval_json")"
+            [ "$labels_count" -eq 0 ] && continue
+
+            labels_json="[]"
+            label_err=0
+            while IFS= read -r label; do
+              [ -z "$label" ] && continue
+              case "$label" in
+                "size/L")
+                  if ! ensure_label "size/L" "d93f0b" "Pull request changes > 400 lines or > 10 files"; then
+                    echo "::error::Failed to ensure label size/L for PR #${pr_number}"
+                    label_err=1
+                    break
+                  fi
+                  ;;
+                "sensitive-path")
+                  if ! ensure_label "sensitive-path" "b60205" "Pull request touches security- or release-sensitive paths"; then
+                    echo "::error::Failed to ensure label sensitive-path for PR #${pr_number}"
+                    label_err=1
+                    break
+                  fi
+                  ;;
+                *)
+                  echo "::error::Unexpected label: $label"
+                  label_err=1
+                  break
+                  ;;
+              esac
+              labels_json="$(jq -cn --argjson arr "$labels_json" --arg l "$label" '$arr + [$l]')"
+            done < <(jq -r '.labels[]' <<< "$eval_json")
+            if [ "$label_err" -ne 0 ]; then
+              had_failure=1
+              continue
+            fi
+            if ! jq -cn --argjson labels "$labels_json" '{labels: $labels}' \
+              | gh api "repos/${GH_REPO}/issues/${pr_number}/labels" -X POST --input - >/dev/null; then
+              echo "::error::Failed to apply labels to PR #${pr_number}"
+              had_failure=1
+              continue
+            fi
+          done
+
+          if [ "$total_matched" -gt "$max_prs" ]; then
+            echo "::error::Matched ${total_matched} PRs for head ${EXPECTED_HEAD_REPO}@${EXPECTED_HEAD_SHA}, exceeding cap of ${max_prs} (labelled first ${max_prs})"
+            had_failure=1
+          fi
+
+          if [ "$had_failure" -ne 0 ]; then
+            exit 1
+          fi

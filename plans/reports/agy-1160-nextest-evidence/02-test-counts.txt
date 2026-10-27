@@ -1,0 +1,23 @@
+=== cargo nextest list --workspace --locked --profile ci | wc -l ===
+    8084
+=== cargo nextest list --workspace --locked --profile ci --run-ignored only | wc -l ===
+      33
+=== cargo nextest list --workspace --locked --profile ci --run-ignored all | wc -l ===
+    8117
+=== cargo test --workspace --locked -- --list | grep -c ': test$' ===
+8117
+=== cargo test --workspace --locked -- --ignored --list | grep -c ': test$' ===
+33
+=== cargo test --workspace --doc --locked (doctest targets: 12 targets, 0 doctest cases) ===
+   Doc-tests designos_diff       -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_doc        -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_eval       -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_export     -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_fig        -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_fonts      -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_gpu        -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_library    -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_mcp        -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_render     -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_svg        -> 0 passed; 0 failed; 0 ignored
+   Doc-tests designos_webcapture -> 0 passed; 0 failed; 0 ignored

@@ -55,6 +55,7 @@ impl Live {
             tx,
             ids: vec![self.dragged],
             start: Vec2::ZERO,
+            last: Vec2::new(50.0, 0.0),
             orig_bbox: Rect::new(0.0, 0.0, 100.0, 100.0),
             targets: Vec::new(),
             moved: true,

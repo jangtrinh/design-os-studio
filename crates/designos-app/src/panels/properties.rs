@@ -1918,9 +1918,13 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         crate::styles::style_entries(&app.doc, false)
             .into_iter()
             .filter_map(|e| match app.doc.styles.get(&e.key) {
-                Some(Style::Fill(ps)) => {
-                    ps.first().map(|p| picker::StyleItem { name: app.doc.style_name(&e.key).to_string(), key: e.key.clone(), paint: p.clone(), library: None })
-                }
+                Some(Style::Fill(ps)) => ps.first().map(|p| picker::StyleItem {
+                    name: app.doc.style_name(&e.key).to_string(),
+                    key: e.key.clone(),
+                    paint: p.clone(),
+                    description: crate::styles::style_description(&app.doc, &e.key).to_string(),
+                    library: None,
+                }),
                 _ => None,
             })
             .collect()
@@ -1938,6 +1942,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                             name: v.name.clone(),
                             key: v.id.clone(),
                             paint: Paint { opacity: c.a, ..Paint::solid(Color { a: 1.0, ..c }) },
+                            description: String::new(),
                             library: Some(("__vars__".to_string(), format!("Variables · {}", coll.name))),
                         });
                     }
@@ -1951,6 +1956,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                         name: ls.name.clone(),
                         key: ls.key.clone(),
                         paint: p.clone(),
+                        description: String::new(),
                         library: Some((ls.library_id.clone(), ls.library_name.clone())),
                     });
                 }
@@ -2323,6 +2329,7 @@ fn find_node_in_page(doc: &Document, root: NodeId, pred: &dyn Fn(&Node) -> bool)
 pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
     let (base, sub) = spec.split_once(':').unwrap_or((spec, ""));
     super::style_picker::set_screenshot_hover_tip(sub == "hover");
+    widgets::picker::set_screenshot_libraries_hover(false);
     if base == "variables" {
         app.vars.open = true;
         app.vars.full = true;
@@ -2367,6 +2374,27 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             }
             let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(Color32::GRAY);
             open_picker(app, PickTarget::Fill(0), c, sw, vec![id]);
+        }
+        "fill-picker-libraries" => {
+            if app.doc.get(id).is_some_and(|n| n.fills.is_empty()) {
+                app.edit_nodes(&[id], |n| n.fills.push(Paint::solid(Color::rgb(0xD9, 0xD9, 0xD9))));
+            }
+            if sub == "hover" {
+                for entry in crate::styles::style_entries(&app.doc, false) {
+                    if !crate::styles::style_description(&app.doc, &entry.key).is_empty() {
+                        break;
+                    }
+                    if app.set_style_description_to(&entry.key, "Brand primary fill") {
+                        break;
+                    }
+                }
+            }
+            let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(Color32::GRAY);
+            open_picker(app, PickTarget::Fill(0), c, sw, vec![id]);
+            if let Some(pk) = app.props.picker.as_mut() {
+                pk.state.tab = widgets::picker::Tab::Libraries;
+            }
+            widgets::picker::set_screenshot_libraries_hover(sub == "hover");
         }
         "fill-d9" => {
             // Screenshot aid: the Figma reference fill (#D9D9D9, 100 %) for crop comparisons.

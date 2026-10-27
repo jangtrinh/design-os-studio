@@ -1,0 +1,11 @@
+test_10_files_adds_no_size_label_while_11_files_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_10_files_adds_no_size_label_while_11_files_adds_size_l) ... ok
+test_400_lines_adds_no_size_label_while_401_lines_adds_size_l (scripts.test_pr_labels.PrLabelsTests.test_400_lines_adds_no_size_label_while_401_lines_adds_size_l) ... ok
+test_malformed_artifact_is_rejected (scripts.test_pr_labels.PrLabelsTests.test_malformed_artifact_is_rejected) ... ok
+test_missing_artifact_exits_zero_and_outputs_nothing (scripts.test_pr_labels.PrLabelsTests.test_missing_artifact_exits_zero_and_outputs_nothing) ... ok
+test_rename_into_sensitive_path_triggers_sensitive_path_label (scripts.test_pr_labels.PrLabelsTests.test_rename_into_sensitive_path_triggers_sensitive_path_label) ... ok
+test_sensitive_paths_match_all_configured_categories (scripts.test_pr_labels.PrLabelsTests.test_sensitive_paths_match_all_configured_categories) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.044s
+
+OK
