@@ -2483,7 +2483,10 @@ mod tests {
             let huge_path = ws_dir.join("huge.designos");
             let f = fs::File::create(&huge_path).unwrap();
             f.set_len(513 * 1024 * 1024).unwrap();
-            record(s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err(), ErrorCode::FileTooLarge, true);
+            let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+            assert!(!err.safe_to_retry, "FILE_TOO_LARGE must not be safe_to_retry: {err:?}");
+            assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
+            record(err, ErrorCode::FileTooLarge, false);
             let _ = fs::remove_file(&huge_path);
         }
 
@@ -3381,6 +3384,26 @@ mod tests {
         }
         assert_eq!(doc.nodes.len(), 200_000);
         validate_document(&doc).expect("200,000-node document must be accepted under the 1,200,000 layer limit");
+    }
+
+    #[test]
+    fn file_too_large_is_not_safe_to_retry_and_names_the_next_step() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-1121-ftl-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let mut s = Session::new(&ws_dir).unwrap();
+
+        let huge_path = ws_dir.join("huge.designos");
+        let f = fs::File::create(&huge_path).unwrap();
+        f.set_len(513 * 1024 * 1024).unwrap();
+        drop(f);
+
+        let err = s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err();
+        let _ = fs::remove_dir_all(&ws_dir);
+
+        assert_eq!(err.code, ErrorCode::FileTooLarge);
+        assert!(!err.safe_to_retry, "FILE_TOO_LARGE must have safe_to_retry: false");
+        assert!(err.next_step.contains("Studio"), "FILE_TOO_LARGE next_step must mention Studio: {}", err.next_step);
     }
 }
 
