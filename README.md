@@ -97,9 +97,9 @@ cargo run --release -p designos-app --bin designos-studio
    ```bash
    python3 scripts/self_check.py
    ```
-2. **Apply a declarative `NodeSpec` JSON to a document and export it as a Figma `.fig` file (container version 106).** `app.designos` is created if it does not exist:
+2. **Apply `--apply-spec your-screen.spec.json` (any NodeSpec JSON you or your agent write) to a document and export it as a Figma `.fig` file (container version 106).** `app.designos` is created if it does not exist:
    ```bash
-   designos app.designos --apply-spec screen.spec.json
+   designos app.designos --apply-spec your-screen.spec.json
    designos app.designos --export-fig out.fig
    ```
    `--export-fig` writes only to a path that ends in `.fig` and does not exist yet. Re-running it needs `--overwrite`, which replaces an existing regular file; a symbolic link is never written through.
@@ -123,7 +123,7 @@ cargo run --release -p designos-app --bin designos-studio
 
 Open your project in your AI coding agent (or in the Studio's Agents panel) and describe the outcome you need:
 
-> "Apply `screen.spec.json` to a new document, export it to `out.fig`, and capture a 1600x1000 GPU screenshot."
+> "Apply `your-screen.spec.json` (any NodeSpec JSON you or your agent write) to a new document, export it to `out.fig`, and capture a 1600x1000 GPU screenshot."
 
 > "List the open comment threads, make the change each one asks for, and resolve the thread."
 
@@ -258,10 +258,10 @@ Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for 
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> `.fig` export
 
-AI agents author compact, diffable `NodeSpec` JSON (`screen.spec.json`) rather than guessing pixel coordinates. `designos-doc` computes recursive Auto-Layout 5.0 geometry (`relayout_subtree`), and `designos-fig` exports the result as a `.fig` file (`export_fig`, container version 106):
+AI agents author compact, diffable `NodeSpec` JSON and apply it with `--apply-spec your-screen.spec.json` (any NodeSpec JSON you or your agent write) rather than guessing pixel coordinates. `designos-doc` computes recursive Auto-Layout 5.0 geometry (`relayout_subtree`), and `designos-fig` exports the result as a `.fig` file (`export_fig`, container version 106):
 
 ```bash
-designos app.designos --apply-spec screen.spec.json
+designos app.designos --apply-spec your-screen.spec.json
 designos app.designos --export-fig out.fig
 ```
 
@@ -402,7 +402,7 @@ Once installed, your agent loads `skills/design-os-studio/SKILL.md` when your re
 **Generate & Export `.spec.json` -> `.fig`**
 
 ```text
-"Apply screen.spec.json to a new document, export it to out.fig, and capture a 1600x1000 GPU screenshot."
+"Apply your-screen.spec.json (any NodeSpec JSON you or your agent write) to a new document, export it to out.fig, and capture a 1600x1000 GPU screenshot."
 ```
 
 **Resolve Canvas Comments**
