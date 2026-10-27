@@ -112,10 +112,10 @@ fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, FigError> {
         let mut zip = zip::ZipWriter::new(&mut buf);
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         for (name, bytes) in entries {
-            zip.start_file(name, opts).map_err(|e| FigError::Format(format!("zip start_file {name}: {e}")))?;
-            zip.write_all(bytes).map_err(|e| FigError::Format(format!("zip write {name}: {e}")))?;
+            zip.start_file(name, opts).map_err(|e| FigError::Export(format!("zip start_file {name}: {e}")))?;
+            zip.write_all(bytes).map_err(|e| FigError::Export(format!("zip write {name}: {e}")))?;
         }
-        zip.finish().map_err(|e| FigError::Format(format!("zip finish: {e}")))?;
+        zip.finish().map_err(|e| FigError::Export(format!("zip finish: {e}")))?;
     }
     Ok(buf.into_inner())
 }
@@ -841,16 +841,58 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
     Ok(ExportBundle { format: VariablesFormat::FigmaNative, files, omitted_extensions: Vec::new() })
 }
 
+/// Computes a unique DTCG group name per collection in `doc` (`#1140` §3 rule 1).
+/// When several collections sanitize to the same group, the first local one (no `source_library_key`)
+/// in collection id order keeps the plain name, or the first in id order if none is local;
+/// remaining duplicates receive ` (2)`, ` (3)`, … in collection id order.
+fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
+    let mut by_base: BTreeMap<String, Vec<&VariableCollection>> = BTreeMap::new();
+    for coll in doc.variable_collections.values() {
+        let (clean_coll, _) = sanitize_dtcg_segment(&coll.name);
+        by_base.entry(clean_coll).or_default().push(coll);
+    }
+
+    let mut used_groups: HashSet<String> = HashSet::new();
+    let mut coll_group_names: BTreeMap<String, String> = BTreeMap::new();
+    let mut winners: HashSet<String> = HashSet::new();
+
+    for (base, colls) in &by_base {
+        let winner = colls.iter().find(|c| !c.is_library()).copied().unwrap_or(colls[0]);
+        let mut candidate = base.clone();
+        let mut counter = 2usize;
+        while !used_groups.insert(candidate.clone()) {
+            candidate = format!("{base} ({counter})");
+            counter += 1;
+        }
+        coll_group_names.insert(winner.id.clone(), candidate);
+        winners.insert(winner.id.clone());
+    }
+
+    for (base, colls) in &by_base {
+        let mut counter = 2usize;
+        for coll in colls {
+            if winners.contains(&coll.id) {
+                continue;
+            }
+            let mut candidate = format!("{base} ({counter})");
+            counter += 1;
+            while !used_groups.insert(candidate.clone()) {
+                candidate = format!("{base} ({counter})");
+                counter += 1;
+            }
+            coll_group_names.insert(coll.id.clone(), candidate);
+        }
+    }
+
+    coll_group_names
+}
+
 fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
     let mut files = Vec::new();
     let mut manifest_collections = Vec::new();
 
-    // Map each collection id -> sanitized DTCG group name
-    let mut coll_group_names: BTreeMap<String, String> = BTreeMap::new();
-    for coll in doc.variable_collections.values() {
-        let (clean_coll, _) = sanitize_dtcg_segment(&coll.name);
-        coll_group_names.insert(coll.id.clone(), clean_coll);
-    }
+    // Map each collection id -> unique sanitized DTCG group name (`#1140` §3 rule 1)
+    let coll_group_names = compute_unique_dtcg_group_names(doc);
 
     // Precompute group prefixes per collection for `$root` handling
     let mut coll_prefixes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -1441,6 +1483,7 @@ fn merge_staged_into_doc(doc: &mut Document, mut staging: Document, replace: boo
 struct ParsedToken {
     collection_id: String,
     collection_name: String,
+    collection_group: Option<String>,
     collection_key: Option<String>,
     source_library_key: Option<String>,
     has_explicit_collection_id: bool,
@@ -1657,6 +1700,7 @@ fn stage_figma_native_files(primary_text: &str, opts: &ImportVariablesOptions) -
             dialect: VariablesFormat::FigmaNative,
             collection_id: coll_id,
             collection_name: coll_name,
+            collection_group: None,
             collection_key: coll_key,
             source_library_key: None,
             has_explicit_collection_id,
@@ -1738,6 +1782,7 @@ fn stage_dtcg_files(primary_text: &str, opts: &ImportVariablesOptions) -> Result
                             dialect: VariablesFormat::Dtcg,
                             collection_id: coll_id.clone(),
                             collection_name: coll_name.clone(),
+                            collection_group: Some(group_key.clone()),
                             collection_key: coll_key.clone(),
                             source_library_key: source_library_key.clone(),
                             has_explicit_collection_id,
@@ -1790,6 +1835,7 @@ fn stage_dtcg_files(primary_text: &str, opts: &ImportVariablesOptions) -> Result
                         dialect: VariablesFormat::Dtcg,
                         collection_id: coll_id,
                         collection_name: coll_name.clone(),
+                        collection_group: Some(coll_name.clone()),
                         collection_key: None,
                         source_library_key: None,
                         has_explicit_collection_id: false,
@@ -1806,6 +1852,7 @@ fn stage_dtcg_files(primary_text: &str, opts: &ImportVariablesOptions) -> Result
                         dialect: VariablesFormat::Dtcg,
                         collection_id: "VariableCollectionId:tokens".to_string(),
                         collection_name: "Tokens".to_string(),
+                        collection_group: None,
                         collection_key: None,
                         source_library_key: None,
                         has_explicit_collection_id: false,
@@ -1827,6 +1874,7 @@ fn stage_dtcg_files(primary_text: &str, opts: &ImportVariablesOptions) -> Result
                     dialect: VariablesFormat::Dtcg,
                     collection_id: coll_id,
                     collection_name: coll_name,
+                    collection_group: None,
                     collection_key: None,
                     source_library_key: None,
                     has_explicit_collection_id: false,
@@ -1850,6 +1898,7 @@ struct WalkContext {
     dialect: VariablesFormat,
     collection_id: String,
     collection_name: String,
+    collection_group: Option<String>,
     collection_key: Option<String>,
     source_library_key: Option<String>,
     has_explicit_collection_id: bool,
@@ -1979,6 +2028,7 @@ fn parse_single_token(
             out.push(ParsedToken {
                 collection_id,
                 collection_name: ctx.collection_name.clone(),
+                collection_group: ctx.collection_group.clone(),
                 collection_key: ctx.collection_key.clone(),
                 source_library_key: ctx.source_library_key.clone(),
                 has_explicit_collection_id,
@@ -2118,6 +2168,7 @@ fn parse_single_token(
     out.push(ParsedToken {
         collection_id,
         collection_name: ctx.collection_name.clone(),
+        collection_group: ctx.collection_group.clone(),
         collection_key: ctx.collection_key.clone(),
         source_library_key: ctx.source_library_key.clone(),
         has_explicit_collection_id,
@@ -2170,8 +2221,12 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, is_replace: bool, skipped:
     let mut doc = Document::new("staged");
     let mut pending_aliases: Vec<(String, String, String, RawTokenValue)> = Vec::new();
     let mut listed: HashSet<(String, String)> = HashSet::new();
+    let mut explicit_group_by_coll: HashMap<String, String> = HashMap::new();
 
     for tok in tokens {
+        if let Some(g) = &tok.collection_group {
+            explicit_group_by_coll.entry(tok.collection_id.clone()).or_insert_with(|| g.clone());
+        }
         let coll = doc.variable_collections.entry(tok.collection_id.clone()).or_insert_with(|| {
             let mut ext = tok.coll_extensions.clone();
             if !is_replace {
@@ -2271,9 +2326,16 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, is_replace: bool, skipped:
     let mut coll_by_group_name: HashMap<String, String> = HashMap::new();
 
     for c in doc.variable_collections.values() {
-        coll_by_group_name.insert(c.name.clone(), c.id.clone());
+        if !c.is_library() || !coll_by_group_name.contains_key(&c.name) {
+            coll_by_group_name.insert(c.name.clone(), c.id.clone());
+        }
         let (clean, _) = sanitize_dtcg_segment(&c.name);
-        coll_by_group_name.insert(clean, c.id.clone());
+        if !c.is_library() || !coll_by_group_name.contains_key(&clean) {
+            coll_by_group_name.insert(clean, c.id.clone());
+        }
+    }
+    for (cid, group) in explicit_group_by_coll {
+        coll_by_group_name.insert(group, cid);
     }
     for v in doc.variables.values() {
         by_coll_and_name.insert((v.collection.clone(), v.name.clone()), v.id.clone());

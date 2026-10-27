@@ -64,4 +64,6 @@ pub enum FigError {
     Format(String),
     #[error("unsupported: {0}")]
     Unsupported(String),
+    #[error("{0}")]
+    Export(String),
 }

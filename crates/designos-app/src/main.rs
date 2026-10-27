@@ -458,6 +458,16 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             }
             std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
         } else {
+            let mut seen_names = std::collections::BTreeSet::new();
+            let mut dup_names = Vec::new();
+            for (name, _) in &bundle.files {
+                if !seen_names.insert(name.as_str()) && !dup_names.contains(&name.as_str()) {
+                    dup_names.push(name.as_str());
+                }
+            }
+            if !dup_names.is_empty() {
+                return Err(format!("Refusing to overwrite duplicate export file(s): {}", dup_names.join(", ")));
+            }
             std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
             for (name, bytes) in &bundle.files {
                 let safe_name = std::path::Path::new(name)
