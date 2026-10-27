@@ -34,23 +34,30 @@ pub fn text_width(p: &Painter, s: &str, font: &FontId) -> f32 {
     p.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE).size().x
 }
 
-/// Shortens `s` with an ellipsis so that it fits `max_w`.
-pub fn elide(p: &Painter, s: &str, font: &FontId, max_w: f32) -> String {
-    if text_width(p, s, font) <= max_w {
-        return s.to_string();
+pub(crate) fn elide_with(mut width_of: impl FnMut(&str) -> f32, s: &str, max_w: f32) -> (String, f32) {
+    let full_w = width_of(s);
+    if full_w <= max_w {
+        return (s.to_string(), full_w);
     }
     let chars: Vec<char> = s.chars().collect();
     let (mut lo, mut hi) = (0usize, chars.len());
     while lo < hi {
         let mid = (lo + hi).div_ceil(2);
         let cand: String = chars[..mid].iter().collect::<String>() + "…";
-        if text_width(p, &cand, font) <= max_w {
+        if width_of(&cand) <= max_w {
             lo = mid;
         } else {
             hi = mid - 1;
         }
     }
-    chars[..lo].iter().collect::<String>() + "…"
+    let out = chars[..lo].iter().collect::<String>() + "…";
+    let w = width_of(&out);
+    (out, w)
+}
+
+/// Shortens `s` with an ellipsis so that it fits `max_w`.
+pub fn elide(p: &Painter, s: &str, font: &FontId, max_w: f32) -> String {
+    elide_with(|cand| text_width(p, cand, font), s, max_w).0
 }
 
 pub fn hline(p: &Painter, x0: f32, x1: f32, y: f32, color: Color32) {

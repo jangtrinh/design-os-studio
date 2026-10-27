@@ -1,0 +1,116 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 4 tests
+test agent_turn_status::tests::status_phrase_maps_studio_and_generic_tools ... ok
+test agent_turn_status::tests::codex_turn_end_process_exit_maps_user_stop_and_exit_code_or_signal ... ok
+test agent_turn_status::tests::a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug ... ok
+test agent_turn_status::tests::streaming_parser_handles_multiline_and_incomplete_records ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3321 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 30 tests
+test agent_stop::tests::a_receipt_of_a_turn_that_started_after_the_stop_is_not_adopted ... ok
+test agent_stop::tests::completed_receipt_that_raced_the_stop_becomes_stopped ... ok
+test agent_stop::tests::fold_since_makes_the_tail_one_undo_step ... ok
+test agent_stop::tests::fold_stops_at_a_user_step ... ok
+test agent_stop::tests::receipt_says_stopped_by_you ... ok
+test agent_stop::tests::no_key_is_sent_after_the_turn_ended ... ok
+test agent_stop::tests::esc_in_the_chrome_stops ... ok
+test agent_stop::tests::esc_in_the_terminal_reaches_the_cli_unchanged ... ok
+test agent_stop::tests::codex_heuristic_stop_folds_all_patches_and_preserves_elapsed_receipt ... ok
+test agent_stop::tests::osc_status_in_pty_does_not_erase_stopped_until_new_working_turn ... ok
+test agent_stop::tests::nested_spec_flags_without_a_run_id_get_the_agent_tab_run_id_and_explicit_ones_keep_theirs ... ok
+test agent_stop::tests::live_spec_flag_without_run_id_clears_on_stop_of_the_writing_tab ... ok
+test agent_stop::tests::in_progress_flags_clear_on_stop ... ok
+test agent_stop::tests::applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_turn_end_leaves_it ... ok
+test agent_stop::tests::stop_preserves_user_redo_while_dropping_agent_redo ... ok
+test agent_stop::tests::applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_stop_leaves_it ... ok
+test agent_stop::tests::stop_ends_a_looping_stub_within_three_seconds ... ok
+test agent_stop::tests::stop_all_stops_every_running_tab ... ok
+test agent_stop::tests::stopped_turn_closes_its_ledger_turn_and_revert_after_a_user_undo_still_covers_every_step ... ok
+test agent_stop::tests::second_key_is_sent_only_if_still_running ... ok
+test agent_stop::tests::folding_a_stopped_turn_remaps_the_ledger_of_every_tab ... ok
+test agent_stop::tests::stopped_turn_reads_as_stopped_in_the_receipt_row_and_header_status ... ok
+test agent_stop::tests::held_patches_apply_before_the_fold ... ok
+test agent_stop::tests::stop_during_drag_clears_in_progress_from_held_patches_and_keeps_post_close_patches_separate ... ok
+test agent_stop::tests::stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent ... ok
+test agent_stop::tests::a_new_prompt_closes_the_pending_stop_so_the_next_turn_never_folds_with_it ... ok
+test agent_stop::tests::stop_after_user_shapes_and_earlier_turn_only_folds_active_turn_and_resets_receipt_clock ... ok
+test agent_stop::tests::stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet ... ok
+test agent_stop::tests::a_cli_that_prints_nothing_after_the_key_is_not_closed_by_quiet_and_ends_in_the_still_running_notice ... ok
+test agent_stop::tests::a_chatty_cli_stays_pending_across_the_real_quiet_window ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 3295 filtered out; finished in 1.31s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.21s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 25 tests
+test agent_turn_ledger::tests::a_heuristic_turn_opened_after_the_stop_closes_with_it ... ok
+test agent_turn_ledger::tests::a_turn_opened_after_the_stop_stays_open_when_the_stop_closes ... ok
+test agent_turn_ledger::tests::log_reader_reports_line_start_offsets ... ok
+test agent_turn_ledger::tests::hook_command_writes_the_current_log_size ... ok
+test agent_turn_ledger::tests::no_card_for_a_turn_without_changes ... ok
+test agent_turn_ledger::tests::a_large_patch_and_a_mark_never_interleave ... ok
+test agent_turn_ledger::tests::revert_restores_the_document_in_one_step ... ok
+test agent_turn_ledger::tests::codex_heuristic_turns_are_marked_approximate ... ok
+test agent_turn_ledger::tests::marks_assign_patches_by_byte_offset ... ok
+test agent_turn_ledger::tests::revert_preserves_user_edit_that_matches_earlier_agent_step_pre_fingerprint ... ok
+test agent_turn_ledger::tests::keep_leaves_normal_undo_history ... ok
+test agent_turn_ledger::tests::revert_keeps_layers_the_user_changed_afterwards ... ok
+test agent_turn_ledger::tests::ledger_groups_patches_between_marks ... ok
+test agent_turn_ledger::tests::inspector_width_change_on_fixed_child_after_turn_is_kept ... ok
+test agent_turn_ledger::tests::edits_with_no_marks_and_no_status_change_make_one_approximate_turn_whatever_the_cli ... ok
+test agent_turn_ledger::tests::revert_keeps_edits_on_other_layers ... ok
+test agent_turn_ledger::tests::codex_working_turn_stays_one_turn_across_3s_patch_gap ... ok
+test agent_turn_ledger::tests::works_for_each_cli_hook_file ... ok
+test agent_turn_ledger::tests::reverted_card_shows_removed_with_frame_without_kept_zero ... ok
+test agent_turn_ledger::tests::select_layer_action_does_not_mark_canvas_dirty ... ok
+test agent_turn_ledger::tests::summary_lists_changed_layers_and_selects_on_click ... ok
+test agent_turn_ledger::tests::revert_undoes_earlier_step_after_intervening_auto_layout_reflow ... ok
+test agent_turn_ledger::tests::user_drag_of_auto_layout_frame_between_two_agent_writes_survives_revert ... ok
+test agent_turn_ledger::tests::user_resizes_sibling_between_two_agent_writes_to_same_child_still_reverts_both_agent_writes ... ok
+test agent_turn_ledger::tests::ledger_is_capped ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 3300 filtered out; finished in 3.21s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1194-codex-turn-end/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.07s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 9 tests
+test shell::tests::agents_tab_strip::a_second_click_on_plus_closes_its_menu ... ok
+test shell::tests::agents_tab_strip::plus_opens_its_menu_when_press_and_release_share_a_frame ... ok
+test shell::tests::agents_tab_strip::the_screen_reader_name_of_a_tab_says_when_its_agent_exited ... ok
+test shell::tests::agents_tab_strip::an_exited_tab_keeps_its_title_and_still_says_it_exited ... ok
+test shell::tests::agents_tab_strip::the_buttons_stay_put_when_the_only_tab_exits ... ok
+test shell::tests::agents_tab_strip::a_press_away_from_the_menu_and_from_plus_still_closes_it ... ok
+test shell::tests::agents_tab_strip::closing_the_plus_menu_with_plus_discards_the_other_cli_draft ... ok
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test shell::tests::agents_tab_strip::an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3316 filtered out; finished in 2.10s
+

@@ -402,7 +402,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     } else if resp.double_clicked() && hovered {
         on_double_click(app, rect, &inp);
     }
-    update_hover_and_cursor(app, rect, &inp, hovered);
+    update_hover_and_cursor(app, &ctx, rect, &inp, hovered);
 }
 
 // ------------------------------------------------------------------ press
@@ -429,8 +429,8 @@ fn handle_hit(app: &App, rect: ERect, pos: Pos2) -> Option<HandleHit> {
 
 /// Checks if the click hits an on-canvas `Ready for dev` / `Completed` status pill badge (`S3-12`),
 /// cycling `n.dev.status` (`ReadyForDev` -> `Completed` -> `ReadyForDev`) with a toast.
-pub fn try_click_dev_status_badge(app: &mut App, rect: ERect, pos: Pos2) -> bool {
-    for (id, label_r) in super::draw::label_rects(app, rect) {
+pub fn try_click_dev_status_badge(app: &mut App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> bool {
+    for (id, label_r) in super::draw::label_rects(app, ctx, rect) {
         let Some(n) = app.doc.get(id) else { continue };
         let Some((badge_r, status)) = super::draw::dev_status_badge_rect(id, n, label_r) else { continue };
         if badge_r.contains(pos) {
@@ -701,7 +701,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     let mid = inp.mid_pressed && !inp.pressed;
     if !mid
         && !inp.space
-        && (try_click_dev_status_badge(app, rect, pos) || arm_grid_track_pill(app, ctx, rect, pos) || try_click_canvas_action_pill(app, rect, pos))
+        && (try_click_dev_status_badge(app, ctx, rect, pos) || arm_grid_track_pill(app, ctx, rect, pos) || try_click_canvas_action_pill(app, rect, pos))
     {
         return;
     }
@@ -730,7 +730,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     }
     let target = if let Some(h) = over_handle {
         PressTarget::Handle(h)
-    } else if let Some(id) = label_hit(app, rect, pos).or_else(|| hit_under(app, page, deep)) {
+    } else if let Some(id) = label_hit(app, ctx, rect, pos).or_else(|| hit_under(app, page, deep)) {
         if app.is_selected(id) {
             PressTarget::SelectedNode(id)
         } else {
@@ -915,8 +915,8 @@ pub fn update_shape_control(app: &mut App, s: &mut ShapeControlDragState, cur: D
     app.changed();
 }
 
-fn label_hit(app: &App, rect: ERect, pos: Pos2) -> Option<NodeId> {
-    super::draw::label_rects(app, rect).into_iter().find(|(_, r)| r.contains(pos)).map(|(id, _)| id)
+fn label_hit(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> Option<NodeId> {
+    super::draw::label_entries(app, ctx, rect).into_iter().find(|e| e.pieces.iter().any(|p| p.contains(pos))).map(|e| e.id)
 }
 
 fn start_resize(app: &mut App, handle: Handle, page: DV) {
@@ -2362,7 +2362,7 @@ fn text_press(app: &mut App, page: DV) {
 }
 
 // ------------------------------------------------------------------ hover / cursor
-fn update_hover_and_cursor(app: &mut App, rect: ERect, inp: &Inp, hovered: bool) {
+fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp, hovered: bool) {
     let mut cursor = egui::CursorIcon::Default;
     let idle = matches!(app.canvas.inter, Interaction::None);
     app.canvas.cursor = None;
@@ -2447,7 +2447,7 @@ fn update_hover_and_cursor(app: &mut App, rect: ERect, inp: &Inp, hovered: bool)
                             }
                             let query_key = (pos, app.canvas.tiles.rev(), inp.mods.command, app.view.zoom);
                             if app.canvas.dirty || app.canvas.last_hover_query != Some(query_key) {
-                                app.hover = label_hit(app, rect, pos).or_else(|| page.and_then(|p| hit_under(app, p, inp.mods.command)));
+                                app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| hit_under(app, p, inp.mods.command)));
                                 app.canvas.last_hover_query = Some(query_key);
                             }
                         }

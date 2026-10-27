@@ -624,6 +624,43 @@ pub struct TabTurnTracker {
     pub summary_open: bool,
 }
 
+/// How an agent PTY child process terminated (`#1194` AC-3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProcessExit {
+    /// Process exited normally or with a status code (`0` or non-zero).
+    Code(u32),
+    /// Process was terminated by a signal (e.g. `"SIGKILL"`, `"SIGTERM"`).
+    Signal(String),
+    /// Exit status could not be read from the PTY handle.
+    Unknown,
+}
+
+impl ProcessExit {
+    /// Extracts [`ProcessExit`] from a `portable_pty::ExitStatus`.
+    pub fn from_pty_status(status: Option<portable_pty::ExitStatus>) -> Self {
+        let Some(status) = status else {
+            return Self::Unknown;
+        };
+        if status.success() {
+            return Self::Code(0);
+        }
+        let rendered = status.to_string();
+        if let Some(sig) = rendered.strip_prefix("Terminated by ") {
+            return Self::Signal(sig.to_string());
+        }
+        Self::Code(status.exit_code())
+    }
+
+    /// Formats the exit code or signal detail stored in [`AgentTabStatus::Error`].
+    pub fn detail(&self) -> String {
+        match self {
+            Self::Code(code) => format!("exit code {code}"),
+            Self::Signal(sig) => format!("signal {sig}"),
+            Self::Unknown => "process exited".to_string(),
+        }
+    }
+}
+
 impl TabTurnTracker {
     fn ensure_turn_started(&mut self, t: f64) {
         if !self.in_turn {
@@ -826,12 +863,23 @@ impl TabTurnTracker {
         Some(receipt.clone())
     }
 
-    /// Edge case 3 (`#683` §8.3): when the agent process exits while a turn is still running without
-    /// having fired `Stop`, leaves running and records `"Ended without reporting a result"`.
-    pub fn on_process_exit(&mut self, now_s: f64, current_status: &AgentTabStatus) -> Option<(AgentTabStatus, TurnReceipt)> {
+    /// Edge case 3 (`#683` §8.3, `#1194` AC-3): when the agent process exits while a turn is still running
+    /// (`Working` or `WaitingForInput`), a user-initiated Stop ends as `Stopped` and any other exit ends as
+    /// `Error` with the exit code or signal in the detail.
+    pub fn on_process_exit(
+        &mut self,
+        now_s: f64,
+        current_status: &AgentTabStatus,
+        user_stopped: bool,
+        exit: ProcessExit,
+    ) -> Option<(AgentTabStatus, TurnReceipt)> {
         let was_running = self.in_turn || matches!(current_status, AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_));
         if !was_running {
             return None;
+        }
+        if user_stopped {
+            let receipt = self.stop_by_user(now_s);
+            return Some((AgentTabStatus::Stopped, receipt));
         }
         let start = self.turn_started_s.unwrap_or(now_s);
         let receipt = TurnReceipt {
@@ -844,13 +892,58 @@ impl TabTurnTracker {
         self.in_turn = false;
         self.current_tool_name = None;
         self.last_turn_receipt = Some(receipt.clone());
-        Some((AgentTabStatus::Done, receipt))
+        Some((AgentTabStatus::Error(Some(exit.detail())), receipt))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_turn_end_process_exit_maps_user_stop_and_exit_code_or_signal() {
+        // 1. User-requested Stop while Working -> Stopped
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(42.0, &AgentTabStatus::Working(None), true, ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_signal("SIGINT"))))
+            .expect("running turn must map exit");
+        assert_eq!(status, AgentTabStatus::Stopped);
+        assert_eq!(receipt.outcome, TurnOutcome::StoppedByUser);
+
+        // 2. Exit 0 with no stop while Working -> Error with exit code 0 in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(
+                50.0,
+                &AgentTabStatus::Working(Some("Working…".into())),
+                false,
+                ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_exit_code(0))),
+            )
+            .expect("working turn exiting 0 without stop must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("exit code 0".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+
+        // 3. Non-zero exit while WaitingForInput -> Error with exit code in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(
+                60.0,
+                &AgentTabStatus::WaitingForInput(None),
+                false,
+                ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_exit_code(1))),
+            )
+            .expect("waiting turn exiting non-zero must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("exit code 1".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+
+        // 4. Signal exit while Working -> Error with signal in detail
+        let mut tracker = TabTurnTracker::default();
+        let (status, receipt) = tracker
+            .on_process_exit(70.0, &AgentTabStatus::Working(None), false, ProcessExit::from_pty_status(Some(portable_pty::ExitStatus::with_signal("SIGKILL"))))
+            .expect("working turn killed by signal must map to Error");
+        assert_eq!(status, AgentTabStatus::Error(Some("signal SIGKILL".to_string())));
+        assert_eq!(receipt.outcome, TurnOutcome::EndedWithoutStop);
+    }
 
     #[test]
     fn a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug() {
