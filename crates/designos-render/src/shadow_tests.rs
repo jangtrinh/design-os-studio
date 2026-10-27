@@ -23,8 +23,9 @@ struct Case {
 
 /// Silhouette closure mirroring `Renderer::draw_silhouette` for a solid
 /// rounded rectangle.
-fn sil_for(c: &Case) -> impl Fn(&mut sk::Pixmap, f32, f32, f32, bool) + '_ {
-    move |pm, dx, dy, grow, opaque| {
+fn sil_for(c: &Case) -> impl Fn(&mut sk::Pixmap, f32, f32, f32, d::SilhouetteMode) + '_ {
+    move |pm, dx, dy, grow, mode| {
+        let opaque = mode.ignores_alpha();
         let path = rounded_rect(c.w, c.h, [c.r; 4]).unwrap();
         let ts = sk::Transform::from_row(c.scale, 0.0, 0.0, c.scale, c.x, c.y).post_translate(dx, dy);
         let black = |a: f32| {
@@ -75,7 +76,7 @@ fn delta(a: &sk::Pixmap, b: &sk::Pixmap, c: &Case) -> u8 {
     let mut skip = vec![false; w * h];
     if !c.show_behind {
         let mut node = sk::Pixmap::new(w as u32, h as u32).unwrap();
-        sil_for(c)(&mut node, 0.0, 0.0, 0.0, true);
+        sil_for(c)(&mut node, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout);
         for y in 0..h {
             for x in 0..w {
                 let al = node.data()[(y * w + x) * 4 + 3];

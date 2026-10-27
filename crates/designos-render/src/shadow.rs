@@ -278,7 +278,7 @@ pub fn drop_shadow_rrect(
     }
     if !show_behind {
         if let Some(mut knock) = sk::Pixmap::new(rw as u32, rh as u32) {
-            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, true);
+            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, designos_doc::SilhouetteMode::Knockout);
             composite(&mut pm, 0, 0, &knock, sk::BlendMode::DestinationOut, None);
         }
     }
