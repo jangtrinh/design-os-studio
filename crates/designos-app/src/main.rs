@@ -831,7 +831,10 @@ mod icon_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
 
+#[cfg(test)]
+mod variables_cli_tests {
     #[test]
     fn cli_directory_export_never_overwrites_within_one_run() {
         let dir = std::env::temp_dir().join(format!("designos_1140_dir_export_{}", std::process::id()));
@@ -920,6 +923,117 @@ mod icon_tests {
         assert_eq!(on_disk_count, bundle.files.len(), "files count in bundle must equal files on disk");
         assert!(out_dir.join("_Primitives.Style.tokens.json").exists());
         assert!(out_dir.join("_Primitives (2).Style.tokens.json").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dtcg_to_a_json_path_without_mode_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("designos_1140_json_no_mode_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let doc_path = dir.join("kit.designos");
+        let json_out = dir.join("x.json");
+
+        let mut doc = designos_doc::Document::new("Kit");
+        doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "VariableCollectionId:10:1".into(),
+            designos_doc::VariableCollection {
+                id: "VariableCollectionId:10:1".into(),
+                name: "_Primitives".into(),
+                modes: vec![designos_doc::VariableMode { id: "10:m1".into(), name: "Style".into() }],
+                default_mode: "10:m1".into(),
+                variables: vec!["VariableID:10:v1".into()],
+                key: None,
+                source_library_key: None,
+                extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "VariableID:10:v1".into(),
+            designos_doc::Variable {
+                id: "VariableID:10:v1".into(),
+                name: "Colors/Brand/500".into(),
+                collection: "VariableCollectionId:10:1".into(),
+                kind: designos_doc::VariableKind::Color,
+                values: std::collections::BTreeMap::from([("10:m1".into(), designos_doc::VariableValue::Color(designos_doc::Color::rgb(10, 10, 10)))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: std::collections::BTreeMap::new(),
+                extensions: std::collections::BTreeMap::new(),
+                mode_extensions: std::collections::BTreeMap::new(),
+            },
+        );
+        super::io::save_path(&doc, &doc_path).unwrap();
+
+        let opts = super::cli::parse([
+            doc_path.to_string_lossy().into_owned(),
+            "--export-variables".into(),
+            json_out.to_string_lossy().into_owned(),
+            "--format".into(),
+            "dtcg".into(),
+        ])
+        .unwrap();
+        let err = super::run_agent_cli(&opts).expect_err("dtcg export to .json without --mode must fail");
+        assert!(err.contains("--mode"), "error should mention --mode, got: {err:?}");
+        assert!(!json_out.exists(), "no directory or file named x.json may be created");
+
+        // Also check Rule 10 option combinations fail cleanly without writing output.
+        for bad_args in [
+            vec![doc_path.to_string_lossy().into_owned(), "--mode".into(), "Style".into()],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                json_out.to_string_lossy().into_owned(),
+                "--format".into(),
+                "figma-rest".into(),
+                "--mode".into(),
+                "Style".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out.zip").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--mode".into(),
+                "Style".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out_dir").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--resolve-aliases".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                dir.join("out_dir").to_string_lossy().into_owned(),
+                "--format".into(),
+                "dtcg".into(),
+                "--collection".into(),
+                "_Primitives".into(),
+            ],
+            vec![
+                doc_path.to_string_lossy().into_owned(),
+                "--export-variables".into(),
+                json_out.to_string_lossy().into_owned(),
+                "--format".into(),
+                "figma-rest".into(),
+                "--color-format".into(),
+                "hex".into(),
+            ],
+        ] {
+            let parsed = super::cli::parse(bad_args.clone()).unwrap();
+            assert!(super::run_agent_cli(&parsed).is_err(), "expected error for args {bad_args:?}");
+        }
+        assert!(!json_out.exists(), "no output file created after bad args");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
