@@ -264,6 +264,22 @@ def touch_hermetic_marker(directory: Path) -> None:
     (directory / ".designos-hermetic").write_text("hermetic\n", encoding="utf-8")
 
 
+def clone_file_apfs(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        dst.unlink()
+    if sys.platform == "darwin":
+        res = subprocess.run(
+            ["/bin/cp", "-c", str(src), str(dst)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if res.returncode == 0:
+            return
+    shutil.copy2(src, dst)
+
+
 def copy_stubs_with_marker(
     stubs_src: Path,
     stubs_dst: Path,
@@ -347,6 +363,213 @@ def run_env_i(env_kv: list[str], cmd: list[str]) -> tuple[int, int, str, str]:
     )
     stdout, stderr = proc.communicate()
     return proc.pid, proc.returncode, stdout, stderr
+
+
+def import_kit_once(
+    bin_path: Path,
+    kit_path: Path,
+    cache_dir: Path,
+    stubs_src: Path,
+    dry_run: bool = False,
+) -> Path:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    kit_source = cache_dir / f"kit-source{kit_path.suffix or '.fig'}"
+    kit_designos = cache_dir / "kit.designos"
+    mcp_bin = bin_path.parent / "designos-mcp"
+
+    if dry_run:
+        print(f"DRY-RUN clone-kit: cp -c {kit_path} {kit_source}")
+        print(
+            f"DRY-RUN import-kit: {mcp_bin if mcp_bin.is_file() else bin_path} "
+            f"designos_open_file({kit_source}) -> designos_save_file({kit_designos})"
+        )
+        return kit_designos
+
+    clone_file_apfs(kit_path, kit_source)
+    home_dir, lib_dir, tmp_dir, stubs_dir = prepare_run_dir(
+        cache_dir / "import-env",
+        stubs_src,
+        warm_stubs=False,
+    )
+    env_kv = [
+        f"HOME={home_dir}",
+        f"PATH={stubs_dir}:/usr/bin:/bin",
+        f"TMPDIR={tmp_dir}",
+        f"DESIGNOS_LIBRARY={lib_dir}",
+    ]
+
+    if mcp_bin.is_file():
+        reqs = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "layout-baseline-capture", "version": "1.0"},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "designos_open_file",
+                    "arguments": {"path": str(kit_source)},
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "designos_save_file",
+                    "arguments": {"path": str(kit_designos)},
+                },
+            },
+        ]
+        payload = "\n".join(json.dumps(r) for r in reqs) + "\n"
+        proc = subprocess.run(
+            ["/usr/bin/env", "-i", *env_kv, str(mcp_bin), "--workspace", str(cache_dir)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0 or not kit_designos.is_file():
+            sys.stderr.write(
+                f"ERROR: designos-mcp failed to import kit {kit_source} -> {kit_designos} (exit {proc.returncode}):\n{proc.stdout}\n{proc.stderr}\n"
+            )
+            sys.exit(1)
+        return kit_designos
+
+    _, rc, out, err = run_env_i(
+        env_kv,
+        [str(bin_path), str(kit_source), "--out", str(kit_designos), "--inspect-json"],
+    )
+    if rc != 0:
+        sys.stderr.write(
+            f"ERROR: failed to import kit {kit_source} -> {kit_designos} (exit {rc}):\n{out}\n{err}\n"
+        )
+        sys.exit(1)
+    if not kit_designos.is_file():
+        clone_file_apfs(kit_source, kit_designos)
+    return kit_designos
+
+
+def ensure_scratch_page_on_clone(case_clone: Path) -> None:
+    if not case_clone.is_file():
+        return
+    try:
+        raw = case_clone.read_text(encoding="utf-8")
+        doc = json.loads(raw)
+    except Exception:
+        return
+    if not isinstance(doc, dict):
+        return
+    pages = doc.get("pages")
+    nodes = doc.get("nodes")
+    if not isinstance(pages, list) or not isinstance(nodes, dict) or not pages:
+        return
+    for pid in pages:
+        pnode = nodes.get(str(pid))
+        if isinstance(pnode, dict) and pnode.get("name") == "Layout baseline scratch":
+            return
+    first_page = nodes.get(str(pages[0]))
+    if not isinstance(first_page, dict):
+        return
+    scratch_id = int(doc.get("next_id", 990000))
+    doc["next_id"] = scratch_id + 1
+    scratch_page = dict(first_page)
+    scratch_page["id"] = scratch_id
+    scratch_page["source_id"] = None
+    scratch_page["name"] = "Layout baseline scratch"
+    scratch_page["children"] = []
+    pages.append(scratch_id)
+    nodes[str(scratch_id)] = scratch_page
+    case_clone.write_text(json.dumps(doc), encoding="utf-8")
+
+
+def build_prep_command(
+    bin_path: Path,
+    case_id: str,
+    case_clone: Path,
+    prep_kind: str,
+    select_target: str | None,
+    scratch_dir: Path,
+    dry_run: bool,
+) -> list[str]:
+    if prep_kind == "comment_thread":
+        cmd = [str(bin_path), str(case_clone)]
+        if select_target:
+            cmd.extend(["--select", str(select_target)])
+        cmd.extend(["--add-comment", "Align CTA spacing to 8px grid"])
+        return cmd
+
+    if prep_kind == "published_library":
+        tokens_path = scratch_dir / f"prep-{case_id}.tokens.json"
+        if not dry_run:
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+            tokens_path.write_text(
+                json.dumps(
+                    {
+                        "UntitledKit": {
+                            "brandPrimary": {"$type": "color", "$value": "#7F56D9"}
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return [str(bin_path), str(case_clone), "--import-variables", str(tokens_path)]
+
+    spec_path = scratch_dir / f"prep-{case_id}.spec.json"
+    if not dry_run:
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        ensure_scratch_page_on_clone(case_clone)
+        if prep_kind == "check_designs_findings":
+            spec_payload: dict[str, Any] = {
+                "kind": "frame",
+                "name": "Audit drift card",
+                "width": 320,
+                "height": 180,
+                "fill": "#13161b",
+                "children": [
+                    {
+                        "kind": "text",
+                        "name": "Drift label",
+                        "text": "Low contrast note",
+                        "font_size": 11,
+                        "color": "#26272b",
+                    }
+                ],
+            }
+        elif prep_kind == "prototype_link":
+            spec_payload = {
+                "kind": "frame",
+                "name": "Prototype destination",
+                "width": 320,
+                "height": 200,
+                "fill": "#18181b",
+            }
+        else:
+            spec_payload = {
+                "kind": "frame",
+                "name": f"Scratch {prep_kind}",
+                "width": 320,
+                "height": 180,
+                "fill": "#18181b",
+            }
+        spec_path.write_text(json.dumps(spec_payload), encoding="utf-8")
+
+    return [
+        str(bin_path),
+        str(case_clone),
+        "--select",
+        "name:Layout baseline scratch",
+        "--apply-spec",
+        str(spec_path),
+    ]
 
 
 def parse_hermetic_active(active_file: Path) -> dict[str, str]:
@@ -457,15 +680,58 @@ def run_single_case(
     run_dir: Path,
     stub_log: Path,
     only_spec: str | None,
-    kit_path: Path | None,
+    kit_designos: Path,
+    dry_run: bool = False,
 ) -> bool:
     case_id = case["id"]
-    if case.get("kit") and kit_path is None:
-        print(f"SKIP {case_id}: no --kit")
+    tier_b = case.get("tier_b") or {}
+    unreachable_reason = tier_b.get("unreachable")
+    if unreachable_reason:
+        print(f"SKIP {case_id}: unreachable in Tier B ({unreachable_reason})")
         return False
 
     screenshot_path = out_dir / f"{case_id}.png"
     layout_path = out_dir / f"{case_id}.layout.json"
+
+    raw_args = list(case.get("args", []))
+    is_home = "--home" in raw_args
+    select_target = tier_b.get("select")
+    prep_kind = tier_b.get("prep")
+    case_clone = run_dir / f"{case_id}.designos"
+
+    if dry_run:
+        lib_dir = run_dir / "lib"
+        case_args = substitute_args(raw_args, lib_dir, case_clone)
+        if not is_home:
+            print(f"DRY-RUN [{case_id}] clone: cp -c {kit_designos} {case_clone}")
+            if str(case_clone) not in case_args:
+                case_args = [str(case_clone), *case_args]
+        if prep_kind:
+            prep_cmd = build_prep_command(
+                bin_path=bin_path,
+                case_id=case_id,
+                case_clone=case_clone,
+                prep_kind=str(prep_kind),
+                select_target=str(select_target) if select_target else None,
+                scratch_dir=run_dir / "tmp",
+                dry_run=True,
+            )
+            print(f"DRY-RUN [{case_id}] prep ({prep_kind}): {' '.join(prep_cmd)}")
+        if select_target and not is_home and "--select" not in case_args:
+            case_args.extend(["--select", str(select_target)])
+        full_cmd = [
+            str(bin_path),
+            *case_args,
+            "--size",
+            f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}",
+            "--no-toast",
+            "--screenshot",
+            str(screenshot_path),
+            "--layout-json",
+            str(layout_path),
+        ]
+        print(f"DRY-RUN [{case_id}] capture: {' '.join(full_cmd)}")
+        return True
 
     for attempt in range(1, MAX_INFRA_ATTEMPTS + 1):
         home_dir, lib_dir, tmp_dir, stubs_dir = prepare_run_dir(
@@ -485,17 +751,42 @@ def run_single_case(
             seed_env_kv,
             [str(bin_path), "--seed-library", str(lib_dir)],
         )
-        if seed_rc != 0:
+        if seed_rc != 0 and "requires a build with the 'fixtures' feature" not in f"{seed_out}\n{seed_err}":
             sys.stderr.write(
                 f"ERROR: case {case_id}: --seed-library failed (exit {seed_rc}):\n{seed_out}\n{seed_err}\n"
             )
             sys.exit(1)
         touch_hermetic_marker(lib_dir)
 
+        case_args = substitute_args(raw_args, lib_dir, case_clone)
+        if not is_home:
+            clone_file_apfs(kit_designos, case_clone)
+            if str(case_clone) not in case_args:
+                case_args = [str(case_clone), *case_args]
+
+        if prep_kind:
+            prep_cmd = build_prep_command(
+                bin_path=bin_path,
+                case_id=case_id,
+                case_clone=case_clone,
+                prep_kind=str(prep_kind),
+                select_target=str(select_target) if select_target else None,
+                scratch_dir=tmp_dir,
+                dry_run=False,
+            )
+            _, prep_rc, prep_out, prep_err = run_env_i(seed_env_kv, prep_cmd)
+            if prep_rc != 0:
+                sys.stderr.write(
+                    f"ERROR: case {case_id}: headless prep '{prep_kind}' failed (exit {prep_rc}):\n{prep_out}\n{prep_err}\n"
+                )
+                sys.exit(1)
+
+        if select_target and not is_home and "--select" not in case_args:
+            case_args.extend(["--select", str(select_target)])
+
         env_kv = build_hermetic_env(home_dir, lib_dir, tmp_dir, stubs_dir, stub_log)
 
         log_lines_before = len(read_stub_log_lines(stub_log))
-        case_args = substitute_args(case.get("args", []), lib_dir, kit_path)
         full_cmd = [
             str(bin_path),
             *case_args,
@@ -640,7 +931,6 @@ def run_g6_compare(
     diff_bin: Path,
     allow_entries: list[dict[str, Any]],
     only_spec: str | None,
-    kit_path: Path | None,
 ) -> None:
     if not diff_bin.is_file():
         sys.stderr.write(f"ERROR: designos-diff binary not found at {diff_bin}\n")
@@ -650,7 +940,7 @@ def run_g6_compare(
         tmp_dir = Path(tmp_str)
         for case in cases:
             case_id = case["id"]
-            if case.get("kit") and kit_path is None:
+            if (case.get("tier_b") or {}).get("unreachable"):
                 continue
 
             base_layout_path = compare_dir / f"{case_id}.layout.json"
@@ -997,7 +1287,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--kit",
         default=None,
-        help="Optional path to external kit .fig for kit: true cases",
+        help="Required path to external Untitled UI kit .fig for Tier B capture",
     )
     parser.add_argument(
         "--diff-bin",
@@ -1009,16 +1299,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Optional path to allow.json (defaults to sibling of --cases)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Print import, clone, prep, and capture steps without spawning processes or opening windows",
+    )
     return parser.parse_args(argv)
 
 
 def all_cases_already_captured(
     cases: list[dict[str, Any]],
     out_dir: Path,
-    kit_path: Path | None,
 ) -> bool:
     for case in cases:
-        if case.get("kit") and kit_path is None:
+        if (case.get("tier_b") or {}).get("unreachable"):
             continue
         cid = case["id"]
         if not (out_dir / f"{cid}.png").is_file():
@@ -1057,24 +1352,43 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     stub_log = out_dir / "invocations.log"
 
-    already_captured = all_cases_already_captured(cases, out_dir, kit_path)
-    skip_capture = compare_dir is not None and already_captured and (
-        bin_path is None or compare_dir == out_dir
+    already_captured = all_cases_already_captured(cases, out_dir)
+    skip_capture = (
+        not args.dry_run
+        and compare_dir is not None
+        and already_captured
+        and (bin_path is None or compare_dir == out_dir)
     )
 
     if not skip_capture:
         if bin_path is None:
             sys.stderr.write("ERROR: --bin is required when capturing layout cases\n")
             return 2
-        if stub_log.exists():
-            stub_log.unlink()
-        stub_log.write_text("", encoding="utf-8")
+        if kit_path is None:
+            sys.stderr.write("ERROR: --kit is required when capturing layout cases\n")
+            return 2
+        if not args.dry_run and not kit_path.is_file():
+            sys.stderr.write(f"ERROR: --kit file not found: {kit_path}\n")
+            return 2
+        if not args.dry_run:
+            if stub_log.exists():
+                stub_log.unlink()
+            stub_log.write_text("", encoding="utf-8")
 
         t0 = time.monotonic()
         captured_count = 0
         skipped_count = 0
         with tempfile.TemporaryDirectory(prefix="designos-tierb-run-") as temp_root_str:
-            run_dir = Path(temp_root_str).resolve() / "run"
+            temp_root = Path(temp_root_str).resolve()
+            cache_dir = temp_root / "kit-cache"
+            run_dir = temp_root / "run"
+            kit_designos = import_kit_once(
+                bin_path=bin_path,
+                kit_path=kit_path,
+                cache_dir=cache_dir,
+                stubs_src=stubs_src,
+                dry_run=args.dry_run,
+            )
             for case in cases:
                 if run_single_case(
                     case=case,
@@ -1084,7 +1398,8 @@ def main(argv: list[str] | None = None) -> int:
                     run_dir=run_dir,
                     stub_log=stub_log,
                     only_spec=args.only_spec,
-                    kit_path=kit_path,
+                    kit_designos=kit_designos,
+                    dry_run=args.dry_run,
                 ):
                     captured_count += 1
                 else:
@@ -1096,6 +1411,9 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"Cases: {captured_count} captured, {skipped_count} skipped ({len(cases)} total), wall time {elapsed:.2f}s"
             )
+
+    if args.dry_run:
+        return 0
 
     # Render wireframe sheet (prefer d-window-chrome when present, else first captured case).
     target_wireframe_id = "d-window-chrome"
@@ -1128,7 +1446,6 @@ def main(argv: list[str] | None = None) -> int:
             diff_bin=diff_bin,
             allow_entries=allow_entries,
             only_spec=args.only_spec,
-            kit_path=kit_path,
         )
 
     return 0
