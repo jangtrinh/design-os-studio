@@ -40,6 +40,20 @@ pub const KINDS: [(&str, Icon); 7] = [
     ("Glass", Icon::Glass),
 ];
 
+/// Most effects of one type a layer takes through the "+" menu, as (index into [`KINDS`], limit, plural name).
+/// Only the menu enforces it: imported or scripted layers may hold more and are never trimmed.
+pub const EFFECT_CAPS: [(usize, usize, &str); 4] = [(0, 8, "inner shadows"), (1, 8, "drop shadows"), (2, 1, "layer blur"), (3, 1, "background blur")];
+
+/// The cap on `kind` and what to call it, or `None` when the type is unlimited.
+pub fn cap_of(kind: usize) -> Option<(usize, &'static str)> {
+    EFFECT_CAPS.iter().find(|c| c.0 == kind).map(|c| (c.1, c.2))
+}
+
+/// True when `effects` already holds the most the "+" menu allows of `kind`.
+pub fn at_cap(effects: &[Effect], kind: usize) -> bool {
+    cap_of(kind).is_some_and(|(max, _)| effects.iter().filter(|e| kind_of(e) == kind).count() >= max)
+}
+
 pub fn kind_of(e: &Effect) -> usize {
     match e {
         Effect::InnerShadow { .. } => 0,
@@ -125,13 +139,26 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
     title(ui, pane, "Effects", None, empty);
     let btn = pane.rect(theme::SECTION_TRAILING_X, -theme::SECTION_TITLE_HEIGHT + 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     let open = app.props.fx_menu;
+    widgets::record(ui, "fx-add", btn);
     if widgets::icon_button(ui, btn, "fx-add", Icon::Plus, open, "").clicked() {
         app.props.fx_menu = !open;
     }
     if !app.props.fx_menu {
         return;
     }
-    let mut items: Vec<MenuItem> = KINDS.iter().map(|(n, i)| MenuItem { icon: Some(*i), ..MenuItem::new(*n) }).collect();
+    // A type is full as soon as any selected layer holds its cap, so no layer is pushed past it.
+    let full = |k: usize| sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| at_cap(&n.effects, k)));
+    let mut items: Vec<MenuItem> = KINDS
+        .iter()
+        .enumerate()
+        .map(|(k, (n, i))| {
+            let item = MenuItem { icon: Some(*i), ..MenuItem::new(*n) };
+            match cap_of(k).filter(|_| full(k)) {
+                Some((max, plural)) => item.disabled(true).tooltip(format!("Up to {max} {plural}")),
+                None => item,
+            }
+        })
+        .collect();
     if let Some(last) = items.last_mut() {
         last.separator_after = true;
     }
@@ -141,6 +168,9 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
     match popup_menu(ui.ctx(), Id::new("fx-add-menu"), pos, w, &items, Some(btn)) {
         MenuResult::Picked(k) if k < KINDS.len() => {
             app.props.fx_menu = false;
+            if full(k) {
+                return;
+            }
             let seed = app.doc.nodes.len() as u32 + 1;
             let e = default_effect(k, seed);
             // Adding to a style-linked layer leaves the style: the layer keeps its values and gets the new effect.
@@ -195,6 +225,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
             });
         }
         let minus_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, &format!("fx-minus-{i}"), minus_r);
         if widgets::icon_button(ui, minus_r, ("fx-minus", i), Icon::Minus, false, "").clicked() {
             app.props.pop = None;
             app.edit_nodes(sel, |n| {

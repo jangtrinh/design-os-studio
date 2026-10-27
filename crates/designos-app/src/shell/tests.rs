@@ -1124,6 +1124,7 @@ mod deferred_page_instances;
 mod dev;
 mod dev_mode_shortcut;
 mod duplicate_order;
+mod effect_caps;
 mod effect_grid_styles;
 mod empty_slot_flows;
 mod fast_drag_draw;
