@@ -74,7 +74,7 @@ fn collect_shape_texts(shape: &egui::epaint::Shape, target: egui::Rect, out: &mu
 
 /// Reads the actual painted label text emitted by `canvas::draw::overlays` for `node_id` on the last frame.
 fn painted_canvas_label(s: &Sim, node_id: NodeId) -> Option<String> {
-    let labels = crate::canvas::draw::label_rects(s.app(), s.app().canvas_rect);
+    let labels = crate::canvas::draw::label_rects(s.app(), &s.ctx, s.app().canvas_rect);
     let (_, label_rect) = labels.into_iter().find(|(id, _)| *id == node_id)?;
     let mut texts = Vec::new();
     collect_texts_in_rect(&s.shapes, label_rect, &mut texts);
@@ -615,4 +615,329 @@ fn off_screen_and_unloaded_page_renames_paint_updated_canvas_label_when_scrolled
     assert_eq!(painted_canvas_label(&s, inst_unloaded_id).as_deref(), Some("Card"), "instance on newly hydrated page paints new label");
 
     mcp.cleanup(&mut s);
+}
+
+fn collect_shape_runs_for_label(
+    shape: &egui::epaint::Shape,
+    clip: egui::Rect,
+    label_r: egui::Rect,
+    is_comp_like: bool,
+    out: &mut Vec<(egui::Rect, String, f32)>,
+) {
+    match shape {
+        egui::epaint::Shape::Text(ts) => {
+            let cy = ts.pos.y + ts.galley.size().y * 0.5;
+            if (cy - label_r.center().y).abs() < 1.5 {
+                let dx = ts.pos.x - label_r.left();
+                let matches_x = if is_comp_like {
+                    if label_r.width() >= 24.0 {
+                        (dx - 18.0).abs() < 1.0
+                    } else {
+                        dx.abs() < 1.0 || (dx - 18.0).abs() < 1.0
+                    }
+                } else {
+                    dx.abs() < 1.0
+                };
+                if matches_x {
+                    out.push((clip, ts.galley.text().to_string(), dx + ts.galley.size().x));
+                }
+            }
+        }
+        egui::epaint::Shape::Vec(inner) => {
+            for s in inner {
+                collect_shape_runs_for_label(s, clip, label_r, is_comp_like, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn painted_label_runs(s: &Sim, node_id: NodeId) -> (egui::Rect, Vec<(egui::Rect, String, f32)>) {
+    let labels = crate::canvas::draw::label_rects(s.app(), &s.ctx, s.app().canvas_rect);
+    let (_, label_r) = labels.into_iter().find(|(id, _)| *id == node_id).expect("node must have a label_rect in viewport");
+    let n = s.app().doc.get(node_id).unwrap();
+    let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
+    let mut runs = Vec::new();
+    for cs in &s.shapes {
+        collect_shape_runs_for_label(&cs.shape, cs.clip_rect, label_r, is_comp_like, &mut runs);
+    }
+    (label_r, runs)
+}
+
+fn insert_white_frame(doc: &mut Document, page: NodeId, name: &str, (x, y, w, h): (f32, f32, f32, f32), is_component: bool) -> NodeId {
+    let id = doc.alloc_id();
+    let mut n = Node::frame(id, designos_doc::Rect::new(x, y, w, h));
+    if is_component {
+        n.kind = NodeKind::Component(designos_doc::FrameProps::default());
+    }
+    n.name = name.into();
+    doc.insert(page, n).unwrap()
+}
+
+fn fixture_1197_doc() -> Document {
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/frame-labels-1197.designos");
+    let raw = std::fs::read_to_string(&fixture_path).expect("read tests/fixtures/frame-labels-1197.designos");
+    Document::from_json(&raw).expect("parse tests/fixtures/frame-labels-1197.designos")
+}
+
+#[test]
+fn frame_label_f1_long_name_elides_at_zoom_068_and_shows_full_at_zoom_2() {
+    let mut s = Sim::new();
+    let doc = fixture_1197_doc();
+    let page = doc.pages[0];
+    let long_name = "A frame with a very long name that overflows";
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    let fid = s.by_name(long_name);
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(-50.0, 500.0);
+    s.frame(vec![]);
+
+    let (label_r, runs) = painted_label_runs(&s, fid);
+    assert!(label_r.width() <= 136.0 + 1e-3, "200px frame at zoom 0.68 must have label rect <= 136px, got {}", label_r.width());
+    assert_eq!(runs.len(), 1, "uncovered label must paint one visible piece");
+    let (_, ref text_068, painted_w_068) = runs[0];
+    assert!(text_068.ends_with('…') && text_068 != "…", "expected elided name ending in '…', got {text_068:?}");
+    assert!(painted_w_068 <= 136.0 + 1e-3, "painted label text width {painted_w_068} must not exceed 136px (no +8 overflow)");
+    assert!((label_r.width() - painted_w_068).abs() < 0.5, "label_rect width {} must match painted width {painted_w_068}", label_r.width());
+
+    s.shell.app.view.zoom = 2.0;
+    s.shell.app.view.offset = DVec2::new(-20.0, 550.0);
+    s.frame(vec![]);
+
+    let (label_r_2, runs_2) = painted_label_runs(&s, fid);
+    assert_eq!(runs_2.len(), 1);
+    let (_, ref text_2, painted_w_2) = runs_2[0];
+    assert_eq!(text_2, long_name, "at zoom 2.0 the full name must show");
+    assert!(label_r_2.width() <= 400.0 + 1e-3);
+    assert!((label_r_2.width() - painted_w_2).abs() < 0.5, "label_rect width {} must match real font width {painted_w_2}", label_r_2.width());
+}
+
+#[test]
+fn frame_label_f2_narrow_40_30_15_frames_and_component_at_zoom_068() {
+    let mut s = Sim::new();
+    let mut doc = Document::new("Issue 1197 F2");
+    let page = doc.add_page("Test");
+    let f40 = insert_white_frame(&mut doc, page, "Narrow frame name", (0.0, 800.0, 40.0, 100.0), false);
+    let f30 = insert_white_frame(&mut doc, page, "Thirty", (100.0, 800.0, 30.0, 100.0), false);
+    let f15 = insert_white_frame(&mut doc, page, "Tiny", (200.0, 800.0, 15.0, 100.0), false);
+    let c15 = insert_white_frame(&mut doc, page, "TinyComp", (300.0, 800.0, 15.0, 100.0), true);
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(-50.0, 700.0);
+    s.frame(vec![]);
+
+    for (id, w_world) in [(f40, 40.0f32), (f30, 30.0), (f15, 15.0), (c15, 15.0)] {
+        let max_px = w_world * 0.68;
+        let (label_r, runs) = painted_label_runs(&s, id);
+        assert!(!runs.is_empty(), "narrow frame ({w_world}px) label must never be hidden");
+        assert!(label_r.width() <= max_px + 1e-3, "{w_world}px frame at zoom 0.68 must have label_r.width() <= {max_px}, got {}", label_r.width());
+    }
+
+    let (_, runs_15) = painted_label_runs(&s, f15);
+    assert_eq!(runs_15[0].1, "…", "15px frame at zoom 0.68 must paint '…' alone");
+
+    let (_, runs_c15) = painted_label_runs(&s, c15);
+    assert_eq!(runs_c15[0].1, "…", "15px component at zoom 0.68 where glyph + '…' does not fit must paint '…' alone");
+}
+
+#[test]
+fn frame_label_f3_legacy_0_4_0_rich_fig_keeps_both_grid_and_card_labels() {
+    let fig_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../designos-fig/tests/fixtures/legacy-0.4.0-rich.fig");
+    let bytes = std::fs::read(&fig_path).expect("read legacy-0.4.0-rich.fig");
+    let doc = designos_fig::import_fig(&bytes).expect("import legacy-0.4.0-rich.fig");
+    let page = doc.pages[0];
+
+    let mut s = Sim::new();
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 1.0;
+    s.shell.app.view.offset = DVec2::new(-100.0, -100.0);
+    s.frame(vec![]);
+
+    let grid_id = s.by_name("Grid");
+    let card_id = s.by_name("Card");
+    let (grid_r, grid_runs) = painted_label_runs(&s, grid_id);
+    let (card_r, card_runs) = painted_label_runs(&s, card_id);
+    assert_eq!(grid_runs.len(), 1, "Grid label must be painted (not hidden on collision)");
+    assert_eq!(card_runs.len(), 1, "Card label must be painted (not hidden on collision)");
+    assert_eq!(grid_runs[0].1, "Grid");
+    assert_eq!(card_runs[0].1, "Card");
+    assert!((grid_r.width() - grid_runs[0].2).abs() < 0.5, "Grid label_rect width {} must match painted width {}", grid_r.width(), grid_runs[0].2);
+    assert!((card_r.width() - card_runs[0].2).abs() < 0.5, "Card label_rect width {} must match painted width {}", card_r.width(), card_runs[0].2);
+}
+
+#[test]
+fn frame_label_f4_blocker_clips_label_and_fully_inside_label_has_no_visible_piece() {
+    let mut s = Sim::new();
+    let mut doc = Document::new("Issue 1197 F4");
+    let page = doc.add_page("Test");
+    let _left = insert_white_frame(&mut doc, page, "Left frame", (0.0, 1000.0, 300.0, 200.0), false);
+    let right_overlapping = insert_white_frame(&mut doc, page, "Right overlapping", (150.0, 1050.0, 300.0, 200.0), false);
+    // Blocker is inserted BEFORE Half covered label (lower in the layer stack), yet its fill still clips the label.
+    let _blocker = insert_white_frame(&mut doc, page, "Blocker", (1190.0, 1200.0, 200.0, 150.0), false);
+    let half_covered = insert_white_frame(&mut doc, page, "Half covered label", (1150.0, 1300.0, 300.0, 100.0), false);
+
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(-50.0, 950.0);
+    s.frame(vec![]);
+
+    let blocker_screen = egui::Rect::from_min_max(s.screen(1190.0, 1200.0), s.screen(1390.0, 1350.0));
+    let (_, half_runs) = painted_label_runs(&s, half_covered);
+    assert!(!half_runs.is_empty(), "left uncovered portion of 'Half covered label' must be visible");
+    for (clip, text, _) in &half_runs {
+        let overlap = clip.intersect(blocker_screen);
+        assert!(!overlap.is_positive(), "visible piece clip {clip:?} must exclude Blocker's screen rect {blocker_screen:?} (overlap {overlap:?})");
+        assert!(clip.right() <= blocker_screen.left() + 1e-3, "clip right {} must stop at Blocker left {}", clip.right(), blocker_screen.left());
+        assert_eq!(text, "Half covered label", "cut at covering frame edge must not add '…'");
+    }
+
+    let (_, inside_runs) = painted_label_runs(&s, right_overlapping);
+    assert!(inside_runs.is_empty(), "a label lying fully inside another filled frame must have no visible piece, got {inside_runs:?}");
+}
+
+#[test]
+fn frame_label_f5_nofill_frame_and_white_child_rect_inside_nofill_frame_cover_nothing() {
+    let mut s = Sim::new();
+    let mut doc = Document::new("Issue 1197 F5");
+    let page = doc.add_page("Test");
+
+    let nofill_cover = insert_white_frame(&mut doc, page, "NoFill cover", (2000.0, 1000.0, 300.0, 200.0), false);
+    doc.get_mut(nofill_cover).unwrap().fills.clear();
+    let under_nofill = insert_white_frame(&mut doc, page, "Under nofill label", (1950.0, 1150.0, 300.0, 100.0), false);
+
+    let child_cover = insert_white_frame(&mut doc, page, "Child cover", (2500.0, 1000.0, 300.0, 200.0), false);
+    doc.get_mut(child_cover).unwrap().fills.clear();
+    let child_rect_id = doc.alloc_id();
+    let mut child_rect = Node::rectangle(child_rect_id, designos_doc::Rect::new(0.0, 100.0, 300.0, 100.0));
+    child_rect.fills = vec![designos_doc::Paint::solid(designos_doc::Color::WHITE)];
+    child_rect.name = "white child".into();
+    doc.insert(child_cover, child_rect).unwrap();
+    let under_child = insert_white_frame(&mut doc, page, "Under child label", (2450.0, 1150.0, 300.0, 100.0), false);
+
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(1900.0, 950.0);
+    s.frame(vec![]);
+
+    for (id, expected_name) in [(under_nofill, "Under nofill label"), (under_child, "Under child label")] {
+        let (label_r, runs) = painted_label_runs(&s, id);
+        assert_eq!(runs.len(), 1, "{expected_name} must have one unclipped piece");
+        let (clip, ref text, painted_w) = runs[0];
+        assert_eq!(text, expected_name);
+        assert!((clip.width() - label_r.width()).abs() < 1e-3, "{expected_name} clip {clip:?} must equal full label_r {label_r:?}");
+        assert!((label_r.width() - painted_w).abs() < 0.5, "{expected_name} label_r width {} must match painted width {painted_w}", label_r.width());
+    }
+}
+
+#[test]
+fn frame_label_hit_testing_covered_part_ignores_label_and_visible_part_selects_frame() {
+    let mut s = Sim::new();
+    let mut doc = Document::new("Issue 1197 Hit Test");
+    let page = doc.add_page("Test");
+    let blocker = insert_white_frame(&mut doc, page, "Blocker", (1190.0, 1200.0, 200.0, 150.0), false);
+    let half_covered = insert_white_frame(&mut doc, page, "Half covered label", (1150.0, 1300.0, 300.0, 100.0), false);
+
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 1.0;
+    s.shell.app.view.offset = DVec2::new(1000.0, 1100.0);
+    s.frame(vec![]);
+
+    let (label_r, _) = painted_label_runs(&s, half_covered);
+    let blocker_left_screen = s.screen(1190.0, 1200.0).x;
+    assert!(label_r.left() < blocker_left_screen && label_r.right() > blocker_left_screen + 10.0);
+
+    // Click on the covered right portion of "Half covered label" (inside Blocker): must select Blocker, not Half covered label.
+    let covered_click = Pos2::new(blocker_left_screen + 8.0, label_r.center().y);
+    assert!(label_r.contains(covered_click), "covered click point must lie inside the unclipped label rect");
+    s.click(covered_click);
+    assert_eq!(s.app().selection, vec![blocker], "clicking the covered part of a label must hit the covering frame under the pointer");
+
+    // Click on the visible left portion of "Half covered label" (outside Blocker): must select Half covered label.
+    let visible_click = Pos2::new((label_r.left() + blocker_left_screen) * 0.5, label_r.center().y);
+    s.click(visible_click);
+    assert_eq!(s.app().selection, vec![half_covered], "clicking the visible part of a label must select the label's frame");
+}
+
+#[test]
+fn frame_label_measures_with_app_egui_context_fonts() {
+    let mut s = Sim::new();
+    // Replace the app Context's proportional font with a 2x-scaled font tweak while keeping the studio's custom families bound.
+    // If label_rects / label_entries measures with the app's own egui::Context instead of a hidden
+    // thread-local Context, it will see the 2x glyph widths and elide "Wide context check" inside a 110px frame.
+    let mut fonts = egui::FontDefinitions::default();
+    let inter = designos_fonts::bundled().iter().find(|a| a.family == "Inter" && !a.italic).expect("bundled Inter");
+    let tweak = egui::FontTweak { scale: 2.0, ..Default::default() };
+    fonts.font_data.insert("ui-wide".into(), std::sync::Arc::new(egui::FontData::from_static(inter.data).tweak(tweak)));
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "ui-wide".into());
+    let prop_chain = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    fonts.families.insert(egui::FontFamily::Name("designos-strong".into()), prop_chain.clone());
+    fonts.families.insert(egui::FontFamily::Name("designos-medium".into()), prop_chain);
+    s.ctx.set_fonts(fonts);
+
+    let mut doc = Document::new("Issue 1197 Context");
+    let page = doc.add_page("Test");
+    let fid = insert_white_frame(&mut doc, page, "Wide context check", (0.0, 0.0, 110.0, 100.0), false);
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    s.shell.app.view.zoom = 1.0;
+    s.shell.app.view.offset = DVec2::new(-50.0, -50.0);
+    s.frame(vec![]);
+
+    let (label_r, runs) = painted_label_runs(&s, fid);
+    assert_eq!(runs.len(), 1);
+    let (_, ref text, painted_w) = runs[0];
+    assert!(text.ends_with('…'), "expected 'Wide context check' to elide under 2x app context font, got {text:?}");
+    assert!(painted_w <= 110.0 + 1e-3, "painted label width {painted_w} under app context font must not exceed 110px frame width");
+    assert!((label_r.width() - painted_w).abs() < 0.5, "label_r width {} must match app context painted width {painted_w}", label_r.width());
+}
+
+#[test]
+fn frame_label_r2_four_labels_match_figma_at_zoom_068_and_full_names_at_zoom_2() {
+    let mut s = Sim::new();
+    let doc = fixture_1197_doc();
+    let page = doc.pages[0];
+    let long_1 = "A frame with a very long name that overflows";
+    let long_2 = "Second frame with a long name too";
+    let narrow_40 = "Narrow frame name";
+    let narrow_30 = "Thirty";
+    let narrow_15 = "Tiny";
+
+    s.shell.app.replace_document(doc, None);
+    s.shell.app.page = page;
+    let id_long_1 = s.by_name(long_1);
+    let id_long_2 = s.by_name(long_2);
+    let id_40 = s.by_name(narrow_40);
+    let id_30 = s.by_name(narrow_30);
+    let id_15 = s.by_name(narrow_15);
+
+    s.shell.app.view.zoom = 0.68;
+    s.shell.app.view.offset = DVec2::new(-50.0, 500.0);
+    s.frame(vec![]);
+
+    assert_eq!(painted_label_runs(&s, id_long_1).1[0].1, "A frame with a very lon…");
+    assert_eq!(painted_label_runs(&s, id_long_2).1[0].1, "Second frame with a lo…");
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, "N…");
+    assert_eq!(painted_label_runs(&s, id_30).1[0].1, "…");
+    assert_eq!(painted_label_runs(&s, id_15).1[0].1, "…");
+
+    s.shell.app.view.zoom = 2.0;
+    s.shell.app.view.offset = DVec2::new(-20.0, 550.0);
+    s.frame(vec![]);
+
+    assert_eq!(painted_label_runs(&s, id_long_1).1[0].1, long_1);
+    assert_eq!(painted_label_runs(&s, id_long_2).1[0].1, long_2);
+    assert_eq!(painted_label_runs(&s, id_30).1[0].1, narrow_30);
+    assert_eq!(painted_label_runs(&s, id_15).1[0].1, narrow_15);
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, "Narrow fram…");
+
+    s.shell.app.view.zoom = 3.0;
+    s.shell.app.view.offset = DVec2::new(-20.0, 750.0);
+    s.frame(vec![]);
+    assert_eq!(painted_label_runs(&s, id_40).1[0].1, narrow_40);
 }
