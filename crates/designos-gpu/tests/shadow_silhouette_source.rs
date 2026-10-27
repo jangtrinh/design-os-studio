@@ -33,8 +33,24 @@ fn parity(name: &str, f: impl FnOnce(&mut Node)) {
     let (doc, page) = doc(f);
     let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
     let c = common::compare(&mut g, name, &doc, page, vp, SIZE, 4);
-    assert_eq!(c.report.mismatched, 0, "{name}: gpu and cpu agree pixel for pixel");
+    // Same budget as the other GPU parity tests (fidelity.rs): anti-aliased edge pixels
+    // differ between Metal/Vulkan and tiny-skia, so a pixel-exact rule fails on real GPUs
+    // (12 px of 14400 at tolerance 4 on Apple Paravirtual, ssim 0.9994).
+    assert!(c.report_aa.ratio < 0.005, "{name}: mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
+    assert!(c.report.ratio < 0.02, "{name}: strict mismatch {:.3}%", c.report.ratio * 100.0);
+    // A wrong silhouette or knockout is not an edge effect: it moves or erases a whole
+    // shadow region (the red child alone is 70x20 = 1400 px, about 10% of the image, far
+    // over both budgets). The probes pin that directly at interior pixels away from any edge.
+    for (x, y) in PROBES {
+        let (a, b) = (c.cpu.pixel(x, y).unwrap(), c.gpu.pixel(x, y).unwrap());
+        let d = [a.red().abs_diff(b.red()), a.green().abs_diff(b.green()), a.blue().abs_diff(b.blue()), a.alpha().abs_diff(b.alpha())];
+        assert!(d.iter().all(|v| *v <= 8), "{name}: probe ({x}, {y}): cpu {a:?} gpu {b:?}");
+    }
 }
+
+/// Interior pixels: inside the node, inside the shadow band right of and below the node,
+/// inside the red child, and in the child's shadow outside the node.
+const PROBES: [(u32, u32); 5] = [(50, 50), (84, 60), (50, 84), (60, 40), (96, 46)];
 
 #[test]
 fn own_fill_silhouette_matches() {
