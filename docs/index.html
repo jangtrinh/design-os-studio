@@ -297,7 +297,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <li><a href="#install">Install</a></li>
       <li><a href="#faq">FAQ</a></li>
     </ul>
-    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-macos.dmg">Download for macOS</a>
+    <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-macos.dmg">Download for macOS</a>
   </nav>
 </header>
 
@@ -309,7 +309,7 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h1 id="title"><span class="sel sel-box" id="sel-box"><span class="own">Own</span> your design canvas.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
       <p class="sub">Open Figma files, paste from Figma desktop, and let a coding agent build on the same canvas.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
         <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
       </div>
       <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
@@ -470,15 +470,27 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     </div>
   </section>
 
-  <!-- 5. What's new: mirrors README.md's What's new section. Newest releases first (0.6.1 list and 0.6.0
+  <!-- 5. What's new: mirrors README.md's What's new section. Newest releases first (0.7.0 and 0.6.1 lists and 0.6.0
        captures + list), followed by 0.5.0, 0.4.0 and 0.3.0 as folded entries and a link to CHANGELOG.md. -->
   <section id="new" class="sec new" aria-labelledby="new-h">
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.1, a short list. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.0, which is free like every release. <a href="#new-in-v061">0.6.1</a> is a short list, <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--070" id="new-in-v070" aria-labelledby="v070-h">
+          <h3 id="v070-h" class="new-ver">0.7.0</h3>
+          <p class="new-note">DESIGN:OS Studio is a free Figma alternative built for AI, and 0.7.0 is free to download and use. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.0">Release notes</a>.</p>
+          <ul class="new-bullets">
+            <li><strong>Effects.</strong> Blend modes on drop and inner shadows. The <code>Effects</code> <code>+</code> menu caps each effect type without trimming imported effects. The drop-shadow cut-out on a frame with no fill follows the visible children.</li>
+            <li><strong>Styles.</strong> Delete a style: linked layers keep their resolved values, in one undo step. Group styles into folders with <code>/</code> and use <code>Rename folder</code>. Style descriptions show as hover tooltips. Text styles keep local alignment while carrying paragraph indent, list spacing and leading trim.</li>
+            <li><strong>Export.</strong> PNG and SVG bounds match Figma for shadows, strokes and groups. A <code>Show in folder</code> toast shows where an export went, and an export never overwrites a file silently.</li>
+            <li><strong>Canvas and panels.</strong> The left rail is icon-only with tooltips, the <code>Pages</code> / <code>Layers</code> split is resizable, and the <code>changed layers</code> card in the Agents panel scrolls.</li>
+            <li><strong>CLI.</strong> A <code>--screenshot</code> run with unsaved edits no longer stops on <code>Save changes?</code>.</li>
+            <li><strong>Not in 0.7.0.</strong> Approving or denying Codex tool calls from the Agents panel was reverted before release, so Codex still asks in its own terminal menu. The terminal parts of the <code>changed layers</code> fix were not smoke-tested, and scrolling the terminal with the mouse wheel after a large agent edit is not fixed. Both move to 0.7.1. Releases are verified on macOS only.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--061" id="new-in-v061" aria-labelledby="v061-h">
           <h3 id="v061-h" class="new-ver">0.6.1</h3>
           <ul class="new-bullets">
@@ -563,26 +575,26 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
       <h2 id="install-h">Install.</h2>
       <div class="install">
         <div>
-          <h3>Download Studio 0.6.3</h3>
+          <h3>Download Studio 0.7.0</h3>
           <ul class="dl">
             <li>
               <span class="os">macOS</span>
               <span class="files">
-                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-macos.dmg">.dmg <small>132 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-macos-universal.tar.gz">.tar.gz <small>119 MB</small></a>
+                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-macos.dmg">.dmg <small>135 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-macos-universal.tar.gz">.tar.gz <small>122 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Windows</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-x86_64-pc-windows-msvc.zip">.zip <small>55 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-x86_64-pc-windows-msvc.zip">.zip <small>56 MB</small></a>
               </span>
             </li>
             <li>
               <span class="os">Linux</span>
               <span class="files">
-                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos_0.6.3_amd64.deb">.deb <small>51 MB</small></a>
-                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>69 MB</small></a>
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos_0.7.0_amd64.deb">.deb <small>52 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>70 MB</small></a>
               </span>
             </li>
           </ul>
@@ -654,7 +666,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
       <div class="get__actions">
         <div class="cta">
-          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.6.3/designos-0.6.3-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+          <a class="btn btn-primary" id="get-download" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.7.0/designos-0.7.0-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
           <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
         </div>
         <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>

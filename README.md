@@ -2,10 +2,10 @@
 
 <p align="center">
   <a href="docs/images/v0.6/studio-hero.png">
-    <img src="docs/images/v0.6/studio-hero.png" alt="DESIGN:OS Studio 0.6.0 with a copy of the Untitled UI PRO Figma kit open. The Page header component set is selected on the canvas, the Pages and Layers panels are on the left, and the Design panel with its Properties is on the right" width="880">
+    <img src="docs/images/v0.6/studio-hero.png" alt="DESIGN:OS Studio (capture from 0.6.0) with a copy of the Untitled UI PRO Figma kit open. The Page header component set is selected on the canvas, the Pages and Layers panels are on the left, and the Design panel with its Properties is on the right" width="880">
   </a>
   <br>
-  <sub>DESIGN:OS Studio 0.6.0 on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click for full size.</sub>
+  <sub>DESIGN:OS Studio on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI (capture from the 0.6.0 build). Click for full size.</sub>
 </p>
 
 **Native GPU-accelerated interface design studio in Rust. It opens and saves Figma `.fig` files, runs your own coding agent CLI in an Agents panel on the open file, and ships a Model Context Protocol server.**
@@ -43,7 +43,7 @@ Browser-based design tools keep your files on a vendor's servers and give coding
 | :--- | :--- | :--- |
 | **Rendering** | Native Rust canvas: `wgpu` on Metal, DirectX 12 or Vulkan, with a `tiny-skia` CPU renderer for headless captures. It requests no repaint while the view is idle (`FrameKey` frame reuse). | Open a file, leave it still, and read the process CPU time twice with `ps -o time= -p <pid>`. |
 | **Large files** | A spatial index of 2048-unit grid cells (`SceneIndex`) limits work to the viewport, and repeated shapes share one mesh (`GeomCache`). The 336 MB Untitled UI PRO kit opens as one document of 207,601 nodes. | `designos <file> --inspect-json` prints the node count. |
-| **`.fig` files** | Reads `.fig` containers (`fig-kiwi`, `DEFLATE` or `Zstd`) and writes container version 106, in a ZIP with `meta.json` and `images/`. [Known issue in 0.6.0](https://github.com/jangtrinh/design-os-studio/issues/834): saving a `.fig` drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values. | Export a file, then read the version from the `canvas.fig` header (see below). |
+| **`.fig` files** | Reads `.fig` containers (`fig-kiwi`, `DEFLATE` or `Zstd`) and writes container version 106, in a ZIP with `meta.json` and `images/`. [Known issue](https://github.com/jangtrinh/design-os-studio/issues/834): saving a `.fig` drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values. | Export a file, then read the version from the `canvas.fig` header (see below). |
 | **Agents** | The Agents panel starts your own agent CLI (Claude Code, Codex, Grok, Antigravity or Gemini CLI) as a live session on the open file, and keeps a file's sessions across restarts. Each CLI uses its own sign-in, so Studio needs no API key. | `designos-studio <file> --panel agents` |
 | **MCP server** | `designos-mcp` serves its tools over stdio: see the design, read its design system, write in one step (`designos_apply_batch`) and lint the result (`designos_lint`). | Send `tools/list` to `designos-mcp --workspace <dir>`. The tool table below is generated from that list. |
 | **Variables** | Color, number, string and boolean variables in collections with modes. A frame can pin its own mode per collection, and modes round-trip through `.fig`. Import and export Figma JSON and W3C Design Tokens (DTCG). | `designos <file> --export-variables <out>` |
@@ -136,7 +136,19 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.1, a short list. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.0, which is free like every release. [0.6.1](#new-in-v061) is a short list, [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v070"></a>
+### 0.7.0
+
+DESIGN:OS Studio is a free Figma alternative built for AI, and 0.7.0 is free to download and use. Release notes: [v0.7.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.7.0).
+
+- **Effects.** Blend modes on drop and inner shadows. The `Effects` `+` menu caps each effect type without trimming imported effects. The drop-shadow cut-out on a frame with no fill follows the visible children.
+- **Styles.** Delete a style: linked layers keep their resolved values, in one undo step. Group styles into folders with `/` and use `Rename folder`. Style descriptions show as hover tooltips. Text styles keep local alignment while carrying paragraph indent, list spacing and leading trim.
+- **Export.** PNG and SVG bounds match Figma for shadows, strokes and groups. A `Show in folder` toast shows where an export went, and an export never overwrites a file silently.
+- **Canvas and panels.** The left rail is icon-only with tooltips, the `Pages` / `Layers` split is resizable, and the `changed layers` card in the Agents panel scrolls.
+- **CLI.** A `--screenshot` run with unsaved edits no longer stops on `Save changes?`.
+- **Not in 0.7.0.** Approving or denying Codex tool calls from the Agents panel was reverted before release, so Codex still asks in its own terminal menu. The terminal parts of the `changed layers` fix were not smoke-tested, and scrolling the terminal with the mouse wheel after a large agent edit is not fixed. Both move to 0.7.1. Releases are verified on macOS only.
 
 <a id="new-in-v061"></a>
 ### 0.6.1

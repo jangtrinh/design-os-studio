@@ -1,5 +1,5 @@
 /* v2-new.css: scene "What's new". Tokens come from index.html :root only.
-   Mirrors README.md's What's new section: 0.6.1 and 0.6.0 open side by side on wide screens, with the two
+   Mirrors README.md's What's new section: 0.7.0 and 0.6.1 stack in the left column, 0.6.0 stays open side by side on wide screens, with the two
    0.6.0 captures in a 2-up grid and 0.5.0, 0.4.0 and 0.3.0 folded in <details> rows. */
 
 .new.sec { padding-block: 16px 12px; }
@@ -68,12 +68,14 @@
 
 @media (min-width: 960px) {
   .new-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 8px clamp(20px, 2.5vw, 32px); }
-  .new-release--061 { grid-column: 1; grid-row: 1; }
+  .new-release--070 { grid-column: 1; grid-row: 1; }
+  .new-release--061 { grid-column: 1; grid-row: 2; }
   .new-older {
-    grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    grid-column: 1; grid-row: 3; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
     gap: 0 14px; align-items: start;
   }
-  .new-release--060 { grid-column: 2; grid-row: 1 / span 2; }
+  .new-release--060 { grid-column: 2; grid-row: 1 / span 3; }
+  .new-release--070 .new-bullets,
   .new-release--061 .new-bullets { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; }
   .new-release--060 .new-bullets { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 12px; }
   .new-fold { border-bottom: 0; padding-block: 0; }
