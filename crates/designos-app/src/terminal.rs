@@ -6481,27 +6481,28 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             }
         }
 
-        // Mouse wheel: SGR mouse wheel in alternate screen (`?1049h`) when mouse reporting is active, else 5,000-line scrollback
+        // Mouse wheel: main screen always scrolls Studio's 5,000-line scrollback; alternate screen (`?1049h`)
+        // forwards mouse wheel reports in the active mouse encoding or cursor keys when mouse reporting is off (`#1173`).
         if vp_resp.hovered() {
-            let delta_y = ui.input(|i| i.smooth_scroll_delta.y);
-            if delta_y.abs() > 0.5 {
-                let (alt_screen, mouse_active) = tab
-                    .parser
-                    .lock()
-                    .ok()
-                    .map(|pg| (pg.screen().alternate_screen(), pg.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None))
-                    .unwrap_or((false, false));
-                if alt_screen && mouse_active && !ui.input(|i| i.modifiers.shift) {
-                    let (r0, c0) = ui.input(|i| i.pointer.hover_pos()).map(&pos_to_cell).unwrap_or((0, 0));
-                    let button = if delta_y > 0.0 { 64 } else { 65 };
-                    let seq = format!("\x1b[<{button};{};{}M", c0 + 1, r0 + 1);
-                    tab.write_bytes(seq.as_bytes());
-                } else if let Ok(mut pg) = tab.parser.lock() {
-                    tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
-                    let step = ((delta_y.abs() / ROW_H).ceil() as usize).max(1);
-                    let cur_sb = pg.screen().scrollback();
-                    let next_sb = if delta_y > 0.0 { cur_sb.saturating_add(step) } else { cur_sb.saturating_sub(step) };
-                    pg.set_scrollback(next_sb);
+            let delta_rows = wheel_delta_rows(ui.input(|i| i.smooth_scroll_delta.y));
+            if delta_rows != 0 {
+                let cell = ui.input(|i| i.pointer.hover_pos()).map(&pos_to_cell).unwrap_or((0, 0));
+                let shift = ui.input(|i| i.modifiers.shift);
+                let action = if let Ok(mut pg) = tab.parser.lock() {
+                    let act = wheel_bytes(pg.screen(), delta_rows, cell, shift);
+                    if let WheelAction::Scrollback(rows_delta) = act {
+                        tab.restore_scrollback.store(0, std::sync::atomic::Ordering::Release);
+                        let step = rows_delta.unsigned_abs();
+                        let cur_sb = pg.screen().scrollback();
+                        let next_sb = if rows_delta > 0 { cur_sb.saturating_add(step) } else { cur_sb.saturating_sub(step) };
+                        pg.set_scrollback(next_sb);
+                    }
+                    act
+                } else {
+                    WheelAction::Noop
+                };
+                if let WheelAction::WritePty(bytes) = action {
+                    tab.write_bytes(&bytes);
                 }
             }
         }
@@ -6949,6 +6950,51 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     }
 }
 
+/// Maximum wheel reports or cursor-key steps emitted in a single UI frame so a fast trackpad flick
+/// cannot flood the child PTY stdin buffer (`#1173`).
+#[allow(dead_code)]
+const MAX_WHEEL_STEPS_PER_FRAME: usize = 10;
+
+/// Outcome of a mouse-wheel event over the terminal viewport (`#1173`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+enum WheelAction {
+    /// Scroll Studio's own 5,000-line scrollback buffer by signed row count (`> 0` up into history, `< 0` down).
+    Scrollback(isize),
+    /// Write encoded mouse wheel or cursor-key bytes to the child PTY stdin.
+    WritePty(Vec<u8>),
+    /// Do nothing (e.g. Shift+wheel in alternate screen when mouse reporting is active, or `delta_rows == 0`).
+    Noop,
+}
+
+fn wheel_delta_rows(delta_y: f32) -> isize {
+    if delta_y.abs() <= 0.5 {
+        return 0;
+    }
+    let steps = ((delta_y.abs() / ROW_H).ceil() as isize).max(1);
+    if delta_y > 0.0 {
+        steps
+    } else {
+        -steps
+    }
+}
+
+fn wheel_bytes(screen: &vt100::Screen, delta_rows: isize, cell: (u16, u16), shift: bool) -> WheelAction {
+    if delta_rows == 0 {
+        return WheelAction::Noop;
+    }
+    let alt_screen = screen.alternate_screen();
+    let mouse_active = screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None;
+    if alt_screen && mouse_active && !shift {
+        let (r0, c0) = cell;
+        let button = if delta_rows > 0 { 64 } else { 65 };
+        let seq = format!("\x1b[<{button};{};{}M", c0 + 1, r0 + 1);
+        WheelAction::WritePty(seq.into_bytes())
+    } else {
+        WheelAction::Scrollback(delta_rows)
+    }
+}
+
 /// Converts a `vt100::Color` (Default, 16-ANSI, 256-palette, or 24-bit TrueColor RGB) to `egui::Color32`.
 pub fn vt100_color_to_egui(c: vt100::Color, is_fg: bool) -> Color32 {
     match c {
@@ -7063,6 +7109,9 @@ mod real_cli_launch_tests;
 
 #[cfg(all(test, unix))]
 mod zoom_scrollback_tests;
+
+#[cfg(test)]
+mod wheel_modes_tests;
 
 #[cfg(test)]
 mod tests {
