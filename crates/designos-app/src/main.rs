@@ -243,9 +243,13 @@ fn main() {
     }
 }
 
+pub(crate) fn screenshot_exit_line(_select_miss: Option<&str>, _shot_ok: bool, _write_failed: bool, _outcome: &shell::ShotOutcome) -> Option<String> {
+    None
+}
+
 /// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
 /// outranks 1 for a PNG that was not captured, and 0 otherwise.
-fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
+pub(crate) fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
     match (select_miss, shot_ok) {
         (true, _) => 2,
         (false, false) => 1,

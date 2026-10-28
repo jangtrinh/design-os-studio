@@ -35,6 +35,9 @@ pub static SHOT_FAILURE: std::sync::OnceLock<String> = std::sync::OnceLock::new(
 /// Set when `--screenshot` fails while writing the output file (`cannot write ...`).
 pub static SHOT_WRITE_FAILED: AtomicBool = AtomicBool::new(false);
 
+/// Set while `Shell::draw` is running a screenshot frame so the watchdog never counts in-frame paint time as idle.
+pub static SHOT_IN_FRAME: AtomicBool = AtomicBool::new(false);
+
 /// Frames to wait for `Event::Screenshot` after sending `ViewportCommand::Screenshot` before counting the request as lost.
 pub const SHOT_IMAGE_WAIT_FRAMES: u32 = 10;
 
@@ -78,6 +81,10 @@ impl ShotWatchdog {
         }
     }
 
+    pub fn begin_frame(&mut self) {}
+
+    pub fn end_frame(&mut self, _now: std::time::Duration) {}
+
     pub fn disarm(&mut self) {
         self.done = true;
     }
@@ -93,6 +100,10 @@ impl ShotWatchdog {
             None
         }
     }
+}
+
+pub fn watchdog_exit_outcome(fired: Option<&'static str>, _done: bool, _shot_ok: bool, _shot_write_failed: bool) -> Option<ShotOutcome> {
+    fired.map(|reason| ShotOutcome::Failed(reason.to_string()))
 }
 
 pub fn spawn_screenshot_watchdog() {

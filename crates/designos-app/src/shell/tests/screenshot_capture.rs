@@ -202,3 +202,132 @@ fn late_image_after_lost_request_wins_and_second_image_is_ignored() {
     cleanup(&path);
     assert_eq!(px, [0xE3, 0x63, 0x23, 0xFF], "first complete image must win and later images must be ignored");
 }
+
+// Round 2 (§1): The frame flag is set and 31 s elapse. The pure `check` returns `None`.
+#[test]
+fn watchdog_does_not_fire_while_a_frame_is_running() {
+    let mut w = ShotWatchdog::new();
+    w.arm(Duration::from_secs(0));
+    w.begin_frame();
+    assert_eq!(
+        w.check(Duration::from_secs(31)),
+        None,
+        "watchdog must not fire while a frame is running (SHOT_IN_FRAME={})",
+        SHOT_IN_FRAME.load(Ordering::SeqCst)
+    );
+}
+
+// Round 2 (§1): Re-arm the clock when the frame ends, so the 30 s count starts after the frame.
+#[test]
+fn watchdog_fires_after_30s_without_frames_once_the_frame_ends() {
+    let mut w = ShotWatchdog::new();
+    w.arm(Duration::from_secs(0));
+    w.begin_frame();
+    assert_eq!(w.check(Duration::from_secs(35)), None, "watchdog must not fire during a 35 s frame");
+    w.end_frame(Duration::from_secs(35));
+    assert_eq!(w.check(Duration::from_secs(64)), None, "watchdog must not fire 29 s after the frame ended");
+    assert_eq!(w.check(Duration::from_secs(65)), Some(SHOT_OCCLUDED_REASON), "watchdog must fire 30 s after the frame ended without a new frame");
+    assert_eq!(w.check(Duration::from_secs(66)), Some(SHOT_OCCLUDED_REASON), "watchdog must still report occluded 31 s after the frame ended");
+}
+
+// Round 2 (§1): A fired check plus `SHOT_OK` returns no exit. Test through the pure decision function; never call `process::exit`.
+#[test]
+fn watchdog_does_not_exit_after_the_png_was_written() {
+    let mut w = ShotWatchdog::new();
+    w.arm(Duration::from_secs(0));
+    let fired = w.check(Duration::from_secs(31));
+    assert_eq!(fired, Some(SHOT_OCCLUDED_REASON), "precondition: check has fired");
+    assert_eq!(watchdog_exit_outcome(fired, false, true, false), None, "a fired check plus SHOT_OK must return no exit");
+    assert_eq!(watchdog_exit_outcome(fired, false, false, true), None, "a fired check plus SHOT_WRITE_FAILED must return no exit");
+    assert_eq!(watchdog_exit_outcome(fired, true, false, false), None, "a fired check plus done must return no exit");
+    assert_eq!(
+        watchdog_exit_outcome(fired, false, false, false),
+        Some(ShotOutcome::Failed(SHOT_OCCLUDED_REASON.to_string())),
+        "a fired check with no completion flag must return the Failed outcome"
+    );
+}
+
+// Round 2 (§2): After a write error, one more `drive_screenshot` pass requests no screenshot and prints nothing.
+#[test]
+fn write_failure_stops_further_capture_passes() {
+    // 1. Single-PNG write failure (`shell.rs` PNG save arm):
+    let (mut s, path) = showcase_shot_sim("r2_write_fail_png");
+    // Make `path` an existing directory so `buf.save(&shot.path)` fails with an OS write error.
+    std::fs::create_dir_all(&path).expect("create directory at PNG path to force write failure");
+    run_until_first_screenshot_cmd(&mut s, 60);
+    s.frame(vec![screenshot_event(SIZE.0 as usize, SIZE.1 as usize)]);
+    let shot_after_err = s.shell.shot.as_ref().expect("shot state exists");
+    match &shot_after_err.outcome {
+        ShotOutcome::Failed(reason) => assert!(reason.starts_with("cannot write "), "expected cannot write reason, got: {reason:?}"),
+        other => panic!("expected terminal ShotOutcome::Failed after PNG write error, got: {other:?}"),
+    }
+    let frames_at_err = shot_after_err.frames;
+    let requests_at_err = shot_after_err.requests;
+    let images_at_err = shot_after_err.images_seen;
+
+    // One more pass with an injected screenshot event plus 15 empty frames: no new screenshot request, no image processed.
+    s.frame(vec![screenshot_event(SIZE.0 as usize, SIZE.1 as usize)]);
+    assert!(!frame_sent_screenshot(&s), "write failure must not request another screenshot on the next pass");
+    for _ in 0..15 {
+        s.frame(vec![]);
+        assert!(!frame_sent_screenshot(&s), "write failure must never re-request a screenshot on later frames");
+    }
+    let shot_later = s.shell.shot.as_ref().expect("shot state exists");
+    assert_eq!(shot_later.frames, frames_at_err, "drive_screenshot must return early after write failure");
+    assert_eq!(shot_later.requests, requests_at_err, "no additional screenshot request may be recorded");
+    assert_eq!(shot_later.images_seen, images_at_err, "later screenshot events must be ignored without printing a second error");
+    cleanup(&path);
+
+    // 2. Sequence-frame write failure (`shell.rs` sequence frame save arm):
+    let seq_dir = std::env::temp_dir().join(format!("designos_shot_capture_{}_r2_write_fail_seq", std::process::id()));
+    let _ = std::fs::remove_dir_all(&seq_dir);
+    std::fs::create_dir_all(seq_dir.join("frame-0000.jpg")).expect("create directory at frame-0000.jpg to force sequence write failure");
+    let seq_opts = Options {
+        fixture: Some(crate::showcase::FIXTURE.to_string()),
+        panel: Some("micro-scale-tool:seq:2".to_string()),
+        size: Some(SIZE),
+        screenshot: Some(seq_dir.clone()),
+        ..Default::default()
+    };
+    let mut seq_sim = Sim::with(seq_opts);
+    run_until_first_screenshot_cmd(&mut seq_sim, 60);
+    seq_sim.frame(vec![screenshot_event(SIZE.0 as usize, SIZE.1 as usize)]);
+    let seq_shot = seq_sim.shell.shot.as_ref().expect("seq shot state exists");
+    match &seq_shot.outcome {
+        ShotOutcome::Failed(reason) => assert!(reason.starts_with("cannot write "), "expected cannot write reason, got: {reason:?}"),
+        other => panic!("expected terminal ShotOutcome::Failed after sequence write error, got: {other:?}"),
+    }
+    let seq_frames_at_err = seq_shot.frames;
+    let seq_images_at_err = seq_shot.images_seen;
+    seq_sim.frame(vec![screenshot_event(SIZE.0 as usize, SIZE.1 as usize)]);
+    assert!(!frame_sent_screenshot(&seq_sim), "sequence write failure must not request another screenshot");
+    let seq_shot_later = seq_sim.shell.shot.as_ref().expect("seq shot state exists");
+    assert_eq!(seq_shot_later.frames, seq_frames_at_err, "drive_screenshot must return early after sequence write failure");
+    assert_eq!(seq_shot_later.images_seen, seq_images_at_err, "later sequence screenshot events must be ignored");
+    let _ = std::fs::remove_dir_all(&seq_dir);
+    SHOT_WRITE_FAILED.store(false, Ordering::SeqCst);
+}
+
+// Round 2 (§3): Pin the merged exit contract (`exit_code` together with the line chosen per case).
+#[test]
+fn screenshot_exit_contract() {
+    // 1. `--select` miss: exits 2 and prints only its own message.
+    let miss_msg = "--select \"missing\" matched no node on page \"Page 1\"";
+    assert_eq!(crate::exit_code(true, false), 2);
+    assert_eq!(crate::screenshot_exit_line(Some(miss_msg), false, false, &ShotOutcome::Pending), Some(format!("designos: {miss_msg}")));
+
+    // 2. Write failure: exits 1, with no `failure_line`.
+    let write_err = ShotOutcome::Failed("cannot write /tmp/out.png: Permission denied".to_string());
+    assert_eq!(crate::exit_code(false, false), 1);
+    assert_eq!(crate::screenshot_exit_line(None, false, true, &write_err), None);
+
+    // 3. Not captured: exits 1 with `designos: screenshot was not captured: <reason>`.
+    let reason = "no image after 5 requests (frames 12, 22, 32, 42, 52); last surface status Occluded";
+    let not_captured = ShotOutcome::Failed(reason.to_string());
+    assert_eq!(crate::exit_code(false, false), 1);
+    assert_eq!(crate::screenshot_exit_line(None, false, false, &not_captured), Some(format!("designos: screenshot was not captured: {reason}")));
+
+    // 4. Written: exits 0, nothing printed.
+    assert_eq!(crate::exit_code(false, true), 0);
+    assert_eq!(crate::screenshot_exit_line(None, true, false, &ShotOutcome::Written), None);
+}
