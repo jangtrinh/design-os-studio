@@ -1,6 +1,6 @@
 //! The Dev mode left panel: "Ready for dev" items per page with status pills.
 
-use super::sections::{status_color, status_pill};
+use super::sections::{status_color, status_pill, status_pill_width};
 use super::LeftTab;
 use crate::app::App;
 use crate::panels::{clipped, scrollbar, wheel_scroll};
@@ -44,11 +44,14 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     let total: usize = rows(&app.doc).iter().filter(|r| matches!(r, Row::Item { .. })).count();
     for (i, (tab, label)) in [(LeftTab::ReadyForDev, "Ready for dev"), (LeftTab::Layers, "Layers")].into_iter().enumerate() {
         let show_badge = tab == LeftTab::ReadyForDev && total > 0;
-        let label_w = widgets::text_width(ui.painter(), label, &font);
+        // Whole pixels, rounded up (R11): the label, the badge after it and the tab around them all sit on that width.
+        let label_w = widgets::text_width(ui.painter(), label, &font).ceil();
         let badge_str = total.to_string();
         let badge_w = if show_badge { (widgets::text_width(ui.painter(), &badge_str, &mono_font) + 10.0).max(18.0) } else { 0.0 };
-        let w = if show_badge { label_w + 6.0 + badge_w + 14.0 } else { label_w + 14.0 };
+        // The tab hugs its content with the same control inset on both sides.
+        let w = if show_badge { label_w + 6.0 + badge_w } else { label_w } + 2.0 * theme::INSET_CONTROL;
         let r = Rect::from_min_size(Pos2::new(x, row.center().y - 12.0), Vec2::new(w, 24.0));
+        widgets::record(ui, if tab == LeftTab::ReadyForDev { "dev-left-tab-ready" } else { "dev-left-tab-layers" }, r);
         let resp = ui.interact(r, ui.id().with(("dev-left-tab", i)), Sense::click());
         let active = app.dev.left_tab == tab;
         if active {
@@ -57,14 +60,14 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
             ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         ui.painter().text(
-            Pos2::new(r.left() + 7.0, r.center().y),
+            Pos2::new(r.left() + theme::INSET_CONTROL, r.center().y),
             Align2::LEFT_CENTER,
             label,
             font.clone(),
             if active { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
         if show_badge {
-            let badge_r = Rect::from_min_size(Pos2::new(r.left() + 7.0 + label_w + 6.0, r.center().y - 8.0), Vec2::new(badge_w, 16.0));
+            let badge_r = Rect::from_min_size(Pos2::new(r.left() + theme::INSET_CONTROL + label_w + 6.0, r.center().y - 8.0), Vec2::new(badge_w, 16.0));
             ui.painter().rect_filled(badge_r, egui::CornerRadius::same(7), egui::Color32::from_rgba_unmultiplied(0x14, 0xAE, 0x5C, 38));
             ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_str, mono_font.clone(), egui::Color32::from_rgb(0x34, 0xD3, 0x99));
         }
@@ -138,7 +141,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     } else if resp.hovered() {
                         p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
-                    let pill_w = widgets::text_width(p, status.label(), &theme::font_caption_medium()) + 26.0;
+                    let pill_w = status_pill_width(p, *status);
                     let pill_at = Pos2::new(inner.right() - pill_w - 6.0, row.center().y - 10.0);
                     p.text(
                         Pos2::new(inner.left() + 16.0, row.center().y),

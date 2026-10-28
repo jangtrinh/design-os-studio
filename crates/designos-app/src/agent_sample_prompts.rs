@@ -313,7 +313,7 @@ pub fn paint_empty_state(
     let mut prompt_clicked = None;
     let prompts = sample_prompts(ctx);
     for (idx, prompt) in prompts.iter().take(MAX_PROMPTS_PER_CONTEXT).enumerate() {
-        let row_rect = Rect::from_min_size(Pos2::new(row_x, y), Vec2::new(row_w, theme::CONTROL_ROW));
+        let row_rect = Rect::from_min_size(Pos2::new(row_x, y), Vec2::new(row_w, theme::CONTROL_MD));
         let row_id = format!("agents-sample-prompt-{idx}");
         let resp = ui.interact(row_rect, Id::new(&row_id), Sense::click());
         let fill = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
@@ -343,7 +343,7 @@ pub fn paint_empty_state(
         if resp.clicked() {
             prompt_clicked = Some(prompt.text.as_str());
         }
-        y += theme::CONTROL_ROW + theme::SPACE_ROW;
+        y += theme::CONTROL_MD + theme::SPACE_ROW;
     }
 
     if let Some(hint) = attach_hint_line(AttachHintCapabilities::CURRENT) {

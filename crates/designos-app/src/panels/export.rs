@@ -18,6 +18,8 @@ const PREVIEW_H: f32 = 120.0;
 // scale | suffix | format | remove, filling the 184px content width.
 const COL_GAP: f32 = 4.0;
 const SCALE_W: f32 = 56.0;
+/// The chevron slot at the right end of the scale field: the presets menu opens from it, the text takes the rest.
+const SCALE_CHEVRON_W: f32 = 16.0;
 const SUFFIX_W: f32 = 36.0;
 const FORMAT_W: f32 = 56.0;
 const THUMB_CHECK_SECONDS: f64 = 0.3;
@@ -223,8 +225,8 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
             at(theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, y, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
 
         // Scale: editable text ("2x", "512w") with a presets menu behind the chevron.
-        let text_r = Rect::from_min_max(scale_r.min, Pos2::new(scale_r.right() - 20.0, scale_r.bottom()));
-        let chev_r = Rect::from_min_max(Pos2::new(scale_r.right() - 20.0, scale_r.top()), scale_r.max);
+        let text_r = Rect::from_min_max(scale_r.min, Pos2::new(scale_r.right() - SCALE_CHEVRON_W, scale_r.bottom()));
+        let chev_r = Rect::from_min_max(Pos2::new(scale_r.right() - SCALE_CHEVRON_W, scale_r.top()), scale_r.max);
         let fid = ui.id().with(("export-scale", first, i));
         field::field_bg(ui, scale_r, fid);
         if let Some(s) = field::edit_text(ui, text_r, fid, &scale_of(row.constraint).to_string(), theme::font_body(), theme::TEXT, 4.0) {
@@ -233,7 +235,11 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
                 changed = true;
             }
         }
-        let chev = ui.interact(chev_r, ui.id().with(("export-scale-chev", first, i)), Sense::click());
+        // The chevron is drawn in its 16px slot, but its pointer target is the 24px floor, right-aligned in the field.
+        // It is registered after the text field, so over the 8px they share it takes the press.
+        let chev_hit = Rect::from_min_max(Pos2::new(scale_r.right() - theme::TARGET_MIN, scale_r.top()), scale_r.max);
+        widgets::record(ui, "export-scale-chev", chev_hit);
+        let chev = ui.interact(chev_hit, ui.id().with(("export-scale-chev", first, i)), Sense::click());
         icons::paint(ui.painter(), Icon::ChevronDown, chev_r.center(), 12.0, if chev.hovered() { theme::ICON } else { theme::ICON_SECONDARY });
         let menu_id = ui.id().with(("export-scale-menu", first, i));
         let open = ui.data(|d| d.get_temp::<bool>(menu_id)).unwrap_or(false);
@@ -600,9 +606,46 @@ mod tests {
             }
             for l in ["512w", "1.5x", "2x"] {
                 let w = widgets::text_width(ui.painter(), l, &theme::font_body());
-                assert!(w <= SCALE_W - 20.0 - 8.0, "{l} is {w}px wide");
+                assert!(w <= SCALE_W - SCALE_CHEVRON_W - 8.0, "{l} is {w}px wide");
             }
         });
+    }
+
+    /// An app with one rectangle that already has one export row, and the context to draw it in.
+    fn app_with_one_export_row() -> (App, Vec<NodeId>, egui::Context) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, R::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+        d.get_mut(id).unwrap().export_settings = vec![ExportPreset::default()];
+        let mut app = App::new(d);
+        app.selection = vec![id];
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        (app, vec![id], ctx)
+    }
+
+    #[test]
+    fn the_scale_chevron_has_a_full_size_pointer_target_that_wins_the_overlap_with_the_text() {
+        let (mut app, sel, ctx) = app_with_one_export_row();
+        frame(&ctx, 0.0, vec![], |ui| {
+            section(&mut app, ui, 0.0, 0.0, &sel);
+        });
+        let hit: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "export-scale-chev".to_string())))).expect("the chevron's hit rect is recorded");
+        assert!(hit.width() >= theme::TARGET_MIN, "the chevron's pointer target is {} px wide, the floor is {}", hit.width(), theme::TARGET_MIN);
+        // The field ends where the hit rect ends; a press 20 px in from that edge is over the text as well as the chevron.
+        let p = Pos2::new(hit.right() - 20.0, hit.center().y);
+        let ev = |pressed| egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let mut last = Vec::new();
+        for (t, events) in [(0.1, vec![egui::Event::PointerMoved(p)]), (0.2, vec![ev(true)]), (0.3, vec![ev(false)]), (0.4, vec![]), (0.5, vec![])] {
+            let raw =
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0))), time: Some(t), events, ..Default::default() };
+            let out = ctx.run_ui(raw, |ui| {
+                section(&mut app, ui, 0.0, 0.0, &sel);
+            });
+            last = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        assert!(last.iter().any(|t| t == "4x"), "the click opened the scale presets menu: {last:?}");
     }
 
     #[test]

@@ -819,17 +819,17 @@ impl SkillsAttachmentState {
         }
         self.poll_watcher(Some(ui.ctx()));
 
-        let min_pop_w = theme::CONTROL_ROW * 5.0 + theme::SPACE_SECTION;
-        let max_pop_w = theme::CONTROL_ROW * 8.0;
+        let min_pop_w = theme::CONTROL_MD * 5.0 + theme::SPACE_SECTION;
+        let max_pop_w = theme::CONTROL_MD * 8.0;
         let pop_w = (panel_rect.width() - theme::INSET_PANEL).clamp(min_pop_w, max_pop_w);
-        let row_h = theme::CONTROL_ROW + theme::SPACE_ROW;
+        let row_h = theme::CONTROL_MD + theme::SPACE_ROW;
         let header_h = theme::CONTROL_STANDARD;
-        let footer_h = if self.limit_violation().is_some() { theme::CONTROL_ROW } else { theme::CONTROL_DENSE };
-        let min_pop_h = theme::CONTROL_ROW * 4.0 + theme::SPACE_SECTION;
+        let footer_h = if self.limit_violation().is_some() { theme::CONTROL_MD } else { theme::CONTROL_DENSE };
+        let min_pop_h = theme::CONTROL_MD * 4.0 + theme::SPACE_SECTION;
         let pop_h =
             (header_h + (self.entries.len() as f32) * row_h + footer_h + theme::SPACE_INLINE).min((panel_rect.height() - theme::SPACE_SECTION).max(min_pop_h));
         let pop_x = (panel_rect.left() + theme::SPACE_INLINE).min(panel_rect.right() - pop_w - theme::SPACE_ROW);
-        let pop_y = (anchor_bottom_y - pop_h - theme::SPACE_INLINE).max(panel_rect.top() + theme::CONTROL_ROW);
+        let pop_y = (anchor_bottom_y - pop_h - theme::SPACE_INLINE).max(panel_rect.top() + theme::CONTROL_MD);
         let pop_r = Rect::from_min_size(Pos2::new(pop_x, pop_y), Vec2::new(pop_w, pop_h));
 
         let p = ui.painter().clone();
@@ -937,7 +937,7 @@ impl SkillsAttachmentState {
             // Right side: an error badge, or the source and token count. The title yields to it.
             let meta_str = format!("{} · {} tokens", entry.source.badge_label(), entry.token_count);
             let right_w = match entry.status.error_badge() {
-                Some(err_label) => (err_label.len() as f32 * theme::SPACE_ROW + theme::SPACE_GROUP).min(theme::CONTROL_ROW * 3.0),
+                Some(err_label) => (err_label.len() as f32 * theme::SPACE_ROW + theme::SPACE_GROUP).min(theme::CONTROL_MD * 3.0),
                 None => widgets::text_width(&row_p, &meta_str, &theme::font_caption()),
             };
 
@@ -945,7 +945,7 @@ impl SkillsAttachmentState {
             let disp_name = entry.display_name(&self.entries);
             let title_str = if is_valid { format!("{disp_name} @{}", entry.version) } else { disp_name };
             let title_room = row_r.width() - theme::SPACE_SECTION - right_w - theme::SPACE_INLINE * 2.0;
-            let title_elided = widgets::elide(&row_p, &title_str, &theme::font_caption_strong(), title_room.max(theme::CONTROL_ROW));
+            let title_elided = widgets::elide(&row_p, &title_str, &theme::font_caption_strong(), title_room.max(theme::CONTROL_MD));
             row_p.text(
                 Pos2::new(row_r.left() + theme::SPACE_SECTION, row_r.top() + theme::SPACE_GROUP),
                 Align2::LEFT_CENTER,
@@ -975,7 +975,7 @@ impl SkillsAttachmentState {
             }
 
             // Description line
-            let desc_elided = widgets::elide(&row_p, &entry.description, &theme::font_caption(), (row_r.width() - theme::CONTROL_TOOL).max(theme::CONTROL_ROW));
+            let desc_elided = widgets::elide(&row_p, &entry.description, &theme::font_caption(), (row_r.width() - theme::CONTROL_XS).max(theme::CONTROL_MD));
             row_p.text(
                 Pos2::new(row_r.left() + theme::SPACE_SECTION, row_r.top() + theme::CONTROL_STANDARD),
                 Align2::LEFT_CENTER,

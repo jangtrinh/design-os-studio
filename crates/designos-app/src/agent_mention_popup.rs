@@ -297,7 +297,7 @@ impl MentionPopupState {
         }
 
         let inset = theme::INSET_POPOVER;
-        let row_h = theme::CONTROL_ROW;
+        let row_h = theme::CONTROL_MD;
         let heading_h = theme::SPACE_GROUP + 14.0 + theme::SPACE_FACT;
         let filter_bar_h = if self.mode == MentionPopupMode::TerminalHeader { theme::CONTROL_STANDARD + theme::SPACE_ROW } else { 0.0 };
 
