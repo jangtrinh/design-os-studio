@@ -80,6 +80,155 @@ def make_fake_kit(root: Path) -> Path:
     return kit
 
 
+def make_fake_mcp(
+    bin_dir: Path,
+    pages_count: int = 189,
+    calls_file: Path | None = None,
+    mcp_messages_file: Path | None = None,
+    require_initialized: bool = True,
+    force_is_error: bool = False,
+    force_rpc_error: bool = False,
+) -> Path:
+    calls_path_str = str(calls_file) if calls_file is not None else ""
+    msgs_path_str = str(mcp_messages_file) if mcp_messages_file is not None else ""
+    return write_executable_python(
+        bin_dir / "designos-mcp",
+        f"""
+        import json, sys
+        from pathlib import Path
+
+        initialized_seen = False
+        open_pages = [{{"id": i + 1, "name": f"Page {{i + 1}}"}} for i in range({pages_count})]
+        calls_path = Path({calls_path_str!r}) if {bool(calls_file)!r} else None
+        msgs_path = Path({msgs_path_str!r}) if {bool(mcp_messages_file)!r} else None
+        doc_loaded = False
+
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            msg = json.loads(line)
+            if msgs_path is not None:
+                with msgs_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(msg) + "\\n")
+            method = msg.get("method")
+            msg_id = msg.get("id")
+            if method == "initialize":
+                resp = {{
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {{
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {{"tools": {{}}}},
+                        "serverInfo": {{"name": "fake-designos-mcp", "version": "0.7.0"}},
+                    }},
+                }}
+                sys.stdout.write(json.dumps(resp) + "\\n")
+                sys.stdout.flush()
+                continue
+            if method == "notifications/initialized":
+                initialized_seen = True
+                continue
+            if method == "tools/call":
+                if {require_initialized!r} and not initialized_seen:
+                    # Simulate rmcp consuming the message sent while waiting for notifications/initialized
+                    initialized_seen = True
+                    continue
+                params = msg.get("params") or {{}}
+                name = params.get("name")
+                args = params.get("arguments") or {{}}
+                if {force_rpc_error!r}:
+                    resp = {{
+                        "jsonrpc": "2.0",
+                        "id": msg_id,
+                        "error": {{"code": -32603, "message": "simulated rpc error"}},
+                    }}
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+                    continue
+                if {force_is_error!r}:
+                    resp = {{
+                        "jsonrpc": "2.0",
+                        "id": msg_id,
+                        "result": {{
+                            "content": [{{"type": "text", "text": "simulated tool error"}}],
+                            "structuredContent": {{"code": "INTERNAL_ERROR", "message": "simulated tool error"}},
+                            "isError": True,
+                        }},
+                    }}
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+                    continue
+                if name == "designos_open_file":
+                    doc_loaded = True
+                    payload = {{
+                        "name": "Untitled UI Kit",
+                        "kind": "Design",
+                        "active_page_id": 1,
+                        "pages": open_pages,
+                        "node_count": 390940 if len(open_pages) > 1 else 1,
+                        "can_undo": False,
+                        "can_redo": False,
+                    }}
+                    resp = {{
+                        "jsonrpc": "2.0",
+                        "id": msg_id,
+                        "result": {{
+                            "content": [{{"type": "text", "text": json.dumps(payload)}}],
+                            "structuredContent": payload,
+                            "isError": False,
+                        }},
+                    }}
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+                elif name == "designos_get_document":
+                    pages = open_pages if doc_loaded else [{{"id": 1, "name": "Page 1"}}]
+                    payload = {{
+                        "name": "Untitled UI Kit" if doc_loaded else "Untitled",
+                        "kind": "Design",
+                        "active_page_id": 1,
+                        "pages": pages,
+                        "node_count": 390940 if len(pages) > 1 else 1,
+                        "can_undo": False,
+                        "can_redo": False,
+                    }}
+                    resp = {{
+                        "jsonrpc": "2.0",
+                        "id": msg_id,
+                        "result": {{
+                            "content": [{{"type": "text", "text": json.dumps(payload)}}],
+                            "structuredContent": payload,
+                            "isError": False,
+                        }},
+                    }}
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+                elif name == "designos_save_file":
+                    out_path = Path(args["path"])
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    if doc_loaded and len(open_pages) > 1:
+                        out_path.write_text("imported-kit-designos\\n", encoding="utf-8")
+                    else:
+                        out_path.write_text('{{"name":"Untitled","pages":[1],"nodes":{{"1":{{"id":1,"name":"Page 1"}}}}}}\\n', encoding="utf-8")
+                    if calls_path is not None:
+                        with calls_path.open("a", encoding="utf-8") as fh:
+                            fh.write(json.dumps({{"kind": "import", "argv": sys.argv[1:], "out": str(out_path)}}) + "\\n")
+                    payload = {{"path": str(out_path), "saved": True}}
+                    resp = {{
+                        "jsonrpc": "2.0",
+                        "id": msg_id,
+                        "result": {{
+                            "content": [{{"type": "text", "text": json.dumps(payload)}}],
+                            "structuredContent": payload,
+                            "isError": False,
+                        }},
+                    }}
+                    sys.stdout.write(json.dumps(resp) + "\\n")
+                    sys.stdout.flush()
+        """,
+    )
+
+
 def default_layout_json(case_id: str = "d-editor-default", named_non_empty: bool = True) -> dict:
     named = (
         {
@@ -154,11 +303,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 cfile = Path({str(counter_file)!r})
                 n = int(cfile.read_text()) if cfile.exists() else 0
                 cfile.write_text(str(n + 1))
@@ -166,6 +310,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(1)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -202,11 +347,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 cfile = Path({str(counter_file)!r})
                 n = int(cfile.read_text()) if cfile.exists() else 0
                 cfile.write_text(str(n + 1))
@@ -214,6 +354,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(1)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -252,11 +393,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
                 (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
@@ -267,6 +403,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(0)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -312,11 +449,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     lib_dir.mkdir(parents=True, exist_ok=True)
                     (lib_dir / "seeded.marker").write_text("ok")
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 if "LEAKED_HOST_VAR" in os.environ:
                     sys.stderr.write("LEAKED_HOST_VAR was not stripped by env -i\\n")
                     sys.exit(2)
@@ -354,6 +486,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(0)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -393,11 +526,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                         idx = sys.argv.index("--seed-library")
                         Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                         sys.exit(0)
-                    if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                        out_idx = sys.argv.index("--out")
-                        Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                        print("{{}}")
-                        sys.exit(0)
                     tmpdir = Path(os.environ["TMPDIR"])
                     cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
                     mode = {mode!r}
@@ -412,6 +540,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     sys.exit(0)
                     """,
                 )
+                make_fake_mcp(root)
                 out_dir = root / "out"
                 proc = self.run_script(
                     "--bin",
@@ -458,11 +587,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
                 (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
@@ -473,6 +597,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(0)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -519,11 +644,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    Path(sys.argv[out_idx + 1]).write_text("imported-kit-designos\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
                 (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
@@ -536,6 +656,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(0)
                 """,
             )
+            make_fake_mcp(root)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -630,14 +751,6 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                     idx = sys.argv.index("--seed-library")
                     Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
                     sys.exit(0)
-                if "--inspect-json" in sys.argv and "--out" in sys.argv:
-                    out_idx = sys.argv.index("--out")
-                    out_path = Path(sys.argv[out_idx + 1])
-                    out_path.write_text("imported-kit-designos\\n", encoding="utf-8")
-                    with calls_path.open("a", encoding="utf-8") as fh:
-                        fh.write(json.dumps({{"kind": "import", "argv": sys.argv[1:], "out": str(out_path)}}) + "\\n")
-                    print("{{}}")
-                    sys.exit(0)
                 if "--apply-spec" in sys.argv:
                     target_clone = Path(sys.argv[1])
                     before = target_clone.read_text(encoding="utf-8")
@@ -672,6 +785,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 sys.exit(0)
                 """,
             )
+            make_fake_mcp(root, calls_file=calls_file)
             out_dir = root / "out"
             proc = self.run_script(
                 "--bin",
@@ -696,6 +810,8 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             self.assertEqual(len(captures), 2, f"expected 2 captures, got {captures}")
             # Prep targeted j-check-designs's per-case clone before capture opened it:
             self.assertEqual(preps[0]["target"], captures[1]["target"])
+            self.assertIn("imported-kit-designos", captures[0]["clone_content"])
+            self.assertIn("imported-kit-designos", captures[1]["clone_content"])
             self.assertIn("prep:check_designs_findings", captures[1]["clone_content"])
             self.assertNotIn("prep:check_designs_findings", captures[0]["clone_content"])
             # Each capture received --select id:49152:
@@ -931,6 +1047,194 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             labels_by_id = {cid: label for cid, label, _, _ in index_entries}
             self.assertEqual(labels_by_id.get("x-board"), "x-board — Tier A only")
             self.assertEqual(labels_by_id.get("x-deck"), "x-deck — Tier A only")
+
+    def test_mcp_import_sends_initialized_before_tools_call_and_checks_is_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
+            msgs_file = root / "mcp_messages.jsonl"
+            cases_file = root / "cases.json"
+            cases_file.write_text(
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
+                encoding="utf-8",
+            )
+            valid_snap = json.dumps(default_layout_json("d-editor-default", named_non_empty=True))
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                f"""
+                import os, sys
+                from pathlib import Path
+                if "--seed-library" in sys.argv:
+                    idx = sys.argv.index("--seed-library")
+                    Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                tmpdir = Path(os.environ["TMPDIR"])
+                cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
+                (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
+                shot = Path(sys.argv[sys.argv.index("--screenshot") + 1])
+                ljson = Path(sys.argv[sys.argv.index("--layout-json") + 1])
+                write_solid_png(shot, 200, 160)
+                ljson.write_text({valid_snap!r})
+                sys.exit(0)
+                """,
+            )
+            make_fake_mcp(root, pages_count=189, mcp_messages_file=msgs_file, require_initialized=True)
+            out_dir = root / "out"
+            proc = self.run_script(
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(cases_file),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            msgs = [
+                json.loads(line)
+                for line in msgs_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            methods = [m.get("method") for m in msgs]
+            self.assertGreaterEqual(len(methods), 4, f"expected >= 4 MCP messages, got {methods}")
+            self.assertEqual(methods[0], "initialize")
+            self.assertEqual(msgs[0].get("id"), 0)
+            self.assertEqual(methods[1], "notifications/initialized")
+            self.assertEqual(methods[2], "tools/call")
+            self.assertEqual(msgs[2]["params"]["name"], "designos_open_file")
+            self.assertEqual(
+                (out_dir / "_kit_cache" / "kit.designos").read_text(encoding="utf-8"),
+                "imported-kit-designos\n",
+            )
+
+        # Also verify isError=True or JSON-RPC error exits 1
+        for err_mode in ("is_error", "rpc_error"):
+            with self.subTest(err_mode=err_mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                stubs = make_stub_dir(root)
+                kit_file = make_fake_kit(root)
+                cases_file = root / "cases.json"
+                cases_file.write_text(
+                    json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
+                    encoding="utf-8",
+                )
+                fake_bin = write_executable_python(
+                    root / "fake-designos",
+                    """
+                    import sys
+                    from pathlib import Path
+                    if "--seed-library" in sys.argv:
+                        idx = sys.argv.index("--seed-library")
+                        Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                        sys.exit(0)
+                    sys.exit(0)
+                    """,
+                )
+                make_fake_mcp(
+                    root,
+                    force_is_error=(err_mode == "is_error"),
+                    force_rpc_error=(err_mode == "rpc_error"),
+                )
+                out_dir = root / "out"
+                proc = self.run_script(
+                    "--bin",
+                    str(fake_bin),
+                    "--cases",
+                    str(cases_file),
+                    "--stubs",
+                    str(stubs),
+                    "--out",
+                    str(out_dir),
+                    "--kit",
+                    str(kit_file),
+                )
+                self.assertEqual(proc.returncode, 1, f"{err_mode}: {proc.stdout}\n{proc.stderr}")
+
+    def test_missing_designos_mcp_exits_1_and_writes_no_kit_designos(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
+            cases_file = root / "cases.json"
+            cases_file.write_text(
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
+                encoding="utf-8",
+            )
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                """
+                import sys
+                from pathlib import Path
+                if "--seed-library" in sys.argv:
+                    idx = sys.argv.index("--seed-library")
+                    Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                sys.exit(0)
+                """,
+            )
+            out_dir = root / "out"
+            proc = self.run_script(
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(cases_file),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            self.assertIn(
+                "designos-mcp not found next to --bin: build it with -p designos-mcp",
+                proc.stderr,
+            )
+            self.assertFalse((out_dir / "_kit_cache" / "kit.designos").exists())
+
+    def test_one_page_kit_import_exits_1_with_page_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            kit_file = make_fake_kit(root)
+            cases_file = root / "cases.json"
+            cases_file.write_text(
+                json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
+                encoding="utf-8",
+            )
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                """
+                import sys
+                from pathlib import Path
+                if "--seed-library" in sys.argv:
+                    idx = sys.argv.index("--seed-library")
+                    Path(sys.argv[idx + 1]).mkdir(parents=True, exist_ok=True)
+                    sys.exit(0)
+                sys.exit(0)
+                """,
+            )
+            make_fake_mcp(root, pages_count=1)
+            out_dir = root / "out"
+            proc = self.run_script(
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(cases_file),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            self.assertIn("1 page", proc.stderr)
+            self.assertFalse((out_dir / "_kit_cache" / "kit.designos").exists())
 
 
 if __name__ == "__main__":
