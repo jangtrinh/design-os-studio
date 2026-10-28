@@ -1,7 +1,7 @@
 //! 1:1 Figma UI3 Multi-Tab Project Workspace (`US-10`) and Brand Wordmark Chrome (`DIR-12`).
 //!
 //! Manages multiple simultaneously open project tabs (`Design`, `Board`, `Deck`, `Spec`),
-//! per-tab isolated state (`Document`, `History`, `page`, `selection`, `View`, `file_path`,
+//! per-tab isolated state (`Document`, its load watermark, `History`, `page`, `selection`, `View`, `file_path`,
 //! `lib_file`, `dev_mode`, `pinned`, `dirty`), seamless switching between the `Home` screen
 //! and open project tabs without losing state, and the 32px top window tab bar.
 
@@ -70,6 +70,8 @@ pub struct ProjectTab {
     pub title: String,
     pub kind: ProjectTabKind,
     pub doc: Document,
+    /// [`Document::peek_next_id`] from when `doc` was opened, before its pages hydrated.
+    pub load_next_id: NodeId,
     pub hist: History,
     pub terminal: crate::terminal::TerminalState,
     pub image_jobs: crate::image_jobs::ImageJobsState,
@@ -102,6 +104,7 @@ impl ProjectTab {
             title,
             kind,
             doc: Document::default(),
+            load_next_id: app.load_next_id,
             hist: History::default(),
             terminal: crate::terminal::TerminalState::for_tab(id),
             image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
@@ -237,6 +240,7 @@ impl TabsState {
         tab.dev_mode = app.ui.dev_mode;
         tab.dirty = app.autosave.dot.flag();
         tab.disk = app.autosave.disk_state();
+        tab.load_next_id = app.load_next_id;
     }
 
     /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
@@ -289,6 +293,7 @@ impl TabsState {
                     self.entries[self.active_idx].page = app.page;
                     self.entries[self.active_idx].selection = app.selection.clone();
                     self.entries[self.active_idx].view = app.view;
+                    self.entries[self.active_idx].load_next_id = app.load_next_id;
                     self.entries[self.active_idx].doc = Self::take_live_doc(app);
                 }
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
@@ -308,6 +313,7 @@ impl TabsState {
             let active_id = self.entries[self.active_idx].id;
             let sid = self.session_id_for_tab(active_id);
             app.terminal.bind_session(&sid);
+            self.entries[self.active_idx].load_next_id = app.load_next_id;
             self.entries[self.active_idx].doc = Self::take_live_doc(app);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
             self.entries[self.active_idx].terminal = Self::park_terminal(app);
@@ -329,18 +335,31 @@ impl TabsState {
         app.exit_version_view();
         app.flush_autosave();
 
-        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk) = {
+        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk, tab_load_next_id) = {
             let tab = &mut self.entries[idx];
-            let doc = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
-                std::mem::take(&mut app.doc)
+            let (doc, load_next_id) = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
+                (std::mem::take(&mut app.doc), app.load_next_id)
             } else {
-                std::mem::take(&mut tab.doc)
+                (std::mem::take(&mut tab.doc), tab.load_next_id)
             };
-            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty, tab.disk)
+            (
+                doc,
+                tab.page,
+                tab.selection.clone(),
+                tab.view,
+                tab.file_path.clone(),
+                tab.lib_file.clone(),
+                tab.dev_mode,
+                tab.kind,
+                tab.dirty,
+                tab.disk,
+                load_next_id,
+            )
         };
         crate::io::ensure_page(&mut doc);
         let page = if doc.pages.contains(&tab_page) { tab_page } else { doc.pages[0] };
         app.doc = doc;
+        app.load_next_id = tab_load_next_id;
         app.page = page;
         app.selection = tab_selection;
         app.view = tab_view;
@@ -545,6 +564,8 @@ impl TabsState {
             ProjectTabKind::Design | ProjectTabKind::Spec => DocumentKind::Design,
         };
         crate::io::ensure_page(&mut doc);
+        // Before any page hydrates. `open_new_design_tab` and `open_new_board_tab` come through here.
+        let load_next_id = doc.peek_next_id();
         let page = doc.pages[0];
         let id = self.alloc_id();
         let sid = self.session_id_for_tab(id);
@@ -559,6 +580,7 @@ impl TabsState {
             title: title.to_string(),
             kind,
             doc,
+            load_next_id,
             hist: History::default(),
             terminal,
             image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
@@ -847,6 +869,7 @@ impl TabsState {
         let copy_selection = src.selection.clone();
         let copy_view = src.view;
         let copy_dev_mode = src.dev_mode;
+        let copy_load_next_id = src.load_next_id;
 
         let new_id = self.alloc_id();
         let sid = self.session_id_for_tab(new_id);
@@ -857,6 +880,7 @@ impl TabsState {
             title: copy_title,
             kind: copy_kind,
             doc: copy_doc,
+            load_next_id: copy_load_next_id,
             hist: History::default(),
             terminal,
             image_jobs: crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs),
@@ -1414,6 +1438,28 @@ mod tests {
         assert_eq!(app.selection, vec![r2]);
         assert!((app.view.zoom - 0.75).abs() < 1e-5);
         assert!(app.hist.can_undo(), "Tab 2 undo stack restored");
+    }
+
+    #[test]
+    fn switching_tabs_restores_each_documents_load_watermark() {
+        let mut app = make_app_with_doc("A");
+        let watermark_a = app.load_next_id;
+
+        let mut doc_b = Document::new("B");
+        doc_b.add_page("Page 1");
+        for _ in 0..4 {
+            let _ = doc_b.alloc_id();
+        }
+        let watermark_b = doc_b.peek_next_id();
+        assert_ne!(watermark_a, watermark_b, "the two documents allocate past different ids");
+
+        app.open_new_tab("B", doc_b, ProjectTabKind::Design);
+        assert_eq!(app.load_next_id, watermark_b, "tab B brings its own watermark");
+
+        app.switch_tab(0);
+        assert_eq!(app.load_next_id, watermark_a, "switching back to A restores A's watermark");
+        app.switch_tab(1);
+        assert_eq!(app.load_next_id, watermark_b, "switching back to B restores B's watermark");
     }
 
     #[test]

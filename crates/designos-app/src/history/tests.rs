@@ -173,6 +173,23 @@ fn save_view_and_restore_round_trip_with_one_undo() {
     assert_eq!(count(&app), 3);
 }
 
+#[test]
+fn viewing_a_version_and_leaving_it_restores_the_load_watermark() {
+    let t = Tmp::new("watermark");
+    let mut app = app_with_file(&t, 2);
+    let original = app.load_next_id;
+    assert!(app.save_named_version("two", ""));
+    let id = app.lib_file.as_ref().unwrap().id.clone();
+    let n = app.lib.as_ref().unwrap().list_versions(&id)[0].n;
+    let version_peek = app.lib.as_ref().unwrap().load_version(&id, n).unwrap().peek_next_id();
+    assert_ne!(version_peek, original, "the saved version's next id is not the watermark recorded when the file was opened");
+
+    app.view_version(n);
+    assert_eq!(app.load_next_id, version_peek, "the version on the canvas uses its own watermark");
+    app.exit_version_view();
+    assert_eq!(app.load_next_id, original, "leaving the version restores the live document's watermark");
+}
+
 fn add_rect_via_tx(app: &mut App) {
     let mut tx = crate::edit::Tx::new();
     let id = app.doc.alloc_id();
