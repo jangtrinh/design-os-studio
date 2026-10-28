@@ -782,7 +782,15 @@ mod tests {
     use super::*;
 
     fn shadow(radius: f32) -> Effect {
-        Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 4.0), radius, spread: 0.0, visible: true, show_behind: false }
+        Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: Vec2::new(0.0, 4.0),
+            radius,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        }
     }
 
     fn cols(count: u32) -> LayoutGrid {

@@ -13,6 +13,19 @@ pub const AUTOSAVE_IDLE: f64 = 1.5;
 /// Seconds of calm after which a revision change is compared with the saved document.
 const PROBE_DELAY: f64 = 0.3;
 
+/// Bundled offline starter document (`crates/designos-app/assets/starter/designos-studio-starter.designos`).
+pub const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-studio-starter.designos");
+
+/// Decodes [`STARTER_BYTES`] into a [`Document`].
+pub fn load_starter_document() -> std::result::Result<Document, String> {
+    #[cfg(test)]
+    let bytes: &[u8] = super::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(STARTER_BYTES);
+    #[cfg(not(test))]
+    let bytes: &[u8] = STARTER_BYTES;
+    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    Document::from_json(text).map_err(|e| e.to_string())
+}
+
 /// The library file currently open in the editor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibFile {
@@ -537,7 +550,7 @@ impl App {
         self.ui.pages_height = crate::comments::settings::load_pages_height(&root);
         match Library::open(&root) {
             Ok(lib) => {
-                match lib.seed_first_run(crate::demo::demo_document) {
+                match lib.seed_starter(load_starter_document) {
                     // The sample file gets its thumbnail right away so the home screen is not blank.
                     Ok(Some(entry)) => {
                         if let Ok(doc) = lib.load_file(&entry.id) {
@@ -545,12 +558,81 @@ impl App {
                         }
                     }
                     Ok(None) => {}
-                    Err(e) => self.show_toast(format!("Could not create the sample project: {e}"), true),
+                    Err(_) => self.show_toast("Could not create the starter sample", true),
                 }
                 self.lib = Some(lib);
             }
             Err(e) => self.show_toast(format!("Cannot open the library at {}: {e}", root.display()), true),
         }
+    }
+
+    /// Creates a numbered copy (`"DESIGN-OS Studio Starter (n)"`) of the starter sample in the
+    /// current project and opens it (`Help ▸ Open starter sample`, AC-10).
+    pub fn open_starter_sample(&mut self) {
+        let Some(lib) = self.lib.clone() else {
+            self.show_toast("The projects library is unavailable", true);
+            return;
+        };
+        let mut doc = match load_starter_document() {
+            Ok(doc) => doc,
+            Err(_) => {
+                self.show_toast("Could not create the starter sample", true);
+                return;
+            }
+        };
+        let project_id = if let Some(lf) = &self.lib_file {
+            if lib.project(&lf.project_id).is_ok() {
+                Some(lf.project_id.clone())
+            } else {
+                None
+            }
+        } else if let Some(h) = &self.home {
+            match &h.section {
+                Section::Project(pid, _) if lib.project(pid).is_ok() => Some(pid.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let project_id = match project_id {
+            Some(pid) => pid,
+            None => {
+                let projects = lib.list_projects();
+                if let Some(p) = projects.iter().find(|p| p.name == designos_library::SEED_PROJECT) {
+                    p.id.clone()
+                } else if let Some(p) = projects.first() {
+                    p.id.clone()
+                } else {
+                    match lib.create_project(designos_library::SEED_PROJECT) {
+                        Ok(p) => p.id,
+                        Err(_) => {
+                            self.show_toast("Could not create the starter sample", true);
+                            return;
+                        }
+                    }
+                }
+            }
+        };
+        let name = match lib.next_available_file_name(&project_id, designos_library::STARTER_FILE_NAME, true) {
+            Ok(n) => n,
+            Err(_) => {
+                self.show_toast("Could not create the starter sample", true);
+                return;
+            }
+        };
+        doc.name = name.clone();
+        let entry = match lib.create_file(&project_id, None, &name, &doc) {
+            Ok(e) => e,
+            Err(_) => {
+                self.show_toast("Could not create the starter sample", true);
+                return;
+            }
+        };
+        thumb::refresh(&lib, &entry.id, &doc);
+        if let Some(h) = &mut self.home {
+            h.dirty = true;
+        }
+        self.open_library_file(&entry.id);
     }
 
     /// Shows the home screen ("Back to files"), saving pending edits first.

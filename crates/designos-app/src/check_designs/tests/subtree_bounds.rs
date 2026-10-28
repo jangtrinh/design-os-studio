@@ -70,6 +70,7 @@ fn random_page(seed: u64) -> (Fx, Vec<NodeId>) {
                     spread: rng.between(-5.0, 10.0),
                     visible: true,
                     show_behind: false,
+                    blend: Default::default(),
                 }]
             }
             1 => n.effects = vec![Effect::LayerBlur { radius: rng.between(0.0, 30.0), visible: true }],

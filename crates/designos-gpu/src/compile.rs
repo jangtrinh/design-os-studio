@@ -321,6 +321,15 @@ fn special_blend(b: d::BlendMode) -> bool {
     !matches!(b, d::BlendMode::Normal | d::BlendMode::PassThrough)
 }
 
+/// How a finished shadow layer composites over what is beneath it.
+fn shadow_mode(b: d::BlendMode) -> CompMode {
+    if special_blend(b) {
+        CompMode::Blend(b)
+    } else {
+        CompMode::Over
+    }
+}
+
 #[inline]
 fn visible_fills(n: &Node) -> impl Iterator<Item = &d::Paint> + Clone {
     let slice = match &n.kind {
@@ -864,7 +873,7 @@ impl Ctx<'_> {
                 continue;
             }
             // the displacement targets are accounted only once the post is pushed
-            let clip_to = clip_rect.map(|r| self.reserving(0, displace_bytes(rect), |c| c.sil_program(n, &g, ts, r, 0.0, 0.0, 0.0, true)));
+            let clip_to = clip_rect.map(|r| self.reserving(0, displace_bytes(rect), |c| c.sil_program(n, &g, ts, r, 0.0, 0.0, 0.0, d::SilhouetteMode::Opaque)));
             let cell = (t.size.max(0.1) * scale / self.ss as f32).max(1.0);
             let c = self.cur();
             self.push_post(c, Post::Displace { amp, cell, seed: t.seed, grid: self.grid, clip_to, ss: self.ss });
@@ -964,9 +973,9 @@ impl Ctx<'_> {
         if allow_fx {
             for e in &n.effects {
                 match e {
-                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind } => {
+                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
                         if !interactive || (*radius * scale >= 1.0 || offset.x.hypot(offset.y) * scale >= 1.0 || *spread * scale >= 1.0) {
-                            self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, alpha);
+                            self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
                     }
                     Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
@@ -994,8 +1003,8 @@ impl Ctx<'_> {
         // 3. inner shadows
         if allow_fx {
             for e in &n.effects {
-                if let Effect::InnerShadow { color, offset, radius, spread, visible: true } = e {
-                    self.inner_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, alpha);
+                if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                    self.inner_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha);
                 }
             }
 
@@ -1125,32 +1134,32 @@ impl Ctx<'_> {
     // ----- silhouettes ----------------------------------------------------------
 
     /// A program of `rect` holding the node silhouette (black, with the fill
-    /// alpha unless `opaque`), shifted by (`dx`, `dy`) device pixels and grown
+    /// alpha unless `mode` ignores it), shifted by (`dx`, `dy`) device pixels and grown
     /// (`grow` > 0) or eroded (< 0) by `grow` local units.
     #[allow(clippy::too_many_arguments)]
-    fn sil_program(&mut self, n: &Node, g: &Rc<NodeGeom>, ts: sk::Transform, rect: IRect, dx: f32, dy: f32, grow: f32, opaque: bool) -> ProgId {
+    fn sil_program(&mut self, n: &Node, g: &Rc<NodeGeom>, ts: sk::Transform, rect: IRect, dx: f32, dy: f32, grow: f32, mode: d::SilhouetteMode) -> ProgId {
         let prog = self.new_prog(rect);
         let clip = self.full_clip(rect);
-        self.with_prog(prog, |c| c.silhouette(n, g, ts, dx, dy, grow, opaque, clip));
+        self.with_prog(prog, |c| c.silhouette(n, g, ts, dx, dy, grow, mode, clip));
         prog
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn silhouette(&mut self, n: &Node, g: &Rc<NodeGeom>, ts: sk::Transform, dx: f32, dy: f32, grow: f32, opaque: bool, clip: ClipId) {
+    fn silhouette(&mut self, n: &Node, g: &Rc<NodeGeom>, ts: sk::Transform, dx: f32, dy: f32, grow: f32, mode: d::SilhouetteMode, clip: ClipId) {
+        let opaque = mode.ignores_alpha();
         let ts2 = ts.post_translate(dx, dy);
         let has_fills = has_visible_fills(n);
         let has_strokes = has_visible_strokes(n);
         let black = |a: f32| solid_inst([0.0, 0.0, 0.0, a.clamp(0.0, 1.0)]);
-        if matches!(n.kind, NodeKind::Text(_)) {
-            for (i, t) in g.text.iter().enumerate() {
-                let _ = i;
-                let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
-                self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
+        match d::silhouette_source(n, g.shape.as_ref().map(|sh| sh.fillable), mode) {
+            d::SilhouetteSource::Text => {
+                for t in g.text.iter() {
+                    let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
+                    self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
+                }
             }
-            return;
-        }
-        if let Some(sh) = &g.shape {
-            if (sh.fillable && has_fills) || has_strokes || (opaque && sh.fillable) {
+            d::SilhouetteSource::OwnShape => {
+                let Some(sh) = &g.shape else { return };
                 if let Some(fill) = &g.fill {
                     if sh.fillable && opaque && !has_fills {
                         self.draw_mesh(fill, ts2, black(1.0), DrawBlend::Over, clip);
@@ -1182,14 +1191,60 @@ impl Ctx<'_> {
                         self.draw_mesh(&m, ts2, black(1.0), blend, clip);
                     }
                 }
-                return;
             }
+            d::SilhouetteSource::Children => {
+                let Some(cc) = self.silhouette_clip(n, g, ts2, clip) else { return };
+                // silhouettes are drawn offset from the page grid: no index culling
+                let was = std::mem::replace(&mut self.cull, false);
+                self.draw_children(&n.paint_children(), ts2, cc);
+                self.cull = was;
+            }
+            d::SilhouetteSource::ChildrenOpaque => {
+                let Some(cc) = self.silhouette_clip(n, g, ts2, clip) else { return };
+                let was = std::mem::replace(&mut self.cull, false);
+                self.knockout_children(&n.paint_children(), ts2, cc);
+                self.cull = was;
+            }
+            d::SilhouetteSource::Nothing => {}
         }
-        if draws_children(n) {
-            // silhouettes are drawn offset from the page grid: no index culling
-            let was = std::mem::replace(&mut self.cull, false);
-            self.draw_children(&n.paint_children(), ts2, clip);
-            self.cull = was;
+    }
+
+    /// The clip the children of `n` draw under in a silhouette: the frame's own shape when it
+    /// clips content (the same choice as the body makes). `None`: nothing can show.
+    fn silhouette_clip(&mut self, n: &Node, g: &Rc<NodeGeom>, ts: sk::Transform, clip: ClipId) -> Option<ClipId> {
+        if !n.kind.frame_props().is_some_and(|f| f.clips_content) {
+            return Some(clip);
+        }
+        let sh = g.shape.as_ref()?;
+        let inner_bb = xform_bounds(&ts, 0.0, 0.0, n.size.x, n.size.y);
+        let cc = if sh.is_rect && identity_like(&ts) && n.corner_radii.iter().all(|r| *r <= 0.0) {
+            let (x0, y0) = (ts.tx, ts.ty);
+            let (x1, y1) = (ts.tx + n.size.x * ts.sx, ts.ty + n.size.y * ts.sy);
+            self.narrow_clip(clip, IRect::new(x0.round() as i32, y0.round() as i32, x1.round() as i32, y1.round() as i32))
+        } else if self.prog_cap_hit(64) {
+            self.narrow_clip(clip, IRect::outward(inner_bb))
+        } else {
+            let mesh = g.fill.as_ref()?;
+            let roi = self.visible(clip);
+            self.mask_clip(mesh, ts, clip, false, roi, Degrade::Scissor(IRect::outward(inner_bb)))?
+        };
+        (!self.visible(cc).is_empty()).then_some(cc)
+    }
+
+    /// Draws each visible child's own opaque silhouette (a knockout): paint alpha is ignored,
+    /// hidden and fully transparent children add nothing.
+    fn knockout_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
+        let doc = self.doc;
+        for cid in children {
+            let Some(child) = board::get(doc, *cid) else { continue };
+            let child = resolve_node(doc, &child);
+            let child: &Node = &child;
+            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity <= 0.0 {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            let g = self.geom_of(child, &ts);
+            self.silhouette(child, &g, ts, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout, clip);
         }
     }
 
@@ -1267,9 +1322,11 @@ impl Ctx<'_> {
         radius: f32,
         spread: f32,
         show_behind: bool,
+        blend: d::BlendMode,
         alpha: f32,
     ) {
-        if self.drop_shadow_analytic(n, g, ts, clip, scale, color, offset, radius, spread, show_behind, alpha) {
+        // the analytic quad draws straight over the target: a blended shadow needs the layer path
+        if !special_blend(blend) && self.drop_shadow_analytic(n, g, ts, clip, scale, color, offset, radius, spread, show_behind, alpha) {
             return;
         }
         let sigma = radius.max(0.0) * scale / 2.0;
@@ -1289,13 +1346,15 @@ impl Ctx<'_> {
         }
         // while the first silhouette draws its children, the blur and the
         // second silhouette are still to come
-        let s = self.reserving(silhouettes as usize - 1, (silhouettes - 1) * cost + blur_cost, |c| c.sil_program(n, g, ts, rect, ox, oy, spread, false));
+        let s = self.reserving(silhouettes as usize - 1, (silhouettes - 1) * cost + blur_cost, |c| {
+            c.sil_program(n, g, ts, rect, ox, oy, spread, d::SilhouetteMode::Alpha)
+        });
         if sigma > 0.05 {
             self.push_post(s, Post::Blur { sigma, clamp: false });
         }
-        let aux = (!show_behind).then(|| (self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, true), AuxMode::MulInv));
+        let aux = (!show_behind).then(|| (self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout), AuxMode::MulInv));
         let tint = [color.r.clamp(0.0, 1.0), color.g.clamp(0.0, 1.0), color.b.clamp(0.0, 1.0), (color.a * alpha).clamp(0.0, 1.0)];
-        self.push_op(Op::Composite(Box::new(CompositeOp { src: s, rect, opacity: 1.0, tint: Some(tint), aux, mode: CompMode::Over, clip })));
+        self.push_op(Op::Composite(Box::new(CompositeOp { src: s, rect, opacity: 1.0, tint: Some(tint), aux, mode: shadow_mode(blend), clip })));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1311,6 +1370,7 @@ impl Ctx<'_> {
         offset: Vec2,
         radius: f32,
         spread: f32,
+        blend: d::BlendMode,
         alpha: f32,
     ) {
         let sigma = radius.max(0.0) * scale / 2.0;
@@ -1328,7 +1388,7 @@ impl Ctx<'_> {
             return;
         }
         // the grain layer, its blur and the shape silhouette follow the hole
-        let hole = self.reserving(2, 2 * cost + blur_cost, |c| c.sil_program(n, g, ts, rect, ox, oy, -spread, false));
+        let hole = self.reserving(2, 2 * cost + blur_cost, |c| c.sil_program(n, g, ts, rect, ox, oy, -spread, d::SilhouetteMode::Alpha));
         let p = self.new_prog(rect);
         let inner = self.full_clip(rect);
         self.with_prog(p, |c| {
@@ -1338,7 +1398,7 @@ impl Ctx<'_> {
         if sigma > 0.05 {
             self.push_post(p, Post::Blur { sigma, clamp: false });
         }
-        let shape = self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, false);
+        let shape = self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, d::SilhouetteMode::Alpha);
         let tint = [color.r.clamp(0.0, 1.0), color.g.clamp(0.0, 1.0), color.b.clamp(0.0, 1.0), (color.a * alpha).clamp(0.0, 1.0)];
         self.push_op(Op::Composite(Box::new(CompositeOp {
             src: p,
@@ -1346,7 +1406,7 @@ impl Ctx<'_> {
             opacity: 1.0,
             tint: Some(tint),
             aux: Some((shape, AuxMode::Mul)),
-            mode: CompMode::Over,
+            mode: shadow_mode(blend),
             clip,
         })));
     }
@@ -1364,7 +1424,7 @@ impl Ctx<'_> {
         if self.over_budget(1, self.program_cost(region) + backdrop) {
             return;
         }
-        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, true));
+        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, d::SilhouetteMode::Opaque));
         self.push_backdrop(BackdropOp { kind: BackdropKind::Blur { sigma }, region, pad: padr, mask, clip, grid: self.grid });
     }
 
@@ -1383,7 +1443,7 @@ impl Ctx<'_> {
         if self.over_budget(1, self.program_cost(padr) + backdrop) {
             return;
         }
-        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, padr, 0.0, 0.0, 0.0, true));
+        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, padr, 0.0, 0.0, 0.0, d::SilhouetteMode::Opaque));
         let ang = e.light_angle.to_radians();
         let params = GlassParams {
             light: [ang.cos(), ang.sin()],
@@ -1443,7 +1503,7 @@ impl Ctx<'_> {
         let layer = self.new_prog(rect);
         let lclip = self.full_clip(rect);
         self.with_prog(layer, |c| c.draw_quad(rect, pi, DrawBlend::Over, lclip));
-        let mask = self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, true);
+        let mask = self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, d::SilhouetteMode::Opaque);
         let mode = if normal { CompMode::Over } else { CompMode::Blend(e.blend) };
         self.push_op(Op::Composite(Box::new(CompositeOp { src: layer, rect, opacity: 1.0, tint: None, aux: Some((mask, AuxMode::Mul)), mode, clip })));
     }

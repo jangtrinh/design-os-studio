@@ -1,0 +1,84 @@
+RAW-SESSION  src/engine.rs:221   fn read_session_json_field            let raw = std::fs::read_to_string(path).ok()?;
+workspace    src/engine.rs:906   fn call                               std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot wr
+workspace    src/engine.rs:1098  fn call                               (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| format!("Cannot read web capture '{path}': {e}
+RAW-SESSION  src/rules.rs:107   fn load                               let Ok(raw) = fs::read_to_string(&path) else {
+RAW-SESSION  src/server.rs:110   fn atomic_write_file                  let _ = fs::create_dir_all(parent);
+RAW-SESSION  src/server.rs:113   fn atomic_write_file                  fs::write(&tmp_path, bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
+RAW-SESSION  src/server.rs:114   fn atomic_write_file                  fs::rename(&tmp_path, path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+RAW-SESSION  src/server.rs:121   fn append_log_line                    let _ = fs::create_dir_all(parent);
+RAW-SESSION  src/server.rs:123   fn append_log_line                    let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}",
+RAW-SESSION  src/server.rs:124   fn append_log_line                    file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()
+workspace    src/server.rs:200   fn new                                let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
+workspace    src/server.rs:201   fn new                                if !root.is_dir() {
+workspace    src/server.rs:238   fn with_session_dir                   let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
+workspace    src/server.rs:239   fn with_session_dir                   if !root.is_dir() {
+RAW-SESSION  src/server.rs:299   fn replay_unabsorbed_live_patches     let Ok(log) = fs::read(path) else {
+RAW-SESSION  src/server.rs:333   fn edit_log_len                       self.bridge.live_doc_patch_path.as_ref().and_then(|p| fs::metadata(p).ok()).filter(|m| m.is_file()).map(|m| m.
+RAW-SESSION  src/server.rs:353   fn sync_from_live_canvas_if_newer     if let Ok(raw) = fs::read_to_string(ctx_path) {
+RAW-SESSION  src/server.rs:377   fn sync_from_live_canvas_if_newer     if let Ok(raw) = fs::read_to_string(dir.join("mcp-config.json")) {
+RAW-SESSION  src/server.rs:406   fn sync_from_live_canvas_if_newer     if let Ok(meta) = fs::metadata(&canvas_path) {
+RAW-SESSION  src/server.rs:413   fn sync_from_live_canvas_if_newer     if let Ok(raw) = fs::read_to_string(&canvas_path) {
+RAW-SESSION  src/server.rs:447   fn sync_from_live_canvas_if_newer     if let Ok(raw) = fs::read_to_string(&boot_json_path) {
+RAW-SESSION  src/server.rs:558   fn publish_live_doc_sync              self.bridge.last_canvas_mtime = fs::metadata(canvas_path).and_then(|m| m.modified()).ok();
+workspace    src/server.rs:576   fn input_path                         && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
+workspace    src/server.rs:581   fn input_path                         let canon = joined.canonicalize().map_err(|e| {
+workspace    src/server.rs:592   fn input_path                         if !canon.is_file() {
+workspace    src/server.rs:608   fn output_path_allow_overwrite        .canonicalize()
+workspace    src/server.rs:621   fn output_path_allow_overwrite        if overwrite && resolved.exists() {
+workspace    src/server.rs:623   fn output_path_allow_overwrite        fs::symlink_metadata(&resolved).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Cannot 
+workspace    src/server.rs:624   fn output_path_allow_overwrite        if meta.file_type().is_symlink() || !meta.is_file() {
+workspace    src/server.rs:627   fn output_path_allow_overwrite        let canon = resolved.canonicalize().map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", format!("Can
+workspace    src/server.rs:645   fn png_output_path                    .canonicalize()
+workspace    src/server.rs:670   fn fig_output_path                    .canonicalize()
+workspace    src/server.rs:844   fn call_inner                         let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.l
+workspace    src/server.rs:854   fn call_inner                         if let Ok(raw) = fs::read_to_string(&path) {
+workspace    src/server.rs:864   fn call_inner                         let doc = designos_library::load_external(&path)
+workspace    src/server.rs:947   fn call_inner                         let mut file = fs::OpenOptions::new()
+workspace    src/server.rs:953   fn call_inner                         file.write_all(bytes.as_bytes())
+workspace    src/server.rs:959   fn call_inner                         let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {
+workspace    src/server.rs:968   fn call_inner                         if let Err(e) = file.write_all(bytes.as_bytes()).and_then(|_| file.sync_all()) {
+workspace    src/server.rs:970   fn call_inner                         let _ = fs::remove_file(&path);
+workspace    src/server.rs:1005  fn call_inner                         let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| {
+workspace    src/server.rs:1009  fn call_inner                         if let Err(e) = file.write_all(&png).and_then(|_| file.sync_all()) {
+workspace    src/server.rs:1011  fn call_inner                         let _ = fs::remove_file(&path);
+workspace    src/server.rs:1023  fn call_inner                         let mut file = fs::OpenOptions::new()
+workspace    src/server.rs:1029  fn call_inner                         file.write_all(&bytes)
+workspace    src/server.rs:1056  fn call_inner                         if fs::metadata(&resolved).map_err(|e| e.to_string())?.len() > 64 * 1024 * 1024 {
+library      src/tools/guidelines.rs:214   fn call_get_guidelines_with_enabled_tools if !path.is_file() {
+library      src/tools/guidelines.rs:217   fn call_get_guidelines_with_enabled_tools let raw = fs::read_to_string(&path).map_err(|e| format!("Failed to read surface guide '{topic}': {e}"))?;
+library      src/tools/guidelines.rs:256   fn call_get_guidelines_with_enabled_tools if !path.is_file() {
+library      src/tools/guidelines.rs:259   fn call_get_guidelines_with_enabled_tools let raw = fs::read_to_string(&path).map_err(|e| format!("Failed to read archetype '{arch_id}': {e}"))?;
+library      src/tools/guidelines.rs:351   fn list_topics_value                  let (available, summary) = if path.is_file() {
+library      src/tools/guidelines.rs:352   fn list_topics_value                  match fs::read_to_string(&path).and_then(|s| parse_surface_guide(&s).map_err(|e| std::io::Error::new(std::io::
+library      src/tools/guidelines.rs:387   fn has_toml_files                     let Ok(entries) = fs::read_dir(dir) else {
+library      src/tools/guidelines.rs:472   fn validate_archetypes_dir            if !dir.exists() {
+library      src/tools/guidelines.rs:475   fn validate_archetypes_dir            let mut paths: Vec<PathBuf> = fs::read_dir(dir)
+library      src/tools/guidelines.rs:485   fn validate_archetypes_dir            let raw = fs::read_to_string(&path).map_err(|e| format!("Cannot read '{}': {e}", path.display()))?;
+RAW-SESSION  src/tools/ledger.rs:350   fn load_from_path                     if let Ok(raw) = fs::read_to_string(&path) {
+RAW-SESSION  src/tools/ledger.rs:681   fn rewrite_file                       let written = fs::File::create(&tmp).and_then(|mut f| f.write_all(body.as_bytes()).and_then(|_| f.sync_all()))
+RAW-SESSION  src/tools/ledger.rs:682   fn rewrite_file                       if written.is_err() || fs::rename(&tmp, path).is_err() {
+RAW-SESSION  src/tools/ledger.rs:683   fn rewrite_file                       let _ = fs::remove_file(&tmp);
+RAW-SESSION  src/tools/ledger.rs:693   fn clear                              if path.exists() {
+RAW-SESSION  src/tools/ledger.rs:694   fn clear                              if let Ok(file) = fs::OpenOptions::new().write(true).truncate(true).open(path) {
+RAW-SESSION  src/tools/ledger.rs:715   fn append_json_line                   let _ = fs::create_dir_all(parent);
+RAW-SESSION  src/tools/ledger.rs:717   fn append_json_line                   if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+RAW-SESSION  src/tools/ledger.rs:718   fn append_json_line                   if file.write_all(line.as_bytes()).is_ok() {
+library      src/tools/libraries.rs:5     fn -                                  use designos_library::LibraryIndex;
+library      src/tools/libraries.rs:59    fn get_libraries_at                   if root.exists() && !root.is_dir() {
+library      src/tools/libraries.rs:61    fn get_libraries_at                   } else if root.is_dir() {
+library      src/tools/libraries.rs:63    fn get_libraries_at                   if libs_dir.exists() && !libs_dir.is_dir() {
+library      src/tools/libraries.rs:65    fn get_libraries_at                   } else if libs_dir.is_dir() {
+library      src/tools/libraries.rs:66    fn get_libraries_at                   match std::fs::read_dir(&libs_dir) {
+library      src/tools/libraries.rs:67    fn get_libraries_at                   Ok(read_dir) => {
+library      src/tools/libraries.rs:68    fn get_libraries_at                   for entry in read_dir.flatten() {
+library      src/tools/libraries.rs:70    fn get_libraries_at                   if !path.is_dir() {
+library      src/tools/libraries.rs:78    fn get_libraries_at                   match std::fs::read_to_string(&index_path).and_then(|s| serde_json::from_str::<LibraryIndex>(&s).map_err(Into:
+library      src/tools/library_source.rs:4     fn -                                  use designos_library::Library;
+library      src/tools/library_source.rs:50    fn load_cached_snapshot_at            if !root.is_dir() {
+library      src/tools/library_source.rs:88    fn enabled_snapshots                  let doc_root = doc_roots().lock().ok().and_then(|g| g.get(&doc.runtime_id()).cloned()).filter(|p| p.is_dir());
+RAW-SESSION  src/tools/session_options.rs:129   fn load_from_dir                      let Ok(raw) = fs::read_to_string(&path) else {
+RAW-SESSION  src/tools/session_options.rs:145   fn save_to_dir                        let _ = fs::create_dir_all(parent);
+RAW-SESSION  src/tools/session_options.rs:149   fn save_to_dir                        fs::write(&tmp_path, &bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
+RAW-SESSION  src/tools/session_options.rs:150   fn save_to_dir                        fs::rename(&tmp_path, &path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+
+SUMMARY: RAW-SESSION=29, library=23, workspace=30 (total 82)

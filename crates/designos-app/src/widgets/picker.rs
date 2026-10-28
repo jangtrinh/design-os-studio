@@ -1319,15 +1319,18 @@ fn picker_dropdown(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, options:
     picked
 }
 
-fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) -> bool {
+/// The blend modes the editor offers, in Figma's menu order, with their labels.
+pub(crate) const BLEND_MODES: [(designos_doc::BlendMode, &str); 18] = {
     use designos_doc::BlendMode as B;
-    const MODES: [(B, &str); 16] = [
+    [
         (B::Normal, "Normal"),
         (B::Darken, "Darken"),
         (B::Multiply, "Multiply"),
+        (B::LinearBurn, "Linear burn"),
         (B::ColorBurn, "Color burn"),
         (B::Lighten, "Lighten"),
         (B::Screen, "Screen"),
+        (B::LinearDodge, "Linear dodge"),
         (B::ColorDodge, "Color dodge"),
         (B::Overlay, "Overlay"),
         (B::SoftLight, "Soft light"),
@@ -1338,7 +1341,17 @@ fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) ->
         (B::Saturation, "Saturation"),
         (B::Color, "Color"),
         (B::Luminosity, "Luminosity"),
-    ];
+    ]
+};
+
+/// Whether Figma's blend menu draws a group divider after `mode`.
+pub(crate) fn blend_group_ends(mode: designos_doc::BlendMode) -> bool {
+    use designos_doc::BlendMode as B;
+    matches!(mode, B::Normal | B::PassThrough | B::ColorBurn | B::ColorDodge | B::HardLight | B::Exclusion)
+}
+
+fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) -> bool {
+    const MODES: [(designos_doc::BlendMode, &str); 18] = BLEND_MODES;
     let id = ui.id().with("picker-blend");
     crate::widgets::record(ui, "picker-blend", rect);
     let r = ui.interact(rect, id, Sense::click());

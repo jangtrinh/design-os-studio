@@ -1126,7 +1126,10 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
             continue;
         }
-        if top && matches!(f, OverrideField::Transform | OverrideField::Visible | OverrideField::Locked) {
+        if top && matches!(f, OverrideField::Name | OverrideField::Transform | OverrideField::Visible | OverrideField::Locked) {
+            continue;
+        }
+        if f == OverrideField::Name && matches!(n.kind, NodeKind::Instance { .. }) {
             continue;
         }
         if own_text && f == OverrideField::Size {
@@ -3824,5 +3827,184 @@ mod tests {
         assert_eq!(text_of(&f.d, label_copy), "Wrapped override");
         assert_eq!(f.d.get(bg_copy).unwrap().fills, f.d.get(f.bg).unwrap().fills, "the slot content still follows its main component");
         assert_eq!(f.d.get(outer).unwrap().component.values.get("Icon"), Some(&PropValue::Slot(vec![inner_copy])));
+    }
+
+    #[derive(Debug)]
+    struct DeferredPageTestHydrator {
+        unloaded_page: NodeId,
+        unloaded_inst: NodeId,
+        main_comp: NodeId,
+        hydrated: bool,
+    }
+
+    impl crate::PageHydrator for DeferredPageTestHydrator {
+        fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool {
+            if page != self.unloaded_page || self.hydrated {
+                return false;
+            }
+            self.hydrated = true;
+            if doc.get(self.unloaded_inst).is_some_and(|n| n.children.is_empty()) {
+                let kids = doc.get(self.main_comp).map(|n| n.children.clone()).unwrap_or_default();
+                for (idx, k) in kids.into_iter().enumerate() {
+                    let nodes = copy_tree(doc, k, true);
+                    if !nodes.is_empty() {
+                        let _ = Command::Insert { parent: self.unloaded_inst, index: idx, nodes }.apply(doc);
+                    }
+                }
+            }
+            true
+        }
+
+        fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+            self.hydrate_page(doc, self.unloaded_page)
+        }
+
+        fn is_hydrated(&self, page: NodeId) -> bool {
+            page != self.unloaded_page || self.hydrated
+        }
+    }
+
+    struct InstanceNameSyncFx {
+        f: Fx,
+        unloaded_page: NodeId,
+        inst_same_page: NodeId,
+        inst_loaded_page: NodeId,
+        inst_unloaded_page: NodeId,
+    }
+
+    fn instance_name_sync_fixture() -> InstanceNameSyncFx {
+        let mut f = fx();
+        set_text(&mut f.d, f.label, "Satellite");
+
+        // Build a second variant and combine into a ComponentSet so `f.comp` has a variant name
+        // ("Breakpoint=Desktop, Type=Simple") while instances carry their own layer name ("Contact page header").
+        let id = f.d.alloc_id();
+        let mut mobile = Node::frame(id, Rect::new(0.0, 200.0, 100.0, 40.0));
+        mobile.name = "Breakpoint=Mobile, Type=Simple".into();
+        let mobile = f.d.insert(f.page, mobile).unwrap();
+        let id = f.d.alloc_id();
+        let mut mobile_label = Node::text(id, Rect::new(10.0, 10.0, 60.0, 20.0), "Satellite", TextStyle::default());
+        mobile_label.name = "label".into();
+        f.d.insert(mobile, mobile_label).unwrap();
+        let c = create_component(&mut f.d, mobile);
+        apply(&mut f.d, c);
+
+        let mut desktop = f.d.get(f.comp).unwrap().clone();
+        desktop.name = "Breakpoint=Desktop, Type=Simple".into();
+        apply(&mut f.d, Command::Update { node: Box::new(desktop) });
+
+        let c = combine_as_variants(&mut f.d, &[f.comp, mobile]);
+        apply(&mut f.d, c);
+        let set = f.d.get(f.comp).unwrap().parent.unwrap();
+        let mut set_node = f.d.get(set).unwrap().clone();
+        set_node.name = "Header section".into();
+        apply(&mut f.d, Command::Update { node: Box::new(set_node) });
+
+        // 1. Instance on the same page as the main component.
+        let c = create_instance(&mut f.d, f.comp, f.page, Vec2::new(300.0, 0.0));
+        apply(&mut f.d, c);
+        let inst_same_page = *f.d.get(f.page).unwrap().children.last().unwrap();
+        let mut n = f.d.get(inst_same_page).unwrap().clone();
+        n.name = "Contact page header".into();
+        assert!(!n.component.overrides.contains(&OverrideField::Name));
+        apply(&mut f.d, Command::Update { node: Box::new(n) });
+
+        // 2. Instance on another loaded page.
+        let loaded_page = f.d.add_page("About page");
+        let c = create_instance(&mut f.d, f.comp, loaded_page, Vec2::new(0.0, 0.0));
+        apply(&mut f.d, c);
+        let inst_loaded_page = *f.d.get(loaded_page).unwrap().children.last().unwrap();
+        let mut n = f.d.get(inst_loaded_page).unwrap().clone();
+        n.name = "Contact page header".into();
+        assert!(!n.component.overrides.contains(&OverrideField::Name));
+        apply(&mut f.d, Command::Update { node: Box::new(n) });
+
+        // 3. Instance on a page not loaded yet (deferred expansion via PageHydrator: instance shell is on the page,
+        // its children are not expanded yet, and `is_page_hydrated(unloaded_page)` is false).
+        let unloaded_page = f.d.add_page("Header section");
+        let inst_unloaded_id = f.d.alloc_id();
+        let comp_fp = f.d.get(f.comp).unwrap().kind.frame_props().cloned().unwrap_or_default();
+        let mut unloaded_inst = Node::new(inst_unloaded_id, NodeKind::Instance { component: Some(f.comp), component_key: None, frame: comp_fp });
+        unloaded_inst.name = "Contact page header".into();
+        unloaded_inst.size = f.d.get(f.comp).unwrap().size;
+        unloaded_inst.component.source = Some(f.comp);
+        let inst_unloaded_page = f.d.insert(unloaded_page, unloaded_inst).unwrap();
+        f.d.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(DeferredPageTestHydrator {
+            unloaded_page,
+            unloaded_inst: inst_unloaded_page,
+            main_comp: f.comp,
+            hydrated: false,
+        })));
+
+        let is_hydrated = |d: &Document, page: NodeId| d.page_hydrator.as_ref().unwrap().lock().unwrap().is_hydrated(page);
+        assert!(is_hydrated(&f.d, f.page));
+        assert!(is_hydrated(&f.d, loaded_page));
+        assert!(!is_hydrated(&f.d, unloaded_page));
+
+        InstanceNameSyncFx { f, unloaded_page, inst_same_page, inst_loaded_page, inst_unloaded_page }
+    }
+
+    #[test]
+    fn sync_main_text_edit_keeps_instance_layer_names_across_same_loaded_and_unloaded_pages() {
+        let InstanceNameSyncFx { mut f, unloaded_page, inst_same_page, inst_loaded_page, inst_unloaded_page, .. } = instance_name_sync_fixture();
+
+        set_text(&mut f.d, f.label, "Satellitex");
+        set_fill(&mut f.d, f.bg, Color::rgb(12, 34, 56));
+        let cmd = sync_instances(&mut f.d, f.comp);
+        let inv = apply(&mut f.d, cmd);
+
+        let names = [
+            ("same page", f.d.get(inst_same_page).unwrap().name.as_str()),
+            ("other loaded page", f.d.get(inst_loaded_page).unwrap().name.as_str()),
+            ("unloaded page", f.d.get(inst_unloaded_page).unwrap().name.as_str()),
+        ];
+        assert_eq!(
+            names,
+            [("same page", "Contact page header"), ("other loaded page", "Contact page header"), ("unloaded page", "Contact page header"),],
+            "instances on same page, other loaded page, and unloaded page must keep their own layer names instead of taking the main variant name"
+        );
+        for (label, inst_id) in [("same page", inst_same_page), ("other loaded page", inst_loaded_page), ("unloaded page", inst_unloaded_page)] {
+            assert_eq!(text_of(&f.d, child_named(&f.d, inst_id, "label")), "Satellitex", "main text edit synced to instance on {label}");
+            assert_eq!(f.d.get(child_named(&f.d, inst_id, "bg")).unwrap().fills, f.d.get(f.bg).unwrap().fills, "main fill edit synced to instance on {label}");
+        }
+
+        // Hydrating the previously unloaded page keeps the instance's own layer name and synced text.
+        assert!(f.d.ensure_page_hydrated(unloaded_page));
+        assert!(f.d.page_hydrator.as_ref().unwrap().lock().unwrap().is_hydrated(unloaded_page));
+        assert_eq!(f.d.get(inst_unloaded_page).unwrap().name, "Contact page header");
+        assert_eq!(text_of(&f.d, child_named(&f.d, inst_unloaded_page, "label")), "Satellitex");
+
+        // Undo restores the pre-sync state while preserving the instance layer names.
+        apply(&mut f.d, inv);
+        assert_eq!(f.d.get(inst_same_page).unwrap().name, "Contact page header");
+        assert_eq!(f.d.get(inst_loaded_page).unwrap().name, "Contact page header");
+        assert_eq!(f.d.get(inst_unloaded_page).unwrap().name, "Contact page header");
+        assert_eq!(text_of(&f.d, child_named(&f.d, inst_same_page, "label")), "Satellite");
+    }
+
+    #[test]
+    fn sync_main_text_edit_preserves_instance_layer_names_across_designos_round_trip() {
+        let InstanceNameSyncFx { mut f, inst_same_page, inst_loaded_page, inst_unloaded_page, .. } = instance_name_sync_fixture();
+
+        set_text(&mut f.d, f.label, "Satellitex");
+        let cmd = sync_instances(&mut f.d, f.comp);
+        apply(&mut f.d, cmd);
+
+        let saved = f.d.to_json().expect("serialize .designos");
+        let loaded = Document::from_json(&saved).expect("deserialize .designos");
+
+        let names = [
+            ("same page", loaded.get(inst_same_page).unwrap().name.as_str()),
+            ("other loaded page", loaded.get(inst_loaded_page).unwrap().name.as_str()),
+            ("unloaded page", loaded.get(inst_unloaded_page).unwrap().name.as_str()),
+        ];
+        assert_eq!(
+            names,
+            [("same page", "Contact page header"), ("other loaded page", "Contact page header"), ("unloaded page", "Contact page header"),],
+            "saved and reloaded .designos must keep instance layer names across all pages"
+        );
+        for inst_id in [inst_same_page, inst_loaded_page, inst_unloaded_page] {
+            assert_eq!(text_of(&loaded, child_named(&loaded, inst_id, "label")), "Satellitex");
+        }
     }
 }

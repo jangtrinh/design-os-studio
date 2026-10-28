@@ -1,0 +1,13 @@
+196688042bcffca6dda796e36d537542ae22a549
+ M plans/reports/v062-fix-1072-evidence/gate-r3-head.txt
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-makes-its-marker-and-prints-unbraced.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-makes-its-marker-and-prints-unbraced.log
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-prints-the-page-reply-unsilenced.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-prints-the-page-reply-unsilenced.log
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-waits-for-a-reply-in-a-folder-that-is-gone.diff
+ M plans/reports/v062-fix-1072-evidence/r3-mut-r3-the-prompt-hook-waits-for-a-reply-in-a-folder-that-is-gone.log
+?? plans/reports/v062-fix-1072-evidence/ci-ubuntu-leg-on-6f2f9a79.txt
+?? plans/reports/v062-fix-1072-evidence/r3-mut-r3c-the-prompt-hook-redirects-the-colon-builtin-which-ends-a-dash-shell.diff
+?? plans/reports/v062-fix-1072-evidence/r3-mut-r3c-the-prompt-hook-redirects-the-colon-builtin-which-ends-a-dash-shell.log
+?? plans/reports/v062-fix-1072-evidence/r3c-green-dash-sweep.log
+?? plans/reports/v062-fix-1072-evidence/r3c-red-dash-on-56d67542.log

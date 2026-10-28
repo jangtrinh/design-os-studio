@@ -38,10 +38,10 @@ max-threads = 1
 filter = "package(designos-webcapture) & binary(capture_tests)"
 test-group = "webcapture-serial"
 
-# Heavy 8M-node clone-budget expansion tests contend for CPU and memory bandwidth
-# when run concurrently across process-per-test workers on 3-vCPU CI runners.
+# Heavy 8M-node clone-budget expansion tests and tight wall-clock / frame-budget benchmarks contend for CPU and
+# memory bandwidth when run concurrently across process-per-test workers on 3-vCPU CI runners.
 [[profile.default.overrides]]
-filter = "test(=rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget) | test(=tools::batch::tests::trial_clone_budget_on_large_synthetic)"
+filter = "test(=io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast) | test(=rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget) | test(=tools::batch::tests::trial_clone_budget_on_large_synthetic)"
 threads-required = "num-cpus"
 slow-timeout = { period = "60s", terminate-after = 12 }
 

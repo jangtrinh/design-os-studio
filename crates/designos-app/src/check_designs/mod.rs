@@ -14,6 +14,7 @@
 mod contrast;
 mod detached;
 mod fix;
+#[cfg(any(test, feature = "fixtures"))]
 pub mod fixture;
 mod hardcoded;
 mod library_assets;
@@ -22,6 +23,7 @@ mod state;
 mod tests;
 mod text_styles;
 
+#[cfg(any(test, feature = "fixtures"))]
 pub use fixture::FIXTURE;
 pub use state::CheckDesignsState;
 

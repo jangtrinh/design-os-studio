@@ -272,6 +272,7 @@ fn lower_sticky(n: &Node, s: &StickyProps, body: &mut Node, extras: &mut Vec<Nod
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         },
         Effect::DropShadow {
             color: Color { a: 0.12, ..Color::BLACK },
@@ -280,6 +281,7 @@ fn lower_sticky(n: &Node, s: &StickyProps, body: &mut Node, extras: &mut Vec<Nod
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         },
     ];
     effects.extend(n.effects.iter().cloned());

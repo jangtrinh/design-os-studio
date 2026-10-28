@@ -371,6 +371,7 @@ fn edits_leaving_the_default_state_of_each_hash_guarded_group_are_changes() {
                 spread: 0.0,
                 visible: true,
                 show_behind: false,
+                blend: Default::default(),
             }]
         }),
         (Group::StyleRefs, "style_refs", |n| {

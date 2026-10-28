@@ -1,0 +1,56 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-mcp)
+   Compiling designos-app v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.40s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-cfe862bd484a2ffd)
+
+running 44 tests
+test panels::export::tests::every_format_is_in_the_dropdown_and_round_trips_to_the_stored_format ... ok
+test fig_export::tests::reveal_command_selects_the_file_in_each_file_manager ... ok
+test panels::export::tests::fingerprint_changes_with_the_subtree ... ok
+test panels::export::tests::format_labels_fit_their_dropdown ... ok
+test io::file_dialog_flow_tests::export_toast_menu_read_only_folder_names_the_path_and_the_reason ... ok
+test panels::export::tests::export_cancel_is_silent_and_writes_nothing ... ok
+test panels::export::tests::export_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test panels::export::tests::multi_selection_shows_and_edits_shared_rows_only ... ok
+test io::file_dialog_flow_tests::export_toast_menu_picked_path_offers_reveal ... ok
+test panels::export::tests::oversized_frame_in_a_pdf_row_reports_an_error ... ok
+test panels::export::tests::export_toast_panel_read_only_folder_names_the_path_and_the_reason ... ok
+test io::file_dialog_flow_tests::export_toast_menu_without_a_dialog_offers_reveal ... ok
+test panels::export::tests::scale_strings_round_trip_through_constraints ... ok
+test panels::export::tests::export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside ... ok
+test panels::export::tests::export_toast_panel_dialog_file_offers_reveal ... ok
+test panels::export::tests::one_file_without_a_save_dialog_lands_in_the_fallback_folder_and_says_so ... ok
+test panels::export::tests::pdf_rows_mix_with_image_rows_and_repeat_rows_add_no_page ... ok
+test panels::export::tests::a_very_long_layer_name_still_saves_to_the_fallback_folder ... ok
+test panels::export::tests::one_file_in_the_fallback_folder_never_overwrites ... ok
+test panels::export::tests::selected_frames_with_pdf_rows_export_as_one_multi_page_file ... ok
+test panels::export::tests::export_writes_where_the_dialog_picked ... ok
+test panels::export::tests::export_toast_panel_many_files_offer_one_folder_reveal ... ok
+test panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder ... ok
+test panels::export::tests::export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix ... ok
+test panels::export::tests::plus_adds_a_row_and_shows_preview_and_button ... ok
+test panels::export::tests::rows_add_edit_remove_are_undoable_and_survive_save_and_load ... ok
+test shell::tests::fig_export_toast::show_in_folder_works_on_the_home_screen_after_an_export ... ok
+test shell::tests::export_toast::export_toast_panel_preset_parses_and_the_toast_has_a_reveal_path ... ok
+test shell::tests::export_toast::toast_clock_plain_toast_survives_a_30s_block_then_lasts_toast_seconds ... ok
+test variables::tests::export_toast_keeps_counts_out_of_parentheses_and_agrees_in_number ... ok
+test shell::tests::fig_export_toast::a_long_path_toast_stays_inside_the_window ... ok
+test shell::tests::fig_export_toast::show_in_folder_reveals_the_exported_file ... ok
+test shell::tests::export_toast::toast_clock_reveal_toast_survives_a_30s_block_then_lasts_reveal_seconds ... ok
+test shell::tests::fig_export_toast::a_failed_reveal_says_so ... ok
+test shell::tests::export_toast::export_toast_panel_toast_is_visible_beside_the_open_properties_panel ... ok
+test shell::tests::export_toast::export_toast_preset_survives_a_plain_toast_before_the_first_frame ... ok
+test shell::tests::fig_export_toast::a_click_on_a_plain_toast_reaches_the_canvas_below ... ok
+test shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason ... ok
+test shell::tests::panel_export::panel_export_never_overwrites_an_existing_file ... ok
+test shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast ... ok
+test shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path ... ok
+test shell::tests::export_toast::toast_clock_export_preset_is_painted_on_the_screenshot_frame ... ok
+test shell::tests::fig_export_toast::a_click_on_the_toast_body_reaches_the_canvas_below ... ok
+test shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 3442 filtered out; finished in 1.99s
+

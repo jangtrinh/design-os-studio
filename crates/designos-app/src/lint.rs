@@ -50,6 +50,12 @@ fn contains_tol(outer: Rect, inner: Rect, tol: f32) -> bool {
     inner.left() >= outer.left() - tol && inner.right() <= outer.right() + tol && inner.top() >= outer.top() - tol && inner.bottom() <= outer.bottom() + tol
 }
 
+/// Whether the two rects share an area (touching edges do not count).
+fn overlaps(a: Rect, b: Rect) -> bool {
+    let shared = a.intersect(b);
+    shared.width() > 0.0 && shared.height() > 0.0
+}
+
 /// Checks recorded icons: every icon declared inside a square-ish button must be
 /// centered within 0.5px and must not leave the box.
 pub fn check_icons(recs: &[IconRec]) -> Vec<Finding> {
@@ -114,10 +120,13 @@ pub fn check_text(texts: &[TextRun], boxes: &[Rect]) -> Vec<Finding> {
         if !t.clip.intersects(t.rect) || t.rect.width() <= 0.0 {
             continue;
         }
+        // A box that lies wholly outside the text's clip is under no painted part of the text (the half scrolled out
+        // of view is not drawn), so it cannot hold the line. Every box that overlaps the clip still can, whichever
+        // way the text pokes out of it.
         let anchor = t.rect.center();
         let Some(container) = boxes
             .iter()
-            .filter(|b| b.shrink(1.5).contains(anchor) && b.height() <= 64.0 && b.width() >= 8.0)
+            .filter(|b| b.shrink(1.5).contains(anchor) && b.height() <= 64.0 && b.width() >= 8.0 && overlaps(**b, t.clip))
             .min_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
         else {
             continue;

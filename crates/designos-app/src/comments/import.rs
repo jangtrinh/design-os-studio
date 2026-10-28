@@ -137,6 +137,7 @@ pub fn merge(existing: &[CommentThread], imported: Vec<CommentThread>) -> (Vec<C
 }
 
 /// A small Figma comments export used by the tests and the `--fixture comments` screenshot.
+#[cfg(any(test, feature = "fixtures"))]
 pub const FIXTURE: &str = include_str!("fixtures/figma_comments.json");
 
 #[cfg(test)]

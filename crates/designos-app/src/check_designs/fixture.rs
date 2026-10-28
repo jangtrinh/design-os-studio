@@ -1,4 +1,5 @@
 //! Screenshot fixture for `--fixture check-designs`: a small design system (one colour variable,
+#![cfg(any(test, feature = "fixtures"))]
 //! three shared styles, one main component) and three frames that drift from it, one per Check
 //! designs rule family, plus one finding that has no safe fix. The audit and the fixes run on this
 //! document exactly as on a user file.
@@ -14,7 +15,15 @@ pub const FIXTURE: &str = "check-designs";
 const PRIMARY: Color = Color { r: 13.0 / 255.0, g: 153.0 / 255.0, b: 1.0, a: 1.0 };
 
 fn card_shadow() -> Effect {
-    Effect::DropShadow { color: Color::rgba(0, 0, 0, 56), offset: Vec2::new(0.0, 6.0), radius: 16.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 56),
+        offset: Vec2::new(0.0, 6.0),
+        radius: 16.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 fn heading_style() -> TextStyle {

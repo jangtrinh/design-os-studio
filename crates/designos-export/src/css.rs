@@ -219,7 +219,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
                 shadows.push(format!("{}px {}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius), num(*spread)));
                 text_shadows.push(format!("{}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius)));
             }
-            Effect::InnerShadow { color, offset, radius, spread, visible: true } => {
+            Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } => {
                 shadows.push(format!("inset {}px {}px {}px {}px {}", num(offset.x), num(offset.y), num(*radius), num(*spread), css_color(color, 1.0)));
             }
             _ => {}
@@ -520,6 +520,7 @@ mod tests {
                     spread: 0.0,
                     visible: true,
                     show_behind: false,
+                    blend: Default::default(),
                 },
                 Effect::LayerBlur { radius: 10.0, visible: true },
             ];

@@ -1,0 +1,11 @@
+--- a/crates/designos-app/src/agent_session_files/no_follow/set_aside.rs
++++ b/crates/designos-app/src/agent_session_files/no_follow/set_aside.rs
+@@ -137,7 +137,7 @@
+             }
+         }
+         // Neither descriptor shows who refuses, so the line names the folder the entry is in by its path, next to the entry.
+-        failed(e.kind(), format!("{} can't be moved out of {}: {e}", path.display(), self.path.display()), Fix::CheckItAndItsFolder)
++        cannot("moved", path, e, Fix::CheckItAndItsFolder)
+     }
+ 
+     /// Whether this folder is locked: immutable or append-only (Finder's "Locked", `chflags uchg`), which refuses a rename in or out.

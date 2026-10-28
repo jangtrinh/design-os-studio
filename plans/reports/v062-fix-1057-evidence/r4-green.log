@@ -1,0 +1,74 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked -- agent_session_files::
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.15s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 56 tests
+test agent_session_files::folder_message_tests::a_missing_data_folder_says_what_to_check ... ok
+test agent_session_files::folder_tests::a_file_at_a_session_path_is_refused ... ok
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_is_refused ... ok
+test agent_session_files::folder_unit_tests::a_file_written_into_a_real_session_folder_may_create_its_subfolders ... ok
+test agent_session_files::folder_unit_tests::a_folder_of_another_user_is_refused ... ok
+test agent_session_files::folder_unit_tests::a_folder_that_cannot_be_made_says_where_and_what_to_do ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_folder_of_another_user_says_to_move_or_delete_it ... ok
+test agent_session_files::folder_unit_tests::a_probe_that_cannot_write_names_the_folder_and_what_to_do ... ok
+test agent_session_files::folder_unit_tests::a_link_in_place_of_the_sessions_folder_is_refused_and_a_loose_one_is_made_private ... ok
+test agent_session_files::folder_unit_tests::each_test_process_has_a_sessions_folder_of_its_own ... ok
+test agent_session_files::folder_unit_tests::only_a_direct_child_of_the_root_is_ephemeral_and_an_id_cannot_leave_the_root ... ok
+test agent_session_files::folder_unit_tests::the_production_root_sits_next_to_the_approval_channel_in_the_data_folder ... ok
+test agent_session_files::folder_unit_tests::the_sweep_never_removes_a_folder_in_the_temp_folder_where_earlier_versions_kept_sessions ... ok
+test agent_session_files::folder_unit_tests::the_user_id_is_not_read_through_a_link_at_the_sessions_folder ... ok
+test agent_session_files::folder_unit_tests::without_a_private_data_folder_no_session_folder_is_made ... ok
+test agent_session_files::folder_tests::a_tab_does_not_start_in_a_planted_link_and_says_why ... ok
+test agent_session_files::refusal::tests::a_refusal_carries_its_cause_and_each_kind_has_its_own_recovery ... ok
+test agent_session_files::refusal::tests::another_error_carries_its_own_next_step_and_is_not_a_refusal ... ok
+test agent_session_files::folder_unit_tests::a_session_file_is_not_written_through_a_link_at_its_folder ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_file_says_to_delete_the_file ... ok
+test agent_session_files::folder_tests::a_link_planted_at_the_next_ephemeral_session_path_is_refused ... ok
+test agent_session_files::folder_message_tests::a_tab_refused_a_link_says_to_delete_the_link ... ok
+test agent_session_files::folder_tests::a_link_planted_at_a_library_session_path_gets_no_lock_file ... ok
+test agent_session_files::test_root::tests::a_missing_test_data_folder_is_made_and_a_file_in_its_place_is_refused ... ok
+test agent_session_files::folder_message_tests::a_custom_cli_tab_refused_a_link_says_the_same ... ok
+test agent_session_files::folder_message_tests::sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_is_refused ... ok
+test agent_session_files::folder_message_tests::a_library_file_whose_temporary_folder_is_refused_too_says_so_with_a_next_step ... ok
+test agent_session_files::folder_message_tests::the_line_of_a_taken_lock_says_the_temporary_folder_cannot_be_used_without_either ... ok
+test agent_session_files::test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it ... ok
+test agent_session_files::folder_tests::an_existing_real_session_folder_is_accepted_again ... ok
+test agent_session_files::folder_message_tests::a_library_file_says_what_happens_to_its_agents_and_what_to_delete ... ok
+test agent_session_files::folder_tests::new_session_folders_are_private_to_their_owner ... ok
+test agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do ... ok
+test agent_session_files::tests::mcp_without_a_session_dir_has_no_live_paths ... ok
+test agent_session_files::test_root::tests::a_link_in_place_of_the_test_data_folder_is_refused_and_nothing_is_made_or_removed_through_it ... ok
+test agent_session_files::tests::dropping_spec_into_window_a_never_applies_in_window_b ... ok
+test agent_session_files::tests::snapshot_write_failure_does_not_mark_key_synced ... ok
+test agent_session_files::tests::parse_ps_etime_secs_and_query_process_started_ms_work_on_unix ... ok
+test agent_session_files::tests::sweep_never_touches_library_agent_sessions ... ok
+test agent_session_files::tests::no_global_tmp_path_in_shipped_code ... ok
+test agent_session_files::tests::write_backoff_pauses_the_same_content_with_a_growing_delay_and_reports_it_once ... ok
+test agent_session_files::test_root::tests::no_folder_is_removed_when_the_test_folder_is_made_ready ... ok
+test agent_session_files::tests::startup_sweep_removes_only_dead_sessions_older_than_7_days ... ok
+test agent_session_files::tests::a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots ... ok
+test agent_session_files::tests::a_failing_write_is_not_retried_every_frame ... ok
+test agent_session_files::tests::closing_a_tab_removes_its_ephemeral_session_dir ... ok
+test agent_session_files::tests::coalesces_rapid_snapshots_to_the_latest_document ... ok
+test agent_session_files::folder_tests::a_library_file_whose_folder_is_a_planted_link_runs_in_the_private_fallback_and_writes_nothing_through_the_link ... ok
+test agent_session_files::tests::snapshot_is_written_off_the_ui_thread ... ok
+test agent_session_files::tests::shutdown_removes_an_ephemeral_session_dir ... ok
+test agent_session_files::hook_quoting_tests::every_hook_command_survives_an_apostrophe_and_a_space_in_the_session_folder ... ok
+test agent_session_files::tests::two_windows_never_touch_each_others_session_files ... ok
+test agent_session_files::tests::a_publish_after_shutdown_does_not_recreate_the_session_folder ... ok
+test agent_session_files::tests::a_publish_after_the_last_tab_closed_does_not_recreate_the_session_folder ... ok
+test agent_session_files::tests::ui_thread_cost_on_a_24k_node_document_stays_under_budget ... ok
+test agent_session_files::tests::a_bootstrap_build_that_finishes_after_shutdown_does_not_recreate_the_session_folder ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 3047 filtered out; finished in 1.56s
+
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked -- agent_session_files::
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json

@@ -1,0 +1,26 @@
+$ cargo test -p designos-mcp --test spec_errors --locked round4_
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-e-cli-spec-errors/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.66s
+     Running tests/spec_errors.rs (out/cargo/debug/deps/spec_errors-9f07075765b87406)
+
+running 1 test
+test round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string ... FAILED
+
+failures:
+
+---- round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string stdout ----
+
+thread 'round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string' (53539057) panicked at crates/designos-mcp/tests/spec_errors.rs:373:10:
+batch apply_spec with parent_id: "@card" must succeed: ToolError { code: BatchOpFailed, message: "op #1 (apply_spec) failed: Invalid arguments: parent_id must be a non-negative integer. Pass a numeric node ID.", path: "/ops/1", received: None, expected: None, valid_options: [], valid_options_total: None, corrected_example: None, cause: Some(ToolError { code: InvalidArguments, message: "Invalid arguments: parent_id must be a non-negative integer. Pass a numeric node ID.", path: "/ops/1", received: None, expected: None, valid_options: [], valid_options_total: None, corrected_example: None, cause: None, failed_op: None, op: None, safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }), failed_op: Some(1), op: Some("apply_spec"), safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    round4_batch_apply_spec_accepts_noderef_parent_id_while_direct_refuses_string
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --test spec_errors`

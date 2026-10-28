@@ -5,8 +5,8 @@
 //! colour/number property via bucketed hash tables.
 
 use crate::{
-    local_key, scope_allows, style_property, Color, Document, LayoutAlign, LibraryAssetKind, LibraryRef, LibrarySnapshot, LineHeight, Node, NodeId, NodeKind,
-    Paint, PaintKind, Style, StyleProperty, TextProps, TextStyle, Variable, VariableCollection, VariableKind, VariableStore, VariableValue,
+    local_key, scope_allows, style_property, Color, Document, LayoutAlign, LeadingTrim, LibraryAssetKind, LibraryRef, LibrarySnapshot, LineHeight, Node,
+    NodeId, NodeKind, Paint, PaintKind, Style, StyleProperty, TextProps, TextStyle, Variable, VariableCollection, VariableKind, VariableStore, VariableValue,
     REMOTE_LIBRARY_PREFIX,
 };
 use std::collections::HashMap;
@@ -375,7 +375,7 @@ impl Index {
     pub fn matching_text_styles(&self, t: &TextProps) -> Vec<&StyleEntry> {
         self.styles
             .iter()
-            .filter(|s| matches!(&s.style, Style::Text(ts) if same_text_style(&t.style, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts))))
+            .filter(|s| matches!(&s.style, Style::Text(ts) if same_text_style_props(t, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts))))
             .collect()
     }
 
@@ -626,14 +626,40 @@ pub fn number_inherited(n: &Node, src: Option<&Node>, key: &str) -> bool {
 
 /// Text properties equal a text style's apart from the colour, which a text style does not carry.
 pub fn same_text_style(own: &TextStyle, style: &TextStyle) -> bool {
-    TextStyle { fills: own.fills.clone(), ..style.clone() } == *own
+    let mut expected = style.clone();
+    // Alignment belongs to the text layer, not its shared style. Keep the
+    // target's alignment while comparing all style-owned typography values.
+    expected.align_h = own.align_h;
+    expected.align_v = own.align_v;
+    // Paragraph values live on TextProps for layers and are compared by
+    // `same_text_style_props`; runs do not carry paragraph state.
+    expected.paragraph_indent = 0.0;
+    expected.list_spacing = 0.0;
+    expected.leading_trim = LeadingTrim::None;
+    let mut own = own.clone();
+    own.paragraph_indent = 0.0;
+    own.list_spacing = 0.0;
+    own.leading_trim = LeadingTrim::None;
+    TextStyle { fills: own.fills.clone(), ..expected } == own
+}
+
+/// Compares a text layer with a shared style, including paragraph values that
+/// are canonical on `TextProps::paragraph` rather than `TextStyle`.
+pub fn same_text_style_props(own: &TextProps, style: &TextStyle) -> bool {
+    if !same_text_style(&own.style, style) {
+        return false;
+    }
+    own.paragraph.indent == style.paragraph_indent && own.paragraph.list_spacing == style.list_spacing && own.paragraph.leading_trim == style.leading_trim
 }
 
 /// Whether the text style of an instance's layer is exactly its main component's, so a text style
 /// finding belongs to the main component and not to the instance.
 pub fn text_style_inherited(n: &Node, src: Option<&Node>) -> bool {
     let (NodeKind::Text(t), Some(NodeKind::Text(st))) = (&n.kind, src.map(|s| &s.kind)) else { return false };
-    same_text_style(&t.style, &st.style) && t.runs.len() == st.runs.len() && t.runs.iter().zip(&st.runs).all(|(a, b)| same_text_style(&a.style, &b.style))
+    same_text_style(&t.style, &st.style)
+        && t.paragraph == st.paragraph
+        && t.runs.len() == st.runs.len()
+        && t.runs.iter().zip(&st.runs).all(|(a, b)| same_text_style(&a.style, &b.style))
 }
 
 /// Concrete `NodeVariables::bindings` keys to write when applying a variable bind, or an
@@ -733,7 +759,7 @@ pub fn style_matches_node(_doc: &Document, n: &Node, s: &Style, property: StyleP
             !n.style_refs.contains_key(slot.ref_key()) && !any_bound && slot.paints(n) == ps.as_slice()
         }
         Style::Text(ts) => match &n.kind {
-            NodeKind::Text(t) => !n.style_refs.contains_key("text") && same_text_style(&t.style, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts)),
+            NodeKind::Text(t) => !n.style_refs.contains_key("text") && same_text_style_props(t, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts)),
             _ => false,
         },
         Style::Effect(fx) => !n.style_refs.contains_key("effect") && !n.effects.is_empty() && n.effects == *fx,

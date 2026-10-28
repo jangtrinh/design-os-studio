@@ -89,13 +89,13 @@ pub(crate) fn paints(ps: &[Paint]) -> Value {
 
 fn effect(e: &Effect) -> Value {
     match e {
-        Effect::DropShadow { color, offset, radius, spread, visible, show_behind } => json!({
+        Effect::DropShadow { color, offset, radius, spread, visible, show_behind, blend } => json!({
             "type": "DROP_SHADOW", "color": col(*color), "offset": v2(*offset), "radius": n(*radius),
-            "spread": n(*spread), "visible": visible, "showShadowBehindNode": show_behind, "blendMode": "NORMAL"
+            "spread": n(*spread), "visible": visible, "showShadowBehindNode": show_behind, "blendMode": blend_name(*blend)
         }),
-        Effect::InnerShadow { color, offset, radius, spread, visible } => json!({
+        Effect::InnerShadow { color, offset, radius, spread, visible, blend } => json!({
             "type": "INNER_SHADOW", "color": col(*color), "offset": v2(*offset), "radius": n(*radius),
-            "spread": n(*spread), "visible": visible, "blendMode": "NORMAL"
+            "spread": n(*spread), "visible": visible, "blendMode": blend_name(*blend)
         }),
         Effect::LayerBlur { radius, visible } => json!({"type": "LAYER_BLUR", "radius": n(*radius), "visible": visible}),
         Effect::BackgroundBlur { radius, visible } => json!({"type": "BACKGROUND_BLUR", "radius": n(*radius), "visible": visible}),
@@ -162,6 +162,15 @@ fn type_style(ts: &TextStyle, auto: Option<TextAutoResize>, max_lines: Option<u3
     m.insert("fontSize".into(), n(ts.font_size));
     m.insert("letterSpacing".into(), n(ts.letter_spacing));
     m.insert("paragraphSpacing".into(), n(ts.paragraph_spacing));
+    if ts.paragraph_indent != 0.0 {
+        m.insert("paragraphIndent".into(), n(ts.paragraph_indent));
+    }
+    if ts.list_spacing != 0.0 {
+        m.insert("listSpacing".into(), n(ts.list_spacing));
+    }
+    if ts.leading_trim == LeadingTrim::CapHeight {
+        m.insert("leadingTrim".into(), "CAP_HEIGHT".into());
+    }
     m.insert(
         "textAlignHorizontal".into(),
         match ts.align_h {

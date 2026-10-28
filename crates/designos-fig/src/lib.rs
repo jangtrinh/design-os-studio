@@ -50,9 +50,11 @@ pub use rest_import::{
 };
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
 pub use variables_dtcg::{
-    apply_staged_variables, collect_omitted_extensions, detect_variables_format, detect_variables_format_value, export_variables, import_variables,
-    import_variables_bytes, mode_name_from_filename, stage_variables, stage_variables_bytes, validate_dtcg_json, validate_dtcg_value, DtcgValidationError,
-    ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable, StagedVariablesImport, VariablesFormat,
+    apply_staged_variables, collect_omitted_extensions, detect_variables_format, detect_variables_format_value, export_dtcg_mode,
+    export_dtcg_with_color_format, export_variables, export_variables_with_color_format, import_variables, import_variables_bytes, mode_name_from_filename,
+    stage_variables, stage_variables_bytes, validate_dtcg_json, validate_dtcg_value, ColorFormat, DtcgModeOptions, DtcgValidationError, ExportBundle,
+    ImportReport, ImportVariablesOptions, ModeExportCollection, ModeExportReport, SkippedModeCollection, SkippedVariable, StagedVariablesImport,
+    VariablesFormat,
 };
 pub use web_capture::{import_web_capture_into_page, import_web_capture_json, import_web_capture_json_with_report, looks_like_web_capture_json};
 
@@ -64,4 +66,6 @@ pub enum FigError {
     Format(String),
     #[error("unsupported: {0}")]
     Unsupported(String),
+    #[error("{0}")]
+    Export(String),
 }

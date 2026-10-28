@@ -1,0 +1,47 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+     Running tests/session_files/main.rs (out/cargo-1068/debug/deps/session_files-657090e65be613f1)
+
+running 35 tests
+test ledger::a_ledger_in_a_folder_that_is_gone_says_so ... ok
+test fifos::a_fifo_at_the_bootstrap_is_refused ... ok
+test fifos::a_fifo_at_the_ledger_is_refused ... ok
+test fifos::a_fifo_at_the_tool_config_is_refused ... ok
+test fifos::a_fifo_at_the_context_is_refused ... ok
+test ledger::store_never_appends_through_a_link ... ok
+test fifos::a_fifo_at_the_session_options_is_refused ... ok
+test ledger::a_fifo_at_the_ledger_never_blocks_load_clear_or_store ... ok
+test links::a_link_at_the_bootstrap_is_not_read ... ok
+test ledger::a_refused_ledger_file_is_reported_once_and_the_entries_stay_in_memory ... ok
+test ledger::clear_never_truncates_through_a_link ... ok
+test fifos::a_fifo_at_the_canvas_is_refused ... ok
+test links::a_link_at_the_context_is_not_read ... ok
+test fifos::a_fifo_at_the_edit_log_is_refused_and_the_edit_fails_naming_it ... ok
+test links::a_link_at_the_canvas_is_not_loaded ... ok
+test ledger::the_rewrite_never_writes_through_a_link_at_the_old_temp_name ... ok
+test links::a_dangling_link_at_the_edit_log_creates_nothing ... ok
+test links::a_link_at_the_ledger_is_not_read ... ok
+test links::a_hard_link_at_the_edit_log_gets_no_append ... ok
+test links::a_link_at_the_edit_log_is_not_read ... ok
+test links::a_link_at_the_canvas_is_replaced_by_the_next_write ... ok
+test reports::a_session_folder_that_is_gone_is_an_error_naming_the_file_and_is_not_made_again ... ok
+test links::a_link_at_the_session_options_is_not_read ... ok
+test links::a_link_at_the_old_canvas_temp_name_gets_no_write ... ok
+test options::a_save_never_writes_through_a_link_at_the_old_temp_name ... ok
+test links::a_link_at_the_old_doc_sync_temp_name_gets_no_write ... ok
+test links::a_link_at_the_doc_sync_is_replaced_by_the_next_write ... ok
+test links::a_link_at_the_old_session_options_temp_name_gets_no_write ... ok
+test reports::a_problem_that_stays_is_told_once_and_one_that_returns_is_told_again ... ok
+test options::a_save_replaces_a_link_at_the_target_and_leaves_its_victim ... ok
+test links::a_link_at_the_edit_log_gets_no_append_and_the_edit_fails_naming_the_path ... ok
+test links::a_link_at_the_ledger_is_neither_truncated_nor_appended_to ... ok
+test links::a_link_at_the_session_options_is_replaced_by_the_next_write ... ok
+test links::a_link_at_the_tool_config_is_not_read ... ok
+test stdio::a_link_at_the_edit_log_and_a_fifo_at_the_context_are_refused_and_told ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.97s
+
+exit=0 scratch_removed=yes

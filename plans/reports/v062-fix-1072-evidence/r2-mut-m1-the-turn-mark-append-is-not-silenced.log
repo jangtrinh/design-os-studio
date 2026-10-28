@@ -1,0 +1,31 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.66s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 3 tests
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... FAILED
+test terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+
+failures:
+
+---- terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing stdout ----
+
+thread 'terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing' (49174126) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:82:13:
+ClaudeAsk, Missing: 3 of 19 hooks did not end at once with success:
+exit Some(1) after 14.277875ms, stderr "sh: <tmp>/b1061.WXZFpT/designos-approval-channels-test/ed7bf229ff1b4d3b/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Stop","p":%s}' "$(date +%s)" "$p"); 
+exit Some(1) after 14.053208ms, stderr "sh: <tmp>/b1061.WXZFpT/designos-approval-channels-test/ed7bf229ff1b4d3b/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopCancelled","p":%s}' "$(date +%s)
+exit Some(1) after 13.903833ms, stderr "sh: <tmp>/b1061.WXZFpT/designos-approval-channels-test/ed7bf229ff1b4d3b/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopFailure","p":%s}' "$(date +%s)" 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3306 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,36 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-983-instance-names/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-983-instance-names/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-983-instance-names/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.90s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-070d2d6646064e6d)
+
+running 2 tests
+test components::tests::sync_main_text_edit_keeps_instance_layer_names_across_same_loaded_and_unloaded_pages ... FAILED
+test components::tests::sync_main_text_edit_preserves_instance_layer_names_across_designos_round_trip ... FAILED
+
+failures:
+
+---- components::tests::sync_main_text_edit_keeps_instance_layer_names_across_same_loaded_and_unloaded_pages stdout ----
+
+thread 'components::tests::sync_main_text_edit_keeps_instance_layer_names_across_same_loaded_and_unloaded_pages' (44683614) panicked at crates/designos-doc/src/components.rs:3961:9:
+assertion `left == right` failed: instances on same page, other loaded page, and unloaded page must keep their own layer names instead of taking the main variant name
+  left: [("same page", "Breakpoint=Desktop, Type=Simple"), ("other loaded page", "Breakpoint=Desktop, Type=Simple"), ("unloaded page", "Breakpoint=Desktop, Type=Simple")]
+ right: [("same page", "Contact page header"), ("other loaded page", "Contact page header"), ("unloaded page", "Contact page header")]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- components::tests::sync_main_text_edit_preserves_instance_layer_names_across_designos_round_trip stdout ----
+
+thread 'components::tests::sync_main_text_edit_preserves_instance_layer_names_across_designos_round_trip' (44683615) panicked at crates/designos-doc/src/components.rs:4005:9:
+assertion `left == right` failed: saved and reloaded .designos must keep instance layer names across all pages
+  left: [("same page", "Breakpoint=Desktop, Type=Simple"), ("other loaded page", "Breakpoint=Desktop, Type=Simple"), ("unloaded page", "Breakpoint=Desktop, Type=Simple")]
+ right: [("same page", "Contact page header"), ("other loaded page", "Contact page header"), ("unloaded page", "Contact page header")]
+
+
+failures:
+    components::tests::sync_main_text_edit_keeps_instance_layer_names_across_same_loaded_and_unloaded_pages
+    components::tests::sync_main_text_edit_preserves_instance_layer_names_across_designos_round_trip
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 631 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

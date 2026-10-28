@@ -1,0 +1,112 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.60s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 10 tests
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -218.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -288.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -309.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -316.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.7] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -218.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -288.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -101.2] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -309.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn' (77531731) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:431:5:
+precondition: Tab 1 Turn 1 is scrolled past Row 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -316.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+test shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn ... FAILED
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.7] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -101.2] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer' (77531728) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:413:5:
+Row 82 must be inside the 900 px panel before clicking
+test shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts' (77531725) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:247:13:
+AC-03 (panel_h=400, rows=5): card outer height 246 must leave at least 200 for terminal in 400 px panel
+test shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap' (77531726) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:270:5:
+precondition: expanded 82-row card caps terminal at 450 px
+test shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap ... FAILED
+STEP0_TERM_WHEEL: hovered=true smooth_scroll_delta=[0.0 65.6] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 205.0])
+
+thread 'shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen' (77531722) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:467:5:
+Accessibility: the changed-layers list region must announce its total row count ("82 changed layers") even when rows are off-screen
+test shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen ... FAILED
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -218.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -288.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout' (77531727) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:318:5:
+AC-05: 3-row card height must match base commit (184.0), got 174
+test shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout ... FAILED
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -309.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -316.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.7] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -101.2] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic' (77531729) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:366:5:
+precondition: Row 0 must be scrolled off the top before the new turn arrives
+test shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic ... FAILED
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -218.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -288.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -309.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -316.8] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.7] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -319.9] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll' (77531730) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:336:5:
+precondition: expanded 82-row card shows Show less before Revert
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+test shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll ... FAILED
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+STEP0_TERM_WHEEL: hovered=false smooth_scroll_delta=[0.0 -320.0] viewport_rect=[[57.0 60.0] - [457.0 350.0]] pointer=Some([257.0 1651.0])
+
+thread 'shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible' (77531724) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:208:58:
+AC-02: Show less row must be rendered when 82-row card is expanded
+test shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible ... FAILED
+test shell::tests::agent_turn_card_scroll::ac01_wheel_over_terminal_scrolls_scrollback_with_82_row_expanded_card ... ok
+
+failures:
+
+failures:
+    shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen
+    shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible
+    shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts
+    shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap
+    shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout
+    shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer
+    shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic
+    shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll
+    shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn
+
+test result: FAILED. 1 passed; 9 failed; 0 ignored; 0 measured; 3343 filtered out; finished in 2.30s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

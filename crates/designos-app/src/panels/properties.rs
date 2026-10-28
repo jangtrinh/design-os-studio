@@ -216,6 +216,8 @@ pub(super) fn title(ui: &mut Ui, pane: &mut Pane, text: &str, action: Option<Ico
     let mut clicked = false;
     if let Some(ic) = action {
         let b = pane.rect(theme::SECTION_TRAILING_X, 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        #[cfg(test)]
+        widgets::record(ui, &format!("title-action:{text}"), b);
         clicked = widgets::icon_button(ui, b, ("title-action", text), ic, false, "").clicked();
     }
     pane.y += theme::SECTION_TITLE_HEIGHT;
@@ -255,8 +257,8 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
                 }
                 last_folder = Some(e.folder.clone());
                 let label = if e.folder.is_empty() { e.leaf.clone() } else { format!("  {}", e.leaf) };
-                let desc = crate::styles::style_description(&app.doc, &e.key);
-                items.push(crate::widgets::menu::MenuItem::new(label).tooltip(desc));
+                let tip = crate::styles::style_tooltip(&app.doc, &e.key);
+                items.push(crate::widgets::menu::MenuItem::new(label).tooltip(tip));
                 picks.push(Some(e.key.clone()));
             }
         }
@@ -265,7 +267,7 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
             .first()
             .and_then(|s| app.doc.get(*s))
             .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
-            .filter(|k| app.doc.styles.contains_key(*k))
+            .filter(|k| app.doc.is_table_style(k))
             .cloned();
         if let Some(last) = items.last_mut() {
             last.separator_after = true;
@@ -465,15 +467,51 @@ fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
 }
 
 fn styles_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
-    title(ui, pane, "Styles", Some(Icon::Plus), false);
+    // No "+" here: a style is created from the layer it describes, through the style button of that
+    // layer's Typography, Effects or Layout guide section.
+    title(ui, pane, "Styles", None, false);
     let before = pane.y;
     styles_list(app, ui, pane, &[]);
     if pane.y > before {
         pane.y += theme::STYLES_BOTTOM_PAD;
     }
     section_sep(ui, pane, false);
-    title(ui, pane, "Export", Some(Icon::Plus), true);
+    let page = app.page;
+    pane.y += super::export::section(app, ui, pane.x0, pane.oy + pane.y, &[page]);
     section_sep(ui, pane, false);
+}
+
+const STYLE_GROUP_KINDS: [(&str, StyleKind); 4] =
+    [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)];
+
+fn target_accepts_style_kind(doc: &Document, target: &[NodeId], kind: StyleKind) -> bool {
+    if target.is_empty() {
+        return true;
+    }
+    match kind {
+        StyleKind::Color | StyleKind::Effect => true,
+        StyleKind::Text => target.iter().any(|id| doc.get(*id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)))),
+        StyleKind::Grid => target.iter().any(|id| doc.get(*id).is_some_and(|n| n.kind.frame_props().is_some())),
+    }
+}
+
+fn style_kind_of(style: &Style) -> StyleKind {
+    match style {
+        Style::Text(_) => StyleKind::Text,
+        Style::Fill(_) => StyleKind::Color,
+        Style::Effect(_) => StyleKind::Effect,
+        Style::Grid(_) => StyleKind::Grid,
+    }
+}
+
+fn has_styles_for(app: &mut App, target: &[NodeId]) -> bool {
+    let local = STYLE_GROUP_KINDS
+        .iter()
+        .any(|(_, kind)| target_accepts_style_kind(&app.doc, target, *kind) && !crate::styles::style_entries_of(&app.doc, *kind).is_empty());
+    if local {
+        return true;
+    }
+    app.library_styles().iter().any(|s| s.local_key.is_none() && target_accepts_style_kind(&app.doc, target, style_kind_of(&s.style)))
 }
 
 /// Colours of a paint (one for solids, the stops for gradients).
@@ -491,11 +529,14 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
 /// Text and colour styles grouped in folders by their "/" prefix. Clicking a
 /// row applies the style to `target`.
 fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
-    let applied = |app: &App, prop: &str| target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop).cloned());
+    let applied = |app: &App, prop: &str| {
+        target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop)).filter(|k| app.doc.is_table_style(k)).cloned()
+    };
     let mut shown_groups = 0;
-    for (label, kind) in
-        [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)]
-    {
+    for (label, kind) in STYLE_GROUP_KINDS {
+        if !target_accepts_style_kind(&app.doc, target, kind) {
+            continue;
+        }
         let entries = crate::styles::style_entries_of(&app.doc, kind);
         if entries.is_empty() {
             continue;
@@ -638,33 +679,34 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 }
             }
             let over_edit = hover_pos.is_some_and(|p| edit_r.contains(p));
-            let desc = crate::styles::style_description(&app.doc, &e.key);
-            if !desc.is_empty() && !over_edit {
-                resp.clone().on_hover_text(desc);
+            let tip = crate::styles::style_tooltip(&app.doc, &e.key);
+            if !tip.is_empty() && !over_edit {
+                resp.clone().on_hover_text(tip);
             }
             if resp.clicked() && !edit_clicked && !target.is_empty() {
-                app.apply_style(target, &e.key);
+                app.apply_picked_style(target, &e.key);
             }
             pane.y += theme::STYLE_ROW_H;
         }
     }
-    library_styles_list(app, ui, pane, target);
+    library_styles_list(app, ui, pane, target, &mut shown_groups);
 }
 
 /// Styles of enabled libraries this file has not used yet, one group per
 /// library. Clicking one copies it into the file and applies it to `target`.
-fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
+fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId], shown_groups: &mut usize) {
     let all: Vec<crate::libraries::LibraryStyle> =
-        app.library_styles().into_iter().filter(|s| s.local_key.is_none() && matches!(s.style, Style::Text(_) | Style::Fill(_))).collect();
+        app.library_styles().into_iter().filter(|s| s.local_key.is_none() && target_accepts_style_kind(&app.doc, target, style_kind_of(&s.style))).collect();
     let mut libs: Vec<(String, String)> = all.iter().map(|s| (s.library_id.clone(), s.library_name.clone())).collect();
     libs.dedup();
     for (lib_id, lib_name) in libs {
-        for (label, text) in [("Text styles", true), ("Color styles", false)] {
-            let rows: Vec<&crate::libraries::LibraryStyle> = all.iter().filter(|s| s.library_id == lib_id && s.text == text).collect();
+        for (label, kind) in STYLE_GROUP_KINDS {
+            let rows: Vec<&crate::libraries::LibraryStyle> = all.iter().filter(|s| s.library_id == lib_id && style_kind_of(&s.style) == kind).collect();
             if rows.is_empty() {
                 continue;
             }
-            pane.y += theme::STYLES_GROUP_GAP;
+            pane.y += if *shown_groups == 0 { theme::STYLES_LABEL_GAP } else { theme::STYLES_GROUP_GAP };
+            *shown_groups += 1;
             let lr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::SUBLABEL_HEIGHT);
             let head = widgets::elide(ui.painter(), &format!("{lib_name} \u{b7} {label}"), &theme::font_body(), lr.width());
             ui.painter().text(Pos2::new(lr.left(), lr.center().y), Align2::LEFT_CENTER, head, theme::font_body(), theme::TEXT_SECONDARY);
@@ -685,16 +727,37 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
                         ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
                     }
-                    _ => {
+                    Style::Effect(fx) => {
+                        let icon = fx.first().map_or(Icon::DropShadow, |f| super::effects::KINDS[super::effects::kind_of(f)].1);
+                        icons::paint(
+                            ui.painter(),
+                            icon,
+                            Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y),
+                            theme::STYLE_SWATCH,
+                            theme::ICON_SECONDARY,
+                        );
+                        let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
+                        ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
+                    }
+                    Style::Grid(_) => {
+                        icons::paint(
+                            ui.painter(),
+                            Icon::Grid2x2,
+                            Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y),
+                            theme::STYLE_SWATCH,
+                            theme::ICON_SECONDARY,
+                        );
+                        let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
+                        ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
+                    }
+                    Style::Text(_) => {
                         ui.painter().text(Pos2::new(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, "Ag", theme::font_body_strong(), theme::TEXT);
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 110.0);
                         ui.painter().text(Pos2::new(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
                     }
                 }
                 if resp.clicked() && !target.is_empty() {
-                    if let Some(key) = app.use_library_style(&s.library_id, &s.key) {
-                        app.apply_style(target, &key);
-                    }
+                    app.apply_library_style(crate::edit::Tx::new(), target, &s.library_id, &s.key);
                 }
                 pane.y += theme::STYLE_ROW_H;
             }
@@ -936,11 +999,6 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     if let NodeKind::Text(t) = &n0.kind {
         section_sep(ui, pane, false);
         title(ui, pane, "Typography", None, false);
-        let var_pill = pane.rect(theme::SECTION_TRAILING_X, -26.0, 24.0, 20.0);
-        widgets::record(ui, "typo-var-pill", var_pill);
-        if ui.interact(var_pill, ui.id().with("typo-var-pill"), Sense::click()).on_hover_text("Apply typography variable or style").clicked() {
-            app.open_variables();
-        }
         super::typography::section(app, ui, pane, sel, t);
         pane.y += 4.0;
     }
@@ -1016,7 +1074,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
 
     // ---- Selection colors / Styles
     selection_colors_section(app, ui, pane, sel);
-    if !app.doc.styles.is_empty() {
+    if has_styles_for(app, sel) {
         section_sep(ui, pane, false);
         title(ui, pane, "Styles", None, false);
         styles_list(app, ui, pane, sel);
@@ -1517,6 +1575,7 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         .first()
         .and_then(|s| app.doc.get(*s))
         .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
+        .filter(|k| app.doc.is_table_style(k))
         .map(|k| app.doc.style_name(k).to_string());
     if !paints.is_empty() {
         // Figma sits the first row 4px under the title row.
@@ -2096,7 +2155,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
 pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn crate::io::FileDialogs) -> bool {
     let request = crate::io::FileRequest::open().filter("Images", &crate::canvas::interact::IMAGE_EXTENSIONS[..4]);
     let outcome = dialogs.pick(&request);
-    let Some(path) = app.picked_path(outcome) else { return false };
+    let Some(path) = app.picked_path(outcome, false) else { return false };
     match std::fs::read(&path).map_err(|_| "Cannot read image".to_string()).and_then(crate::canvas::interact::prepare_image) {
         Ok((bytes, _, _)) => {
             let key = format!("img-{}", app.doc.images.len() + 1);
@@ -2325,11 +2384,50 @@ fn find_node_in_page(doc: &Document, root: NodeId, pred: &dyn Fn(&Node) -> bool)
     None
 }
 
+/// `--panel export-toast`: the first frame, the Design tab, and the real no-dialog export toast.
+fn apply_export_toast_preset(app: &mut App) {
+    app.ui.right_tab = Some(crate::app::RightTab::Design);
+    let Some(id) = first_frame(&app.doc) else { return };
+    if let Some(page) = app.doc.page_of(id) {
+        app.doc.ensure_page_hydrated(page);
+        app.page = page;
+    }
+    app.selection = vec![id];
+    if app.doc.get(id).is_some_and(|n| n.export_settings.is_empty()) {
+        app.edit_export_rows(&[id], &super::export::RowEdit::Add(ExportPreset::default()));
+    }
+    let dir = std::env::temp_dir().join(format!("designos-export-toast-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let dialogs = crate::io::ScriptedDialogs::answering(crate::io::DialogOutcome::Unavailable).with_fallback(dir);
+    super::export::run_export_with(app, &[id], &dialogs);
+}
+
+/// The first frame in page order. Pages themselves are not frames.
+fn first_frame(doc: &Document) -> Option<NodeId> {
+    fn walk(doc: &Document, id: NodeId) -> Option<NodeId> {
+        let n = doc.get(id)?;
+        if matches!(n.kind, NodeKind::Frame(_)) {
+            return Some(id);
+        }
+        for &child in &n.children {
+            if let Some(found) = walk(doc, child) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    doc.pages.iter().copied().find_map(|page| walk(doc, page))
+}
+
 /// Opens an inspector popup on the current selection (`--panel`, for screenshots).
 pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
     let (base, sub) = spec.split_once(':').unwrap_or((spec, ""));
     super::style_picker::set_screenshot_hover_tip(sub == "hover");
     widgets::picker::set_screenshot_libraries_hover(false);
+    if base == "export-toast" {
+        apply_export_toast_preset(app);
+        return;
+    }
     if base == "variables" {
         app.vars.open = true;
         app.vars.full = true;

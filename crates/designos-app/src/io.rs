@@ -8,8 +8,8 @@ mod file_dialog;
 #[cfg(test)]
 mod file_dialog_flow_tests;
 
-pub use fallback_save::write_new_in;
-#[cfg(test)]
+pub(crate) use fallback_save::user_home;
+pub use fallback_save::{sanitize_export_name, write_new_dashed_in, write_new_dashed_path, write_new_in};
 pub use file_dialog::ScriptedDialogs;
 pub use file_dialog::{DialogOutcome, FileDialogs, FileRequest, SystemDialogs, NO_FALLBACK_FOLDER};
 
@@ -122,7 +122,7 @@ fn import_pen_with_options(raw: &str, opts: &designos_fig::PenImportOptions) -> 
 /// Loads a document from disk, dispatching on the file extension. Import warnings go to stderr;
 /// use [`load_path_with_warning`] where the user should see them.
 pub fn load_path(path: &Path) -> Result<Document, String> {
-    let (doc, warning) = load_path_importing_pen_with_mode(path, import_pen_with_options, false)?;
+    let (doc, warning) = load_path_importing_pen_with_mode(path, import_pen_with_options, false, designos_fig::MAX_IMPORT_CLONES)?;
     if let Some(w) = warning {
         eprintln!("designos: {}: {w}", path.display());
     }
@@ -145,62 +145,54 @@ pub fn is_web_capture_path(path: &Path) -> bool {
 /// Like [`load_path`], but also returns the non-fatal import or repair warning, if any: a `.pen`
 /// file whose `ref` expansion hit the clone budget or a native `.designos` file whose node graph
 /// needed structural repair on load still opens, and reports what changed.
+#[cfg(test)]
+fn load_counts() -> &'static Mutex<HashMap<PathBuf, usize>> {
+    static COUNTS: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+    COUNTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+pub fn load_call_count(path: &Path) -> usize {
+    load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
+}
+
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
-    load_path_importing_pen_with(path, import_pen_with_options)
+    load_path_with_clone_budget(path, designos_fig::MAX_IMPORT_CLONES)
+}
+
+pub fn load_path_with_clone_budget(path: &Path, clone_budget: usize) -> Result<(Document, Option<String>), String> {
+    #[cfg(test)]
+    if let Ok(mut m) = load_counts().lock() {
+        *m.entry(path.to_path_buf()).or_insert(0) += 1;
+    }
+    load_path_importing_pen_with_mode(path, import_pen_with_options, true, clone_budget)
 }
 
 /// [`load_path_with_warning`] with the `.pen` importer injected, so a test can produce a warning
 /// without a document that really exhausts the import's clone budget.
+#[cfg(test)]
 fn load_path_importing_pen_with(
     path: &Path,
     import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
 ) -> Result<(Document, Option<String>), String> {
-    load_path_importing_pen_with_mode(path, import_pen, true)
-}
-
-fn clone_budget_for_load() -> usize {
-    #[cfg(test)]
-    {
-        if let Some(budget) = TEST_CLONE_BUDGET.with(std::cell::Cell::get) {
-            return budget;
-        }
-    }
-    designos_fig::CLONE_BUDGET_TOTAL
-}
-
-#[cfg(test)]
-std::thread_local! {
-    static TEST_CLONE_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-}
-
-#[cfg(test)]
-fn with_clone_budget<R>(budget: usize, f: impl FnOnce() -> R) -> R {
-    struct Guard(Option<usize>);
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            TEST_CLONE_BUDGET.with(|c| c.set(self.0));
-        }
-    }
-    let prev = TEST_CLONE_BUDGET.with(|c| c.replace(Some(budget)));
-    let _guard = Guard(prev);
-    f()
+    load_path_importing_pen_with_mode(path, import_pen, true, designos_fig::MAX_IMPORT_CLONES)
 }
 
 fn load_path_importing_pen_with_mode(
     path: &Path,
     import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
     record_once: bool,
+    clone_budget: usize,
 ) -> Result<(Document, Option<String>), String> {
     let mut warning = None;
-    let clone_budget_total = clone_budget_for_load();
     let pen_opts = designos_fig::PenImportOptions { base_dir: path.parent().map(Path::to_path_buf) };
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let mut doc = match ext.as_str() {
         "fig" => {
             let bytes = std::fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            let (d, report) = designos_fig::import_fig_with_budget(&bytes, clone_budget_total).map_err(|e| format!("Cannot import .fig: {e}"))?;
+            let (d, report) = designos_fig::import_fig_with_budget(&bytes, clone_budget).map_err(|e| format!("Cannot import .fig: {e}"))?;
             if report.instances_left_unexpanded > 0 {
-                warning = Some(clone_budget_notice_for(report.instances_left_unexpanded, clone_budget_total));
+                warning = Some(clone_budget_notice(report.instances_left_unexpanded));
             }
             d
         }
@@ -224,7 +216,7 @@ fn load_path_importing_pen_with_mode(
             if is_web_capture_path(path) || designos_fig::looks_like_web_capture_json(&text) {
                 designos_fig::import_web_capture_json(&text).map_err(|e| format!("Cannot import web capture: {e}"))?
             } else {
-                match designos_fig::import_rest_json_with_budget(&text, clone_budget_total) {
+                match designos_fig::import_rest_json_with_budget(&text, clone_budget) {
                     Ok((mut d, report)) => {
                         // A number that overflowed `f32` on import is infinity here. Neutralize only the
                         // affected entries in place without re-parsing the whole document or running
@@ -234,7 +226,7 @@ fn load_path_importing_pen_with_mode(
                             warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
                         }
                         if report.instances_left_unexpanded > 0 {
-                            let budget_msg = clone_budget_notice_for(report.instances_left_unexpanded, clone_budget_total);
+                            let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
                             warning = Some(match warning {
                                 Some(prev) => format!("{prev} {budget_msg}"),
                                 None => budget_msg,
@@ -285,25 +277,9 @@ fn load_path_importing_pen_with_mode(
 }
 
 /// Formats the user-facing warning when `unexpanded` component instances were skipped
-/// because expanding them would exceed [`designos_fig::CLONE_BUDGET_TOTAL`].
+/// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
 pub fn clone_budget_notice(unexpanded: usize) -> String {
-    clone_budget_notice_for(unexpanded, designos_fig::CLONE_BUDGET_TOTAL)
-}
-
-fn clone_budget_notice_for(unexpanded: usize, limit: usize) -> String {
-    format!("This file has more nested component copies than Studio can expand (limit {}). {unexpanded} instances are shown empty.", thousands(limit))
-}
-
-fn thousands(n: usize) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
+    format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -1242,52 +1218,76 @@ mod tests {
         assert_eq!(al.item_spacing, 16.0);
     }
 
-    fn budget_kit_rest_json() -> String {
-        let rects: Vec<String> = (0..2)
+    fn budget_kit_fixture() -> (String, usize) {
+        let mut children = Vec::with_capacity(18);
+        let c0_rects: Vec<String> = (0..9)
             .map(|i| {
                 format!(r#"{{"id": "2:{i}", "name": "R{i}", "type": "RECTANGLE", "size": {{"x": 4, "y": 4}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}}"#)
             })
             .collect();
-        let insts: Vec<String> = (0..3)
+        children.push(format!(
+            r#"{{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c0_rects.join(",")
+        ));
+        let c1_insts: Vec<String> = (0..10)
             .map(|i| {
                 format!(
-                    r#"{{"id": "5:{i}", "name": "U{i}", "type": "INSTANCE", "componentId": "1:0", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                    r#"{{"id": "3:{i}", "name": "I1_{i}", "type": "INSTANCE", "componentId": "1:0", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
                 )
             })
             .collect();
-        format!(
-            r#"{{"name": "BudgetKit", "version": "1", "schemaVersion": 0, "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{{"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": [{{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}},{}]}}]}}}}"#,
-            rects.join(","),
-            insts.join(",")
-        )
+        children.push(format!(
+            r#"{{"id": "1:1", "name": "C1", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c1_insts.join(",")
+        ));
+        let c2_insts: Vec<String> = (0..4)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "4:{i}", "name": "I2_{i}", "type": "INSTANCE", "componentId": "1:1", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                )
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:2", "name": "C2", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c2_insts.join(",")
+        ));
+        for k in 0..15 {
+            children.push(format!(
+                r#"{{"id": "5:{k}", "name": "U{k}", "type": "INSTANCE", "componentId": "1:2", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+            ));
+        }
+        let json = format!(
+            r#"{{"name": "BudgetKit", "version": "1", "schemaVersion": 0, "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{{"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": [{}]}}]}}}}"#,
+            children.join(",")
+        );
+        // C1 expands 90 clones, C2 expands 400 clones, and each U{k} expands 404 clones.
+        // Budget 4,530 = 90 + 400 + 10 * 404 expands U0..U9 and leaves U10..U14 (5 instances) unexpanded.
+        (json, 4_530)
+    }
+
+    #[test]
+    fn clone_budget_notice_keeps_user_facing_8m_limit() {
+        assert_eq!(designos_fig::MAX_IMPORT_CLONES, 8_000_000);
+        assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
     }
 
     #[test]
     fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
-        let json = budget_kit_rest_json();
+        let (json, budget) = budget_kit_fixture();
+        assert!(json.len() <= 8 * 1024, "BudgetKit fixture must stay <= 8 KiB for CI (got {} bytes)", json.len());
+        assert!(budget <= 10_000, "BudgetKit test clone budget must stay <= 10,000 for CI (got {budget})");
         let p = tmp("budget_kit_warning.json");
-        std::fs::write(&p, &json).unwrap();
-
-        let (_, warning) = load_path_with_warning(&p).unwrap();
-        assert_eq!(warning, None, "the small kit fits in the production clone budget");
-
-        with_clone_budget(2, || {
-            let mut app = crate::app::App::new(Document::new("Init"));
-            app.open_path(p.clone());
-            let toast = app.toast.as_ref().expect("open_path must show a toast");
-            assert!(toast.error, "a clone-budget warning is an error toast");
-            assert_eq!(
-                toast.text,
-                "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 2). 2 instances are shown empty."
-            );
-        });
+        std::fs::write(&p, json).unwrap();
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path_with_clone_budget(p.clone(), budget);
         std::fs::remove_file(&p).ok();
-    }
 
-    #[test]
-    fn open_path_clone_budget_defaults_to_the_production_total() {
-        assert_eq!(clone_budget_for_load(), designos_fig::CLONE_BUDGET_TOTAL);
-        assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
+        let toast = app.toast.as_ref().expect("open_path must show a toast");
+        assert_eq!(
+            toast.text,
+            "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty."
+        );
+        assert!(app.doc.nodes.len() <= 10_000, "BudgetKit test must not allocate millions of nodes in CI (got {})", app.doc.nodes.len());
     }
 
     #[cfg(target_os = "macos")]

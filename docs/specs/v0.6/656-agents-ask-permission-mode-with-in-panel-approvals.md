@@ -26,7 +26,7 @@ background. The default stays as today: agents run with permissions skipped.
   Antigravity `--dangerously-skip-permissions`. The `+` menu header says "LAUNCH CLI (SKIP PERMISSIONS)" (`:3123`).
 - There is no Settings window. App settings live in `settings.json` in the library root, read by `comments/settings.rs`
   (`load_flag`, `save_flag`); the menu has Preferences with "Your name..." and "Use GPU rendering" (`panels/menus.rs:511-521`).
-- Studio writes `hooks.json` (a Claude-shaped settings file passed with `--settings`) and equivalents for Grok and agy
+- Studio writes `hooks.json` (a Claude-shaped settings file passed with `--settings`; in Ask mode it lives in the Studio-private folder, see rule 4) and equivalents for Grok and agy
   (`session_hooks_settings`, `agy_session_hooks`, `terminal.rs:2194-2233`). Its hooks write `{"state": ...}` to
   `agent-status.json`: `UserPromptSubmit`, `PreToolUse`, `PostToolUse` -> working, `PermissionRequest` -> waiting, `Stop` -> done.
   `poll_live_agent_bridge` reads that file for the active tab (`terminal.rs:1328-1338`). Because every launch skips permissions,
@@ -65,13 +65,138 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    `"permissions": {"allow": ["mcp__designos__*"]}` so Studio's own design tools do not prompt on every canvas edit; every other tool
    asks. Before enabling this rule in shipped `hooks.json`, a live check on the installed Claude must verify that `permissions.allow` inside `--settings` takes effect for the session (an MCP call to a `designos_*` tool runs without a prompt while a shell command still prompts). Until that live check passes, the settings file carries no allow list and every tool asks.
 4. **Claude in-panel approval (ruled: approval offered in the panel; mechanism documented for Claude).** In Ask mode the session `PermissionRequest` hook (added to `hooks.json`) runs a small script that:
-   1. reads the hook JSON from stdin and writes it to `<session folder>/approvals/<id>.request.json` (`id` = a counter plus the
-      tool name; the file holds `tool_name`, a truncated `tool_input` summary, and a timestamp);
+   1. reads the hook JSON from stdin and writes it to `<private folder>/tab-<tab id>/<id>.request.json` (`id` = 128 random bits as 32 hex
+      digits; the file holds `tool_name`, a truncated `tool_input` summary, and a timestamp);
    2. waits until `<id>.answer` appears (polling every 200 ms) for at most the hook's `timeout` (initial value 300 s);
    3. on `allow` or `deny` prints the decision JSON above (deny carries `message`: "Denied in design:os Studio");
    4. on timeout, or when Studio writes `withdrawn`, prints nothing, so Claude falls back to its own prompt in the terminal.
    Studio's bridge (`poll_live_agent_bridge`) lists new request files each frame, shows the approval card (rule 6) and writes
    the answer file when the user clicks. Requests queue per tab in arrival order.
+   Whoever can write an answer, or the script that decides what to print, approves the agent's next action. So the script and the
+   `<private folder>` (`<data dir>/designos/ap/<session id>/`, mode 0700; on macOS under `~/Library/Application Support`) sit outside
+   the session folder (the agent's working folder), `/tmp`, `$TMPDIR` and every `--add-dir`, and the script takes no path or request
+   id from its environment. A file in the session folder, however named, answers nothing and raises no card. The hooks file that
+   names the script is just as decisive, and Claude's docs say edits to hooks in settings files are normally picked up as they
+   happen. So in Ask mode Claude's `--settings` names `<private folder>/hooks.json` (the tab's `DESIGNOS_CLAUDE_SETTINGS`, mode
+   0600, rewritten at every sync), and Studio writes no Claude hooks into the session folder (a leftover `hooks.json` that names the
+   approval hook is removed). With no private folder, Claude gets the inline settings `{}`: none of Studio's hooks, its own terminal
+   prompts. Skip mode keeps `<session>/hooks.json` and its launch strings byte for byte. On Unix the handler runs `/bin/sh` by path,
+   and the hook script puts `/usr/bin:/bin` first on `PATH`.
+   Claude also loads `<session>/.claude/settings.json`, `settings.local.json` and `.mcp.json` from its working folder, live (allow
+   rules, hooks and MCP servers); Studio writes none of the three. Who guards them: Claude's own Write and Edit tools treat `.claude`
+   as a protected path, so a write there is prompted in the `default` and `acceptEdits` modes and `permissions.allow` rules do not
+   pre-approve it (Claude Code, Permission modes, "Protected paths": https://code.claude.com/docs/en/permission-modes). Another
+   runtime's sandbox does not: a sandboxed Codex `workspace-write` command writes them without a prompt (checked with Codex 0.164.0).
+   So the Ask launch also passes `--setting-sources user`, with which Claude 2.1.304 applied none of a forged allow rule, a forged
+   project or local hook or a forged `.mcp.json` server (probed with the debug log and marker files), while `--settings`,
+   `--mcp-config` and `--plugin-dir` still apply. That flag also drops the project skill folder, so Studio's session skill reaches the
+   Ask launch as a plugin: `--plugin-dir "$DESIGNOS_CLAUDE_PLUGIN"`, a folder in the private folder that holds only the plugin manifest
+   and `skills/designos-studio/SKILL.md` (the session copy under `.claude/skills` stays for Skip tabs). The three variables
+   (`DESIGNOS_CLAUDE_MCP_CONFIG`, `DESIGNOS_CLAUDE_SETTINGS`, `DESIGNOS_CLAUDE_PLUGIN`) are never empty: Claude reads an empty
+   `--plugin-dir` as its working folder and an empty `--settings` as no settings, so with no private plugin the value is an absolute
+   path nothing exists at, and with no private hooks file it is the inline settings `{}`.
+   Claude starts the servers of its `--mcp-config` file as commands, outside any sandbox, and Codex's `workspace-write` sandbox can write
+   `<session>/mcp-config.json`, which Studio rewrites at every sync but which Claude may read before the next one (#1046). So in Ask
+   mode `--mcp-config` names `<private folder>/mcp-config.json` (the tab's `DESIGNOS_CLAUDE_MCP_CONFIG`, mode 0600, rewritten at every
+   sync): the session's own config, except that the `designos` server's `DESIGNOS_MCP_CONFIG` names this copy. With no private folder
+   Claude gets the inline config `{"mcpServers":{}}`: no server and so no `designos` tools, the fail-closed side. Skip mode keeps
+   `<session>/mcp-config.json`. No file in the session folder is named by anything Claude starts in Ask mode, and the private plugin
+   skill and the private MCP config are generated by Studio from its own state, never copied from a file in the session folder. The
+   only session data they carry is the user's `designos.enabled_tools` and `known_tools` list, rebuilt from known tool names (#1049).
+   **Session folders live where no agent sandbox can write, and Studio makes each one itself** (#1057): unsaved-file and fallback sessions
+   sit in `<data dir>/designos/sessions/<session id>` (0700), not in `$TMPDIR` (Codex's `workspace-write` sandbox writes it, so an agent could
+   plant a link at the name a later tab gets). Each folder is made with an exclusive `mkdir`, an existing path is used only as a real folder
+   of the user, and otherwise the tab says why it did not start.
+   **Studio-written files that a CLI loads by itself carry no document-controlled text.** Those files are the session skill (the
+   private plugin copy, `.claude/skills`, `.agents/skills`), `AGENTS.md`, `GEMINI.md` and the MCP and hook configs of every CLI.
+   A document or page name comes from the file shown, which a third-party file or an agent that wrote the document can set, and
+   a CLI acts on text it loads: Claude on frontmatter keys in a skill (`allowed-tools` runs tools without asking, `hooks`
+   registers commands), on `` !`command` `` placeholders and ```` ```! ```` fences (they run when the skill is invoked, before
+   any model call) and on `@path` (the file is attached, without asking); Gemini imports `@path` from `GEMINI.md`. Escaping one
+   syntax at a time left the next one open, so the names are not written at all: the skill points at `$DESIGNOS_DOC_NAME` and
+   `designos_get_app_state`, and the MCP server's environment holds ids and paths only (`DESIGNOS_FILE`, the document's path on
+   disk, stays: `designos-mcp` needs it). The paths in the skill hold no name either: each is the session folder plus a fixed file
+   name, and the folder is named by Studio (a library file id reduced to `[A-Za-z0-9_-]`, a hash of a disk path, or process and
+   tab numbers). The skill's `description` is fixed text and is still written as a JSON string, as a second guard. The files that
+   do carry the document's text (`context.json`, `bootstrap.md`, `bootstrap.json`, `canvas.designos`, the hook replies) are read
+   by the agent on request or printed by a hook, and no CLI loads one as a skill or as memory. The tests compare the generated
+   text and use no YAML or Markdown parser: every file a CLI loads by itself is the same bytes for any two document and page names,
+   hostile ones included (frontmatter keys, `!` placeholders, `@` paths); the frontmatter is exactly two lines; and the template
+   and the rules pack hold no `!` placeholder and no `@path`.
+   **Claude's own "don't ask again" does not persist in Ask mode** (owner ruling, 2026-10-24, #1044). Claude saves "Yes, and don't
+   ask again" for Bash and WebFetch to `.claude/settings.local.json` in its working folder, and `--setting-sources user` makes Ask
+   tabs ignore project and local settings, so that choice is not kept there: the next such request is expected to ask again (in the
+   panel, through the hook). That is an owner-manual check with a logged-in Claude and has not been run. Settings the user keeps in
+   their own user settings still apply. Skip mode is unchanged.
+   Known limits: Antigravity, Gemini CLI and Grok start MCP servers from their own copies of the session config in session
+   subfolders, which an agent can write (#1048); and the user's `designos.enabled_tools` list lives in the agent-writable session
+   file, so an agent can re-enable a tool the user switched off (#1049). See `crates/designos-app/src/agent_approval_channel.rs`.
+   Gemini CLI in Ask mode also loads `<session>/.gemini/settings.json`, which an agent can write (#1047; the real fix is tracked in
+   #1059). Some settings there skip Gemini's own confirmation prompt: `tools.allowed`, `mcpServers.<name>.trust`, `mcp.allowed`, and
+   `policyPaths` and `adminPolicyPaths`, which name policy files that Gemini loads at user or admin priority without checking where
+   they sit. Others run a command when the next Gemini tab starts, with no prompt at all: `hooks` (Gemini warns once about a new
+   project hook and then runs it) and `tools.discoveryCommand` (run at startup). So a write there can mean command execution, not
+   only a tab that asks nothing. An agent with a write grant on the session folder, or a Codex tab with a workspace-write sandbox, can
+   make that write.
+   Studio rewrites that file in full each time it provisions the session's agent files (`write_gemini_session_config`), and a new
+   Gemini tab does so synchronously just before its PTY starts. That rewrite does not close the exposure, and the exposure can be
+   permanent: `write_gemini_session_config` ignores write errors, so an agent that makes `<session>/.gemini` read-only (`chmod
+   0555`) keeps its own settings through every rewrite (reproduced in review). Without that, the exposure is a write that lands after
+   a rewrite and before Gemini reads its settings (the login shell's start plus Gemini's own, typically a second or more; not
+   measured), which an agent that rewrites the file in a loop, or one in another tab of the same session, can win. The code fix,
+   a write that returns its error and a tab that refuses to start when the file is not Studio's, is tracked in #1061 and is not in
+   this change.
+   Gemini 0.35 has no environment variable that ignores workspace settings for one run. Two flags, `--policy` and `--admin-policy`,
+   replace the two policy lists from settings (`config.ts:653-654`; with both naming an empty folder a workspace policy file is no
+   longer loaded), but they also drop the user's own and an admin's lists, so Studio does not use them. A settings file in a layer
+   above the workspace (`GEMINI_CLI_SYSTEM_SETTINGS_PATH`) replaces single values and lists such as `tools.allowed`, but cannot clear
+   the keys that merge by union or concatenation (`policyPaths`, `adminPolicyPaths`, `hooks`, and MCP servers of another name), and
+   it would replace an admin's own system settings, so Studio ships no partial fix. Two complete fixes were found, and each changes
+   what the user sees, so each needs an owner decision:
+   - Mark the session folder untrusted for Gemini. That drops every workspace setting, but it also stops Gemini loading `GEMINI.md`,
+     Studio's session skill, from the folder, and turns off every merged hook, Studio's own status hooks included. The trusted-folders
+     file Studio names (`GEMINI_CLI_TRUSTED_FOLDERS_PATH`) sits in the session folder too, so an agent could re-trust the folder
+     unless that file moves into the private folder first.
+   - Start an Ask-mode Gemini tab with a private working folder (Gemini reads workspace settings and `GEMINI.md` from its working
+     folder, so Studio would write both there and pass the session folder with `--include-directories`). That also covers #1048 for
+     Gemini, but it moves the folder Gemini keys its own session history by.
+
+   The status hooks Studio adds for a Gemini tab (the "Needs approval" state) do not sit in the session folder: they are a per-tab
+   file in the private folder, named by `GEMINI_CLI_SYSTEM_DEFAULTS_PATH`. They are not written when Gemini already has system
+   defaults of its own, or off Unix (Gemini runs a hook through PowerShell on Windows, which cannot parse the status command).
+   Gemini fires no hook when the user answers No in its own dialog, and one answer in a queue ("1 of 2") leaves the next dialog
+   open, so the tab's own screen decides (`gemini_dialog.rs`, `gemini_screen.rs`). Every dialog with options ends with the option
+   `No, suggest changes (esc)` (`ToolConfirmationMessage.tsx` of Gemini CLI 0.35.3, lines 270, 296, 321 and 352: edit, exec, info and
+   MCP; of 0.65.0, lines 321, 347, 378, 403 and 433: edit, sandbox expansion, exec, info and MCP, 5 of its 7 dialog types, the other
+   two being `ask_user` and `exit_plan_mode` as at 0.35.3; under the `N of M` header of `ToolConfirmationQueue.tsx`). Gemini cuts an option label that does not fit, with an ellipsis, and never wraps it
+   (`RadioButtonSelect.tsx:103`; the label gets `columns - 9` cells, or one fewer with Gemini's alternate screen), so Studio looks for
+   the label's first three words, `No, suggest changes`, and counts the ellipsis as a break between words. At the narrowest panel,
+   260 px or 30 columns, the label shows as `No, suggest changes…`. The text is found down to 29 columns (30 with the alternate
+   screen); a narrower panel hides it.
+
+   The composer. While that text is on the visible screen of a Gemini Ask tab, the composer sends nothing into it, whatever the
+   status says and whatever version the tab runs, a version nobody could name included: a send is refused before the paste, and the
+   delayed Enter is not written. The delayed Enter of any agent tab is also held when the tab began to wait on the user after the
+   paste, if a hook record set that status or a Gemini dialog opened: no Enter is written, and the prompt stays pasted for the user
+   to send, with the permission notice. A waiting status read from the CLI's output (Codex, and an Ask-mode Antigravity tab) does not
+   hold the Enter, because the echo of the pasted prompt itself ("Allow users to export (y/n)") can set it and that is no question. A
+   send to a tab that already waits is refused whatever the status came from.
+
+   The wait. A wait a hook started ends when the line has been on screen and is gone for a quarter of a second, or when a tool,
+   prompt or end-of-turn record arrives; if the line comes back before such a record, the wait reopens. A key never ends a wait.
+   A tab with no hooks file starts a wait only when the line is on screen, so model text with "Allow " or "(y/n)" starts none. This
+   applies to the Gemini versions whose screens and hook payloads were read from source: 0.35.x and 0.65.x. The current stable
+   is 0.65.0. The reading is from source only; no real Gemini dialog or model turn was run. For any other version the hooks alone
+   drive the status, so a "No" answer leaves the wait standing until a prompt is typed in the terminal.
+
+   What it does not cover. The `ask_user` and `exit_plan_mode` dialogs draw no such line (in either version), and a panel
+   narrower than 29 columns hides a cut label. A tab with hooks then keeps the wait its hook record started until another record
+   arrives, and its composer is still refused by the status. A tab with no hooks file starts no wait and its composer cannot see the
+   dialog, so a prompt can be pasted into it. The "Open tab" card works in both cases. An edit open in the external editor draws
+   "Save and close external editor to continue" instead: it keeps a wait open and never starts one. Known limits: an Enter Studio
+   writes in the few tens of milliseconds before its parser has the dialog Gemini has just drawn is not held; and model or file text
+   that quotes `No, suggest changes` refuses sends (and, for a tab with no hooks file, starts a wait) until it scrolls off the
+   screen. Whether real Gemini erases the dialog's lines on an answer is inferred from its terminal library, not seen.
 5. **Status (ruled, Q2 Option A).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no
@@ -83,7 +208,7 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
    OS notification: "<CLI> needs approval" with the file name; the notification never contains the command or path text. Clicking it
    (where the platform supports it) focuses the window and the tab.
 8. **Cleanup.** When the tab closes or exits, pending requests are written `withdrawn`; stale request files older than 24 h are
-   deleted at start. The approvals folder lives in the session folder (#653).
+   deleted at start. The private approvals folder is removed when the last tab closes or the session ends.
 9. **Codex revisit (the ruling asks to look at it here).** This task changes nothing in how Codex status works. It records, in the PR, a
    short evaluation of the two candidates, with a live check of each on the installed Codex: (a) hooks passed so that they run
    without forging trust, if the CLI offers a supported way; (b) `--dangerously-bypass-hook-trust`, which the help text calls
@@ -93,7 +218,7 @@ What the owner has ruled ships: skip stays the default, ask is optional (one swi
 ## 4. Data model / schema changes
 
 - Setting `agent_permission_mode: "skip" | "ask"` (string) in `settings.json`.
-- Files: `<session>/approvals/<id>.request.json`, `<id>.answer` (`allow`, `deny` or `withdrawn`). Both are Studio-internal.
+- Files: `<private folder>/tab-<tab id>/<id>.request.json`, `<id>.answer` (`allow`, `deny` or `withdrawn`). Both are Studio-internal.
 - `AgentTabStatus::WaitingForInput(Option<String>)` already carries an optional label (`terminal.rs:362`); the request summary
   fills it.
 
@@ -132,7 +257,9 @@ Described in words. Checked against `design/principles.md` (P1 to P10) and `desi
 
 ## 9. Non-goals
 
-- A persistent allow-list ("always allow"); the CLIs keep their own.
+- A persistent allow-list ("always allow") of Studio's own. Codex, Grok, Antigravity and Gemini keep theirs. Claude in Ask mode does
+  not: it ignores project and local settings (owner ruling 2026-10-24, #1044, #1046), so its own "Yes, and don't ask again" is
+  expected not to be kept there (owner-manual check, not yet run; rule 4). Claude in Skip mode keeps it.
 - Answering Codex, Grok or agy prompts by typing into their terminals.
 - Per-tool rules editing in Studio.
 - Changing the default.
@@ -181,6 +308,10 @@ is verified by the worker before adding; no dependency is added by this spec.
 - Codex tabs keep the OSC/PTY heuristic status in 0.5.0; hook-based Codex status is revisited here, together with the ask mode
   (comment of 2026-10-19).
 - Studio never forges or writes Codex's hook trust (`terminal.rs:164-169`). `GROK_FOLDER_TRUST=0` stays.
+- Owner ruling 2026-10-24 (the owner chose "Ship the fix" when asked about #1044): Ask tabs of Claude ignore project and local
+  settings (`--setting-sources user`), and Claude's own "don't ask again" is expected to no longer persist there (an
+  owner-manual check with a logged-in Claude, not yet run). This supersedes §9's "the CLIs keep their own" for Claude in Ask
+  mode. Claude's MCP config is a private copy too (#1044, #1046).
 - Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
   1. Granularity: **Option A** — one switch for all agent tabs.
   2. Questions 2–6 take the recommended **Option A** (Claude gets Approve/Deny, other CLIs get "Open tab"; pre-allow `mcp__designos__*` subject to the live check; notification shows `<CLI> needs approval` and file name without command text, card shows tool name and 200-char summary; Preferences > "Agent permissions..." dialog; warning constant added to `theme.rs` and `design/design.tokens.json`).
