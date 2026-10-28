@@ -165,8 +165,15 @@ pub mod prep {
 
     pub fn check_designs_findings(doc: &mut Document) {
         let page = doc.pages.first().copied().unwrap_or(NodeId(1));
-        let shadow =
-            Effect::DropShadow { color: Color::rgba(0, 0, 0, 56), offset: DV::new(0.0, 6.0), radius: 16.0, spread: 0.0, visible: true, show_behind: false };
+        let shadow = Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 56),
+            offset: DV::new(0.0, 6.0),
+            radius: 16.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        };
         doc.styles.insert("audit-shadow".into(), Style::Effect(vec![shadow.clone()]));
         doc.style_meta.insert("audit-shadow".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..StyleMeta::default() });
         doc.styles.insert("audit-surface".into(), Style::Fill(vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))]));
