@@ -240,6 +240,7 @@ fn translucent_text_with_shadow_scene() -> (T, f32) {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         n
     });

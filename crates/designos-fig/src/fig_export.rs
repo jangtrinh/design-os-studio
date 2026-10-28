@@ -2082,7 +2082,7 @@ fn encode_effect_full(
     y_var: Option<V>,
 ) -> V {
     let mut fields = match e {
-        Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
+        Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind, blend } => vec![
             ("type", en("DROP_SHADOW")),
             ("color", color(c.r, c.g, c.b, c.a)),
             ("offset", vec2(offset.x, offset.y)),
@@ -2090,14 +2090,16 @@ fn encode_effect_full(
             ("spread", fl(*spread)),
             ("visible", V::Bool(*visible)),
             ("showShadowBehindNode", V::Bool(*show_behind)),
+            ("blendMode", en(blend_name(*blend))),
         ],
-        Effect::InnerShadow { color: c, offset, radius, spread, visible } => vec![
+        Effect::InnerShadow { color: c, offset, radius, spread, visible, blend } => vec![
             ("type", en("INNER_SHADOW")),
             ("color", color(c.r, c.g, c.b, c.a)),
             ("offset", vec2(offset.x, offset.y)),
             ("radius", fl(*radius)),
             ("spread", fl(*spread)),
             ("visible", V::Bool(*visible)),
+            ("blendMode", en(blend_name(*blend))),
         ],
         Effect::LayerBlur { radius, visible } => vec![("type", en("FOREGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
         Effect::BackgroundBlur { radius, visible } => vec![("type", en("BACKGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],

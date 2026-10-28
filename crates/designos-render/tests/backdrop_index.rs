@@ -79,6 +79,7 @@ fn random_page(seed: u64, top_mask: bool) -> (Document, NodeId, Vec<NodeId>) {
                         spread: rng.between(0.0, 6.0),
                         visible: true,
                         show_behind: false,
+                        blend: Default::default(),
                     }]
                 }
                 1 => n.effects = vec![Effect::LayerBlur { radius: rng.between(1.0, 14.0), visible: true }],

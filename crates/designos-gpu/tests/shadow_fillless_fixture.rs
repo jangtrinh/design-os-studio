@@ -21,6 +21,7 @@ fn frame(t: &mut common::T, x: f32, white: bool, show_behind: bool) {
             spread: 0.0,
             visible: true,
             show_behind,
+            blend: Default::default(),
         }];
         n
     });

@@ -32,6 +32,7 @@ fn card() -> Card {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         n.kind.frame_props_mut().unwrap().auto_layout = Some(AutoLayout {
             direction: LayoutDirection::Vertical,

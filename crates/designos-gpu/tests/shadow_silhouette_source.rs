@@ -11,7 +11,15 @@ const SIZE: (u32, u32) = (120, 120);
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 
 fn shadow() -> Effect {
-    Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(8.0, 8.0), radius: 6.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::BLACK,
+        offset: Vec2::new(8.0, 8.0),
+        radius: 6.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 /// One shadowed 60x60 node at (20, 20) shaped by `f`, with a red child sticking out of the

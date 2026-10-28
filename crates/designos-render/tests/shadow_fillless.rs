@@ -18,7 +18,15 @@ const BLUE_A: Color = Color { r: 0x25 as f32 / 255.0, g: 0x63 as f32 / 255.0, b:
 const RED_B: Color = Color { r: 0xDC as f32 / 255.0, g: 0x26 as f32 / 255.0, b: 0x26 as f32 / 255.0, a: 0.5 };
 
 fn shadow(show_behind: bool) -> Effect {
-    Effect::DropShadow { color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 }, offset: Vec2::new(0.0, 12.0), radius: 24.0, spread: 0.0, visible: true, show_behind }
+    Effect::DropShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 },
+        offset: Vec2::new(0.0, 12.0),
+        radius: 24.0,
+        spread: 0.0,
+        visible: true,
+        show_behind,
+        blend: Default::default(),
+    }
 }
 
 /// Adds one fixture frame at (`x`, `y`) and returns it with its children (A, B).

@@ -284,7 +284,15 @@ fn home(s: &mut S, page: NodeId, x: f32) -> (NodeId, NodeId) {
     s.clip(bal);
     s.effect(
         bal,
-        Effect::DropShadow { color: Color::rgba(76, 91, 240, 90), offset: Vec2::new(0.0, 14.0), radius: 28.0, spread: -8.0, visible: true, show_behind: false },
+        Effect::DropShadow {
+            color: Color::rgba(76, 91, 240, 90),
+            offset: Vec2::new(0.0, 14.0),
+            radius: 28.0,
+            spread: -8.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        },
         None,
     );
     let top = s.row(bal, "Top", 0.0, [0.0; 4]);

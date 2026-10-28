@@ -517,7 +517,15 @@ fn effect_style_shadow_vars_round_trip() {
     insert_var(&mut d, &x_var, "sh-x", VariableKind::Number, VariableValue::Number(2.0), VariableValue::Number(8.0));
     insert_var(&mut d, &y_var, "sh-y", VariableKind::Number, VariableValue::Number(3.0), VariableValue::Number(12.0));
 
-    let fx = Effect::DropShadow { color: light_c, offset: Vec2::new(2.0, 3.0), radius: 4.0, spread: 1.0, visible: true, show_behind: false };
+    let fx = Effect::DropShadow {
+        color: light_c,
+        offset: Vec2::new(2.0, 3.0),
+        radius: 4.0,
+        spread: 1.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    };
     d.styles.insert("2:503".into(), Style::Effect(vec![fx.clone()]));
     d.style_meta.insert(
         "2:503".into(),
@@ -944,6 +952,7 @@ fn style_description_fig_round_trip_keeps_empty_and_non_empty_descriptions() {
                 spread: 0.0,
                 visible: true,
                 show_behind: false,
+                blend: Default::default(),
             }]),
         ),
     ] {

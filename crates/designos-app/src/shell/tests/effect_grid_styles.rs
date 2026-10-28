@@ -5,7 +5,15 @@ use super::*;
 use designos_doc::{Effect, LayoutGrid, Style, StyleProperty};
 
 fn shadow() -> Effect {
-    Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: DV::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 64),
+        offset: DV::new(0.0, 4.0),
+        radius: 8.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 fn columns() -> LayoutGrid {

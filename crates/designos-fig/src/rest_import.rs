@@ -40,6 +40,11 @@ pub(crate) fn color(v: &Value) -> Option<Color> {
     Some(Color { r: fnum(v, "r")?, g: fnum(v, "g")?, b: fnum(v, "b")?, a: fnum(v, "a").unwrap_or(1.0) })
 }
 
+/// The blend mode an effect carries; absent means Normal.
+fn effect_blend(v: &Value) -> BlendMode {
+    fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal)
+}
+
 pub(crate) fn blend(s: &str) -> BlendMode {
     match s {
         "PASS_THROUGH" => BlendMode::PassThrough,
@@ -115,8 +120,16 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
     let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
-        "DROP_SHADOW" => Effect::DropShadow { color: col, offset, radius, spread, visible, show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false) },
-        "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible },
+        "DROP_SHADOW" => Effect::DropShadow {
+            color: col,
+            offset,
+            radius,
+            spread,
+            visible,
+            show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false),
+            blend: effect_blend(v),
+        },
+        "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible, blend: effect_blend(v) },
         "LAYER_BLUR" => Effect::LayerBlur { radius, visible },
         "BACKGROUND_BLUR" => Effect::BackgroundBlur { radius, visible },
         // Noise / texture / glass: every field is optional; missing ones fall back to the
