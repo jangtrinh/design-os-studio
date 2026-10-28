@@ -5,6 +5,7 @@ mod component_cycle_tests;
 pub mod engine;
 pub mod prompts;
 pub mod resources;
+pub mod risk;
 pub mod rules;
 pub mod server;
 pub mod session_file_io;
