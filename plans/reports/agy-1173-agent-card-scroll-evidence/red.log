@@ -1,0 +1,64 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.27s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 10 tests
+
+thread 'shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen' (77544103) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:468:5:
+Accessibility: the changed-layers list region must announce its total row count ("82 changed layers") even when rows are off-screen
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible' (77544105) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:209:58:
+AC-02: Show less row must be rendered when 82-row card is expanded
+test shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts' (77544106) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:248:13:
+AC-03 (panel_h=400, rows=5): card outer height 246 must leave at least 200 for terminal in 400 px panel
+test shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap' (77544107) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:274:58:
+AC-04: Show less must be present when expanded
+test shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll' (77544111) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:337:5:
+precondition: expanded 82-row card shows Show less before Revert
+test shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic' (77544110) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:367:5:
+precondition: Row 0 must be scrolled off the top before the new turn arrives
+test shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic ... FAILED
+
+thread 'shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn' (77544112) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:432:5:
+precondition: Tab 1 Turn 1 is scrolled past Row 0
+
+thread 'shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer' (77544109) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:414:5:
+Row 82 must be inside the 900 px panel before clicking
+test shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn ... FAILED
+test shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer ... FAILED
+test shell::tests::agent_turn_card_scroll::ac01_wheel_over_terminal_scrolls_scrollback_with_82_row_expanded_card ... ok
+
+thread 'shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout' (77544108) panicked at crates/designos-app/src/shell/tests/agent_turn_card_scroll.rs:330:5:
+AC-05 contrast: expanded 82-row card must render panels::scrollbar
+test shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout ... FAILED
+
+failures:
+
+failures:
+    shell::tests::agent_turn_card_scroll::a11y_list_region_announces_row_count_when_rows_off_screen
+    shell::tests::agent_turn_card_scroll::ac02_wheel_over_expanded_card_scrolls_to_row_82_with_header_and_actions_visible
+    shell::tests::agent_turn_card_scroll::ac03_terminal_keeps_min_height_across_panel_heights_and_row_counts
+    shell::tests::agent_turn_card_scroll::ac04_show_less_and_keep_restore_terminal_height_next_frame_without_gap
+    shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout
+    shell::tests::agent_turn_card_scroll::edge_clicking_row_after_scrolling_selects_correct_layer
+    shell::tests::agent_turn_card_scroll::edge_new_turn_while_scrolled_resets_to_top_without_panic
+    shell::tests::agent_turn_card_scroll::edge_reverted_card_does_not_scroll
+    shell::tests::agent_turn_card_scroll::edge_scroll_state_isolated_per_tab_and_turn
+
+test result: FAILED. 1 passed; 9 failed; 0 ignored; 0 measured; 3343 filtered out; finished in 2.54s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
