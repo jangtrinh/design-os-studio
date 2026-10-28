@@ -188,7 +188,15 @@ mod tests {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
         n.stroke.align = StrokeAlign::Outside;
         n.stroke.weight = 1.0;
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 20.0), radius: 24.0, spread: -4.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 20.0),
+            radius: 24.0,
+            spread: -4.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         assert_eq!((b.x, b.y, b.w, b.h), (-21.0, -1.0, 370.0, 582.0));
@@ -203,7 +211,15 @@ mod tests {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
         n.stroke.align = StrokeAlign::Outside;
         n.stroke.weight = 1.0;
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 1.0), radius: 2.0, spread: 0.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 1.0),
+            radius: 2.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         assert_eq!((b.x, b.y, b.w, b.h), (-3.0, -2.0, 310.0, 42.0));
@@ -218,7 +234,15 @@ mod tests {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
         n.stroke.align = StrokeAlign::Outside;
         n.stroke.weight = 2.0;
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 0.0), radius: 4.0, spread: -6.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 0.0),
+            radius: 4.0,
+            spread: -6.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         // stroke outset 2 only; shadow adds nothing
@@ -252,7 +276,15 @@ mod tests {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
         n.stroke.align = StrokeAlign::Outside;
         n.stroke.weight = 1.0;
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 0.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 0.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         // stroke 1 + shadow 8 = 9 on every side
@@ -265,8 +297,24 @@ mod tests {
         let page = d.add_page("p");
         let id = d.alloc_id();
         let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 0.0), radius: 12.0, spread: 0.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 0.0),
+            radius: 12.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         // s1: l=8, r=8, t=4, b=12. s2: 12 on all sides. union: 12 on all sides
@@ -298,12 +346,28 @@ mod tests {
         if let NodeKind::Frame(fp) = &mut f.kind {
             fp.clips_content = true;
         }
-        f.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        f.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         let f = d.insert(page, f).unwrap();
 
         let cid = d.alloc_id();
         let mut c = Node::rectangle(cid, Rect::new(20.0, 20.0, 50.0, 50.0));
-        c.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 50.0), radius: 50.0, spread: 0.0, visible: true, show_behind: false });
+        c.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 50.0),
+            radius: 50.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(f, c).unwrap();
 
         let b = render_bounds(&d, f);
@@ -372,7 +436,15 @@ mod tests {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
         n.stroke.align = StrokeAlign::Outside;
         n.stroke.weight = 1.0;
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 20.0), radius: 24.0, spread: -4.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 20.0),
+            radius: 24.0,
+            spread: -4.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         let (l, t, r, b) = own_overflow(&n);
         d.insert(page, n).unwrap();
 
@@ -393,7 +465,15 @@ mod tests {
         let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 10.0, 10.0));
         g.kind = NodeKind::Group;
         g.fills.clear();
-        g.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        g.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         let g = d.insert(page, g).unwrap();
 
         let c1_id = d.alloc_id();
@@ -503,7 +583,15 @@ mod tests {
         let page = d.add_page("p");
         let id = d.alloc_id();
         let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 40.0));
-        n.effects.push(Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false });
+        n.effects.push(Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        });
         d.insert(page, n).unwrap();
         let b = render_bounds(&d, id);
         assert_eq!((b.x, b.y, b.w, b.h), (-8.0, -4.0, 116.0, 56.0));
