@@ -341,27 +341,27 @@
   "radius": {
     "radius-lg": {
       "$type": "dimension",
-      "$value": "8px"
+      "$value": "10px"
     },
     "radius-md": {
       "$type": "dimension",
-      "$value": "6px"
+      "$value": "8px"
     },
     "radius-pill": {
       "$type": "dimension",
-      "$value": "13px"
+      "$value": "9999px"
     },
     "radius-sm": {
       "$type": "dimension",
-      "$value": "4px"
+      "$value": "6px"
     },
     "radius-xl": {
       "$type": "dimension",
-      "$value": "10px"
+      "$value": "12px"
     },
     "radius-xs": {
       "$type": "dimension",
-      "$value": "2px"
+      "$value": "4px"
     }
   },
   "spacing": {
@@ -425,15 +425,15 @@
     },
     "font-size-body": {
       "$type": "dimension",
-      "$value": "11px"
+      "$value": "12px"
     },
     "font-size-caption": {
       "$type": "dimension",
-      "$value": "10px"
+      "$value": "12px"
     },
     "font-size-heading": {
       "$type": "dimension",
-      "$value": "13px"
+      "$value": "14px"
     },
     "font-size-hero": {
       "$type": "dimension",
@@ -445,7 +445,7 @@
     },
     "font-size-title": {
       "$type": "dimension",
-      "$value": "12px"
+      "$value": "14px"
     }
   }
 }
