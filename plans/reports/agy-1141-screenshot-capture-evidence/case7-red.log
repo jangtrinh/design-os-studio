@@ -1,0 +1,4 @@
+=== Case 7 on hook-only commit d575ddf2 ===
+designos: screenshot was not captured
+exit_code=1
+png_exists=false

@@ -178,22 +178,27 @@ fn main() {
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("design:os studio")
-        .with_inner_size([w as f32, h as f32])
-        .with_min_inner_size([theme::MIN_WINDOW.0, theme::MIN_WINDOW.1]);
+    let mut viewport = if screenshot_mode {
+        shell::screenshot_viewport(w, h)
+    } else {
+        let mut vp = egui::ViewportBuilder::default()
+            .with_title("design:os studio")
+            .with_inner_size([w as f32, h as f32])
+            .with_min_inner_size([theme::MIN_WINDOW.0, theme::MIN_WINDOW.1]);
+        #[cfg(target_os = "macos")]
+        {
+            vp = vp.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+        }
+        vp
+    };
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
     }
+    let mut native = eframe::NativeOptions { viewport, ..Default::default() };
     if screenshot_mode {
-        viewport = viewport.with_min_inner_size([200.0, 200.0]).with_resizable(true).with_active(false);
-    } else {
-        #[cfg(target_os = "macos")]
-        {
-            viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
-        }
+        native.wgpu_options.on_surface_status = std::sync::Arc::new(shell::screenshot_on_surface_status);
+        shell::spawn_screenshot_watchdog();
     }
-    let native = eframe::NativeOptions { viewport, ..Default::default() };
     let result = eframe::run_native(
         "design:os studio",
         native,
@@ -209,6 +214,9 @@ fn main() {
             Ok(Box::new(shell::Shell::new(cc, opts)))
         }),
     );
+    if screenshot_mode {
+        shell::disarm_screenshot_watchdog();
+    }
     if let Err(e) = result {
         eprintln!("designos: {e}");
         std::process::exit(1);
@@ -222,7 +230,10 @@ fn main() {
         let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
         match miss {
             Some(message) => eprintln!("designos: {message}"),
-            None if !shot_ok => eprintln!("designos: screenshot was not captured"),
+            // A failed PNG write already printed its own reason where it happened.
+            None if !shot_ok && !shell::SHOT_WRITE_FAILED.load(Ordering::SeqCst) => {
+                eprintln!("{}", shell::failure_line(&shell::process_shot_outcome()))
+            }
             None => {}
         }
         let code = exit_code(miss.is_some(), shot_ok);
