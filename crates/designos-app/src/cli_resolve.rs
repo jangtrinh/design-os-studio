@@ -1206,4 +1206,61 @@ mod tests {
         t_retarget.join().expect("retarget thread must not panic");
         t_warmer.join().expect("scoped version_warmer thread must not panic");
     }
+
+    /// Round 9c: In live wrappers (`hermetic_mode_active`, `hermetic_agent_cli_dir`, `cli_search_dirs`),
+    /// a startup-pinned hermetic directory (precedence 1) must beat an active `ScopedCliDirs` guard
+    /// (precedence 2), and `hermetic_mode_active()` under `cfg(test)` must mirror release by returning
+    /// `true` when either the thread-local pin or `DESIGNOS_AGENT_CLI_DIR` is set.
+    #[test]
+    fn hermetic_pin_beats_scoped_guard_and_mode_active_reads_env_var() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _reset_hermetic = ResetTestHermeticDir::enter();
+        let root = make_temp_dir("r9c-precedence");
+        let hermetic_stubs = root.join("hermetic-stubs");
+        let scoped_stubs = root.join("scoped-stubs");
+        let lib = root.join("lib");
+        let tmp = root.join("tmp");
+        let home = root.join("home");
+        for d in [&hermetic_stubs, &scoped_stubs, &lib, &tmp, &home] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
+        }
+        let hermetic_canon = std::fs::canonicalize(&hermetic_stubs).unwrap();
+
+        // 1. With no pin set, setting `DESIGNOS_AGENT_CLI_DIR` in the environment makes
+        // `hermetic_mode_active()` true while `hermetic_agent_cli_dir()` remains `None` (mirroring release).
+        let prev_env = std::env::var_os("DESIGNOS_AGENT_CLI_DIR");
+        std::env::set_var("DESIGNOS_AGENT_CLI_DIR", &hermetic_stubs);
+        let active_from_env = hermetic_mode_active();
+        let dir_from_env_without_pin = hermetic_agent_cli_dir();
+        match prev_env {
+            Some(v) => std::env::set_var("DESIGNOS_AGENT_CLI_DIR", v),
+            None => std::env::remove_var("DESIGNOS_AGENT_CLI_DIR"),
+        }
+        assert!(active_from_env, "hermetic_mode_active() must be true when DESIGNOS_AGENT_CLI_DIR is set");
+        assert_eq!(dir_from_env_without_pin, None, "hermetic_agent_cli_dir() must remain None before enforce_hermetic_startup pins it");
+
+        // 2. After `enforce_hermetic_startup` pins `hermetic_stubs`, entering `ScopedCliDirs` on the
+        // same thread must not hide the hermetic pin: precedence 1 (hermetic) beats precedence 2 (scoped).
+        let mut env = BTreeMap::new();
+        env.insert("DESIGNOS_AGENT_CLI_DIR".into(), hermetic_stubs.display().to_string());
+        env.insert("DESIGNOS_LIBRARY".into(), lib.display().to_string());
+        env.insert("TMPDIR".into(), tmp.display().to_string());
+        env.insert("HOME".into(), home.display().to_string());
+        let shot_opts = crate::cli::Options { screenshot: Some(root.join("out.png")), ..Default::default() };
+        enforce_hermetic_startup(&env, &shot_opts, 98765).expect("startup with valid hermetic dir must succeed");
+
+        {
+            let _scoped = ScopedCliDirs::enter(&scoped_stubs);
+            assert!(hermetic_mode_active(), "hermetic_mode_active() must stay true inside ScopedCliDirs when pinned");
+            assert_eq!(
+                hermetic_agent_cli_dir().as_deref(),
+                Some(hermetic_canon.as_path()),
+                "hermetic_agent_cli_dir() must return the pinned hermetic dir even when ScopedCliDirs is active"
+            );
+            assert_eq!(cli_search_dirs(None), vec![hermetic_canon.clone()], "cli_search_dirs(None) must rank hermetic (precedence 1) above scoped (precedence 2)");
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
