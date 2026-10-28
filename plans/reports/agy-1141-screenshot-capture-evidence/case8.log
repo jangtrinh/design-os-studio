@@ -1,0 +1,4 @@
+=== Case 8 suite: mode=idle runs=250 jobs=1 ===
+summary: mode=idle total=250 passed=250 failed=0 unexplained=0
+=== Case 8 suite: mode=load runs=250 jobs=1 ===
+status: PENDING (screen — deferred per controller instruction until 'screen free')

@@ -1,0 +1,6 @@
+commit=4f766ace+fix
+cmd=DESIGNOS_SHOT_DROP_IMAGES=1 out/cargo/debug/designos --fixture showcase --select none --size 1440x900 --no-toast --screenshot $S/shot.png
+exit_code=0
+png_exists=true
+png_bytes=249968
+stderr=

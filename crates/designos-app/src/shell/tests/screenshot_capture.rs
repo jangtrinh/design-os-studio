@@ -180,3 +180,25 @@ fn watchdog_is_not_armed_before_the_first_frame() {
         assert_eq!(active.check(now), None, "watchdog receiving frames every 1 s must never fire (at {sec} s)");
     }
 }
+
+// Edge case: An image arrives after it was counted lost (and a re-request was sent):
+// the first complete image wins, and a second image arriving afterwards is ignored.
+#[test]
+fn late_image_after_lost_request_wins_and_second_image_is_ignored() {
+    let (mut s, path) = showcase_shot_sim("edge_first_wins");
+    run_until_first_screenshot_cmd(&mut s, 60);
+    for _ in 0..12 {
+        s.frame(vec![]);
+    }
+    let first_img = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], egui::Color32::from_rgb(0xE3, 0x63, 0x23)));
+    let second_img = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], egui::Color32::from_rgb(0x35, 0x82, 0xFF)));
+    s.frame(vec![
+        Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image: first_img },
+        Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image: second_img.clone() },
+    ]);
+    s.frame(vec![Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image: second_img }]);
+    let written = image::open(&path).expect("saved PNG must be readable").into_rgba8();
+    let px = written.get_pixel(0, 0).0;
+    cleanup(&path);
+    assert_eq!(px, [0xE3, 0x63, 0x23, 0xFF], "first complete image must win and later images must be ignored");
+}

@@ -1,0 +1,108 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app)
+warning: static `SHOT_FAILURE` is never used
+  --> crates/designos-app/src/shell.rs:29:12
+   |
+29 | pub static SHOT_FAILURE: std::sync::OnceLock<String> = std::sync::OnceLo...
+   |            ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `SHOT_IMAGE_WAIT_FRAMES` is never used
+  --> crates/designos-app/src/shell.rs:32:11
+   |
+32 | pub const SHOT_IMAGE_WAIT_FRAMES: u32 = 10;
+   |           ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `SHOT_MAX_REQUESTS` is never used
+  --> crates/designos-app/src/shell.rs:35:11
+   |
+35 | pub const SHOT_MAX_REQUESTS: u32 = 5;
+   |           ^^^^^^^^^^^^^^^^^
+
+warning: constant `SHOT_WATCHDOG_TIMEOUT` is never used
+  --> crates/designos-app/src/shell.rs:38:11
+   |
+38 | pub const SHOT_WATCHDOG_TIMEOUT: std::time::Duration = std::time::Durati...
+   |           ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `disarm` is never used
+  --> crates/designos-app/src/shell.rs:66:12
+   |
+59 | impl ShotWatchdog {
+   | ----------------- method in this implementation
+...
+66 |     pub fn disarm(&mut self) {
+   |            ^^^^^^
+
+warning: `designos-app` (bin "designos" test) generated 5 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 28s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 7 tests
+test shell::tests::screenshot_capture::malformed_image_is_reported ... FAILED
+test shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix ... FAILED
+test shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top ... FAILED
+test shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame ... FAILED
+test shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again ... FAILED
+test shell::tests::screenshot_capture::capture_is_written_after_a_lost_request ... FAILED
+test shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests ... FAILED
+
+failures:
+
+---- shell::tests::screenshot_capture::malformed_image_is_reported stdout ----
+
+thread 'shell::tests::screenshot_capture::malformed_image_is_reported' (81781769) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:146:5:
+expected malformed image error naming '1600x1088' and '12 bytes', got: ""
+
+---- shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix stdout ----
+
+thread 'shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix' (81781767) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:132:9:
+failure_line(Failed("no image after 5 requests (frames 12, 22, 32, 42, 52); last surface status none")) must start with 'designos: screenshot was not captured: ', got: "designos: screenshot was not captured"
+
+---- shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top stdout ----
+
+thread 'shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top' (81781770) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:155:5:
+assertion `left == right` failed
+  left: None
+ right: Some(AlwaysOnTop)
+
+---- shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame stdout ----
+
+thread 'shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame' (81781771) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:170:5:
+assertion `left == right` failed: armed watchdog must fire after 31 s with the occluded reason
+  left: None
+ right: Some("the window was not drawn for 30 s (occluded or minimised)")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again stdout ----
+
+thread 'shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again' (81781768) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:68:5:
+expected a second ViewportCommand::Screenshot within 12 frames after a lost request
+
+---- shell::tests::screenshot_capture::capture_is_written_after_a_lost_request stdout ----
+
+thread 'shell::tests::screenshot_capture::capture_is_written_after_a_lost_request' (81781766) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:84:5:
+precondition: second ViewportCommand::Screenshot must be sent after first is lost
+
+---- shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests stdout ----
+
+thread 'shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests' (81781765) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:115:18:
+expected ShotOutcome::Failed, got Pending
+
+
+failures:
+    shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests
+    shell::tests::screenshot_capture::capture_is_written_after_a_lost_request
+    shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix
+    shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again
+    shell::tests::screenshot_capture::malformed_image_is_reported
+    shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top
+    shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 0.72s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
