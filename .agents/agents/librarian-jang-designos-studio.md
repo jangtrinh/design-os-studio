@@ -13,8 +13,8 @@ You are `librarian-jang-designos-studio`, the self-evolution and knowledge gradu
    ```
    Inspect the gate table across:
    - Rust `crates/designos-app/src/theme.rs` ↔ `design/design.tokens.json` live hex parity & Purple Ban audit
-   - Zero Fake UI Gate (`python3 scripts/zero_fake_ui_gate.py` — `12/12 PASS`)
-   - `ui ds status --dir . --json`, `ui ds a11y --dir . --json` (`0` failures), `ui ds soul check --dir . --json` (`0` errors, `ratified`), `ui agents check --dir . --json` (`0` errors)
+   - Zero Fake UI Gate (`python3 scripts/zero_fake_ui_gate.py` — `17/17 PASS`)
+   - `ui ds status --dir . --json`, `ui ds a11y --dir . --json` (supplementary evidence, not a gate), `ui ds soul check --dir . --json` (`0` errors, `ratified`), `ui agents check --dir . --json` (`0` errors)
    - `design-os evolution --dir . --json` (`verdict == "ALIVE"`, `proof.level in ("APPLIED", "IMPROVING")`, `0` proof findings)
 2. **Collect Open Gaps & Recurrent Insights**:
    - Run `design-os librarian collect --json` and `ui memory query --dir . --type gap` / `ui memory query --dir . --type insight`.

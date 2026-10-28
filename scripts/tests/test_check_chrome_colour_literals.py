@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import shutil
 import sys
@@ -117,6 +119,56 @@ class CheckChromeColourLiteralsTests(unittest.TestCase):
             self.assertTrue(ok)
             self.assertIn("supplementary", summary)
             self.assertIn("design/a11y-chrome-pairs.txt", summary)
+
+    def test_run_cli_reports_a_missing_command_instead_of_raising(self) -> None:
+        """A runner without the `ui` CLI must get a non-zero code and a note, never an exception."""
+        code, out, err = dse.run_cli(["no-such-binary-for-the-design-gates"])
+        self.assertEqual(code, 127)
+        self.assertEqual(out, "")
+        self.assertIn("not runnable", err)
+        self.assertIn("no-such-binary-for-the-design-gates", err)
+
+    def test_g04_stays_passed_and_names_the_tool_when_ui_is_not_installed(self) -> None:
+        """G04 is report-only: with no `ui` on PATH it still passes and says why it measured nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            (tmp_root / "design").mkdir(parents=True, exist_ok=True)
+            (tmp_root / "design" / "a11y-chrome-pairs.txt").write_text(
+                "colors.bg-foreground:colors.bg\n", encoding="utf-8"
+            )
+            with mock.patch.object(dse, "REPO_ROOT", tmp_root), mock.patch.object(
+                dse, "build_env", return_value={"PATH": str(tmp_root / "no-bin")}
+            ):
+                ok, summary, _ = dse.check_ui_ds_a11y()
+        self.assertTrue(ok)
+        self.assertIn("supplementary", summary)
+        self.assertIn("not runnable", summary)
+
+    def test_json_report_on_stdout_is_valid_json(self) -> None:
+        """`--json` is the machine-readable form: G01's progress lines go to stderr, stdout parses."""
+        stub = mock.Mock(return_value=(True, "stub", {}))
+        patched = {
+            name: stub
+            for name in (
+                "check_zero_fake_ui_gate",
+                "check_ui_ds_status",
+                "check_ui_ds_a11y",
+                "check_ui_ds_soul",
+                "check_ui_agents",
+                "check_ui_gate_specimen",
+                "check_design_os_project_audit",
+                "run_self_evolution_pulse",
+            )
+        }
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.multiple(dse, **patched), mock.patch.object(
+            sys, "argv", ["design_os_self_evolve.py", "--check", "--json"]
+        ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            exit_code = dse.main()
+        self.assertEqual(exit_code, 0)
+        report = json.loads(out.getvalue())
+        self.assertEqual(report["total"], 9)
+        self.assertIn("purple-band hits: 0", err.getvalue())
 
     def test_purple_band_flags_the_retired_syntax_keyword(self) -> None:
         """A Color32 constant with hue 255-300 deg and HSL S > 0.25 is flagged; BOARD_* is exempt."""
