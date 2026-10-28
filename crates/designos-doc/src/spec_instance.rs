@@ -178,7 +178,12 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub warnings: Vec<crate::SpecWarning>,
     pub measured_with_fallback: Vec<u64>,
     pub touched_slot_containers: HashMap<NodeId, String>,
+    /// Renderer measurer for this call. `None` keeps the character-width estimate.
+    pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
 }
+
+/// Width an empty hug text keeps on the spec paths, as under the character-width estimate.
+const EMPTY_TEXT_MIN_WIDTH: f32 = 16.0;
 
 impl<'a> SpecBuildCtx<'a> {
     pub fn new(_doc: &Document, snapshots: &'a [LibrarySnapshot]) -> Self {
@@ -205,7 +210,22 @@ impl<'a> SpecBuildCtx<'a> {
             warnings: Vec::new(),
             measured_with_fallback: Vec::new(),
             touched_slot_containers: HashMap::new(),
+            measure: None,
         }
+    }
+
+    /// Intrinsic size of `tp` on the spec paths. A measured empty label keeps the estimate's
+    /// 16 px minimum width so it stays selectable; the editor's measure alone would give 1 px.
+    pub(crate) fn text_size(&self, tp: &crate::TextProps, wrap_width: Option<f32>) -> crate::Vec2 {
+        let mut size = crate::text_measure::intrinsic_text_size(tp, wrap_width, self.measure);
+        if self.measure.is_some() && wrap_width.is_none() && tp.content.is_empty() {
+            size.x = size.x.max(EMPTY_TEXT_MIN_WIDTH);
+        }
+        size
+    }
+
+    pub(crate) fn text_fell_back(&self, tp: &crate::TextProps) -> bool {
+        crate::text_measure::uses_fallback_font(tp, self.measure)
     }
 
     fn ensure_indexed(&mut self, doc: &Document) {
@@ -1102,16 +1122,16 @@ pub(crate) fn apply_instance_props_with_ctx(
                         let new_size = match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
                                 measured = true;
-                                Some(crate::text_measure::intrinsic_text_size(tp, None))
+                                Some(ctx.text_size(tp, None))
                             }
                             TextAutoResize::Height => {
                                 measured = true;
-                                let h = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                let h = ctx.text_size(tp, Some(node.size.x.max(20.0))).y;
                                 Some(Vec2::new(node.size.x, h))
                             }
                             TextAutoResize::None | TextAutoResize::Truncate => None,
                         };
-                        let fallback = measured && crate::text_measure::uses_fallback_font(tp);
+                        let fallback = measured && ctx.text_fell_back(tp);
                         if let Some(sz) = new_size {
                             node.size = sz;
                         }
@@ -1305,16 +1325,16 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                         let mut measured = false;
                         match tp.auto_resize {
                             TextAutoResize::WidthAndHeight => {
-                                node.size = crate::text_measure::intrinsic_text_size(tp, None);
+                                node.size = ctx.text_size(tp, None);
                                 measured = true;
                             }
                             TextAutoResize::Height => {
-                                node.size.y = crate::text_measure::intrinsic_text_size(tp, Some(node.size.x.max(20.0))).y;
+                                node.size.y = ctx.text_size(tp, Some(node.size.x.max(20.0))).y;
                                 measured = true;
                             }
                             TextAutoResize::None | TextAutoResize::Truncate => {}
                         }
-                        if measured && crate::text_measure::uses_fallback_font(tp) && !ctx.measured_with_fallback.contains(&target_id.0) {
+                        if measured && ctx.text_fell_back(tp) && !ctx.measured_with_fallback.contains(&target_id.0) {
                             ctx.measured_with_fallback.push(target_id.0);
                         }
                     }
@@ -2302,6 +2322,18 @@ impl Document {
 /// subtree `Command::Insert`) along with [`ApplySpecReport`]. Both before `Command::apply` runs and
 /// on any error, `doc` is left completely untouched.
 pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, snapshots: &[LibrarySnapshot]) -> Result<(Command, ApplySpecReport), SpecError> {
+    apply_spec_command_with(doc, parent, spec, snapshots, None)
+}
+
+/// [`apply_spec_command`] that sizes hug text with `measure` when `Some`.
+/// `None` keeps the character-width estimate. The measurer is visible only to this call.
+pub fn apply_spec_command_with<'m>(
+    doc: &mut Document,
+    parent: NodeId,
+    spec: &NodeSpec,
+    snapshots: &'m [LibrarySnapshot],
+    measure: Option<&'m dyn crate::text_measure::TextMeasure>,
+) -> Result<(Command, ApplySpecReport), SpecError> {
     let pnode = doc.get(parent).ok_or_else(|| SpecError::plain(format!("Parent node {} not found", parent.0)))?;
     if !pnode.kind.is_container() {
         return Err(SpecError::plain(format!("Parent node {} is not a container", parent.0)));
@@ -2351,6 +2383,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     };
 
     let mut ctx = SpecBuildCtx::new(doc, snapshots);
+    ctx.measure = measure;
     let mut bind_index = crate::SpecBindIndex::build(doc);
     let mut report = ApplySpecReport { parent_id: parent, ..Default::default() };
     let mut inserted_ids = Vec::new();

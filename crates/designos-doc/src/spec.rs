@@ -636,7 +636,20 @@ impl Document {
     /// Materializes `spec` under `parent`, resolving `var:`, `style:`, `mode`, `$easeui.*`,
     /// and `"instance"` references against both local tokens/styles/components and enabled `libraries`.
     /// On any error, `self` is rolled back to its exact pre-call state.
+    /// Text keeps the character-width estimate. Pass a measurer with [`Self::apply_spec_with_measure`].
     pub fn apply_spec_with_libraries(&mut self, parent: NodeId, spec: &NodeSpec, libraries: &[LibrarySnapshot]) -> Result<SpecApplyReport, SpecBindError> {
+        self.apply_spec_with_measure(parent, spec, libraries, None)
+    }
+
+    /// [`Self::apply_spec_with_libraries`] that sizes hug text with `measure` when `Some`.
+    /// `None` keeps the character-width estimate. The measurer is visible only to this call.
+    pub fn apply_spec_with_measure<'m>(
+        &mut self,
+        parent: NodeId,
+        spec: &NodeSpec,
+        libraries: &'m [LibrarySnapshot],
+        measure: Option<&'m dyn crate::text_measure::TextMeasure>,
+    ) -> Result<SpecApplyReport, SpecBindError> {
         let pnode = self.get(parent).ok_or_else(|| SpecBindError {
             code: "NODE_NOT_FOUND".to_string(),
             message: format!("Parent node {} not found", parent.0),
@@ -673,6 +686,7 @@ impl Document {
         let data_before = crate::spec_data::SpecDataSnapshot::of(self);
         let mut inserted_ids: Vec<NodeId> = Vec::new();
         let mut ctx = crate::spec_instance::SpecBuildCtx::new(self, libraries);
+        ctx.measure = measure;
         let mut index = SpecBindIndex::build(self);
         let mut report = SpecApplyReport { parent_id: parent, ..Default::default() };
 
@@ -1349,7 +1363,7 @@ impl Document {
             self.bind_characters(id, &node_kind, raw_ref, &spec.name, spec.preset.is_some(), &format!("{path}.text"), index, libraries, report)?;
         }
 
-        // Measure (or estimate when no measurer is installed) intrinsic text bounds after text_style / font_size / line_height / font_family application,
+        // Measure (or estimate when this call has no measurer) intrinsic text bounds after text_style / font_size / line_height / font_family application,
         // and align the glyph box with any centring on the parent auto-layout frame when the text hugs that axis.
         let (parent_centre_h, parent_centre_v) = self.parent_centres_children(parent);
         let hugs_h = spec.width.is_none() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
@@ -1366,10 +1380,10 @@ impl Document {
                 if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
-                        n.size.y = crate::text_measure::intrinsic_text_size(tp, Some(n.size.x.max(20.0))).y;
+                        n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
-                    let sz = crate::text_measure::intrinsic_text_size(tp, None);
+                    let sz = ctx.text_size(tp, None);
                     if spec.width.is_none() {
                         n.size.x = sz.x;
                     }
@@ -1377,7 +1391,7 @@ impl Document {
                         n.size.y = sz.y;
                     }
                 }
-                if needs_measure && crate::text_measure::uses_fallback_font(tp) && !report.measured_with_fallback.contains(&id.0) {
+                if needs_measure && ctx.text_fell_back(tp) && !report.measured_with_fallback.contains(&id.0) {
                     report.measured_with_fallback.push(id.0);
                 }
             }
@@ -1476,8 +1490,8 @@ impl Document {
                         if self_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top {
                             tp.style.align_v = TextAlignV::Center;
                         }
-                        let sz = crate::text_measure::intrinsic_text_size(tp, None);
-                        let fallback = crate::text_measure::uses_fallback_font(tp);
+                        let sz = ctx.text_size(tp, None);
+                        let fallback = ctx.text_fell_back(tp);
                         tn.size = sz;
                         if fallback && !report.measured_with_fallback.contains(&tid.0) {
                             report.measured_with_fallback.push(tid.0);
@@ -2265,5 +2279,50 @@ mod tests {
         let tid = doc.apply_spec(page, &spec).unwrap();
         let tn = doc.get(tid).unwrap();
         assert_eq!(tn.size.x, 52.0, "without an installed measurer, 'Delete' at 14px Semibold keeps the 52.0px estimate");
+    }
+
+    /// A measurer passed into one apply must not leak into another thread's apply.
+    #[test]
+    fn measurer_is_per_call_not_process_wide() {
+        struct FixedMeasure;
+        impl crate::text_measure::TextMeasure for FixedMeasure {
+            fn measure(&self, _tp: &TextProps, _wrap: Option<f32>) -> Vec2 {
+                Vec2::new(123.0, 45.0)
+            }
+        }
+
+        let spec_json = serde_json::json!({
+            "kind": "text",
+            "name": "Label",
+            "text": "Delete",
+            "font_size": 14.0,
+            "font_weight": 600
+        });
+
+        for _ in 0..16 {
+            let measured_json = spec_json.clone();
+            let estimated_json = spec_json.clone();
+            let measured = std::thread::spawn(move || {
+                let mut doc = Document::new("Measured");
+                let page = doc.add_page("P");
+                let spec: NodeSpec = serde_json::from_value(measured_json).unwrap();
+                let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&FixedMeasure)).unwrap();
+                let node = doc.get(report.root_node_id).unwrap();
+                assert_eq!(node.size, Vec2::new(123.0, 45.0));
+            });
+            let estimated = std::thread::spawn(move || {
+                let mut doc = Document::new("Estimated");
+                let page = doc.add_page("P");
+                let spec: NodeSpec = serde_json::from_value(estimated_json).unwrap();
+                let report = doc.apply_spec_with_report(page, &spec).unwrap();
+                let node = doc.get(report.root_node_id).unwrap();
+                let NodeKind::Text(tp) = &node.kind else { panic!("expected text") };
+                let est = estimate_intrinsic_text_size(tp);
+                assert_eq!(node.size, est, "an apply with no measurer must keep the estimate");
+                assert_ne!(node.size.x, 123.0, "the other thread's measurer must not be visible");
+            });
+            measured.join().expect("measured thread");
+            estimated.join().expect("estimated thread");
+        }
     }
 }

@@ -20,9 +20,19 @@ pub mod query;
 pub mod screenshot;
 pub mod search_design_system;
 pub mod session_options;
+mod text_remeasure;
 
 use crate::tools::errors::{ErrorCode, ToolError};
-use designos_doc::{Document, Node, NodeId, NodeKind, Paint, Rect, SpecWarning, TextAutoResize, TextStyle, Vec2};
+use designos_doc::text_measure::TextMeasure;
+use designos_doc::{Document, Node, NodeId, NodeKind, Paint, Rect, SpecWarning, TextAutoResize, TextProps, TextStyle, Vec2};
+
+pub(crate) fn measure_text(tp: &TextProps, wrap: Option<f32>) -> Vec2 {
+    designos_render::measure_text_box(tp, wrap)
+}
+
+pub(crate) fn text_fell_back(tp: &TextProps) -> bool {
+    designos_render::RenderTextMeasure.uses_fallback_font(tp)
+}
 use serde_json::json;
 
 pub(crate) fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), ToolError> {
@@ -148,16 +158,16 @@ pub(crate) fn build_created_node(
         match (width, height) {
             (None, None) => {
                 props.auto_resize = TextAutoResize::WidthAndHeight;
-                node.size = designos_doc::text_measure::intrinsic_text_size(props, None);
+                node.size = measure_text(props, None);
             }
             (Some(w), None) => {
                 props.auto_resize = TextAutoResize::Height;
-                let h = designos_doc::text_measure::intrinsic_text_size(props, Some(w.max(1.0))).y;
+                let h = measure_text(props, Some(w.max(1.0))).y;
                 node.size = Vec2::new(w, h);
             }
             (None, Some(h)) => {
-                props.auto_resize = TextAutoResize::WidthAndHeight;
-                let w = designos_doc::text_measure::intrinsic_text_size(props, None).x;
+                props.auto_resize = TextAutoResize::None;
+                let w = measure_text(props, None).x;
                 node.size = Vec2::new(w, h);
             }
             (Some(w), Some(h)) => {
@@ -289,10 +299,10 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             if size_omitted {
                 match props.auto_resize {
                     TextAutoResize::WidthAndHeight => {
-                        node.size = designos_doc::text_measure::intrinsic_text_size(props, None);
+                        node.size = measure_text(props, None);
                     }
                     TextAutoResize::Height => {
-                        node.size.y = designos_doc::text_measure::intrinsic_text_size(props, Some(node.size.x.max(20.0))).y;
+                        node.size.y = measure_text(props, Some(node.size.x.max(20.0))).y;
                     }
                     TextAutoResize::None | TextAutoResize::Truncate => {}
                 }
