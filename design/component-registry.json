@@ -28,7 +28,7 @@
     },
     {
       "category": "action",
-      "description": "Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6px radius)",
+      "description": "Studio orange primary CTA button: colors.primary #E36323 fill (R4), colors.primary-foreground dark label, colors.ring focus ring",
       "markup": "<button class=\"btn-primary\" type=\"button\">Create New File</button>\n",
       "name": "Button/Primary",
       "scope": "local",
@@ -56,7 +56,7 @@
     },
     {
       "category": "action",
-      "description": "Elevated zinc secondary action button (#27272A fill, #F5F5F7 label, 1px #27272A border)",
+      "description": "Neutral secondary action button: colors.secondary fill, colors.secondary-foreground label, 1px colors.border-strong boundary (E-2)",
       "markup": "<button class=\"btn-secondary\" type=\"button\">Import File</button>\n",
       "name": "Button/Secondary",
       "scope": "local",
@@ -65,7 +65,7 @@
         "colors.secondary-foreground",
         "colors.secondary-hover",
         "colors.secondary-active",
-        "colors.border",
+        "colors.border-strong",
         "spacing.space-3",
         "spacing.space-2",
         "radius.radius-md",
@@ -74,7 +74,7 @@
         "duration.duration-fast"
       ],
       "variants": [
-        "Tone=Zinc",
+        "Tone=Neutral",
         "State=Default",
         "State=Hover",
         "State=Active",

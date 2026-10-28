@@ -178,17 +178,398 @@
       "reason": "Rail width 48px (#1106), applied through the sealed path (#1164)",
       "to": "48px",
       "ts": "2026-10-28T16:09:20.491Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2b1d16",
+      "kind": "change-token",
+      "path": "colors.accent",
+      "reason": "Studio dark chrome palette: brand-tinted text-selection fill (Orange-950)",
+      "to": "#431407",
+      "ts": "2026-10-28T17:11:18.310Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#ff9e66",
+      "kind": "change-token",
+      "path": "colors.accent-foreground",
+      "reason": "Studio dark chrome palette: accent text (Orange-500, R8.3)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:18.511Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#18181b",
+      "kind": "change-token",
+      "path": "colors.bg",
+      "reason": "Studio dark chrome palette: chrome base",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:18.714Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e36",
+      "kind": "change-token",
+      "path": "colors.bg-active",
+      "reason": "Studio dark chrome palette: selected row fill (R8.2)",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:18.950Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.bg-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:19.077Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#232329",
+      "kind": "change-token",
+      "path": "colors.bg-hover",
+      "reason": "Studio dark chrome palette: hover on the chrome base",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:19.255Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#27272a",
+      "kind": "change-token",
+      "path": "colors.border",
+      "reason": "Studio dark chrome palette: hairline between regions",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:19.531Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#e36323",
+      "kind": "change-token",
+      "path": "colors.border-focus",
+      "reason": "Studio dark chrome palette: focused-field and selected-card outline (Orange-400)",
+      "to": "#fb923c",
+      "ts": "2026-10-28T17:11:19.716Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#3f3f46",
+      "kind": "change-token",
+      "path": "colors.border-strong",
+      "reason": "Studio dark chrome palette: 1px resting control boundary (E-2)",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:19.972Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#222226",
+      "kind": "change-token",
+      "path": "colors.border-subtle",
+      "reason": "Studio dark chrome palette: subtlest divider",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:20.124Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#121215",
+      "kind": "change-token",
+      "path": "colors.canvas",
+      "reason": "Studio dark chrome palette: chrome around the canvas",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:20.302Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.canvas-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:20.478Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#1e1e22",
+      "kind": "change-token",
+      "path": "colors.card",
+      "reason": "Studio dark chrome palette: card fill",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:20.665Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.card-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:20.870Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.component-foreground",
+      "reason": "Studio dark chrome palette: dark label on the component cyan (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:21.021Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f24822",
+      "kind": "change-token",
+      "path": "colors.destructive",
+      "reason": "Studio dark chrome palette: destructive button fill",
+      "to": "#dc2626",
+      "ts": "2026-10-28T17:11:21.281Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.destructive-foreground",
+      "reason": "Studio dark chrome palette: label on the destructive fill",
+      "to": "#ffffff",
+      "ts": "2026-10-28T17:11:21.542Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.info-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:21.795Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#121215",
+      "kind": "change-token",
+      "path": "colors.input",
+      "reason": "Studio dark chrome palette: text field fill (C-F)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:22.052Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#222226",
+      "kind": "change-token",
+      "path": "colors.muted",
+      "reason": "Studio dark chrome palette: muted surface",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:22.512Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#a8a8b2",
+      "kind": "change-token",
+      "path": "colors.muted-foreground",
+      "reason": "Studio dark chrome palette: tertiary text",
+      "to": "#a3a3a3",
+      "ts": "2026-10-28T17:11:22.774Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#6e6e77",
+      "kind": "change-token",
+      "path": "colors.neutral",
+      "reason": "Studio dark chrome palette: neutral status glyph (Neutral-500)",
+      "to": "#737373",
+      "ts": "2026-10-28T17:11:22.931Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.neutral-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:23.209Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#18181b",
+      "kind": "change-token",
+      "path": "colors.popover",
+      "reason": "Studio dark chrome palette: menu and popover fill",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:23.538Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.popover-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:23.876Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#ff9e66",
+      "kind": "change-token",
+      "path": "colors.primary-active",
+      "reason": "Studio dark chrome palette: pressed brand (Orange-600)",
+      "to": "#ea580c",
+      "ts": "2026-10-28T17:11:24.120Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.primary-foreground",
+      "reason": "Studio dark chrome palette: dark label on Studio orange (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:24.559Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f07436",
+      "kind": "change-token",
+      "path": "colors.primary-hover",
+      "reason": "Studio dark chrome palette: brand hover (Orange-500)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:24.742Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#e36323",
+      "kind": "change-token",
+      "path": "colors.ring",
+      "reason": "Studio dark chrome palette: focus ring (R4, Orange-500)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:25.079Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#27272a",
+      "kind": "change-token",
+      "path": "colors.secondary",
+      "reason": "Studio dark chrome palette: secondary button fill",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:25.487Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#3f3f46",
+      "kind": "change-token",
+      "path": "colors.secondary-active",
+      "reason": "Studio dark chrome palette: secondary button pressed",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:25.766Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.secondary-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:26.168Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e34",
+      "kind": "change-token",
+      "path": "colors.secondary-hover",
+      "reason": "Studio dark chrome palette: secondary button hover",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:26.444Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#14ae5c",
+      "kind": "change-token",
+      "path": "colors.success",
+      "reason": "Studio dark chrome palette: success status",
+      "to": "#22c55e",
+      "ts": "2026-10-28T17:11:26.822Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.success-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:27.042Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#1e1e22",
+      "kind": "change-token",
+      "path": "colors.surface",
+      "reason": "Studio dark chrome palette: surface fill",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:27.266Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e36",
+      "kind": "change-token",
+      "path": "colors.surface-active",
+      "reason": "Studio dark chrome palette: selected surface (R8.2)",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:27.551Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.surface-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:27.802Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#232329",
+      "kind": "change-token",
+      "path": "colors.surface-hover",
+      "reason": "Studio dark chrome palette: hover on a surface",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:27.953Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f59e0b",
+      "kind": "change-token",
+      "path": "colors.warning",
+      "reason": "Studio dark chrome palette: warning status",
+      "to": "#eab308",
+      "ts": "2026-10-28T17:11:28.077Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.warning-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:28.165Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Primary",
+      "ts": "2026-10-28T17:11:28.359Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Secondary",
+      "ts": "2026-10-28T17:11:28.546Z"
     }
   ],
-  "compiledHash": "sha256-ev7pnlT8h7z2mmIB_g2eTKuoV77rsXZ_MJGdAugnVuA",
+  "compiledHash": "sha256-_8lZw-38NH0NDbKKjZK-MzOvG-mNgxxi4BSBSr6hMQM",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 29,
+  "generation": 72,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-7mJXl5tpjeyhvOo7ZbEi35vlj3r4ujTpnwUEAd0E1R4",
+  "registryHash": "sha256-48CEUE9C-JPSlARhyUIra7UZFCL6dTp4pr4zqjlv33Q",
   "version": "1.0.0"
 }
