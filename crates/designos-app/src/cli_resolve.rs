@@ -28,6 +28,37 @@ static HERMETIC_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 #[cfg(test)]
 thread_local! {
     static TEST_HERMETIC_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static TEST_AGENT_CLI_DIR_ENV: std::cell::RefCell<Option<std::ffi::OsString>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Thread-local guard simulating `DESIGNOS_AGENT_CLI_DIR` in `cfg(test)` builds without mutating
+/// the process environment. Restores the previous thread-local value on drop.
+#[cfg(test)]
+pub struct TestAgentCliDirEnv {
+    prev: Option<std::ffi::OsString>,
+}
+
+#[cfg(test)]
+impl TestAgentCliDirEnv {
+    pub fn set(dir: impl AsRef<OsStr>) -> Self {
+        let next = Some(dir.as_ref().to_os_string());
+        let prev = TEST_AGENT_CLI_DIR_ENV.with(|slot| slot.replace(next));
+        Self { prev }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestAgentCliDirEnv {
+    fn drop(&mut self) {
+        let prev = self.prev.take();
+        TEST_AGENT_CLI_DIR_ENV.with(|slot| {
+            *slot.borrow_mut() = prev;
+        });
+    }
+}
+
+fn mode_active(pinned: bool, env_dir: Option<&OsStr>) -> bool {
+    pinned || env_dir.is_some()
 }
 
 fn has_dot_or_dotdot_component(path: &Path) -> bool {
@@ -61,11 +92,14 @@ pub fn validate_and_canonicalize_hermetic_dir(raw_dir: &str) -> Result<PathBuf, 
 pub fn hermetic_mode_active() -> bool {
     #[cfg(not(test))]
     {
-        HERMETIC_DIR.get().is_some_and(Option::is_some) || std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
+        let pinned = HERMETIC_DIR.get().is_some_and(Option::is_some);
+        let env_dir = std::env::var_os("DESIGNOS_AGENT_CLI_DIR");
+        mode_active(pinned, env_dir.as_deref())
     }
     #[cfg(test)]
     {
-        TEST_HERMETIC_DIR.with(|slot| slot.borrow().is_some()) || std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
+        let pinned = TEST_HERMETIC_DIR.with(|slot| slot.borrow().is_some());
+        TEST_AGENT_CLI_DIR_ENV.with(|slot| mode_active(pinned, slot.borrow().as_deref()))
     }
 }
 
@@ -769,6 +803,51 @@ mod tests {
         assert!(violations.is_empty(), "found unallowed PATH or bare-agent lookup outside cli_resolve.rs:\n{}", violations.join("\n"));
     }
 
+    /// Round 10b census: no file under `crates/designos-app/src` contains
+    /// `set_var("DESIGNOS_AGENT_CLI_DIR"` or `remove_var("DESIGNOS_AGENT_CLI_DIR"`.
+    #[test]
+    fn no_source_file_sets_or_removes_agent_cli_dir_env() {
+        fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    collect_rs_files(&p, out);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    out.push(p);
+                }
+            }
+        }
+
+        let src_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect_rs_files(&src_dir, &mut files);
+        files.sort();
+
+        let set_needle = ["set_var(\"", "DESIGNOS_AGENT_CLI_DIR", "\""].concat();
+        let remove_needle = ["remove_var(\"", "DESIGNOS_AGENT_CLI_DIR", "\""].concat();
+
+        let mut violations = Vec::new();
+        for file in files {
+            let rel = file.strip_prefix(&src_dir).unwrap_or(&file);
+            let text = std::fs::read_to_string(&file).expect("read source file");
+            for (idx, line) in text.lines().enumerate() {
+                let line_no = idx + 1;
+                let code_part = line.split("//").next().unwrap_or("");
+                if code_part.contains(&set_needle) || code_part.contains(&remove_needle) {
+                    violations.push(format!("{}:{line_no}: {}", rel.display(), line.trim()));
+                }
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "found forbidden process-environment mutation of DESIGNOS_AGENT_CLI_DIR under crates/designos-app/src:\n{}",
+            violations.join("\n")
+        );
+    }
+
     /// 8(a): Startup order: `run_startup_before_window` (the function `main` calls first after `cli::parse`)
     /// enforces hermetic startup before `--help`, `--version`, `--seed-library`, and `run_agent_cli` (`--apply-spec`),
     /// returning exit code 2 and writing nothing when the hermetic environment is invalid.
@@ -1110,7 +1189,6 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn hermetic_startup_dir_is_pinned_after_symlink_retarget() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _reset_hermetic = ResetTestHermeticDir::enter();
         let root = make_temp_dir("r3-p1-retarget");
         let orig_stubs = root.join("orig-stubs");
@@ -1150,17 +1228,15 @@ mod tests {
         let res = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", Some(&link_dir));
         assert!(res.is_err(), "passing a retargeted symlink without .designos-hermetic must be refused, got argv: {:?}", res.map(|c| c.get_argv().to_vec()));
 
-        // 2. Even if `retargeted` also has `.designos-hermetic` and `DESIGNOS_AGENT_CLI_DIR` still points at `link_dir`,
+        // 2. Even if `retargeted` also has `.designos-hermetic` and simulated `DESIGNOS_AGENT_CLI_DIR` still points at `link_dir`,
         // `hermetic_agent_cli_dir()` and spawn must use the canonical `orig_stubs` pinned at startup, never `retargeted`.
         std::fs::write(retargeted.join(HERMETIC_MARKER_FILENAME), b"ok\n").unwrap();
-        let prev_env = std::env::var_os("DESIGNOS_AGENT_CLI_DIR");
-        std::env::set_var("DESIGNOS_AGENT_CLI_DIR", &link_dir);
-        let pinned_dir = hermetic_agent_cli_dir();
-        let cmd_from_pinned = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", pinned_dir.as_deref());
-        match prev_env {
-            Some(v) => std::env::set_var("DESIGNOS_AGENT_CLI_DIR", v),
-            None => std::env::remove_var("DESIGNOS_AGENT_CLI_DIR"),
-        }
+        let (pinned_dir, cmd_from_pinned) = {
+            let _sim_env = TestAgentCliDirEnv::set(&link_dir);
+            let pinned_dir = hermetic_agent_cli_dir();
+            let cmd_from_pinned = crate::terminal::build_agent_shell_cmd_in("/bin/zsh", "claude --dangerously-skip-permissions", pinned_dir.as_deref());
+            (pinned_dir, cmd_from_pinned)
+        };
 
         assert_eq!(
             pinned_dir.as_deref(),
@@ -1201,13 +1277,12 @@ mod tests {
         t_warmer.join().expect("scoped version_warmer thread must not panic");
     }
 
-    /// Round 9c: In live wrappers (`hermetic_mode_active`, `hermetic_agent_cli_dir`, `cli_search_dirs`),
+    /// Round 9c + 10b: In live wrappers (`hermetic_mode_active`, `hermetic_agent_cli_dir`, `cli_search_dirs`),
     /// a startup-pinned hermetic directory (precedence 1) must beat an active `ScopedCliDirs` guard
     /// (precedence 2), and `hermetic_mode_active()` under `cfg(test)` must mirror release by returning
-    /// `true` when either the thread-local pin or `DESIGNOS_AGENT_CLI_DIR` is set.
+    /// `true` when either the thread-local pin or `TestAgentCliDirEnv` is set.
     #[test]
     fn hermetic_pin_beats_scoped_guard_and_mode_active_reads_env_var() {
-        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _reset_hermetic = ResetTestHermeticDir::enter();
         let root = make_temp_dir("r9c-precedence");
         let hermetic_stubs = root.join("hermetic-stubs");
@@ -1221,17 +1296,14 @@ mod tests {
         }
         let hermetic_canon = std::fs::canonicalize(&hermetic_stubs).unwrap();
 
-        // 1. With no pin set, setting `DESIGNOS_AGENT_CLI_DIR` in the environment makes
+        // 1. With no pin set, setting `TestAgentCliDirEnv` makes
         // `hermetic_mode_active()` true while `hermetic_agent_cli_dir()` remains `None` (mirroring release).
-        let prev_env = std::env::var_os("DESIGNOS_AGENT_CLI_DIR");
-        std::env::set_var("DESIGNOS_AGENT_CLI_DIR", &hermetic_stubs);
-        let active_from_env = hermetic_mode_active();
-        let dir_from_env_without_pin = hermetic_agent_cli_dir();
-        match prev_env {
-            Some(v) => std::env::set_var("DESIGNOS_AGENT_CLI_DIR", v),
-            None => std::env::remove_var("DESIGNOS_AGENT_CLI_DIR"),
-        }
-        assert!(active_from_env, "hermetic_mode_active() must be true when DESIGNOS_AGENT_CLI_DIR is set");
+        let (active_from_env, dir_from_env_without_pin) = {
+            let _sim_env = TestAgentCliDirEnv::set(&hermetic_stubs);
+            (hermetic_mode_active(), hermetic_agent_cli_dir())
+        };
+        assert!(!hermetic_mode_active(), "hermetic_mode_active() must restore to false after TestAgentCliDirEnv drops");
+        assert!(active_from_env, "hermetic_mode_active() must be true when TestAgentCliDirEnv is set");
         assert_eq!(dir_from_env_without_pin, None, "hermetic_agent_cli_dir() must remain None before enforce_hermetic_startup pins it");
 
         // 2. After `enforce_hermetic_startup` pins `hermetic_stubs`, entering `ScopedCliDirs` on the
@@ -1260,5 +1332,39 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Round 10b: Thread A holds `TestAgentCliDirEnv::set(...)` and reads `hermetic_mode_active() == true`,
+    /// while Thread B (with no pin) reads `hermetic_mode_active() == false`.
+    #[test]
+    fn simulated_agent_cli_dir_does_not_leak_across_threads() {
+        let b_set = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let b_done = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let b_set_a = std::sync::Arc::clone(&b_set);
+        let b_done_a = std::sync::Arc::clone(&b_done);
+        let t_a = std::thread::spawn(move || {
+            let _reset = ResetTestHermeticDir::enter();
+            let active_in_guard = {
+                let _sim_env = TestAgentCliDirEnv::set("/tmp/sim-agent-cli-dir");
+                let a = hermetic_mode_active();
+                b_set_a.wait();
+                b_done_a.wait();
+                a
+            };
+            let active_after_drop = hermetic_mode_active();
+            (active_in_guard, active_after_drop)
+        });
+        let t_b = std::thread::spawn(move || {
+            let _reset = ResetTestHermeticDir::enter();
+            b_set.wait();
+            let active = hermetic_mode_active();
+            b_done.wait();
+            active
+        });
+        let (a_in_guard, a_after_drop) = t_a.join().expect("thread A must not panic");
+        let b_active = t_b.join().expect("thread B must not panic");
+        assert!(a_in_guard, "thread A holding TestAgentCliDirEnv must read hermetic_mode_active() == true");
+        assert!(!a_after_drop, "thread A must read hermetic_mode_active() == false after TestAgentCliDirEnv drops");
+        assert!(!b_active, "thread B with no pin must read hermetic_mode_active() == false while thread A holds TestAgentCliDirEnv");
     }
 }

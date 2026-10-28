@@ -422,9 +422,12 @@ pub fn run_spec_cases(spec_key: &str) {
             if bless {
                 let json = serde_json::to_string_pretty(&snap).expect("serialize layout snapshot");
                 std::fs::write(&baseline_path, format!("{json}\n")).expect("write blessed layout baseline");
-            } else if cases_file.bless_sha.as_deref().is_some_and(|s| !s.is_empty()) {
-                match crate::layout_snapshot::load_and_compare_baseline(&baseline_path, &snap, &allow_entries, &case.virtualized) {
+            } else {
+                match compare_non_bless_case(&cases_file, &baseline_path, &snap, &allow_entries, &case.virtualized) {
                     Ok(report) => {
+                        if let Some(line) = format_new_names_report(&case.id, &report.new_names) {
+                            println!("{line}");
+                        }
                         run_matched.extend(report.matched_allow_indices);
                         run_cases.insert(case.id.clone());
                     }
@@ -440,6 +443,32 @@ pub fn run_spec_cases(spec_key: &str) {
         if let Err(err) = crate::layout_snapshot::check_stale_allow_entries_for_run(&allow_entries, &run_matched, Some(&run_cases), Some(spec_key)) {
             panic!("spec {spec_key} failed stale allow check:\n{err}");
         }
+    }
+}
+
+fn require_blessed_cases_file(cases_file: &CasesFile) -> Result<&str, String> {
+    match cases_file.bless_sha.as_deref().map(str::trim) {
+        Some(sha) if !sha.is_empty() => Ok(sha),
+        _ => Err("cases.json has no bless_sha: run the bless procedure (governing spec rule 11)".to_string()),
+    }
+}
+
+fn compare_non_bless_case(
+    cases_file: &CasesFile,
+    baseline_path: &Path,
+    snap: &crate::layout_snapshot::LayoutSnapshot,
+    allow_entries: &crate::layout_snapshot::AllowList,
+    virtualized: &[String],
+) -> Result<crate::layout_snapshot::CompareReport, String> {
+    require_blessed_cases_file(cases_file)?;
+    crate::layout_snapshot::load_and_compare_baseline(baseline_path, snap, allow_entries, virtualized)
+}
+
+fn format_new_names_report(case_id: &str, new_names: &[String]) -> Option<String> {
+    if new_names.is_empty() {
+        None
+    } else {
+        Some(format!("layout gate: case {case_id}: new names (reported, not gated): {}", new_names.join(", ")))
     }
 }
 
@@ -575,4 +604,41 @@ fn prep_helpers_populate_missing_starter_states() {
     prep::blank_deck(&mut doc_deck, &mut app_deck);
     assert_eq!(doc_deck.kind, designos_doc::DocumentKind::Deck, "prep::blank_deck must produce DocumentKind::Deck");
     assert!(doc_deck.nodes.values().any(|n| n.slide.is_some()), "prep::blank_deck must have a slide frame");
+}
+
+#[test]
+fn unblessed_cases_file_fails_the_gate() {
+    let raw = std::fs::read_to_string(baseline_dir().join("d-editor-default.layout.json")).expect("read d-editor-default baseline");
+    let snap: crate::layout_snapshot::LayoutSnapshot = serde_json::from_str(&raw).expect("parse d-editor-default baseline");
+    let allow = crate::layout_snapshot::AllowList::default();
+    let existing_baseline = baseline_dir().join("d-editor-default.layout.json");
+
+    let missing_sha = CasesFile { bless_sha: None, cases: Vec::new() };
+    let err_none = compare_non_bless_case(&missing_sha, &existing_baseline, &snap, &allow, &[]).expect_err("missing bless_sha must fail");
+    assert_eq!(err_none, "cases.json has no bless_sha: run the bless procedure (governing spec rule 11)");
+
+    let empty_sha = CasesFile { bless_sha: Some(String::new()), cases: Vec::new() };
+    let err_empty = compare_non_bless_case(&empty_sha, &existing_baseline, &snap, &allow, &[]).expect_err("empty bless_sha must fail");
+    assert_eq!(err_empty, "cases.json has no bless_sha: run the bless procedure (governing spec rule 11)");
+
+    let blessed = CasesFile { bless_sha: Some("8dfaee931c75bd36293bc03266716b6abf99d868".into()), cases: Vec::new() };
+    let missing_file = baseline_dir().join("nonexistent-case.layout.json");
+    let err_missing_file = compare_non_bless_case(&blessed, &missing_file, &snap, &allow, &[]).expect_err("missing baseline file must fail");
+    assert!(err_missing_file.contains("missing layout baseline file:"), "missing baseline error must keep its bless hint, got: {err_missing_file}");
+}
+
+#[test]
+fn new_named_widget_is_reported_not_failed() {
+    let raw = std::fs::read_to_string(baseline_dir().join("d-editor-default.layout.json")).expect("read d-editor-default baseline");
+    let base: crate::layout_snapshot::LayoutSnapshot = serde_json::from_str(&raw).expect("parse d-editor-default baseline");
+    let mut cur = base.clone();
+    cur.named.insert("new-tool-button".to_string(), crate::layout_snapshot::NamedWidget { region: "tab_bar".into(), rect: [100.0, 8.0, 24.0, 24.0], count: 1 });
+
+    let report =
+        crate::layout_snapshot::compare(&base, &cur, &crate::layout_snapshot::AllowList::default(), &[]).expect("extra named widget must report Ok, not fail");
+    assert_eq!(report.new_names, vec!["new-tool-button".to_string()]);
+    assert_eq!(
+        format_new_names_report("d-editor-default", &report.new_names).as_deref(),
+        Some("layout gate: case d-editor-default: new names (reported, not gated): new-tool-button")
+    );
 }

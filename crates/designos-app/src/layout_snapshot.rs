@@ -577,9 +577,9 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     }
 
     // G3 — Named widgets: every baseline key must still exist with same count and region; new keys are reported.
-    for (name, c_w) in &cur.named {
+    for name in cur.named.keys() {
         if !base.named.contains_key(name) {
-            report.new_names.push(format!("{case_id}:{name} (region={})", c_w.region));
+            report.new_names.push(name.clone());
         }
     }
     for (name, b_w) in &base.named {
