@@ -136,7 +136,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.6.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.0. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v070"></a>
+### 0.7.0
+
+- **Styles.** Delete a style (`Delete style`) while linked layers keep its resolved values and variable bindings, group styles by `/` prefix into renameable folders (`Rename folder`) in Figma's order, edit style descriptions (`Description`) and read them as hover tooltips in style pickers and the colour picker's `Libraries` tab, and keep text alignment on each text layer while text styles carry paragraph indent, list spacing and leading trim.
+- **Effects and shadows.** Drop shadows and inner shadows take a blend mode (`Blend`), the shadow cut-out of a frame with no fill and `Show behind` off follows its visible children's shapes, and the `Effects` section's `+` menu caps each effect type (8 drop shadows, 8 inner shadows, 1 layer blur, 1 background blur) without trimming imported effects.
+- **Export and files.** PNG and SVG export bounds match Figma for shadows, strokes and groups; after an export, a toast shows where the file went with `Show in folder` (using `Downloads` when no save dialog is available) and never overwrites an existing file (`Card-1.png`, `Card-2.png`, …); and atomic saves keep macOS ACLs and extended attributes while leaving your own `.tmp` files alone.
+- **Left rail and panels.** The left rail is icon-only with hover and keyboard-focus tooltips (`Main menu`, `File`, `Agents`, `Assets`, `Tools`, `Variables`, `Plugins`, `Updates & Shortcuts`), and a draggable separator between `Pages` and `Layers` resizes the `Pages` list and remembers its height.
+- **Agents panel and canvas.** Expanding the `changed layers` card with `Show all` scrolls inside the Agents panel with `Show less` while keeping `Revert` and `Keep` reachable, and an interrupted move on the canvas keeps the last pointer position.
+- **CLI and MCP.** A `--screenshot` run with unsaved edits closes after writing the PNG without stopping on `Save changes to {name}?`, and `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` centre hugging button labels inside `NodeSpec` presets and aligned frames while `designos_create_node` and `designos_update_node` keep explicit text box sizes.
 
 <a id="new-in-v065"></a>
 ### 0.6.5
@@ -609,9 +619,14 @@ design-os-studio/
 
 ### Known issues
 
+- Not in 0.7.0: Codex approvals answered from the Agents panel ([#930](https://github.com/jangtrinh/design-os-studio/issues/930)) and the Ubuntu test-memory change ([#1205](https://github.com/jangtrinh/design-os-studio/issues/1205)) were reverted before release ([#1284](https://github.com/jangtrinh/design-os-studio/pull/1284)). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) were not smoke-tested. [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) stays open on 0.7.1. The `changed layers` card scrolling from [#1276](https://github.com/jangtrinh/design-os-studio/pull/1276) is in 0.7.0.
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
+- Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing ([#1277](https://github.com/jangtrinh/design-os-studio/issues/1277)).
+- A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
+- Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.6.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.0. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
