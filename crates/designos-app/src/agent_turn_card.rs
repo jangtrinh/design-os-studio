@@ -9,6 +9,7 @@ use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::time::Instant;
 
 pub const MAX_PREVIEW_LAYERS: usize = 5;
+const MAX_VISIBLE_ROWS: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnCardAction {
@@ -16,6 +17,11 @@ pub enum TurnCardAction {
     Revert(u64),
     SelectLayer(NodeId),
     Expand(u64),
+}
+
+struct TurnCardRenderScope<'a> {
+    app: &'a App,
+    tab_id: usize,
 }
 
 pub fn touch_kind_label(kind: TouchKind) -> &'static str {
@@ -84,7 +90,7 @@ fn compute_turn_card_height(turn: &TurnRecord) -> f32 {
     match turn.state {
         TurnState::Reverted => pad * 2.0 + theme::CONTROL_DENSE,
         TurnState::Active | TurnState::Completed => {
-            let visible_rows = if turn.expanded { turn.touched_layers.len() } else { turn.touched_layers.len().min(MAX_PREVIEW_LAYERS) };
+            let visible_rows = if turn.expanded { turn.touched_layers.len().min(MAX_VISIBLE_ROWS) } else { turn.touched_layers.len().min(MAX_PREVIEW_LAYERS) };
             let has_show_all = !turn.expanded && turn.touched_layers.len() > MAX_PREVIEW_LAYERS;
             let total_rows = visible_rows + usize::from(has_show_all);
             let rows_h = if total_rows > 0 { total_rows as f32 * theme::CONTROL_DENSE + (total_rows.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
@@ -152,7 +158,9 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
             draw_reverted_caption(&p, Pos2::new(row_rect.left(), row_rect.center().y), text_max_w, &report);
         }
         TurnState::Active | TurnState::Completed => {
-            draw_active_turn_card(ui, &p, app, inner, &turn_snapshot, fallback_cli, &mut action);
+            let tab_id = app.terminal.tabs.get(tab_idx).map(|tab| tab.id).unwrap_or(usize::MAX);
+            let scope = TurnCardRenderScope { app, tab_id };
+            draw_active_turn_card(ui, &p, &scope, inner, &turn_snapshot, fallback_cli, &mut action);
         }
         TurnState::Kept => {}
     }
@@ -211,7 +219,15 @@ fn draw_reverted_caption(p: &egui::Painter, pos: Pos2, max_w: f32, report: &Reve
     }
 }
 
-fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, inner: Rect, turn: &TurnRecord, fallback_cli: &str, action: &mut Option<TurnCardAction>) {
+fn draw_active_turn_card(
+    ui: &mut Ui,
+    p: &egui::Painter,
+    scope: &TurnCardRenderScope<'_>,
+    inner: Rect,
+    turn: &TurnRecord,
+    fallback_cli: &str,
+    action: &mut Option<TurnCardAction>,
+) {
     let mut y = inner.top();
 
     // 1. Headline: "<CLI> changed layers" in body-medium + separate count pill (`BG_TERTIARY`, `font_mono`).
@@ -240,31 +256,55 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, inner: Rect,
     p.text(Pos2::new(inner.left(), y + theme::LINE_CAPTION * 0.5), Align2::LEFT_CENTER, sub_elided, theme::font_caption(), theme::TEXT_SECONDARY);
     y += theme::LINE_CAPTION + theme::SPACE_INLINE;
 
-    // 3. Collapsible list of changed layers (first 5 visible, then "Show all"), each row `CONTROL_DENSE` high.
-    let limit = if turn.expanded { turn.touched_layers.len() } else { turn.touched_layers.len().min(MAX_PREVIEW_LAYERS) };
-    for (idx, layer) in turn.touched_layers.iter().take(limit).enumerate() {
+    // 3. Collapsible list. Expanded cards use a bounded viewport so the footer remains visible;
+    // wheel input advances the visible slice without changing the turn's review state.
+    let max_rows = MAX_VISIBLE_ROWS;
+    let total_layers = turn.touched_layers.len();
+    let visible_rows = if turn.expanded { total_layers.min(max_rows) } else { total_layers.min(MAX_PREVIEW_LAYERS) };
+    let max_start = if turn.expanded { total_layers.saturating_sub(max_rows) } else { 0 };
+    // Turn IDs restart at one for each per-tab ledger. Include the tab identity so a scroll
+    // offset from one agent tab cannot leak into another tab's turn with the same ID.
+    let scroll_id = turn_scroll_id(scope.tab_id, turn.id);
+    let mut start = ui.ctx().data(|d| d.get_temp::<usize>(scroll_id).unwrap_or(0)).min(max_start);
+    let rows_h = if visible_rows > 0 { visible_rows as f32 * theme::CONTROL_DENSE + (visible_rows - 1) as f32 * theme::SPACE_ROW } else { 0.0 };
+    let list_rect = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), rows_h));
+    if turn.expanded && ui.rect_contains_pointer(list_rect) {
+        let dy = ui.input(|i| i.smooth_scroll_delta.y);
+        if dy.abs() > 0.5 {
+            start = if dy < 0.0 { (start + 1).min(max_start) } else { start.saturating_sub(1) };
+            ui.ctx().data_mut(|d| d.insert_temp(scroll_id, start));
+        }
+    }
+    let visible_end = if turn.expanded { (start + max_rows).min(total_layers) } else { visible_rows };
+    let limit = visible_end.saturating_sub(start);
+    let previous_clip = ui.clip_rect();
+    ui.set_clip_rect(previous_clip.intersect(list_rect));
+    let row_p = p.with_clip_rect(list_rect);
+    for (offset, layer) in turn.touched_layers.iter().skip(start).take(limit).enumerate() {
+        let idx = start + offset;
         let row_rect = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), theme::CONTROL_DENSE));
+        let row_rect = row_rect.translate(Vec2::new(0.0, offset as f32 * (theme::CONTROL_DENSE + theme::SPACE_ROW)));
         let is_removed = layer.kind == TouchKind::Removed;
         let resp = ui.interact(row_rect, Id::new(("agent-turn-layer", turn.id, layer.id.0)), Sense::click());
-        let is_selected = !is_removed && app.is_selected(layer.id);
+        let is_selected = !is_removed && scope.app.is_selected(layer.id);
         if is_selected {
-            p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
+            row_p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() && !is_removed {
-            p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+            row_p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
 
         let kind_str = touch_kind_label(layer.kind);
-        let kind_w = widgets::text_width(p, kind_str, &theme::font_caption()) + theme::SPACE_INLINE;
+        let kind_w = widgets::text_width(&row_p, kind_str, &theme::font_caption()) + theme::SPACE_INLINE;
         let name_max_w = (row_rect.width() - theme::INSET_CONTROL * 2.0 - kind_w).max(32.0);
-        let name_elided = widgets::elide(p, &layer.name, &theme::font_body(), name_max_w);
-        p.text(
+        let name_elided = widgets::elide(&row_p, &layer.name, &theme::font_body(), name_max_w);
+        row_p.text(
             Pos2::new(row_rect.left() + theme::INSET_CONTROL, row_rect.center().y),
             Align2::LEFT_CENTER,
             name_elided,
             theme::font_body(),
             if is_removed { theme::TEXT_SECONDARY } else { theme::TEXT },
         );
-        p.text(
+        row_p.text(
             Pos2::new(row_rect.right() - theme::INSET_CONTROL, row_rect.center().y),
             Align2::RIGHT_CENTER,
             kind_str,
@@ -277,11 +317,13 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, inner: Rect,
         if !is_removed && resp.clicked() {
             *action = Some(TurnCardAction::SelectLayer(layer.id));
         }
-        y += theme::CONTROL_DENSE + theme::SPACE_ROW;
     }
+    ui.set_clip_rect(previous_clip);
+    y += rows_h;
 
-    let remaining = turn.touched_layers.len().saturating_sub(limit);
+    let remaining = if turn.expanded { 0 } else { total_layers.saturating_sub(visible_rows) };
     if remaining > 0 {
+        y += theme::SPACE_ROW;
         let more_rect = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), theme::CONTROL_DENSE));
         let more_resp = ui.interact(more_rect, Id::new(("agent-turn-show-all", turn.id)), Sense::click());
         if more_resp.hovered() {
@@ -298,11 +340,11 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, inner: Rect,
         if more_resp.clicked() {
             *action = Some(TurnCardAction::Expand(turn.id));
         }
-        y += theme::CONTROL_DENSE + theme::SPACE_ROW;
+        y += theme::CONTROL_DENSE;
     }
 
-    if limit > 0 || remaining > 0 {
-        y = (y - theme::SPACE_ROW) + theme::SPACE_INLINE;
+    if visible_rows > 0 || remaining > 0 {
+        y += theme::SPACE_INLINE;
     }
 
     // 4. Two secondary buttons: `Revert` and `Keep`, `CONTROL_STANDARD` high, `RADIUS_CONTROL`, `SPACE_INLINE` apart.
@@ -327,6 +369,10 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, inner: Rect,
     if keep_resp.clicked() {
         *action = Some(TurnCardAction::Keep(turn.id));
     }
+}
+
+fn turn_scroll_id(tab_id: usize, turn_id: u64) -> Id {
+    Id::new(("agent-turn-scroll", tab_id, turn_id))
 }
 
 pub fn apply_card_action(app: &mut App, tab_idx: usize, action: TurnCardAction) {
@@ -376,5 +422,55 @@ pub fn execute_revert(app: &mut App, tab_idx: usize, turn_id: u64) {
         Err(e) => {
             app.show_toast(format!("Turn not reverted: {e}"), true);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_turn_ledger::TurnRecord;
+    use std::time::Instant;
+
+    #[test]
+    fn expanded_card_height_is_bounded_for_large_turn() {
+        let now = Instant::now();
+        let mut turn = TurnRecord {
+            id: 1,
+            cli: None,
+            start_patch_bytes: 0,
+            end_patch_bytes: None,
+            steps: Vec::new(),
+            touched_layers: Vec::new(),
+            inserted_count: 0,
+            updated_count: 0,
+            moved_count: 0,
+            removed_count: 0,
+            approximate: false,
+            state: TurnState::Completed,
+            expanded: true,
+            last_revert_report: None,
+            reverted_at: None,
+            created_at: now,
+            last_patch_at: now,
+            ended_at: Some(now),
+            approx_bytes: 0,
+        };
+        turn.touched_layers.resize_with(82, || crate::agent_turn_ledger::TouchedLayerSummary {
+            id: NodeId(1),
+            name: "layer".into(),
+            kind: TouchKind::Updated,
+            post_fingerprint: None,
+            post_children: Vec::new(),
+        });
+        let height = compute_turn_card_height(&turn);
+        let eight_rows = 8.0 * theme::CONTROL_DENSE + 7.0 * theme::SPACE_ROW;
+        assert!(height < 500.0);
+        assert!(height >= eight_rows);
+    }
+
+    #[test]
+    fn expanded_scroll_state_is_scoped_per_tab() {
+        assert_ne!(turn_scroll_id(0, 1), turn_scroll_id(1, 1));
+        assert_eq!(turn_scroll_id(0, 1), turn_scroll_id(0, 1));
     }
 }
