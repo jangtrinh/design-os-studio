@@ -222,13 +222,16 @@ def build_env() -> Dict[str, str]:
 
 
 def run_cli(cmd: List[str], cwd: Path = REPO_ROOT) -> Tuple[int, str, str]:
-    proc = subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        env=build_env(),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            env=build_env(),
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:  # e.g. the `ui` CLI is not installed on a CI runner
+        return 127, "", f"{cmd[0]} not runnable: {exc}"
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
 
@@ -341,9 +344,9 @@ def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[
 
     band_hits = purple_band_constants(theme_src)
     for hit in band_hits:
-        print(f"Purple Ban (hue scan): {hit}")
+        print(f"Purple Ban (hue scan): {hit}", file=sys.stderr)
         purple_violations.append(hit)
-    print(f"purple-band hits: {len(band_hits)}")
+    print(f"purple-band hits: {len(band_hits)}", file=sys.stderr)
 
     # Also verify no banned purple exists anywhere in theme.rs or design/design.tokens.json
     for r_name, r_hex in rust_consts.items():

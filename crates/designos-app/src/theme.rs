@@ -65,7 +65,6 @@ pub const WARNING: Color32 = rgb(0xEAB308);
 pub const BG_MENU_HOVER: Color32 = rgb(0x171717);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const BG_TRANSPARENT_HOVER: Color32 = rgba(0xFFFFFF, 0x1A);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const BORDER_STRONG: Color32 = rgb(0x404040);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const COMPONENT: Color32 = rgb(0x06B6D4);
@@ -1101,6 +1100,7 @@ mod tests {
         (hi + 0.05) / (lo + 0.05)
     }
 
+    /// Hue in degrees and HSL saturation of a colour.
     fn rgb_hue_sat(c: Color32) -> (f64, f64) {
         let [r, g, b, a] = c.to_srgba_unmultiplied();
         if a == 0 {
@@ -1113,7 +1113,8 @@ mod tests {
         if d <= 1e-6 || max <= 1e-6 {
             return (0.0, 0.0);
         }
-        let sat = d / max;
+        // HSL saturation (contract: HSL, not HSV; pale purples such as #E9D5FF are S 1.00 in HSL, 0.16 in HSV).
+        let sat = d / (1.0 - (max + min - 1.0).abs());
         let mut hue = if (max - rf).abs() < 1e-6 {
             60.0 * (((gf - bf) / d) % 6.0)
         } else if (max - gf).abs() < 1e-6 {
@@ -1127,204 +1128,96 @@ mod tests {
         (hue, sat)
     }
 
+    /// Colours written as literals in one `pub const NAME: Color32 = …;` / `[Color32; N]` line of `src`
+    /// (`rgb(0x…)`, `rgba(0x…, …)`, `from_rgba_premultiplied(r, g, b, a)`). An alias carries none: its target is listed itself.
+    fn declared_colour_literals(src: &str) -> Vec<(String, Vec<Color32>)> {
+        let mut out = Vec::new();
+        for line in src.lines() {
+            let Some(rest) = line.strip_prefix("pub const ") else { continue };
+            let Some((name, rhs)) = rest.split_once(": ") else { continue };
+            let Some((ty, expr)) = rhs.split_once(" = ") else { continue };
+            if ty != "Color32" && !ty.starts_with("[Color32;") {
+                continue;
+            }
+            let mut colours = Vec::new();
+            let mut tail = expr;
+            while let Some(i) = tail.find("(0x") {
+                let digits = &tail[i + 3..];
+                if let Some(hex) = digits.get(..6).and_then(|h| u32::from_str_radix(h, 16).ok()) {
+                    colours.push(Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
+                }
+                tail = digits;
+            }
+            if let Some(i) = expr.find("from_rgba_premultiplied(") {
+                let args = &expr[i + "from_rgba_premultiplied(".len()..];
+                let nums: Vec<u8> = args.split(')').next().unwrap_or("").split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                if let [r, g, b, a] = nums[..] {
+                    colours.push(Color32::from_rgba_premultiplied(r, g, b, a));
+                }
+            }
+            out.push((name.to_string(), colours));
+        }
+        out
+    }
+
+    /// Chrome colour constants of `src` inside the Purple Ban band (hue 255-300 deg, HSL saturation above 0.25).
+    /// `BOARD_*` is board content and exempt.
+    fn purple_constants(src: &str) -> Vec<String> {
+        let mut hits = Vec::new();
+        for (name, colours) in declared_colour_literals(src) {
+            if name.starts_with("BOARD_") {
+                continue;
+            }
+            for col in colours {
+                let (hue, sat) = rgb_hue_sat(col);
+                if (255.0..=300.0).contains(&hue) && sat > 0.25 {
+                    hits.push(format!("{name} ({col:?}) hue={hue:.1} sat={sat:.2}"));
+                }
+            }
+        }
+        hits
+    }
+
     #[test]
     fn no_chrome_colour_is_purple() {
-        let mut named: Vec<(&str, Color32)> = vec![
-            ("BG", BG),
-            ("BG_PRIMARY", BG_PRIMARY),
-            ("BG_SECONDARY", BG_SECONDARY),
-            ("BG_TERTIARY", BG_TERTIARY),
-            ("BG_HOVER", BG_HOVER),
-            ("BG_PRESSED", BG_PRESSED),
-            ("BG_MENU", BG_MENU),
-            ("BG_SELECTED", BG_SELECTED),
-            ("BG_SELECTED_HOVER", BG_SELECTED_HOVER),
-            ("BG_SELECTED_SECONDARY", BG_SELECTED_SECONDARY),
-            ("BG_TEXT_SELECTION", BG_TEXT_SELECTION),
-            ("BG_BRAND", BG_BRAND),
-            ("BG_BRAND_HOVER", BG_BRAND_HOVER),
-            ("BG_BRAND_PRESSED", BG_BRAND_PRESSED),
-            ("BG_TOOLBAR", BG_TOOLBAR),
-            ("BG_TOOLBAR_HOVER", BG_TOOLBAR_HOVER),
-            ("BG_TOOLBAR_SELECTED", BG_TOOLBAR_SELECTED),
-            ("BG_TOOLBAR_MODE_SWITCHER", BG_TOOLBAR_MODE_SWITCHER),
-            ("BG_SELECTED_AREA", BG_SELECTED_AREA),
-            ("BORDER", BORDER),
-            ("BORDER_SUBTLE", BORDER_SUBTLE),
-            ("BORDER_MENU", BORDER_MENU),
-            ("BORDER_SELECTED", BORDER_SELECTED),
-            ("BORDER_TRANSLUCENT", BORDER_TRANSLUCENT),
-            ("TEXT", TEXT),
-            ("TEXT_SECONDARY", TEXT_SECONDARY),
-            ("TEXT_TERTIARY", TEXT_TERTIARY),
-            ("TEXT_DISABLED", TEXT_DISABLED),
-            ("TEXT_BRAND", TEXT_BRAND),
-            ("TEXT_COMPONENT", TEXT_COMPONENT),
-            ("ICON", ICON),
-            ("ICON_SECONDARY", ICON_SECONDARY),
-            ("ICON_TERTIARY", ICON_TERTIARY),
-            ("ICON_SELECTED", ICON_SELECTED),
-            ("DANGER", DANGER),
-            ("INFO", INFO),
-            ("SUCCESS", SUCCESS),
-            ("WARNING", WARNING),
-            ("BG_MENU_HOVER", BG_MENU_HOVER),
-            ("BG_TRANSPARENT_HOVER", BG_TRANSPARENT_HOVER),
-            ("BORDER_STRONG", BORDER_STRONG),
-            ("COMPONENT", COMPONENT),
-            ("TEXT_ON_LIGHT_CANVAS", TEXT_ON_LIGHT_CANVAS),
-            ("SHADOW_COLOR", SHADOW_COLOR),
-            ("SHADOW_COLOR_STRONG", SHADOW_COLOR_STRONG),
-            ("ELEVATION_400_SHADOW", ELEVATION_400_SHADOW),
-            ("ELEVATION_400_RING", ELEVATION_400_RING),
-            ("ELEVATION_400_TOP", ELEVATION_400_TOP),
-            ("INNER_HIGHLIGHT", INNER_HIGHLIGHT),
-            ("CHECKER_A", CHECKER_A),
-            ("CHECKER_B", CHECKER_B),
-            ("BG_SECONDARY_HOVER", BG_SECONDARY_HOVER),
-            ("TEXT_SECONDARY_HOVER", TEXT_SECONDARY_HOVER),
-            ("TEXT_TERTIARY_HOVER", TEXT_TERTIARY_HOVER),
-            ("TEXT_QUATERNARY", TEXT_QUATERNARY),
-            ("TEXT_PLACEHOLDER", TEXT_PLACEHOLDER),
-            ("ICON_QUATERNARY", ICON_QUATERNARY),
-            ("TEXT_ERROR", TEXT_ERROR),
-            ("TEXT_WARNING", TEXT_WARNING),
-            ("TEXT_SUCCESS", TEXT_SUCCESS),
-            ("TEXT_ON_BRAND", TEXT_ON_BRAND),
-            ("FOCUS_RING", FOCUS_RING),
-            ("BG_ERROR_SOLID", BG_ERROR_SOLID),
-            ("TEXT_WHITE", TEXT_WHITE),
-            ("ICON_BRAND_PRIMARY", ICON_BRAND_PRIMARY),
-            ("ICON_SECONDARY_HOVER", ICON_SECONDARY_HOVER),
-            ("ICON_QUATERNARY_HOVER", ICON_QUATERNARY_HOVER),
-            ("ICON_WHITE", ICON_WHITE),
-            ("BG_PRIMARY_ALT", BG_PRIMARY_ALT),
-            ("BG_PRIMARY_SOLID", BG_PRIMARY_SOLID),
-            ("BG_ERROR_SOLID_HOVER", BG_ERROR_SOLID_HOVER),
-            ("UTILITY_NEUTRAL_50", UTILITY_NEUTRAL_50),
-            ("UTILITY_NEUTRAL_200", UTILITY_NEUTRAL_200),
-            ("UTILITY_NEUTRAL_700", UTILITY_NEUTRAL_700),
-            ("BG_SUCCESS_PRIMARY", BG_SUCCESS_PRIMARY),
-            ("BG_WARNING_PRIMARY", BG_WARNING_PRIMARY),
-            ("BG_ERROR_PRIMARY", BG_ERROR_PRIMARY),
-            ("UTILITY_GREEN_200", UTILITY_GREEN_200),
-            ("UTILITY_YELLOW_200", UTILITY_YELLOW_200),
-            ("UTILITY_RED_200", UTILITY_RED_200),
-            ("UTILITY_GREEN_700", UTILITY_GREEN_700),
-            ("UTILITY_YELLOW_700", UTILITY_YELLOW_700),
-            ("UTILITY_RED_700", UTILITY_RED_700),
-            ("BG_OVERLAY", BG_OVERLAY),
-            ("PROVIDER_CLAUDE", PROVIDER_CLAUDE),
-            ("PROVIDER_CODEX", PROVIDER_CODEX),
-            ("PROVIDER_GROK", PROVIDER_GROK),
-            ("PROVIDER_GEMINI", PROVIDER_GEMINI),
-            ("BG_ERROR_SOLID_PRESSED", BG_ERROR_SOLID_PRESSED),
-            ("UTILITY_BLUE_50", UTILITY_BLUE_50),
-            ("UTILITY_BLUE_600", UTILITY_BLUE_600),
-            ("UTILITY_AMBER_50", UTILITY_AMBER_50),
-            ("UTILITY_AMBER_600", UTILITY_AMBER_600),
-            ("UTILITY_GREEN_50", UTILITY_GREEN_50),
-            ("UTILITY_GREEN_600", UTILITY_GREEN_600),
-            ("UTILITY_ORANGE_50", UTILITY_ORANGE_50),
-            ("UTILITY_ORANGE_600", UTILITY_ORANGE_600),
-            ("DEV_READY_HOVER", DEV_READY_HOVER),
-            ("HUD_POINTER_FILL", HUD_POINTER_FILL),
-            ("PLAYGROUND_GRID_DOT", PLAYGROUND_GRID_DOT),
-            ("SWATCH_PLACEHOLDER", SWATCH_PLACEHOLDER),
-            ("TYPE_PREVIEW_BASELINE", TYPE_PREVIEW_BASELINE),
-            ("CONTENT_HANDLE_FILL", CONTENT_HANDLE_FILL),
-            ("CONTENT_HANDLE_RING", CONTENT_HANDLE_RING),
-            ("CONTENT_HANDLE_CASING", CONTENT_HANDLE_CASING),
-            ("CONTENT_HANDLE_AXIS", CONTENT_HANDLE_AXIS),
-            ("CONTENT_HANDLE_STOP_IDLE", CONTENT_HANDLE_STOP_IDLE),
-            ("CONTENT_MARK_SHADOW", CONTENT_MARK_SHADOW),
-            ("CONTENT_MARK_LIGHT", CONTENT_MARK_LIGHT),
-            ("READER_LIGHT_BG_PAGE", READER_LIGHT_BG_PAGE),
-            ("READER_LIGHT_DOC_SHEET", READER_LIGHT_DOC_SHEET),
-            ("READER_LIGHT_SURFACE", READER_LIGHT_SURFACE),
-            ("READER_LIGHT_SURFACE_2", READER_LIGHT_SURFACE_2),
-            ("READER_LIGHT_SURFACE_3", READER_LIGHT_SURFACE_3),
-            ("READER_LIGHT_CODE_BG", READER_LIGHT_CODE_BG),
-            ("READER_LIGHT_BORDER", READER_LIGHT_BORDER),
-            ("READER_LIGHT_HAIRLINE", READER_LIGHT_HAIRLINE),
-            ("READER_LIGHT_TEXT", READER_LIGHT_TEXT),
-            ("READER_LIGHT_TEXT_MUTED", READER_LIGHT_TEXT_MUTED),
-            ("READER_LIGHT_TEXT_SUBTLE", READER_LIGHT_TEXT_SUBTLE),
-            ("READER_LIGHT_DOT_OK", READER_LIGHT_DOT_OK),
-            ("READER_LIGHT_DOT_WARN", READER_LIGHT_DOT_WARN),
-            ("READER_LIGHT_DOT_NEUTRAL", READER_LIGHT_DOT_NEUTRAL),
-            ("READER_LIGHT_HIGHLIGHT", READER_LIGHT_HIGHLIGHT),
-            ("FOCUS_RING_ERROR", FOCUS_RING_ERROR),
-            ("BORDER_ERROR_SUBTLE", BORDER_ERROR_SUBTLE),
-            ("BORDER_ERROR", BORDER_ERROR),
-            ("TEXT_ERROR_HOVER", TEXT_ERROR_HOVER),
-            ("CANVAS_SELECTION", CANVAS_SELECTION),
-            ("CANVAS_COMPONENT", CANVAS_COMPONENT),
-            ("CANVAS_HANDLE_FILL", CANVAS_HANDLE_FILL),
-            ("CANVAS_SIZE_BADGE_TEXT", CANVAS_SIZE_BADGE_TEXT),
-            ("CANVAS_LABEL", CANVAS_LABEL),
-            ("CANVAS_LABEL_DARK", CANVAS_LABEL_DARK),
-            ("CANVAS_MARQUEE_FILL", CANVAS_MARQUEE_FILL),
-            ("GUIDE_COLOR", GUIDE_COLOR),
-            ("GUIDE_TEXT", GUIDE_TEXT),
-            ("PEN_POINT", PEN_POINT),
-            ("DROP_INDICATOR", DROP_INDICATOR),
-            ("AGENT_1", AGENT_1),
-            ("AGENT_2", AGENT_2),
-            ("AGENT_3", AGENT_3),
-            ("AGENT_4", AGENT_4),
-            ("AGENT_LABEL_TEXT", AGENT_LABEL_TEXT),
-            ("FIND_HIGHLIGHT", FIND_HIGHLIGHT),
-            ("FIND_HIGHLIGHT_SELECTED", FIND_HIGHLIGHT_SELECTED),
-            ("BG_MENU_SELECTED", BG_MENU_SELECTED),
-            ("MENU_SHORTCUT_HIGHLIGHT", MENU_SHORTCUT_HIGHLIGHT),
-            ("COMMENT_PIN_RESOLVED", COMMENT_PIN_RESOLVED),
-            ("RULER_TEXT", RULER_TEXT),
-            ("RULER_TICK", RULER_TICK),
-            ("RULER_SELECTION_FILL", RULER_SELECTION_FILL),
-            ("RULER_GUIDE", RULER_GUIDE),
-            ("PIXEL_GRID_LIGHT_LINES", PIXEL_GRID_LIGHT_LINES),
-            ("PIXEL_GRID_DARK_LINES", PIXEL_GRID_DARK_LINES),
-            ("TEXT_SELECTION", TEXT_SELECTION),
-            ("FIND_CANVAS_MATCH", FIND_CANVAS_MATCH),
-            ("FIND_CANVAS_MATCH_CURRENT", FIND_CANVAS_MATCH_CURRENT),
-            ("SYNTAX_PLAIN", SYNTAX_PLAIN),
-            ("SYNTAX_PROPERTY", SYNTAX_PROPERTY),
-            ("SYNTAX_KEYWORD", SYNTAX_KEYWORD),
-            ("SYNTAX_STRING", SYNTAX_STRING),
-            ("SYNTAX_NUMBER", SYNTAX_NUMBER),
-            ("SYNTAX_TYPE", SYNTAX_TYPE),
-            ("SYNTAX_FUNCTION", SYNTAX_FUNCTION),
-            ("SYNTAX_COMMENT", SYNTAX_COMMENT),
-            ("SYNTAX_PUNCT", SYNTAX_PUNCT),
-            ("DEV_READY", DEV_READY),
-            ("DEV_COMPLETED", DEV_COMPLETED),
-            ("DEV_CHANGED", DEV_CHANGED),
-            ("STATUS_INFO_TEXT", STATUS_INFO_TEXT),
-            ("STATUS_INFO_BG", STATUS_INFO_BG),
-            ("STATUS_INFO_BORDER", STATUS_INFO_BORDER),
-            ("BOX_MARGIN", BOX_MARGIN),
-            ("BOX_PADDING", BOX_PADDING),
-            ("BOX_CONTENT", BOX_CONTENT),
-            ("BOX_TEXT", BOX_TEXT),
-            ("ANNOTATION_BG", ANNOTATION_BG),
-            ("ANNOTATION_TEXT", ANNOTATION_TEXT),
-            ("ANNOTATION_LINE", ANNOTATION_LINE),
-            ("MEASURE", MEASURE),
-            ("PROTO_BLUE", PROTO_BLUE),
-            ("PRESENT_BG", PRESENT_BG),
-            ("HOME_THUMB_BG", HOME_THUMB_BG),
-            ("VAR_SCROLL_THUMB", VAR_SCROLL_THUMB),
-        ];
-        for c in AGENT_COLORS {
-            named.push(("AGENT_COLORS", c));
+        // The list is read from this file's own source above the test module, so a new constant cannot escape the scan.
+        let src = include_str!("theme.rs");
+        let decls = &src[..src.find("#[cfg(test)]").expect("test module marker")];
+        let declared = declared_colour_literals(decls);
+        let names: Vec<&str> = declared.iter().map(|(n, _)| n.as_str()).collect();
+        for sentinel in ["BG", "SYNTAX_KEYWORD", "AVATAR_COLORS", "TEXT_SELECTION", "READER_LIGHT_HIGHLIGHT"] {
+            assert!(names.contains(&sentinel), "scan did not reach {sentinel}");
         }
-        for c in AVATAR_COLORS {
-            named.push(("AVATAR_COLORS", c));
-        }
-        for (name, col) in named {
-            let (hue, sat) = rgb_hue_sat(col);
-            assert!(!((255.0..=300.0).contains(&hue) && sat > 0.25), "{name} ({col:?}) violates Purple Ban: hue={hue:.1}°, sat={sat:.2}");
+        assert!(declared.len() > 150, "scan found only {} colour constants", declared.len());
+        let hits = purple_constants(decls);
+        assert!(hits.is_empty(), "Purple Ban: {hits:?}");
+    }
+
+    #[test]
+    fn purple_constants_flags_a_scalar_an_array_and_a_pale_purple_but_not_board_content() {
+        // Declarations are assembled from parts so the Python parity gate, which reads this file, never sees them.
+        let decl = |name: &str, ty: &str, expr: &str| format!("pub const {name}: {ty} = {expr};\n");
+        let fixture = [
+            decl("OK", "Color32", "rgb(0x0A0A0A)"),
+            decl("SCALAR", "Color32", "rgb(0xC792EA)"),
+            decl("PALE", "Color32", "rgba(0xE9D5FF, 0x80)"),
+            decl("WITH_ARRAY", "[Color32; 2]", "[rgb(0x0A0A0A), rgb(0x8B5CF6)]"),
+            decl("BOARD_DOT", "Color32", "rgb(0xD5C3FF)"),
+            decl("ALIAS", "Color32", "SCALAR"),
+        ]
+        .concat();
+        let hits = purple_constants(&fixture);
+        let hit_names: Vec<&str> = hits.iter().map(|h| h.split(' ').next().unwrap_or("")).collect();
+        assert_eq!(hit_names, ["SCALAR", "PALE", "WITH_ARRAY"], "{hits:?}");
+    }
+
+    #[test]
+    fn purple_scan_sees_pale_purples_that_an_hsv_scan_misses() {
+        // #E9D5FF is HSL saturation 1.00 but HSV saturation 0.16: a scan on HSV lets it through.
+        for hex in [0xE9D5FF_u32, 0xD5C3FF, 0xF3E8FF] {
+            let c = Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+            let (hue, sat) = rgb_hue_sat(c);
+            assert!((255.0..=300.0).contains(&hue) && sat > 0.25, "{hex:06X} slips past the Purple Ban scan: hue={hue:.1}, sat={sat:.2}");
         }
     }
 
