@@ -67,12 +67,13 @@ pub enum ShotOutcome {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShotWatchdog {
     last_frame_at: Option<std::time::Duration>,
+    in_frame: bool,
     done: bool,
 }
 
 impl ShotWatchdog {
     pub const fn new() -> Self {
-        Self { last_frame_at: None, done: false }
+        Self { last_frame_at: None, in_frame: false, done: false }
     }
 
     pub fn arm(&mut self, now: std::time::Duration) {
@@ -81,16 +82,24 @@ impl ShotWatchdog {
         }
     }
 
-    pub fn begin_frame(&mut self) {}
+    pub fn begin_frame(&mut self) {
+        if !self.done {
+            self.in_frame = true;
+        }
+    }
 
-    pub fn end_frame(&mut self, _now: std::time::Duration) {}
+    pub fn end_frame(&mut self, now: std::time::Duration) {
+        self.in_frame = false;
+        self.arm(now);
+    }
 
     pub fn disarm(&mut self) {
         self.done = true;
+        self.in_frame = false;
     }
 
     pub fn check(&self, now: std::time::Duration) -> Option<&'static str> {
-        if self.done {
+        if self.done || self.in_frame {
             return None;
         }
         let last = self.last_frame_at?;
@@ -102,8 +111,36 @@ impl ShotWatchdog {
     }
 }
 
-pub fn watchdog_exit_outcome(fired: Option<&'static str>, _done: bool, _shot_ok: bool, _shot_write_failed: bool) -> Option<ShotOutcome> {
+pub fn watchdog_exit_outcome(fired: Option<&'static str>, done: bool, shot_ok: bool, shot_write_failed: bool) -> Option<ShotOutcome> {
+    if done || shot_ok || shot_write_failed {
+        return None;
+    }
     fired.map(|reason| ShotOutcome::Failed(reason.to_string()))
+}
+
+struct ShotFrameGuard;
+
+impl ShotFrameGuard {
+    fn enter() -> Self {
+        SHOT_IN_FRAME.store(true, Ordering::SeqCst);
+        if SHOT_WATCHDOG_START.get().is_some() {
+            if let Ok(mut w) = SHOT_WATCHDOG.lock() {
+                w.begin_frame();
+            }
+        }
+        Self
+    }
+}
+
+impl Drop for ShotFrameGuard {
+    fn drop(&mut self) {
+        if let Some(start) = SHOT_WATCHDOG_START.get() {
+            if let Ok(mut w) = SHOT_WATCHDOG.lock() {
+                w.end_frame(start.elapsed());
+            }
+        }
+        SHOT_IN_FRAME.store(false, Ordering::SeqCst);
+    }
 }
 
 pub fn spawn_screenshot_watchdog() {
@@ -113,17 +150,17 @@ pub fn spawn_screenshot_watchdog() {
         if SHOT_OK.load(Ordering::SeqCst) || SHOT_WRITE_FAILED.load(Ordering::SeqCst) {
             return;
         }
-        let fired = match SHOT_WATCHDOG.lock() {
-            Ok(w) => {
-                if w.done {
-                    return;
-                }
-                w.check(start.elapsed())
-            }
-            Err(_) => return,
+        let Ok(w) = SHOT_WATCHDOG.lock() else {
+            return;
         };
+        if w.done {
+            return;
+        }
+        let fired = if SHOT_IN_FRAME.load(Ordering::SeqCst) { None } else { w.check(start.elapsed()) };
         if let Some(reason) = fired {
-            let outcome = ShotOutcome::Failed(reason.to_string());
+            let Some(outcome) = watchdog_exit_outcome(Some(reason), w.done, SHOT_OK.load(Ordering::SeqCst), SHOT_WRITE_FAILED.load(Ordering::SeqCst)) else {
+                return;
+            };
             eprintln!("{}", failure_line(&outcome));
             std::process::exit(failure_exit_code(&outcome));
         }
@@ -797,8 +834,11 @@ impl Shell {
                     let frame_path = shot.path.join(format!("frame-{:04}.jpg", seq.cur));
                     let rgb = image::DynamicImage::ImageRgba8(buf).into_rgb8();
                     if let Err(e) = rgb.save(&frame_path) {
-                        eprintln!("designos: cannot write {}: {e}", frame_path.display());
+                        let msg = format!("cannot write {}: {e}", frame_path.display());
+                        eprintln!("designos: {msg}");
                         SHOT_WRITE_FAILED.store(true, Ordering::SeqCst);
+                        shot.due = false;
+                        shot.outcome = ShotOutcome::Failed(msg);
                         disarm_screenshot_watchdog();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         return;
@@ -834,8 +874,11 @@ impl Shell {
                             disarm_screenshot_watchdog();
                         }
                         Err(e) => {
-                            eprintln!("designos: cannot write {}: {e}", shot.path.display());
+                            let msg = format!("cannot write {}: {e}", shot.path.display());
+                            eprintln!("designos: {msg}");
                             SHOT_WRITE_FAILED.store(true, Ordering::SeqCst);
+                            shot.due = false;
+                            shot.outcome = ShotOutcome::Failed(msg);
                             disarm_screenshot_watchdog();
                         }
                     }
@@ -1805,6 +1848,7 @@ impl Shell {
 
     /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        let _shot_frame = self.shot.as_ref().is_some_and(|s| !s.open_failed).then(ShotFrameGuard::enter);
         if self.shot.as_ref().is_some_and(|s| s.open_failed) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;

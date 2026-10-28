@@ -198,3 +198,193 @@ bin_test_exit=0
 - **Weakest link:** Case 8's 250-run `mode=load` stress suite has not yet been executed because screen/window/load execution is deferred (`PENDING (screen)`) until the controller sends `screen free`.
 
 Status: DONE
+
+
+---
+
+## Round 2
+
+- **Branch:** `jangtrinh/carry-1141-screenshot-capture-main` (carry onto `origin/main` `8dfaee93`, base `818b6249`)
+- **Commits:**
+  1. `37eb0da2`: `test(screenshot): add round 2 failing tests for frame watchdog, write failure, and exit contract`
+  2. `HEAD`: `fix(screenshot): guard watchdog during frames, stop on write failure, and pin exit contract (#1141)`
+
+### 1. What Could NOT Be Verified (First)
+
+1. **Case 8 (`mode=load`, 250 runs under CPU load): `PENDING (screen)`**
+   - Per Round 2 controller spec (`"No window this round. Case 8's load half waits until the controller posts 'screen free'; #1126's Tier B holds the screen now"`), no screenshot binary or window was launched in Round 2.
+2. **Real 30+ second dense CPU kit tile paint under `spawn_screenshot_watchdog()`**
+   - Because no window is permitted in Round 2 and opening client/Untitled kits is prohibited by the harness rules, the in-frame guard and post-frame clock re-arm were verified deterministically through `ShotWatchdog` / `watchdog_exit_outcome` unit tests (`watchdog_does_not_fire_while_a_frame_is_running`, `watchdog_fires_after_30s_without_frames_once_the_frame_ends`, `watchdog_does_not_exit_after_the_png_was_written`).
+
+### 2. Spec-to-HEAD Drift Table (`818b6249` vs Post-Fix `HEAD`)
+
+| Citation in Round 2 Spec | Spec Says (`818b6249`) | Carry Base (`818b6249`) | Post-Fix (`HEAD`) |
+|---|---|---|---|
+| `Shot` init `open_failed` | `shell.rs` `Shot` init | `crates/designos-app/src/shell.rs:713` | `crates/designos-app/src/shell.rs:761` |
+| `beat_screenshot_watchdog()` call in `drive_screenshot` | `shell.rs:729` | `crates/designos-app/src/shell.rs:729` (exact) | `crates/designos-app/src/shell.rs:777` |
+| `spawn_screenshot_watchdog` loop & `check` | `shell.rs:98-118` | `crates/designos-app/src/shell.rs:98-120` (exact) | `crates/designos-app/src/shell.rs:146-168` |
+| Unlimited tile budget in screenshot mode | `tiles.rs:158` | `crates/designos-app/src/canvas/tiles.rs:158` (exact) | `crates/designos-app/src/canvas/tiles.rs:158` (unchanged) |
+| Sequence-frame write error arm (`rgb.save`) | `shell.rs:788` | `crates/designos-app/src/shell.rs:788` (exact) | `crates/designos-app/src/shell.rs:836-845` |
+| Single-PNG write error arm (`buf.save`) | `shell.rs:825` | `crates/designos-app/src/shell.rs:825` (exact) | `crates/designos-app/src/shell.rs:876-883` |
+| `Shell::draw` entry & `request_screenshot` | `shell.rs:1796-1810` | `crates/designos-app/src/shell.rs:1796-1810` (exact) | `crates/designos-app/src/shell.rs:1850-1865` |
+| `main.rs` screenshot exit path & `exit_code` | `main.rs:224-254` | `crates/designos-app/src/main.rs:224-254` (exact) | `crates/designos-app/src/main.rs:224-259` |
+
+### 3. Root Cause & Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+1. **`[FACT]` Watchdog measured time since frame start rather than time between frames, and exited without re-checking completion flags under the lock (`crates/designos-app/src/shell.rs:98-120`, `729`)**:
+   - In `818b6249`, `beat_screenshot_watchdog()` armed `last_frame_at` at the top of `drive_screenshot` (`shell.rs:729`), before `canvas::show` (`shell.rs:1976`). In `--screenshot` mode, `tiles.rs:158` renders all visible tiles synchronously on the UI thread with `TileBudget::unlimited()`. If a single frame took `>= 30 s` to paint, the watchdog thread saw `start.elapsed() - last_frame_at >= 30 s` while that frame was still running and exited with `SHOT_OCCLUDED_REASON`.
+   - Furthermore, once `w.check(start.elapsed())` returned `Some`, the watchdog thread dropped the `SHOT_WATCHDOG` lock and called `std::process::exit(1)` without re-checking `w.done`, `SHOT_OK`, or `SHOT_WRITE_FAILED` under the lock.
+   - **Fix**: Added `SHOT_IN_FRAME: AtomicBool` (`shell.rs:39`) and `ShotFrameGuard` (`shell.rs:121-144`) instantiated at the top of `Shell::draw` (`shell.rs:1851`). `ShotFrameGuard::enter` sets `SHOT_IN_FRAME = true` and `w.begin_frame()`, and `Drop::drop` calls `w.end_frame(start.elapsed())` (clearing `in_frame` and re-arming `last_frame_at` at frame end) before clearing `SHOT_IN_FRAME`. `ShotWatchdog::check` (`shell.rs:101-111`) and `spawn_screenshot_watchdog` (`shell.rs:159-166`) never fire while a frame is running, and immediately before `process::exit`, `watchdog_exit_outcome` (`shell.rs:114-119`) re-checks `w.done`, `SHOT_OK`, and `SHOT_WRITE_FAILED` under the `SHOT_WATCHDOG` lock.
+2. **`[FACT]` Write errors in `drive_screenshot` left `shot.outcome == ShotOutcome::Pending` (`crates/designos-app/src/shell.rs:788`, `825`)**:
+   - Both the sequence-frame save error (`shell.rs:788`) and the single-PNG save error (`shell.rs:825`) set `SHOT_WRITE_FAILED = true` and sent `ViewportCommand::Close`, but left `shot.outcome` as `ShotOutcome::Pending`. Consequently, `request_screenshot` at the end of `Shell::draw` and any subsequent `drive_screenshot` pass before window teardown continued running.
+   - **Fix**: Set `shot.due = false` and `shot.outcome = ShotOutcome::Failed(format!("cannot write {}: {e}", ...))` in both write-error arms (`shell.rs:837-845` and `shell.rs:876-883`) before `ViewportCommand::Close`, so `drive_screenshot` (`shell.rs:778`) and `request_screenshot` (`shell.rs:926`) return early on all subsequent passes.
+3. **`[FACT]` Merged exit contract in `main.rs` was inline and unpinned by unit tests (`crates/designos-app/src/main.rs:229-254`)**:
+   - Factored the stderr message selection into pure `pub(crate) fn screenshot_exit_line` (`main.rs:242-249`) paired with `pub(crate) fn exit_code` (`main.rs:253-259`), and pinned all 4 exit cases (`--select` miss, write failure, not captured, written) in `shell::tests::screenshot_capture::screenshot_exit_contract` (`screenshot_capture.rs:314-340`).
+
+### 4. Skills Loaded & What Changed Because of Them
+
+- **`/es:dev` & `es:feature-dev`**: Followed red-first commit sequencing (`37eb0da2` failing tests -> `HEAD` fix) and kept edits strictly within the allowed files (`shell.rs`, `main.rs`, `screenshot_capture.rs`, and the report/evidence folder).
+- **`/es:rust`**: Used a RAII `Drop` guard (`ShotFrameGuard`) that re-arms `ShotWatchdog` under the mutex before clearing `SHOT_IN_FRAME`, eliminating any race window between frame completion and the 30 s idle timer, and kept `ShotWatchdog::check` and `watchdog_exit_outcome` pure so parallel `cargo test` threads cannot interfere with unit tests.
+- **`/es:rust-gpu-canvas`**: Preserved all GPU/CPU canvas rendering paths untouched while ensuring long unlimited-budget CPU tile frames (`tiles.rs:158`) are never killed by the occlusion watchdog.
+- **`es:astra-work` & `es:fable-thinking`**: Caught and eliminated an unused-method clippy error (`check` vs `check_in_frame`) under `-D warnings` by unifying the check into `ShotWatchdog::check` and calling it directly in `spawn_screenshot_watchdog`.
+
+### 5. Acceptance Table & Pasted Outputs (Final Commit)
+
+| Gate / Criterion | Status | Evidence File / Summary |
+|---|---|---|
+| **Round 2 Red tests (5 new tests fail first)** | PASS | [`red-r2.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/red-r2.log) & [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/red.log) on `37eb0da2`: `FAILED. 8 passed; 5 failed` (`watchdog_does_not_fire_while_a_frame_is_running`, `watchdog_fires_after_30s_without_frames_once_the_frame_ends`, `watchdog_does_not_exit_after_the_png_was_written`, `write_failure_stops_further_capture_passes`, `screenshot_exit_contract`). |
+| **Round 2 Green tests (all 13 tests pass)** | PASS | [`green-r2.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/green-r2.log) & [`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/plans/reports/agy-1141-screenshot-capture-evidence/green.log) on `HEAD`: `ok. 13 passed; 0 failed`. |
+| **`cargo fmt --all -- --check`** | PASS | Exited `0` (`FMT_EXIT=0`). |
+| **`cargo clippy --workspace --all-targets --locked -- -D warnings`** | PASS | Exited `0` (`CLIPPY_EXIT=0`). |
+| **`cargo test --workspace --locked --lib`** | PASS | Exited `0` (`WORKSPACE_LIB_EXIT=0`, all 12 lib crates green). |
+| **`cargo test -p designos-app --bin designos --locked`** | PASS (after 3/3 rerun of known flake) | Suite: `3506 passed; 1 failed; 12 ignored` (the 1 failure was known PTY timing flake `terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled`, which passed 3/3 alone: `0.40s`, `0.89s`, `0.32s`). |
+| **`python3 scripts/zero_fake_ui_gate.py`** | PASS | `Gate Verdict: PASS (17/17 invariants satisfied)` |
+| **`python3 scripts/check_spacing_relationships.py`** | PASS | `PASS: no count rose above the baseline` |
+
+#### Exact Commands & Pasted Outputs
+
+##### 1. Red & Green Unit Tests (`red-r2.log` / `green-r2.log`)
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked screenshot_capture
+# On 37eb0da2 (red-r2.log):
+running 13 tests
+test shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame ... ok
+test shell::tests::screenshot_capture::malformed_image_is_reported ... ok
+test shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top ... ok
+test shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix ... ok
+test shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends ... FAILED
+test shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running ... FAILED
+test shell::tests::screenshot_capture::screenshot_exit_contract ... FAILED
+test shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written ... FAILED
+test shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again ... ok
+test shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests ... ok
+test shell::tests::screenshot_capture::write_failure_stops_further_capture_passes ... FAILED
+test shell::tests::screenshot_capture::late_image_after_lost_request_wins_and_second_image_is_ignored ... ok
+test shell::tests::screenshot_capture::capture_is_written_after_a_lost_request ... ok
+
+failures:
+    shell::tests::screenshot_capture::screenshot_exit_contract
+    shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written
+    shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running
+    shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends
+    shell::tests::screenshot_capture::write_failure_stops_further_capture_passes
+
+test result: FAILED. 8 passed; 5 failed; 0 ignored; 0 measured; 3506 filtered out; finished in 1.88s
+
+# On HEAD (green-r2.log):
+running 13 tests
+test shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running ... ok
+test shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends ... ok
+test shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written ... ok
+test shell::tests::screenshot_capture::screenshot_exit_contract ... ok
+test shell::tests::screenshot_capture::malformed_image_is_reported ... ok
+test shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame ... ok
+test shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix ... ok
+test shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top ... ok
+test shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests ... ok
+test shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again ... ok
+test shell::tests::screenshot_capture::late_image_after_lost_request_wins_and_second_image_is_ignored ... ok
+test shell::tests::screenshot_capture::capture_is_written_after_a_lost_request ... ok
+test shell::tests::screenshot_capture::write_failure_stops_further_capture_passes ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3506 filtered out; finished in 1.39s
+```
+
+##### 2. Format, Clippy & Python Gates
+```text
+$ cargo fmt --all -- --check
+FMT_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-mcp)
+    Checking designos-app v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.96s
+CLIPPY_EXIT=0
+
+$ python3 scripts/zero_fake_ui_gate.py
+ Gate Verdict: PASS (17/17 invariants satisfied)
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1655, inset_literals=45, radius_literals=253, font_literals=25, nonconcentric_pairs=2
+note: 17 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+```
+
+##### 3. Workspace `--lib` & Binary Test Suite + 3x Flake Reruns
+```text
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-3e4ac7f4239bdf70)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-a602db38a46fff85)
+test result: ok. 671 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-bcfed33cc2424327)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-9fdb08ecda921559)
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-23ef0ffaaa2e5d17)
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.83s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-b47e8236505f86b6)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-c1d967374849bc9c)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-83f15dba30acfe90)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.34s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-b0d745b70e7b1837)
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.32s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-864d59a31f5c5170)
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 48.82s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-0e64ba5bab47cd7e)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-fb56851b77895abd)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+WORKSPACE_LIB_EXIT=0
+
+$ env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked
+test result: FAILED. 3506 passed; 1 failed; 12 ignored; 0 measured; 0 filtered out; finished in 453.16s
+failures:
+    terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled
+
+# 3x standalone reruns of the known PTY timing flake:
+=== Rerun 1/3 ===
+running 1 test
+test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3518 filtered out; finished in 0.40s
+=== Rerun 2/3 ===
+running 1 test
+test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3518 filtered out; finished in 0.89s
+=== Rerun 3/3 ===
+running 1 test
+test terminal::zoom_scrollback_tests::agents_approval_open_tab_has_no_scrollback_and_agents_scrollback_preset_is_scrolled ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3518 filtered out; finished in 0.32s
+```
+
+### 6. Assumptions & Weakest Link
+
+- **Assumptions:** `[ASSUMPTION]` In a `--screenshot` process, `Shell::draw` runs exclusively on the main UI thread, so a process-global `SHOT_IN_FRAME: AtomicBool` paired with `ShotWatchdog::in_frame` accurately reflects whether the screenshot window is currently inside a frame.
+- **Weakest link:** Case 8's 250-run `mode=load` stress suite remains `PENDING (screen)` until the controller posts `"screen free"`.
+
+Status: DONE

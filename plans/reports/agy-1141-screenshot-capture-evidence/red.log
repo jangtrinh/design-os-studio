@@ -106,3 +106,76 @@ failures:
 test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 3346 filtered out; finished in 0.72s
 
 error: test failed, to rerun pass `-p designos-app --bin designos`
+
+=== Round 2 (on 37eb0da2) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-mcp)
+   Compiling designos-app v0.7.0 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1141-screenshot-capture/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 53.06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-a0bb5315296db315)
+
+running 13 tests
+test shell::tests::screenshot_capture::watchdog_is_not_armed_before_the_first_frame ... ok
+test shell::tests::screenshot_capture::malformed_image_is_reported ... ok
+test shell::tests::screenshot_capture::screenshot_viewport_is_always_on_top ... ok
+test shell::tests::screenshot_capture::failure_line_keeps_the_infra_prefix ... ok
+test shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends ... FAILED
+test shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running ... FAILED
+test shell::tests::screenshot_capture::screenshot_exit_contract ... FAILED
+test shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written ... FAILED
+test shell::tests::screenshot_capture::lost_screenshot_request_is_sent_again ... ok
+test shell::tests::screenshot_capture::capture_gives_up_with_a_reason_after_five_lost_requests ... ok
+test shell::tests::screenshot_capture::write_failure_stops_further_capture_passes ... FAILED
+test shell::tests::screenshot_capture::late_image_after_lost_request_wins_and_second_image_is_ignored ... ok
+test shell::tests::screenshot_capture::capture_is_written_after_a_lost_request ... ok
+
+failures:
+
+---- shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends stdout ----
+
+thread 'shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends' (13368897) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:227:5:
+assertion `left == right` failed: watchdog must not fire during a 35 s frame
+  left: Some("the window was not drawn for 30 s (occluded or minimised)")
+ right: None
+
+---- shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running stdout ----
+
+thread 'shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running' (13368896) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:212:5:
+assertion `left == right` failed: watchdog must not fire while a frame is running
+  left: Some("the window was not drawn for 30 s (occluded or minimised)")
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::screenshot_capture::screenshot_exit_contract stdout ----
+
+thread 'shell::tests::screenshot_capture::screenshot_exit_contract' (13368893) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:318:5:
+assertion `left == right` failed
+  left: None
+ right: Some("designos: --select \"missing\" matched no node on page \"Page 1\"")
+
+---- shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written stdout ----
+
+thread 'shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written' (13368895) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:241:5:
+assertion `left == right` failed: a fired check plus SHOT_OK must return no exit
+  left: Some(Failed("the window was not drawn for 30 s (occluded or minimised)"))
+ right: None
+
+---- shell::tests::screenshot_capture::write_failure_stops_further_capture_passes stdout ----
+designos: cannot write /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.QoDA7Q/designos_shot_capture_22728_r2_write_fail_png/s.png: Is a directory (os error 21)
+
+thread 'shell::tests::screenshot_capture::write_failure_stops_further_capture_passes' (13368899) panicked at crates/designos-app/src/shell/tests/screenshot_capture.rs:263:18:
+expected terminal ShotOutcome::Failed after PNG write error, got: Pending
+
+
+failures:
+    shell::tests::screenshot_capture::screenshot_exit_contract
+    shell::tests::screenshot_capture::watchdog_does_not_exit_after_the_png_was_written
+    shell::tests::screenshot_capture::watchdog_does_not_fire_while_a_frame_is_running
+    shell::tests::screenshot_capture::watchdog_fires_after_30s_without_frames_once_the_frame_ends
+    shell::tests::screenshot_capture::write_failure_stops_further_capture_passes
+
+test result: FAILED. 8 passed; 5 failed; 0 ignored; 0 measured; 3506 filtered out; finished in 1.88s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

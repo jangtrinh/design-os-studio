@@ -226,15 +226,11 @@ fn main() {
             eprintln!("{err}");
             std::process::exit(1);
         }
-        let miss = shell::SELECT_MISS.get();
+        let miss = shell::SELECT_MISS.get().map(String::as_str);
         let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
-        match miss {
-            Some(message) => eprintln!("designos: {message}"),
-            // A failed PNG write already printed its own reason where it happened.
-            None if !shot_ok && !shell::SHOT_WRITE_FAILED.load(Ordering::SeqCst) => {
-                eprintln!("{}", shell::failure_line(&shell::process_shot_outcome()))
-            }
-            None => {}
+        let write_failed = shell::SHOT_WRITE_FAILED.load(Ordering::SeqCst);
+        if let Some(line) = screenshot_exit_line(miss, shot_ok, write_failed, &shell::process_shot_outcome()) {
+            eprintln!("{line}");
         }
         let code = exit_code(miss.is_some(), shot_ok);
         if code != 0 {
@@ -243,8 +239,13 @@ fn main() {
     }
 }
 
-pub(crate) fn screenshot_exit_line(_select_miss: Option<&str>, _shot_ok: bool, _write_failed: bool, _outcome: &shell::ShotOutcome) -> Option<String> {
-    None
+pub(crate) fn screenshot_exit_line(select_miss: Option<&str>, shot_ok: bool, write_failed: bool, outcome: &shell::ShotOutcome) -> Option<String> {
+    match select_miss {
+        Some(message) => Some(format!("designos: {message}")),
+        // A failed PNG write already printed its own reason where it happened.
+        None if !shot_ok && !write_failed => Some(shell::failure_line(outcome)),
+        None => None,
+    }
 }
 
 /// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
