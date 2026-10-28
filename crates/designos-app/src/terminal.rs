@@ -8634,9 +8634,8 @@ mod tests {
         assert_eq!(status_state(&st.session_dir).as_deref(), Some("done"), "agy");
     }
 
-    #[test]
-    fn prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection() {
-        let st = provisioned_session(743);
+    fn assert_prompt_hooks_print_only_what_each_cli_can_read(tab_id: u64) {
+        let st = provisioned_session(tab_id);
         let prompt_command = |v: &serde_json::Value| v["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap().to_string();
 
         // Grok parses any stdout starting with `{` as a hook decision and discards an allowing
@@ -8656,6 +8655,11 @@ mod tests {
         assert_eq!(reply.as_object().unwrap().len(), 1, "no decision keys that could block the prompt: {printed}");
         // context.json (with the selection) stays on disk for the agent to read when asked.
         assert!(read_json(&st.context_json_path).get("selected_node_ids").is_some());
+    }
+
+    #[test]
+    fn prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection() {
+        assert_prompt_hooks_print_only_what_each_cli_can_read(743);
     }
 
     #[test]
@@ -9327,7 +9331,7 @@ mod tests {
 
     #[test]
     fn context_reply_still_excludes_the_selection() {
-        prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection();
+        assert_prompt_hooks_print_only_what_each_cli_can_read(744);
     }
 
     /// Every option `gemini --help` lists in Gemini CLI 0.38.2 (`plans/reports/release-060-evidence/cli-help-261019/gemini-help.txt`).
