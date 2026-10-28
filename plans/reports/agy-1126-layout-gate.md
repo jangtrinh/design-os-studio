@@ -2066,6 +2066,379 @@ PASS: no count rose above the baseline
 
 Status: READY FOR CONTROLLER REVIEW (ROUND 9C)
 
+---
+
+## Round 10 — Bless Tier A on `main` (`8dfaee93`) & Run Tier B on the Untitled UI Kit (`#1126`)
+
+### 1. What Could NOT Be Verified (Stated First)
+
+- **Tier B Board & Deck Cases (`x-board`, `x-deck`):** As ruled in Round 9 (`tier_b.not_applicable` in `cases.json`), `x-board` and `x-deck` are Tier A only (`Summary (reachable / not applicable / unreachable): Tier A 76 / 0 / 0, Tier B 74 / 2 / 0`). All 76 cases are blessed and verified in Tier A (`crates/designos-app/tests/layout-baseline/*.layout.json`), and all 74 applicable cases are captured and verified in Tier B (`out/tier-b-8dfaee93/`).
+
+---
+
+### 2. Drift Table (`spec says / HEAD says`)
+
+| Item | Spec says | HEAD says |
+|---|---|---|
+| Base commit before Round 10 (`Step 0`) | Fast-forward to `origin/jangtrinh/agy-1126-layout-gate` (`be536ab4` on top of merge commit `5101e070` from `origin/main` `8dfaee93`) | `be536ab4a` (`git rev-parse origin/main` = `8dfaee931c75bd36293bc03266716b6abf99d868`) |
+| `cases.json` `bless_sha` (`Step 1.2`) | Full `git rev-parse origin/main` | `"8dfaee931c75bd36293bc03266716b6abf99d868"` (`crates/designos-app/tests/layout-baseline/cases.json:2`) |
+| Step 1.5 determinism rewrites (`frame 8 == frame 12`, two passes identical JSON) | Rewrite any failing case (`<= 3`, else stop and `ask`) | `0` cases needed a rewrite: all 76 Tier A cases satisfied `frame 8 == frame 12` and produced byte-identical SHA-256 across two passes |
+| `scripts/layout_baseline_capture.py` `import_kit_once` (`Step 2.3 / 2.4`) | Import `kit.fig -> kit.designos` once via `designos-mcp` | Two Round-8 dry-run bugs in `import_kit_once` were discovered on first real run, escalated via Orca `ask`, and fixed with red-first unit tests per controller ruling (`2661cec0`, `adbdc939`, `b726ff51`) |
+| `kit-agents` `spawns` field in `cases.json` (`Step 2.4`) | Governing spec `:326` fixes `kit-agents` args as `--zoom 100 --panel agents --gpu` and `:355` defines `spawns` as cases whose state starts an agent tab, while `:356` listed `kit-agents` | Escalated via Orca `ask` when `kit-agents` (`--panel agents` -> `open_for_agent_use()`, idle panel, no CLI spawn) failed Check 2; per controller ruling, removed `"spawns": true` from `kit-agents` in `cases.json` (`c2257f39`), keeping `i-agents-chat` and `i-agents-start-failure` as `"spawns": true` and keeping `kit-agents.layout.json` unchanged |
+
+---
+
+### 3. Step 0 & Step 1 — Sync & Bless Tier A on `main` (`8dfaee93`)
+
+#### 3.1 Step 0 Sync Verification
+```text
+$ git fetch origin && git merge --ff-only origin/jangtrinh/agy-1126-layout-gate
+Updating 5f5f8290..be536ab4
+Fast-forward
+
+$ git log --oneline -3
+be536ab4a (HEAD -> jangtrinh/agy-1126-layout-gate, origin/jangtrinh/agy-1126-layout-gate) test(app): set the shadow blend in the layout gate's audit effect
+5101e0706 merge: bring main (0.7.0, #1314) into the layout gate branch
+8dfaee931 (origin/release/v0.7.5, origin/main, origin/HEAD) release: merge v0.7.0 into main (#1314)
+
+$ git rev-parse origin/main
+8dfaee931c75bd36293bc03266716b6abf99d868
+```
+
+#### 3.2 Step 1 Bless, Rule 2 Determinism (`frame 8 == frame 12` & Two-Pass Identity), and Two Non-Bless Runs
+- Ran `DESIGNOS_LAYOUT_BLESS=1 cargo test -p designos-app --bin designos --locked layout_unchanged` twice with a `frame 8 == frame 12` assertion in `run_spec_cases`: all 76 cases matched `frame 8 == frame 12` and produced identical SHA-256 digests across both bless passes (`0` cases required a Step 1.5 rewrite).
+- Set `"bless_sha": "8dfaee931c75bd36293bc03266716b6abf99d868"` in `crates/designos-app/tests/layout-baseline/cases.json`.
+- Verified that all 76 `crates/designos-app/tests/layout-baseline/*.layout.json` files come exclusively from the shipped starter (`Rule 13`: zero kit-derived JSON committed).
+- Ran `cargo test -p designos-app --bin designos --locked layout_unchanged` twice without `DESIGNOS_LAYOUT_BLESS=1` (`18 passed; 0 failed` on both runs) and verified `shasum -a 256 crates/designos-app/tests/layout-baseline/*.layout.json` before run 1 and after run 2:
+
+```text
+=== shasum -a 256 crates/designos-app/tests/layout-baseline/*.layout.json (BEFORE RUN 1) ===
+9a726dcc7475294fe4c0289dbdd8268c770527559e2f975860e5762653aba3fd  crates/designos-app/tests/layout-baseline/agents-approval-open-tab.layout.json
+f48e9cbd177fe65d8067b02e527a4a99f05c8898ea8819e6ca99aaf680b173aa  crates/designos-app/tests/layout-baseline/agents-approval-queued.layout.json
+dae262b4391c0924d48baba25e99598bdeeb96114c03b745cf831757dad91d5d  crates/designos-app/tests/layout-baseline/agents-skills.layout.json
+41f82fb4a6356018c7e6b7e6f452f087b462021dec1b8abb12e9136d71bb958a  crates/designos-app/tests/layout-baseline/ai-image-erase.layout.json
+da104b37547ad7bec348fff87f0600fd629e136d0ffc2db0788beee8cc8a26a3  crates/designos-app/tests/layout-baseline/ai-image-expand.layout.json
+ffc9702de3c3d7c342312efd7bfcf9c0f5a61eabcaf275d7570a93628f0726c1  crates/designos-app/tests/layout-baseline/ai-image-menu.layout.json
+f9439d6e0bf431c6eea643ba47eb6b7993a1ce6a990f5861a740c301b483bbc5  crates/designos-app/tests/layout-baseline/check-designs-fixed.layout.json
+9cf2ba20859b8acd93cf139150946d7b4ae61b1963ad942356dac4a9a4b83ec1  crates/designos-app/tests/layout-baseline/d-editor-default.layout.json
+b71989fe774df252480107d23caf49a7b48274694d27099a2f016e716d8bcd39  crates/designos-app/tests/layout-baseline/d-editor-selected.layout.json
+ee68046999884d82268c596d017e16b4ce49b5057573324bc946a0d98612ec6e  crates/designos-app/tests/layout-baseline/d-menu-main-file.layout.json
+3b5c46e93317a05cfa6273280cb4a6141887c617f882e75ad81b779a0270d78c  crates/designos-app/tests/layout-baseline/d-menu-main.layout.json
+4d84ccf832227b81e2cf9335b7d2085143296be2187299e715a26b998c1c0db9  crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json
+e15c237352f7e3e160a217b155fdd8d23517d42155ac6d9c96064a4c8e18ef79  crates/designos-app/tests/layout-baseline/d-menu-zoom.layout.json
+dd6b59a63ed40a2ad9d3d5f032fe034dca187db55955fb5ec19680c91dc08920  crates/designos-app/tests/layout-baseline/d-window-chrome.layout.json
+bd231365c63eb24dfbf3f2baca1a74e6f6f860a1e5741fb0a946e705bbf93f57  crates/designos-app/tests/layout-baseline/e-layers-selected.layout.json
+89437022a349fced3e7486582a26f70fdf75cf8eb34198e125af36d1b01aadc7  crates/designos-app/tests/layout-baseline/e-no-selection.layout.json
+5c643639e83a4c386198a4b0313ff581ab24476f06944ea7ebfe950c00f0b5e7  crates/designos-app/tests/layout-baseline/edit-style-effect.layout.json
+e95a3e47c1a39cd6175902765d3a146bc4fe41cb48c81825aa1b35fd25941bac  crates/designos-app/tests/layout-baseline/edit-style-grid.layout.json
+2211e979915ac215568b5c4387355e2e9ef9f26bb047f5d086deaa41734c79c3  crates/designos-app/tests/layout-baseline/edit-style-text.layout.json
+4fae0f2ddd2ce20af62b2bf0cdbd21f9aa3a20f803199e648529ee3a799982c3  crates/designos-app/tests/layout-baseline/effect-glass.layout.json
+3abcced368f36ea7b27844a4e41f1a8aaf6a86bfa5df3533e9f2e97bba9383d8  crates/designos-app/tests/layout-baseline/effect-noise.layout.json
+98f525bdb4f65d9487ae1286348103f304abf0a70bb8107ed9c0e84159c5a5fb  crates/designos-app/tests/layout-baseline/effect-texture.layout.json
+c2f3e09cbdf566ac95710a4cc50a9386f1ee5da5e1a8ba37fb9d1477a9b95df7  crates/designos-app/tests/layout-baseline/f-edit-style-color.layout.json
+3d59d5dec7f910a23fc1751e1dca29a51f1eac2c6c7d1c03032944f1ec770d23  crates/designos-app/tests/layout-baseline/f-effect-styles.layout.json
+d03f33c8d7dedc35b4919d618642f1523de9227d1371768bd66b439dc203c503  crates/designos-app/tests/layout-baseline/f-effects-menu.layout.json
+f5f2d2b49f86562b1c5fb914c2c3693a1f986e0a2407d5911aaa37f515fb309f  crates/designos-app/tests/layout-baseline/f-picker-gradient.layout.json
+bba59c7ce7c7f8c94be1ed474e654db5a5d84a9419bae72d0e357c0d0737aabf  crates/designos-app/tests/layout-baseline/f-picker.layout.json
+78f89e78ea46b019e85f3d2d53487eeca1ea7f3823b0ca9d21fff8d41ef0cf97  crates/designos-app/tests/layout-baseline/f-prototype-tab.layout.json
+e01e527340d420f0907a9855903a5f6a4e42cd0a264182b313d049702ce5fb22  crates/designos-app/tests/layout-baseline/f-stroke-settings.layout.json
+5bfcbdfec5a9340c12c6d4e7badd6fd75cace70516973af062ef4b610c498beb  crates/designos-app/tests/layout-baseline/f-type-details.layout.json
+751d0f184abba3d6f1204e33010e25413295468fd76a918b0842ee4dc52b337f  crates/designos-app/tests/layout-baseline/fill-d9.layout.json
+b2feeda48253eba8be087464301344bf784abd6b69ba22c8733f1f103d83c277  crates/designos-app/tests/layout-baseline/g-dev-annotate.layout.json
+a1ab0c7785ac88dd15f52b268e858997ddefed952ab5da09a2735f5239cbe7b6  crates/designos-app/tests/layout-baseline/g-dev-compare.layout.json
+866ad843663f220ed0f476927584982a035d9b812da23f4a0600f93d6612c2bb  crates/designos-app/tests/layout-baseline/g-dev-react.layout.json
+d076a5dc83934cb5bfa8edb72306ed337e62a88203a1fa440be184cc5baa7e36  crates/designos-app/tests/layout-baseline/g-spec-reader.layout.json
+f2fe8ba2c972417e049af8e403fec9326d71cd2f17f93c9e163a75f826313e7c  crates/designos-app/tests/layout-baseline/grid-styles.layout.json
+2c78fd04ab2dbfe6dea06440e896a584ed7969a39e6fe810a358d9d63fd0d3d7  crates/designos-app/tests/layout-baseline/h-home.layout.json
+63bddb1373a1d971894c91831e111ba85cf010a0a2a9c9e8a683b3cae222d291  crates/designos-app/tests/layout-baseline/i-agent-permissions.layout.json
+fec67a19f299c7fd89021535bf0762d018305a98af772054f6d6b497d906b65f  crates/designos-app/tests/layout-baseline/i-agents-approval-command.layout.json
+0e8a6fe457a14088c48f5b957a68dcdbd46a021bae88236915be8e1194572173  crates/designos-app/tests/layout-baseline/i-agents-chat.layout.json
+122ab01d9e143b65fe3b60cc311d22bda829c734d3db068d8f99dc1a32269429  crates/designos-app/tests/layout-baseline/i-agents-picker.layout.json
+467fcaa9f9b6533d62fcb3fa49e7d0b3c4a6e6b26bf95cb5d9efc0f6c066c828  crates/designos-app/tests/layout-baseline/i-agents-start-failure.layout.json
+ba0715f528622c969a58347bd3a0fe9f1f1e08a1321e0cd9465f8d2d8dffebf7  crates/designos-app/tests/layout-baseline/i-agents.layout.json
+7d91b11441e39affa78ebfc640f1717c57a79b36566c0a7012d37257f909e2d5  crates/designos-app/tests/layout-baseline/i-terminal.layout.json
+df460ed1209b313712ed506a6b1bb379f4c0e1d65c1a46d2507d8dbb1d6b6b11  crates/designos-app/tests/layout-baseline/j-check-designs.layout.json
+7d65e0149698e68d5bf6d0ba1e77e0c7d67512ec33a2263bb9584639cf094073  crates/designos-app/tests/layout-baseline/j-cmdk.layout.json
+5dc2b1dc832e7f13daeac92ca59d8a4b8fe28000e3811657c1983856061919bf  crates/designos-app/tests/layout-baseline/j-comments.layout.json
+8f1cfa3b504e58c1f523c4ab68f1f6d77cf1ec11a3e822805e9180b4744277fe  crates/designos-app/tests/layout-baseline/j-find.layout.json
+b6283c4a745dd09ae52e610e866c776ea4c5acf0095d3e59e1c18db92f8649e4  crates/designos-app/tests/layout-baseline/j-palette.layout.json
+6ec64e66535cf0ad4ee8190f0fbf62775b6c7d4b444ef69ba60e9b78f6e98b07  crates/designos-app/tests/layout-baseline/j-plugins.layout.json
+afdc1058595e351c30df4d20f78faa3211aa32ddb47b85977fd9291784164736  crates/designos-app/tests/layout-baseline/j-version-history.layout.json
+6493fd5c8db547fd3d78aa0c6ac617f938aac73d9bdc77255791d7e7bf14b2f4  crates/designos-app/tests/layout-baseline/k-assets.layout.json
+7931fa62878d626585384a0f9c6e7935f8d44f358ae0d519100fdec86b7ce4c3  crates/designos-app/tests/layout-baseline/k-libraries.layout.json
+c750404de3a8996ec5c163e3870d4eac8ca2abcfc712901ed36505e8f6b43e71  crates/designos-app/tests/layout-baseline/k-variables-floating.layout.json
+def27b3b44ce6d2d6f2b6540fc6de8264046ac411092416da53579979a253626  crates/designos-app/tests/layout-baseline/k-variables.layout.json
+baf8a3d6f6af2d09b84f88755dbcfb1a5c948c03dc66d7e1b883adfd4b07dea2  crates/designos-app/tests/layout-baseline/kit-agents.layout.json
+4a6022e513bbf904abae6ec3ba8276ab5242357003eef528290fccd6dd2fe751  crates/designos-app/tests/layout-baseline/kit-editor.layout.json
+edd54e65472dfaad5ce85ba4c122ea5e888d800648ffe619d26f4819814af174  crates/designos-app/tests/layout-baseline/micro-autolayout.layout.json
+6e1e83d857ef0c0c6c94093ce76a178c3c22d271b1cd7ffa8e0b69358c6d1d15  crates/designos-app/tests/layout-baseline/micro-components-variables.layout.json
+9ef8c9f6acfe0d11c960197405568410c6d55f3d700f439c616dbe8b9273c430  crates/designos-app/tests/layout-baseline/micro-css-grid.layout.json
+10d0d631e5bbcad16d77efd6efe727deff3584ddc25bce917c8cfcc4aedc6589  crates/designos-app/tests/layout-baseline/micro-dev-boxmodel.layout.json
+fa68db4fd0033b3ab4239b761f9f94f1f4b4909b20a82bda51e53ede00898417  crates/designos-app/tests/layout-baseline/micro-inspector-math.layout.json
+fc88a9bad1f6f38f441708abda8c0bfcbf4c9caec3481c9cbda47fb1fd56e779  crates/designos-app/tests/layout-baseline/micro-layer-picker.layout.json
+e9f5337abbf49b78355096f9af8892162a3eb8a2bbfb01eef63803224c0df632  crates/designos-app/tests/layout-baseline/micro-scale-tool.layout.json
+e56d09da865908aafffa0336b86171dabe14dfd6b4a6e55301ca793ead83d180  crates/designos-app/tests/layout-baseline/micro-selection-corner.layout.json
+201bbaf98fd8173e15ba4eff96dec7dcd3aa50f31573f33f39a101d1e4719453  crates/designos-app/tests/layout-baseline/micro-shape-controls.layout.json
+a64e92052caff913096392ae3460a8f13c4fc48bae12fc16037861390e7ed09e  crates/designos-app/tests/layout-baseline/micro-smart-selection.layout.json
+d0ae457d3fd4aa67d534bcf87910366ce7fd164d5509f2e7e11b6681e78fceee  crates/designos-app/tests/layout-baseline/micro-typography-multiedit.layout.json
+719277d858568e13f1f4da57a32e7b58a2a521d0c9cc2c65a95564234f63aa74  crates/designos-app/tests/layout-baseline/micro-vector-edit.layout.json
+f91a29065137efaeaadbae896fcd6ec91d3b35f88b645858ff4fd54662aa38c8  crates/designos-app/tests/layout-baseline/picker-page.layout.json
+0a02c0eabb419bdf307929d9565254e79f24c2f782b1cadee6a95dd934dad4e6  crates/designos-app/tests/layout-baseline/plugin-install.layout.json
+1a7144fe1d3d516ba726936f7c86353a12524588aba0b5aa2447390df11b47ad  crates/designos-app/tests/layout-baseline/present-variables.layout.json
+fefb9e5d076150a3bcf53634a81c4983093a1c1544ae33d56e71dc5c1f4bf340  crates/designos-app/tests/layout-baseline/web-capture-report.layout.json
+c8b0fc0ab03fb20084a73493854e24b2cd2392f112f0b0386960b173d934fb43  crates/designos-app/tests/layout-baseline/x-board.layout.json
+953d5b8e684bbad5c4839094dd604d96428f47f41820c7658aa0ce7e381f085a  crates/designos-app/tests/layout-baseline/x-deck.layout.json
+9cbd188713b47b3024651f14d8b525726b2ddc6d5b0bf264767e226da9e41132  crates/designos-app/tests/layout-baseline/x-present.layout.json
+
+=== Run 1 (no DESIGNOS_LAYOUT_BLESS) ===
+running 18 tests
+...
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 3558 filtered out; finished in 11.79s
+
+=== Run 2 (no DESIGNOS_LAYOUT_BLESS) ===
+running 18 tests
+...
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 3558 filtered out; finished in 11.74s
+
+=== shasum -a 256 crates/designos-app/tests/layout-baseline/*.layout.json (AFTER RUN 2) ===
+9a726dcc7475294fe4c0289dbdd8268c770527559e2f975860e5762653aba3fd  crates/designos-app/tests/layout-baseline/agents-approval-open-tab.layout.json
+f48e9cbd177fe65d8067b02e527a4a99f05c8898ea8819e6ca99aaf680b173aa  crates/designos-app/tests/layout-baseline/agents-approval-queued.layout.json
+dae262b4391c0924d48baba25e99598bdeeb96114c03b745cf831757dad91d5d  crates/designos-app/tests/layout-baseline/agents-skills.layout.json
+41f82fb4a6356018c7e6b7e6f452f087b462021dec1b8abb12e9136d71bb958a  crates/designos-app/tests/layout-baseline/ai-image-erase.layout.json
+da104b37547ad7bec348fff87f0600fd629e136d0ffc2db0788beee8cc8a26a3  crates/designos-app/tests/layout-baseline/ai-image-expand.layout.json
+ffc9702de3c3d7c342312efd7bfcf9c0f5a61eabcaf275d7570a93628f0726c1  crates/designos-app/tests/layout-baseline/ai-image-menu.layout.json
+f9439d6e0bf431c6eea643ba47eb6b7993a1ce6a990f5861a740c301b483bbc5  crates/designos-app/tests/layout-baseline/check-designs-fixed.layout.json
+9cf2ba20859b8acd93cf139150946d7b4ae61b1963ad942356dac4a9a4b83ec1  crates/designos-app/tests/layout-baseline/d-editor-default.layout.json
+b71989fe774df252480107d23caf49a7b48274694d27099a2f016e716d8bcd39  crates/designos-app/tests/layout-baseline/d-editor-selected.layout.json
+ee68046999884d82268c596d017e16b4ce49b5057573324bc946a0d98612ec6e  crates/designos-app/tests/layout-baseline/d-menu-main-file.layout.json
+3b5c46e93317a05cfa6273280cb4a6141887c617f882e75ad81b779a0270d78c  crates/designos-app/tests/layout-baseline/d-menu-main.layout.json
+4d84ccf832227b81e2cf9335b7d2085143296be2187299e715a26b998c1c0db9  crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json
+e15c237352f7e3e160a217b155fdd8d23517d42155ac6d9c96064a4c8e18ef79  crates/designos-app/tests/layout-baseline/d-menu-zoom.layout.json
+dd6b59a63ed40a2ad9d3d5f032fe034dca187db55955fb5ec19680c91dc08920  crates/designos-app/tests/layout-baseline/d-window-chrome.layout.json
+bd231365c63eb24dfbf3f2baca1a74e6f6f860a1e5741fb0a946e705bbf93f57  crates/designos-app/tests/layout-baseline/e-layers-selected.layout.json
+89437022a349fced3e7486582a26f70fdf75cf8eb34198e125af36d1b01aadc7  crates/designos-app/tests/layout-baseline/e-no-selection.layout.json
+5c643639e83a4c386198a4b0313ff581ab24476f06944ea7ebfe950c00f0b5e7  crates/designos-app/tests/layout-baseline/edit-style-effect.layout.json
+e95a3e47c1a39cd6175902765d3a146bc4fe41cb48c81825aa1b35fd25941bac  crates/designos-app/tests/layout-baseline/edit-style-grid.layout.json
+2211e979915ac215568b5c4387355e2e9ef9f26bb047f5d086deaa41734c79c3  crates/designos-app/tests/layout-baseline/edit-style-text.layout.json
+4fae0f2ddd2ce20af62b2bf0cdbd21f9aa3a20f803199e648529ee3a799982c3  crates/designos-app/tests/layout-baseline/effect-glass.layout.json
+3abcced368f36ea7b27844a4e41f1a8aaf6a86bfa5df3533e9f2e97bba9383d8  crates/designos-app/tests/layout-baseline/effect-noise.layout.json
+98f525bdb4f65d9487ae1286348103f304abf0a70bb8107ed9c0e84159c5a5fb  crates/designos-app/tests/layout-baseline/effect-texture.layout.json
+c2f3e09cbdf566ac95710a4cc50a9386f1ee5da5e1a8ba37fb9d1477a9b95df7  crates/designos-app/tests/layout-baseline/f-edit-style-color.layout.json
+3d59d5dec7f910a23fc1751e1dca29a51f1eac2c6c7d1c03032944f1ec770d23  crates/designos-app/tests/layout-baseline/f-effect-styles.layout.json
+d03f33c8d7dedc35b4919d618642f1523de9227d1371768bd66b439dc203c503  crates/designos-app/tests/layout-baseline/f-effects-menu.layout.json
+f5f2d2b49f86562b1c5fb914c2c3693a1f986e0a2407d5911aaa37f515fb309f  crates/designos-app/tests/layout-baseline/f-picker-gradient.layout.json
+bba59c7ce7c7f8c94be1ed474e654db5a5d84a9419bae72d0e357c0d0737aabf  crates/designos-app/tests/layout-baseline/f-picker.layout.json
+78f89e78ea46b019e85f3d2d53487eeca1ea7f3823b0ca9d21fff8d41ef0cf97  crates/designos-app/tests/layout-baseline/f-prototype-tab.layout.json
+e01e527340d420f0907a9855903a5f6a4e42cd0a264182b313d049702ce5fb22  crates/designos-app/tests/layout-baseline/f-stroke-settings.layout.json
+5bfcbdfec5a9340c12c6d4e7badd6fd75cace70516973af062ef4b610c498beb  crates/designos-app/tests/layout-baseline/f-type-details.layout.json
+751d0f184abba3d6f1204e33010e25413295468fd76a918b0842ee4dc52b337f  crates/designos-app/tests/layout-baseline/fill-d9.layout.json
+b2feeda48253eba8be087464301344bf784abd6b69ba22c8733f1f103d83c277  crates/designos-app/tests/layout-baseline/g-dev-annotate.layout.json
+a1ab0c7785ac88dd15f52b268e858997ddefed952ab5da09a2735f5239cbe7b6  crates/designos-app/tests/layout-baseline/g-dev-compare.layout.json
+866ad843663f220ed0f476927584982a035d9b812da23f4a0600f93d6612c2bb  crates/designos-app/tests/layout-baseline/g-dev-react.layout.json
+d076a5dc83934cb5bfa8edb72306ed337e62a88203a1fa440be184cc5baa7e36  crates/designos-app/tests/layout-baseline/g-spec-reader.layout.json
+f2fe8ba2c972417e049af8e403fec9326d71cd2f17f93c9e163a75f826313e7c  crates/designos-app/tests/layout-baseline/grid-styles.layout.json
+2c78fd04ab2dbfe6dea06440e896a584ed7969a39e6fe810a358d9d63fd0d3d7  crates/designos-app/tests/layout-baseline/h-home.layout.json
+63bddb1373a1d971894c91831e111ba85cf010a0a2a9c9e8a683b3cae222d291  crates/designos-app/tests/layout-baseline/i-agent-permissions.layout.json
+fec67a19f299c7fd89021535bf0762d018305a98af772054f6d6b497d906b65f  crates/designos-app/tests/layout-baseline/i-agents-approval-command.layout.json
+0e8a6fe457a14088c48f5b957a68dcdbd46a021bae88236915be8e1194572173  crates/designos-app/tests/layout-baseline/i-agents-chat.layout.json
+122ab01d9e143b65fe3b60cc311d22bda829c734d3db068d8f99dc1a32269429  crates/designos-app/tests/layout-baseline/i-agents-picker.layout.json
+467fcaa9f9b6533d62fcb3fa49e7d0b3c4a6e6b26bf95cb5d9efc0f6c066c828  crates/designos-app/tests/layout-baseline/i-agents-start-failure.layout.json
+ba0715f528622c969a58347bd3a0fe9f1f1e08a1321e0cd9465f8d2d8dffebf7  crates/designos-app/tests/layout-baseline/i-agents.layout.json
+7d91b11441e39affa78ebfc640f1717c57a79b36566c0a7012d37257f909e2d5  crates/designos-app/tests/layout-baseline/i-terminal.layout.json
+df460ed1209b313712ed506a6b1bb379f4c0e1d65c1a46d2507d8dbb1d6b6b11  crates/designos-app/tests/layout-baseline/j-check-designs.layout.json
+7d65e0149698e68d5bf6d0ba1e77e0c7d67512ec33a2263bb9584639cf094073  crates/designos-app/tests/layout-baseline/j-cmdk.layout.json
+5dc2b1dc832e7f13daeac92ca59d8a4b8fe28000e3811657c1983856061919bf  crates/designos-app/tests/layout-baseline/j-comments.layout.json
+8f1cfa3b504e58c1f523c4ab68f1f6d77cf1ec11a3e822805e9180b4744277fe  crates/designos-app/tests/layout-baseline/j-find.layout.json
+b6283c4a745dd09ae52e610e866c776ea4c5acf0095d3e59e1c18db92f8649e4  crates/designos-app/tests/layout-baseline/j-palette.layout.json
+6ec64e66535cf0ad4ee8190f0fbf62775b6c7d4b444ef69ba60e9b78f6e98b07  crates/designos-app/tests/layout-baseline/j-plugins.layout.json
+afdc1058595e351c30df4d20f78faa3211aa32ddb47b85977fd9291784164736  crates/designos-app/tests/layout-baseline/j-version-history.layout.json
+6493fd5c8db547fd3d78aa0c6ac617f938aac73d9bdc77255791d7e7bf14b2f4  crates/designos-app/tests/layout-baseline/k-assets.layout.json
+7931fa62878d626585384a0f9c6e7935f8d44f358ae0d519100fdec86b7ce4c3  crates/designos-app/tests/layout-baseline/k-libraries.layout.json
+c750404de3a8996ec5c163e3870d4eac8ca2abcfc712901ed36505e8f6b43e71  crates/designos-app/tests/layout-baseline/k-variables-floating.layout.json
+def27b3b44ce6d2d6f2b6540fc6de8264046ac411092416da53579979a253626  crates/designos-app/tests/layout-baseline/k-variables.layout.json
+baf8a3d6f6af2d09b84f88755dbcfb1a5c948c03dc66d7e1b883adfd4b07dea2  crates/designos-app/tests/layout-baseline/kit-agents.layout.json
+4a6022e513bbf904abae6ec3ba8276ab5242357003eef528290fccd6dd2fe751  crates/designos-app/tests/layout-baseline/kit-editor.layout.json
+edd54e65472dfaad5ce85ba4c122ea5e888d800648ffe619d26f4819814af174  crates/designos-app/tests/layout-baseline/micro-autolayout.layout.json
+6e1e83d857ef0c0c6c94093ce76a178c3c22d271b1cd7ffa8e0b69358c6d1d15  crates/designos-app/tests/layout-baseline/micro-components-variables.layout.json
+9ef8c9f6acfe0d11c960197405568410c6d55f3d700f439c616dbe8b9273c430  crates/designos-app/tests/layout-baseline/micro-css-grid.layout.json
+10d0d631e5bbcad16d77efd6efe727deff3584ddc25bce917c8cfcc4aedc6589  crates/designos-app/tests/layout-baseline/micro-dev-boxmodel.layout.json
+fa68db4fd0033b3ab4239b761f9f94f1f4b4909b20a82bda51e53ede00898417  crates/designos-app/tests/layout-baseline/micro-inspector-math.layout.json
+fc88a9bad1f6f38f441708abda8c0bfcbf4c9caec3481c9cbda47fb1fd56e779  crates/designos-app/tests/layout-baseline/micro-layer-picker.layout.json
+e9f5337abbf49b78355096f9af8892162a3eb8a2bbfb01eef63803224c0df632  crates/designos-app/tests/layout-baseline/micro-scale-tool.layout.json
+e56d09da865908aafffa0336b86171dabe14dfd6b4a6e55301ca793ead83d180  crates/designos-app/tests/layout-baseline/micro-selection-corner.layout.json
+201bbaf98fd8173e15ba4eff96dec7dcd3aa50f31573f33f39a101d1e4719453  crates/designos-app/tests/layout-baseline/micro-shape-controls.layout.json
+a64e92052caff913096392ae3460a8f13c4fc48bae12fc16037861390e7ed09e  crates/designos-app/tests/layout-baseline/micro-smart-selection.layout.json
+d0ae457d3fd4aa67d534bcf87910366ce7fd164d5509f2e7e11b6681e78fceee  crates/designos-app/tests/layout-baseline/micro-typography-multiedit.layout.json
+719277d858568e13f1f4da57a32e7b58a2a521d0c9cc2c65a95564234f63aa74  crates/designos-app/tests/layout-baseline/micro-vector-edit.layout.json
+f91a29065137efaeaadbae896fcd6ec91d3b35f88b645858ff4fd54662aa38c8  crates/designos-app/tests/layout-baseline/picker-page.layout.json
+0a02c0eabb419bdf307929d9565254e79f24c2f782b1cadee6a95dd934dad4e6  crates/designos-app/tests/layout-baseline/plugin-install.layout.json
+1a7144fe1d3d516ba726936f7c86353a12524588aba0b5aa2447390df11b47ad  crates/designos-app/tests/layout-baseline/present-variables.layout.json
+fefb9e5d076150a3bcf53634a81c4983093a1c1544ae33d56e71dc5c1f4bf340  crates/designos-app/tests/layout-baseline/web-capture-report.layout.json
+c8b0fc0ab03fb20084a73493854e24b2cd2392f112f0b0386960b173d934fb43  crates/designos-app/tests/layout-baseline/x-board.layout.json
+953d5b8e684bbad5c4839094dd604d96428f47f41820c7658aa0ce7e381f085a  crates/designos-app/tests/layout-baseline/x-deck.layout.json
+9cbd188713b47b3024651f14d8b525726b2ddc6d5b0bf264767e226da9e41132  crates/designos-app/tests/layout-baseline/x-present.layout.json
+BEFORE_RUN1_AND_AFTER_RUN2_IDENTICAL=1
+```
+
+---
+
+### 4. Step 2 — Tier B on the Untitled UI Kit & Controller Rulings (`ask` 1 & `ask` 2)
+
+#### 4.1 Controller Ruling 1 (`import_kit_once` in `scripts/layout_baseline_capture.py`)
+- **Two Round-8 dry-run bugs found on first real Tier B invocation:**
+  1. **Bug 1 (non-MCP fallback copied binary `.fig` to `.designos`):** When `designos-mcp` was not built next to `--bin`, `import_kit_once` (`scripts/layout_baseline_capture.py:447-458`) ran `designos kit-source.fig --out kit.designos --inspect-json` (`--out` is not a save flag on `designos --inspect-json`) and then fell through to `if not kit_designos.is_file(): clone_file_apfs(kit_source, kit_designos)`, copying the binary `.fig` file to `kit.designos` and failing on case 1 with `stream did not contain valid UTF-8`.
+  2. **Bug 2 (MCP batch stdin omitted `notifications/initialized` and line-by-line reads):** When `designos-mcp` was built next to `--bin`, `import_kit_once` (`scripts/layout_baseline_capture.py:401-445`) piped `initialize` (`id: 1`), `designos_open_file` (`id: 2`), and `designos_save_file` (`id: 3`) in one `subprocess.run(..., input=payload)` without `notifications/initialized`. `rmcp`'s handshake reader consumed `id: 2` (`designos_open_file`) while waiting for `notifications/initialized`, so `id: 3` (`designos_save_file`) wrote the initial 1-page blank document (`517 B`), failing on case 1 with `--select "id:44616" matched no node (searched 1 layers on 1 page by id)`.
+- **Controller ruling via Orca `ask`:**
+  - Built `designos-mcp` alongside `designos` and `designos-diff`.
+  - Replaced batch `subprocess.run` in `import_kit_once` with `subprocess.Popen` line-by-line JSON-RPC (`initialize` `id: 0` -> wait for reply `id == 0` -> `notifications/initialized` -> `designos_open_file` `id: 1` -> wait for reply `id == 1` and verify `len(pages) > 1` -> `designos_save_file` `id: 2` -> wait for reply `id == 2`, treating any JSON-RPC `error` or `isError=true` as exit 1).
+  - Deleted the non-MCP fallback completely: if `designos-mcp` is missing next to `--bin`, `import_kit_once` exits 1 with `designos-mcp not found next to --bin: build it with -p designos-mcp` and writes no `kit.designos`.
+  - Added 3 red-first unit tests in `scripts/tests/test_layout_baseline_capture.py` (`test_mcp_import_sends_initialized_before_tools_call_and_checks_is_error`, `test_missing_designos_mcp_exits_1_and_writes_no_kit_designos`, `test_one_page_kit_import_exits_1_with_page_count`), committed as `2661cec0` (`test(scripts)`) -> `adbdc939` (`fix(scripts)`) -> `b726ff51` (`test(scripts)`).
+
+#### 4.2 Controller Ruling 2 (`kit-agents` `"spawns": true` Contradiction in Governing Spec)
+- **What happened on Tier B Run 1 (`HIDIdleTime` before = `2768s`, after = `3540s`):**
+  - All 73 preceding Tier B cases (including `i-agents-chat` -> `claude` stub and `i-agents-start-failure` -> `agy` stub) succeeded and wrote PNG + `layout.json` files in `out/tier-b-8dfaee93/`.
+  - On case 74 (`kit-agents`, never run with `--kit` before Round 10), Check 2 failed:
+    ```text
+    SKIP x-board: not applicable in Tier B (Tier A only: blank board shows no kit content; Tier A captures the same surface)
+    SKIP x-deck: not applicable in Tier B (Tier A only: blank deck shows no kit content; Tier A captures the same surface)
+    ERROR: case kit-agents: check 2 failed: 'spawns': true case added 0 lines to /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/out/tier-b-8dfaee93/invocations.log
+    ```
+- **Spec contradiction & controller ruling via Orca `ask`:**
+  - Governing spec `:326` fixes `kit-agents` args as `--zoom 100 --panel agents --gpu`, and `:355` defines `spawns` as *"every case whose state starts an agent tab"*. In `crates/designos-app/src/shell.rs:406`, `--panel agents` calls `app.terminal.open_for_agent_use(...)`, which opens the idle Agents panel and starts no CLI (matching `i-agents`, which also uses `--panel agents` and has no `"spawns": true`). Only `i-agents-chat` (`--panel agents-chat`) and `i-agents-start-failure` (`--panel agents-start-failure`) start an agent CLI tab.
+  - Per controller ruling, removed `"spawns": true` from `kit-agents` in `crates/designos-app/tests/layout-baseline/cases.json` (`c2257f39`: `test(app): kit-agents opens the idle panel and spawns no agent`), keeping `kit-agents.layout.json` and the assertions for `i-agents-chat` and `i-agents-start-failure` unchanged (no Python or Rust test asserted `spawns` on `kit-agents`).
+
+#### 4.3 Tier B Run 2 Summary & `HIDIdleTime` (`plans/reports/agy-1126-layout-gate-evidence/r10/tier-b-summary.txt`)
+- **`HIDIdleTime` (`plans/reports/agy-1126-layout-gate-evidence/r10/hid-idle-time.txt`):**
+  - Run 1: `HIDIdleTime_before=2768s`, `HIDIdleTime_after=3540s`
+  - Run 2: `HIDIdleTime_before_run2=3723s`, `HIDIdleTime_after_run2=4423s` (both `>= 300s`)
+- **Tier B Run 2 Output (`exit 0`):**
+  ```text
+  SKIP x-board: not applicable in Tier B (Tier A only: blank board shows no kit content; Tier A captures the same surface)
+  SKIP x-deck: not applicable in Tier B (Tier A only: blank deck shows no kit content; Tier A captures the same surface)
+  Every case has its acknowledgement.
+  Every spawns case logged a stub line.
+  Every $0 in invocations.log starts with the stub dir (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/stubs/).
+  Summary (reachable / not applicable / unreachable): Tier A 76 / 0 / 0, Tier B 74 / 2 / 0
+  Tier A only (2): x-board, x-deck
+  Cases: 74 captured, 2 skipped (76 total), wall time 684.43s
+  ```
+- **Stub `invocations.log` (`plans/reports/agy-1126-layout-gate-evidence/r10/invocations.log`):**
+  ```text
+  /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/stubs/claude --session-id b0ef7425-7a05-4ef2-9236-d8ca8c735008 --mcp-config  --settings  --setting-sources user --plugin-dir  --append-system-prompt You are inside DESIGN:OS Studio bound exclusively to file 'Untitled' (session /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/home/Library/Application Support/designos/sessions/p83400-w1-tab-1). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/home/Library/Application Support/designos/sessions/p83400-w1-tab-1/live-spec.json.
+  /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-6yn01tt3/run/stubs/agy --mcp-config /nonexistent/mcp.json
+  ```
+
+#### 4.4 Acceptance 4 Manual Negative Run (`plans/reports/agy-1126-layout-gate-evidence/r10/acceptance4-manual.txt`)
+With `DESIGNOS_AGENT_CLI_DIR` set and `DESIGNOS_LIBRARY/.designos-hermetic` removed, the release binary exits `2` and writes nothing:
+```text
+cmd: /usr/bin/env -i HOME=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/home TMPDIR=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/tmp DESIGNOS_LIBRARY=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/lib DESIGNOS_AGENT_CLI_DIR=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/stubs PATH=/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/stubs:/usr/bin:/bin /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/out/cargo/release/designos --screenshot /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/acc4.png --layout-json /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/acc4.layout.json
+returncode: 2
+stdout: ''
+stderr: 'designos: hermetic agent mode denied: DESIGNOS_LIBRARY (/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/acc4-manual-ewgmnqud/lib) is missing .designos-hermetic\n'
+shot_exists: False
+layout_json_exists: False
+hermetic_active_exists: False
+```
+
+#### 4.5 Size & File Count of `out/tier-b-8dfaee93/` and Committed Evidence (`Step 2.6`)
+- **`out/tier-b-8dfaee93/` (kept untracked in `out/`):**
+  - **File count:** `151` files (`76` PNGs = `74` case PNGs + `colour-sheet.png` + `wireframe-d-window-chrome.png`; `74` `*.layout.json` files; `1` `invocations.log`).
+  - **Total size:** `33,551,214` bytes (`32.00 MiB`).
+- **Committed evidence in `plans/reports/agy-1126-layout-gate-evidence/r10/`:**
+  - [`invocations.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/invocations.log) (`1,069` bytes)
+  - [`tier-b-summary.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/tier-b-summary.txt) (`648` bytes) & [`tier-b-summary-run1.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/tier-b-summary-run1.txt) (`424` bytes)
+  - [`colour-sheet.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/colour-sheet.png) (`891,613` bytes, `< 2 MB`)
+  - [`wireframe-d-window-chrome.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/wireframe-d-window-chrome.png) (`7,528` bytes, `< 2 MB`)
+  - [`acceptance4-manual.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate-evidence/r10/acceptance4-manual.txt), [`hid-idle-time.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/hid-idle-time.txt), [`red-mcp-import.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/red-mcp-import.log), [`green-mcp-import.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/green-mcp-import.log), [`flake-rerun.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r10/flake-rerun.log)
+
+#### 4.6 Six Agent CLIs Installed on This Mac (`Step 2.7`, via `command -v` only)
+All **6 of 6** CLIs (`claude`, `codex`, `agy`, `grok`, `gemini`, `opencode`) are installed on this developer Mac:
+```text
+$ for c in claude codex agy grok gemini opencode; do printf "%s: %s\n" "$c" "$(command -v "$c" || echo NOT_FOUND)"; done
+claude: /opt/homebrew/bin/claude
+codex: /opt/homebrew/bin/codex
+agy: /opt/homebrew/bin/agy
+grok: /Users/jangtrinh/.grok/bin/grok
+gemini: /opt/homebrew/bin/gemini
+opencode: /Users/jangtrinh/.opencode/bin/opencode
+```
+
+---
+
+### 5. Skills Loaded & What Changed Because of Them
+
+| Skill | Path | What changed because of it |
+|---|---|---|
+| `es:astra-work` | `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md` | Enforced stopping at Step 2.4 to ask the controller via Orca before modifying `scripts/layout_baseline_capture.py` or `cases.json`, and verified all post-mutation acceptance checks. |
+| `es:fable-thinking` | `/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md` | Diagnosed the `rmcp` `notifications/initialized` handshake bug and the `kit-agents` `--panel agents` vs `"spawns": true` spec contradiction from first principles before proposing minimal fixes. |
+| `es:orca-native-orchestration` | `/Users/jangtrinh/.gemini/config/skills/es-orca-native-orchestration/SKILL.md` | Used `orca orchestration ask` for both Step 2.4 escalations and maintained regular `heartbeat` dispatches during the 11-minute Tier B window runs and full test suite runs. |
+| `es:rust` | `/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md` | Verified `frame 8 == frame 12` determinism across all 76 Tier A cases and ensured zero clippy/fmt issues across all workspace targets. |
+
+---
+
+### 6. Final Gates Summary & Pasted Outputs
+
+| Gate | Command | Verdict | Summary |
+|---|---|---|---|
+| **1. Rustfmt** | `cargo fmt --all -- --check` | **PASS** | Exit `0` |
+| **2. Clippy** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** | Exit `0`, `0` warnings |
+| **3. App Bin Tests** | `cargo test -p designos-app --bin designos --locked` | **PASS** | `3,563 passed; 1 known flake` (`an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one`, `#1267`), which passed `3/3` when rerun alone (`0.77s`, `0.60s`, `1.11s`); all 18 `layout_unchanged` tests passed |
+| **4. Python Unit Tests** | `python3 -B -m unittest discover -s scripts/tests -p "test_*.py"` | **PASS** | `Ran 61 tests in 40.428s — OK` |
+| **5. Zero Fake UI Gate** | `python3 scripts/zero_fake_ui_gate.py` | **PASS** | `Gate Verdict: PASS (17/17 invariants satisfied)` |
+
+```text
+=== cargo fmt ===
+$ cargo fmt --all -- --check
+(exit 0)
+
+=== cargo clippy ===
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.25s
+
+=== python unittest ===
+$ python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
+.............................................................
+----------------------------------------------------------------------
+Ran 61 tests in 40.428s
+
+OK
+
+=== zero_fake_ui_gate ===
+$ python3 scripts/zero_fake_ui_gate.py
+Gate Verdict: PASS (17/17 invariants satisfied)
+
+=== cargo test -p designos-app --bin designos --locked ===
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+...
+test result: FAILED. 3563 passed; 1 failed (shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one); 12 ignored; 0 measured; 0 filtered out; finished in 567.38s
+
+=== Known Flake (#1267) 3x Standalone Rerun (plans/reports/agy-1126-layout-gate-evidence/r10/flake-rerun.log) ===
+=== Flake rerun 1/3: shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3575 filtered out; finished in 0.77s
+
+=== Flake rerun 2/3: shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3575 filtered out; finished in 0.60s
+
+=== Flake rerun 3/3: shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ===
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3575 filtered out; finished in 1.11s
+```
+
+Status: READY FOR CONTROLLER REVIEW (ROUND 10)
+
+
 
 
 
