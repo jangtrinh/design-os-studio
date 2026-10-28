@@ -182,6 +182,9 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
 }
 
+/// Width an empty hug text keeps on the spec paths, as under the character-width estimate.
+const EMPTY_TEXT_MIN_WIDTH: f32 = 16.0;
+
 impl<'a> SpecBuildCtx<'a> {
     pub fn new(_doc: &Document, snapshots: &'a [LibrarySnapshot]) -> Self {
         Self {
@@ -211,8 +214,14 @@ impl<'a> SpecBuildCtx<'a> {
         }
     }
 
+    /// Intrinsic size of `tp` on the spec paths. A measured empty label keeps the estimate's
+    /// 16 px minimum width so it stays selectable; the editor's measure alone would give 1 px.
     pub(crate) fn text_size(&self, tp: &crate::TextProps, wrap_width: Option<f32>) -> crate::Vec2 {
-        crate::text_measure::intrinsic_text_size(tp, wrap_width, self.measure)
+        let mut size = crate::text_measure::intrinsic_text_size(tp, wrap_width, self.measure);
+        if self.measure.is_some() && wrap_width.is_none() && tp.content.is_empty() {
+            size.x = size.x.max(EMPTY_TEXT_MIN_WIDTH);
+        }
+        size
     }
 
     pub(crate) fn text_fell_back(&self, tp: &crate::TextProps) -> bool {

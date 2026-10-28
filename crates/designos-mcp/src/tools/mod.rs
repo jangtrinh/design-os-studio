@@ -20,6 +20,7 @@ pub mod query;
 pub mod screenshot;
 pub mod search_design_system;
 pub mod session_options;
+mod text_remeasure;
 
 use crate::tools::errors::{ErrorCode, ToolError};
 use designos_doc::text_measure::TextMeasure;

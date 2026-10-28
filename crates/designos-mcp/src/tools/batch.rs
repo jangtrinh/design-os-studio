@@ -9,11 +9,12 @@
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
 use crate::tools::fill_write::{validate_fill_color, write_fill, FillTarget};
+use crate::tools::text_remeasure::{resize_hug_text, BoundTextIndex, VariablesBefore};
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
     apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
-    SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextAutoResize, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+    SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -999,6 +1000,27 @@ pub(crate) fn relayout_for_node(doc: &mut Document, id: NodeId) {
     }
 }
 
+/// Ids of the nodes `cmds` replace with an `Update`.
+fn updated_node_ids(cmds: &[Command]) -> Vec<NodeId> {
+    cmds.iter()
+        .filter_map(|c| match c {
+            Command::Update { node } => Some(node.id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Re-lays out the top-level container of every node in `ids`, once per container and on whichever
+/// page it lives, and queues it for the pass at commit. A hug frame around a label whose size an
+/// op changed would otherwise keep its old size.
+fn relayout_containers_of(doc: &mut Document, ids: &[NodeId], relayout_targets: &mut Vec<NodeId>) {
+    let tops: BTreeSet<NodeId> = ids.iter().filter_map(|id| top_container_under_page(doc, *id)).collect();
+    for top in tops {
+        relayout_for_node(doc, top);
+        relayout_targets.push(top);
+    }
+}
+
 /// Page-space bounding box of `id` in `doc`. For a `Page` node (whose own `size` is `(0, 0)`),
 /// returns the union of its direct children's page-space bounds when non-empty.
 pub(crate) fn node_page_bounds(doc: &Document, id: NodeId) -> Rect {
@@ -1302,6 +1324,8 @@ fn apply_set_style_op(
     }
 
     let mut first_applied_node = None;
+    // Node -> index in `cmds` of the `Update` this op already built for it.
+    let mut pending_updates: BTreeMap<NodeId, usize> = BTreeMap::new();
     for (link_idx, link) in op.apply.iter().enumerate() {
         let node_id = resolve_node_ref(doc, alias_roots, prev_node, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
         check_lease_guard(doc, owned_frames, node_id, op_idx, "set_style")?;
@@ -1343,38 +1367,45 @@ fn apply_set_style_op(
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
         apply_style_values(&mut updated, st, &resolved_key);
         if prop == StyleProperty::Text {
-            resize_hug_text(&mut updated);
+            resize_hug_text(doc, &mut updated);
         }
         if &updated != cur {
+            pending_updates.insert(node_id, cmds.len());
             cmds.push(Command::Update { node: Box::new(updated) });
         }
     }
 
-    let applied_ids: BTreeSet<NodeId> = cmds
-        .iter()
-        .filter_map(|c| match c {
-            Command::Update { node } => Some(node.id),
-            _ => None,
-        })
-        .collect();
+    // Every text linked to an upserted text style takes its new values. A node this op already
+    // rewrote (a style apply) is updated in place, so its earlier changes stay in the one `Update`.
     for (key, style) in &styles {
         let Style::Text(_) = style else { continue };
         if doc.styles.get(key) == Some(style) || !doc.styles.contains_key(key) {
             continue;
         }
         for nid in designos_doc::linked_style_nodes(doc, key) {
-            if applied_ids.contains(&nid) {
+            let pending = pending_updates.get(&nid).copied();
+            let base = match pending {
+                Some(i) => match &cmds[i] {
+                    Command::Update { node } => Some(node.as_ref()),
+                    _ => None,
+                },
+                None => doc.get(nid),
+            };
+            let Some(base) = base else { continue };
+            if !matches!(base.kind, NodeKind::Text(_)) || base.style_refs.get("text") != Some(key) {
+                // Not a text, or this op linked it to another text style.
                 continue;
             }
-            let Some(cur) = doc.get(nid) else { continue };
-            if !matches!(cur.kind, NodeKind::Text(_)) {
-                continue;
-            }
-            let mut updated = cur.clone();
+            let mut updated = base.clone();
             apply_style_values(&mut updated, style, key);
-            resize_hug_text(&mut updated);
-            if &updated != cur {
-                cmds.push(Command::Update { node: Box::new(updated) });
+            resize_hug_text(doc, &mut updated);
+            match pending {
+                Some(i) => cmds[i] = Command::Update { node: Box::new(updated) },
+                None if doc.get(nid) != Some(&updated) => {
+                    pending_updates.insert(nid, cmds.len());
+                    cmds.push(Command::Update { node: Box::new(updated) });
+                }
+                None => {}
             }
         }
     }
@@ -1384,63 +1415,6 @@ fn apply_set_style_op(
     }
     let count = (op.upsert.len() + op.delete.len() + op.apply.len()).max(1);
     Ok((cmds, count, first_applied_node))
-}
-
-fn resize_hug_text(node: &mut designos_doc::Node) {
-    let NodeKind::Text(tp) = &node.kind else { return };
-    let mode = tp.auto_resize;
-    let props = tp.clone();
-    let width = node.size.x;
-    match mode {
-        TextAutoResize::WidthAndHeight => node.size = crate::tools::measure_text(&props, None),
-        TextAutoResize::Height => node.size.y = crate::tools::measure_text(&props, Some(width.max(20.0))).y,
-        TextAutoResize::None | TextAutoResize::Truncate => {}
-    }
-}
-
-fn text_binding_hits(doc: &Document, node: &designos_doc::Node, key: &str, changed: &BTreeSet<&str>) -> bool {
-    if node.variables.bindings.get(key).is_some_and(|id| changed.contains(id.as_str())) {
-        return true;
-    }
-    node.style_refs.get("text").and_then(|sk| doc.style_meta.get(sk)).and_then(|m| m.bindings.get(key)).is_some_and(|id| changed.contains(id.as_str()))
-}
-
-/// Hug text whose `fontSize` or `characters` binding names a variable this op writes.
-fn remeasure_bound_hug_text(doc: &Document, op: &SetVariablesOp) -> Vec<Command> {
-    let changed: BTreeSet<&str> = op.upsert_variables.iter().map(|v| v.id.as_str()).chain(op.delete_variables.iter().map(String::as_str)).collect();
-    if changed.is_empty() {
-        return Vec::new();
-    }
-    let mut cmds = Vec::new();
-    for id in doc.nodes.keys().copied().collect::<Vec<_>>() {
-        let Some(node) = doc.get(id) else { continue };
-        let NodeKind::Text(tp) = &node.kind else { continue };
-        if !matches!(tp.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height) {
-            continue;
-        }
-        let font = text_binding_hits(doc, node, "fontSize", &changed);
-        let chars = text_binding_hits(doc, node, "characters", &changed);
-        if !font && !chars {
-            continue;
-        }
-        let drawn = designos_doc::resolve_node(doc, node);
-        let NodeKind::Text(drawn_tp) = &drawn.kind else { continue };
-        let mut updated = node.clone();
-        if let NodeKind::Text(dst) = &mut updated.kind {
-            if chars {
-                dst.content = drawn_tp.content.clone();
-                dst.runs.clear();
-            }
-            if font {
-                dst.style.font_size = drawn_tp.style.font_size;
-            }
-        }
-        resize_hug_text(&mut updated);
-        if &updated != node {
-            cmds.push(Command::Update { node: Box::new(updated) });
-        }
-    }
-    cmds
 }
 
 fn build_name_to_id_map(doc: &Document, created_roots: &[CreatedRootRecord], all_created_ids: &BTreeSet<NodeId>) -> Map<String, Value> {
@@ -1551,10 +1525,15 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
     let mut batch_warnings: Vec<designos_doc::SpecWarning> = Vec::new();
 
     let default_page = engine.resolve_default_page().ok();
+    let mut bound_text = BoundTextIndex::default();
 
     for (op_idx, op) in ops.iter().enumerate() {
         let op_name = op.op_name();
         let op_path = format!("/ops/{op_idx}");
+        if !matches!(op, ParsedOp::SetVariables(_)) {
+            // Any other op can add, rebind or delete text.
+            bound_text.invalidate();
+        }
 
         match op {
             ParsedOp::ApplySpec(a) => {
@@ -1850,6 +1829,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetVariables(a) => {
                 check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
+                let written: Vec<&str> = a.upsert_variables.iter().map(|v| v.id.as_str()).chain(a.delete_variables.iter().map(String::as_str)).collect();
+                let before_vars = VariablesBefore::capture(&trial, &written);
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
@@ -1857,15 +1838,14 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                    let mut extras = Vec::new();
-                    for extra in remeasure_bound_hug_text(&trial, a) {
+                    let extras = bound_text.remeasure_after(&trial, &before_vars);
+                    for extra in &extras {
                         if recording_live {
                             let ops =
-                                live_ops_for_command(&trial, &extra).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                live_ops_for_command(&trial, extra).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                             recorded_live_ops.extend(ops);
                         }
                         extra.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
-                        extras.push(extra);
                     }
                     if let Some(p) = default_page {
                         if let Some(pnode) = trial.get(p) {
@@ -1876,6 +1856,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             }
                         }
                     }
+                    relayout_containers_of(&mut trial, &updated_node_ids(&extras), &mut relayout_targets);
                     collected_cmds.push(cmd);
                     collected_cmds.extend(extras);
                     changed.variables += count;
@@ -1886,6 +1867,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             }
             ParsedOp::SetStyle(a) => {
                 let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, prev_node, engine.owned_frames.as_deref(), a, op_idx)?;
+                let restyled = updated_node_ids(&cmds);
                 for cmd in cmds {
                     if recording_live {
                         let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
@@ -1898,6 +1880,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     relayout_for_node(&mut trial, nid);
                     relayout_targets.push(nid);
                 }
+                relayout_containers_of(&mut trial, &restyled, &mut relayout_targets);
                 changed.styles += count;
                 let root_node = first_node.or(default_page).unwrap_or(NodeId(1));
                 let before_bounds = node_page_bounds(&trial, root_node);
