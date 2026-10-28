@@ -1663,7 +1663,7 @@ pub fn auto_layout_inline_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
                     // The editor's own frame is the field: a framed TextEdit would draw a second box (field fill and ring) inside it.
                     // The margin is the one egui's default frame gave the text, so the value stays where it was.
                     egui::TextEdit::singleline(&mut inline.text)
-                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 2)))
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::SPACE_FACT as i8, theme::INSET_SEGMENT as i8)))
                         .font(egui::FontId::proportional(11.0))
                         .horizontal_align(egui::Align::Center),
                 );
