@@ -243,6 +243,7 @@ impl Session {
         s.replay_unabsorbed_live_patches();
         if let Some(dir) = s.bridge.session_dir.as_ref() {
             s.ledger = Ledger::load_from_path(dir.join(LEDGER_FILE_NAME));
+            crate::untrusted::init_taint(dir);
         }
         Ok(s)
     }
@@ -280,6 +281,7 @@ impl Session {
         s.sync_from_live_canvas_if_newer();
         s.replay_unabsorbed_live_patches();
         s.ledger = Ledger::load_from_path(session_dir.join(LEDGER_FILE_NAME));
+        crate::untrusted::init_taint(session_dir);
         Ok(s)
     }
 
@@ -928,13 +930,20 @@ impl Session {
                         obj.remove("content");
                     }
                 }
-                let xml_text = if is_metadata { value.get("xml").and_then(Value::as_str).map(str::to_owned) } else { None };
+                let stats = crate::untrusted::wrap_tool_result(name, &mut value);
+                if stats.wrapped > 0 {
+                    if let Some(dir) = &self.bridge.session_dir {
+                        crate::untrusted::record_taint(dir);
+                    }
+                }
+                let xml_text = if is_metadata { value.get("xml").map(crate::untrusted::envelope_xml_text) } else { None };
+                let text = crate::untrusted::render_text(&value);
                 let warnings_block = session_file_warnings_block(&value);
                 let mut res = CallToolResult::structured(value).with_meta(self.last_call_meta.clone().map(MetaObject));
                 if !image_blocks.is_empty() {
                     if is_design_context {
                         let mut blocks = image_blocks;
-                        blocks.extend(res.content);
+                        blocks.push(ContentBlock::text(text));
                         res.content = blocks;
                     } else {
                         // The images replace the reply's text, which is where the model would read the warnings.
@@ -944,6 +953,8 @@ impl Session {
                 } else if let Some(xml) = xml_text {
                     res.content = vec![ContentBlock::text(xml)];
                     res.content.extend(warnings_block);
+                } else {
+                    res.content = vec![ContentBlock::text(text)];
                 }
                 res
             }

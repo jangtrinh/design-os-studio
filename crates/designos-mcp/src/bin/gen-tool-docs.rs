@@ -184,6 +184,8 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
     out.push_str("Each tool takes the tier of the most severe effect a call can have. The tiers are read < additive < modify < destructive < external.\n\n");
     out.push_str("`readOnlyHint` is true only for read. `destructiveHint` follows `RiskTier::destructive()` and is true for every tier except read and additive. `openWorldHint` is true only for external.\n\n");
     out.push_str("`designos_open_file` and `designos_new_document` are additive because discarding unsaved work requires an explicit `discard_changes: true` opt-in. Without that opt-in, a dirty session refuses the call.\n\n");
+    out.push_str(&designos_mcp::untrusted::foreign_text_markdown());
+    out.push('\n');
     out.push_str(&render_tools_markdown_block(snapshots));
     out.push_str("\n\n### Compatibility Aliases (`Engine::ALIASES`)\n\n");
     out.push_str("| Alias | Canonical Tool |\n");

@@ -32,7 +32,7 @@ impl Fixture {
         std::fs::create_dir_all(&session).unwrap();
         let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
         let status = crate::agent_hook_outputs::HookPaths::locate(&session).status();
-        let script = install_hook_script(&channel, Some(&status), auto_allow_safe_tiers).expect("install the hook");
+        let script = install_hook_script(&channel, Some(&status), auto_allow_safe_tiers, &session).expect("install the hook");
         let tab_dir = crate::agent_approval_channel::tab_approvals_dir(&session, TAB.parse().unwrap()).expect("a private channel folder");
         Self { session, script, tab_dir }
     }
@@ -218,7 +218,7 @@ fn the_handler_command_runs_the_script_from_a_path_with_a_space() {
     let session = base.join("session dir");
     std::fs::create_dir_all(&session).unwrap();
     let channel = crate::agent_approval_channel::prepare_channel_dir_in(&base.join("Application Support").join("ap"), &session).unwrap();
-    let script = install_hook_script(&channel, Some(&channel.join("hook out").join("agent-status.json")), false).unwrap();
+    let script = install_hook_script(&channel, Some(&channel.join("hook out").join("agent-status.json")), false, &session).unwrap();
 
     let handler = approval_hook_handler(&script);
     let command = handler["command"].as_str().unwrap();

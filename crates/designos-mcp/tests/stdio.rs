@@ -61,7 +61,9 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["code"], "VALUE_OUT_OF_RANGE");
         assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["safe_to_retry"], true);
         let code = client.call_tool(call("designos_generate_code", json!({"node_id":id,"language":"css"}))).await.unwrap();
-        assert!(code.structured_content.unwrap()["code"].as_str().unwrap().contains("120px"));
+        let code_val = code.structured_content.unwrap()["code"].clone();
+        let code_str = code_val.get("value").and_then(|v| v.as_str()).or_else(|| code_val.as_str()).unwrap();
+        assert!(code_str.contains("120px"));
         client.call_tool(call("designos_undo", json!({}))).await.unwrap();
         let gone = client.call_tool(call("designos_get_node", json!({"node_id":id}))).await.unwrap();
         assert_eq!(gone.is_error, Some(true));

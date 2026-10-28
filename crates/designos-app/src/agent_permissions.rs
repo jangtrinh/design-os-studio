@@ -283,7 +283,7 @@ pub fn build_resume_command_for_mode(
 /// The name list is generated from [`designos_mcp::risk::names_where_tier`]. The block runs only after the tab id and
 /// the request id have been checked, and only when the payload names exactly one `tool_name`. It is present only when
 /// the channel folder's name is the session id and the private log can be prepared. A failed append does not allow.
-pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool) -> String {
+pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool, taint_dir: &Path) -> String {
     let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
     let channel_dir_escaped = quote(channel_dir);
     let status_assignment = status_file.map(|file| format!("STATUS_FILE='{}'\n", quote(file))).unwrap_or_default();
@@ -294,7 +294,7 @@ pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto
     // `/usr/bin`, and no CI run of this change could have checked the pin against that shell.
     let path_pin = if cfg!(windows) { "" } else { "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"\nexport PATH\n" };
     let auto_block = if auto_allow_safe_tiers {
-        prepare_channel_auto_allow_log(channel_dir).as_deref().map(shell_auto_allow_block).unwrap_or_default()
+        prepare_channel_auto_allow_log(channel_dir).as_deref().map(|log| shell_auto_allow_block(log, taint_dir)).unwrap_or_default()
     } else {
         String::new()
     };
@@ -515,7 +515,7 @@ END {
     }
 }"#;
 
-fn shell_auto_allow_block(log_path: &Path) -> String {
+fn shell_auto_allow_block(log_path: &Path, taint_dir: &Path) -> String {
     let mut names = Vec::new();
     for name in designos_mcp::risk::names_where_tier(|tier| matches!(tier, designos_mcp::risk::RiskTier::Read | designos_mcp::risk::RiskTier::Additive)) {
         for spelled in [name.to_string(), format!("mcp__designos__{name}"), format!("designos__{name}"), format!("designos:{name}")] {
@@ -525,7 +525,18 @@ fn shell_auto_allow_block(log_path: &Path) -> String {
         }
     }
     let pattern = names.join("|");
+    let mut sink = Vec::new();
+    for name in designos_mcp::risk::names_where_tier(|tier| matches!(tier, designos_mcp::risk::RiskTier::Destructive | designos_mcp::risk::RiskTier::External))
+    {
+        for spelled in [name.to_string(), format!("mcp__designos__{name}"), format!("designos__{name}"), format!("designos:{name}")] {
+            if !sink.iter().any(|existing| existing == &spelled) {
+                sink.push(spelled);
+            }
+        }
+    }
+    let sink_pattern = if sink.is_empty() { "designos_no_destructive_or_external_tool".to_string() } else { sink.join("|") };
     let escaped = log_path.display().to_string().replace('\'', "'\\''");
+    let taint_escaped = taint_dir.display().to_string().replace('\'', "'\\''");
     format!(
         r#"# Auto-allow only when the payload names exactly one tool. A second "tool_name" key (for example inside
 # tool_input) is ambiguous, so the call falls through to the card.
@@ -533,6 +544,24 @@ TOOL_NAME_KEYS=$(printf '%s' "$PAYLOAD" | grep -o '"tool_name"[[:space:]]*:[[:sp
 TOOL_FOR_TIER=""
 if [ -n "$TOOL_NAME_KEYS" ] && [ "$(printf '%s\n' "$TOOL_NAME_KEYS" | wc -l)" -eq 1 ]; then
     TOOL_FOR_TIER=$(printf '%s' "$TOOL_NAME_KEYS" | sed 's/.*:[[:space:]]*"\([^"]*\)"$/\1/')
+fi
+SESSION_DIR='{taint}'
+TAINTED=0
+if [ -f "$SESSION_DIR/untrusted-taint.fail" ]; then
+    TAINTED=1
+else
+    TSEQ=$(awk 'BEGIN{{s=0}} {{if (match($0, /"seq"[[:space:]]*:[[:space:]]*[0-9]+/)) {{v=substr($0,RSTART,RLENGTH); sub(/[^0-9]+/,"",v); if (v+0>s) s=v+0}}}} END{{print s}}' "$SESSION_DIR/untrusted-taint" 2>/dev/null || printf '0')
+    WSEQ=$(awk 'BEGIN{{s=0}} {{if (match($0, /"seq"[[:space:]]*:[[:space:]]*[0-9]+/)) {{v=substr($0,RSTART,RLENGTH); sub(/[^0-9]+/,"",v); s=v+0}}}} END{{print s}}' "$SESSION_DIR/untrusted-turn" 2>/dev/null || printf '0')
+    case "$TSEQ" in ''|*[!0-9]*) TSEQ=0 ;; esac
+    case "$WSEQ" in ''|*[!0-9]*) WSEQ=0 ;; esac
+    if [ "$TSEQ" -gt "$WSEQ" ] || [ "$TSEQ" -lt "$WSEQ" ]; then TAINTED=1; fi
+fi
+if [ "$TAINTED" = 1 ]; then
+    case "$TOOL_FOR_TIER" in
+    {sink})
+        TOOL_FOR_TIER="tainted-sink"
+        ;;
+    esac
 fi
 case "$TOOL_FOR_TIER" in
 {pattern})
@@ -560,8 +589,10 @@ case "$TOOL_FOR_TIER" in
 esac
 "#,
         pattern = pattern,
+        sink = sink_pattern,
         awk = AUTO_ALLOW_TARGET_AWK,
         escaped = escaped,
+        taint = taint_escaped,
     )
 }
 
@@ -570,14 +601,14 @@ esac
 /// made private; Claude then asks in its own terminal prompt. This is the Ask-mode script, which asks for every call.
 pub fn write_approval_hook_script(session_dir: &Path) -> std::io::Result<PathBuf> {
     let channel_dir = crate::agent_approval_channel::prepare_channel_dir(session_dir)?;
-    install_hook_script(&channel_dir, Some(&crate::agent_hook_outputs::HookPaths::locate(session_dir).status()), false)
+    install_hook_script(&channel_dir, Some(&crate::agent_hook_outputs::HookPaths::locate(session_dir).status()), false, session_dir)
 }
 
 /// Writes `<channel_dir>/approve-hook.sh` (owner-only on Unix), which reports its status to `status_file` (none: it reports none).
 /// `auto_allow_safe_tiers` is set for `Ask for risky only` and left off for `Ask`.
-pub(crate) fn install_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool) -> std::io::Result<PathBuf> {
+pub(crate) fn install_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool, taint_dir: &Path) -> std::io::Result<PathBuf> {
     let script_path = channel_dir.join(crate::agent_approval_channel::HOOK_SCRIPT_NAME);
-    let content = approval_hook_script(channel_dir, status_file, auto_allow_safe_tiers);
+    let content = approval_hook_script(channel_dir, status_file, auto_allow_safe_tiers, taint_dir);
     crate::agent_approval_channel::write_owner_only_file(&script_path, content.as_bytes(), true)?;
     Ok(script_path)
 }
@@ -1006,6 +1037,21 @@ pub fn offer_session_grant(mode: PermissionMode, req: &ApprovalRequest) -> bool 
         return false;
     }
     matches!(ask_risky_gate(&req.tool_name, &req.target), ApprovalGate::Ask { session: true })
+}
+
+/// Destructive and external tools never auto-allow and never settle through a grant after this turn read untrusted text.
+pub fn sink_blocks_grant(tool_name: &str, tainted: bool) -> bool {
+    if !tainted {
+        return false;
+    }
+    matches!(
+        designos_mcp::risk::tool_risk(&canonical_designos_tool(tool_name)).map(|risk| risk.tier),
+        Some(designos_mcp::risk::RiskTier::Destructive | designos_mcp::risk::RiskTier::External)
+    )
+}
+
+pub fn offer_session_grant_with_taint(mode: PermissionMode, req: &ApprovalRequest, tainted: bool) -> bool {
+    offer_session_grant(mode, req) && !sink_blocks_grant(&req.tool_name, tainted)
 }
 
 /// Codex, Grok, and Antigravity have no shared answer-file hook. The picker shows the mode unavailable for them.
@@ -1505,10 +1551,14 @@ impl AutoAllowLog {
 }
 
 /// Writes `allow` for requests this window already granted. An answer file, including `allow session`, never inserts a grant.
-pub fn settle_granted_requests(store: &mut GrantStore, session_id: &str, approvals_dir: &Path, reqs: &mut Vec<ApprovalRequest>, now_secs: u64) {
+/// `tainted` is fail-closed: a dest/ext request is never settled by a grant after the turn read untrusted text.
+pub fn settle_granted_requests(store: &mut GrantStore, session_id: &str, approvals_dir: &Path, reqs: &mut Vec<ApprovalRequest>, now_secs: u64, tainted: bool) {
     reqs.retain(|req| {
         if approvals_dir.join(format!("{}.answer", req.id)).exists() {
             return false;
+        }
+        if sink_blocks_grant(&req.tool_name, tainted) {
+            return true;
         }
         if store.matches(session_id, &req.tool_name, &req.target, now_secs) {
             let tab = tab_id_from_approvals_dir(approvals_dir);
@@ -1885,7 +1935,7 @@ mod tests {
 
     #[test]
     fn the_hook_script_puts_the_system_commands_first_on_path() {
-        let script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), false);
+        let script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), false, Path::new("/sess"));
         let first_command = script.lines().position(|line| line.starts_with("CHANNEL_DIR=")).expect("the script bakes in its folder");
         let pin = script.lines().position(|line| line == "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"");
         if cfg!(windows) {
@@ -2066,9 +2116,7 @@ mod tests {
         for name in &safe {
             assert!(script.contains(name), "{name} missing from the generated hook");
         }
-        for name in designos_mcp::risk::names_where_tier(|tier| {
-            matches!(tier, designos_mcp::risk::RiskTier::Modify | designos_mcp::risk::RiskTier::Destructive | designos_mcp::risk::RiskTier::External)
-        }) {
+        for name in designos_mcp::risk::names_where_tier(|tier| matches!(tier, designos_mcp::risk::RiskTier::Modify)) {
             assert!(!script.contains(&format!("|{name}|")) && !script.contains(&format!("|{name})")), "{name} must not auto-allow");
         }
         assert!(script.contains("CHANNEL_DIR='") && script.contains("/dev/urandom") && script.contains("DESIGNOS_TAB_ID"));
@@ -2077,11 +2125,18 @@ mod tests {
         let first_allow = script.find("\"behavior\":\"allow\"").expect("auto-allow decision");
         let append_at = script.find(">> '").expect("private log append");
         assert!(append_at < first_allow, "a failed append must not reach the auto-allow decision");
-        let ask_script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), false);
+        assert!(script.contains("tainted-sink"), "the sink gate rewrites dest/ext names before auto-allow");
+        assert!(script.contains(&format!("SESSION_DIR='{}'", fx.session.display())), "the hook reads taint from the session folder MCP writes");
+        for name in
+            designos_mcp::risk::names_where_tier(|tier| matches!(tier, designos_mcp::risk::RiskTier::Destructive | designos_mcp::risk::RiskTier::External))
+        {
+            assert!(script.contains(name), "{name} is listed so a tainted turn cannot auto-allow it");
+        }
+        let ask_script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), false, Path::new("/sess"));
         assert_eq!(ask_script.matches("\"behavior\":\"allow\"").count(), 1);
         assert!(ask_script.contains("allow)"));
         assert!(!ask_script.contains("designos_get_document"));
-        let bare = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), true);
+        let bare = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), true, Path::new("/sess"));
         assert!(!bare.contains("designos_get_document"), "no private log means no auto-allow block");
         assert_eq!(bare.matches("\"behavior\":\"allow\"").count(), 1);
     }
@@ -2129,7 +2184,7 @@ mod tests {
             target: "node_id:2".into(),
             timestamp: 10,
         }];
-        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 20);
+        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 20, false);
         assert!(pending.is_empty());
         assert!(store.is_empty(), "allow session on disk must not insert a grant");
         let _ = std::fs::remove_dir_all(&dir);
@@ -2158,7 +2213,7 @@ mod tests {
                 timestamp: 51,
             },
         ];
-        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60);
+        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60, false);
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].id, "other");
         let answer = std::fs::read_to_string(dir.join("same.answer")).unwrap();
@@ -2202,12 +2257,17 @@ mod tests {
         let req = wait_for_request(&fx.tab_dir);
         assert_eq!(req.target, "node_id:3");
         assert!(!offer_session_grant(AgentPermissionMode::AskRisky, &req));
+        assert!(sink_blocks_grant("designos_delete_node", true));
+        assert!(sink_blocks_grant("designos_apply_batch", true));
+        assert!(!sink_blocks_grant("designos_delete_node", false));
+        assert!(!sink_blocks_grant("designos_update_node", true));
+        assert!(!sink_blocks_grant("designos_get_document", true));
         write_scoped_approval_answer_in_dir(&fx.tab_dir, &req.id, ApprovalDecision::Allow, AnswerScope::Session).unwrap();
         let out = child.wait_with_output().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(parsed["hookSpecificOutput"]["decision"]["behavior"], "allow");
         let mut store = GrantStore::default();
-        settle_granted_requests(&mut store, "sess", &fx.tab_dir, &mut Vec::new(), 80);
+        settle_granted_requests(&mut store, "sess", &fx.tab_dir, &mut Vec::new(), 80, false);
         assert!(store.is_empty());
     }
 
@@ -2288,7 +2348,7 @@ mod tests {
             target: "node_id:2".into(),
             timestamp: 50,
         }];
-        settle_granted_requests(&mut store, "sess", &fx.tab_dir, &mut pending, 60);
+        settle_granted_requests(&mut store, "sess", &fx.tab_dir, &mut pending, 60, false);
         assert!(pending.is_empty(), "the grant answers the request");
         let path = auto_allow_log_path(&fx.session).expect("private log");
         let (rows, _) = load_auto_allow_log(&path);
@@ -2313,7 +2373,7 @@ mod tests {
             target: "node_id:2".into(),
             timestamp: 50,
         }];
-        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60);
+        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60, false);
         assert!(pending.is_empty(), "the grant answers the request");
         let key = auto_allow_session_key(&dir);
         let path = auto_allow_log_path(&key).expect("private log");
@@ -2364,7 +2424,7 @@ mod tests {
 
     #[test]
     fn risky_hook_omits_auto_allow_when_the_log_path_is_missing() {
-        let script = approval_hook_script(std::path::Path::new("/tmp/designos-session"), None, true);
+        let script = approval_hook_script(std::path::Path::new("/tmp/designos-session"), None, true, Path::new("/tmp/designos-session"));
         assert!(!script.contains("designos_get_document"), "no auto-allow block: {script}");
         assert!(!script.contains("reason\":\"tier"), "no ledger append: {script}");
         assert_eq!(script.matches("\"behavior\":\"allow\"").count(), 1);
@@ -2413,7 +2473,7 @@ mod tests {
             target: "node_id:2".into(),
             timestamp: 50,
         }];
-        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60);
+        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60, false);
         assert_eq!(pending.len(), 1, "an unwritable grant log leaves the request for the card");
         assert!(!dir.join("granted.answer").exists(), "no auto-answer without a grant row");
         remove_auto_allow_log(&auto_allow_session_key(&dir));
@@ -2426,7 +2486,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let channel = crate::agent_approval_channel::prepare_channel_dir(&dir).expect("channel");
-        let script = install_hook_script(&channel, None, true).expect("risky hook");
+        let script = install_hook_script(&channel, None, true, &dir).expect("risky hook");
         let path = auto_allow_log_path(&dir).expect("private log");
         let seed = AUTO_ALLOW_CAP + 50;
         for i in 0..seed {

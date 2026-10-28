@@ -52,8 +52,9 @@ pub fn paint_approval_card(
     requests: &[ApprovalRequest],
     surface_id: &'static str,
     mode: AgentPermissionMode,
+    tainted: bool,
 ) -> Option<CardAction> {
-    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id, mode)
+    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id, mode, tainted)
 }
 
 /// Paints the in-panel approval card for `tab_id` (`#656`, `#1195`).
@@ -68,6 +69,7 @@ pub fn paint_approval_card_for_tab(
     total_pending: usize,
     surface_id: &'static str,
     mode: AgentPermissionMode,
+    tainted: bool,
 ) -> Option<CardAction> {
     let first_req = requests.first();
     if (preset == AgentCliPreset::Claude || matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)) && first_req.is_none() {
@@ -132,7 +134,12 @@ pub fn paint_approval_card_for_tab(
         p.rect_stroke(sum_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
         let mono_font = theme::font_mono();
         let sum_max_w = (sum_r.width() - theme::INSET_BUTTON - theme::INSET_BUTTON).max(theme::CONTROL_DENSE);
-        let sum_elided = widgets::elide(&p, &req.input_summary, &mono_font, sum_max_w);
+        let summary = if agent_permissions::sink_blocks_grant(&req.tool_name, tainted) {
+            format!("{} · {}", designos_mcp::untrusted::SINK_CAPTION, req.input_summary)
+        } else {
+            req.input_summary.clone()
+        };
+        let sum_elided = widgets::elide(&p, &summary, &mono_font, sum_max_w);
         p.text(Pos2::new(sum_r.left() + theme::INSET_BUTTON, sum_r.center().y), Align2::LEFT_CENTER, sum_elided, mono_font, theme::TEXT_SECONDARY);
         widgets::record(ui, "agent-approval-summary", sum_r);
         y = sum_r.bottom() + theme::SPACE_ROW;
@@ -146,7 +153,7 @@ pub fn paint_approval_card_for_tab(
         let (approve_r, approve_resp) =
             paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
         let mut next_right = approve_r.left() - theme::SPACE_ROW;
-        if agent_permissions::offer_session_grant(mode, req) {
+        if agent_permissions::offer_session_grant_with_taint(mode, req, tainted) {
             let (session_r, session_resp) = paint_card_button(
                 ui,
                 &p,
@@ -415,6 +422,10 @@ mod tests {
     }
 
     fn card_texts(preset: AgentCliPreset, requests: &[ApprovalRequest], mode: AgentPermissionMode) -> Vec<String> {
+        card_texts_tainted(preset, requests, mode, false)
+    }
+
+    fn card_texts_tainted(preset: AgentCliPreset, requests: &[ApprovalRequest], mode: AgentPermissionMode, tainted: bool) -> Vec<String> {
         let ctx = Context::default();
         theme::install_fonts(&ctx);
         theme::apply(&ctx);
@@ -422,7 +433,7 @@ mod tests {
         for _ in 0..2 {
             let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
                 let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(420.0, 800.0));
-                let _ = paint_approval_card(ui, panel, preset, requests, "test-card", mode);
+                let _ = paint_approval_card(ui, panel, preset, requests, "test-card", mode, tainted);
             });
             texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
         }
@@ -443,6 +454,18 @@ mod tests {
         assert!(delete.iter().any(|t| t == "Deny"), "{delete:?}");
         let no_target = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "")], AgentPermissionMode::Ask);
         assert!(!no_target.iter().any(|t| t == "Allow this session"), "{no_target:?}");
+    }
+
+    #[test]
+    fn a_tainted_turn_captions_destructive_cards_in_ask_and_ask_risky() {
+        for mode in [AgentPermissionMode::Ask, AgentPermissionMode::AskRisky] {
+            let delete = card_texts_tainted(AgentCliPreset::Claude, &[request("designos_delete_node", "node_id:3")], mode, true);
+            assert!(delete.iter().any(|t| t.contains(designos_mcp::untrusted::SINK_CAPTION)), "{mode:?}: {delete:?}");
+            assert!(!delete.iter().any(|t| t == "Allow this session"), "{mode:?}: dest never grants: {delete:?}");
+            let modify = card_texts_tainted(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], mode, true);
+            assert!(modify.iter().any(|t| t.contains("node 2")), "{mode:?}: {modify:?}");
+            assert!(!modify.iter().any(|t| t.contains(designos_mcp::untrusted::SINK_CAPTION)), "{mode:?} modify is not a sink: {modify:?}");
+        }
     }
 
     #[test]

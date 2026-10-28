@@ -296,7 +296,7 @@ fn ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names() {
     assert!(!script_path.starts_with(&risky.session_dir), "the approval hook must not sit in the session folder");
     let script = std::fs::read_to_string(&script_path).expect("approve-hook.sh");
     assert!(script.contains("designos_get_document"), "a read is on the generated allow list");
-    assert!(!script.contains("designos_delete_node"), "a delete is not on the generated allow list");
+    assert!(script.contains("tainted-sink"), "a delete is rewritten by the untrusted sink, not auto-allowed");
     assert!(!script.contains("designos_update_node"), "a modify is not on the generated allow list");
     finish(risky);
 }
@@ -463,7 +463,7 @@ fn settle_answers(st: &mut TerminalState, id: &str) -> bool {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("settle dir");
     let mut pending = vec![modify_request(id)];
-    crate::agent_permissions::settle_granted_requests(&mut st.session_grants, &st.session_id, &dir, &mut pending, 40);
+    crate::agent_permissions::settle_granted_requests(&mut st.session_grants, &st.session_id, &dir, &mut pending, 40, false);
     let answered = pending.is_empty() && dir.join(format!("{id}.answer")).is_file();
     crate::agent_permissions::remove_auto_allow_log(&crate::agent_permissions::auto_allow_session_key(&dir));
     let _ = std::fs::remove_dir_all(&dir);
