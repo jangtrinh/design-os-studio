@@ -1068,6 +1068,7 @@ impl App {
     fn install_disk_document(&mut self, ctx: &egui::Context, new_doc: Document, new_hash: u64, warning: Option<String>) {
         let old_page = self.page;
         let old_sel = self.selection.clone();
+        self.load_next_id = new_doc.peek_next_id();
         self.doc = new_doc;
         self.agent_presence.reset();
         self.agent_changes_chip.clear();

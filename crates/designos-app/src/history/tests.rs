@@ -3,9 +3,9 @@
 use super::*;
 use designos_doc::{Node, Rect};
 
-struct Tmp(std::path::PathBuf);
+pub(super) struct Tmp(std::path::PathBuf);
 impl Tmp {
-    fn new(tag: &str) -> Self {
+    pub(super) fn new(tag: &str) -> Self {
         let p = std::env::temp_dir().join(format!("designos_history_{}_{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         Self(p)
@@ -18,7 +18,7 @@ impl Drop for Tmp {
 }
 
 /// An app with a library file open, holding `n` rectangles.
-fn app_with_file(t: &Tmp, rects: usize) -> App {
+pub(super) fn app_with_file(t: &Tmp, rects: usize) -> App {
     let mut app = App::new(Document::new("t"));
     app.attach_library(t.0.clone());
     app.new_library_file(None);
@@ -29,7 +29,7 @@ fn app_with_file(t: &Tmp, rects: usize) -> App {
     app
 }
 
-fn add_rect(app: &mut App) {
+pub(super) fn add_rect(app: &mut App) {
     let id = app.doc.alloc_id();
     let page = app.page;
     let cmd = designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))] };
@@ -171,6 +171,23 @@ fn save_view_and_restore_round_trip_with_one_undo() {
     // ... and the older undo history is there again
     app.undo();
     assert_eq!(count(&app), 3);
+}
+
+#[test]
+fn viewing_a_version_and_leaving_it_restores_the_load_watermark() {
+    let t = Tmp::new("watermark");
+    let mut app = app_with_file(&t, 2);
+    let original = app.load_next_id;
+    assert!(app.save_named_version("two", ""));
+    let id = app.lib_file.as_ref().unwrap().id.clone();
+    let n = app.lib.as_ref().unwrap().list_versions(&id)[0].n;
+    let version_peek = app.lib.as_ref().unwrap().load_version(&id, n).unwrap().peek_next_id();
+    assert_ne!(version_peek, original, "the saved version's next id is not the watermark recorded when the file was opened");
+
+    app.view_version(n);
+    assert_eq!(app.load_next_id, version_peek, "the version on the canvas uses its own watermark");
+    app.exit_version_view();
+    assert_eq!(app.load_next_id, original, "leaving the version restores the live document's watermark");
 }
 
 fn add_rect_via_tx(app: &mut App) {

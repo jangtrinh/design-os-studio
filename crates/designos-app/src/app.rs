@@ -163,6 +163,9 @@ impl Toast {
 
 pub struct App {
     pub doc: Document,
+    /// [`Document::peek_next_id`] from when this document was opened, before page 0 expanded its instances.
+    /// Ids at or above it belong to that expansion and are not stable across runs.
+    pub load_next_id: designos_doc::NodeId,
     pub hist: History,
     pub page: NodeId,
     pub selection: Vec<NodeId>,
@@ -273,8 +276,10 @@ pub struct App {
 impl App {
     pub fn new(doc: Document) -> Self {
         let page = doc.pages.first().copied().unwrap_or(NodeId(0));
+        let load_next_id = doc.peek_next_id();
         Self {
             doc,
+            load_next_id,
             hist: History::default(),
             page,
             selection: vec![],

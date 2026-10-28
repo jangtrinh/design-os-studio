@@ -54,12 +54,12 @@ impl Drop for Scratch {
     }
 }
 
-fn text(p: &Path) -> &str {
+pub(crate) fn text(p: &Path) -> &str {
     p.to_str().unwrap()
 }
 
 /// Runs `designos ARGS...` in-process. A refusal comes back as the error text.
-fn run(args: &[&str]) -> Result<(), String> {
+pub(crate) fn run(args: &[&str]) -> Result<(), String> {
     let opts = crate::cli::parse(args.iter().map(|a| a.to_string()))?;
     crate::run_agent_cli(&opts)
 }
@@ -141,10 +141,12 @@ fn select_by_figma_id_in_a_round_tripped_fig() {
 #[test]
 fn inspect_json_reports_the_selection_and_screen_source_ids() {
     let mut doc = two_cards();
-    let target = crate::select_target::resolve(&mut doc, "Card B").unwrap();
-    let v = crate::inspect_json(&doc, target.node);
+    let load_next_id = doc.peek_next_id();
+    let target = crate::select_target::resolve(&mut doc, "Card B", load_next_id).unwrap();
+    let v = crate::inspect_json(&doc, target.node, target.id_stable);
     let s = &v["selection"];
     assert_eq!(s["id"], 5);
+    assert_eq!(s["id_stable"], true, "a node that existed at load is stable: {s}");
     assert_eq!(
         (s["name"].as_str(), s["kind"].as_str(), s["page_id"].as_u64(), s["source_id"].as_str()),
         (Some("Card B"), Some("Frame"), Some(1), Some("12:34"))
@@ -152,7 +154,7 @@ fn inspect_json_reports_the_selection_and_screen_source_ids() {
     assert_eq!((s["x"].as_f64(), s["y"].as_f64()), (Some(480.0), Some(200.0)), "the page position, not the one inside Board: {s}");
     assert_eq!((s["width"].as_f64(), s["height"].as_f64()), (Some(360.0), Some(220.0)));
     assert_eq!(v["pages"][0]["screens"][0]["source_id"], "12:1", "a screen carries its Figma id");
-    assert!(crate::inspect_json(&doc, None).get("selection").is_none(), "no --select, no selection key");
+    assert!(crate::inspect_json(&doc, None, true).get("selection").is_none(), "no --select, no selection key");
 }
 
 #[test]

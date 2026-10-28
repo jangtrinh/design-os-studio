@@ -77,15 +77,20 @@ impl Drop for TmpFig {
     }
 }
 
-/// The window with the fixture open and a text session on the main component's "Title".
-fn open_with_title_session() -> (Sim, TmpFig) {
+/// The fixture on disk, in a directory of its own that goes with the guard.
+fn fixture_file() -> (std::path::PathBuf, TmpFig) {
     static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let dir =
         std::env::temp_dir().join(format!("designos_deferred_page_instances_{}_{}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("deferred.fig");
     std::fs::write(&path, deferred_fig()).unwrap();
-    let guard = TmpFig(dir);
+    (path, TmpFig(dir))
+}
+
+/// The window with the fixture open and a text session on the main component's "Title".
+fn open_with_title_session() -> (Sim, TmpFig) {
+    let (path, guard) = fixture_file();
     let sim = Sim::with(Options { file: Some(path), edit_text: Some("Title".into()), select_text: Some((5, 5)), ..Default::default() });
     (sim, guard)
 }
@@ -136,4 +141,36 @@ fn a_main_component_text_edit_undo_then_opening_the_instances_page_adds_no_child
     s.shell.app.switch_page(uses);
     assert!(hydrated(&s, uses), "the page was expanded when it was opened");
     assert_eq!(shape_of(&s.app().doc), (fresh_nodes, fresh_instances), "edit, undo, then open the page: the instances hold what a fresh load holds");
+}
+
+/// `--select` shows the page it found the target on, and a page on screen holds what a fresh load of it holds: the
+/// instances on it have their main's children, as they do when the page is opened from the Pages panel.
+fn assert_the_selected_page_is_shown_expanded(s: &mut Sim, uses: NodeId) {
+    for _ in 0..3 {
+        s.frame(vec![]);
+    }
+    assert!(s.shell.select_miss.is_none(), "{:?}", s.shell.select_miss);
+    assert_eq!(s.app().page, uses, "the window shows the page the selector named or sits on");
+    assert!(hydrated(s, uses), "the page on screen is expanded");
+    assert_eq!(shape_of(&s.app().doc).1, vec![2; INSTANCES], "the instances on screen hold their main's children");
+}
+
+#[test]
+fn select_by_id_of_an_instance_on_a_deferred_page_shows_that_page_expanded() {
+    let fresh = designos_fig::import_fig(deferred_fig()).expect("import the deferred fixture");
+    let instance = fresh.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("an instance").id;
+    let (path, _tmp) = fixture_file();
+    let mut s = Sim::with(Options { file: Some(path), select: Some(format!("id:{}", instance.0)), ..Default::default() });
+    let uses = uses_page(&s);
+    assert_eq!(s.app().selection, vec![instance], "the instance is selected");
+    assert_the_selected_page_is_shown_expanded(&mut s, uses);
+}
+
+#[test]
+fn select_by_page_name_of_a_deferred_page_shows_that_page_expanded() {
+    let (path, _tmp) = fixture_file();
+    let mut s = Sim::with(Options { file: Some(path), select: Some("Uses".into()), ..Default::default() });
+    let uses = uses_page(&s);
+    assert!(s.app().selection.is_empty(), "a page name selects no layer");
+    assert_the_selected_page_is_shown_expanded(&mut s, uses);
 }

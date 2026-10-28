@@ -129,7 +129,6 @@ fn window_icon() -> Option<egui::IconData> {
 }
 
 fn main() {
-    designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
     let opts = match cli::parse(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {
@@ -335,9 +334,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
 
+    // The next id, before any page is expanded. Ids from that expansion are per session.
+    let load_next_id = doc.peek_next_id();
     // Resolve --select before anything is imported, applied or saved: a miss must leave the file as it was.
-    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref())?;
+    let selected_target = select_target::resolve_flag(&mut doc, opts.select.as_deref(), load_next_id)?;
     let selected_node = selected_target.and_then(|t| t.node);
+    let id_stable = selected_target.is_some_and(|t| t.id_stable);
     if let (Some(target), Some(raw)) = (selected_target, opts.select.as_deref()) {
         if let Some(note) = target.note(raw.trim()) {
             eprintln!("designos: {note}");
@@ -372,7 +374,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
         let spec = cli::parse_spec_json(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
-        let root_id = doc.apply_spec(parent, &spec)?;
+        let root_id = doc.apply_spec_with_measure(parent, &spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|e| e.to_string())?.root_node_id;
         // no window drains the deferred layout here, and the queue is not part of the file
         doc.flush_pending_relayout();
         save_target.save(&doc)?;
@@ -592,7 +594,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
     }
 
     if opts.inspect_json {
-        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node)).unwrap());
+        println!("{}", serde_json::to_string_pretty(&inspect_json(&doc, selected_node, id_stable)).unwrap());
     }
 
     Ok(())
@@ -600,7 +602,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
 
 /// What `--inspect-json` prints: the pages and screens of the document (with their Figma ids), plus the node that
 /// `--select` addressed, in page coordinates, so an agent can read where it is without a second command.
-fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>) -> serde_json::Value {
+fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::NodeId>, id_stable: bool) -> serde_json::Value {
     let mut out = serde_json::json!({
         "name": doc.name,
         "kind": doc.kind,
@@ -625,6 +627,7 @@ fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::Nod
         let b = designos_doc::node_world_bounds(doc, n.id);
         out["selection"] = serde_json::json!({
             "id": n.id.0,
+            "id_stable": id_stable,
             "name": n.name,
             "kind": n.kind.default_name(),
             "page_id": doc.page_of(n.id).map(|p| p.0),
@@ -649,7 +652,10 @@ mod icon_tests {
         node.source_id = Some("12:34".into());
         doc.insert(page, node).unwrap();
 
-        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| super::select_target::resolve_flag(doc, select).map(|t| t.and_then(|t| t.node));
+        let resolve = |doc: &mut designos_doc::Document, select: Option<&str>| {
+            let load_next_id = doc.peek_next_id();
+            super::select_target::resolve_flag(doc, select, load_next_id).map(|t| t.and_then(|t| t.node))
+        };
         assert_eq!(resolve(&mut doc, Some("id:2")).unwrap(), Some(designos_doc::NodeId(2)));
         assert_eq!(resolve(&mut doc, Some("fig:12:34")).unwrap(), Some(designos_doc::NodeId(2)));
         assert_eq!(resolve(&mut doc, Some("name:Card")).unwrap(), Some(designos_doc::NodeId(2)));

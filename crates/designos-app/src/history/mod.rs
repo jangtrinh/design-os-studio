@@ -2,7 +2,7 @@
 //! version read-only, and restoring it.
 //!
 //! Restoring replaces the document wholesale, which the command history cannot
-//! express, so the pre-restore state (document, undo stack, page) is parked in
+//! express, so the pre-restore state (document, its load watermark, undo stack, page) is parked in
 //! [`HistoryState::restore_undo`]; the first undo with nothing left to undo
 //! swaps it back, and the next redo swaps forward again.
 
@@ -52,6 +52,8 @@ pub struct Snapshot {
     pub hist: History,
     pub page: NodeId,
     pub selection: Vec<NodeId>,
+    /// [`crate::app::App::load_next_id`] of `doc`, from when that document was opened.
+    pub load_next_id: NodeId,
 }
 
 /// A version shown read-only on the canvas; `saved` is the live state to come back to.
@@ -307,3 +309,5 @@ pub fn finish_dialog(app: &mut App, d: &crate::home::Dialog) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_restore_watermark;

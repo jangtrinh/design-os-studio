@@ -10,7 +10,7 @@ pub struct Options {
     /// Device pixel ratio of `--screenshot` (`--scale 2` writes a PNG twice the `--size`, with crisp UI and text).
     pub scale: Option<f32>,
     /// Address one node: `id:<n>`, `fig:<figma id>`, `name:<text>`, a layer name, or `none`. A selector that matches nothing is an
-    /// error (exit 2), never another node.
+    /// error (exit 2), never another node. Ids of expanded instance content are per session: use `fig:<id>` or a name for those.
     pub select: Option<String>,
     /// Open a menu after loading: `main`, `main/File`, `shape`, `palette` (for screenshots).
     pub menu: Option<String>,
@@ -434,7 +434,7 @@ pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
 
 pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
-  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number is a layer name, else a node id. A selector that matches nothing exits 2 and changes nothing
+  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number that is both a layer name and a node id exits 2 (use id:<n> or name:<n>). Ids of expanded instance content are per session: use fig:<id> or a name for those. A selector that matches nothing exits 2 and changes nothing
   --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
@@ -690,6 +690,19 @@ mod tests {
     fn the_usage_lists_the_version_flag() {
         assert!(USAGE.contains("--version"), "{USAGE}");
         assert!(USAGE.contains("-V"), "{USAGE}");
+    }
+
+    #[test]
+    fn the_usage_says_ids_of_expanded_instance_content_are_per_session() {
+        let line = USAGE.lines().find(|l| l.trim_start().starts_with("--select")).expect("--help has a line for --select");
+        assert!(line.contains("Ids of expanded instance content are per session: use fig:<id> or a name for those"), "{line}");
+    }
+
+    #[test]
+    fn the_select_help_says_a_number_that_is_a_name_and_an_id_exits_2() {
+        let line = USAGE.lines().find(|l| l.trim_start().starts_with("--select")).expect("--help has a line for --select");
+        assert!(line.contains("a bare number that is both a layer name and a node id exits 2"), "{line}");
+        assert!(!line.contains("a bare number is a layer name, else a node id"), "the old sentence contradicts the overlap error: {line}");
     }
 
     #[test]

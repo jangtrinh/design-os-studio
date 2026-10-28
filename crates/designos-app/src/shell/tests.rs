@@ -72,7 +72,6 @@ impl Sim {
     }
     /// The shell after `Shell::build`, before any frame. A preset toast raised during build has not been painted.
     fn built(mut opts: Options) -> Self {
-        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
             opts.fixture = Some("demo".into());
         }
@@ -1170,6 +1169,7 @@ mod proto_vars;
 mod relayout_budget;
 mod resized_shape_geometry;
 mod select_cli;
+mod select_cli_watermark;
 mod slot_canvas_edits;
 mod stale_canvas_after_agent_edit;
 mod stray_layers;

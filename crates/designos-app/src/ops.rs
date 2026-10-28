@@ -2030,6 +2030,8 @@ impl App {
         });
         io::ensure_page(&mut doc);
         let first_page = doc.pages[0];
+        // Before page 0 expands instances. Ids allocated there are per session (`--select id:` refuses them).
+        self.load_next_id = doc.peek_next_id();
         doc.ensure_page_hydrated(first_page);
         self.page = first_page;
         self.doc = doc;
