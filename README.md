@@ -619,6 +619,8 @@ design-os-studio/
 
 ### Known issues
 
+- Not in 0.7.0: Codex approvals answered from the Agents panel ([#930](https://github.com/jangtrinh/design-os-studio/issues/930)) and the Ubuntu test-memory change ([#1205](https://github.com/jangtrinh/design-os-studio/issues/1205)) were reverted before release ([#1284](https://github.com/jangtrinh/design-os-studio/pull/1284)). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) were not smoke-tested. [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) stays open on 0.7.1. The `changed layers` card scrolling from [#1276](https://github.com/jangtrinh/design-os-studio/pull/1276) is in 0.7.0.
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing ([#1277](https://github.com/jangtrinh/design-os-studio/issues/1277)).
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).

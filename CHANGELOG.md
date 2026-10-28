@@ -24,7 +24,7 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
 
 ### Fixed
 - **Agents panel.**
-  - Expanding the `changed layers` review card with `Show all` caps the card inside the Agents panel and scrolls the layer list with the mouse wheel and a scrollbar while keeping `Show less`, `Revert` and `Keep` reachable at the bottom (#1173, PR #1276).
+  - Expanding the `changed layers` review card with `Show all` caps the card inside the Agents panel and scrolls the layer list with the mouse wheel and a scrollbar while keeping `Show less`, `Revert` and `Keep` reachable at the bottom (PR #1276; the terminal part of #1173 is not fixed, see Known issues).
 - **Canvas and effects.**
   - On a frame with no fill or stroke and `Show behind` off, the drop shadow's cut-out follows the union of its visible children's shapes (clipped when the frame clips content) instead of erasing the whole frame rectangle (#520, PR #1263).
   - When a `Save changes to {name}?` dialog or another interruption commits an in-progress move before pointer release, Studio uses the last pointer position so a layer dragged out of a clipping frame reparents into the frame under the pointer (PR #1204).
@@ -40,6 +40,8 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` centre hugging button labels inside `NodeSpec` presets and aligned auto-layout frames when the text has default alignment, and `designos_create_node` and `designos_update_node` keep explicit text box sizes across later text-only updates (#1098, PR #1151).
 
 ### Known issues
+- Not in 0.7.0: Codex approvals answered from the Agents panel (#930) and the Ubuntu test-memory change (#1205) were reverted before release (#1284). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of #1173 were not smoke-tested. #1173 stays open on 0.7.1. The `changed layers` card scrolling from PR #1276 is in 0.7.0.
 - Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing (#1277).
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG (#1278).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 (#1279).
