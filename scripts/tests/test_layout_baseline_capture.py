@@ -1054,6 +1054,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             stubs = make_stub_dir(root)
             kit_file = make_fake_kit(root)
             msgs_file = root / "mcp_messages.jsonl"
+            seen_clone_file = root / "seen_clone.txt"
             cases_file = root / "cases.json"
             cases_file.write_text(
                 json.dumps({"cases": [{"id": "d-editor-default", "spec": "D", "args": []}]}),
@@ -1072,6 +1073,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
                 tmpdir = Path(os.environ["TMPDIR"])
                 cli_dir = Path(os.environ["DESIGNOS_AGENT_CLI_DIR"]).resolve()
                 (tmpdir / ".designos-hermetic-active").write_text(f"pid={{os.getpid()}}\\ndir={{cli_dir}}\\n")
+                Path({str(seen_clone_file)!r}).write_text(Path(sys.argv[1]).read_text(encoding="utf-8"), encoding="utf-8")
                 shot = Path(sys.argv[sys.argv.index("--screenshot") + 1])
                 ljson = Path(sys.argv[sys.argv.index("--layout-json") + 1])
                 write_solid_png(shot, 200, 160)
@@ -1107,7 +1109,7 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             self.assertEqual(methods[2], "tools/call")
             self.assertEqual(msgs[2]["params"]["name"], "designos_open_file")
             self.assertEqual(
-                (out_dir / "_kit_cache" / "kit.designos").read_text(encoding="utf-8"),
+                seen_clone_file.read_text(encoding="utf-8"),
                 "imported-kit-designos\n",
             )
 
