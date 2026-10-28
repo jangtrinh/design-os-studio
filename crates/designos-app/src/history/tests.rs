@@ -3,9 +3,9 @@
 use super::*;
 use designos_doc::{Node, Rect};
 
-struct Tmp(std::path::PathBuf);
+pub(super) struct Tmp(std::path::PathBuf);
 impl Tmp {
-    fn new(tag: &str) -> Self {
+    pub(super) fn new(tag: &str) -> Self {
         let p = std::env::temp_dir().join(format!("designos_history_{}_{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         Self(p)
@@ -18,7 +18,7 @@ impl Drop for Tmp {
 }
 
 /// An app with a library file open, holding `n` rectangles.
-fn app_with_file(t: &Tmp, rects: usize) -> App {
+pub(super) fn app_with_file(t: &Tmp, rects: usize) -> App {
     let mut app = App::new(Document::new("t"));
     app.attach_library(t.0.clone());
     app.new_library_file(None);
@@ -29,7 +29,7 @@ fn app_with_file(t: &Tmp, rects: usize) -> App {
     app
 }
 
-fn add_rect(app: &mut App) {
+pub(super) fn add_rect(app: &mut App) {
     let id = app.doc.alloc_id();
     let page = app.page;
     let cmd = designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))] };

@@ -210,6 +210,7 @@ impl Shell {
         }
         let mut shot_open_failed = false;
         if let Some(f) = &opts.file {
+            let nothing_allocated_yet = app.doc.peek_next_id() == app.load_next_id;
             if let Err(err) = app.try_open_path(f.clone()) {
                 if opts.screenshot.is_some() {
                     let reason = err.lines().next().unwrap_or(&err).trim().trim_end_matches('.');
@@ -217,6 +218,12 @@ impl Shell {
                     shot_open_failed = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
+            }
+            // A web capture is imported into the document on screen instead of replacing it, so `replace_document` did not
+            // record the watermark of what it made. The agent CLI loads the capture as the document and records the next id
+            // after that import, which is the same on every run: do the same, so `--select id:` agrees with it.
+            if nothing_allocated_yet && app.web_capture_report.is_some() {
+                app.load_next_id = app.doc.peek_next_id();
             }
         }
         if let Some(cap) = &opts.import_capture {
@@ -244,6 +251,8 @@ impl Shell {
                     }
                     if let Some(id) = target.node {
                         if let Some(pg) = app.doc.page_of(id) {
+                            // The page on screen is expanded, as when it is opened by hand. The resolver never expands one.
+                            app.doc.ensure_page_hydrated(pg);
                             app.page = pg;
                         }
                         if app.doc.pages.contains(&id) {

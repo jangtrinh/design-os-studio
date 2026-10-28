@@ -156,6 +156,21 @@ pub fn load_call_count(path: &Path) -> usize {
     load_counts().lock().ok().and_then(|m| m.get(path).copied()).unwrap_or(0)
 }
 
+/// Test seam: `f` runs once on the document the next [`load_path_with_clone_budget`] on this thread returns, so a test
+/// can give a file the page hydrator that no importer attaches to page 0.
+#[cfg(test)]
+pub fn after_next_load(f: impl FnOnce(&mut Document) + 'static) {
+    AFTER_NEXT_LOAD.with(|slot| *slot.borrow_mut() = Some(Box::new(f)));
+}
+
+#[cfg(test)]
+type AfterLoad = Box<dyn FnOnce(&mut Document)>;
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_NEXT_LOAD: std::cell::RefCell<Option<AfterLoad>> = const { std::cell::RefCell::new(None) };
+}
+
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
     load_path_with_clone_budget(path, designos_fig::MAX_IMPORT_CLONES)
 }
@@ -165,7 +180,22 @@ pub fn load_path_with_clone_budget(path: &Path, clone_budget: usize) -> Result<(
     if let Ok(mut m) = load_counts().lock() {
         *m.entry(path.to_path_buf()).or_insert(0) += 1;
     }
-    load_path_importing_pen_with_mode(path, import_pen_with_options, true, clone_budget)
+    after_load_seam(load_path_importing_pen_with_mode(path, import_pen_with_options, true, clone_budget))
+}
+
+#[cfg(test)]
+fn after_load_seam(loaded: Result<(Document, Option<String>), String>) -> Result<(Document, Option<String>), String> {
+    loaded.map(|(mut doc, warning)| {
+        if let Some(f) = AFTER_NEXT_LOAD.with(|slot| slot.borrow_mut().take()) {
+            f(&mut doc);
+        }
+        (doc, warning)
+    })
+}
+
+#[cfg(not(test))]
+fn after_load_seam(loaded: Result<(Document, Option<String>), String>) -> Result<(Document, Option<String>), String> {
+    loaded
 }
 
 /// [`load_path_with_warning`] with the `.pen` importer injected, so a test can produce a warning

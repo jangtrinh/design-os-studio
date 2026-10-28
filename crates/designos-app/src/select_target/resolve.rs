@@ -1,7 +1,11 @@
 //! Name lookup, bare-id parse, the load-watermark check, and the one hydrate-and-retry.
 
+use super::miss::miss;
 use super::{By, SelectError, Target};
 use designos_doc::{Document, Node, NodeId};
+
+/// A file this size or larger keeps no Figma id on instance children, so expanding pages cannot add a `fig:` match.
+pub(super) const LARGE_FILE_NODES: usize = 10_000;
 
 pub(super) enum Sel<'a> {
     Id(NodeId),
@@ -31,7 +35,7 @@ pub(super) fn parse(s: &str) -> Result<Sel<'_>, SelectError> {
     Ok(Sel::Bare(s))
 }
 
-fn for_each_layer(doc: &Document, mut f: impl FnMut(&Node)) {
+pub(super) fn for_each_layer(doc: &Document, mut f: impl FnMut(&Node)) {
     for &page in &doc.pages {
         doc.walk(page, |n, _| f(n));
     }
@@ -89,56 +93,18 @@ fn unstable(id: NodeId, load_next_id: NodeId) -> bool {
     id.0 >= load_next_id.0
 }
 
-fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
-    let mut layers = 0;
-    for_each_layer(doc, |_| layers += 1);
-    let pages = doc.pages.len();
-    let by = match sel {
-        Sel::Id(_) => "id",
-        Sel::Figma(_) => "Figma id",
-        Sel::Bare(v) if v.parse::<u64>().is_ok() => "name or id",
-        _ => "name",
-    };
-    let mut searched = format!(
-        "(searched {layers} layers on {pages} page{} by {by}; use --inspect-json to list screens, or id:<n> / fig:<id>)",
-        if pages == 1 { "" } else { "s" }
-    );
-    if expanded {
-        let left = doc.hydration_unexpanded_instances();
-        if left > 0 {
-            searched.push_str(&format!(" (all pages expanded; {left} instances left unexpanded by the clone budget)"));
-        } else {
-            searched.push_str(" (all pages expanded)");
-        }
-    }
-    if matches!(sel, Sel::Figma(_)) {
-        if !doc.nodes.values().any(|n| n.source_id.is_some()) {
-            searched.push_str(" (this document has no Figma ids)");
-        }
-        if doc.nodes.len() > 10_000 {
-            searched.push_str(" (instance sublayers in files over 10,000 nodes keep no Figma id; select the instance and use id:<n>)");
-        }
-    }
-    SelectError::NoMatch { raw: raw.into(), searched }
-}
-
+/// Expands every deferred page once and looks the name up again. The bool is whether an expansion ran and changed the document.
 fn retry_name(doc: &mut Document, needle: &str, load_next_id: NodeId) -> (Option<Target>, bool) {
-    let deferred = doc.page_hydrator.is_some();
-    if deferred && doc.hydrate_all_pages() {
-        if let Some(target) = by_name(doc, needle) {
-            return (Some(stamp(target, load_next_id)), true);
-        }
-    }
-    (None, deferred)
+    let expanded = doc.page_hydrator.is_some() && doc.hydrate_all_pages();
+    let found = if expanded { by_name(doc, needle).map(|target| stamp(target, load_next_id)) } else { None };
+    (found, expanded)
 }
 
 pub(super) fn resolve_id(doc: &Document, raw: &str, id: NodeId, load_next_id: NodeId) -> Result<Target, SelectError> {
-    if unstable(id, load_next_id) {
-        return Err(SelectError::Unstable { id: id.0 });
-    }
     match doc.get(id) {
-        Some(_) => Ok(stamp(hit(doc, id, By::Id, 1), load_next_id)),
         None => Err(miss(doc, &Sel::Id(id), raw, false)),
+        Some(_) if unstable(id, load_next_id) => Err(SelectError::Unstable { id: id.0 }),
+        Some(_) => Ok(stamp(hit(doc, id, By::Id, 1), load_next_id)),
     }
 }
 
@@ -146,22 +112,21 @@ pub(super) fn resolve_fig(doc: &mut Document, raw: &str, want: &str, load_next_i
     if let Some(target) = by_figma_id(doc, raw, want)? {
         return Ok(stamp(target, load_next_id));
     }
-    // Instance children in a large import keep no Figma id, so expanding pages cannot add a match.
-    let deferred = doc.nodes.len() < 10_000 && doc.page_hydrator.is_some();
-    if deferred && doc.hydrate_all_pages() {
+    let expanded = doc.nodes.len() < LARGE_FILE_NODES && doc.page_hydrator.is_some() && doc.hydrate_all_pages();
+    if expanded {
         if let Some(target) = by_figma_id(doc, raw, want)? {
             return Ok(stamp(target, load_next_id));
         }
     }
-    Err(miss(doc, &Sel::Figma(want), raw, deferred))
+    Err(miss(doc, &Sel::Figma(want), raw, expanded))
 }
 
 pub(super) fn resolve_name(doc: &mut Document, raw: &str, needle: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
     if let Some(target) = by_name(doc, needle) {
         return Ok(stamp(target, load_next_id));
     }
-    let (found, deferred) = retry_name(doc, needle, load_next_id);
-    found.ok_or_else(|| miss(doc, &Sel::Name(needle), raw, deferred))
+    let (found, expanded) = retry_name(doc, needle, load_next_id);
+    found.ok_or_else(|| miss(doc, &Sel::Name(needle), raw, expanded))
 }
 
 pub(super) fn resolve_bare(doc: &mut Document, raw: &str, v: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
@@ -170,14 +135,14 @@ pub(super) fn resolve_bare(doc: &mut Document, raw: &str, v: &str, load_next_id:
     match (name_hit, id_hit) {
         (Some(name), Some(id)) => {
             let layer = name.node.map(|n| n.0).unwrap_or(id.0);
-            Err(SelectError::NameAndId { raw: raw.into(), layer, id: id.0 })
+            Err(SelectError::NameAndId { raw: raw.into(), layer, id: id.0, id_stable: !unstable(id, load_next_id) })
         }
         (Some(name), None) => Ok(stamp(name, load_next_id)),
         (None, Some(id)) if unstable(id, load_next_id) => Err(SelectError::Unstable { id: id.0 }),
         (None, Some(id)) => Ok(stamp(hit(doc, id, By::BareId, 1), load_next_id)),
         (None, None) => {
-            let (found, deferred) = retry_name(doc, v, load_next_id);
-            found.ok_or_else(|| miss(doc, &Sel::Bare(v), raw, deferred))
+            let (found, expanded) = retry_name(doc, v, load_next_id);
+            found.ok_or_else(|| miss(doc, &Sel::Bare(v), raw, expanded))
         }
     }
 }

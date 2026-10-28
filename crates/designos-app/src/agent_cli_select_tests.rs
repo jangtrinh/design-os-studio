@@ -54,12 +54,12 @@ impl Drop for Scratch {
     }
 }
 
-fn text(p: &Path) -> &str {
+pub(crate) fn text(p: &Path) -> &str {
     p.to_str().unwrap()
 }
 
 /// Runs `designos ARGS...` in-process. A refusal comes back as the error text.
-fn run(args: &[&str]) -> Result<(), String> {
+pub(crate) fn run(args: &[&str]) -> Result<(), String> {
     let opts = crate::cli::parse(args.iter().map(|a| a.to_string()))?;
     crate::run_agent_cli(&opts)
 }

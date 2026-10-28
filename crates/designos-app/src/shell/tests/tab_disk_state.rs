@@ -24,12 +24,12 @@ fn visit_a_library_tab(s: &mut Sim, path: &Path) -> usize {
 }
 
 /// Writes `doc` over the file with a later modification time than the one the app recorded.
-fn rewrite_on_disk(path: &Path, doc: &Document) {
+pub(super) fn rewrite_on_disk(path: &Path, doc: &Document) {
     std::thread::sleep(Duration::from_millis(30));
     std::fs::write(path, doc.to_json().unwrap()).unwrap();
 }
 
-fn other_document() -> Document {
+pub(super) fn other_document() -> Document {
     let mut d = Document::new("Written by another program");
     let page = d.add_page("P");
     for i in 0..7 {

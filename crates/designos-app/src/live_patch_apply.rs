@@ -51,6 +51,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
         app.tabs = tabs;
     } else {
         let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
+        app.load_next_id = new_doc.peek_next_id();
         app.doc = new_doc;
         app.page = keep_page;
         app.file_path = None;

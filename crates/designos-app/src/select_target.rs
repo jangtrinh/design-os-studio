@@ -8,6 +8,7 @@
 //! pages; `fig:` does so once only under 10,000 nodes; a hit never does. A miss expands them once and retries the name.
 use designos_doc::{Document, NodeId};
 mod error;
+mod miss;
 mod resolve;
 pub use error::SelectError;
 
@@ -69,3 +70,5 @@ pub fn resolve_flag(doc: &mut Document, select: Option<&str>, load_next_id: Node
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_edges;

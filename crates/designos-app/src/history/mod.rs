@@ -309,3 +309,5 @@ pub fn finish_dialog(app: &mut App, d: &crate::home::Dialog) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_restore_watermark;

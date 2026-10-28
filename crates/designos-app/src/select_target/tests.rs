@@ -7,18 +7,18 @@ use designos_doc::{Document, Node, NodeId, PageHydrator, Rect};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-fn named(id: u64, name: &str, x: f32) -> Node {
+pub(super) fn named(id: u64, name: &str, x: f32) -> Node {
     let mut n = Node::rectangle(NodeId(id), Rect::new(x, 0.0, 10.0, 10.0));
     n.name = name.into();
     n
 }
 
-fn node_of(doc: &mut Document, selector: &str) -> Option<NodeId> {
+pub(super) fn node_of(doc: &mut Document, selector: &str) -> Option<NodeId> {
     resolve_loaded(doc, selector).unwrap_or_else(|e| panic!("{selector}: {e}")).node
 }
 
 /// The watermark a caller records at load, before this resolve expands anything.
-fn resolve_loaded(doc: &mut Document, raw: &str) -> Result<crate::select_target::Target, crate::select_target::SelectError> {
+pub(super) fn resolve_loaded(doc: &mut Document, raw: &str) -> Result<crate::select_target::Target, crate::select_target::SelectError> {
     let load_next_id = doc.peek_next_id();
     resolve(doc, raw, load_next_id)
 }
@@ -112,9 +112,9 @@ fn fig_id_duplicates_are_an_error() {
 /// A page hydrator that stays attached (instances are still unexpanded) and keeps claiming progress for its first
 /// calls: a resolver that retries until nothing changes would call it again and again.
 #[derive(Debug)]
-struct CountingHydrator {
-    calls: Arc<AtomicUsize>,
-    late: Option<(NodeId, Node)>,
+pub(super) struct CountingHydrator {
+    pub(super) calls: Arc<AtomicUsize>,
+    pub(super) late: Option<(NodeId, Node)>,
 }
 
 impl PageHydrator for CountingHydrator {
@@ -137,7 +137,7 @@ impl PageHydrator for CountingHydrator {
 }
 
 /// `two_cards` plus a deferred layer, `Lazy Card` (id 9, Figma id 99:1), that exists only after hydration.
-fn lazy_cards(calls: &Arc<AtomicUsize>) -> Document {
+pub(super) fn lazy_cards(calls: &Arc<AtomicUsize>) -> Document {
     let mut doc = two_cards();
     let mut late = named(9, "Lazy Card", 0.0);
     late.source_id = Some("99:1".into());
@@ -175,7 +175,8 @@ fn a_miss_says_what_was_searched() {
     let msg = resolve_loaded(&mut doc, "Card Z").unwrap_err().to_string();
     assert_eq!(msg, "--select \"Card Z\" matched no node (searched 6 layers on 1 page by name; use --inspect-json to list screens, or id:<n> / fig:<id>)");
     let msg = resolve_loaded(&mut doc, "id:99").unwrap_err().to_string();
-    assert!(msg.contains("id 99 belongs to an expanded instance and is not stable across runs"), "{msg}");
+    assert!(msg.starts_with("--select \"id:99\" matched no node (no node has id 99;"), "an id nothing has is a miss: {msg}");
+    assert!(!msg.contains("expanded instance"), "a typo gets no false explanation: {msg}");
     doc.remove(NodeId(6)).unwrap();
     let msg = resolve_loaded(&mut doc, "id:6").unwrap_err().to_string();
     assert!(msg.starts_with("--select \"id:6\" matched no node") && msg.contains("by id"), "an id below the watermark that is not there is a miss: {msg}");
@@ -215,7 +216,7 @@ fn id_selector_never_hydrates() {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut doc = lazy_cards(&calls);
     let err = resolve_loaded(&mut doc, "id:9").unwrap_err().to_string();
-    assert!(err.contains("not stable across runs"), "{err}");
+    assert!(err.contains("no node has id 9"), "node 9 exists only after hydration, which id: never runs: {err}");
     assert_eq!(calls.load(Ordering::SeqCst), 0, "id: does not expand pages");
 
     let calls = Arc::new(AtomicUsize::new(0));
@@ -260,9 +261,11 @@ fn hydrated_ids_are_reported_unstable() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let mut doc = lazy_cards(&calls);
-    let err = resolve_loaded(&mut doc, "id:9").unwrap_err().to_string();
-    assert!(err.contains("not stable across runs"), "{err}");
-    assert_eq!(calls.load(Ordering::SeqCst), 0, "refusing the id does not expand pages");
+    let load_next_id = doc.peek_next_id();
+    resolve(&mut doc, "Lazy Card", load_next_id).unwrap();
+    let err = resolve(&mut doc, "id:9", load_next_id).unwrap_err().to_string();
+    assert!(err.contains("id 9 belongs to an expanded instance and is not stable across runs"), "the node exists now, above the watermark: {err}");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "only the name lookup expanded pages; refusing the id did not");
 
     let mut doc = two_cards();
     let stable = resolve_loaded(&mut doc, "id:5").unwrap();
