@@ -6,11 +6,11 @@ Copy-paste recipes for **DESIGN:OS Studio** (`skills/design-os-studio/SKILL.md`,
 
 ## 1. Generate & Roundtrip `.spec.json` -> `.fig` v106 Binary
 
-> "Apply `examples/specs/easeui-agent-console.spec.json` onto the DESIGN:OS Studio canvas, export a verified Figma `.fig` v106 binary archive to `out.fig`, and capture a 1600x1000 GPU screenshot."
+> "Apply `screen.spec.json` onto the DESIGN:OS Studio canvas, export a verified Figma `.fig` v106 binary archive to `out.fig`, and capture a 1600x1000 GPU screenshot."
 
 ```bash
 # 1. Generate or update a screen from a declarative NodeSpec JSON with Auto-Layout 5.0
-designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
+designos app.designos --apply-spec screen.spec.json
 
 # 2. Save any document (.designos or .fig) directly to a standard Figma .fig v106 binary archive.
 #    The path must end in .fig and must not exist yet; add --overwrite to replace an existing regular

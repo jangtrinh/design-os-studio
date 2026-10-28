@@ -48,7 +48,7 @@ fn blocked_dir(parent: &Path) -> PathBuf {
 }
 
 /// The success toast carries the exported file for its "Show in folder" action and stays long enough to act on.
-fn assert_offers_reveal(app: &App, exported: &Path) {
+pub(crate) fn assert_offers_reveal(app: &App, exported: &Path) {
     let toast = app.toast.as_ref().expect("success toast");
     assert!(!toast.error, "unexpected error toast: {}", toast.text);
     assert!(toast.text.contains(&exported.display().to_string()), "toast shows the full path: {}", toast.text);
@@ -328,6 +328,10 @@ fn reveal_command_selects_the_file_in_each_file_manager() {
     assert_eq!((program, args), ("explorer", vec!["/select,".into(), file.into()]));
     let (program, args) = reveal_command("linux", file);
     assert_eq!((program, args), ("xdg-open", vec![Path::new("/lib/exports").into()]));
+    let dir = scratch("linux-dir-reveal");
+    let (program, args) = reveal_command("linux", &dir);
+    assert_eq!((program, args), ("xdg-open", vec![dir.as_os_str().to_os_string()]), "a folder reveal on Linux opens the folder itself, not its parent");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

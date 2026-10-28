@@ -255,7 +255,7 @@ pub fn publishable_assets(doc: &Document) -> Vec<(String, LibraryAssetKind, Stri
         });
     }
     let imported: BTreeSet<&str> = doc.library.external.values().filter_map(|e| e.local_key.as_deref()).collect();
-    for k in doc.styles.keys().filter(|k| !imported.contains(k.as_str())) {
+    for k in doc.styles.keys().filter(|k| doc.is_table_style(k) && !imported.contains(k.as_str())) {
         out.push((format!("style:{k}"), LibraryAssetKind::Style, doc.style_name(k).to_string()));
     }
     for (id, c) in doc.variable_collections.iter().filter(|(id, _)| !imported.contains(id.as_str())) {
@@ -1046,9 +1046,14 @@ pub fn apply_style_values(n: &mut Node, style: &Style, key: &str) -> bool {
         Style::Text(ts) => {
             if let NodeKind::Text(t) = &mut n.kind {
                 if n.style_refs.get("text").is_some_and(|k| k == key) {
-                    t.style = TextStyle { fills: t.style.fills.clone(), ..ts.clone() };
+                    let (align_h, align_v) = (t.style.align_h, t.style.align_v);
+                    t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
+                    t.paragraph.indent = ts.paragraph_indent;
+                    t.paragraph.list_spacing = ts.list_spacing;
+                    t.paragraph.leading_trim = ts.leading_trim;
                     for r in &mut t.runs {
-                        r.style = TextStyle { fills: r.style.fills.clone(), ..ts.clone() };
+                        let (align_h, align_v) = (r.style.align_h, r.style.align_v);
+                        r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };
                     }
                 }
             }

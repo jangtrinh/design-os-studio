@@ -1,0 +1,71 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.41s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+
+thread 'shell::tests::libraries::selection_styles_section_shows_library_styles_when_file_has_no_local_styles' (44688277) panicked at crates/designos-app/src/shell/tests.rs:194:113:
+nothing recorded for libstyle:Brand/Red
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::libraries::selection_styles_section_shows_library_styles_when_file_has_no_local_styles ... FAILED
+
+failures:
+
+failures:
+    shell::tests::libraries::selection_styles_section_shows_library_styles_when_file_has_no_local_styles
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 0.45s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.70s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+
+thread 'shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page' (44690531) panicked at crates/designos-app/src/shell/tests/text_styles.rs:822:5:
+assertion `left == right` failed: clicking page Export + adds a page export preset
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page ... FAILED
+
+failures:
+
+failures:
+    shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 0.30s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+
+thread 'shell::tests::typography::clicking_typo_var_pill_opens_variables_without_toggling_more' (44692420) panicked at crates/designos-app/src/shell/tests/typography.rs:149:5:
+clicking typo-var-pill opens the Variables modal instead of being swallowed by typo-more-btn
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::typography::clicking_typo_var_pill_opens_variables_without_toggling_more ... FAILED
+
+failures:
+
+failures:
+    shell::tests::typography::clicking_typo_var_pill_opens_variables_without_toggling_more
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 0.26s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

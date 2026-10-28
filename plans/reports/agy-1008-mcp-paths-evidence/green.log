@@ -1,0 +1,23 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1008-mcp-paths/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.64s
+     Running tests/mcp_paths.rs (out/cargo/debug/deps/mcp_paths-b3ed97f18484d57c)
+
+running 12 tests
+test export_fig_refuses_symlink_inside_workspace ... ok
+test export_fig_refuses_dangling_symlink_inside_and_outside_workspace ... ok
+test export_fig_refuses_symlink_to_outside_canary_and_leaves_canary_untouched ... ok
+test export_fig_refuses_folder ... ok
+test save_file_and_render_png_refuse_dangling_and_live_symlinks_and_preserve_canary ... ok
+test file_creation_tools_refuse_control_characters_in_names ... ok
+test file_creation_tools_report_name_too_long_instead_of_file_exists ... ok
+test file_creation_tools_refuse_bidi_override_characters_in_names ... ok
+test outside_workspace_refusal_never_echoes_path_and_preserves_canary ... ok
+test export_fig_refuses_existing_file_unless_overwrite_is_true ... ok
+test export_fig_validates_extension_case_insensitively ... ok
+test bare_engine_export_fig_enforces_all_target_checks ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+

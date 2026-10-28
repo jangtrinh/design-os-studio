@@ -1,0 +1,4 @@
+1792820301 124187 ~/.gemini/projects.json
+1792819410 1827 ~/.gemini/oauth_creds.json
+1792838883 128 ~/.codex/tmp/arg0-macos
+2026-10-24T13:36:12Z

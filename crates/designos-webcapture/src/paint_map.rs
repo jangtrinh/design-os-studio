@@ -691,9 +691,9 @@ fn parse_box_shadow_item(item: &str, font_size: f32) -> Option<Effect> {
     }
 
     if inset {
-        Some(Effect::InnerShadow { color: c, offset: Vec2::new(ox, oy), radius: blur, spread, visible: true })
+        Some(Effect::InnerShadow { color: c, offset: Vec2::new(ox, oy), radius: blur, spread, visible: true, blend: Default::default() })
     } else {
-        Some(Effect::DropShadow { color: c, offset: Vec2::new(ox, oy), radius: blur, spread, visible: true, show_behind: false })
+        Some(Effect::DropShadow { color: c, offset: Vec2::new(ox, oy), radius: blur, spread, visible: true, show_behind: false, blend: Default::default() })
     }
 }
 

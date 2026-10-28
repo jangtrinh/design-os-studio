@@ -385,6 +385,7 @@ fn strict_pass_skips_key_wrapping_on_large_document_and_reports_overhead() {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         node.corner_radii = [8.0, 8.0, 8.0, 8.0];
         if let NodeKind::Frame(container) = &mut node.kind {

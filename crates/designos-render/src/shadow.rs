@@ -202,6 +202,7 @@ pub fn drop_shadow_rrect(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     fill_alpha: f32,
     sil: Sil,
@@ -278,10 +279,10 @@ pub fn drop_shadow_rrect(
     }
     if !show_behind {
         if let Some(mut knock) = sk::Pixmap::new(rw as u32, rh as u32) {
-            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, true);
+            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, designos_doc::SilhouetteMode::Knockout);
             composite(&mut pm, 0, 0, &knock, sk::BlendMode::DestinationOut, None);
         }
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    crate::effects::composite_blended(target, rx, ry, &pm, blend, clip);
     true
 }

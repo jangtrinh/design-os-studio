@@ -1,0 +1,39 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.00s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test shell::tests::libraries::selection_styles_section_shows_library_styles_when_file_has_no_local_styles ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 2.38s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.60s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 1.52s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1039-1027-properties/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.11s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-d02548a0edc4e955)
+
+running 1 test
+test shell::tests::typography::clicking_typo_var_pill_opens_variables_without_toggling_more ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3277 filtered out; finished in 0.81s
+

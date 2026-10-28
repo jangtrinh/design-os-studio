@@ -465,6 +465,11 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
                 t.paragraph.indent = x.max(0.0);
             }
         }
+        "listSpacing" => {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.paragraph.list_spacing = x.max(0.0);
+            }
+        }
         _ => {}
     }
 }
@@ -517,6 +522,19 @@ pub fn set_bound_style_property(style: &mut Style, key: &str, value: &VariableVa
                 if let Some(x) = number_of(value) {
                     ts.paragraph_spacing = x.max(0.0);
                 }
+            }
+            ("paragraphIndent", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.paragraph_indent = x.max(0.0);
+                }
+            }
+            ("listSpacing", _) => {
+                if let Some(x) = number_of(value) {
+                    ts.list_spacing = x.max(0.0);
+                }
+            }
+            ("leadingTrim", VariableValue::String(s)) => {
+                ts.leading_trim = if s == "CAP_HEIGHT" { LeadingTrim::CapHeight } else { LeadingTrim::None };
             }
             _ => {}
         },
@@ -742,6 +760,7 @@ mod tests {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         for (k, v) in [("fills/0", "brand"), ("fills/0/opacity", "fade"), ("strokes/0/opacity", "fade"), ("effects/0/opacity", "fade")] {
             n.variables.bindings.insert(k.into(), v.into());

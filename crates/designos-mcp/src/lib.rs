@@ -7,4 +7,6 @@ pub mod prompts;
 pub mod resources;
 pub mod rules;
 pub mod server;
+pub mod session_file_io;
+pub mod session_file_problems;
 pub mod tools;

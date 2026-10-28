@@ -1,0 +1,25 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+warning: unused import: `super::*`
+ --> crates/designos-app/src/agent_session_files/library_fallback_tests.rs:6:5
+  |
+6 | use super::*;
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning (run `cargo fix --bin "designos" -p designos-app --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.89s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-a6ccbe70b4504ba8)
+
+running 1 test
+PERF round 0: 22 files through atomic_write_session_file: 333.824439ms
+PERF round 1: 22 files through atomic_write_session_file: 380.24825ms
+PERF round 2: 22 files through atomic_write_session_file: 305.702066ms
+test agent_session_files::tmp_perf_probe_tests::tmp_perf_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3126 filtered out; finished in 21.11s
+

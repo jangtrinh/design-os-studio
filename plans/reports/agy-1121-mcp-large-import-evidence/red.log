@@ -1,0 +1,139 @@
+=== cargo test -p designos-mcp --test session --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.53s
+     Running tests/session.rs (out/cargo/debug/deps/session-4df572995caa9675)
+
+running 14 tests
+test import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos ... FAILED
+test web_capture_over_512_mib_is_file_too_large ... FAILED
+test web_capture_between_64_and_512_mib_passes_the_size_gate ... FAILED
+test node_id_without_allocation_headroom_is_refused_on_open ... ok
+test open_file_between_64_and_512_mib_passes_the_size_gate ... ok
+test a_missing_file_inside_the_workspace_is_reported_as_missing_not_as_unsaved_changes ... ok
+test imported_stale_id_counter_does_not_overwrite_existing_nodes ... ok
+test the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path ... ok
+test open_file_refuses_a_path_outside_the_workspace_before_it_looks_at_unsaved_changes ... ok
+test paths_and_bad_imports_cannot_replace_the_session ... ok
+test a_native_file_with_null_numbers_opens_and_the_result_reports_the_repair ... ok
+test exporting_a_fig_reports_the_comment_threads_it_leaves_out ... ok
+test session_writes_and_exports_only_a_finished_layout ... ok
+test saved_file_roundtrip_and_unsaved_changes_guard ... ok
+
+failures:
+
+---- import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos stdout ----
+
+thread 'import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos' (81626512) panicked at crates/designos-mcp/tests/session.rs:359:5:
+{"code":"INVALID_ARGUMENTS","error":{"code":"INVALID_ARGUMENTS","message":"Input file exceeds the 64 MiB import limit","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"","safe_to_retry":true},"message":"Input file exceeds the 64 MiB import limit","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"","safe_to_retry":true}
+
+---- web_capture_over_512_mib_is_file_too_large stdout ----
+
+thread 'web_capture_over_512_mib_is_file_too_large' (81626522) panicked at crates/designos-mcp/tests/session.rs:317:5:
+assertion `left == right` failed: {"code":"INVALID_ARGUMENTS","error":{"code":"INVALID_ARGUMENTS","message":"Input file exceeds the 64 MiB import limit","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"","safe_to_retry":true},"message":"Input file exceeds the 64 MiB import limit","next_step":"Adjust the value at `path` using `valid_options` or `corrected_example` and retry.","path":"","safe_to_retry":true}
+  left: String("INVALID_ARGUMENTS")
+ right: "FILE_TOO_LARGE"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- web_capture_between_64_and_512_mib_passes_the_size_gate stdout ----
+
+thread 'web_capture_between_64_and_512_mib_passes_the_size_gate' (81626521) panicked at crates/designos-mcp/tests/session.rs:299:5:
+expected JSON parse error past size gate, got: Input file exceeds the 64 MiB import limit
+
+
+failures:
+    import_size_gate_accepts_exact_512_mib_and_never_partially_opens_oversized_valid_designos
+    web_capture_between_64_and_512_mib_passes_the_size_gate
+    web_capture_over_512_mib_is_file_too_large
+
+test result: FAILED. 11 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p designos-mcp --test session`
+
+=== cargo test -p designos-mcp --test version --locked ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.51s
+     Running tests/version.rs (out/cargo/debug/deps/version-d25fd83ad46088c5)
+
+running 4 tests
+test usage_error_names_the_version_flag ... FAILED
+test help_lists_the_version_flag ... ok
+test version_is_not_mistaken_for_a_workspace_argument ... ok
+test version_flags_print_the_cargo_version ... ok
+
+failures:
+
+---- usage_error_names_the_version_flag stdout ----
+
+thread 'usage_error_names_the_version_flag' (81628367) panicked at crates/designos-mcp/tests/version.rs:46:9:
+usage error on stderr must mention --version:
+Error: "Usage: designos-mcp --workspace DIRECTORY"
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    usage_error_names_the_version_flag
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+
+error: test failed, to rerun pass `-p designos-mcp --test version`
+
+=== cargo test -p designos-mcp --lib --locked every_code_has_a_fixture ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.77s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test server::tests::every_code_has_a_fixture ... FAILED
+
+failures:
+
+---- server::tests::every_code_has_a_fixture stdout ----
+
+thread 'server::tests::every_code_has_a_fixture' (81630003) panicked at crates/designos-mcp/src/server.rs:2487:13:
+FILE_TOO_LARGE must not be safe_to_retry: ToolError { code: FileTooLarge, message: "Input file exceeds the 512 MiB import limit", path: "/path", received: Some(Number(537919488)), expected: Some("<= 536870912 bytes"), valid_options: [], valid_options_total: None, corrected_example: None, cause: None, failed_op: None, op: None, safe_to_retry: true, next_step: "Adjust the value at `path` using `valid_options` or `corrected_example` and retry." }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    server::tests::every_code_has_a_fixture
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`
+
+=== cargo test -p designos-mcp --lib --locked file_too_large_is_not_safe_to_retry_and_names_the_next_step ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1121-mcp-large-import/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.69s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-5818084477df754c)
+
+running 1 test
+test server::tests::file_too_large_is_not_safe_to_retry_and_names_the_next_step ... FAILED
+
+failures:
+
+---- server::tests::file_too_large_is_not_safe_to_retry_and_names_the_next_step stdout ----
+
+thread 'server::tests::file_too_large_is_not_safe_to_retry_and_names_the_next_step' (81631320) panicked at crates/designos-mcp/src/server.rs:3405:9:
+FILE_TOO_LARGE must have safe_to_retry: false
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    server::tests::file_too_large_is_not_safe_to_retry_and_names_the_next_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 245 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

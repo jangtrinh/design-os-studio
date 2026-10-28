@@ -1,0 +1,164 @@
+=== cargo test -p designos-export --lib --locked -- swiftui (RED on dc23fdd4) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-rt03-1088/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-rt03-1088/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-d0c8644b8336983f)
+
+running 8 tests
+test swiftui::tests::grid_stretch_child_exports_its_solved_size ... ok
+test swiftui::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test swiftui::tests::swiftui_hugging_row_all_fill_children ... ok
+test swiftui::tests::grid_child_horizontal_fill_unchanged ... ok
+test swiftui::tests::swiftui_grid_fill_child_exports_solved_height ... ok
+test swiftui::tests::golden_card ... ok
+test swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals ... FAILED
+test swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars ... FAILED
+
+failures:
+
+---- swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals stdout ----
+
+thread 'swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals' (44951799) panicked at crates/designos-export/src/swiftui.rs:759:9:
+struct Banner<SlotContent: View>: View {
+    private let title: String
+    private let slot: SlotContent?
+
+    init(title: String = "cost \${y} \\(x) \"q\" \\ \n	 🚀", @ViewBuilder slot: () -> SlotContent) {
+        self.title = title
+        self.slot = slot()
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                if let slot {
+                    slot
+                } else {
+                    Text("Default \${y}")
+                        .font(.custom("Evil")
+Font", size: 16))
+                        .foregroundColor(Color.black)
+                }
+            }
+                .frame(width: 200, height: 40, alignment: .topLeading)
+                .background(Color.white)
+        }
+            .frame(width: 200, height: 60, alignment: .topLeading)
+    }
+}
+
+extension Banner where SlotContent == EmptyView {
+    init(title: String = "cost \${y} \\(x) \"q\" \\ \n	 🚀") {
+        self.title = title
+        self.slot = nil
+    }
+}
+
+---- swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars stdout ----
+
+thread 'swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars' (44951796) panicked at crates/designos-export/src/swiftui.rs:719:9:
+assertion `left == right` failed
+  left: "VStack(alignment: .leading, spacing: 8) {\n    Text(\"cost \\${y} and \\\\(x)\")\n        .font(.custom(\"Inter\", size: 20))\n        .fontWeight(.semibold)\n        .foregroundColor(Color(red: 0.067, green: 0.067, blue: 0.067))\n    Text(\"Say \\\"hi\\\" \\\\ path\\nline2\ttab\rcr\u{1} 🚀\")\n        .font(.custom(\"Inter\", size: 14))\n        .foregroundColor(Color(\"textMuted\"))\n        .multilineTextAlignment(.center)\n        .lineSpacing(6)\n        .frame(maxWidth: .infinity)\n    HStack(spacing: Tokens.spacingMd) {\n        Spacer()\n        Button(label: \"Pay \\${amount} (\\\"now\\\")\\n\t\\\\(fast)\u{7} 🚀\", disabled: true)\n            .frame(width: 80, height: 32)\n        Circle()\n            .fill(Color(red: 1, green: 0, blue: 0))\n            .frame(width: 24, height: 24)\n        Spacer()\n    }\n        .padding(.horizontal, 12)\n        .padding(.vertical, 8)\n        .frame(maxWidth: .infinity)\n        .background(RoundedRectangle(cornerRadius: 4).fill(Color(\"primary\")))\n}\n    .padding(16)\n    .frame(width: 312, height: 200, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))\n    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 1))\n    .clipShape(RoundedRectangle(cornerRadius: 8))\n    .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 4)"
+ right: "VStack(alignment: .leading, spacing: 8) {\n    Text(\"cost ${y} and \\\\(x)\")\n        .font(.custom(\"Inter\", size: 20))\n        .fontWeight(.semibold)\n        .foregroundColor(Color(red: 0.067, green: 0.067, blue: 0.067))\n    Text(\"Say \\\"hi\\\" \\\\ path\\nline2\\ttab\\rcr\\u{1} 🚀\")\n        .font(.custom(\"Inter\", size: 14))\n        .foregroundColor(Color(\"textMuted\"))\n        .multilineTextAlignment(.center)\n        .lineSpacing(6)\n        .frame(maxWidth: .infinity)\n    HStack(spacing: Tokens.spacingMd) {\n        Spacer()\n        Button(label: \"Pay ${amount} (\\\"now\\\")\\n\\t\\\\(fast)\\u{7} 🚀\", disabled: true)\n            .frame(width: 80, height: 32)\n        Circle()\n            .fill(Color(red: 1, green: 0, blue: 0))\n            .frame(width: 24, height: 24)\n        Spacer()\n    }\n        .padding(.horizontal, 12)\n        .padding(.vertical, 8)\n        .frame(maxWidth: .infinity)\n        .background(RoundedRectangle(cornerRadius: 4).fill(Color(\"primary\")))\n}\n    .padding(16)\n    .frame(width: 312, height: 200, alignment: .topLeading)\n    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))\n    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(red: 0.898, green: 0.898, blue: 0.898), lineWidth: 1))\n    .clipShape(RoundedRectangle(cornerRadius: 8))\n    .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 4)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars
+    swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals
+
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 129 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-export --lib`
+
+=== cargo test -p designos-diff --locked --no-fail-fast (RED on dc23fdd4) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-rt03-1088/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-rt03-1088/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-406092c913ab8900)
+
+running 13 tests
+test tests::alpha_composited_on_white ... ok
+test tests::crop_and_downscale ... ok
+test tests::diff_image_colors ... ok
+test tests::compare_survives_a_candidate_pixel_next_to_the_smaller_image_edge ... ok
+test tests::diff_image_survives_a_candidate_pixel_next_to_the_smaller_image_edge ... ok
+test tests::diff_report_bbox_unit ... ok
+test tests::size_mismatch ... ok
+test tests::one_pixel_off ... ok
+test tests::size_mismatch_never_passes_and_names_both_sizes ... ok
+test tests::identical_is_zero ... ok
+test tests::tolerance_and_ignore ... ok
+test tests::aa_edge_ignored ... ok
+test tests::noisy_images_of_any_two_sizes_compare_without_panicking ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (out/cargo/debug/deps/designos_diff-9ee5125b04a3f18a)
+
+running 1 test
+test tests::parses_version_flags_and_formats_like_other_binaries ... FAILED
+
+failures:
+
+---- tests::parses_version_flags_and_formats_like_other_binaries stdout ----
+
+thread 'tests::parses_version_flags_and_formats_like_other_binaries' (44951940) panicked at crates/designos-diff/src/main.rs:124:13:
+assertion `left == right` failed: --version: error: unexpected argument '--version' found
+
+Usage: designos-diff <COMMAND>
+
+For more information, try '--help'.
+
+  left: UnknownArgument
+ right: DisplayVersion
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::parses_version_flags_and_formats_like_other_binaries
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-diff --bin designos-diff`
+     Running tests/cli.rs (out/cargo/debug/deps/cli-e8a25de0d974629b)
+
+running 6 tests
+test version_flags_print_version_and_exit_zero ... FAILED
+test compare_of_two_sizes_still_writes_json_and_the_diff_image ... ok
+test compare_of_two_sizes_names_both_and_exits_non_zero ... ok
+test compare_pass_fail_json_and_ignore ... ok
+test suite_with_two_sizes_reports_the_case_instead_of_panicking ... ok
+test suite_writes_report_and_fails ... ok
+
+failures:
+
+---- version_flags_print_version_and_exit_zero stdout ----
+
+thread 'version_flags_print_version_and_exit_zero' (44952031) panicked at crates/designos-diff/tests/cli.rs:183:9:
+--version exited Some(2): error: unexpected argument '--version' found
+
+Usage: designos-diff <COMMAND>
+
+For more information, try '--help'.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    version_flags_print_version_and_exit_zero
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+error: test failed, to rerun pass `-p designos-diff --test cli`
+   Doc-tests designos_diff
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `-p designos-diff --bin designos-diff`
+    `-p designos-diff --test cli`

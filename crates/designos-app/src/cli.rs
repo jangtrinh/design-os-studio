@@ -1,4 +1,4 @@
-//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select name|none] [--menu name]`.
+//! Command line: `designos [file] [--screenshot out.png] [--size WxH] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu name]`.
 
 use std::path::PathBuf;
 
@@ -9,7 +9,8 @@ pub struct Options {
     pub size: Option<(u32, u32)>,
     /// Device pixel ratio of `--screenshot` (`--scale 2` writes a PNG twice the `--size`, with crisp UI and text).
     pub scale: Option<f32>,
-    /// Select the first layer with this name after loading (handy for screenshots).
+    /// Address one node: `id:<n>`, `fig:<figma id>`, `name:<text>`, a layer name, or `none`. A selector that matches nothing is an
+    /// error (exit 2), never another node.
     pub select: Option<String>,
     /// Open a menu after loading: `main`, `main/File`, `shape`, `palette` (for screenshots).
     pub menu: Option<String>,
@@ -25,8 +26,9 @@ pub struct Options {
     pub fullscreen: bool,
     /// Open a panel on start: `variables` (full view) or `variables-floating`.
     pub panel: Option<String>,
-    /// Initial zoom in percent (`--zoom 800`), centred on the selection or the page.
+    /// Initial zoom in percent (`--zoom 800`) or fit selection (`--zoom fit`).
     pub zoom: Option<f32>,
+    pub zoom_fit: bool,
     /// Show the rulers.
     pub rulers: bool,
     /// Draw the canvas with the GPU renderer (`--screenshot` otherwise always uses the
@@ -91,6 +93,14 @@ pub struct Options {
     pub export_variables: Option<PathBuf>,
     /// Variable format for `--import-variables` / `--export-variables`: `auto`, `figma-rest`, `figma-native`, or `dtcg`.
     pub format: Option<String>,
+    /// With `--export-variables PATH --format dtcg`: export a single self-contained file for one mode (`#1140` §5).
+    pub mode: Option<String>,
+    /// With `--export-variables PATH --format dtcg --mode NAME`: narrow to named collection(s) or `id:<collection_id>` (`#1140` §5).
+    pub collections: Vec<String>,
+    /// With `--export-variables PATH --format dtcg --mode NAME`: replace aliases with resolved literals and record provenance (`#1140` §5).
+    pub resolve_aliases: bool,
+    /// With `--export-variables PATH --format dtcg`: colour value encoding (`hex` or `object`, default `object`) (`#1140` §5).
+    pub color_format: Option<String>,
     /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
     /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
     pub no_caption: bool,
@@ -122,6 +132,10 @@ impl Options {
             || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
             || self.import_variables.is_some()
             || self.export_variables.is_some()
+            || self.mode.is_some()
+            || !self.collections.is_empty()
+            || self.resolve_aliases
+            || self.color_format.is_some()
     }
 
     /// Whether a launch with these options starts on the home screen: explicitly
@@ -135,7 +149,7 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 58] = [
+pub const PANELS: [&str; 64] = [
     "agents",
     "agents-chat",
     "agents-picker",
@@ -144,6 +158,11 @@ pub const PANELS: [&str; 58] = [
     "agents-approval-command",
     "agents-approval-queued",
     "agents-approval-open-tab",
+    "agents-approval-background-tab",
+    "agents-scrollback",
+    "agents-turn-card",
+    "agents-turn-card-collapsed",
+    "agents-turn-card-small",
     "agent-permissions",
     "specs",
     "terminal",
@@ -182,6 +201,7 @@ pub const PANELS: [&str; 58] = [
     "ai-image-expand",
     "ai-image-erase",
     "web-capture-report",
+    "export-toast",
     "micro-autolayout",
     "micro-css-grid",
     "micro-smart-selection",
@@ -219,6 +239,30 @@ fn parse_range(s: &str) -> Option<(usize, usize)> {
     Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
 }
 
+#[cfg(any(test, feature = "fixtures"))]
+fn is_known_fixture(f: &str) -> bool {
+    matches!(
+        f,
+        "demo"
+            | "no-selection"
+            | "variables"
+            | "variables-library"
+            | "variables-library-open"
+            | "showcase"
+            | "proto-vars"
+            | "check-designs"
+            | "deck"
+            | "board"
+            | "board-empty"
+            | "comments"
+    ) || crate::vecfixture::FIXTURES.contains(&f)
+}
+
+#[cfg(not(any(test, feature = "fixtures")))]
+fn is_known_fixture(_f: &str) -> bool {
+    false
+}
+
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut o = Options::default();
     let mut it = args.into_iter();
@@ -233,9 +277,21 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 let v = it.next().ok_or("--scale needs a factor (e.g. 2)")?;
                 o.scale = Some(parse_scale(&v).ok_or_else(|| format!("invalid scale '{v}' (expected 1..4, e.g. 2)"))?);
             }
-            "--select" => o.select = Some(it.next().ok_or("--select needs a layer name")?),
+            "--select" => {
+                let v = it.next().ok_or("--select needs a layer name, id:<n> or fig:<figma id>")?;
+                if v.trim().is_empty() {
+                    return Err("--select needs a layer name, id:<n> or fig:<figma id>, not an empty value".into());
+                }
+                o.select = Some(v);
+            }
             "--menu" => o.menu = Some(it.next().ok_or("--menu needs a name (main, main/File, shape, palette)")?),
-            "--fixture" => o.fixture = Some(it.next().ok_or("--fixture needs a name (no-selection)")?),
+            "--fixture" => {
+                let f = it.next().ok_or("--fixture needs a name (no-selection)")?;
+                if !is_known_fixture(&f) {
+                    return Err(format!("unknown fixture '{f}'"));
+                }
+                o.fixture = Some(f);
+            }
             "--tab" => {
                 let t = it.next().ok_or("--tab needs design or prototype")?;
                 if !matches!(t.as_str(), "design" | "prototype") {
@@ -265,8 +321,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
-                let v = it.next().ok_or("--zoom needs a percentage (e.g. 800)")?;
-                o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
+                let v = it.next().ok_or("--zoom needs a percentage (e.g. 800 or fit)")?;
+                if v.eq_ignore_ascii_case("fit") {
+                    o.zoom_fit = true;
+                    o.zoom = None;
+                } else {
+                    o.zoom = Some(parse_zoom(&v).ok_or_else(|| format!("invalid zoom '{v}' (expected 1..25600, e.g. 800 or 800%)"))?);
+                }
             }
             "--edit-text" => o.edit_text = Some(it.next().ok_or("--edit-text needs a text layer name")?),
             "--select-text" => {
@@ -323,6 +384,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 }
                 o.format = Some(f);
             }
+            "--mode" => o.mode = Some(it.next().ok_or("--mode needs a mode name")?),
+            "--collection" => o.collections.push(it.next().ok_or("--collection needs a collection name or id:<id>")?),
+            "--resolve-aliases" => o.resolve_aliases = true,
+            "--color-format" => {
+                let cf = it.next().ok_or("--color-format needs hex or object")?;
+                if designos_fig::ColorFormat::parse_label(&cf).is_none() {
+                    return Err(format!("unknown color format '{cf}' (expected hex or object)"));
+                }
+                o.color_format = Some(cf);
+            }
             "-h" | "--help" => o.help = true,
             "-V" | "--version" => o.version = true,
             // Launch Services adds -psn_<serial> to some macOS launches; it names the process, not a file.
@@ -335,6 +406,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 o.file = Some(a.into());
             }
         }
+    }
+    // The home screen has no document to select in.
+    if o.select.is_some() && o.home {
+        return Err("--select needs a file".into());
     }
     Ok(o)
 }
@@ -351,8 +426,16 @@ pub fn missing_file_message(opts: &Options) -> Option<String> {
     (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
 }
 
-pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+/// Parses a declarative `NodeSpec` JSON string for `--apply-spec`, returning a plain-language
+/// error that names the field and what it must be instead of a Rust type name.
+pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
+    designos_mcp::tools::errors::parse_spec_json(raw)
+}
+
+pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select id:<n>|fig:<figma id>|name:<text>|LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report|export-toast]\n               [--zoom PERCENT|fit] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig [--overwrite]] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
   --version, -V  print the version and exit
+  --select   address one node: id:<n> (the Studio id --inspect-json prints), fig:<figma id>, name:<text> (a name taken literally) or a layer name; a bare number is a layer name, else a node id. A selector that matches nothing exits 2 and changes nothing
+  --zoom     a percentage, or fit to frame the --select node (the page when nothing is selected)
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
@@ -369,6 +452,10 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
   --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
   --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
+  --mode     with --export-variables PATH.json --format dtcg: export one self-contained DTCG file for mode NAME
+  --collection  with --mode: narrow single-mode DTCG export to collection NAME or id:<collection_id> (repeatable)
+  --resolve-aliases  with --mode: replace DTCG {Group.token} alias strings with resolved literal values
+  --color-format  with --export-variables --format dtcg: colour $value encoding (hex|object, default object)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]
@@ -377,6 +464,28 @@ mod tests {
 
     fn p(a: &[&str]) -> Result<Options, String> {
         parse(a.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn parses_select_prefixes_and_zoom_fit() {
+        for selector in ["id:5", "fig:I1:2;3:4", "name:id:3", "Card B", "none"] {
+            assert_eq!(p(&["--select", selector]).unwrap().select.as_deref(), Some(selector), "{selector} reaches the resolver verbatim");
+        }
+        assert!(p(&["--zoom", "fit"]).is_ok(), "--zoom fit parses");
+        assert!(p(&["--select", ""]).is_err(), "an empty selector is a parse error, not silently ignored");
+        assert!(p(&["--select", "   "]).is_err());
+        assert!(p(&["--select"]).is_err());
+        let usage = USAGE;
+        assert!(usage.contains("--select id:<n>|fig:<figma id>|name:<text>|LAYER|none"), "{usage}");
+        assert!(usage.contains("--zoom PERCENT|fit"), "{usage}");
+    }
+
+    #[test]
+    fn select_needs_a_file_so_it_is_a_parse_error_with_home() {
+        let err = p(&["--home", "--select", "Card B"]).unwrap_err();
+        assert!(err.contains("--select needs a file"), "{err}");
+        assert!(p(&["design.designos", "--select", "Card B"]).is_ok());
+        assert!(p(&["--fixture", "no-selection", "--select", "Card B"]).is_ok(), "a fixture is a document");
     }
 
     #[test]
@@ -464,6 +573,8 @@ mod tests {
     fn parses_canvas_aid_flags() {
         let o = p(&["--zoom", "800%", "--rulers", "--grid", "--layout-grid", "columns", "--edit-text", "Title", "--select-text", "2-7"]).unwrap();
         assert_eq!(o.zoom, Some(800.0));
+        let fit = p(&["--zoom", "fit"]).unwrap();
+        assert!(fit.zoom_fit);
         assert!(o.rulers && o.grid);
         assert_eq!(o.layout_grid.as_deref(), Some("columns"));
         assert_eq!(o.edit_text.as_deref(), Some("Title"));
@@ -644,5 +755,12 @@ mod tests {
     #[test]
     fn empty_is_default() {
         assert_eq!(p(&[]).unwrap(), Options::default());
+    }
+
+    #[test]
+    fn parse_spec_json_names_the_field_and_expected_type() {
+        let err = parse_spec_json(r#"{"name":"Card","children":[[{"kind":"rectangle"}]]}"#).unwrap_err();
+        assert!(err.contains("children must be an array of NodeSpec objects"), "{err}");
+        assert!(!err.contains("expected u64"), "{err}");
     }
 }

@@ -1,0 +1,88 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-mcp)
+   Compiling designos-app v0.6.2 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1192-linux-import/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.18s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-853c7e514bcd0028)
+
+running 35 tests
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::open_without_a_dialog_says_so ... ok
+test io::file_dialog_flow_tests::open_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::export_selection_asks_for_a_png_named_after_the_layer ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_double_click_opens_one_chooser ... FAILED
+test io::file_dialog_flow_tests::export_selection_cancel_is_silent_and_writes_nothing ... ok
+test io::file_dialog_flow_tests::export_selection_without_a_dialog_says_so_and_saves_to_the_fallback_folder ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::asset_download_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::export_selection_writes_to_the_path_the_dialog_picked ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_keeps_a_layer_name_inside_the_folder ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing ... FAILED
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_says_so_and_leaves_the_paint_alone ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_tool_says_so_and_adds_nothing ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_or_a_fallback_folder_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_never_overwrites_an_existing_file ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_deck_pdf_export_without_a_dialog_saves_to_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::export_selection_fallback_saves_a_layer_with_a_very_long_name ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_export_says_so_and_starts_no_export ... ok
+test io::file_dialog_flow_tests::the_linux_install_docs_say_what_the_file_dialog_needs ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_and_export_are_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::the_deb_recommends_a_dialog_backend ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_says_so_and_starts_no_import ... ok
+test io::file_dialog_flow_tests::save_as_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::save_as_without_a_dialog_says_so_and_saves_nothing ... ok
+test io::file_dialog_flow_tests::web_capture_import_cancel_is_silent ... ok
+test io::file_dialog_flow_tests::web_capture_import_without_a_dialog_says_so ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_with_spaces_and_vietnamese_diacritics_works ... FAILED
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_opens_fixture_like_cli ... FAILED
+test io::file_dialog_flow_tests::other_dialog_sites::home_import_hanging_chooser_times_out_with_toast_and_warns ... FAILED
+
+failures:
+
+---- io::file_dialog_flow_tests::other_dialog_sites::home_import_double_click_opens_one_chooser stdout ----
+
+thread 'io::file_dialog_flow_tests::other_dialog_sites::home_import_double_click_opens_one_chooser' (68489844) panicked at crates/designos-app/src/io/file_dialog_flow_tests.rs:327:9:
+assertion `left == right` failed: a second click while a chooser is opening must open nothing new
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing stdout ----
+
+thread 'io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing' (68489881) panicked at crates/designos-app/src/io/file_dialog_flow_tests.rs:232:9:
+unavailable toast must offer the Enter a path… fallback action
+
+---- io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_with_spaces_and_vietnamese_diacritics_works stdout ----
+
+thread 'io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_with_spaces_and_vietnamese_diacritics_works' (68489846) panicked at crates/designos-app/src/io/file_dialog_flow_tests.rs:314:9:
+assertion failed: app.home.is_none()
+
+---- io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_opens_fixture_like_cli stdout ----
+
+thread 'io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_opens_fixture_like_cli' (68489845) panicked at crates/designos-app/src/io/file_dialog_flow_tests.rs:278:9:
+fallback import must leave Home and open the file in the editor
+
+---- io::file_dialog_flow_tests::other_dialog_sites::home_import_hanging_chooser_times_out_with_toast_and_warns stdout ----
+
+thread 'io::file_dialog_flow_tests::other_dialog_sites::home_import_hanging_chooser_times_out_with_toast_and_warns' (68489877) panicked at crates/designos-app/src/io/file_dialog_flow_tests.rs:243:9:
+assertion `left == right` failed
+  left: None
+ right: Some(("No file dialog. Install zenity or xdg-desktop-portal.", true))
+
+
+failures:
+    io::file_dialog_flow_tests::other_dialog_sites::home_import_double_click_opens_one_chooser
+    io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_opens_fixture_like_cli
+    io::file_dialog_flow_tests::other_dialog_sites::home_import_fallback_path_with_spaces_and_vietnamese_diacritics_works
+    io::file_dialog_flow_tests::other_dialog_sites::home_import_hanging_chooser_times_out_with_toast_and_warns
+    io::file_dialog_flow_tests::other_dialog_sites::home_import_says_so_and_imports_nothing
+
+test result: FAILED. 30 passed; 5 failed; 0 ignored; 0 measured; 3247 filtered out; finished in 0.39s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

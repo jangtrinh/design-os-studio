@@ -1,0 +1,93 @@
+| 1 | `Effects` | `sees` | `crates/designos-app/assets/ui-spec.json:117:      "section_order_with_selection": ["Properties (component)", "` |
+| 2 | `+` | `sees` | `crates/designos-app/Cargo.toml:21:# Plays H.264 video fills in Present through Cisco's OpenH264 (C++ sources c` |
+| 3 | `/` | `types` | `crates/designos-app/Cargo.toml:11:path = "src/main.rs"` |
+| 4 | `Pages` | `sees` | `crates/designos-app/src/agent_mention.rs:53:    Pages,` |
+| 5 | `Layers` | `sees` | `crates/designos-app/src/agent_mention.rs:52:    Layers,` |
+| 6 | `changed layers` | `sees` | `crates/designos-app/src/agent_turn_card.rs:217:    // 1. Headline: "<CLI> changed layers" in body-medium + sep` |
+| 7 | `Delete style` | `sees` | `crates/designos-app/src/panels/style_picker.rs:170:    items.push(MenuItem::new("Delete style").disabled(!link` |
+| 8 | `Detach style` | `sees` | `crates/designos-app/src/panels/style_picker.rs:169:    items.push(MenuItem::new("Detach style").disabled(!link` |
+| 9 | `Style deleted · Cmd+Z to undo` | `sees` | `crates/designos-app/src/panels/style_picker.rs:22:const STYLE_DELETED_TOAST: &str = if cfg!(target_os = "macos` |
+| 10 | `Ctrl+Z` | `types` | `crates/designos-app/src/canvas/textsession.rs:6://! Inside the session Ctrl+Z / Ctrl+Shift+Z step through fine` |
+| 11 | `Rename style` | `sees` | `crates/designos-app/src/panels/style_picker.rs:163:    items.push(MenuItem::new("Rename style").disabled(!link` |
+| 12 | `Edit style` | `sees` | `crates/designos-app/src/panels/effects.rs:246:/// (the "Edit style" popover).` |
+| 13 | `Edit in the library file` | `sees` | `crates/designos-app/src/panels/style_edit.rs:32:pub(crate) const LIBRARY_STYLE_TIP: &str = "Edit in the librar` |
+| 14 | `.designos` | `reads` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:482:                      "text": "$ designos ` |
+| 15 | `.fig` | `reads` | `crates/designos-app/src/agent_busy_frames.rs:119:    // 3. Also check legacy 'node.fig_metadata' keys in case ` |
+| 16 | `Styles` | `sees` | `crates/designos-app/src/agent_mention.rs:56:    Styles,` |
+| 17 | `Rename folder` | `sees` | `crates/designos-app/src/home/mod.rs:737:            app.dialog = Some(Dialog::prompt(Intent::RenameFolder(p, f` |
+| 18 | `Description` | `sees` | `crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind` |
+| 19 | `Libraries` | `sees` | `crates/designos-app/src/app.rs:182:    pub libs: crate::libraries::LibrariesState,` |
+| 20 | `Blend` | `sees` | `crates/designos-app/src/agent_busy_frames.rs:374:            blend: designos_doc::BlendMode::PassThrough,` |
+| 21 | `Normal` | `sees` | `crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind` |
+| 22 | `Darken` | `sees` | `crates/designos-app/src/widgets/picker.rs:1326:        (B::Darken, "Darken"),` |
+| 23 | `Multiply` | `sees` | `crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:86:    n.blend = BlendMode::Multiply;` |
+| 24 | `Linear burn` | `sees` | `crates/designos-render/src/paint.rs:23:        // Linear burn / dodge have no exact tiny-skia equivalent: call` |
+| 25 | `Color burn` | `sees` | `crates/designos-app/src/widgets/picker.rs:1328:        (B::ColorBurn, "Color burn"),` |
+| 26 | `Lighten` | `sees` | `crates/designos-app/src/widgets/picker.rs:1329:        (B::Lighten, "Lighten"),` |
+| 27 | `Screen` | `sees` | `crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind` |
+| 28 | `Linear dodge` | `sees` | `PR #1271 head 2f997484a:crates/designos-app/src/panels/effects.rs:705 ("Linear dodge")` |
+| 29 | `Color dodge` | `sees` | `crates/designos-app/src/widgets/picker.rs:1331:        (B::ColorDodge, "Color dodge"),` |
+| 30 | `Overlay` | `sees` | `crates/designos-app/src/canvas/draw.rs:562:/// Paints the Figma UI3 2D CSS Grid Overlay ('LayoutDirection::Gri` |
+| 31 | `Soft light` | `sees` | `crates/designos-app/src/widgets/picker.rs:1333:        (B::SoftLight, "Soft light"),` |
+| 32 | `Hard light` | `sees` | `crates/designos-app/src/widgets/picker.rs:1334:        (B::HardLight, "Hard light"),` |
+| 33 | `Difference` | `sees` | `crates/designos-app/src/check_designs/tests/not_painted_as_computed.rs:24:    for blend in [BlendMode::Screen,` |
+| 34 | `Exclusion` | `sees` | `crates/designos-app/src/widgets/picker.rs:1336:        (B::Exclusion, "Exclusion"),` |
+| 35 | `Hue` | `sees` | `crates/designos-app/src/widgets/picker.rs:339:/// Hue / saturation / brightness / alpha, all 0..1, computed on` |
+| 36 | `Saturation` | `sees` | `crates/designos-app/src/widgets/picker.rs:636:/// Saturation (x) / value (y) square for 'hue'.` |
+| 37 | `Color` | `sees` | `crates/designos-app/assets/icons/lucide/README.md:8:'src/icons.rs' swaps 'currentColor' for white and override` |
+| 38 | `Luminosity` | `sees` | `crates/designos-app/src/widgets/picker.rs:1340:        (B::Luminosity, "Luminosity"),` |
+| 39 | `Mixed` | `sees` | `crates/designos-app/src/check_designs/tests.rs:354:    let mixed = f.text(frame, "Mixed", 14.0, 400, gray(0xCC` |
+| 40 | `Up to 8 drop shadows` | `sees` | `composed: crates/designos-app/src/panels/effects.rs:45 (1, 8, "drop shadows") + :157 format!("Up to {max} {plural}")` |
+| 41 | `Enter` | `types` | `crates/designos-app/src/agent_codex_cards.rs:415:/// Deny takes the keyboard focus once, when a card first sho` |
+| 42 | `Home` | `types` | `crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind` |
+| 43 | `End` | `types` | `crates/designos-app/assets/starter/designos-studio-starter.designos:1:{"name":"DESIGN-OS Studio Starter","kind` |
+| 44 | `48 px` | `sees` | `crates/designos-app/src/shell/tests/pages_layers_separator.rs:72:    // Drag down by 48 px (from 72 px to 120 ` |
+| 45 | `Main menu` | `sees` | `crates/designos-app/src/panels/rail.rs:47:    widgets::labelled(ui, r.id, egui::accesskit::Role::Button, "Main` |
+| 46 | `File` | `sees` | `crates/designos-app/assets/ui-spec.json:73:      "items": { "x": 0, "first_y": 56, "size": 56, "labels": ["Fil` |
+| 47 | `Agents` | `sees` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:134:              "text": "Agents author conci` |
+| 48 | `Assets` | `sees` | `crates/designos-app/assets/ui-spec.json:73:      "items": { "x": 0, "first_y": 56, "size": 56, "labels": ["Fil` |
+| 49 | `Tools` | `sees` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:358:                      "text": "21 Native M` |
+| 50 | `Variables` | `sees` | `crates/designos-app/src/agent_busy_frames.rs:390:            variables: designos_doc::NodeVariables::default()` |
+| 51 | `Plugins` | `sees` | `crates/designos-app/src/app.rs:74:    Plugins,` |
+| 52 | `Updates & Shortcuts` | `sees` | `crates/designos-app/src/panels/rail.rs:152:    let help_resp = widgets::icon_button(ui, br, "help", Icon::Rota` |
+| 53 | `Show all` | `sees` | `crates/designos-app/src/agent_turn_card.rs:172:/// Revert, Keep, Dismiss and Show all are the panel's own butt` |
+| 54 | `Show less` | `sees` | `PR #1276 head 0a45399fa:crates/designos-app/src/agent_turn_card.rs:101 ("Show less")` |
+| 55 | `Revert` | `sees` | `crates/designos-app/src/agent_stop.rs:1335:        // The user edits, then undoes that edit. Reverting the sto` |
+| 56 | `Keep` | `sees` | `crates/designos-app/src/agent_composer.rs:2072:        let selector = write_user_skill(&mut st, &dir, "claude-` |
+| 57 | `Show behind` | `sees` | `crates/designos-app/src/panels/effects.rs:425:            popover::row(ui, body, next(), "Show behind", \|ui, r` |
+| 58 | `Save changes to {name}?` | `sees` | `crates/designos-app/src/home/dialog.rs:117:            ..Self::confirm(Intent::SaveChanges, &format!("Save cha` |
+| 59 | `Exported {path}` | `sees` | `composed: PR #1281 head 950616232:crates/designos-app/src/export.rs:284 format!("Exported {}", path.display())` |
+| 60 | `Exported {n} files to {folder}` | `sees` | `composed: PR #1281 head 950616232:crates/designos-app/src/export.rs:292 format!("Exported {} files to {}", written, dir.display())` |
+| 61 | `Show in folder` | `sees` | `crates/designos-app/src/app.rs:146:    /// A file this toast can show in its folder (the toast then carries a ` |
+| 62 | `:` | `reads` | `crates/designos-app/Cargo.toml:3:description = "DESIGN:OS Studio desktop editor"` |
+| 63 | `-` | `reads` | `crates/designos-app/Cargo.toml:2:name = "designos-app"` |
+| 64 | `Card-1.png` | `reads` | `PR #1281 head 950616232:crates/designos-app/src/export.rs:559 ("Card-1.png")` |
+| 65 | `Card-2.png` | `reads` | `PR #1281 head 950616232:crates/designos-app/src/export.rs:562 ("Card-2.png")` |
+| 66 | `Downloads` | `reads` | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:146:LINE io/fallback_save.rs 1 let _ = std:` |
+| 67 | `.tmp` | `reads` | `crates/designos-app/src/agent_hook_outputs.rs:14://!   claude-transcript.json  .lock/  .tmp.<pid>        which` |
+| 68 | `--screenshot` | `types` | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:18:FILE main.rs paths named on the command ` |
+| 69 | `--apply-spec` | `types` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:9:  "annotation": "Generated from declarative ` |
+| 70 | `designos_apply_spec` | `types` | `crates/designos-app/src/agent_a11y.rs:514:            announcer.notify_status(preset, &AgentTabStatus::Working` |
+| 71 | `designos_apply_batch` | `types` | `crates/designos-mcp/generated/rules.md:10:3. **Build in sections** — Build one section per call ('designos_app` |
+| 72 | `NodeSpec` | `types` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:9:  "annotation": "Generated from declarative ` |
+| 73 | `designos_create_node` | `types` | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:93:LINE agent_sessions.rs 1 "claude --sessi` |
+| 74 | `designos_update_node` | `types` | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:93:LINE agent_sessions.rs 1 "claude --sessi` |
+| 75 | `.pen` | `reads` | `crates/designos-app/src/agent_busy_frames/field_diff_tests.rs:738:    let queue_was_idle = app.doc.pending_rel` |
+| 76 | `designos-mcp` | `types` | `crates/designos-app/Cargo.toml:39:designos-mcp.workspace = true` |
+| 77 | `No, suggest changes` | `sees` | `crates/designos-app/src/gemini_dialog.rs:5://! The screen can: every dialog that offers options ends with the ` |
+| 78 | `workspace-write` | `types` | `crates/designos-app/src/agent_approval_channel.rs:6://! not in an '--add-dir', and not in '/tmp' or '$TMPDIR' ` |
+| 79 | `tools.allowed` | `types` | `docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:135:   #1059). Some settings there s` |
+| 80 | `.gemini/settings.json` | `reads` | `crates/designos-app/src/agent_session_files/fs_sites_scan_tests/patterns.rs:53:/// Names inside the folders ab` |
+| 81 | `hooks` | `types` | `crates/designos-app/src/agent_approval_channel.rs:4://! the hook script that decides what to print, or the hoo` |
+| 82 | `tools.discoveryCommand` | `types` | `docs/specs/v0.6/656-agents-ask-permission-mode-with-in-panel-approvals.md:138:   project hook and then runs it` |
+| 83 | `.gemini` | `reads` | `crates/designos-app/src/agent_composer.rs:365:    if matches!(explicit_status, AgentTabStatus::WaitingForInput` |
+| 84 | `designos` | `types` | `crates/designos-app/Cargo.toml:2:name = "designos-app"` |
+| 85 | `Open tab` | `sees` | `crates/designos-app/src/agent_approval_card.rs:46:///   and a single **Show prompt** button when already in th` |
+| 86 | `ToolPermission` | `reads` | `crates/designos-app/src/agent_turn_status.rs:751:                // 'permission_prompt': Claude and Grok. 'Too` |
+| 87 | `ask_user` | `sees` | `crates/designos-app/src/gemini_dialog.rs:16://! * 'ask_user' and 'exit_plan_mode' dialogs draw no such line, a` |
+| 88 | `exit_plan_mode` | `sees` | `crates/designos-app/src/gemini_dialog.rs:16://! * 'ask_user' and 'exit_plan_mode' dialogs draw no such line, a` |
+| 89 | `Needs approval` | `sees` | `crates/designos-app/src/agent_a11y.rs:222:/// The spoken form of a wait on the user: the status labels 'Needs ` |
+| 90 | `permission_prompt` | `reads` | `crates/designos-app/src/agent_turn_status.rs:132:    /// Extracts the notification type from a 'Notification' ` |
+| 91 | `.spec.json` | `reads` | `crates/designos-app/assets/specs/easeui-agent-console.spec.json:482:                      "text": "$ designos ` |
+| 92 | `designos_specs` | `reads` | `crates/designos-app/src/agent_session_files/fs_sites_allowlist.txt:21:FILE specs.rs the spec folders of the op` |
+| 93 | `tty` | `reads` | `crates/designos-app/src/agent_permissions.rs:209:    let manifest_bytes = serde_json::to_vec_pretty(&manifest)` |

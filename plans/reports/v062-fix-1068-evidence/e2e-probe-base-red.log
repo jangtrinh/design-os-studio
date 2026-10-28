@@ -1,0 +1,23 @@
+case                                                  verdict  detail
+append via link at doc-patch.jsonl                    FAIL     victim 22B/46681e0ff9 -> 770B/5ad32d9f77
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+overwrite via canvas.tmp-<pid>                        FAIL     victim 22B/46681e0ff9 -> 514B/a75637c94c
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+overwrite via doc-sync.tmp-<pid>                      FAIL     victim 22B/46681e0ff9 -> 514B/a75637c94c
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+overwrite via session-options.tmp-<pid>               FAIL     victim 22B/46681e0ff9 -> 104B/0e793ab609
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+truncate+append via link at idempotency-ledger.jsonl  FAIL     victim 22B/46681e0ff9 -> 1055B/0eebe70cbc
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+create via dangling link at doc-patch.jsonl           FAIL     victim absent -> 748B/456ad696ea
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+append via hard link at doc-patch.jsonl               FAIL     victim 22B/46681e0ff9 -> 770B/d19b7c4ff9
+                                                               replies: new_document=ok; get_document=ok; create_node_1=ok; create_node_2=ok
+read through link at mcp-config.json                  FAIL     tools listed=1 (1 means the victim's JSON was read through the link)
+                                                               replies: new_document=error: Tool 'designos_new_document' is disabled in this session.; get_document=ok; create_node_1=error: Tool 'designos_create_node' is disabled in this session.; create_node_2=error: Tool 'designos_create_node' is disabled in this session.
+FIFO at doc-patch.jsonl (write name)                  FAIL     HANG (killed after 4s)
+                                                               replies: initialize=HANG
+FIFO at context.json (read name)                      FAIL     HANG (killed after 4s)
+                                                               replies: initialize=HANG
+
+SUMMARY: 0 PASS, 10 FAIL of 10

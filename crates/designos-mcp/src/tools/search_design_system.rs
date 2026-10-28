@@ -249,9 +249,9 @@ impl SearchIndex {
             items.push(build_component_item(node, &name, true, local_origin.clone(), ref_str, None, ComponentSource::Local(doc, snapshots)));
         }
 
-        // 2. Local styles (excluding imported library copies).
+        // 2. Local styles (excluding imported library copies and orphan references).
         for (style_key, style) in &doc.styles {
-            if imported_local_keys.contains(style_key.as_str()) {
+            if !doc.is_table_style(style_key) || imported_local_keys.contains(style_key.as_str()) {
                 continue;
             }
             let meta = doc.style_meta.get(style_key);
@@ -836,7 +836,7 @@ fn style_name_collides(
 ) -> bool {
     let mut local_matches = 0usize;
     for k in doc.styles.keys() {
-        if imported_local_keys.contains(k.as_str()) {
+        if !doc.is_table_style(k) || imported_local_keys.contains(k.as_str()) {
             continue;
         }
         let sname = doc.style_name(k);
@@ -2486,5 +2486,34 @@ mod tests {
         assert_eq!(lib_var_node.variables.bindings.get("fills/0").map(String::as_str), Some("lib-brand/v1"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn us01_ac02_mcp_excludes_orphan_styles_from_search_and_get_document() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![designos_doc::Effect::LayerBlur { radius: 4.0, visible: true }]);
+        doc.styles.insert("1186:100350".into(), fx.clone());
+        doc.styles.insert("2:100".into(), fx);
+        doc.style_meta.insert("2:100".into(), StyleMeta { name: "Shadow/Card".into(), property: StyleProperty::Effect, ..Default::default() });
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        rect.style_refs.insert("effect".into(), "1186:100350".into());
+        doc.insert(page, rect).unwrap();
+        let mut engine = crate::engine::Engine { doc, active_page_id: Some(page), ..Default::default() };
+
+        let search_orphan = engine.call("designos_search_design_system", json!({"query": "1186", "kinds": ["style"]})).unwrap();
+        assert_eq!(search_orphan["results"].as_array().unwrap().len(), 0, "orphan style must not be listed in search_design_system: {search_orphan:?}");
+
+        let search_live = engine.call("designos_search_design_system", json!({"query": "Shadow", "kinds": ["style"]})).unwrap();
+        let results = search_live["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], "Shadow/Card");
+
+        let doc_info = engine.call("designos_get_document", json!({})).unwrap();
+        let styles = doc_info["styles"].as_array().unwrap();
+        assert_eq!(styles.len(), 1, "orphan style must not be listed in get_document: {styles:?}");
+        assert_eq!(styles[0]["name"], "Shadow/Card");
+        assert_eq!(doc_info["style_count"], 1);
     }
 }

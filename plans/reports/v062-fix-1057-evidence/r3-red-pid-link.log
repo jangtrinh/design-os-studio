@@ -1,0 +1,37 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked -- test_root::
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.62s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 6 tests
+test agent_session_files::test_root::tests::only_a_clean_no_such_process_says_a_process_is_gone ... ok
+test agent_session_files::test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it ... FAILED
+test agent_session_files::test_root::tests::a_link_named_like_a_dead_process_is_not_followed ... ok
+test agent_session_files::test_root::tests::a_missing_test_data_folder_is_made_and_a_file_in_its_place_is_refused ... ok
+test agent_session_files::test_root::tests::a_link_in_place_of_the_test_data_folder_is_not_swept_and_nothing_is_made_through_it ... ok
+test agent_session_files::test_root::tests::a_dead_process_root_is_removed_a_live_one_kept_and_our_own_id_starts_empty ... ok
+
+failures:
+
+---- agent_session_files::test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it stdout ----
+
+thread 'agent_session_files::test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it' (31224554) panicked at crates/designos-app/src/agent_session_files/test_root.rs:124:59:
+a link in place of our folder is refused: "/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/r3-1060-home.Rztp2E/designos-test-root-pid-link-82044/designos test data/999997/sessions"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::test_root::tests::a_link_in_place_of_this_process_folder_is_refused_and_nothing_is_made_through_it
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 3097 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked -- test_root::
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json

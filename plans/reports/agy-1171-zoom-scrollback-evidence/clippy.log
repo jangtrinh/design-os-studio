@@ -1,0 +1,6 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-mcp)
+    Checking designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.95s

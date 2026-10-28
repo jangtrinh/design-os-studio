@@ -1,0 +1,79 @@
+=== GREEN PHASE (REAL STARTER ASSET): scripts/tests/test_shipped_resources.py ===
+test_ac03_no_legacy_demos_in_shipped_code (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_ac03_no_legacy_demos_in_shipped_code) ... ok
+test_ac12_no_untitled_ui_in_shipped_resources_or_starter (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_ac12_no_untitled_ui_in_shipped_resources_or_starter) ... ok
+test_examples_removed_and_unreferenced (scripts.tests.test_shipped_resources.ShippedResourcesTest.test_examples_removed_and_unreferenced) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 1.947s
+
+OK
+=== GREEN PHASE (REAL STARTER ASSET): cli_version ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.66s
+     Running tests/cli_version.rs (out/cargo/debug/deps/cli_version-fdc98e8236d68994)
+
+running 8 tests
+test an_agent_command_that_creates_the_file_still_may ... ok
+test an_existing_file_is_not_called_missing ... ok
+test a_missing_file_is_refused_in_screenshot_and_agent_modes_too ... ok
+test a_missing_file_exits_non_zero_with_one_plain_line ... ok
+test fixture_showcase_without_fixtures_feature_exits_non_zero_with_unknown_fixture ... ok
+test version_wins_over_a_file_argument ... ok
+test version_flags_print_the_cargo_version ... ok
+test help_lists_the_version_flag ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.47s
+
+=== GREEN PHASE (REAL STARTER ASSET): shell::tests::home ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1212-starter-seed/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.48s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 36 tests
+test shell::tests::home::ac01_fresh_library_seeds_getting_started_and_starter_file ... ok
+test shell::tests::home::ac02_no_arg_launch_opens_home_and_never_builtin_demo ... ok
+test shell::tests::home::ac04_home_screen_contains_none_of_the_legacy_names ... ok
+test shell::tests::home::ac05_upgrade_from_v062_library_seeds_starter_once_and_handles_name_clash ... ok
+test shell::tests::home::ac06_missing_recent_file_shows_file_not_found_and_remove ... ok
+test shell::tests::home::ac10_help_open_starter_sample_creates_numbered_copies_in_current_project ... ok
+test shell::tests::home::account_and_plan_labels_are_gone_from_the_ui_sources ... ok
+test shell::tests::home::autosave_runs_after_the_idle_delay_and_ctrl_s_saves_at_once ... ok
+test shell::tests::home::back_to_files_flushes_edits_and_returns_to_the_home_screen ... ok
+test shell::tests::home::corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker ... ok
+test shell::tests::home::double_clicking_a_card_opens_it_and_single_click_selects ... ok
+test shell::tests::home::dragging_a_card_onto_a_project_moves_the_file ... ok
+test shell::tests::home::emptying_the_trash_needs_a_confirmation ... ok
+test shell::tests::home::external_files_keep_their_name_and_offer_save_to_library ... ok
+test shell::tests::home::first_launch_shows_the_home_screen_with_the_getting_started_project ... ok
+test shell::tests::home::help_menu_offers_shortcuts_about_and_a_confirmed_github_link ... ok
+test shell::tests::home::import_without_a_dialog_opens_path_prompt_from_toast_and_imports_file ... ok
+test shell::tests::home::importing_a_file_adds_it_to_the_project ... ok
+test shell::tests::home::library_option_sets_the_root_and_home_option_shows_the_home_screen ... ok
+test shell::tests::home::new_design_file_creates_and_opens_an_untitled_library_file ... ok
+test shell::tests::home::renaming_a_file_from_the_home_dialog_persists ... ok
+test shell::tests::home::renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open ... ok
+test shell::tests::home::renaming_in_the_header_persists_to_the_library ... ok
+test shell::tests::home::right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it ... ok
+test shell::tests::home::round3_e_save_as_and_image_fill_unavailable_show_toast_without_enter_path_while_import_has_it ... ok
+test shell::tests::home::search_filters_files_and_the_sidebar_navigates_sections ... ok
+test shell::tests::home::starter_asset_exists_and_is_at_most_5_mb ... ok
+test shell::tests::home::the_editor_header_shows_project_and_file_and_none_of_the_account_labels ... ok
+test shell::tests::home::typed_import_path_from_home_opens_the_fig ... ok
+test shell::tests::home::typed_import_path_relative_shows_the_message ... ok
+test shell::tests::home::unchanged_documents_are_never_rewritten_by_autosave ... ok
+test shell::tests::home::userflows_uf01_to_uf08_end_to_end_figma_parity ... ok
+test shell::tests::home_agents_card::the_agents_card_button_is_named_open_agents_for_a_screen_reader ... ok
+test shell::tests::home_agents_card::the_agents_card_description_names_every_supported_cli_and_no_tool_count ... ok
+test shell::tests::home_agents_card::the_agents_card_pins_its_button_and_description ... ok
+test shell::tests::home_agents_card::the_longer_description_wraps_above_the_button ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 3318 filtered out; finished in 23.81s
+

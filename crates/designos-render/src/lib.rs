@@ -41,8 +41,8 @@ pub use outline::{
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{
-    available_families, font_features, font_generation, load_font_data, register_font, resolve_font, text_geometry, text_runs, GlyphRun, GlyphSpan, LineGeom,
-    ResolvedFont, RunLine, TextGeometry, TextRuns,
+    available_families, font_features, font_generation, load_font_data, measure_text_box, register_font, resolve_font, text_geometry, text_runs, GlyphRun,
+    GlyphSpan, LineGeom, RenderTextMeasure, ResolvedFont, RunLine, TextGeometry, TextRuns,
 };
 pub use tiles::{Tile, TileBudget, TileCache, TileFrame, TileKey, TILE_SIZE};
 pub use tiny_skia;
@@ -352,6 +352,14 @@ fn shape_mask(w: u32, h: u32, paths: &[(sk::Path, sk::FillRule)], ts: sk::Transf
     Some(sk::Mask::from_pixmap(pm.as_ref(), sk::MaskType::Alpha))
 }
 
+/// How a frame clips its children while a silhouette is drawn.
+enum ContentClip {
+    None,
+    Mask(sk::Mask),
+    /// The frame clips but has no shape to clip by: nothing is visible.
+    Empty,
+}
+
 fn mask_mul(m: &mut sk::Mask, other: &sk::Mask) {
     for (a, b) in m.data_mut().iter_mut().zip(other.data()) {
         *a = ((*a as u32 * *b as u32 + 127) / 255) as u8;
@@ -550,8 +558,8 @@ impl Renderer<'_> {
                 NodeKind::Text(tp) => Some(text::layout(tp, n.size)),
                 _ => None,
             };
-            let sil = |pm: &mut sk::Pixmap, dx: f32, dy: f32, grow: f32, opaque: bool| {
-                self.draw_silhouette(n, ts, shape.as_ref(), text_layout.as_deref(), pm, dx, dy, grow, opaque);
+            let sil = |pm: &mut sk::Pixmap, dx: f32, dy: f32, grow: f32, mode: designos_doc::SilhouetteMode| {
+                self.draw_silhouette(n, ts, shape.as_ref(), text_layout.as_deref(), pm, dx, dy, grow, mode);
             };
             fx::texture(target, self.bbox(n, &ts), scale, t, &sil);
         }
@@ -566,21 +574,21 @@ impl Renderer<'_> {
         };
         let bb = self.bbox(n, &ts);
         let inner_bb = transformed_bounds(&ts, 0.0, 0.0, n.size.x, n.size.y);
-        let sil = |pm: &mut sk::Pixmap, dx: f32, dy: f32, grow: f32, opaque: bool| {
-            self.draw_silhouette(n, ts, shape.as_ref(), text_layout.as_deref(), pm, dx, dy, grow, opaque);
+        let sil = |pm: &mut sk::Pixmap, dx: f32, dy: f32, grow: f32, mode: designos_doc::SilhouetteMode| {
+            self.draw_silhouette(n, ts, shape.as_ref(), text_layout.as_deref(), pm, dx, dy, grow, mode);
         };
 
         // 1. drop shadows + background blur (behind the node)
         let fast_rrect = if blur::reference_mode() { None } else { self.solid_rrect(n, &ts, shape.as_ref()) };
         for e in &n.effects {
             match e {
-                Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind } => {
+                Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
                     if let Some((rr, fill_alpha)) = fast_rrect {
-                        if shadow::drop_shadow_rrect(target, clip, rr, scale, color, *offset, *radius, *spread, *show_behind, alpha, fill_alpha, &sil) {
+                        if shadow::drop_shadow_rrect(target, clip, rr, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, fill_alpha, &sil) {
                             continue;
                         }
                     }
-                    effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, alpha, &sil)
+                    effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, &sil)
                 }
                 Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
                     effects::background_blur(target, back, clip, inner_bb, scale, *radius, &sil)
@@ -603,8 +611,8 @@ impl Renderer<'_> {
 
         // 3. inner shadows
         for e in &n.effects {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true } = e {
-                effects::inner_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, alpha, &sil);
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                effects::inner_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha, &sil);
             }
         }
 
@@ -640,6 +648,42 @@ impl Renderer<'_> {
         }
     }
 
+    /// The frame's clip of its children in a silhouette: its shape mask when it clips content.
+    fn content_clip(&self, n: &Node, shape: Option<&Shape>, ts: sk::Transform, pm: &sk::Pixmap) -> ContentClip {
+        if !n.kind.frame_props().is_some_and(|f| f.clips_content) {
+            return ContentClip::None;
+        }
+        let Some(sh) = shape else { return ContentClip::Empty };
+        match shape_mask(pm.width(), pm.height(), &sh.paths, ts) {
+            Some(m) => ContentClip::Mask(m),
+            None => ContentClip::Empty,
+        }
+    }
+
+    /// Draws each visible child's own opaque silhouette (a knockout): paint alpha is ignored,
+    /// hidden and fully transparent children add nothing.
+    fn knockout_children(&self, children: &[NodeId], parent_ts: sk::Transform, pm: &mut sk::Pixmap) {
+        for cid in children {
+            if self.hide.contains(cid) {
+                continue;
+            }
+            let Some(child) = board::get(self.doc, *cid) else { continue };
+            let child = &*resolve_node(self.doc, &child);
+            let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            let scale = ts_scale(&ts);
+            let shape = node_shape(self.doc, child, 0.15 / scale);
+            let text_layout = match &child.kind {
+                NodeKind::Text(t) => Some(text::layout(t, child.size)),
+                _ => None,
+            };
+            self.draw_silhouette(child, ts, shape.as_ref(), text_layout.as_deref(), pm, 0.0, 0.0, 0.0, designos_doc::SilhouetteMode::Knockout);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_silhouette(
         &self,
@@ -651,26 +695,28 @@ impl Renderer<'_> {
         dx: f32,
         dy: f32,
         grow: f32,
-        opaque: bool,
+        mode: designos_doc::SilhouetteMode,
     ) {
+        let opaque = mode.ignores_alpha();
         let ts2 = ts.post_translate(dx, dy);
         let fills = self.visible_fills(n);
         let strokes = self.visible_strokes(n);
-        if let Some(tl) = tl {
-            for (i, path) in tl.paths.iter().enumerate() {
-                if let Some(path) = path {
-                    let a = if opaque {
-                        1.0
-                    } else {
-                        tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
-                    };
-                    pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
+        match designos_doc::silhouette_source(n, shape.map(|sh| sh.fillable), mode) {
+            designos_doc::SilhouetteSource::Text => {
+                let Some(tl) = tl else { return };
+                for (i, path) in tl.paths.iter().enumerate() {
+                    if let Some(path) = path {
+                        let a = if opaque {
+                            1.0
+                        } else {
+                            tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
+                        };
+                        pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
+                    }
                 }
             }
-            return;
-        }
-        if let Some(sh) = shape {
-            if (sh.fillable && !fills.is_empty()) || !strokes.is_empty() || (opaque && sh.fillable) {
+            designos_doc::SilhouetteSource::OwnShape => {
+                let Some(sh) = shape else { return };
                 if sh.fillable && opaque && fills.is_empty() {
                     for (path, rule) in sh.fill_paths() {
                         pm.fill_path(path, &black_paint(1.0), *rule, ts2, None);
@@ -711,14 +757,31 @@ impl Renderer<'_> {
                         pm.stroke_path(path, &p, &st, ts2, None);
                     }
                 }
-                return;
             }
-        }
-        if Self::draws_children(n) {
-            let kids = n.paint_children();
-            // silhouettes are drawn offset from the page grid, so no culling
-            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide }
-                .draw_children(&kids, ts2, pm, None, None);
+            designos_doc::SilhouetteSource::Children => {
+                let kids = n.paint_children();
+                // silhouettes are drawn offset from the page grid, so no culling
+                let r = Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
+                match self.content_clip(n, shape, ts2, pm) {
+                    ContentClip::Mask(m) => r.draw_children(&kids, ts2, pm, Some(&m), None),
+                    ContentClip::Empty => {}
+                    ContentClip::None => r.draw_children(&kids, ts2, pm, None, None),
+                }
+            }
+            designos_doc::SilhouetteSource::ChildrenOpaque => {
+                let kids = n.paint_children();
+                let (w, h) = (pm.width(), pm.height());
+                match self.content_clip(n, shape, ts2, pm) {
+                    ContentClip::Empty => {}
+                    ContentClip::None => self.knockout_children(&kids, ts2, pm),
+                    ContentClip::Mask(m) => {
+                        let Some(mut layer) = sk::Pixmap::new(w, h) else { return };
+                        self.knockout_children(&kids, ts2, &mut layer);
+                        pm.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), Some(&m));
+                    }
+                }
+            }
+            designos_doc::SilhouetteSource::Nothing => {}
         }
     }
 

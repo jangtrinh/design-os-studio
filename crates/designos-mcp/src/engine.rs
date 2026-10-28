@@ -118,8 +118,15 @@ pub struct Engine {
     pub ledger_entries: usize,
 }
 
+impl Engine {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for Engine {
     fn default() -> Self {
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
         Self {
@@ -218,7 +225,8 @@ fn read_session_json_field(env_file_var: &str, session_rel: &str, pointer: &str)
     let path = std::env::var_os(env_file_var).map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).or_else(|| {
         std::env::var_os("DESIGNOS_SESSION_DIR").map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).map(|d| d.join(session_rel))
     })?;
-    let raw = std::fs::read_to_string(path).ok()?;
+    // The session reads these files itself through `session_file_io` and tells the agent when one is refused (a link, a FIFO), so here a refusal is only `None`.
+    let raw = crate::session_file_io::read_to_string(&path).ok()?;
     let val: Value = serde_json::from_str(&raw).ok()?;
     non_empty_trimmed(val.pointer(pointer).and_then(Value::as_str))
 }
@@ -391,22 +399,29 @@ impl Engine {
                         Some((id.0.to_string(), serde_json::to_value(ip).ok()?))
                     })
                     .collect();
+                let listed_styles: Vec<_> = self
+                    .doc
+                    .styles
+                    .iter()
+                    .filter(|(k, _)| self.doc.is_table_style(k))
+                    .map(|(key, values)| {
+                        let meta = self.doc.style_meta.get(key);
+                        let empty = std::collections::BTreeMap::new();
+                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
+                        "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
+                        "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
+                    })
+                    .collect();
                 Ok(json!({"name":self.doc.name,"kind":self.doc.kind,
                     "active_page_id":self.resolve_default_page().ok().map(|p| p.0),
                     "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(|n| summary(&self.doc, n)).collect::<Vec<_>>(),
                     "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
                     "comment_count":self.doc.comments.len(),
-                    "style_count":self.doc.styles.len(),
+                    "style_count":listed_styles.len(),
                     "in_progress_count":in_progress_nodes.len(),
                     "in_progress_nodes":in_progress_nodes,
                     "in_progress":in_progress_map,
-                    "styles":self.doc.styles.iter().map(|(key,values)|{
-                        let meta=self.doc.style_meta.get(key);
-                        let empty = std::collections::BTreeMap::new();
-                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
-                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
-                            "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
-                    }).collect::<Vec<_>>(),
+                    "styles":listed_styles,
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
             "designos_get_libraries" => {
@@ -740,6 +755,9 @@ impl Engine {
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
                 }
+                if !report.measured_with_fallback.is_empty() {
+                    resp["measured_with_fallback"] = json!(report.measured_with_fallback);
+                }
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
                 }
@@ -896,14 +914,18 @@ impl Engine {
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: ExportFigArgs = parse(args)?;
                 let path = std::path::Path::new(&a.output_path);
-                if path.extension().and_then(|x| x.to_str()) != Some("fig") {
-                    return Err(ToolError::new(ErrorCode::UnsupportedExtension, "/output_path", "output_path must end in .fig")
-                        .with_valid_options(vec![".fig"])
-                        .with_corrected_example(json!({ "output_path": "export.fig" })));
-                }
+                let target_meta = std::fs::symlink_metadata(path).ok().map(|m| {
+                    #[cfg(unix)]
+                    let second_name = std::os::unix::fs::MetadataExt::nlink(&m) > 1;
+                    #[cfg(not(unix))]
+                    let second_name = false;
+                    (m.file_type().is_symlink(), m.is_dir(), m.file_type().is_file(), m.permissions().readonly(), second_name)
+                });
+                validate_existing_output_target(target_meta, &a.output_path, "/output_path", EXPORT_FIG_EXTENSION, a.overwrite, true)?;
+                self.settle_layout();
                 let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc)
-                    .map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Failed to export .fig: {e}")))?;
-                std::fs::write(path, &bytes).map_err(|e| ToolError::new(ErrorCode::IoError, "/output_path", format!("Cannot write .fig file: {e}")))?;
+                    .map_err(|e| ToolError::new(ErrorCode::InternalError, "/output_path", format!("Failed to export .fig: {e}")))?;
+                write_checked_output_file(path, &a.output_path, "/output_path", &bytes, a.overwrite, true)?;
                 // A `.fig` has no place for comments: the result says how many threads this file left out.
                 Ok(json!({
                     "output_path": a.output_path,
@@ -1234,12 +1256,28 @@ impl Engine {
         let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
         let mut warnings = Vec::new();
+        let mut measured_with_fallback = Vec::new();
+        if let NodeKind::Text(tp) = &node.kind {
+            if (a.width.is_none() || a.height.is_none()) && designos_doc::text_measure::uses_fallback_font(tp) {
+                measured_with_fallback.push(id.0);
+                warnings.push(designos_doc::SpecWarning {
+                    code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
+                    path: "text".to_string(),
+                    token: None,
+                    replacement: None,
+                    message: Some("One or more text nodes were measured with a fallback font because the requested font_family is not loaded.".to_string()),
+                });
+            }
+        }
         crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, FillTarget::NewLayer, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
         }
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        if !measured_with_fallback.is_empty() {
+            out["measured_with_fallback"] = json!(measured_with_fallback);
+        }
         attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
@@ -1309,22 +1347,21 @@ fn summary(doc: &Document, n: &Node) -> Value {
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&raw)))
+    T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", false, Some(&args)))
 }
 
 pub(crate) fn parse_spec<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
-    let raw = args.clone();
-    serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&raw)))
+    let parsed = T::deserialize(&args).map_err(|e| crate::tools::errors::from_serde_error_with_args(&e, "", true, Some(&args)))?;
+    if let Some(spec_msg) = crate::tools::errors::describe_spec_args_error(&args) {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, "", format!("Invalid arguments: {spec_msg}")));
+    }
+    Ok(parsed)
 }
 
 use crate::tools::bounded_text;
 use crate::tools::fill_write::FillTarget;
 fn default_limit() -> usize {
     100
-}
-fn default_size() -> f32 {
-    100.0
 }
 fn default_true() -> bool {
     true
@@ -1383,10 +1420,10 @@ struct CreateArgs {
     x: f32,
     #[serde(default)]
     y: f32,
-    #[serde(default = "default_size")]
-    width: f32,
-    #[serde(default = "default_size")]
-    height: f32,
+    #[serde(default)]
+    width: Option<f32>,
+    #[serde(default)]
+    height: Option<f32>,
     #[serde(default)]
     fill: Option<String>,
     #[serde(default)]
@@ -1508,6 +1545,282 @@ struct SetInProgressArgs {
 pub(crate) struct ExportFigArgs {
     #[serde(alias = "path")]
     pub output_path: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+pub(crate) fn has_control_or_bidi_char(s: &str) -> bool {
+    s.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{200E}'
+                    | '\u{200F}'
+                    | '\u{061C}'
+            )
+    })
+}
+
+pub(crate) fn is_whitespace_only_output_name(display_path: &str) -> bool {
+    if display_path.trim().is_empty() {
+        return true;
+    }
+    let p = std::path::Path::new(display_path);
+    if p.components().any(|comp| matches!(comp, std::path::Component::Normal(part) if part.to_str().is_some_and(|s| s.trim().is_empty()))) {
+        return true;
+    }
+    p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.trim().is_empty())
+}
+
+pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), ToolError> {
+    if has_control_or_bidi_char(display_path) {
+        return Err(ToolError::new(
+            ErrorCode::InvalidName,
+            ptr,
+            format!("{display_path} has a name with a line break or a direction-control character. Rename it, then try again."),
+        )
+        .with_received(json!(display_path)));
+    }
+    if is_whitespace_only_output_name(display_path) {
+        return Err(ToolError::new(ErrorCode::InvalidName, ptr, format!("{display_path} has a blank name. Give the file a name, then try again."))
+            .with_received(json!(display_path)));
+    }
+    for comp in std::path::Path::new(display_path).components() {
+        if let std::path::Component::Normal(part) = comp {
+            if part.len() > 255 {
+                return Err(ToolError::new(ErrorCode::NameTooLong, ptr, format!("{display_path} has a name longer than 255 bytes. Use a shorter name."))
+                    .with_received(json!(display_path)));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The one file name ending `designos_save_file` writes below the workspace.
+pub const SAVE_EXTENSION: &str = "designos";
+/// The one file name ending `designos_render_png` writes below the workspace.
+pub const RENDER_EXTENSION: &str = "png";
+/// The one file name ending `designos_export_fig_file` writes below the workspace (any case: `.FIG` is accepted).
+pub const EXPORT_FIG_EXTENSION: &str = "fig";
+
+/// Every file name ending the tools of this server create below the workspace (`--workspace`, the open file's folder). A tool refuses
+/// any other, so a file with none of these endings in the workspace is out of its reach, except for the temporary name below. Studio
+/// relies on it: its hook folder lies in the data folder, which can lie inside a workspace, and none of the names kept there ends in
+/// one of these or starts with the temporary prefix (`agent_hook_outputs`).
+pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENSION, EXPORT_FIG_EXTENSION];
+
+/// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
+/// made with `create_new`, so it never replaces an existing file).
+pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
+
+pub(crate) fn validate_existing_output_target(
+    target_meta: Option<(bool, bool, bool, bool, bool)>,
+    display_path: &str,
+    ptr: &str,
+    ext: &str,
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
+    let field_name = ptr.trim_start_matches('/');
+    let case_insensitive_ext = ext == "fig";
+    validate_output_name(display_path, ptr)?;
+    if target_meta.is_some_and(|(is_symlink, _, _, _, _)| is_symlink) {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+            .with_received(json!(display_path)));
+    }
+    let looks_like_dir = target_meta.is_some_and(|(_, is_dir, _, _, _)| is_dir)
+        || display_path == "."
+        || display_path.ends_with('/')
+        || display_path.ends_with("/.")
+        || (cfg!(windows) && (display_path.ends_with('\\') || display_path.ends_with("\\.")));
+    if looks_like_dir {
+        return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a folder, not a file. Choose a file path, then try again."))
+            .with_received(json!(display_path)));
+    }
+    let ext_ok = std::path::Path::new(display_path).extension().and_then(|x| x.to_str()).is_some_and(|actual| {
+        if case_insensitive_ext {
+            actual.eq_ignore_ascii_case(ext)
+        } else {
+            actual == ext
+        }
+    });
+    if !ext_ok {
+        return Err(ToolError::new(
+            ErrorCode::InvalidArguments,
+            ptr,
+            format!("{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."),
+        )
+        .with_received(json!(display_path))
+        .with_expected(format!("*.{ext}")));
+    }
+    if let Some((_, _, is_file, is_readonly, second_name)) = target_meta {
+        if !is_file {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if !overwrite {
+            if supports_overwrite {
+                return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                    .with_received(json!(display_path))
+                    .with_corrected_example(json!({ field_name: display_path, "overwrite": true })));
+            }
+            return Err(ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if second_name {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} has a second name (a hard link). Delete it, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if is_readonly {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
+            )
+            .with_received(json!(display_path)));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn write_checked_output_file(
+    resolved: &std::path::Path,
+    display_path: &str,
+    ptr: &str,
+    bytes: &[u8],
+    overwrite: bool,
+    supports_overwrite: bool,
+) -> Result<(), ToolError> {
+    use std::io::Write;
+    let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
+        Some(crate::session_file_io::Refusal::Link) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::SecondName) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        Some(crate::session_file_io::Refusal::NotPlainFile) => {
+            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path))
+        }
+        None => ToolError::new(
+            ErrorCode::InternalError,
+            ptr,
+            format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
+        ),
+    };
+    if !overwrite {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        let field_name = ptr.trim_start_matches('/');
+        let mut file = opts.open(resolved).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                if supports_overwrite {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Pass overwrite: true to replace it."))
+                        .with_received(json!(display_path))
+                        .with_corrected_example(json!({ field_name: display_path, "overwrite": true }))
+                } else {
+                    ToolError::new(ErrorCode::FileExists, ptr, format!("{display_path} already exists. Choose a new path, then try again."))
+                        .with_received(json!(display_path))
+                }
+            } else {
+                map_io_err(e)
+            }
+        })?;
+        if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+            drop(file);
+            let removed = std::fs::remove_file(resolved).is_ok();
+            return Err(map_io_err(e).with_safe_to_retry(removed));
+        }
+        return Ok(());
+    }
+
+    let old = match std::fs::symlink_metadata(resolved) {
+        Ok(m) => Some(m),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(map_io_err(e)),
+    };
+    if let Some(ref m) = old {
+        if m.file_type().is_symlink() {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path)));
+        }
+        if m.is_dir() {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is a folder, not a file. Choose a file path, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if !m.file_type().is_file() {
+            return Err(ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                .with_received(json!(display_path)));
+        }
+        #[cfg(unix)]
+        let second_name = std::os::unix::fs::MetadataExt::nlink(m) > 1;
+        #[cfg(not(unix))]
+        let second_name = false;
+        if second_name {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} has a second name (a hard link). Delete it, then try again."),
+            )
+            .with_received(json!(display_path)));
+        }
+        if m.permissions().readonly() {
+            return Err(ToolError::new(
+                ErrorCode::InvalidArguments,
+                ptr,
+                format!("{display_path} is read-only. Make it writable first, or choose a new path."),
+            )
+            .with_received(json!(display_path)));
+        }
+    }
+
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = resolved.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!("{OUTPUT_TEMP_PREFIX}{}-{seq}.tmp", std::process::id()));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+        if old.is_some() {
+            opts.mode(0o600);
+        }
+    }
+    let mut file = opts.open(&tmp).map_err(&map_io_err)?;
+    let write_res = (|| -> std::io::Result<()> {
+        if let Some(ref old) = old {
+            file.set_permissions(old.permissions())?;
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, resolved)
+    })();
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(map_io_err(e));
+    }
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1848,7 +2161,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "export_fig_file",
         "Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace.",
-        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."}}),
+        json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."},"overwrite":{"type":"boolean","default":false}}),
         vec!["output_path"],
         json!({
             "output_path": {"type": "string"},
@@ -2124,8 +2437,15 @@ mod tests {
         let mut e = Engine::default();
         let id = create(&mut e, "frame", "Card");
         assert_eq!(e.call("designos_get_document", json!({})).unwrap()["styles"], json!([]), "no styles yet");
-        let shadow =
-            Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false };
+        let shadow = Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        };
         e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
         e.doc.styles.insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))]));
         for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {
@@ -3677,5 +3997,306 @@ mod tests {
         let replayed_main = editor_doc.get(main_comp_id).expect("imported library main component must exist in replayed document");
         assert_eq!(replayed_main.name, "Icon/Arrow");
         assert_eq!(replayed_main.parent, editor_doc.library_page);
+    }
+
+    #[test]
+    fn delete_button_label_has_equal_side_padding() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "DeleteBtn",
+                        "height": 28.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 12.0, 0.0, 12.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "Delete",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let label_id = NodeId(res["name_to_id"]["DeleteBtn/Label"].as_u64().unwrap());
+        let btn = e.doc.get(btn_id).unwrap();
+        let label = e.doc.get(label_id).unwrap();
+        let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert_eq!(label.transform.tx, 12.0, "label x must equal left padding 12.0");
+        assert!(
+            ((btn.size.x - (label.transform.tx + label.size.x)) - 12.0).abs() <= 0.5,
+            "right padding ({}) must equal left padding (12.0) within 0.5px",
+            btn.size.x - (label.transform.tx + label.size.x)
+        );
+        assert!(
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 46.0,
+            "label width ({}) must match measured_text_box ({}) within 0.5px and be < 46.0 (not 48.0/52.0)",
+            label.size.x,
+            measured.x
+        );
+    }
+
+    #[test]
+    fn create_node_text_without_size_hugs_its_content() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "CancelLabel",
+                    "text": "Cancel"
+                }),
+            )
+            .unwrap();
+        let id = NodeId(res["node"]["id"].as_u64().unwrap());
+        let node = e.doc.get(id).unwrap();
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text node") };
+        assert_eq!(tp.auto_resize, designos_doc::TextAutoResize::WidthAndHeight);
+        assert!(node.size.x < 60.0, "expected 'Cancel' width < 60.0 (not 100.0), got {}", node.size.x);
+    }
+
+    #[test]
+    fn create_node_text_with_size_is_fixed() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "CancelFixed",
+                    "text": "Cancel",
+                    "width": 100.0,
+                    "height": 24.0
+                }),
+            )
+            .unwrap();
+        let id = NodeId(res["node"]["id"].as_u64().unwrap());
+        let node = e.doc.get(id).unwrap();
+        let NodeKind::Text(tp) = &node.kind else { panic!("expected text node") };
+        assert_eq!(tp.auto_resize, designos_doc::TextAutoResize::None);
+        assert_eq!((node.size.x, node.size.y), (100.0, 24.0));
+    }
+
+    #[test]
+    fn update_node_text_change_remeasures_hug_text() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "ActionBtn",
+                        "height": 28.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 12.0, 0.0, 12.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "OK",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let label_id = NodeId(res["name_to_id"]["ActionBtn/Label"].as_u64().unwrap());
+        let w_label_before = e.doc.get(label_id).unwrap().size.x;
+        let w_btn_before = e.doc.get(btn_id).unwrap().size.x;
+
+        e.call(
+            "designos_update_node",
+            json!({
+                "node_id": label_id.0,
+                "text": "Save changes"
+            }),
+        )
+        .unwrap();
+
+        let w_label_after = e.doc.get(label_id).unwrap().size.x;
+        let w_btn_after = e.doc.get(btn_id).unwrap().size.x;
+        assert!(w_label_after > w_label_before, "label width must grow from {w_label_before} to {w_label_after}");
+        assert!(w_btn_after > w_btn_before, "button width must grow from {w_btn_before} to {w_btn_after}");
+
+        e.call("designos_undo", json!({})).unwrap();
+        assert!((e.doc.get(label_id).unwrap().size.x - w_label_before).abs() <= 1e-3, "one undo must restore label width");
+        assert!((e.doc.get(btn_id).unwrap().size.x - w_btn_before).abs() <= 1e-3, "one undo must restore button width");
+    }
+
+    #[test]
+    fn instance_text_override_is_measured() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let comp_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "component",
+                        "name": "CtaButton",
+                        "height": 32.0,
+                        "width_sizing": "hug",
+                        "height_sizing": "fixed",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [0.0, 12.0, 0.0, 12.0],
+                            "align": "center"
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "OK",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let _comp_id = comp_res["root_node_id"].as_u64().unwrap();
+
+        let inst_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "CheckoutInst",
+                        "component": "CtaButton",
+                        "overrides": [
+                            {
+                                "path": "Label",
+                                "text": "Continue to checkout"
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst_label_id = NodeId(inst_res["name_to_id"]["CheckoutInst/Label"].as_u64().unwrap());
+        let label = e.doc.get(inst_label_id).unwrap();
+        let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert!(
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 145.0,
+            "instance override label width ({}) must match measured ({}) within 0.5px and be < 145.0 (not 157.0)",
+            label.size.x,
+            measured.x
+        );
+    }
+
+    #[test]
+    fn apply_spec_is_one_undo_step_and_one_patch() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        e.live_ops = Some(Vec::new());
+        let undo_before = e.history.undo_depth();
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "OnePatchBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": {
+                            "direction": "row",
+                            "padding": [6.0, 12.0, 6.0, 12.0]
+                        },
+                        "children": [
+                            {
+                                "kind": "text",
+                                "name": "Label",
+                                "text": "Delete",
+                                "font_size": 14.0,
+                                "font_weight": 600
+                            }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        assert_eq!(e.history.undo_depth(), undo_before + 1, "apply_spec must be one undo step");
+
+        let ops = e.take_live_ops();
+        assert_eq!(ops.len(), 1, "apply_spec must record exactly one LiveOp::Insert, got {ops:?}");
+        match &ops[0] {
+            designos_doc::live_patch::LiveOp::Insert { nodes, .. } => {
+                let text_node = nodes.iter().find(|n| n.name == "Label").expect("Label node in LiveOp::Insert");
+                assert!(text_node.size.x < 46.0, "LiveOp::Insert text node must already carry measured width (< 46.0), got {}", text_node.size.x);
+            }
+            other => panic!("expected LiveOp::Insert, got {other:?}"),
+        }
+
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root_id).is_none(), "one designos_undo must remove the whole subtree");
+    }
+
+    #[test]
+    fn fallback_font_is_reported() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "FallbackText",
+                        "text": "Missing face",
+                        "font_family": "NotARealFontFamily"
+                    }
+                }),
+            )
+            .unwrap();
+        let tid = res["root_node_id"].as_u64().unwrap();
+        let fb = res["measured_with_fallback"].as_array().expect("measured_with_fallback array in apply_spec reply");
+        assert!(fb.contains(&json!(tid)), "measured_with_fallback must contain text node id {tid}, got {fb:?}");
+        let warnings = res["warnings"].as_array().expect("warnings array in apply_spec reply");
+        assert!(
+            warnings.iter().any(|w| w["code"] == "TEXT_MEASURED_WITH_FALLBACK_FONT"),
+            "warnings must include TEXT_MEASURED_WITH_FALLBACK_FONT, got {warnings:?}"
+        );
     }
 }

@@ -1,0 +1,63 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.90s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 11 tests
+test agent_session_files::private_anchor_tests::a_path_beside_the_private_root_is_no_anchor ... ok
+test agent_session_files::private_anchor_tests::a_path_in_the_hook_folder_anchors_at_the_channel_folder_of_its_session ... ok
+test agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write ... FAILED
+test agent_session_files::private_anchor_tests::the_hook_folder_itself_and_everything_below_it_still_anchor_at_the_channel ... ok
+test agent_session_files::private_anchor_tests::a_missing_channel_folder_is_made_private_by_a_routed_write_into_the_hook_folder ... ok
+test terminal::fail_closed_hook_tests::without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode ... ok
+test terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file ... ok
+test terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them ... FAILED
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... FAILED
+
+failures:
+
+---- agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write stdout ----
+
+thread 'agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write' (46364843) panicked at crates/designos-app/src/agent_session_files/private_anchor_tests.rs:42:9:
+assertion `left == right` failed: approve-hook.sh anchors at the channel
+  left: Some("<tmp>/b1061.Jx9K71/designos-approval-channels-test/692e94502391c179")
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them stdout ----
+design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+
+thread 'agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them' (46364839) panicked at crates/designos-app/src/agent_composer.rs:2671:13:
+the skills are pasted, not left for a hook that is not installed: "\u{1b}[200~Make a pricing card\u{1b}[201~"
+
+---- terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing stdout ----
+
+thread 'terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing' (46364848) panicked at crates/designos-app/src/terminal/unwritable_hook_folder_tests.rs:81:13:
+ClaudeAsk, Missing: 11 of 19 hooks did not end at once with success:
+exit Some(0) after 21.174584ms, stderr "<tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/approve-hook.sh: line 22: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": /bin/sh '<tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7d
+exit Some(0) after 837.44475ms, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/claude-transcript.json.tmp.42818: No such file or directory": in=$(tr -d '\r\n'); sid=$(printf '%s' "$in" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\
+exit Some(1) after 8.277788292s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Notification","p":%s}' "$(date +%s)"
+exit Some(1) after 8.278042417s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PermissionRequest","p":%s}' "$(date 
+exit Some(1) after 8.27798725s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PostToolUse","p":%s}' "$(date +%s)" 
+exit Some(1) after 8.277896625s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PostToolUseFailure","p":%s}' "$(date
+exit Some(1) after 8.277877958s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"PreToolUse","p":%s}' "$(date +%s)" "
+exit Some(1) after 8.277881459s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"SessionStart","p":%s}' "$(date +%s)"
+exit Some(1) after 8.260039s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"Stop","p":%s}' "$(date +%s)" "$p"); 
+exit Some(1) after 8.261772666s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopCancelled","p":%s}' "$(date +%s)
+exit Some(1) after 8.261848459s, stderr "sh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-events.jsonl: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/agent-status.json: No such file or directory\nsh: <tmp>/b1061.Jx9K71/designos-approval-channels-test/c608d7da62ae3fb2/hook-out/turn-marks.jsonl: No such file or directory": { p=$(tr '\r\n' '  '); [ -z "$p" ] && p=null; line=$(printf '{"t":%s,"e":"StopFailure","p":%s}' "$(date +%s)" 
+
+
+failures:
+    agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them
+    agent_session_files::private_anchor_tests::nothing_of_the_approval_channel_but_the_hook_folder_is_a_place_for_a_routed_write
+    terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing
+
+test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 3295 filtered out; finished in 16.74s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

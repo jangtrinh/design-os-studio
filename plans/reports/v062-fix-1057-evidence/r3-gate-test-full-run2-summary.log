@@ -1,0 +1,47 @@
+== gemini mtimes before: cargo test -p designos-app --bin designos --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.30s
+     Running unittests src/main.rs (out/cargo-1057/debug/deps/designos-dd82a7aa841fdfee)
+
+running 3103 tests
+test check_designs::tests::instances::measure_mirror_and_large_page_audit_perf ... ignored, release perf
+test check_designs::tests::scale::a_large_detached_frame_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::a_text_after_a_large_group_does_not_stall_one_slice ... ignored, release perf
+test check_designs::tests::scale::each_slice_respects_budget_on_112k_page ... ignored, release perf
+test decks::export::tests::write_demo_pdf_preview ... ignored, writes review artifacts only when explicitly requested
+test io::tests::pen_clone_budget_warning_reaches_the_caller_and_the_toast_text ... ignored, allocates the full 2M-node clone budget; run with --ignored
+test live_sync_tests::mcp_apply_spec_on_a_real_file_keeps_every_screen ... ignored, needs a real design file in DESIGNOS_LIVE_SYNC_FIG
+test plugins::store::tests::real_registry_install ... ignored, Requires explicit DESIGNOS_PLUGINS_TOKEN and access to the private registry
+test io::tests::opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_gesture_ends_at_the_release_position_however_the_frames_are_cut has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_middle_press_ends_the_open_gesture_in_one_undo_step has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_after_a_lost_release_ends_the_gesture_as_it_was_last_drawn has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_at_the_spot_of_the_release_does_not_move_the_end_of_the_open_gesture has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_press_off_the_canvas_after_a_release_still_ends_the_open_gesture has been running for over 60 seconds
+test shell::tests::fast_drag_transform::a_release_then_a_press_in_one_frame_commits_the_open_gesture_where_it_was_released has been running for over 60 seconds
+test shell::tests::gpu_screenshot_wait::no_frame_of_the_settle_is_one_a_disturbance_can_turn_into_a_capped_capture has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::every_figma_ai_row_is_one_exact_undo_step_with_and_without_a_selection has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::every_operation_names_what_it_did_in_its_toast has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::on_a_page_the_solver_would_move_one_cmd_z_restores_it_exactly_and_redo_replays_the_fix has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_design_gate_fix_is_one_undo_step_and_undo_puts_everything_back has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_fix_lights_the_unsaved_dot_and_autosave_writes_it has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_outcome_tells_a_committed_fix_from_a_no_op_and_from_a_refusal has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_palette_button_fix_closes_the_palette_so_cmd_z_undoes_it has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_palette_button_that_changes_nothing_leaves_the_palette_open has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::the_toast_follows_the_ux_writing_rules_and_promises_only_what_works has been running for over 60 seconds
+test shell::tests::palette_autofix_undo::wiring_two_selected_frames_links_only_those_and_one_cmd_z_restores_the_page has been running for over 60 seconds
+
+test result: ok. 3095 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 513.28s
+
+== gemini mtimes after: cargo test -p designos-app --bin designos --locked
+1792820301 /Users/jangtrinh/.gemini/projects.json
+1792819410 /Users/jangtrinh/.gemini/oauth_creds.json

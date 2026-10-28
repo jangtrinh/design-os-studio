@@ -1,0 +1,108 @@
+{
+  "kind": "frame",
+  "name": "ButtonsRow",
+  "fill": "#18181B",
+  "width_sizing": "hug",
+  "height_sizing": "hug",
+  "corner_radius": 8,
+  "layout": {
+    "direction": "row",
+    "gap": 16,
+    "padding": [
+      24,
+      24,
+      24,
+      24
+    ],
+    "align": "center"
+  },
+  "children": [
+    {
+      "kind": "frame",
+      "name": "DeleteBtn",
+      "fill": "#DC2626",
+      "height": 28,
+      "width_sizing": "hug",
+      "height_sizing": "fixed",
+      "corner_radius": 6,
+      "layout": {
+        "direction": "row",
+        "padding": [
+          0,
+          12,
+          0,
+          12
+        ],
+        "align": "center"
+      },
+      "children": [
+        {
+          "kind": "text",
+          "name": "DeleteLabel",
+          "text": "Delete",
+          "font_size": 14,
+          "font_weight": 600,
+          "fill": "#FFFFFF"
+        }
+      ]
+    },
+    {
+      "kind": "frame",
+      "name": "ExportBtn",
+      "fill": "#2563EB",
+      "height": 28,
+      "width_sizing": "hug",
+      "height_sizing": "fixed",
+      "corner_radius": 6,
+      "layout": {
+        "direction": "row",
+        "padding": [
+          0,
+          12,
+          0,
+          12
+        ],
+        "align": "center"
+      },
+      "children": [
+        {
+          "kind": "text",
+          "name": "ExportLabel",
+          "text": "Export",
+          "font_size": 14,
+          "font_weight": 600,
+          "fill": "#FFFFFF"
+        }
+      ]
+    },
+    {
+      "kind": "frame",
+      "name": "ShareBtn",
+      "fill": "#16A34A",
+      "height": 28,
+      "width_sizing": "hug",
+      "height_sizing": "fixed",
+      "corner_radius": 6,
+      "layout": {
+        "direction": "row",
+        "padding": [
+          0,
+          12,
+          0,
+          12
+        ],
+        "align": "center"
+      },
+      "children": [
+        {
+          "kind": "text",
+          "name": "ShareLabel",
+          "text": "Share",
+          "font_size": 14,
+          "font_weight": 600,
+          "fill": "#FFFFFF"
+        }
+      ]
+    }
+  ]
+}

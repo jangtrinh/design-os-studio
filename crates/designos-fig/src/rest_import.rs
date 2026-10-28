@@ -40,6 +40,11 @@ pub(crate) fn color(v: &Value) -> Option<Color> {
     Some(Color { r: fnum(v, "r")?, g: fnum(v, "g")?, b: fnum(v, "b")?, a: fnum(v, "a").unwrap_or(1.0) })
 }
 
+/// The blend mode an effect carries; absent means Normal.
+fn effect_blend(v: &Value) -> BlendMode {
+    fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal)
+}
+
 pub(crate) fn blend(s: &str) -> BlendMode {
     match s {
         "PASS_THROUGH" => BlendMode::PassThrough,
@@ -115,8 +120,16 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
     let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
-        "DROP_SHADOW" => Effect::DropShadow { color: col, offset, radius, spread, visible, show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false) },
-        "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible },
+        "DROP_SHADOW" => Effect::DropShadow {
+            color: col,
+            offset,
+            radius,
+            spread,
+            visible,
+            show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false),
+            blend: effect_blend(v),
+        },
+        "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible, blend: effect_blend(v) },
         "LAYER_BLUR" => Effect::LayerBlur { radius, visible },
         "BACKGROUND_BLUR" => Effect::BackgroundBlur { radius, visible },
         // Noise / texture / glass: every field is optional; missing ones fall back to the
@@ -276,6 +289,17 @@ pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     }
     if let Some(p) = fnum(v, "paragraphSpacing") {
         ts.paragraph_spacing = p;
+    }
+    if let Some(p) = fnum(v, "paragraphIndent") {
+        ts.paragraph_indent = p.max(0.0);
+    }
+    if let Some(p) = fnum(v, "listSpacing") {
+        ts.list_spacing = p.max(0.0);
+    }
+    match fstr(v, "leadingTrim") {
+        Some("CAP_HEIGHT") => ts.leading_trim = LeadingTrim::CapHeight,
+        Some("NONE") => ts.leading_trim = LeadingTrim::None,
+        _ => {}
     }
     // Percentage spacing from a partial `.fig` override: resolved against the final size.
     if let Some(p) = fnum(v, "letterSpacingPercent") {
@@ -1276,7 +1300,7 @@ impl<'a> Ctx<'a> {
                     other => other,
                 };
                 n.style_refs.insert(key.to_string(), sid.to_string());
-                if self.doc.styles.contains_key(sid) {
+                if sid.starts_with("key:") || self.doc.styles.contains_key(sid) {
                     continue;
                 }
                 let def = match key {
@@ -1286,7 +1310,17 @@ impl<'a> Ctx<'a> {
                     })),
                     "stroke" => Some(Style::Fill(n.stroke.paints.clone())),
                     "text" => match &n.kind {
-                        NodeKind::Text(t) => Some(Style::Text(t.style.clone())),
+                        NodeKind::Text(t) => {
+                            // Alignment belongs to the text layer, not the
+                            // shared style. A style inferred from its first
+                            // consumer must use the style defaults here too;
+                            // otherwise a .fig round trip reintroduces the
+                            // consumer's alignment into the style.
+                            let mut style = t.style.clone();
+                            style.align_h = TextAlignH::Left;
+                            style.align_v = TextAlignV::Top;
+                            Some(Style::Text(style))
+                        }
                         _ => None,
                     },
                     "effect" => Some(Style::Effect(n.effects.clone())),
@@ -2090,6 +2124,7 @@ impl<'a> Ctx<'a> {
         if current == Some(target) {
             return Ok(());
         }
+        let current_size = current.and_then(|c| self.doc.get(c)).map(|n| n.size);
         let Some(target_node) = self.doc.get(target).cloned() else {
             return Ok(());
         };
@@ -2101,8 +2136,11 @@ impl<'a> Ctx<'a> {
             let _ = self.doc.remove(k);
         }
         if let Some(dn) = self.doc.get_mut(d) {
+            let keep_resized = current_size.is_some_and(|cs| (dn.size.x - cs.x).abs() > 1e-4 || (dn.size.y - cs.y).abs() > 1e-4);
             dn.kind = NodeKind::Instance { frame: target_fp.clone(), component: Some(target), component_key: None };
-            dn.size = target_node.size;
+            if !keep_resized {
+                dn.size = target_node.size;
+            }
             dn.fills = target_node.fills;
             dn.stroke = target_node.stroke;
             dn.effects = target_node.effects;
@@ -2349,7 +2387,7 @@ impl<'a> Ctx<'a> {
     }
 
     fn override_key_of(&self, mut id: NodeId) -> Option<&std::sync::Arc<str>> {
-        for _ in 0..8 {
+        for _ in 0..64 {
             if let Some(k) = self.override_keys.get(&id) {
                 return Some(k);
             }
@@ -2362,33 +2400,79 @@ impl<'a> Ctx<'a> {
         None
     }
 
+    fn resize_override_node(&mut self, id: NodeId, sz: Vec2, has_fill_geo: bool, has_stroke_geo: bool, skip_geo: bool, explicitly_sized: &mut HashSet<NodeId>) {
+        explicitly_sized.insert(id);
+        let Some((old_size, old_transform, is_vec_or_bool, is_container)) =
+            self.doc.get(id).map(|n| (n.size, n.transform, matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)), n.kind.is_container()))
+        else {
+            return;
+        };
+        let size_changed = (old_size.x - sz.x).abs() > 1e-4 || (old_size.y - sz.y).abs() > 1e-4;
+        if !size_changed {
+            if let Some(n) = self.doc.get_mut(id) {
+                n.size = sz;
+            }
+            return;
+        }
+        if let Some(n) = self.doc.get_mut(id) {
+            if !is_vec_or_bool {
+                if !has_fill_geo || skip_geo {
+                    n.fill_geometry = None;
+                }
+                if !has_stroke_geo || skip_geo {
+                    n.stroke_geometry = None;
+                }
+            }
+            designos_doc::apply_constrained_geometry(n, old_transform, sz);
+        }
+        if is_container {
+            for (c, new_transform, new_size) in designos_doc::plan_constraint_pass(&self.doc, id, old_size, sz, MAX_TREE_DEPTH) {
+                if explicitly_sized.contains(&c) {
+                    continue;
+                }
+                if let Some(km) = self.doc.get_mut(c) {
+                    if self.large_file && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                        km.fill_geometry = None;
+                        km.stroke_geometry = None;
+                    }
+                    designos_doc::apply_constrained_geometry(km, new_transform, new_size);
+                }
+            }
+        }
+    }
+
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
     fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
-        let Some(ov) = self.overrides.remove(&inst) else { return Ok(()) };
+        let Some(mut ov) = self.overrides.remove(&inst) else { return Ok(()) };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
+        let mut explicitly_sized: HashSet<NodeId> = HashSet::new();
         for e in &ov.set {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                if self.apply_override(t, &e.set, false, targets, done)? {
+                if self.apply_override(t, &e.set, false, targets, done, &mut explicitly_sized)? {
                     subtree_maps.clear();
                 }
             }
         }
         // Figma's computed results for resized instances win over the raw overrides.
+        // Apply shallowest paths first so parent container resizes propagate
+        // constraints before child-specific derived sizes/geometries run.
+        ov.derived.sort_by_key(|e| e.path.len());
         for e in &ov.derived {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                let _ = self.apply_override(t, &e.set, true, targets, done)?;
+                let _ = self.apply_override(t, &e.set, true, targets, done, &mut explicitly_sized)?;
             }
         }
+        ov.fast_derived.sort_by_key(|d| d.path.len());
         for d in &ov.fast_derived {
             if let Some(t) = self.resolve_path_cached(inst, &d.path, &mut subtree_maps) {
-                self.apply_fast_derived(t, d);
+                self.apply_fast_derived(t, d, &mut explicitly_sized);
             }
         }
         Ok(())
     }
 
-    fn apply_fast_derived(&mut self, id: NodeId, d: &crate::fig::FastDerivedEntry) {
+    fn apply_fast_derived(&mut self, id: NodeId, d: &crate::fig::FastDerivedEntry, explicitly_sized: &mut HashSet<NodeId>) {
         let skip_geo = match self.doc.get(id).map(|n| &n.kind) {
             Some(
                 NodeKind::Text(_)
@@ -2448,38 +2532,35 @@ impl<'a> Ctx<'a> {
                 })
             })
             .flatten();
-        let Some(n) = self.doc.get_mut(id) else { return };
-        let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
         if let Some(sz) = d.size {
-            if n.size != sz && !is_vec_or_bool {
-                if d.fill_geometry.is_none() || skip_geo {
-                    n.fill_geometry = None;
-                }
-                if d.stroke_geometry.is_none() || skip_geo {
-                    n.stroke_geometry = None;
-                }
-            }
-            n.size = sz;
+            self.resize_override_node(id, sz, d.fill_geometry.is_some(), d.stroke_geometry.is_some(), skip_geo, explicitly_sized);
         }
+        let Some(n) = self.doc.get_mut(id) else { return };
         if let Some(t) = d.transform {
             n.transform = t;
         }
-        if let Some(g) = fill_geo.take() {
+        let has_derived_fill = fill_geo.as_ref().is_some_and(|g| !g.is_empty());
+        if let Some(g) = fill_geo.take().filter(|g| !g.is_empty()) {
             if let NodeKind::Vector { paths, network } = &mut n.kind {
                 *paths = g;
                 *network = None;
                 n.fill_geometry = None;
             } else {
-                n.fill_geometry = Some(g).filter(|g| !g.is_empty());
+                n.fill_geometry = Some(g);
             }
         }
-        if let Some(g) = stroke_geo {
-            n.stroke_geometry = Some(g).filter(|g| !g.is_empty());
+        if let Some(g) = stroke_geo.filter(|g| !g.is_empty()) {
+            if !has_derived_fill && n.fill_geometry.is_none() {
+                if let NodeKind::Vector { paths, .. } = &mut n.kind {
+                    paths.clone_from(&g);
+                }
+            }
+            n.stroke_geometry = Some(g);
         }
     }
 
     fn source_tail_of(&self, mut id: NodeId) -> Option<&str> {
-        for _ in 0..8 {
+        for _ in 0..64 {
             let n = self.doc.get(id)?;
             if let Some(s) = n.source_id.as_deref() {
                 let tail = s.rsplit(';').next().unwrap_or(s);
@@ -2581,6 +2662,7 @@ impl<'a> Ctx<'a> {
         derived_only: bool,
         targets: &BTreeMap<NodeId, NodeId>,
         done: &mut BTreeSet<NodeId>,
+        explicitly_sized: &mut HashSet<NodeId>,
     ) -> Result<bool, FigError> {
         let mut swapped = false;
         if !derived_only {
@@ -2602,59 +2684,70 @@ impl<'a> Ctx<'a> {
         if !derived_only && set.get("layoutMode").is_none() && !self.no_auto_layout.contains(&id) {
             self.inherit_auto_layout_for_partial_override(id, set);
         }
-        let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let keep = |k: &str| !derived_only || matches!(k, "size" | "relativeTransform" | "fillGeometry" | "strokeGeometry");
         let has = |k: &str| keep(k) && set.get(k).is_some();
-        let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
-        let skip_geo = matches!(n.kind, NodeKind::Text(_) | NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Connector(_) | NodeKind::Stamp { .. })
-            || (self.large_file
-                && matches!(
-                    n.kind,
-                    NodeKind::Frame(_)
-                        | NodeKind::Component(_)
-                        | NodeKind::ComponentSet(_)
-                        | NodeKind::Instance { .. }
-                        | NodeKind::Section
-                        | NodeKind::Rectangle
-                ));
+        let Some(skip_geo) = self.doc.get(id).map(|n| {
+            matches!(n.kind, NodeKind::Text(_) | NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Connector(_) | NodeKind::Stamp { .. })
+                || (self.large_file
+                    && matches!(
+                        n.kind,
+                        NodeKind::Frame(_)
+                            | NodeKind::Component(_)
+                            | NodeKind::ComponentSet(_)
+                            | NodeKind::Instance { .. }
+                            | NodeKind::Section
+                            | NodeKind::Rectangle
+                    ))
+        }) else {
+            return Ok(swapped);
+        };
         if has("size") {
             if let Some(sz) = set.get("size").and_then(vec2) {
-                if n.size != sz && !is_vec_or_bool {
-                    if !has("fillGeometry") || skip_geo {
-                        n.fill_geometry = None;
-                    }
-                    if !has("strokeGeometry") || skip_geo {
-                        n.stroke_geometry = None;
-                    }
-                }
-                n.size = sz;
+                self.resize_override_node(id, sz, has("fillGeometry"), has("strokeGeometry"), skip_geo, explicitly_sized);
             }
         }
+        let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
+        let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
         if has("relativeTransform") {
             if let Some(t) = set.get("relativeTransform").and_then(parse_transform) {
                 n.transform = t;
             }
         }
+        let mut has_derived_fill = false;
         if has("fillGeometry") && !skip_geo {
             let g = parse_geometry_cached(farr(set, "fillGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs);
-            if let NodeKind::Vector { paths, network } = &mut n.kind {
-                if self.large_file {
-                    *paths = g;
-                    *network = None;
-                    n.fill_geometry = None;
+            if !g.is_empty() {
+                has_derived_fill = true;
+                if let NodeKind::Vector { paths, network } = &mut n.kind {
+                    if self.large_file {
+                        *paths = g;
+                        *network = None;
+                        n.fill_geometry = None;
+                    } else {
+                        *paths = g.clone();
+                        // the new outline replaces what the network described
+                        *network = None;
+                        n.fill_geometry = Some(g);
+                    }
                 } else {
-                    *paths = g.clone();
-                    // the new outline replaces what the network described
-                    *network = None;
-                    n.fill_geometry = Some(g).filter(|g| !g.is_empty());
+                    n.fill_geometry = Some(g);
                 }
             } else {
-                n.fill_geometry = Some(g).filter(|g| !g.is_empty());
+                n.fill_geometry = None;
             }
         }
         if has("strokeGeometry") && !skip_geo {
-            n.stroke_geometry =
-                Some(parse_geometry_cached(farr(set, "strokeGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs)).filter(|g| !g.is_empty());
+            let g = parse_geometry_cached(farr(set, "strokeGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs);
+            if !g.is_empty() {
+                if !has_derived_fill && n.fill_geometry.is_none() {
+                    if let NodeKind::Vector { paths, .. } = &mut n.kind {
+                        paths.clone_from(&g);
+                    }
+                }
+                n.stroke_geometry = Some(g);
+            } else {
+                n.stroke_geometry = None;
+            }
         }
         if derived_only {
             return Ok(swapped);
@@ -3343,7 +3436,11 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
         }
     }
     for (id, m) in map {
-        if !doc.styles.contains_key(id) {
+        if !doc.styles.contains_key(id)
+            || fbool(m, "isSoftDeleted") == Some(true)
+            || fbool(m, "isSoftDeletedStyle") == Some(true)
+            || fstr(m, "phase") == Some("REMOVED")
+        {
             continue;
         }
         let property = match fstr(m, "styleType") {
@@ -4094,22 +4191,29 @@ mod expand_depth_tests {
         handle.join().expect("import must not overflow the stack");
     }
 
+    fn chained_links_test_params() -> (usize, usize, usize) {
+        (500, 80_000, 101)
+    }
+
     #[test]
     fn chained_links_stop_at_the_global_clone_budget() {
-        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with MAX_IMPORT_CLONES (8,000,000)
-        // it stops at 8,000,000 cloned nodes (never exceeding MAX_IMPORT_CLONES) and leaves 1,001 instances empty.
-        let chain = component_chain(5_000);
-        let base_nodes = 1 + 2 * 5_000 + 1; // page + 5000*(comp + inner) + Use
+        assert_eq!(MAX_IMPORT_CLONES, 8_000_000);
+        let (chain_len, budget, expected_unexpanded) = chained_links_test_params();
+        assert!(budget <= 100_000, "chained_links_stop_at_the_global_clone_budget must stay <= 100,000 clones in CI (got {budget})");
+        // 500-link chain: without a global budget this clones 125,250 nodes; with budget 80,000
+        // it stops at 80,000 cloned nodes (never exceeding the budget) and leaves 101 instances empty.
+        let chain = component_chain(chain_len);
+        let base_nodes = 1 + 2 * chain_len + 1; // page + len*(comp + inner) + Use
         let started = std::time::Instant::now();
-        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, MAX_IMPORT_CLONES).unwrap();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, budget).unwrap();
         let elapsed = started.elapsed();
         let cloned = doc.nodes.len().saturating_sub(base_nodes);
-        assert!(cloned <= MAX_IMPORT_CLONES, "cloned {cloned} > MAX_IMPORT_CLONES");
-        assert_eq!(cloned, MAX_IMPORT_CLONES);
-        assert_eq!(report.instances_left_unexpanded, 1_001);
+        assert!(cloned <= budget, "cloned {cloned} > {budget}");
+        assert_eq!(cloned, budget);
+        assert_eq!(report.instances_left_unexpanded, expected_unexpanded);
         // The count asserts above prove the budget stops cloning; wall time is bounded in release builds only.
         if !cfg!(debug_assertions) {
-            assert!(elapsed.as_secs() < 15, "5,000-link chain took {elapsed:?}");
+            assert!(elapsed.as_secs() < 15, "chain took {elapsed:?}");
         }
     }
 

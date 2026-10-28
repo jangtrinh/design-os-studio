@@ -140,10 +140,25 @@ pub struct CopiedStyle {
 
 pub struct Toast {
     pub text: String,
+    /// When the toast leaves. Armed on the first paint (`armed`), so a blocked frame before that paint does not spend it.
     pub until: f64,
     pub error: bool,
     /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
     pub reveal: Option<PathBuf>,
+    /// True when no file dialog could open and the toast carries an "Enter a path…" fallback action.
+    pub enter_path: bool,
+    /// How long the toast stays once it has been painted.
+    pub(crate) duration: f64,
+    /// False until the shell has painted this toast and set `until` from `duration`.
+    pub(crate) armed: bool,
+}
+
+impl Toast {
+    /// Keeps this toast up for `seconds` from `now`. The first paint arms the same duration again.
+    pub(crate) fn stay_for(&mut self, now: f64, seconds: f64) {
+        self.duration = seconds;
+        self.until = now + seconds;
+    }
 }
 
 pub struct App {
@@ -198,6 +213,7 @@ pub struct App {
     pub(crate) scrub_opened_at: u64,
     /// Zoom (as a factor) to apply on the first frame instead of fitting the page (`--zoom`).
     pub startup_zoom: Option<f32>,
+    pub startup_fit_selection: bool,
     /// The projects library (None until opened; tests run without one).
     pub lib: Option<designos_library::Library>,
     /// The library file open in the editor, if any (autosaved, shown in the header).
@@ -248,6 +264,10 @@ pub struct App {
     /// Last web capture import report (`T8.27`) and whether its `Details` sheet is open.
     pub web_capture_report: Option<designos_webcapture::ImportReport>,
     pub web_capture_report_open: bool,
+    /// Last `warn` log line emitted when a system file dialog could not open (`#1192`).
+    pub last_dialog_warn: Option<String>,
+    /// Per-window guard so a second click on Import while a chooser is opening opens nothing new (`#1192`).
+    pub dialog_opening: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl App {
@@ -292,6 +312,7 @@ impl App {
             scrub: None,
             scrub_opened_at: 0,
             startup_zoom: None,
+            startup_fit_selection: false,
             lib: None,
             lib_file: None,
             home: None,
@@ -318,6 +339,8 @@ impl App {
             pending_flush_notice: None,
             web_capture_report: None,
             web_capture_report_open: false,
+            last_dialog_warn: None,
+            dialog_opening: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -347,8 +370,8 @@ impl App {
                 error = true;
             }
         }
-        let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None };
-        if self.now > 0.0 && self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && self.now < t.until) {
+        let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
+        if self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && (!t.armed || self.now < t.until)) {
             self.toast_queue.push_back(next);
             return;
         }
@@ -362,7 +385,15 @@ impl App {
 
     /// A toast that offers to show `path` in its folder, keeping `error` when a fallback or warning occurred.
     pub fn show_toast_with_reveal_status(&mut self, text: impl Into<String>, error: bool, path: PathBuf) {
-        self.toast = Some(Toast { text: text.into(), until: self.now + theme::TOAST_REVEAL_SECONDS, error, reveal: Some(path) });
+        self.toast = Some(Toast {
+            text: text.into(),
+            until: self.now + theme::TOAST_REVEAL_SECONDS,
+            error,
+            reveal: Some(path),
+            enter_path: false,
+            duration: theme::TOAST_REVEAL_SECONDS,
+            armed: false,
+        });
     }
 
     /// Marks the document as modified so the canvas texture is re-rendered.

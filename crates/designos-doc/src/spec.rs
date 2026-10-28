@@ -142,6 +142,10 @@ pub struct NodeSpec {
     /// A `"var:..."` string binds `characters` to a String variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Font family name (default `"Inter"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub font_family: Option<String>,
     /// Font size in px (or `"var:..."`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<NumberOrVar>,
@@ -504,6 +508,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                 spread: 0.0,
                 visible: true,
                 show_behind: false,
+                blend: Default::default(),
             }];
             if let Some(f) = node.kind.frame_props_mut() {
                 f.auto_layout = Some(AutoLayout {
@@ -684,6 +689,20 @@ impl Document {
                 report.bindings_created += ctx.bindings_created;
                 report.styles_linked += ctx.styles_linked;
                 report.warnings.extend(ctx.warnings);
+                for fid in ctx.measured_with_fallback {
+                    if !report.measured_with_fallback.contains(&fid) {
+                        report.measured_with_fallback.push(fid);
+                    }
+                }
+                if !report.measured_with_fallback.is_empty() && !report.warnings.iter().any(|w| w.code == "TEXT_MEASURED_WITH_FALLBACK_FONT") {
+                    report.warnings.push(SpecWarning {
+                        code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
+                        path: "spec".to_string(),
+                        token: None,
+                        replacement: None,
+                        message: Some("One or more text nodes were measured with a fallback font because the requested font_family is not loaded.".to_string()),
+                    });
+                }
                 let relayout_root =
                     if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
                 self.relayout_subtree(relayout_root);
@@ -735,6 +754,11 @@ impl Document {
                 ctx.bindings_created += sub_report.bindings_created;
                 ctx.styles_linked += sub_report.styles_linked;
                 ctx.warnings.extend(sub_report.warnings);
+                for fid in sub_report.measured_with_fallback {
+                    if !ctx.measured_with_fallback.contains(&fid) {
+                        ctx.measured_with_fallback.push(fid);
+                    }
+                }
                 Ok(id)
             }
             Err(e) => {
@@ -1325,7 +1349,7 @@ impl Document {
             self.bind_characters(id, &node_kind, raw_ref, &spec.name, spec.preset.is_some(), &format!("{path}.text"), index, libraries, report)?;
         }
 
-        // Re-estimate intrinsic text bounds after text_style / font_size / line_height application,
+        // Measure (or estimate when no measurer is installed) intrinsic text bounds after text_style / font_size / line_height / font_family application,
         // and align the glyph box with any centring on the parent auto-layout frame when the text hugs that axis.
         let (parent_centre_h, parent_centre_v) = self.parent_centres_children(parent);
         let hugs_h = spec.width.is_none() && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug);
@@ -1338,20 +1362,23 @@ impl Document {
                 if parent_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top && hugs_v {
                     tp.style.align_v = TextAlignV::Center;
                 }
-                let est = estimate_intrinsic_text_size(tp);
+                let needs_measure = spec.width.is_none() || spec.height.is_none();
                 if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
-                        let lines = (est.x / n.size.x.max(20.0)).ceil().max(1.0);
-                        n.size.y = (lines * tp.style.font_size.max(8.0) * 1.45).ceil();
+                        n.size.y = crate::text_measure::intrinsic_text_size(tp, Some(n.size.x.max(20.0))).y;
                     }
                 } else {
+                    let sz = crate::text_measure::intrinsic_text_size(tp, None);
                     if spec.width.is_none() {
-                        n.size.x = est.x;
+                        n.size.x = sz.x;
                     }
                     if spec.height.is_none() {
-                        n.size.y = est.y;
+                        n.size.y = sz.y;
                     }
+                }
+                if needs_measure && crate::text_measure::uses_fallback_font(tp) && !report.measured_with_fallback.contains(&id.0) {
+                    report.measured_with_fallback.push(id.0);
                 }
             }
         }
@@ -1449,7 +1476,12 @@ impl Document {
                         if self_centre_v && spec.text_style.is_none() && tp.style.align_v == TextAlignV::Top {
                             tp.style.align_v = TextAlignV::Center;
                         }
-                        tn.size = estimate_intrinsic_text_size(tp);
+                        let sz = crate::text_measure::intrinsic_text_size(tp, None);
+                        let fallback = crate::text_measure::uses_fallback_font(tp);
+                        tn.size = sz;
+                        if fallback && !report.measured_with_fallback.contains(&tid.0) {
+                            report.measured_with_fallback.push(tid.0);
+                        }
                     }
                 }
             }
@@ -1513,6 +1545,15 @@ impl Document {
             if let Some(n) = self.get_mut(id) {
                 if let NodeKind::Text(tp) = &mut n.kind {
                     tp.style.font_weight = fw;
+                }
+            }
+        }
+        if let Some(ff) = &spec.font_family {
+            if !ff.trim().is_empty() {
+                if let Some(n) = self.get_mut(id) {
+                    if let NodeKind::Text(tp) = &mut n.kind {
+                        tp.style.font_family = ff.trim().to_string();
+                    }
                 }
             }
         }
@@ -1821,6 +1862,7 @@ impl Document {
             visible,
             clips_content: n.kind.frame_props().and_then(|f| f.clips_content.then_some(true)),
             text,
+            font_family: None,
             font_size,
             line_height,
             font_weight,
@@ -2206,5 +2248,22 @@ mod tests {
 
         assert!(doc.in_progress.is_empty(), "the root's flag set before the failure is rolled back");
         assert_eq!(doc.get(page).unwrap().children.len(), children_before, "no node survives the refused spec");
+    }
+
+    #[test]
+    fn no_measurer_keeps_the_estimate() {
+        let mut doc = Document::new("Estimate fallback");
+        let page = doc.add_page("P");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "text",
+            "name": "DeleteLabel",
+            "text": "Delete",
+            "font_size": 14.0,
+            "font_weight": 600
+        }))
+        .unwrap();
+        let tid = doc.apply_spec(page, &spec).unwrap();
+        let tn = doc.get(tid).unwrap();
+        assert_eq!(tn.size.x, 52.0, "without an installed measurer, 'Delete' at 14px Semibold keeps the 52.0px estimate");
     }
 }

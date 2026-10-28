@@ -637,7 +637,7 @@ fn export_effect(eff: &Effect) -> Option<Value> {
             "spread": spread,
             "enabled": visible,
         })),
-        Effect::InnerShadow { color, offset, radius, spread, visible } => Some(json!({
+        Effect::InnerShadow { color, offset, radius, spread, visible, .. } => Some(json!({
             "type": "shadow",
             "shadowType": "inner",
             "color": format_pen_color(*color),

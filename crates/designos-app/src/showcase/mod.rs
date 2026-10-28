@@ -1,4 +1,5 @@
 //! The built-in showcase document (`--fixture showcase`): a small, invented mobile-banking product
+#![cfg(any(test, feature = "fixtures"))]
 //! ("Marlow") drawn entirely with designos's own nodes, so the README screenshots show real design
 //! work instead of a test fixture.
 //!
@@ -683,11 +684,27 @@ impl S {
 
 /// Soft shadow for cards on the canvas.
 pub fn card_shadow() -> Effect {
-    Effect::DropShadow { color: Color::rgba(24, 28, 70, 28), offset: Vec2::new(0.0, 6.0), radius: 20.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::rgba(24, 28, 70, 28),
+        offset: Vec2::new(0.0, 6.0),
+        radius: 20.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 pub fn floating_shadow() -> Effect {
-    Effect::DropShadow { color: Color::rgba(20, 24, 80, 70), offset: Vec2::new(0.0, 14.0), radius: 32.0, spread: -4.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::rgba(20, 24, 80, 70),
+        offset: Vec2::new(0.0, 14.0),
+        radius: 32.0,
+        spread: -4.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 /// A linear gradient from the top-left to the bottom-right corner.

@@ -1,0 +1,6 @@
+run 1 exit=101 race: swaps=156 rewrites=1 refused=1 clean=0 other=0 HIT=1
+run 2 exit=101 race: swaps=255 rewrites=3 refused=3 clean=0 other=0 HIT=1
+run 3 exit=101 race: swaps=332 rewrites=3 refused=3 clean=0 other=0 HIT=1
+run 4 exit=101 race: swaps=193 rewrites=3 refused=3 clean=0 other=0 HIT=1
+run 5 exit=101 race: swaps=300 rewrites=1 refused=1 clean=0 other=0 HIT=1
+run 6 exit=101 race: swaps=292 rewrites=1 refused=1 clean=0 other=0 HIT=1

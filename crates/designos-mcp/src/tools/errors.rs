@@ -100,6 +100,10 @@ pub enum ErrorCode {
     // Query codes (E15-17) (2)
     CursorStale,
     RuleUnavailable,
+
+    // Output filename validation codes (#1003 RT-05/RT-06) (2)
+    InvalidName,
+    NameTooLong,
 }
 
 #[allow(non_upper_case_globals)]
@@ -214,6 +218,8 @@ impl ErrorCode {
         Self::IdempotencyKeyStale,
         Self::CursorStale,
         Self::RuleUnavailable,
+        Self::InvalidName,
+        Self::NameTooLong,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -289,6 +295,8 @@ impl ErrorCode {
             Self::IdempotencyKeyStale => "IDEMPOTENCY_KEY_STALE",
             Self::CursorStale => "CURSOR_STALE",
             Self::RuleUnavailable => "RULE_UNAVAILABLE",
+            Self::InvalidName => "INVALID_NAME",
+            Self::NameTooLong => "NAME_TOO_LONG",
         }
     }
 
@@ -300,7 +308,10 @@ impl ErrorCode {
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
             Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
+            Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
+            Self::InvalidName => "Choose a valid file name without control or direction-control characters, then retry.",
+            Self::NameTooLong => "Choose a file name of at most 255 UTF-8 bytes, then retry.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
             Self::UnknownComponent | Self::AmbiguousComponent => "Use one of valid_options or prefix with the library name (<Library>/<Component>).",
             Self::UnknownVariable | Self::AmbiguousVariable => "Call designos_get_variables or pick one of valid_options.",
@@ -394,6 +405,8 @@ impl ErrorCode {
             "IDEMPOTENCY_KEY_STALE" => Some(Self::IdempotencyKeyStale),
             "CURSOR_STALE" => Some(Self::CursorStale),
             "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
+            "INVALID_NAME" => Some(Self::InvalidName),
+            "NAME_TOO_LONG" => Some(Self::NameTooLong),
             _ => None,
         }
     }
@@ -440,7 +453,7 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: true,
+            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
             next_step: code.default_next_step().to_string(),
         }
     }
@@ -451,7 +464,9 @@ impl ToolError {
     }
 
     pub fn with_received(mut self, received: impl Into<Value>) -> Self {
-        self.received = Some(received.into());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            self.received = Some(received.into());
+        }
         self
     }
 
@@ -522,8 +537,10 @@ impl ToolError {
         map.insert("code".into(), json!(self.code.as_str()));
         map.insert("message".into(), json!(self.message));
         map.insert("path".into(), json!(self.path));
-        if let Some(received) = &self.received {
-            map.insert("received".into(), received.clone());
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            if let Some(received) = &self.received {
+                map.insert("received".into(), received.clone());
+            }
         }
         if let Some(expected) = &self.expected {
             map.insert("expected".into(), json!(expected));
@@ -800,7 +817,10 @@ pub fn from_serde_error_with_args(err: &serde_json::Error, pointer_prefix: &str,
             format!("{pointer_prefix}/spec/slots")
         };
         let corrected = raw_args.and_then(fix_invalid_slot_in_args).unwrap_or_else(|| json!({ "slots": { "header": false } }));
-        return ToolError::new(ErrorCode::InvalidSlotValue, ptr, msg).with_valid_options(vec!["false", "[NodeSpec...]"]).with_corrected_example(corrected);
+        let clean_msg = msg.strip_prefix("INVALID_SLOT_VALUE: ").unwrap_or(&msg).to_string();
+        return ToolError::new(ErrorCode::InvalidSlotValue, ptr, clean_msg)
+            .with_valid_options(vec!["false", "[NodeSpec...]"])
+            .with_corrected_example(corrected);
     }
 
     if let Some((bad_field, valid_options)) = designos_doc::extract_unknown_field_options(&msg) {
@@ -880,7 +900,597 @@ pub fn from_serde_error_with_args(err: &serde_json::Error, pointer_prefix: &str,
         }
     }
 
+    if is_spec || raw_args.is_some_and(|r| r.get("spec").is_some()) {
+        if let Some(spec_msg) = raw_args.and_then(describe_spec_args_error).or_else(|| humanize_spec_serde_message(&msg)) {
+            return ToolError::new(ErrorCode::InvalidArguments, pointer_prefix, format!("Invalid arguments: {spec_msg}"));
+        }
+    }
+
     ToolError::new(ErrorCode::InvalidArguments, pointer_prefix, format!("Invalid arguments: {msg}"))
+}
+
+fn join_spec_path(prefix: &str, seg: &str) -> String {
+    if prefix.is_empty() {
+        seg.to_string()
+    } else {
+        format!("{prefix}/{seg}")
+    }
+}
+
+fn is_finite_f32(v: &Value) -> bool {
+    v.as_f64().is_some_and(|n| (n as f32).is_finite())
+}
+
+fn is_non_finite_f32_number(v: &Value) -> bool {
+    v.is_number() && !is_finite_f32(v)
+}
+
+fn is_num_or_var(v: &Value) -> bool {
+    is_finite_f32(v) || v.is_string()
+}
+
+fn is_u16(v: &Value) -> bool {
+    v.as_u64().is_some_and(|n| u16::try_from(n).is_ok())
+}
+
+fn is_u32(v: &Value) -> bool {
+    v.as_u64().is_some_and(|n| u32::try_from(n).is_ok())
+}
+
+fn is_valid_color(v: &Value) -> bool {
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
+    ["r", "g", "b", "a"].into_iter().all(|ch| obj.get(ch).is_some_and(is_finite_f32))
+}
+
+fn is_valid_comment_author(v: &Value) -> bool {
+    if v.is_string() {
+        return true;
+    }
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
+    obj.get("id").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("display_name").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("name").is_none_or(|x| x.is_null() || x.is_string())
+        && obj.get("color").is_none_or(|x| x.is_null() || is_valid_color(x))
+}
+
+fn describe_comments_error(val: &Value, path: &str) -> Option<String> {
+    let Some(arr) = val.as_array() else {
+        return Some(format!("{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."));
+    };
+    for (i, item) in arr.iter().enumerate() {
+        let Some(obj) = item.as_object() else {
+            return Some(format!(
+                "{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."
+            ));
+        };
+        let thread_path = format!("{path}/{i}");
+        if !obj.get("id").is_some_and(Value::is_string)
+            || !obj.get("resolved").is_some_and(Value::is_boolean)
+            || obj.get("page_id").and_then(Value::as_u64).is_none()
+            || !obj.get("page_name").is_some_and(Value::is_string)
+            || !obj.get("world_x").is_some_and(is_finite_f32)
+            || !obj.get("world_y").is_some_and(is_finite_f32)
+            || !obj.get("target_node_id").is_none_or(|x| x.is_null() || x.as_u64().is_some())
+            || !obj.get("target_node_name").is_none_or(|x| x.is_null() || x.is_string())
+            || !obj.get("target_node_kind").is_none_or(|x| x.is_null() || x.is_string())
+            || !obj.get("target_frame_id").is_none_or(|x| x.is_null() || x.as_u64().is_some())
+            || !obj.get("target_frame_name").is_none_or(|x| x.is_null() || x.is_string())
+        {
+            return Some(format!(
+                "{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."
+            ));
+        }
+        let Some(msgs) = obj.get("messages").and_then(Value::as_array) else {
+            return Some(format!(
+                "{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."
+            ));
+        };
+        for (j, msg) in msgs.iter().enumerate() {
+            let Some(mo) = msg.as_object() else {
+                return Some(format!(
+                    "{path} must be an array of comment thread objects. Omit comments when applying a spec, or pass valid comment thread objects."
+                ));
+            };
+            let msg_path = format!("{thread_path}/messages/{j}");
+            if !mo.get("id").is_some_and(Value::is_string) {
+                return Some(format!("{msg_path}/id must be a string. Pass a string value."));
+            }
+            if !mo.get("author").is_some_and(is_valid_comment_author) {
+                return Some(format!(
+                    "{msg_path}/author must be a string or an author object. Pass a display name string or an object such as {{\"id\": \"...\", \"name\": \"...\"}}."
+                ));
+            }
+            if !mo.get("author_id").is_none_or(|x| x.is_null() || x.is_string()) {
+                return Some(format!("{msg_path}/author_id must be a string. Pass a string value."));
+            }
+            if !mo.get("author_color").is_none_or(|x| x.is_null() || is_valid_color(x)) {
+                return Some(format!("{msg_path}/author_color must be an RGBA color object with numeric r, g, b, and a fields between 0 and 1."));
+            }
+            if !mo.get("text").is_some_and(Value::is_string) {
+                return Some(format!("{msg_path}/text must be a string. Pass a string value."));
+            }
+            if !mo.get("created").is_some_and(Value::is_string) {
+                return Some(format!("{msg_path}/created must be a string. Pass an RFC 3339 timestamp string."));
+            }
+            if !mo.get("edited").is_none_or(|x| x.is_null() || x.is_string()) {
+                return Some(format!("{msg_path}/edited must be a string. Pass an RFC 3339 timestamp string or null."));
+            }
+        }
+    }
+    None
+}
+
+fn describe_layout_spec_error(val: &Value, prefix: &str) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        return Some(format!("{prefix} must be a LayoutSpec object. Pass a JSON object such as {{\"direction\": \"row\", \"gap\": 8}}."));
+    };
+    for (k, v) in obj {
+        let field_path = join_spec_path(prefix, k);
+        match k.as_str() {
+            "direction" | "dir" | "primary_align" | "justify" | "counter_align" | "align" => {
+                if !v.is_string() {
+                    return Some(format!("{field_path} must be a string. Pass a string value."));
+                }
+            }
+            "wrap" => {
+                if !v.is_boolean() {
+                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
+                }
+            }
+            "gap" | "counter_gap" => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_num_or_var(v) {
+                    return Some(format!("{field_path} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
+                }
+            }
+            "padding" => {
+                if v.as_array().is_some_and(|a| a.len() == 4 && a.iter().any(is_non_finite_f32_number)) {
+                    return Some(format!("{field_path} must contain finite numbers. Pass smaller numbers."));
+                }
+                if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
+                    return Some(format!(
+                        "{field_path} must be an array of 4 numbers or \"var:...\" strings ([top, right, bottom, left]). Pass 4 values such as [16, 16, 16, 16]."
+                    ));
+                }
+            }
+            "grid_columns" | "grid_rows" => {
+                if !v.is_null() && !is_u32(v) {
+                    return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn describe_slot_fill_error(slot_val: &Value, slot_path: &str) -> Option<String> {
+    match slot_val {
+        Value::Bool(false) => None,
+        Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                let item_path = format!("{slot_path}/{i}");
+                if !item.is_object() {
+                    return Some(format!("{item_path} must be a NodeSpec object. Pass each slot child as a JSON object."));
+                }
+                if let Some(err) = describe_spec_value_error_at(item, &item_path) {
+                    return Some(err);
+                }
+            }
+            None
+        }
+        _ => Some(format!("{slot_path} must be false or an array of NodeSpec objects. Pass false or [NodeSpec] for the slot.")),
+    }
+}
+
+fn describe_slots_error(val: &Value, path: &str) -> Option<String> {
+    let Some(map) = val.as_object() else {
+        return Some(format!("{path} must be an object mapping slot names to false or an array of NodeSpec objects. Pass false or [NodeSpec] for each slot."));
+    };
+    for (slot_name, slot_val) in map {
+        let slot_path = format!("{path}/{slot_name}");
+        if let Some(err) = describe_slot_fill_error(slot_val, &slot_path) {
+            return Some(err);
+        }
+    }
+    None
+}
+
+fn describe_override_spec_error(val: &Value, prefix: &str) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        return Some(format!("{prefix} must be an OverrideSpec object. Pass each override as a JSON object."));
+    };
+    for (k, v) in obj {
+        let field_path = join_spec_path(prefix, k);
+        match k.as_str() {
+            "path" | "text" | "fill" | "stroke" | "swap" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{field_path} must be a string. Pass a string value."));
+                }
+            }
+            "id" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
+                }
+            }
+            "visible" => {
+                if !v.is_null() && !v.is_boolean() {
+                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
+                }
+            }
+            "opacity" => {
+                if !v.is_null() {
+                    if is_non_finite_f32_number(v) {
+                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                    }
+                    if !is_finite_f32(v) {
+                        return Some(format!("{field_path} must be a number between 0 and 1. Pass a numeric opacity such as 0.8."));
+                    }
+                }
+            }
+            "variant" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(format!(
+                        "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
+                    ));
+                }
+            }
+            "props" => {
+                if !v.is_object() {
+                    return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
+                }
+            }
+            "slots" => {
+                if let Some(err) = describe_slots_error(v, &field_path) {
+                    return Some(err);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn describe_in_progress_error(val: &Value, prefix: &str) -> Option<String> {
+    if val.is_null() || val.is_boolean() {
+        return None;
+    }
+    let Some(obj) = val.as_object() else {
+        return Some(format!("{prefix} must be a boolean or an in_progress object. Pass true, false, or an object such as {{\"agent\": \"...\"}}."));
+    };
+    for (k, v) in obj {
+        let field_path = join_spec_path(prefix, k);
+        match k.as_str() {
+            "run_id" | "agent" | "agent_name" | "status" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{field_path} must be a string. Pass a string value."));
+                }
+            }
+            "started_at_ms" | "since_ms" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
+                }
+            }
+            "stale_after_s" => {
+                if !v.is_null() && !is_u32(v) {
+                    return Some(format!("{field_path} must be a non-negative integer. Pass a whole number."));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Inspects a raw `NodeSpec` JSON value and returns a plain-words error message naming the first
+/// field whose value has the wrong JSON type.
+pub fn describe_spec_value_error(val: &Value) -> Option<String> {
+    describe_spec_value_error_at(val, "")
+}
+
+fn describe_spec_value_error_at(val: &Value, prefix: &str) -> Option<String> {
+    let Some(obj) = val.as_object() else {
+        let label = if prefix.is_empty() { "spec" } else { prefix };
+        return Some(format!("{label} must be a NodeSpec object. Pass a JSON object with node fields such as kind, name, and children."));
+    };
+    for (k, v) in obj {
+        let field_path = join_spec_path(prefix, k);
+        match k.as_str() {
+            "id" => {
+                if !v.is_null() && v.as_u64().is_none() {
+                    return Some(format!("{field_path} must be a non-negative integer. Pass a numeric node ID."));
+                }
+            }
+            "kind" | "name" => {
+                if !v.is_string() {
+                    return Some(format!("{field_path} must be a string. Pass a string value."));
+                }
+            }
+            "component" | "preset" | "width_sizing" | "height_sizing" | "fill" | "stroke" | "text" | "text_color" | "color" | "text_style" | "effect_style"
+            | "grid_style" | "dev_status" | "annotation" => {
+                if !v.is_null() && !v.is_string() {
+                    return Some(format!("{field_path} must be a string. Pass a string value."));
+                }
+            }
+            "variant" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(format!(
+                        "{field_path} must be an object mapping variant property names to string values. Pass an object such as {{\"Size\": \"md\"}}."
+                    ));
+                }
+            }
+            "mode" => {
+                if !v.as_object().is_some_and(|m| m.values().all(Value::is_string)) {
+                    return Some(format!(
+                        "{field_path} must be an object mapping variable collection names to mode names. Pass an object such as {{\"Theme\": \"Dark\"}}."
+                    ));
+                }
+            }
+            "props" => {
+                if !v.is_object() {
+                    return Some(format!("{field_path} must be an object mapping component property names to values. Pass a JSON object."));
+                }
+            }
+            "overrides" => {
+                let Some(arr) = v.as_array() else {
+                    return Some(format!("{field_path} must be an array of OverrideSpec objects. Pass each override as a JSON object."));
+                };
+                for (i, item) in arr.iter().enumerate() {
+                    if !item.is_object() {
+                        return Some(format!("{field_path} must be an array of OverrideSpec objects. Pass each override as a JSON object."));
+                    }
+                    let item_path = format!("{field_path}/{i}");
+                    if let Some(err) = describe_override_spec_error(item, &item_path) {
+                        return Some(err);
+                    }
+                }
+            }
+            "slots" => {
+                if let Some(err) = describe_slots_error(v, &field_path) {
+                    return Some(err);
+                }
+            }
+            "x" | "y" => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_finite_f32(v) {
+                    return Some(format!("{field_path} must be a number. Pass a numeric coordinate in pixels."));
+                }
+            }
+            "min_width" | "max_width" | "min_height" | "max_height" => {
+                if !v.is_null() {
+                    if is_non_finite_f32_number(v) {
+                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                    }
+                    if !is_finite_f32(v) {
+                        return Some(format!("{field_path} must be a number. Pass a numeric size in pixels."));
+                    }
+                }
+            }
+            "width" | "height" | "stroke_weight" | "stroke_width" | "corner_radius" | "radius" | "font_size" | "line_height" => {
+                if !v.is_null() {
+                    if is_non_finite_f32_number(v) {
+                        return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                    }
+                    if !is_num_or_var(v) {
+                        return Some(format!("{field_path} must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference."));
+                    }
+                }
+            }
+            "opacity" => {
+                if is_non_finite_f32_number(v) {
+                    return Some(format!("{field_path} must be a finite number. Pass a smaller number."));
+                }
+                if !is_num_or_var(v) {
+                    return Some(format!(
+                        "{field_path} must be a number between 0 and 1 or a \"var:...\" string. Pass a number such as 0.8 or a variable reference."
+                    ));
+                }
+            }
+            "corner_radii" => {
+                if !v.is_null() {
+                    if v.as_array().is_some_and(|a| a.len() == 4 && a.iter().any(is_non_finite_f32_number)) {
+                        return Some(format!("{field_path} must contain finite numbers. Pass smaller numbers."));
+                    }
+                    if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(is_num_or_var)) {
+                        return Some(format!(
+                            "{field_path} must be an array of 4 numbers or \"var:...\" strings ([tl, tr, br, bl]). Pass 4 values such as [8, 8, 8, 8]."
+                        ));
+                    }
+                }
+            }
+            "col_span" | "row_span" => {
+                if !v.is_null() && !is_u16(v) {
+                    return Some(format!("{field_path} must be a positive integer. Pass a whole number of grid tracks."));
+                }
+            }
+            "font_weight" => {
+                if !v.is_null() && !is_u16(v) {
+                    return Some(format!("{field_path} must be a number between 100 and 900 (for example 400, 500, 600, or 700). Pass an integer weight."));
+                }
+            }
+            "clips_content" => {
+                if !v.is_null() && !v.is_boolean() {
+                    return Some(format!("{field_path} must be a boolean. Pass true or false."));
+                }
+            }
+            "visible" => {
+                if !v.is_null() && !v.is_boolean() && !v.is_string() {
+                    return Some(format!("{field_path} must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference."));
+                }
+            }
+            "layout" => {
+                if !v.is_null() {
+                    if let Some(err) = describe_layout_spec_error(v, &field_path) {
+                        return Some(err);
+                    }
+                }
+            }
+            "annotations" => {
+                if !v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) {
+                    return Some(format!("{field_path} must be an array of strings. Pass an array such as [\"Note\"]."));
+                }
+            }
+            "in_progress" => {
+                if let Some(err) = describe_in_progress_error(v, &field_path) {
+                    return Some(err);
+                }
+            }
+            "comments" => {
+                if let Some(err) = describe_comments_error(v, &field_path) {
+                    return Some(err);
+                }
+            }
+            "children" => {
+                let Some(arr) = v.as_array() else {
+                    return Some(format!("{field_path} must be an array of NodeSpec objects. Pass each child as a JSON object."));
+                };
+                for (i, child) in arr.iter().enumerate() {
+                    if !child.is_object() {
+                        return Some(format!("{field_path} must be an array of NodeSpec objects. Pass each child as a JSON object."));
+                    }
+                    let child_path = format!("{field_path}/{i}");
+                    if let Some(err) = describe_spec_value_error_at(child, &child_path) {
+                        return Some(err);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Inspects raw `designos_apply_spec`, batch `apply_spec`, or batch `set_slot` arguments for spec field type errors.
+pub fn describe_spec_args_error(raw_args: &Value) -> Option<String> {
+    if let Some(obj) = raw_args.as_object() {
+        let op = obj.get("op").and_then(Value::as_str);
+        if op == Some("set_slot") {
+            for key in ["node", "node_id", "instance"] {
+                if let Some(node) = obj.get(key) {
+                    if node.as_u64().is_none() && !node.is_string() {
+                        return Some(format!("{key} must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference."));
+                    }
+                }
+            }
+            if let Some(slot) = obj.get("slot") {
+                if !slot.is_string() {
+                    return Some("slot must be a string. Pass a slot name string.".into());
+                }
+            }
+            if let Some(alias) = obj.get("as") {
+                if !alias.is_null() && !alias.is_string() {
+                    return Some("as must be a string. Pass an alias name string.".into());
+                }
+            }
+            for key in ["fill", "value"] {
+                if let Some(slot_val) = obj.get(key) {
+                    return describe_slot_fill_error(slot_val, key);
+                }
+            }
+            return None;
+        }
+        if let Some(pid) = obj.get("parent_id") {
+            if op == Some("apply_spec") {
+                if !pid.is_null() && pid.as_u64().is_none() && !pid.is_string() {
+                    return Some("parent_id must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference.".into());
+                }
+            } else if !pid.is_null() && pid.as_u64().is_none() {
+                return Some("parent_id must be a non-negative integer. Pass a numeric node ID.".into());
+            }
+        }
+        if let Some(p) = obj.get("parent") {
+            if !p.is_null() && p.as_u64().is_none() && !p.is_string() {
+                return Some("parent must be a node ID or $ref string. Pass a numeric node ID or a \"$name\" reference.".into());
+            }
+        }
+        if let Some(idx) = obj.get("index") {
+            if !idx.is_null() && idx.as_u64().is_none() {
+                return Some("index must be a non-negative integer. Pass a zero-based child index.".into());
+            }
+        }
+        if let Some(alias) = obj.get("as") {
+            if !alias.is_null() && !alias.is_string() {
+                return Some("as must be a string. Pass an alias name string.".into());
+            }
+        }
+        if let Some(di) = obj.get("diff_image") {
+            if !di.is_boolean() {
+                return Some("diff_image must be a boolean. Pass true or false.".into());
+            }
+        }
+        if let Some(ik) = obj.get("idempotency_key") {
+            if !ik.is_null() && !ik.is_string() {
+                return Some("idempotency_key must be a string. Pass a string key.".into());
+            }
+        }
+        if let Some(spec) = obj.get("spec") {
+            return describe_spec_value_error(spec);
+        }
+    }
+    None
+}
+
+/// Parses a raw `NodeSpec` JSON string for CLI `--apply-spec`, returning a plain-words error
+/// message (with nested field path and no internal error-code prefix) on invalid input.
+pub fn parse_spec_json(raw: &str) -> Result<designos_doc::NodeSpec, String> {
+    let val: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    match serde_json::from_str::<designos_doc::NodeSpec>(raw) {
+        Ok(spec) => {
+            if let Some(msg) = describe_spec_value_error(&val) {
+                return Err(msg);
+            }
+            Ok(spec)
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if let Some((bad, valid)) = designos_doc::extract_unknown_field_options(&msg) {
+                if valid.is_empty() {
+                    return Err(format!("Unknown field `{bad}`."));
+                }
+                return Err(format!("Unknown field `{bad}` (valid options: {})", valid.join(", ")));
+            }
+            if let Some(clean) = msg.strip_prefix("INVALID_SLOT_VALUE: ") {
+                if let Some(spec_msg) = describe_spec_value_error(&val) {
+                    return Err(spec_msg);
+                }
+                return Err(clean.to_string());
+            }
+            Err(describe_spec_value_error(&val).or_else(|| humanize_spec_serde_message(&msg)).unwrap_or(msg))
+        }
+    }
+}
+
+/// Replaces Rust type names in a raw `serde_json` error string with plain spec wording.
+pub fn humanize_spec_serde_message(msg: &str) -> Option<String> {
+    if msg.contains("untagged enum NumberOrVar") {
+        return Some("value must be a number or a \"var:...\" string. Pass a number in pixels or a variable reference.".into());
+    }
+    if msg.contains("untagged enum BoolOrVar") {
+        return Some("visible must be a boolean or a \"var:...\" string. Pass true, false, or a boolean variable reference.".into());
+    }
+    if msg.contains("untagged enum InProgressSpec") {
+        return Some("in_progress must be a boolean or an in_progress object. Pass true, false, or an object such as {\"agent\": \"...\"}.".into());
+    }
+    let replaced = msg
+        .replace("struct NodeSpec", "a NodeSpec object")
+        .replace("struct LayoutSpec", "a LayoutSpec object")
+        .replace("struct OverrideSpec", "an OverrideSpec object")
+        .replace("struct ResolvedCommentThread", "a comment thread object")
+        .replace("struct Color", "an RGBA color object")
+        .replace("a tuple of size 4", "an array of 4 numbers or \"var:...\" strings")
+        .replace("expected u64", "expected a non-negative integer")
+        .replace("expected u32", "expected a non-negative integer")
+        .replace("expected u16", "expected a non-negative integer")
+        .replace("expected f32", "expected a number");
+    (replaced != msg).then_some(replaced)
 }
 
 fn fix_invalid_slot_in_args(root: &Value) -> Option<Value> {
@@ -1009,6 +1619,13 @@ fn build_unknown_field_corrected_example(
             obj.insert("component".into(), v);
         }
     }
+    if let Some(top) = fixed.as_object_mut() {
+        top.remove("path");
+        top.remove("output_path");
+        if top.is_empty() {
+            return None;
+        }
+    }
     Some(fixed)
 }
 
@@ -1075,7 +1692,7 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
                 err.corrected_example = Some(full);
             }
         }
-    } else {
+    } else if err.code != ErrorCode::UnknownField {
         let mut full = original_args.clone();
         if let Value::Object(ref mut m) = full {
             for (k, v) in ex_map {
@@ -1083,6 +1700,19 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
             }
         }
         err.corrected_example = Some(full);
+    }
+    if err.code != ErrorCode::FileExists && err.code != ErrorCode::UnsavedChanges {
+        if let Some(Value::Object(ref mut m)) = err.corrected_example {
+            m.remove("path");
+            m.remove("output_path");
+            if m.is_empty() {
+                err.corrected_example = None;
+            }
+        }
+        if let Some(Value::Object(ref mut m)) = err.received {
+            m.remove("path");
+            m.remove("output_path");
+        }
     }
 }
 

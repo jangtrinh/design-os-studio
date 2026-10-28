@@ -8,7 +8,7 @@
 //!    plain shells return `None` and draw nothing in the header strip (never `0` or `-`).
 //! 3. **Incremental, off-UI-thread I/O**:
 //!    - Claude transcripts are captured once per session via hook stdin into
-//!      `<session_dir>/claude-transcript.json`, then tailed incrementally by byte offset and
+//!      `claude-transcript.json` in the hook folder (`agent_hook_outputs`), then tailed incrementally by byte offset and
 //!      deduplicated by `message.id` (keeping the last usage entry per `message.id`).
 //!    - Grok usage is queried via `grok usage <session-id>` on a background thread with a 5-second
 //!      timeout when a turn ends, when a tab is focused, or when the panel opens.
@@ -22,7 +22,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// File in `<session_dir>` where the Claude hook records `{"session_id", "transcript_path"}` once per session.
+/// File in the hook folder (`agent_hook_outputs`) where the Claude hook records `{"session_id", "transcript_path"}` once per session.
 pub const CLAUDE_TRANSCRIPT_META_FILENAME: &str = "claude-transcript.json";
 
 /// Optional cache file in `<session_dir>` storing the last known [`UsageReading`] so resumed tabs show usage immediately.
@@ -229,7 +229,7 @@ pub fn tooltip_usage_text_for_tab(preset: AgentCliPreset, reading: Option<&Usage
     }
 }
 
-/// Metadata written by the Claude hook capture command into `<session_dir>/claude-transcript.json`.
+/// Metadata written by the Claude hook capture command into `claude-transcript.json` of the hook folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeTranscriptMeta {
     pub session_id: String,
@@ -239,14 +239,15 @@ pub struct ClaudeTranscriptMeta {
 }
 
 /// Builds the POSIX shell command that captures `session_id` and `transcript_path` from a Claude hook's
-/// stdin JSON into `capture_path` (`<session_dir>/claude-transcript.json`) **once per session** (`#678` §3.4, §5, §8.2).
+/// stdin JSON into `capture_path` (`claude-transcript.json` of the hook folder) **once per session** (`#678` §3.4, §5, §8.2).
 ///
 /// Keys the `"sessions"` map by `DESIGNOS_TAB_SESSION_UUID` when exported in the tab's PTY environment
 /// (falling back to `session_id`), overwriting that tab's entry when `/clear` rotates `session_id` to a new
 /// transcript file, and writes via an atomic temporary file under a lock directory so concurrent tabs cannot
 /// clobber each other.
 pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
-    let dest = capture_path.display();
+    let quoted = |suffix: &str| crate::agent_turn_status::sh_single_quote(&format!("{}{suffix}", capture_path.display()));
+    let (dest, lock, tmp) = (quoted(""), quoted(".lock"), quoted(".tmp."));
     format!(
         "in=$(tr -d '\\r\\n'); \
          sid=$(printf '%s' \"$in\" | sed -n 's/.*\"session_id\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p'); \
@@ -254,31 +255,38 @@ pub fn claude_transcript_capture_command(capture_path: &Path) -> String {
          if [ -n \"$sid\" ] && [ -n \"$tp\" ]; then \
            key=\"${{DESIGNOS_TAB_SESSION_UUID:-$sid}}\"; \
            pair=\"\\\"$key\\\":\\\"$tp\\\"\"; \
-           if [ ! -f '{dest}' ] || ! grep -Fq \"$pair\" '{dest}' 2>/dev/null; then \
-             i=0; while ! mkdir '{dest}.lock' 2>/dev/null && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.01; done; \
-             prev=\"\"; \
-             if [ -f '{dest}' ]; then \
-               prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' '{dest}' 2>/dev/null); \
-               prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
+           if [ ! -f {dest} ] || ! grep -Fq \"$pair\" {dest} 2>/dev/null; then \
+             got_lock=0; i=0; \
+             while [ $i -lt 50 ]; do \
+               if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; \
+               if [ ! -e {lock} ]; then if mkdir {lock} 2>/dev/null; then got_lock=1; break; fi; [ -e {lock} ] || break; fi; \
+               sleep 0.01; i=$((i+1)); \
+             done; \
+             if [ \"$got_lock\" = 1 ]; then \
+               prev=\"\"; \
+               if [ -f {dest} ]; then \
+                 prev=$(sed -n 's/.*\"sessions\":{{//; s/}}}}[[:space:]]*$//p' {dest} 2>/dev/null); \
+                 prev=$(printf '%s' \"$prev\" | sed \"s/\\\"$key\\\":\\\"[^\\\"]*\\\"//g; s/,,/,/g; s/^,//; s/,$//\"); \
+               fi; \
+               if [ -n \"$prev\" ]; then \
+                 entries=\"$prev,$pair\"; \
+               else \
+                 entries=\"$pair\"; \
+               fi; \
+               tmp={tmp}$$; \
+               if {{ printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\"; }} 2>/dev/null; then \
+                 mv -f \"$tmp\" {dest} 2>/dev/null || rm -f \"$tmp\"; \
+               fi; \
+               rmdir {lock} 2>/dev/null || true; \
              fi; \
-             if [ -n \"$prev\" ]; then \
-               entries=\"$prev,$pair\"; \
-             else \
-               entries=\"$pair\"; \
-             fi; \
-             tmp='{dest}.tmp.'$$; \
-             if printf '{{\"session_id\":\"%s\",\"transcript_path\":\"%s\",\"sessions\":{{%s}}}}\\n' \"$sid\" \"$tp\" \"$entries\" > \"$tmp\" 2>/dev/null; then \
-               mv -f \"$tmp\" '{dest}' 2>/dev/null || rm -f \"$tmp\"; \
-             fi; \
-             rmdir '{dest}.lock' 2>/dev/null || true; \
            fi; \
          fi"
     )
 }
 
-/// Reads `<session_dir>/claude-transcript.json` if present and valid.
+/// Reads `claude-transcript.json` of the hook folder if present and valid.
 pub fn read_claude_transcript_meta(capture_path: &Path) -> Option<ClaudeTranscriptMeta> {
-    let raw = std::fs::read_to_string(capture_path).ok()?;
+    let raw = crate::agent_session_files::read_session_text(capture_path)?;
     let meta: ClaudeTranscriptMeta = serde_json::from_str(raw.trim()).ok()?;
     if meta.session_id.trim().is_empty() || meta.transcript_path.as_os_str().is_empty() {
         return None;
@@ -286,7 +294,7 @@ pub fn read_claude_transcript_meta(capture_path: &Path) -> Option<ClaudeTranscri
     Some(meta)
 }
 
-/// Reads `<session_dir>/claude-transcript.json` scoped to `target_session_id` when provided.
+/// Reads `claude-transcript.json` of the hook folder scoped to `target_session_id` when provided.
 ///
 /// When `target_session_id` is `Some(sid)`, resolves `sid` from `meta.sessions` (or `meta.session_id == sid`),
 /// and returns `None` if `capture_path` only records a different tab's session.
@@ -465,7 +473,8 @@ impl ClaudeTranscriptReader {
         if len == 0 {
             return Some(Vec::new());
         }
-        let mut file = std::fs::File::open(&self.path).ok()?;
+        // The transcript is the file the CLI names, outside the session folder: only a FIFO is refused.
+        let mut file = crate::agent_session_files::open_plain_file(&self.path).ok()?;
         file.seek(SeekFrom::Start(start)).ok()?;
         let mut buf = Vec::with_capacity(len.min(64 << 10) as usize);
         file.take(len).read_to_end(&mut buf).ok()?;
@@ -606,6 +615,11 @@ pub fn resolve_grok_binary(extra_dirs: &[PathBuf]) -> PathBuf {
             return p;
         }
     }
+    // A test finds a `grok` only in the folders it names, never on the user's lookup path. The path returned names nothing, so
+    // starting it fails at once.
+    if cfg!(test) {
+        return PathBuf::from("/designos-test-no-such-folder").join(candidate_name);
+    }
     if let Some(path_os) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path_os) {
             let p = dir.join(candidate_name);
@@ -629,27 +643,26 @@ struct UsageCacheFile {
     entries: BTreeMap<String, UsageReading>,
 }
 
-/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4).
+/// Saves `reading` under `key` inside `<session_dir>/usage.json` (`#678` §4). The file is written through the session folder's
+/// handle, so a link the agent planted at `usage.json` or in the path to it is never followed.
 pub fn save_cached_usage(session_dir: &Path, key: &str, reading: &UsageReading) {
-    static WRITE_LOCK: Mutex<u64> = Mutex::new(0);
+    static WRITE_LOCK: Mutex<()> = Mutex::new(());
     if key.trim().is_empty() || !reading.has_documented_source() {
         return;
     }
-    let Ok(mut seq_guard) = WRITE_LOCK.lock() else {
+    let Ok(_guard) = WRITE_LOCK.lock() else {
         return;
     };
-    *seq_guard = seq_guard.wrapping_add(1);
-    let seq = *seq_guard;
     let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let mut cache = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<UsageCacheFile>(&s).ok()).unwrap_or_default();
+    let mut cache = read_usage_cache(&path).unwrap_or_default();
     cache.entries.insert(key.trim().to_string(), reading.clone());
     if let Ok(bytes) = serde_json::to_vec_pretty(&cache) {
-        let _ = std::fs::create_dir_all(session_dir);
-        let tmp = path.with_extension(format!("tmp.{}.{seq}", std::process::id()));
-        if std::fs::write(&tmp, &bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        let _ = crate::agent_session_files::atomic_write_session_file(&path, &bytes);
     }
+}
+
+fn read_usage_cache(path: &Path) -> Option<UsageCacheFile> {
+    serde_json::from_slice(&crate::agent_session_files::read_session_file(path).ok()?).ok()
 }
 
 /// Loads a previously cached [`UsageReading`] for `key` from `<session_dir>/usage.json`.
@@ -658,10 +671,7 @@ pub fn load_cached_usage(session_dir: &Path, key: &str) -> Option<UsageReading> 
     if clean.is_empty() {
         return None;
     }
-    let path = session_dir.join(USAGE_CACHE_FILENAME);
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let cache: UsageCacheFile = serde_json::from_str(&raw).ok()?;
-    cache.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
+    read_usage_cache(&session_dir.join(USAGE_CACHE_FILENAME))?.entries.get(clean).cloned().filter(UsageReading::has_documented_source)
 }
 
 #[derive(Debug, Default)]
@@ -725,7 +735,7 @@ impl TabUsageTracker {
     }
 
     /// Triggers an incremental Claude transcript tail off the UI thread, reading
-    /// `<session_dir>/claude-transcript.json` and updating the tab's [`UsageReading`].
+    /// `claude-transcript.json` of `session_dir`'s hook folder and updating the tab's [`UsageReading`].
     pub fn trigger_claude_transcript_poll(&self, session_dir: PathBuf, cache_key: Option<String>) {
         let Ok(mut st) = self.state.lock() else { return };
         if st.in_flight {
@@ -738,7 +748,7 @@ impl TabUsageTracker {
         let state_bg = Arc::clone(&self.state);
         let reader_bg = Arc::clone(&self.claude_reader);
         let _ = std::thread::Builder::new().name("designos-claude-usage".into()).spawn(move || {
-            let capture_path = session_dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
+            let capture_path = crate::agent_hook_outputs::HookPaths::locate(&session_dir).transcript();
             let mut source_confirmed_gone = false;
             let mut target_rotated = false;
             let next_reading = if let Some(meta) = read_claude_transcript_meta_for(&capture_path, cache_key.as_deref()) {
@@ -923,7 +933,7 @@ mod tests {
     #[test]
     fn hook_capture_writes_session_and_transcript_path_once() {
         let dir = temp_test_dir("hook-capture");
-        let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
         let stdin_json = r#"{"session_id":"sess-abc-123","transcript_path":"/tmp/claude/sess-abc-123.jsonl","hook_event_name":"UserPromptSubmit"}"#;
 
@@ -1091,7 +1101,7 @@ mod tests {
     #[cfg_attr(windows, ignore = "runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON")]
     fn two_claude_sessions_in_one_session_dir_keep_distinct_transcript_pointers_and_readings() {
         let dir = temp_test_dir("two-claude-tabs");
-        let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
 
         let transcript_a = dir.join("tab-a.jsonl");
@@ -1139,7 +1149,7 @@ mod tests {
     #[cfg_attr(windows, ignore = "runs POSIX sh/sed transcript capture hook with unescaped Unix path in JSON")]
     fn claude_clear_rotates_session_id_and_restarts_tab_usage_reading() {
         let dir = temp_test_dir("claude-clear-rotate");
-        let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let cmd = claude_transcript_capture_command(&capture_path);
 
         let transcript_before = dir.join("sess-before-clear.jsonl");
@@ -1238,7 +1248,7 @@ mod tests {
         assert_eq!(grok_tracker.reading(), Some(grok_seed), "failed grok usage probe must not erase restored reading");
 
         // 3. When claude-transcript.json maps this tab's uuid to a transcript path that is confirmed gone, clear the reading.
-        let capture_path = dir.join(CLAUDE_TRANSCRIPT_META_FILENAME);
+        let capture_path = crate::agent_hook_outputs::HookPaths::prepare(&dir).expect("the hook folder").transcript();
         let gone_path = dir.join("confirmed-gone.jsonl");
         let meta_json = serde_json::json!({
             "session_id": "uuid-resumed",

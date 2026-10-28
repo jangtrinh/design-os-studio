@@ -1,0 +1,30 @@
+warning: <worktree>/crates/designos-app/Cargo.toml: file `<worktree>/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (<worktree>/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (<worktree>/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.84s
+     Running unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+
+running 3 tests
+test agent_session_files::locked_entry_tests::a_locked_folder_the_entry_is_in_is_named_as_locked ... ok
+test agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable ... FAILED
+test agent_session_files::locked_entry_tests::a_locked_entry_is_named_as_locked_and_not_the_folder_it_is_in ... ok
+
+failures:
+
+---- agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable stdout ----
+
+thread 'agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable' (49218869) panicked at crates/designos-app/src/agent_session_files/locked_entry_tests.rs:77:5:
+assertion `left == right` failed
+  left: "Couldn't start Grok Build: <tmp>/b1061.hLzYF5/designos test data/38687/sessions/p38687-tab-12868701/.mcp.json can't be moved: Permission denied (os error 13). Check its permissions and those of that folder, then try again."
+ right: "Couldn't start Grok Build: <tmp>/b1061.hLzYF5/designos test data/38687/sessions/p38687-tab-12868701/.mcp.json can't be moved out of <tmp>/b1061.hLzYF5/designos test data/38687/sessions/p38687-tab-12868701: Permission denied (os error 13). Check its permissions and those of that folder, then try again."
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_session_files::locked_entry_tests::an_entry_with_a_deny_delete_acl_gets_a_line_that_names_it_and_its_folder_and_does_not_say_make_it_writable
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 3306 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,15 @@
+8c11f361b1e469d3a8329b8e3c0269b3e3c199bd
+?? plans/reports/v062-fix-1069-evidence/r2-gate-fallback-typecheck.log
+?? plans/reports/v062-fix-1069-evidence/r2-gate-head.txt
+?? plans/reports/v062-fix-1069-evidence/r2-mut-a-read-only-folder-names-the-entry.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-a-vanished-entry-is-an-error.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-agent-definitions-stay.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-agy-subagents-stay.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-moves-where-they-are-refused.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-no-second-pass.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-settled-is-ok.log
+?? plans/reports/v062-fix-1069-evidence/r2-mut-the-spawned-line-says-nothing.log
+?? plans/reports/v062-fix-1069-evidence/r2-red-on-68f5580f.log
+?? plans/reports/v062-fix-1069-evidence/scripts/capture-gate-summary-1069-r2.sh
+?? plans/reports/v062-fix-1069-evidence/scripts/render-gate-summary-1069-r2.py
+?? plans/reports/v062-fix-1069-evidence/scripts/run-gates-1069-r2.sh

@@ -68,13 +68,21 @@
 
 @media (min-width: 960px) {
   .new-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 8px clamp(20px, 2.5vw, 32px); }
-  .new-release--061 { grid-column: 1; grid-row: 1; }
+  .new-release--070 { grid-column: 1; grid-row: 1; }
+  .new-release--065 { grid-column: 2; grid-row: 1; }
+  .new-release--063 { grid-column: 1; grid-row: 2; }
+  .new-release--062 { grid-column: 2; grid-row: 2; }
+  .new-release--061 { grid-column: 1; grid-row: 3; }
   .new-older {
-    grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    grid-column: 1; grid-row: 4; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
     gap: 0 14px; align-items: start;
   }
-  .new-release--060 { grid-column: 2; grid-row: 1 / span 2; }
+  .new-release--060 { grid-column: 2; grid-row: 3 / span 2; }
+  .new-release--070 .new-bullets,
+  .new-release--063 .new-bullets,
   .new-release--061 .new-bullets { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; }
+  .new-release--065 .new-bullets,
+  .new-release--062 .new-bullets,
   .new-release--060 .new-bullets { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 12px; }
   .new-fold { border-bottom: 0; padding-block: 0; }
   .new-changelog { margin-top: 0; }

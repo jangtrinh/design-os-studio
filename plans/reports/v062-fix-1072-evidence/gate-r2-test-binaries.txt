@@ -1,0 +1,2 @@
+  Executable unittests src/main.rs (out/cargo-1061/debug/deps/designos-d02548a0edc4e955)
+  Executable unittests src/main.rs (out/cargo-1061/debug/deps/designos_studio-a3645dd294d29853)

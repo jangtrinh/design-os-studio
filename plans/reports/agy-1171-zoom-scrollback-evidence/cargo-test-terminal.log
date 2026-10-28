@@ -1,0 +1,368 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1171-zoom-scrollback/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.84s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 327 tests
+test agent_permissions::tests::a_fresh_terminal_launches_every_cli_in_ask_mode ... ok
+test agent_open_flow::tests::resume_failure_copy_matches_the_errors_terminal_really_returns ... ok
+test agent_session_files::folder_message_tests::sending_a_selection_to_the_terminal_says_what_to_do_when_the_session_folder_is_refused ... ok
+test agent_stop::tests::esc_in_the_terminal_reaches_the_cli_unchanged ... ok
+test agent_composer::tests::skills_reply_files_are_deleted_when_the_terminal_shuts_down ... ok
+test shell::tests::agents_panel_only::panel_terminal_flag_opens_the_agents_panel_and_never_a_dock ... ok
+test shell::tests::agents_panel_only::the_rail_has_no_terminal_button_and_keeps_the_updates_button ... ok
+test shell::tests::agent_panel_keyboard::dev_mode_shortcut::a_capital_d_typed_while_the_agent_terminal_has_focus_goes_to_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::the_floating_web_capture_report_does_not_take_the_keyboard_from_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::hand_built_popovers::the_check_designs_panel_never_holds_the_keys_from_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_belongs_to_the_terminal_while_it_holds_the_keyboard_and_to_the_report_sheet_otherwise ... ok
+test shell::tests::agents_panel_only::cmd_backtick_still_types_into_a_focused_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_and_arrows_stay_out_of_the_terminal_while_an_overlay_is_open ... ok
+test shell::tests::agent_panel_keyboard::session_rename_keyboard::a_rename_takes_the_keyboard_from_the_agent_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::a_font_dropdown_whose_section_disappeared_does_not_leave_the_terminal_deaf ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf ... ok
+test shell::tests::terminal_undo_chord::empty_undo_stack_is_silent_noop ... ok
+test shell::tests::terminal_undo_chord::ctrl_z_on_mac_still_sends_sigtstp_to_pty ... ok
+test shell::tests::terminal_undo_chord::ctrl_z_in_shell_tab_on_linux_goes_to_pty ... ok
+test shell::tests::terminal_undo_chord::ctrl_z_is_left_to_a_cli_that_uses_it ... ok
+test shell::tests::terminal_undo_chord::cmd_z_while_terminal_focused_undoes_document ... ok
+test shell::tests::terminal_undo_chord::cmd_z_after_cmd_alt_j_in_pty_view_undoes_document ... ok
+test shell::tests::live_patch_agent_switch::the_agents_terminal_follows_its_new_tab_and_later_patches_never_reach_the_users_tab ... ok
+test terminal::ask_hooks_tests::a_launch_outside_ask_mode_never_passes_on_claude_values_it_inherited ... ok
+test tabs::tests::closing_background_tab_and_per_tab_terminal_isolation ... ok
+test shell::tests::terminal_undo_chord::chord_is_ignored_during_a_user_edit ... ok
+test shell::tests::terminal_undo_chord::mac_cmd_z_undoes_with_the_terminal_focused ... ok
+test terminal::ask_hooks_tests::an_ask_session_leaves_the_status_hooks_a_skip_session_left ... ok
+test shell::tests::terminal_undo_chord::text_edit_keeps_native_text_undo ... ok
+test terminal::ask_hooks_tests::an_ask_session_removes_the_hooks_an_earlier_build_left_with_the_approval_handler ... ok
+test shell::tests::terminal_undo_chord::windows_ctrl_z_is_left_to_a_shell_tab ... ok
+test terminal::ask_hooks_tests::in_ask_mode_claude_reads_its_hooks_from_the_private_folder ... ok
+design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+test terminal::ask_hooks_tests::in_skip_mode_claude_still_reads_hooks_json_in_the_session_folder ... ok
+test shell::tests::terminal_undo_chord::granularity_is_one_step_per_tool_call ... ok
+test terminal::ask_launch_sources_tests::a_tab_without_a_session_gets_safe_values_for_the_ask_command ... ok
+test terminal::ask_hooks_tests::rewriting_the_session_hooks_json_in_ask_mode_changes_nothing_claude_reads ... ok
+test terminal::ask_hooks_tests::the_permission_mode_is_read_once_per_spawn_and_once_per_resume ... ok
+test shell::tests::terminal_undo_chord::mac_shift_cmd_z_redoes ... ok
+design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+test terminal::ask_hooks_tests::without_a_private_folder_ask_claude_starts_with_empty_inline_settings ... ok
+test terminal::ask_mode_tests::a_tab_started_without_a_prepared_command_asks ... ok
+test shell::tests::terminal_undo_chord::shift_cmd_z_and_cmd_y_while_terminal_focused_redo_document ... ok
+test terminal::ask_hooks_tests::the_private_hooks_file_is_owner_only_and_rewritten_by_every_sync ... ok
+test shell::tests::terminal_undo_chord::undo_chord_writes_nothing_to_the_pty ... ok
+test terminal::ask_launch_sources_tests::a_skip_launch_is_what_it_was ... ok
+test shell::tests::terminal_undo_chord::windows_ctrl_z_undoes_in_an_agent_tab_when_the_cli_does_not_use_it ... ok
+test terminal::ask_launch_sources_tests::an_ask_launch_limits_claude_to_the_users_settings_and_loads_studios_skill_from_the_private_plugin ... ok
+test terminal::ask_launch_sources_tests::an_ask_launch_never_passes_an_empty_value ... ok
+test terminal::ask_launch_sources_tests::a_server_forged_into_the_session_mcp_config_is_not_started_by_an_ask_launch ... ok
+test terminal::ask_mode_tests::antigravity_ask_launches_without_the_skip_flag_and_its_plugin_config_trusts_nothing ... ok
+test terminal::ask_mode_tests::claude_ask_launches_without_the_skip_flag_and_writes_no_allow_rule ... ok
+test terminal::ask_mode_tests::golden::unix_paths_are_normalized_as_before ... ok
+test terminal::ask_mode_tests::golden::windows_paths_are_normalized_in_every_spelling_they_are_written_in ... ok
+test terminal::ask_launch_sources_tests::forged_project_and_local_settings_are_not_named_by_an_ask_launch ... ok
+test terminal::ask_launch_sources_tests::without_a_private_folder_an_ask_launch_still_loads_nothing_from_the_session_folder ... ok
+test terminal::ask_mode_tests::the_scanner_flags_every_auto_approve_shape_and_ignores_inert_ones ... ok
+test terminal::ask_mode_tests::codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override ... ok
+test terminal::ask_mode_tests::gemini_launches_in_the_mode_asked_for_and_never_trusts_the_server ... ok
+test terminal::ask_mode_tests::golden::antigravity_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::codex_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::claude_launch_and_config_match_the_golden ... ok
+test terminal::capture_lock_tests::without_a_lock_in_the_way_a_capture_adds_its_tab_and_gives_the_lock_back ... ok
+test terminal::ask_mode_tests::golden::gemini_launch_and_config_match_the_golden_and_never_trust_the_server ... ok
+test terminal::ask_mode_tests::golden::grok_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::grok_ask_launches_without_always_approve_and_writes_no_permission_rule ... ok
+test terminal::capture_lock_tests::a_lock_a_third_tab_takes_in_the_window_is_waited_for_and_the_entry_is_still_written_after_it ... ok
+test terminal::ask_mode_tests::the_private_plugin_skill_has_a_fixed_frontmatter_and_names_neither_the_file_nor_its_page ... ok
+design:os studio: no hook can report for this session, so its agent tabs show no status: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/designos-approval-channels-test/74eeaa0cad831a70/hook-out is a file, not a folder
+design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+test terminal::ask_mode_tests::gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab ... ok
+design:os studio: Gemini CLI status hooks are off for this session: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: no Studio-private data folder outside the folders agents can write
+test terminal::capture_lock_tests::a_lock_that_stays_held_is_never_removed_by_a_capture_that_gave_up_waiting ... ok
+design:os studio: Gemini CLI status hooks are off for this session, no hook can report: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/designos-approval-channels-test/74eeaa0cad831a70/hook-out is a file, not a folder
+design:os studio: Gemini CLI status hooks are off for this session: no Studio-private data folder outside the folders agents can write
+design:os studio: no hook can report for this session, so its agent tabs show no status: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/designos-approval-channels-test/74f9280cad8c450f/hook-out is a file, not a folder
+test terminal::fail_closed_hook_tests::without_a_private_data_folder_no_cli_gets_a_hook_in_ask_or_in_skip_mode ... ok
+design:os studio: Gemini CLI status hooks are off for this session, no hook can report: /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/designos-approval-channels-test/74f9280cad8c450f/hook-out is a file, not a folder
+test terminal::fail_closed_hook_tests::when_only_the_hook_folder_cannot_be_made_the_approval_handler_is_the_one_hook_left_and_it_touches_no_session_file ... ok
+test shell::tests::agent_panel_keyboard::hand_built_popovers::an_outside_press_closes_each_hand_built_popover_and_the_terminal_hears_typing_again ... ok
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... ok
+test terminal::delayed_enter_tests::a_tab_with_the_output_heuristic_on_still_gets_its_enter_when_its_status_reads_as_a_question ... ok
+test terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_to_a_claude_tab_that_began_to_wait_after_the_paste ... ok
+test terminal::delayed_enter_tests::a_tab_that_read_as_waiting_before_the_paste_is_still_refused_at_send_time_whatever_the_source ... ok
+test terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ... ok
+test terminal::gemini_launch_tests::a_failed_spawn_leaves_no_hooks_file_behind ... ok
+test terminal::gemini_composer_tests::the_dialog_is_found_on_an_80_by_20_screen_whatever_the_status_says ... ok
+test terminal::gemini_composer_tests::a_dialog_that_draws_no_marker_holds_its_wait_until_a_hook_record ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::gemini_composer_tests::a_dialog_with_no_options_on_screen_keeps_a_wait_and_never_starts_one ... ok
+test terminal::gemini_launch_tests::off_unix_a_gemini_tab_gets_no_hooks_file ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::gemini_dialog_tests::a_dialog_that_returns_before_a_tool_record_reopens_the_wait ... ok
+test terminal::gemini_launch_tests::the_defaults_variable_is_set_only_for_a_tab_with_a_hooks_file ... ok
+test terminal::gemini_composer_tests::a_tab_nobody_is_looking_at_keeps_its_queued_prompt_while_its_dialog_is_open ... ok
+test terminal::delayed_enter_tests::a_codex_tab_whose_echo_of_the_prompt_reads_as_a_question_still_gets_its_enter ... ok
+test terminal::gemini_dialog_tests::a_second_queued_dialog_keeps_the_wait_and_the_composer_closed ... ok
+test terminal::gemini_dialog_tests::a_hook_wait_ends_when_the_dialog_is_gone_and_the_composer_then_sends ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::gemini_launch_tests::gemini_hook_records_drive_the_tab_through_waiting_working_and_done ... ok
+test terminal::gemini_launch_tests::in_ask_mode_gemini_reads_its_status_hooks_from_a_private_file ... ok
+test terminal::gemini_range_tests::only_gemini_0_35_and_0_65_are_in_the_tested_range ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::gemini_launch_tests::skip_mode_gemini_gets_no_hooks_file_and_keeps_its_environment ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::gemini_narrow_tests::a_label_cut_to_fit_is_still_the_dialog_down_to_the_minimum_panel_width ... ok
+test terminal::gemini_dialog_tests::with_no_hooks_file_only_the_dialog_on_screen_starts_a_wait ... ok
+test terminal::gemini_range_tests::the_marker_is_the_line_gemini_draws_last_in_every_dialog_with_options ... ok
+test terminal::gemini_status_tests::a_tool_permission_notification_waits_for_approval ... ok
+test terminal::gemini_status_tests::agy_records_still_route_with_a_gemini_tab_open ... ok
+test terminal::gemini_status_tests::an_untagged_record_never_lands_on_a_gemini_tab ... ok
+test terminal::gemini_status_tests::gemini_tool_permission_record_routes_to_its_tab_beside_a_claude_tab ... ok
+test terminal::gemini_status_tests::the_claude_grok_and_agy_status_hooks_stay_byte_identical ... ok
+test terminal::gemini_status_tests::the_status_hooks_cover_five_events_name_the_tab_and_print_nothing ... ok
+test terminal::delayed_enter_tests::the_delayed_enter_is_not_sent_when_a_record_says_the_agent_waits_whatever_the_version ... ok
+test terminal::gemini_narrow_tests::a_tab_that_printed_nothing_is_not_read_again ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::a_menu_whose_host_stopped_drawing_does_not_leave_the_terminal_deaf ... ok
+test terminal::gemini_narrow_tests::a_tab_with_no_hooks_file_starts_its_wait_from_a_cut_label ... ok
+test terminal::hook_output_tests::a_fifo_or_a_link_to_one_at_the_patch_log_never_blocks_the_turn_mark_hook ... ok
+test terminal::gemini_narrow_tests::a_hook_wait_on_a_cut_label_stands_while_the_dialog_is_on_screen_and_ends_when_it_is_gone ... ok
+test terminal::gemini_range_tests::outside_the_tested_range_a_tab_with_no_hooks_file_starts_no_wait ... ok
+test terminal::gemini_narrow_tests::output_the_cli_prints_through_its_own_terminal_is_read ... ok
+test terminal::hook_output_tests::the_turn_mark_hook_still_counts_the_bytes_of_a_patch_log_that_is_a_plain_file ... ok
+test terminal::gemini_launch_tests::the_hooks_file_goes_with_its_tab_and_a_stale_one_goes_when_a_tab_starts ... ok
+test terminal::gemini_wait_tests::a_working_gemini_ask_tab_paints_no_stop_button ... ok
+test terminal::pty_error_tests::a_pty_error_after_a_move_names_what_was_moved ... ok
+test terminal::pty_error_tests::a_pty_error_with_nothing_moved_is_the_error_alone ... ok
+test terminal::hook_output_tests::the_capture_of_a_claude_transcript_never_writes_through_a_link_planted_at_the_name_of_its_temporary_file ... ok
+test terminal::hook_output_tests::a_link_at_a_reply_file_is_not_read_by_the_prompt_hook_into_the_agents_context ... ok
+test terminal::hook_output_tests::every_file_a_hook_writes_lies_outside_the_session_folder_and_the_folder_of_a_file_kept_beside_the_data_folder ... ok
+test terminal::gemini_wait_tests::gemini_ask_tab_waiting_needs_approval_and_shows_open_tab ... ok
+test terminal::hook_output_tests::no_file_a_hook_writes_or_reads_has_a_name_designos_mcp_can_write ... ok
+design:os studio: Gemini CLI has system defaults of its own, so its status hooks are off; the tab reads its approvals from the dialog on its screen
+test terminal::hookless_tab_tests::the_same_tabs_do_work_once_records_arrive_so_the_records_are_what_the_status_is_made_of ... ok
+test terminal::tests::a_composer_send_records_the_retry_prompt_and_dismisses_the_failure_banner ... ok
+test terminal::tests::a_gemini_only_machine_is_not_told_that_no_agent_cli_was_found ... ok
+test terminal::tests::a_click_appends_to_an_existing_draft ... ok
+test terminal::real_cli_launch_tests::an_agent_tab_in_a_test_gets_its_stubs_and_the_runners_tools_but_no_agent_cli ... ok
+test terminal::gemini_launch_tests::gemini_with_system_defaults_of_its_own_gets_no_hooks_file_and_waits_from_its_screen ... ok
+test terminal::tests::a_failed_mode_save_keeps_ask_for_the_next_agent_tab ... ok
+test terminal::tests::a_draft_on_an_exited_tab_follows_the_click_to_another_live_tab ... ok
+test terminal::tests::a_late_stop_failure_does_not_overwrite_the_stopped_receipt ... ok
+test terminal::tests::a_click_fills_the_composer_and_changes_nothing_else ... ok
+test terminal::tests::a_permission_request_in_the_background_notifies_needs_approval ... ok
+test terminal::tests::a_log_trim_inside_an_open_turn_keeps_the_scan_on_that_turns_output ... ok
+test terminal::tests::a_start_failure_is_painted_under_the_prompts ... ok
+test terminal::tests::a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_exit_scan ... ok
+test terminal::hookless_tab_tests::a_hook_driven_tab_that_gets_no_hook_record_shows_exactly_what_an_opencode_tab_shows ... ok
+test terminal::tests::a_request_forged_in_the_session_folder_raises_no_card ... ok
+test terminal::tests::agent_chat_codex_command_carries_the_same_mcp_overrides_as_the_tab ... ok
+test terminal::tests::a_saved_other_cli_counts_and_a_prompt_click_starts_it ... ok
+test terminal::tests::agent_runtime_env_is_set_at_spawn_and_per_command_never_typed_into_live_tabs ... ok
+test terminal::tests::agent_shell_cmd_has_no_shell_fallback ... ok
+test terminal::tests::a_queued_prompt_dismisses_the_failure_banner_when_sent_not_when_written ... ok
+test terminal::tests::a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_live_scan ... ok
+test terminal::tests::a_stop_failure_event_sets_the_banner_and_the_next_prompt_clears_it ... ok
+test terminal::tests::a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_stop_failure_scan ... ok
+test terminal::tests::agents_header_and_composer_buttons_mutate_real_state ... ok
+test terminal::tests::a_user_stop_refreshes_the_tab_usage_like_any_other_turn_end ... ok
+test terminal::tests::agent_chat_supports_prd_and_spec_context_handoff ... ok
+test terminal::tests::antigravity_launch_uses_only_flags_agy_1_4_2_accepts ... ok
+test terminal::tests::antigravity_preset_names_the_agy_cli ... ok
+test terminal::tests::a_user_stop_is_never_classified_as_a_session_failure ... ok
+test terminal::tests::agent_tab_gets_single_line_bracketed_paste ... ok
+test terminal::tests::agent_that_exits_after_the_window_is_not_a_start_failure ... ok
+test terminal::tests::agent_that_exits_within_the_window_reports_a_start_failure_with_its_last_output ... ok
+test terminal::tests::at_mention_typed_before_trailing_words_opens_popup_and_replaces_only_that_token ... ok
+test terminal::tests::antigravity_in_ask_mode_reports_an_approval_prompt_from_its_output ... ok
+test terminal::tests::all_four_agent_cli_runtimes_claude_codex_agy_grok_execute_in_pty ... ok
+test terminal::tests::agents_chat_wrapper_executes_in_pty_shell_and_streams_clean_output ... ok
+test terminal::gemini_range_tests::outside_the_tested_range_the_hooks_alone_drive_the_status ... ok
+test terminal::tests::antigravity_session_gets_a_workspace_plugin_carrying_the_designos_mcp_server ... ok
+test terminal::tests::approval_card_stacks_between_the_strip_and_the_receipt_row_without_overlap ... ok
+test terminal::tests::bootstrap::app_state_tool_matches_studio_block ... ok
+test terminal::tests::bootstrap::claude_prompt_hook_waits_at_most_half_a_second_for_the_full_bootstrap ... ok
+test terminal::tests::banner_clears_on_the_next_turn ... ok
+test terminal::tests::bootstrap::edits_before_first_prompt_do_not_rebuild_bootstrap_per_epoch ... ok
+test terminal::tests::bootstrap::first_turn_contains_every_section ... ok
+test terminal::tests::bootstrap::first_turn_rules_are_the_generated_pack_for_the_default_tools ... ok
+test terminal::tests::bootstrap::first_turn_rules_leave_out_a_tool_the_session_disables ... ok
+test terminal::tests::bootstrap::large_fixture_within_budget_with_markers ... ok
+test terminal::tests::bootstrap::stale_bootstrap_worker_never_overwrites_newer_revision ... ok
+test terminal::tests::bootstrap::delivered_once_per_run ... ok
+test terminal::tests::chat_header_announces_only_the_controls_it_draws ... ok
+test terminal::tests::chat_header_draws_no_control_that_does_nothing ... ok
+test terminal::tests::bootstrap::selection_never_injected ... ok
+test terminal::tests::chip_updates_in_the_same_frame ... ok
+test terminal::tests::bootstrap::selection_only_by_explicit_argument ... ok
+test terminal::tests::bootstrap::slow_bootstrap_falls_back_to_compact ... ok
+test terminal::tests::bootstrap::stub_agent_zero_discovery_calls ... ok
+test terminal::tests::bridge_surfaces_a_request_and_writes_the_answer ... ok
+test terminal::tests::claude_hooks_file_is_a_valid_settings_file_and_the_launch_loads_it ... ok
+test terminal::tests::bootstrap::bootstrap_job_omits_images_and_skips_redundant_spawns_after_first_turn_delivered ... ok
+test terminal::tests::click_pastes_one_sentence_without_enter ... ok
+test terminal::tests::clicking_a_starter_prompt_in_the_default_terminal_view_opens_a_session_and_fills_the_composer ... ok
+test terminal::tests::bootstrap::first_prompt_during_edit_in_progress_or_slow_hook_delivers_real_document_bootstrap ... ok
+test terminal::tests::bootstrap::restarted_agent_run_on_large_scoped_file_builds_full_bootstrap_not_scoped_canvas ... ok
+test terminal::tests::clicking_turn_receipt_row_opens_turn_summary ... ok
+test terminal::tests::composer_has_no_microphone_control ... ok
+test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab ... ok
+test terminal::tests::codex_tab_forwards_the_session_env_and_workspace_to_designos_mcp ... ok
+test terminal::tests::codex_submit_and_viewport_enter_clear_session_failure_on_next_turn ... ok
+test terminal::tests::copy_for_ai_never_spawns_a_tab ... ok
+test terminal::tests::clicking_sample_prompt_with_empty_tabs_starts_session_on_first_installed_cli ... ok
+test terminal::tests::duration_rounds_up_with_minimum_one_second ... ok
+test terminal::tests::clicking_sample_prompt_when_existing_agent_tab_has_exited_spawns_new_live_agent_tab ... ok
+test terminal::tests::codex_uses_the_heuristic ... ok
+test terminal::tests::closing_or_exiting_one_tab_preserves_other_tab_pending_approvals ... ok
+test terminal::tests::concurrent_hook_commands_do_not_interleave_records ... ok
+test terminal::tests::export_selection_paste_does_not_race_under_parallel_stress ... ok
+test terminal::tests::failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread ... ok
+test terminal::tests::figma_desktop_agents_side_panel_renders_and_passes_layout_lint ... ok
+test terminal::tests::file_covers_the_whole_selection ... ok
+test terminal::tests::gemini_launch_uses_only_flags_its_help_lists ... ok
+test terminal::tests::design_words_do_not_apply_a_template ... ok
+test terminal::tests::context_reply_still_excludes_the_selection ... ok
+test terminal::tests::empty_selection_hides_the_chip ... ok
+test terminal::tests::esc_with_the_mention_popup_open_closes_the_popup_and_does_not_stop_the_turn ... ok
+test terminal::tests::grok_launch_uses_only_flags_grok_1_0_62_accepts ... ok
+test terminal::tests::grok_pty_env_disables_folder_trust_only_for_grok ... ok
+test terminal::tests::grok_pty_env_turns_envrc_loading_off_for_grok_tabs_in_every_mode_and_for_no_other_cli ... ok
+test terminal::tests::event_stream_status_changes_drive_the_tab_turn_ledger ... ok
+test terminal::gemini_range_tests::the_composer_refuses_a_dialog_on_screen_whatever_the_gemini_version ... ok
+test terminal::tests::export_selection_pastes_fixed_sentence_only ... ok
+test terminal::tests::gemini_project_settings_written_in_the_session_folder_only ... ok
+test terminal::real_cli_launch_tests::no_test_starts_a_real_agent_cli ... ok
+test terminal::tests::hook_command_appends_one_wrapped_record ... ok
+test terminal::tests::hook_files_carry_both_the_event_stream_and_the_turn_marks ... ok
+test terminal::tests::install_dirs_include_each_clis_own_folder ... ok
+test terminal::tests::grok_session_gets_a_project_config_with_the_designos_mcp_server ... ok
+test terminal::tests::log_since_offset_never_panics_on_a_stale_offset ... ok
+test terminal::tests::header_strip_shows_usage_only_when_active_tab_has_a_reading ... ok
+test terminal::tests::generated_claude_hooks_carry_status_marks_and_approval_in_ask_mode ... ok
+test terminal::tests::header_strip_gives_its_right_slot_to_a_pending_approval ... ok
+test terminal::tests::header_strip_shows_chip_and_turn_status_side_by_side ... ok
+test terminal::tests::grok_and_agy_cards_have_no_buttons ... ok
+test terminal::tests::gemini_live_check ... ok
+test terminal::tests::make_design_sends_a_prompt_and_applies_nothing ... ok
+test terminal::ask_mode_tests::what_each_cli_loads_by_itself_is_the_same_whatever_the_document_and_page_are_named ... ok
+test terminal::tests::missing_cli_send_does_not_drop_pending_bridge_actions_or_block_ui ... ok
+test terminal::tests::header_strip_keeps_still_running_notice_stop_and_mention_apart_at_narrow_widths ... ok
+test terminal::tests::no_count_is_invented_without_data ... ok
+test terminal::tests::missing_cli_shows_the_start_failure_surface_and_no_executed_text ... ok
+test terminal::tests::mention_pick_in_shell_tab_sends_zero_bytes_keeps_popup_and_claude_tab_receives_reference ... ok
+test terminal::tests::mention_popup_opens_inside_the_agents_panel_and_pastes_the_picked_layer ... ok
+test terminal::tests::old_category_cards_are_gone ... ok
+test terminal::tests::new_agent_tab_honours_the_permission_mode_another_window_saved ... ok
+test terminal::tests::dead_agent_tab_gets_no_input_and_shows_notice ... ok
+test terminal::tests::opencode_launch_uses_only_flags_its_help_lists ... ok
+test terminal::tests::orca_terminal_features_bracketed_paste_custom_glyphs_gutter_and_osc_status_work ... ok
+test terminal::tests::no_agent_tab_sends_nothing ... ok
+test terminal::tests::no_cli_installed_shows_install_guidance ... ok
+test terminal::tests::permission_flags_per_mode ... ok
+test terminal::tests::no_planning_path_reaches_the_transcript ... ok
+test terminal::tests::poll_live_agent_bridge_detects_updated_spec_file ... ok
+test terminal::tests::non_zero_exit_after_start_window_records_session_failure_and_zero_exit_does_not ... ok
+test terminal::tests::probe_and_child_path_use_one_list ... ok
+test terminal::tests::process_exit_without_stop_when_unfocused_sends_notification ... ok
+test terminal::tests::new_agent_tab_uses_the_mode_set_and_saved_in_this_window ... ok
+test terminal::tests::new_agent_tab_keeps_the_in_memory_mode_when_nothing_is_saved ... ok
+test terminal::tests::pty_cwd_is_never_root_and_agent_clis_start_in_the_session_dir ... ok
+test terminal::tests::one_notification_per_turn_when_unfocused ... ok
+test terminal::tests::pty_fixture_path_is_writable_on_host_temp_dir ... ok
+test terminal::tests::pty_spawn_and_vt100_screen_capture_work ... ok
+test terminal::tests::notification_when_the_tab_is_hidden_but_window_focused ... ok
+QA guard: skip (HOME=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/home)
+test terminal::tests::qa_p0_fallback_comment_subst_then_chat_must_not_execute ... ok
+QA guard: skip (HOME=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/home)
+test terminal::tests::qa_p0_fallback_shell_paste_alone_is_inert ... ok
+QA guard: skip (HOME=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/home)
+test terminal::tests::qa_p0_fallback_shell_paste_then_ai_action_must_not_execute ... ok
+QA guard: skip (HOME=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.V2754t/home)
+test terminal::tests::qa_p0_fallback_shell_paste_then_chat_prompt_must_not_execute ... ok
+test terminal::tests::pre_and_post_tool_use_hooks_do_not_clear_live_classified_failure_or_advance_offset ... ok
+test terminal::tests::qa_p0_sanitiser_matrix ... ok
+test terminal::tests::prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection ... ok
+test terminal::tests::receipt_shows_exact_duration_and_counts ... ok
+test terminal::tests::qa_p0_copy_for_ai_agent_tab_carries_no_payload ... ok
+test terminal::tests::live_turn_output_classifies_all_four_agent_clis_while_process_is_alive ... ok
+test terminal::tests::picker_sits_above_the_sample_prompts_until_a_session_opens ... ok
+test terminal::tests::resumed_tab_preserves_login_and_install_fix_actions ... ok
+test terminal::tests::per_file_session_isolation_auto_provisions_mcp_hooks_skills_and_syncs_live_doc ... ok
+test terminal::tests::sanitize_pty_paste_text_strips_controls ... ok
+test terminal::tests::prompt_with_a_stub_cli_that_writes_nothing_leaves_the_document_hash_unchanged ... ok
+test terminal::tests::send_copy_for_ai_formats_product_os_citation ... ok
+test terminal::tests::real_cli_command_builder_and_figma_ai_dispatch_execute_real_commands ... ok
+test terminal::tests::qa_p0_relabelled_shell_tab_gets_zero_bytes ... ok
+test terminal::tests::os_notification_sink_reports_denied_immediately_and_click_focuses_tab ... ok
+test terminal::tests::one_permission_request_drives_turn_status_and_the_in_panel_approval ... ok
+test terminal::tests::retry_does_nothing_on_an_exited_tab ... ok
+test terminal::tests::chat_prompt_clears_pending_line_before_enter ... ok
+test terminal::tests::retry_text_resends_recorded_turn_and_a_repeated_stop_failure_classifies_again ... ok
+test terminal::tests::records_route_by_session_id_not_by_active_tab ... ok
+test terminal::tests::spawned_agent_env_sets_cwd_to_the_session_dir ... ok
+test terminal::tests::session_skill_and_instructions_are_laid_out_where_every_cli_discovers_them ... ok
+test terminal::tests::selection_change_writes_nothing_to_the_pty ... ok
+test terminal::tests::skill_text_documents_the_grammar ... ok
+test terminal::tests::session_agent_files_preserve_enabled_tools_and_filter_skill_md ... ok
+test terminal::tests::shell_tab_receives_zero_bytes_from_copy_and_send_selection ... ok
+test terminal::tests::session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli ... ok
+test terminal::tests::skip_mode_and_empty_claude_requests_never_show_approval_card_or_notify ... ok
+test terminal::tests::retry_when_online_probes_on_worker_without_blocking_ui_thread ... ok
+test terminal::tests::the_default_terminal_view_shows_the_prompts_under_the_picker ... ok
+test terminal::tests::status_becomes_needs_approval ... ok
+test terminal::tests::stub_cli_off_the_probed_path_that_prints_unauthorized ... ok
+test terminal::tests::the_install_check_reads_the_pickers_cached_probes_not_the_path ... ok
+test terminal::tests::the_live_check_of_gemini_uses_a_scratch_home ... ok
+test terminal::tests::session_written_before_a_tool_existed_gets_the_new_tool_on_the_next_sync ... ok
+test terminal::tests::stub_cli_drives_running_needs_input_done ... ok
+test terminal::tests::submit_chat_prompt_sanitizes_control_chars ... ok
+test terminal::tests::theme_has_info_success_warning_in_token_parity ... ok
+test terminal::tests::submit_chat_prompt_appends_references_and_prunes_deleted_mentions ... ok
+test terminal::tests::the_turn_start_moves_down_with_the_bytes_the_reader_trimmed ... ok
+test terminal::tests::stop_failure_event_routes_to_owning_agent_tab_when_another_tab_is_active ... ok
+test terminal::tests::works_for_each_cli_hook_file ... ok
+test terminal::tests::zz_let_background_launches_finish ... ignored, only the real-CLI launch check runs this, last, in a child process
+test terminal::tests::start_fixes_open_a_shell_or_run_the_login_command ... ok
+test terminal::tests::the_empty_state_scrolls_when_the_picker_and_prompts_do_not_fit ... ok
+test terminal::tests::the_header_names_the_status_not_the_hook_detail_or_the_raw_failure_slug ... ok
+test terminal::tests::the_app_setter_reports_a_failed_save_and_keeps_ask_until_a_save_works ... ok
+test terminal::tests::the_three_contexts_show_their_prompts ... ok
+test terminal::unwritable_hook_folder_tests::a_lock_another_hook_holds_for_a_moment_is_still_waited_for_and_the_record_is_then_appended ... ok
+test terminal::tests::tool_events_in_flight_after_a_stop_do_not_revive_the_tab_until_a_new_prompt ... ok
+test terminal::zoom_scrollback_tests::ac03_box_table_100_cols_to_70_cols_and_back_leaves_no_stale_narrow_copy ... ok
+test terminal::tests::unfocused_window_sends_one_notification_without_the_command_text ... ok
+test terminal_undo_chord::tests::ctrl_z_is_left_to_a_cli_that_uses_it ... ok
+test terminal_undo_chord::tests::mac_cmd_z_and_redo_chords_apply_in_agent_and_shell_tabs_while_ctrl_z_is_ignored ... ok
+test terminal_undo_chord::tests::windows_ctrl_z_is_left_to_a_shell_tab ... ok
+test terminal_undo_chord::tests::windows_ctrl_z_undoes_in_an_agent_tab_when_the_cli_does_not_use_it ... ok
+test test_timing::tests::a_scoped_terminal_state_removes_its_session_folder_when_dropped ... ok
+
+thread 'test_timing::tests::a_scoped_terminal_state_removes_its_session_folder_when_the_test_panics' (75539482) panicked at crates/designos-app/src/test_timing.rs:130:13:
+the test failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test terminal::tests::sim_approval_card_and_permissions_modal_pass_layout_lint ... ok
+test test_timing::tests::a_scoped_terminal_state_removes_its_session_folder_when_the_test_panics ... ok
+test terminal::zoom_scrollback_tests::ac05_holding_zoom_key_debounces_to_single_pty_resize_and_preserves_claude_tab ... ok
+test terminal::unwritable_hook_folder_tests::claudes_prompt_hook_does_not_wait_for_a_reply_in_a_folder_that_is_gone ... ok
+STEP0_MODE_A_COUNTS: scrollback_len=11 counts={"HISTORY_LINE_01": 1, "HISTORY_LINE_02": 1, "HISTORY_LINE_03": 1, "HISTORY_LINE_04": 1, "HISTORY_LINE_05": 1, "HISTORY_LINE_06": 1, "HISTORY_LINE_07": 1, "HISTORY_LINE_08": 1, "HISTORY_LINE_09": 1, "HISTORY_LINE_10": 1, "HISTORY_LINE_11": 1, "HISTORY_LINE_12": 1, "HISTORY_LINE_13": 1, "HISTORY_LINE_14": 1, "HISTORY_LINE_15": 1, "HISTORY_LINE_16": 1, "HISTORY_LINE_17": 1, "HISTORY_LINE_18": 1, "HISTORY_LINE_19": 1, "HISTORY_LINE_20": 1, "HISTORY_LINE_21": 1, "HISTORY_LINE_22": 1, "HISTORY_LINE_23": 1, "HISTORY_LINE_24": 1, "HISTORY_LINE_25": 1, "HISTORY_LINE_26": 1, "HISTORY_LINE_27": 1, "HISTORY_LINE_28": 1, "HISTORY_LINE_29": 1, "HISTORY_LINE_30": 1}
+test terminal::tests::the_private_channel_goes_with_the_session ... ok
+test terminal::unwritable_hook_folder_tests::the_transcript_capture_does_not_wait_for_a_lock_that_is_not_there ... ok
+test terminal::zoom_scrollback_tests::ac01_fake_cli_mode_a_and_mode_b_scrollback_on_zoom ... ok
+test terminal::tests::touched_layers_do_not_bleed_into_other_active_tab_turn ... ok
+test terminal::zoom_scrollback_tests::edge_cases_streaming_scrolled_history_alt_mouse_min_clamp_and_post_zoom_spawn ... ok
+test terminal::hook_output_tests::a_link_or_a_hard_link_at_any_name_a_hook_wrote_is_never_written_through_by_any_hook_of_any_cli ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed ... ok
+test terminal::unwritable_hook_folder_tests::a_hook_that_cannot_write_its_folder_ends_at_once_with_success_and_says_nothing ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open ... ok
+test terminal::zoom_scrollback_tests::ac02_scrollbar_drag_click_and_thumb_across_5000_lines_and_min_size ... ok
+test terminal::tests::pty_injection_fixture_real_shell ... ok
+
+test result: ok. 326 passed; 0 failed; 1 ignored; 0 measured; 3014 filtered out; finished in 42.10s
+

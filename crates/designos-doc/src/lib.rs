@@ -55,6 +55,7 @@ mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
 mod settings;
+mod silhouette;
 #[cfg(test)]
 mod slot_model_tests;
 pub mod spec;
@@ -68,6 +69,7 @@ pub use spec_data::SpecDataSnapshot;
 pub mod spec_instance;
 mod styles_ops;
 mod text_fills;
+pub mod text_measure;
 mod textmodel;
 mod variables;
 mod variables_apply;
@@ -98,6 +100,7 @@ pub use openpencil::*;
 pub use paint::*;
 pub use prototype::*;
 pub use settings::*;
+pub use silhouette::{silhouette_source, FilllessKnockout, SilhouetteMode, SilhouetteSource, FILLLESS_KNOCKOUT};
 pub use spec::*;
 pub use spec_bind::*;
 pub use spec_instance::*;
@@ -738,9 +741,47 @@ impl Document {
         self.next_id = self.next_id.max(id.0);
     }
 
-    /// Display name of a shared style: its metadata name, else the key.
+    /// Display name of a shared style: its metadata name (or a typed `"Unnamed ... style"`
+    /// fallback when empty or whitespace-only), else the key.
     pub fn style_name<'a>(&'a self, key: &'a str) -> &'a str {
-        self.style_meta.get(key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(key)
+        if let Some(m) = self.style_meta.get(key) {
+            if !m.name.trim().is_empty() {
+                m.name.as_str()
+            } else {
+                Self::unnamed_style_label(m.property)
+            }
+        } else if key.trim().is_empty() && self.styles.contains_key(key) {
+            Self::unnamed_style_label(style_property(self, key))
+        } else {
+            key
+        }
+    }
+
+    /// Fallback display label for a table style whose name is empty or whitespace-only.
+    pub const fn unnamed_style_label(prop: StyleProperty) -> &'static str {
+        match prop {
+            StyleProperty::Fill | StyleProperty::Stroke => "Unnamed fill style",
+            StyleProperty::Text => "Unnamed text style",
+            StyleProperty::Effect => "Unnamed effect style",
+            StyleProperty::Grid => "Unnamed grid style",
+        }
+    }
+
+    /// Whether `key` is a table style whose stored name is empty or whitespace-only.
+    pub fn is_unnamed_style(&self, key: &str) -> bool {
+        self.style_meta.get(key).is_some_and(|m| m.name.trim().is_empty())
+            || (!self.style_meta.contains_key(key) && self.styles.contains_key(key) && key.trim().is_empty())
+    }
+
+    /// Whether `key` is an orphan style reference (seeded only from a layer's `style_refs`
+    /// after a soft-deleted, `REMOVED`, or missing style node, with no entry in `style_meta`).
+    pub fn is_orphan_style(&self, key: &str) -> bool {
+        is_orphan_style_in(&self.styles, &self.style_meta, key)
+    }
+
+    /// Whether `key` is a live style in the file's own style table (not an orphan reference).
+    pub fn is_table_style(&self, key: &str) -> bool {
+        self.styles.contains_key(key) && !is_orphan_style_in(&self.styles, &self.style_meta, key)
     }
 
     /// Record a per-(rule, node) lint suppression in the unified `check_designs.ignored` store.
@@ -1548,6 +1589,21 @@ pub enum Style {
     Grid(Vec<LayoutGrid>),
 }
 
+/// Decides whether `key` is an orphan style reference from the style tables alone,
+/// without touching `Document::nodes`.
+fn is_orphan_style_in(styles: &BTreeMap<String, Style>, style_meta: &BTreeMap<String, StyleMeta>, key: &str) -> bool {
+    if style_meta.contains_key(key) {
+        return false;
+    }
+    if !styles.contains_key(key) {
+        return true;
+    }
+    let is_guid = key
+        .split_once(':')
+        .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()));
+    is_guid || key.starts_with("key:") || key.starts_with("S:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1960,5 +2016,65 @@ mod tests {
 
         set_thread_mock_now_ms(None);
         assert_ne!(now_ms(), SENTINEL_MS + 1_000, "clearing must restore this thread's own clock");
+    }
+
+    #[test]
+    fn us01_ac02_round2_is_table_style_and_is_orphan_style_do_not_walk_200k_nodes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fx = Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]);
+
+        let mut children = Vec::with_capacity(199_999);
+        for i in 2..=200_000u64 {
+            let id = NodeId(i);
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.parent = Some(page);
+            if i > 199_981 {
+                let idx = i - 199_982;
+                n.style_refs.insert("effect".into(), format!("S:orphan-{idx:02}"));
+            }
+            doc.nodes.insert(id, n);
+            children.push(id);
+        }
+        doc.reserve_ids(NodeId(200_000));
+        doc.nodes.get_mut(&page).unwrap().children = children;
+        assert_eq!(doc.nodes.len(), 200_000);
+
+        let mut keys = Vec::with_capacity(50);
+        for i in 0..25 {
+            let k = if i < 15 { format!("S:live-{i:02}") } else { format!("2:{}", 100 + i) };
+            doc.styles.insert(k.clone(), fx.clone());
+            doc.style_meta.insert(k.clone(), StyleMeta { name: format!("Elevation/{i:02}"), property: StyleProperty::Effect, ..Default::default() });
+            keys.push((k, true));
+        }
+        for i in 0..20 {
+            let k = format!("S:orphan-{i:02}");
+            doc.styles.insert(k.clone(), fx.clone());
+            keys.push((k, false));
+        }
+        for i in 0..5 {
+            let k = format!("1186:{}", 100_350 + i);
+            doc.styles.insert(k.clone(), fx.clone());
+            keys.push((k, false));
+        }
+        assert_eq!(doc.styles.len(), 50);
+
+        let budget = if cfg!(debug_assertions) { std::time::Duration::from_millis(50) } else { std::time::Duration::from_millis(5) };
+        let t0 = std::time::Instant::now();
+        for (k, expected_table) in &keys {
+            assert_eq!(doc.is_table_style(k), *expected_table, "is_table_style({k:?}) mismatch");
+            assert_eq!(doc.is_orphan_style(k), !*expected_table, "is_orphan_style({k:?}) mismatch");
+        }
+        let elapsed = t0.elapsed();
+        assert!(elapsed < budget, "is_table_style across 50 keys on 200,000 nodes took {elapsed:?} (budget {budget:?})");
+
+        // Prove by construction (Rust borrow checker): holding `&mut doc.nodes` while checking
+        // every key through `is_orphan_style_in(&doc.styles, &doc.style_meta, k)` compiles only
+        // because `doc.nodes` is never borrowed or touched.
+        let nodes_exclusive = &mut doc.nodes;
+        for (k, expected_table) in &keys {
+            assert_eq!(!is_orphan_style_in(&doc.styles, &doc.style_meta, k), *expected_table);
+        }
+        assert_eq!(nodes_exclusive.len(), 200_000);
     }
 }

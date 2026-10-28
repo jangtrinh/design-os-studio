@@ -1,0 +1,21 @@
+Trial merge of PR #1058 (head 904ef558) into this branch, done on a scratch branch that was then discarded.
+
+Round 1 head (b0360756): `git merge-tree --write-tree b0360756 FETCH_HEAD` exits 0, no conflict.
+Round 2 head (5cc0b5f4): one conflict, crates/designos-app/src/terminal.rs, in `status_hook_command_for_tab`
+(r2-trial-merge-1058.log). #1058 changes the line `let append_cmd = ...` (event_append_command_for_tab); this PR changes
+the next line, the `format!` that wrote `> '{}'` (the status path, single-quoted without escaping an apostrophe).
+Adjacent lines changed on both sides, so git cannot merge them, whichever PR lands second.
+
+The signature `status_hook_command(status_path, event, state)` is unchanged, and `status_hook_command_for_tab` is #1058's.
+
+Resolution (the only hunk to resolve, taking #1058's first line and this PR's quoting):
+
+    let append_cmd = crate::agent_turn_status::event_append_command_for_tab(&events_path, event, tab);
+    format!(
+        "{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > {}",
+        crate::agent_turn_status::sh_single_quote(&status_path.display().to_string())
+    )
+
+With that resolution the merged tree formats clean and
+`cargo test -p designos-app --bin designos --locked -- agent_session_files:: gemini hook` passes: 130 passed, 0 failed
+(r2-trial-merge-1058-tests.log).

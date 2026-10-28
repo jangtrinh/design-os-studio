@@ -1331,7 +1331,7 @@ mod tests {
         term.sync_live_file_context(&doc, page1, &[], None);
         term.flush_live_sync();
 
-        let reply_path = term.session_dir.join("page-context-reply.json");
+        let reply_path = term.prepared_hook_paths().page_reply();
         let initial_reply = std::fs::read_to_string(&reply_path).expect("initial page-context-reply.json");
         assert!(!initial_reply.contains("designos-skill:"));
 
@@ -1374,7 +1374,7 @@ mod tests {
         term.flush_live_sync();
         let updated_reply = std::fs::read_to_string(&reply_path).expect("updated page-context-reply.json");
         assert!(!updated_reply.contains("designos-skill:"), "choosing a skill must not reach the page reply, got: {updated_reply}");
-        assert!(hook_delivery::reply_file_names(&term.session_dir).is_empty(), "choosing a skill must not arm the skills hook reply");
+        assert!(hook_delivery::reply_file_names(term.hook_paths().dir()).is_empty(), "choosing a skill must not arm the skills hook reply");
         assert!(read_run_manifest(&term.session_dir).is_none(), "choosing a skill is not a run");
 
         // 4. A send refused for too many skills is not a run: it must NOT touch `run.json`.

@@ -105,7 +105,7 @@ pub fn noise(target: &mut sk::Pixmap, clip: Option<&sk::Mask>, bbox: BBox, scale
         }
     }
     if let Some(mut shape) = sk::Pixmap::new(rw, rh) {
-        sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, true);
+        sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, d::SilhouetteMode::Opaque);
         composite(&mut pm, 0, 0, &shape, sk::BlendMode::DestinationIn, None);
     }
     composite(target, rx, ry, &pm, blend_mode(e.blend), clip);
@@ -196,7 +196,7 @@ pub fn texture(layer: &mut sk::Pixmap, bbox: BBox, scale: f32, e: &d::TextureEff
     }
     if e.clip_to_shape {
         if let Some(mut shape) = sk::Pixmap::new(rw, rh) {
-            sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, true);
+            sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, d::SilhouetteMode::Opaque);
             composite(&mut out, 0, 0, &shape, sk::BlendMode::DestinationIn, None);
         }
     }
@@ -233,7 +233,7 @@ pub fn glass(target: &mut sk::Pixmap, backdrop: Option<&sk::Pixmap>, clip: Optio
     gaussian_blur_at(&mut sub, sigma_f, grid_pos(px0, py0), Edges::Exact);
     // Coverage of the shape, and a softened copy whose gradient gives the edge normal.
     let Some(mut mask) = sk::Pixmap::new(prect.width(), prect.height()) else { return };
-    sil(&mut mask, -(px0 as f32), -(py0 as f32), 0.0, true);
+    sil(&mut mask, -(px0 as f32), -(py0 as f32), 0.0, d::SilhouetteMode::Opaque);
     let mut soft = mask.clone();
     gaussian_blur_at(&mut soft, sigma_m, grid_pos(px0, py0), Edges::Exact);
     let (cw, ch) = ((x1 - x0) as u32, (y1 - y0) as u32);

@@ -1,4 +1,5 @@
 //! Original, fully editable three-slide sample for `--fixture deck`.
+#![cfg(any(test, feature = "fixtures"))]
 use designos_doc::*;
 
 fn color(hex: u32) -> Color {

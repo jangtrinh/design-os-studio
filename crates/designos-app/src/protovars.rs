@@ -1,4 +1,5 @@
 //! Built-in prototype with variables (`--fixture proto-vars`): a small shop screen whose buttons
+#![cfg(any(test, feature = "fixtures"))]
 //! set variables, a conditional that checks out at three items, a mode switch and a
 //! hover-interactive component. Used for screenshots and the Present tests.
 
@@ -176,14 +177,6 @@ pub fn prime_present(app: &mut crate::app::App) {
             st.player.pointer_up(Some(add), false);
         }
         st.show_vars = true;
-    }
-}
-
-/// Opens the interaction editor on the "Add" button's first interaction.
-pub fn open_editor(app: &mut crate::app::App) {
-    if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
-        app.selection = vec![add];
-        app.proto.editing = Some((add, 0));
     }
 }
 

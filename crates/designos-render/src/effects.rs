@@ -7,11 +7,11 @@ use designos_doc as d;
 use std::cell::Cell;
 use tiny_skia as sk;
 
-/// Draws the node silhouette into a pixmap: `(pixmap, dx, dy, grow, opaque)`.
+/// Draws the node silhouette into a pixmap: `(pixmap, dx, dy, grow, mode)`.
 /// `dx, dy` translate in device pixels after the node transform, `grow` expands
-/// (positive) or erodes (negative) the shape in local units, `opaque` ignores
-/// fill alpha.
-pub type Sil<'a> = &'a dyn Fn(&mut sk::Pixmap, f32, f32, f32, bool);
+/// (positive) or erodes (negative) the shape in local units, `mode` picks the silhouette kind (`Opaque` and `Knockout` ignore
+/// fill alpha).
+pub type Sil<'a> = &'a dyn Fn(&mut sk::Pixmap, f32, f32, f32, d::SilhouetteMode);
 
 const MAX_REGION_PIXELS: u64 = 48_000_000;
 
@@ -69,6 +69,18 @@ pub(crate) fn composite(target: &mut sk::Pixmap, x: i32, y: i32, pm: &sk::Pixmap
     target.draw_pixmap(x, y, pm.as_ref(), &pp, sk::Transform::identity(), clip);
 }
 
+/// Composites a finished shadow layer over `target` with the shadow's own blend
+/// mode. Linear burn / dodge go through the per-pixel [`paint::blend_layer`].
+pub(crate) fn composite_blended(target: &mut sk::Pixmap, x: i32, y: i32, pm: &sk::Pixmap, blend: d::BlendMode, clip: Option<&sk::Mask>) {
+    let Some(mode) = crate::paint::custom_blend(blend) else {
+        composite(target, x, y, pm, crate::paint::blend_mode(blend), clip);
+        return;
+    };
+    let Some(mut layer) = sk::Pixmap::new(target.width(), target.height()) else { return };
+    composite(&mut layer, x, y, pm, sk::BlendMode::SourceOver, clip);
+    crate::paint::blend_layer(target, &layer, 1.0, mode);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn drop_shadow(
     target: &mut sk::Pixmap,
@@ -80,6 +92,7 @@ pub fn drop_shadow(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -94,6 +107,7 @@ pub fn drop_shadow(
         radius,
         spread,
         show_behind,
+        blend,
         alpha,
         sil,
     );
@@ -115,6 +129,7 @@ pub(crate) fn drop_shadow_with(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -123,16 +138,16 @@ pub(crate) fn drop_shadow_with(
     let margin = 3.0 * sigma + ox.abs() + oy.abs() + (spread * scale).max(0.0) + 2.0;
     let Some((rx, ry, rw, rh)) = region(bbox, margin, target.width(), target.height()) else { return };
     let Some(mut pm) = sk::Pixmap::new(rw, rh) else { return };
-    sil(&mut pm, -(rx as f32) + ox, -(ry as f32) + oy, spread, false);
+    sil(&mut pm, -(rx as f32) + ox, -(ry as f32) + oy, spread, d::SilhouetteMode::Alpha);
     blur(&mut pm, sigma, grid_pos(rx, ry));
     colorize(&mut pm, sk_color(color, alpha));
     if !show_behind {
         if let Some(mut knock) = sk::Pixmap::new(rw, rh) {
-            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, true);
+            sil(&mut knock, -(rx as f32), -(ry as f32), 0.0, d::SilhouetteMode::Knockout);
             composite(&mut pm, 0, 0, &knock, sk::BlendMode::DestinationOut, None);
         }
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    composite_blended(target, rx, ry, &pm, blend, clip);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -145,6 +160,7 @@ pub fn inner_shadow(
     offset: d::Vec2,
     radius: f32,
     spread: f32,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -156,16 +172,16 @@ pub fn inner_shadow(
     let Some(mut pm) = sk::Pixmap::new(rw, rh) else { return };
     pm.fill(sk::Color::BLACK);
     if let Some(mut hole) = sk::Pixmap::new(rw, rh) {
-        sil(&mut hole, -(rx as f32) + ox, -(ry as f32) + oy, -spread, false);
+        sil(&mut hole, -(rx as f32) + ox, -(ry as f32) + oy, -spread, d::SilhouetteMode::Alpha);
         composite(&mut pm, 0, 0, &hole, sk::BlendMode::DestinationOut, None);
     }
     gaussian_blur_at(&mut pm, sigma, grid_pos(rx, ry), Edges::Margined);
     colorize(&mut pm, sk_color(color, alpha));
     if let Some(mut shape) = sk::Pixmap::new(rw, rh) {
-        sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, false);
+        sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, d::SilhouetteMode::Alpha);
         composite(&mut pm, 0, 0, &shape, sk::BlendMode::DestinationIn, None);
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    composite_blended(target, rx, ry, &pm, blend, clip);
 }
 
 /// Replaces the backdrop inside the node shape with a blurred copy of it. When
@@ -196,7 +212,7 @@ pub fn background_blur(target: &mut sk::Pixmap, backdrop: Option<&sk::Pixmap>, c
     let Some(crop) = sk::IntRect::from_xywh(x0 - px0, y0 - py0, (x1 - x0) as u32, (y1 - y0) as u32) else { return };
     let Some(mut blurred) = sub.clone_rect(crop) else { return };
     let Some(mut mask) = sk::Pixmap::new(blurred.width(), blurred.height()) else { return };
-    sil(&mut mask, -(x0 as f32), -(y0 as f32), 0.0, true);
+    sil(&mut mask, -(x0 as f32), -(y0 as f32), 0.0, d::SilhouetteMode::Opaque);
     composite(&mut blurred, 0, 0, &mask, sk::BlendMode::DestinationIn, None);
     composite(target, x0, y0, &mask, sk::BlendMode::DestinationOut, clip);
     composite(target, x0, y0, &blurred, sk::BlendMode::SourceOver, clip);

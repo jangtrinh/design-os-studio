@@ -74,7 +74,10 @@ fn reveal_command(os: &str, file: &Path) -> (&'static str, Vec<OsString>) {
         "macos" => ("open", vec!["-R".into(), file.into()]),
         // Two arguments: a path with spaces is then quoted on its own, the form `explorer /select, "C:\My Design.fig"`.
         "windows" => ("explorer", vec!["/select,".into(), file.into()]),
-        _ => ("xdg-open", vec![file.parent().unwrap_or(file).into()]),
+        _ => {
+            let dir = if file.is_dir() { file } else { file.parent().unwrap_or(file) };
+            ("xdg-open", vec![dir.into()])
+        }
     }
 }
 
@@ -96,4 +99,4 @@ pub fn reveal_file(file: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod comment_notice_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
