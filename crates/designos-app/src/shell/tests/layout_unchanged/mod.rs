@@ -31,6 +31,10 @@ pub struct TierTarget {
     #[serde(default)]
     pub prep: Option<String>,
     #[serde(default)]
+    pub not_applicable: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
     pub unreachable: Option<String>,
 }
 
@@ -63,7 +67,7 @@ pub mod prep {
     pub const COMP_MAIN_ID: NodeId = NodeId(636_209);
     pub const COMP_INST_ID: NodeId = NodeId(636_210);
 
-    pub fn comment_thread(doc: &mut Document, app: &mut App) {
+    pub fn comment_thread_doc(doc: &mut Document) {
         let page = doc.pages.first().copied().unwrap_or(NodeId(1));
         let anchor = crate::comments::model::make_anchor(doc, page, DV::new(180.0, 220.0), Some(NodeId(636_047)));
         doc.comments.push(CommentThread {
@@ -80,6 +84,10 @@ pub mod prep {
             }],
             resolved: false,
         });
+    }
+
+    pub fn comment_thread(doc: &mut Document, app: &mut App) {
+        comment_thread_doc(doc);
         app.doc.comments = doc.comments.clone();
         app.comments.author = Some("Kir".into());
         app.tool = crate::canvas::tools::Tool::Comment;
@@ -344,14 +352,13 @@ pub fn run_spec_cases(spec_key: &str) {
                         Some("published_library") => prep::published_library(doc, lib_for_prep.as_deref()),
                         Some("blank_board") => prep::blank_board(doc),
                         Some("blank_deck") => prep::blank_deck_doc(doc),
-                        Some("comment_thread") | None => {}
+                        Some("comment_thread") => prep::comment_thread_doc(doc),
+                        None => {}
                         Some(other) => panic!("case {}: unknown tier_a.prep '{other}'", case.id),
                     },
                     |app| match prep_kind {
                         Some("comment_thread") => {
-                            let mut doc = app.doc.clone();
-                            prep::comment_thread(&mut doc, app);
-                            app.doc = doc;
+                            app.comments.author = Some("Kir".into());
                         }
                         Some("published_library") => {
                             if app.vars.open {
@@ -468,6 +475,9 @@ fn cases_json_has_no_old_fixture() {
         }
         let tier_a = case.tier_a.as_ref().unwrap_or_else(|| panic!("case {} missing tier_a target", case.id));
         let tier_b = case.tier_b.as_ref().unwrap_or_else(|| panic!("case {} missing tier_b target", case.id));
+        let _ = (&tier_a.not_applicable, &tier_a.note, &tier_b.not_applicable, &tier_b.note);
+        assert!(tier_a.unreachable.is_none(), "case {} tier_a must not be unreachable", case.id);
+        assert!(tier_b.unreachable.is_none(), "case {} tier_b must not be unreachable", case.id);
         if let Some(sel) = &tier_a.select {
             assert!(sel.starts_with("id:"), "case {} tier_a.select must use id:<n>, got {sel}", case.id);
         }

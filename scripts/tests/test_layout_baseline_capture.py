@@ -920,6 +920,18 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             self.assertIn("Tier A 76 / 0 / 0", proc.stdout)
             self.assertIn("Tier B 74 / 2 / 0", proc.stdout)
 
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location("layout_baseline_capture", SCRIPT)
+            assert spec is not None and spec.loader is not None
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            cases_list = json.loads(real_cases.read_text(encoding="utf-8"))["cases"]
+            index_entries = mod.build_colour_sheet_index(cases_list, out_dir)
+            labels_by_id = {cid: label for cid, label, _, _ in index_entries}
+            self.assertEqual(labels_by_id.get("x-board"), "x-board — Tier A only")
+            self.assertEqual(labels_by_id.get("x-deck"), "x-deck — Tier A only")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -471,10 +471,47 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
-                    app.selection = vec![add];
-                    app.proto.editing = Some((add, 0));
+                let selected_reacting = app.selection.first().copied().filter(|&id| app.doc.get(id).is_some_and(|n| !n.prototype.reactions.is_empty()));
+                let target = selected_reacting.or_else(|| {
+                    let mut first = None;
+                    app.doc.walk(app.page, |n, _| {
+                        if first.is_none() && n.id != app.page && !n.prototype.reactions.is_empty() {
+                            first = Some(n.id);
+                        }
+                    });
+                    first
+                });
+                if let Some(id) = target {
+                    app.selection = vec![id];
+                    app.proto.editing = Some((id, 0));
+                } else {
+                    app.proto.editing = None;
                 }
+            }
+            Some("comments") => {
+                app.tool = Tool::Comment;
+                let mut paint_rank = std::collections::BTreeMap::new();
+                app.doc.walk(app.page, |n, _| {
+                    if n.id != app.page {
+                        let next = paint_rank.len();
+                        paint_rank.entry(n.id).or_insert(next);
+                    }
+                });
+                let thread_id_key = |id: &str| {
+                    let split = id.rfind(|c: char| !c.is_ascii_digit()).map_or(0, |i| i + 1);
+                    let (prefix, digits) = id.split_at(split);
+                    (prefix.to_string(), digits.parse::<u64>().ok(), id.to_string())
+                };
+                app.comments.open = app
+                    .doc
+                    .comments
+                    .iter()
+                    .filter(|t| !t.resolved && crate::comments::model::thread_page(&app.doc, t) == app.page)
+                    .min_by_key(|t| {
+                        let rank = t.anchor.node.and_then(|nid| paint_rank.get(&nid).copied()).unwrap_or(usize::MAX);
+                        (rank, thread_id_key(&t.id))
+                    })
+                    .map(|t| t.id.clone());
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),

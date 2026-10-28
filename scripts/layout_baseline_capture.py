@@ -507,59 +507,29 @@ def build_prep_command(
         cmd.extend(["--add-comment", "Align CTA spacing to 8px grid"])
         return cmd
 
-    if prep_kind == "published_library":
-        tokens_path = scratch_dir / f"prep-{case_id}.tokens.json"
-        if not dry_run:
-            scratch_dir.mkdir(parents=True, exist_ok=True)
-            tokens_path.write_text(
-                json.dumps(
-                    {
-                        "UntitledKit": {
-                            "brandPrimary": {"$type": "color", "$value": "#7F56D9"}
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-        return [str(bin_path), str(case_clone), "--import-variables", str(tokens_path)]
+    if prep_kind != "check_designs_findings":
+        raise ValueError(f"case {case_id}: unsupported Tier B prep {prep_kind!r}")
 
     spec_path = scratch_dir / f"prep-{case_id}.spec.json"
     if not dry_run:
         scratch_dir.mkdir(parents=True, exist_ok=True)
         ensure_scratch_page_on_clone(case_clone)
-        if prep_kind == "check_designs_findings":
-            spec_payload: dict[str, Any] = {
-                "kind": "frame",
-                "name": "Audit drift card",
-                "width": 320,
-                "height": 180,
-                "fill": "#13161b",
-                "children": [
-                    {
-                        "kind": "text",
-                        "name": "Drift label",
-                        "text": "Low contrast note",
-                        "font_size": 11,
-                        "color": "#26272b",
-                    }
-                ],
-            }
-        elif prep_kind == "prototype_link":
-            spec_payload = {
-                "kind": "frame",
-                "name": "Prototype destination",
-                "width": 320,
-                "height": 200,
-                "fill": "#18181b",
-            }
-        else:
-            spec_payload = {
-                "kind": "frame",
-                "name": f"Scratch {prep_kind}",
-                "width": 320,
-                "height": 180,
-                "fill": "#18181b",
-            }
+        spec_payload: dict[str, Any] = {
+            "kind": "frame",
+            "name": "Audit drift card",
+            "width": 320,
+            "height": 180,
+            "fill": "#13161b",
+            "children": [
+                {
+                    "kind": "text",
+                    "name": "Drift label",
+                    "text": "Low contrast note",
+                    "font_size": 11,
+                    "color": "#26272b",
+                }
+            ],
+        }
         spec_path.write_text(json.dumps(spec_payload), encoding="utf-8")
 
     return [
@@ -685,6 +655,10 @@ def run_single_case(
 ) -> bool:
     case_id = case["id"]
     tier_b = case.get("tier_b") or {}
+    not_applicable_reason = tier_b.get("not_applicable")
+    if not_applicable_reason:
+        print(f"SKIP {case_id}: not applicable in Tier B (Tier A only: {not_applicable_reason})")
+        return False
     unreachable_reason = tier_b.get("unreachable")
     if unreachable_reason:
         print(f"SKIP {case_id}: unreachable in Tier B ({unreachable_reason})")
@@ -940,7 +914,8 @@ def run_g6_compare(
         tmp_dir = Path(tmp_str)
         for case in cases:
             case_id = case["id"]
-            if (case.get("tier_b") or {}).get("unreachable"):
+            tier_b = case.get("tier_b") or {}
+            if tier_b.get("not_applicable") or tier_b.get("unreachable"):
                 continue
 
             base_layout_path = compare_dir / f"{case_id}.layout.json"
@@ -1211,53 +1186,87 @@ def _mask_home_volatile_labels(img: Image.Image, layout_path: Path) -> Image.Ima
     return masked
 
 
+def build_colour_sheet_index(
+    cases: list[dict[str, Any]],
+    out_dir: Path,
+) -> list[tuple[str, str, Path | None, Path | None]]:
+    entries: list[tuple[str, str, Path | None, Path | None]] = []
+    for case in cases:
+        cid = case["id"]
+        tier_b = case.get("tier_b") or {}
+        if tier_b.get("not_applicable"):
+            entries.append((cid, f"{cid} — Tier A only", None, None))
+            continue
+        png_path = out_dir / f"{cid}.png"
+        layout_path = out_dir / f"{cid}.layout.json"
+        if png_path.is_file():
+            entries.append((cid, cid, png_path, layout_path))
+    return entries
+
+
 def render_colour_sheet(
     cases: list[dict[str, Any]],
     out_dir: Path,
     sheet_path: Path,
 ) -> None:
-    present_cases: list[tuple[str, Path, Path]] = []
-    for case in cases:
-        cid = case["id"]
-        png_path = out_dir / f"{cid}.png"
-        layout_path = out_dir / f"{cid}.layout.json"
-        if png_path.is_file():
-            present_cases.append((cid, png_path, layout_path))
-
-    if not present_cases:
+    index_entries = build_colour_sheet_index(cases, out_dir)
+    if not any(png_path is not None for _, _, png_path, _ in index_entries):
         return
 
-    cols = min(4, max(1, len(present_cases)))
-    rows = int(math.ceil(len(present_cases) / cols))
+    tier_a_only_ids = [
+        c["id"] for c in cases if (c.get("tier_b") or {}).get("not_applicable")
+    ]
+    cols = min(4, max(1, len(index_entries)))
+    rows = int(math.ceil(len(index_entries) / cols))
     thumb_w = 280
     thumb_h = 175
     pad = 10
     label_h = 18
+    footer_h = 24 if tier_a_only_ids else 0
 
     sheet_w = pad + cols * (thumb_w + pad)
-    sheet_h = pad + rows * (thumb_h + label_h + pad)
+    sheet_h = pad + rows * (thumb_h + label_h + pad) + footer_h
     sheet = Image.new("RGB", (sheet_w, sheet_h), (15, 15, 18))
     draw = ImageDraw.Draw(sheet)
 
-    for idx, (cid, png_path, layout_path) in enumerate(present_cases):
+    for idx, (cid, index_label, png_path, layout_path) in enumerate(index_entries):
         col = idx % cols
         row = idx // cols
         x0 = pad + col * (thumb_w + pad)
         y0 = pad + row * (thumb_h + label_h + pad)
 
-        with Image.open(png_path) as raw_img:
-            rgb_img = raw_img.convert("RGB")
-            if cid == "h-home":
-                rgb_img = _mask_home_volatile_labels(rgb_img, layout_path)
-            thumb = rgb_img.resize((thumb_w, thumb_h), Image.Resampling.BILINEAR)
-            sheet.paste(thumb, (x0, y0 + label_h))
+        if png_path is not None and layout_path is not None:
+            with Image.open(png_path) as raw_img:
+                rgb_img = raw_img.convert("RGB")
+                if cid == "h-home":
+                    rgb_img = _mask_home_volatile_labels(rgb_img, layout_path)
+                thumb = rgb_img.resize((thumb_w, thumb_h), Image.Resampling.BILINEAR)
+                sheet.paste(thumb, (x0, y0 + label_h))
+        else:
+            draw.rectangle(
+                [x0, y0 + label_h, x0 + thumb_w, y0 + label_h + thumb_h],
+                fill=(24, 24, 27),
+            )
+            draw.text(
+                (x0 + 12, y0 + label_h + (thumb_h // 2) - 6),
+                "Tier A only",
+                fill=(161, 161, 170),
+            )
 
         draw.rectangle(
             [x0, y0 + label_h, x0 + thumb_w, y0 + label_h + thumb_h],
             outline=(63, 63, 70),
             width=1,
         )
-        draw.text((x0 + 4, y0 + 2), cid, fill=(228, 228, 231))
+        draw.text((x0 + 4, y0 + 2), index_label, fill=(228, 228, 231))
+
+    if tier_a_only_ids:
+        footer_y = sheet_h - footer_h + 4
+        draw.text(
+            (pad, footer_y),
+            f"Index — Tier A only: {', '.join(tier_a_only_ids)}",
+            fill=(161, 161, 170),
+        )
 
     sheet_path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(sheet_path, format="PNG", optimize=True)
@@ -1308,12 +1317,31 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def compute_tier_counts(
+    cases: list[dict[str, Any]],
+    tier_key: str,
+) -> tuple[int, int, int]:
+    reachable = 0
+    not_applicable = 0
+    unreachable = 0
+    for case in cases:
+        target = case.get(tier_key) or {}
+        if target.get("not_applicable"):
+            not_applicable += 1
+        elif target.get("unreachable"):
+            unreachable += 1
+        else:
+            reachable += 1
+    return reachable, not_applicable, unreachable
+
+
 def all_cases_already_captured(
     cases: list[dict[str, Any]],
     out_dir: Path,
 ) -> bool:
     for case in cases:
-        if (case.get("tier_b") or {}).get("unreachable"):
+        tier_b = case.get("tier_b") or {}
+        if tier_b.get("not_applicable") or tier_b.get("unreachable"):
             continue
         cid = case["id"]
         if not (out_dir / f"{cid}.png").is_file():
@@ -1405,9 +1433,21 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     skipped_count += 1
             elapsed = time.monotonic() - t0
+            tier_a_r, tier_a_na, tier_a_u = compute_tier_counts(cases, "tier_a")
+            tier_b_r, tier_b_na, tier_b_u = compute_tier_counts(cases, "tier_b")
+            tier_a_only_ids = [
+                c["id"] for c in cases if (c.get("tier_b") or {}).get("not_applicable")
+            ]
             print("Every case has its acknowledgement.")
             print("Every spawns case logged a stub line.")
             print(f"Every $0 in invocations.log starts with the stub dir ({run_dir / 'stubs'}/).")
+            print(
+                f"Summary (reachable / not applicable / unreachable): "
+                f"Tier A {tier_a_r} / {tier_a_na} / {tier_a_u}, "
+                f"Tier B {tier_b_r} / {tier_b_na} / {tier_b_u}"
+            )
+            if tier_a_only_ids:
+                print(f"Tier A only ({len(tier_a_only_ids)}): {', '.join(tier_a_only_ids)}")
             print(
                 f"Cases: {captured_count} captured, {skipped_count} skipped ({len(cases)} total), wall time {elapsed:.2f}s"
             )

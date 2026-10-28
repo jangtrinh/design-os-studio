@@ -3,18 +3,9 @@ use crate::app::RightTab;
 use crate::canvas::tools::Tool;
 use crate::cli::{self, Options};
 use designos_doc::{Action, Comment, CommentThread, Document, Easing, Node, NodeId, Reaction, Rect as DRect, Transition, TransitionKind, Trigger, Vec2 as DV};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-fn build_shell_with_doc(doc: &Document, mut opts: Options) -> Shell {
-    static SEQ: AtomicU64 = AtomicU64::new(1);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let temp_path = std::env::temp_dir().join(format!("designos-panel-preset-test-{}-{seq}.designos", std::process::id()));
-    std::fs::write(&temp_path, doc.to_json().expect("serialize test doc")).expect("write test doc");
-    opts.file = Some(temp_path.clone());
-    let ctx = egui::Context::default();
-    let shell = Shell::build(&ctx, opts);
-    let _ = std::fs::remove_file(temp_path);
-    shell
+fn build_shell_with_doc(doc: &Document, opts: Options) -> Shell {
+    Sim::with_starter_prep(opts, |d| *d = doc.clone(), |_| {}).shell
 }
 
 fn add_test_frame(doc: &mut Document, parent: NodeId, id: NodeId, name: &str, x: f32) -> NodeId {

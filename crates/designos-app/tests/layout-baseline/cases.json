@@ -141,9 +141,7 @@
         "prep": "blank_board"
       },
       "tier_b": {
-        "select": null,
-        "prep": "blank_board",
-        "unreachable": "neither `designos` headless CLI (`--apply-spec`) nor `designos-mcp` (`designos_new_document`) can set `DocumentKind::Board` or create `NodeKind::Sticky` / `NodeKind::ShapeWithText`, so the FigJam-style board bottom toolbar (`regions.bottom_bar` board tools) only renders when constructed via `board::create::new_document` in Tier A"
+        "not_applicable": "blank board shows no kit content; Tier A captures the same surface"
       }
     },
     {
@@ -156,9 +154,7 @@
         "prep": "blank_deck"
       },
       "tier_b": {
-        "select": null,
-        "prep": "blank_deck",
-        "unreachable": "neither `designos` headless CLI (`--apply-spec`) nor `designos-mcp` (`designos_new_document`) can set `DocumentKind::Deck` or `Node::slide = Some(SlideProps)`, so the Deck slide rail and speaker-notes region (`regions.notes`) only render when constructed via `decks::new_document` in Tier A"
+        "not_applicable": "blank deck shows no kit content; Tier A captures the same surface"
       }
     },
     {
@@ -241,8 +237,7 @@
       "tier_b": {
         "select": "id:77742",
         "name": "State=Open inactive filter, Orientation=Left aligned",
-        "page": "id:77652 (      ↳ Filters)",
-        "prep": "prototype_link"
+        "page": "id:77652 (      ↳ Filters)"
       }
     },
     {
@@ -969,7 +964,10 @@
     {
       "id": "j-comments",
       "spec": "J",
-      "args": [],
+      "args": [
+        "--panel",
+        "comments"
+      ],
       "tier_a": {
         "select": "id:636047",
         "name": "01 Onboarding",
@@ -979,8 +977,7 @@
         "select": "id:44757",
         "name": "Desktop",
         "page": "id:44616 (      ❖ Dashboards 01)",
-        "prep": "comment_thread",
-        "unreachable": "`--add-comment` writes a comment thread to the `.designos` clone, but `cli::parse` has no `--panel comments` or `--tool comment` flag to set `app.tool = Tool::Comment` and open `app.comments.open = Some(1)` at launch"
+        "prep": "comment_thread"
       }
     },
     {
@@ -1225,7 +1222,7 @@
         "select": "id:44757",
         "name": "Desktop",
         "page": "id:44616 (      ❖ Dashboards 01)",
-        "prep": "published_library"
+        "note": "subscribed badge covered in Tier A"
       }
     },
     {
