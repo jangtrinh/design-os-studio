@@ -1,0 +1,113 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-mcp)
+   Compiling designos-app v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1196-export-feedback/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 45.36s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-cfe862bd484a2ffd)
+
+running 44 tests
+test panels::export::tests::every_format_is_in_the_dropdown_and_round_trips_to_the_stored_format ... ok
+test panels::export::tests::fingerprint_changes_with_the_subtree ... ok
+test panels::export::tests::format_labels_fit_their_dropdown ... ok
+test fig_export::tests::reveal_command_selects_the_file_in_each_file_manager ... FAILED
+test panels::export::tests::multi_selection_shows_and_edits_shared_rows_only ... ok
+test panels::export::tests::export_without_a_dialog_or_a_fallback_folder_still_says_so ... ok
+test panels::export::tests::export_cancel_is_silent_and_writes_nothing ... ok
+test panels::export::tests::export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix ... FAILED
+test io::file_dialog_flow_tests::export_toast_menu_without_a_dialog_offers_reveal ... ok
+test panels::export::tests::oversized_frame_in_a_pdf_row_reports_an_error ... ok
+test io::file_dialog_flow_tests::export_toast_menu_read_only_folder_names_the_path_and_the_reason ... ok
+test panels::export::tests::export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside ... FAILED
+test panels::export::tests::export_toast_panel_read_only_folder_names_the_path_and_the_reason ... ok
+test panels::export::tests::export_toast_panel_dialog_file_offers_reveal ... ok
+test panels::export::tests::one_file_without_a_save_dialog_lands_in_the_fallback_folder_and_says_so ... ok
+test io::file_dialog_flow_tests::export_toast_menu_picked_path_offers_reveal ... ok
+test panels::export::tests::one_file_in_the_fallback_folder_never_overwrites ... FAILED
+test panels::export::tests::export_toast_panel_many_files_offer_one_folder_reveal ... ok
+test panels::export::tests::a_very_long_layer_name_still_saves_to_the_fallback_folder ... ok
+test panels::export::tests::scale_strings_round_trip_through_constraints ... ok
+test panels::export::tests::plus_adds_a_row_and_shows_preview_and_button ... ok
+test panels::export::tests::pdf_rows_mix_with_image_rows_and_repeat_rows_add_no_page ... ok
+test panels::export::tests::selected_frames_with_pdf_rows_export_as_one_multi_page_file ... ok
+test panels::export::tests::export_writes_where_the_dialog_picked ... ok
+test panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder ... FAILED
+test panels::export::tests::rows_add_edit_remove_are_undoable_and_survive_save_and_load ... ok
+test shell::tests::fig_export_toast::show_in_folder_works_on_the_home_screen_after_an_export ... ok
+test shell::tests::export_toast::toast_clock_plain_toast_survives_a_30s_block_then_lasts_toast_seconds ... ok
+test variables::tests::export_toast_keeps_counts_out_of_parentheses_and_agrees_in_number ... ok
+test shell::tests::fig_export_toast::show_in_folder_reveals_the_exported_file ... ok
+test shell::tests::export_toast::export_toast_panel_preset_parses_and_the_toast_has_a_reveal_path ... ok
+test shell::tests::export_toast::toast_clock_reveal_toast_survives_a_30s_block_then_lasts_reveal_seconds ... ok
+test shell::tests::fig_export_toast::a_failed_reveal_says_so ... ok
+test shell::tests::fig_export_toast::a_long_path_toast_stays_inside_the_window ... ok
+test shell::tests::export_toast::export_toast_preset_survives_a_plain_toast_before_the_first_frame ... FAILED
+test shell::tests::export_toast::export_toast_panel_toast_is_visible_beside_the_open_properties_panel ... ok
+test shell::tests::fig_export_toast::a_click_on_a_plain_toast_reaches_the_canvas_below ... ok
+test shell::tests::panel_export::panel_export_never_overwrites_an_existing_file ... FAILED
+test shell::tests::panel_export::panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_toast ... ok
+test shell::tests::export_toast::toast_clock_export_preset_is_painted_on_the_screenshot_frame ... ok
+test shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason ... ok
+test shell::tests::panel_export::panel_export_without_dialog_writes_to_fallback_folder_not_home_and_shows_success_toast_with_full_path ... ok
+test shell::tests::fig_export_toast::a_click_on_the_toast_body_reaches_the_canvas_below ... ok
+test shell::tests::text_styles::page_panel_export_plus_adds_a_page_export_row_and_exports_the_page ... ok
+
+failures:
+
+---- fig_export::tests::reveal_command_selects_the_file_in_each_file_manager stdout ----
+
+thread 'fig_export::tests::reveal_command_selects_the_file_in_each_file_manager' (5027333) panicked at crates/designos-app/src/fig_export/tests.rs:333:5:
+assertion `left == right` failed: a folder reveal on Linux opens the folder itself, not its parent
+  left: ("xdg-open", ["/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.Cjqxr8"])
+ right: ("xdg-open", ["/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.Cjqxr8/designos_fig_export_linux-dir-reveal_19805"])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::export::tests::export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix stdout ----
+
+thread 'panels::export::tests::export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix' (5027341) panicked at crates/designos-app/src/panels/export.rs:875:9:
+assertion `left == right` failed: existing Card.png must never be overwritten
+  left: [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 40, 0, 0, 0, 30, 8, 6, 0, 0, 0, 94, 221, 92, 221, 0, 0, 1, 32, 73, 68, 65, 84, 120, 1, 237, 192, 3, 160, 36, 89, 150, 198, 241, 255, 119, 238, 141, 200, 204, 167, 114, 75, 99, 174, 109, 219, 182, 109, 219, 182, 109, 219, 182, 109, 105, 140, 158, 150, 74, 175, 158, 50, 51, 34, 238, 249, 118, 183, 106, 122, 166, 135, 59, 107, 213, 79, 79, 124, 226, 19, 205, 255, 92, 232, 137, 79, 124, 162, 249, 159, 11, 61, 241, 137, 79, 52, 255, 115, 161, 39, 62, 241, 137, 230, 127, 46, 244, 196, 39, 62, 209, 252, 207, 133, 158, 248, 196, 39, 154, 255, 185, 208, 19, 159, 248, 68, 243, 63, 23, 122, 226, 19, 159, 104, 254, 231, 66, 79, 124, 226, 19, 205, 255, 92, 232, 137, 79, 124, 162, 249, 159, 11, 61, 241, 137, 79, 52, 255, 115, 161, 39, 62, 241, 137, 230, 127, 46, 244, 196, 39, 62, 209, 252, 207, 133, 158, 248, 196, 39, 154, 255, 185, 208, 19, 159, 248, 68, 243, 63, 23, 122, 226, 19, 159, 104, 254, 231, 66, 79, 124, 226, 19, 205, 255, 92, 232, 137, 79, 124, 162, 249, 159, 11, 61, 241, 137, 79, 52, 255, 115, 161, 39, 62, 241, 137, 230, 127, 46, 244, 196, 39, 62, 209, 252, 207, 133, 158, 248, 196, 39, 154, 255, 185, 208, 19, 159, 248, 68, 243, 63, 23, 122, 226, 19, 159, 104, 254, 231, 66, 79, 124, 226, 19, 205, 255, 92, 232, 137, 79, 124, 162, 249, 159, 11, 61, 241, 137, 79, 52, 255, 115, 161, 39, 62, 241, 137, 230, 127, 46, 244, 196, 39, 62, 209, 252, 207, 133, 158, 248, 196, 39, 154, 255, 185, 248, 71, 91, 194, 106, 75, 13, 46, 205, 90, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]
+ right: [107, 101, 101, 112, 32, 111, 114, 105, 103, 105, 110, 97, 108]
+
+---- panels::export::tests::export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside stdout ----
+
+thread 'panels::export::tests::export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside' (5027343) panicked at crates/designos-app/src/panels/export.rs:852:9:
+assertion `left == right` failed: unsafe / and : characters become - inside the fallback folder
+  left: ["Card_A_B.png"]
+ right: ["Card-A-B.png"]
+
+---- panels::export::tests::one_file_in_the_fallback_folder_never_overwrites stdout ----
+
+thread 'panels::export::tests::one_file_in_the_fallback_folder_never_overwrites' (5027358) panicked at crates/designos-app/src/panels/export.rs:733:9:
+["Alpha 2.png", "Alpha.png"]
+
+---- panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder stdout ----
+
+thread 'panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder' (5027410) panicked at crates/designos-app/src/panels/export.rs:749:9:
+assertion `left == right` failed: the existing Beta.png is kept
+  left: ["Alpha.png", "Beta 2.png", "Beta.png"]
+ right: ["Alpha.png", "Beta-1.png", "Beta.png"]
+
+---- shell::tests::export_toast::export_toast_preset_survives_a_plain_toast_before_the_first_frame stdout ----
+
+thread 'shell::tests::export_toast::export_toast_preset_survives_a_plain_toast_before_the_first_frame' (5027419) panicked at crates/designos-app/src/shell/tests/export_toast.rs:188:5:
+export reveal toast must not be replaced by a pre-frame plain toast
+
+---- shell::tests::panel_export::panel_export_never_overwrites_an_existing_file stdout ----
+
+thread 'shell::tests::panel_export::panel_export_never_overwrites_an_existing_file' (5027449) panicked at crates/designos-app/src/shell/tests/panel_export.rs:128:9:
+new export must write to numbered sibling /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.Cjqxr8/designos_panel_export_19805_no_overwrite/Downloads/Hero-1.png
+
+
+failures:
+    fig_export::tests::reveal_command_selects_the_file_in_each_file_manager
+    panels::export::tests::export_toast_panel_dialog_picked_file_and_folder_never_overwrite_and_use_dash_suffix
+    panels::export::tests::export_toast_panel_one_file_without_a_dialog_offers_reveal_and_keeps_a_slash_name_inside
+    panels::export::tests::one_file_in_the_fallback_folder_never_overwrites
+    panels::export::tests::several_files_without_a_dialog_all_land_in_the_fallback_folder
+    shell::tests::export_toast::export_toast_preset_survives_a_plain_toast_before_the_first_frame
+    shell::tests::panel_export::panel_export_never_overwrites_an_existing_file
+
+test result: FAILED. 37 passed; 7 failed; 0 ignored; 0 measured; 3442 filtered out; finished in 3.41s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
